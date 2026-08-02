@@ -1,0 +1,81 @@
+name: pandect
+
+x-pandect-service: &pandect-service
+  image: pandect:local
+  build:
+    context: .
+    target: runtime
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    PANDECT_ALLOWED_HOSTS: "${PANDECT_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
+    PANDECT_DATA_DIR: /data
+    PANDECT_DEBUG: "${PANDECT_DEBUG:-false}"
+    PANDECT_TIME_ZONE: "${PANDECT_TIME_ZONE:-UTC}"
+  volumes:
+    - type: bind
+      source: "${PANDECT_DATA_DIR:-./data}"
+      target: /data
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  security_opt:
+    - no-new-privileges:true
+  user: "${PANDECT_UID:-1000}:${PANDECT_GID:-1000}"
+  restart: unless-stopped
+  stop_grace_period: 45s
+
+services:
+  web:
+    <<: *pandect-service
+    ports:
+      - "127.0.0.1:${PANDECT_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/healthz/', timeout=3).read()
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    <<: *pandect-service
+    command: ["python", "manage.py", "run_huey", "-w", "1", "-k", "thread"]
+    healthcheck:
+      test: ["CMD", "python", "scripts/worker-healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  tools:
+    profiles: [tools]
+    image: pandect-tools:local
+    build:
+      context: .
+      target: tools
+    environment:
+      PANDECT_ALLOWED_HOSTS: localhost,127.0.0.1,[::1]
+      PANDECT_DATA_DIR: /tmp/pandect-data
+      PANDECT_DEBUG: "false"
+      PANDECT_SECRET_KEY: local-validation-only
+      PANDECT_TIME_ZONE: UTC
+      RUFF_CACHE_DIR: /tmp/ruff-cache
+    working_dir: /workspace
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    security_opt:
+      - no-new-privileges:true
+    user: "${PANDECT_UID:-1000}:${PANDECT_GID:-1000}"
