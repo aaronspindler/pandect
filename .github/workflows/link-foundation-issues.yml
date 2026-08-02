@@ -124,4 +124,43 @@ jobs:
           verify_blocked_by 9 "5,8"
           verify_blocked_by 10 "9"
 
+          marker='<!-- pandect-foundation-native-links-verified -->'
+          report="$(cat <<'EOF'
+          <!-- pandect-foundation-native-links-verified -->
+          Native GitHub relationships for the foundation issue set were created and verified.
+
+          **Parent hierarchy**
+          - #2 through #10 are native sub-issues of #1.
+
+          **Direct dependency graph**
+          - #3 is blocked by #2.
+          - #4 and #5 are blocked by #3.
+          - #6 is blocked by #4.
+          - #7 is blocked by #6.
+          - #8 is blocked by #7.
+          - #9 is blocked by #5 and #8.
+          - #10 is blocked by #9.
+
+          Transitive prerequisites are intentionally represented through the chain rather than duplicated as direct blockers.
+          EOF
+          )"
+
+          existing_comment_id="$(
+            api "repos/${REPOSITORY}/issues/1/comments?per_page=100" \
+              --jq ".[] | select(.body | contains(\"${marker}\")) | .id" \
+              | head -n 1
+          )"
+
+          if [[ -n "${existing_comment_id}" ]]; then
+            api --method PATCH \
+              "repos/${REPOSITORY}/issues/comments/${existing_comment_id}" \
+              -f "body=${report}" \
+              >/dev/null
+          else
+            api --method POST \
+              "repos/${REPOSITORY}/issues/1/comments" \
+              -f "body=${report}" \
+              >/dev/null
+          fi
+
           echo "All native Pandect foundation issue relationships are configured."
