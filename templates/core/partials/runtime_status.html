@@ -1,0 +1,23 @@
+<section id="runtime-status" aria-labelledby="runtime-status-heading">
+  <h2 id="runtime-status-heading">Runtime status</h2>
+  <dl>
+    <div>
+      <dt>Application</dt>
+      <dd>{{ runtime_state }}</dd>
+    </div>
+    <div>
+      <dt>Checked</dt>
+      <dd><time datetime="{{ checked_at|date:'c' }}">{{ checked_at|date:"Y-m-d H:i:s T" }}</time></dd>
+    </div>
+  </dl>
+  <form
+    action="{% url 'runtime-status' %}"
+    method="post"
+    hx-post="{% url 'runtime-status' %}"
+    hx-target="#runtime-status"
+    hx-swap="outerHTML"
+  >
+    {% csrf_token %}
+    <button type="submit">Refresh status</button>
+  </form>
+</section>

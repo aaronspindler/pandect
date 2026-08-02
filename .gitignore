@@ -1,0 +1,25 @@
+# Local configuration and persistent state
+.env
+data/
+.serena/
+
+# Python
+.python-version.local
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Django and packaging output
+staticfiles/
+build/
+dist/
+
+# Editors and operating systems
+.DS_Store
+*.swp
+*~

@@ -1,0 +1,1 @@
+"""Pandect core management commands."""

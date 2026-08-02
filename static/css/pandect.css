@@ -1,0 +1,92 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0 auto;
+  max-width: 72rem;
+  min-height: 100vh;
+  padding: 0 1rem;
+}
+
+.skip-link {
+  left: 1rem;
+  position: absolute;
+  top: -4rem;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+.site-header,
+footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 0;
+}
+
+.site-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+main {
+  min-height: 70vh;
+  padding: 2rem 0;
+}
+
+#runtime-status {
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  max-width: 36rem;
+  padding: 1rem;
+}
+
+dl div {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 8rem 1fr;
+}
+
+dt {
+  font-weight: 700;
+}
+
+dd {
+  margin: 0;
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+  margin-top: 1rem;
+  padding: 0.5rem 0.75rem;
+}
+
+a:focus-visible,
+button:focus-visible,
+main:focus-visible {
+  outline: 0.2rem solid Highlight;
+  outline-offset: 0.2rem;
+}
+
+@media (max-width: 36rem) {
+  .site-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  dl div {
+    display: block;
+    margin-bottom: 0.75rem;
+  }
+}
