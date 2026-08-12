@@ -1,0 +1,21 @@
+sandbox_mode = "workspace-write"
+
+model = "gpt-5.6-sol"
+model_reasoning_effort = "xhigh"
+plan_mode_reasoning_effort = "ultra"
+model_verbosity = "low"
+web_search = "live"
+
+[agents]
+max_threads = 8
+max_depth = 1
+
+[features]
+hooks = false
+
+
+[sandbox_workspace_write]
+network_access = true
+writable_roots = [
+    "/Users/aaronspindler/Desktop/Spindlers/pandect",
+]

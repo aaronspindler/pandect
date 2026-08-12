@@ -11,6 +11,7 @@ Pandect is a local-first, self-hosted investigation application for one trusted 
 - Follow established best practices for Django, Python, HTMX, SQLite, Huey, Docker Compose, testing, security, and dependency management.
 - Inspect and reuse suitable repository patterns before adding conventions. Improve a pattern only for a concrete reason, and document that reason instead of creating a parallel approach silently.
 - Keep changes focused. Avoid speculative abstractions, internal platforms, dependency-injection systems, generic frameworks, and configuration without a current use case.
+- Do not commit or push changes unless the user explicitly instructs you to do so.
 - Extract shared abstractions from repeated concrete needs, not guessed future requirements. Keep modules cohesive, interfaces narrow, dependencies explicit, and side effects visible.
 - Prefer composition and small testable units over deep inheritance or hidden framework behaviour.
 
