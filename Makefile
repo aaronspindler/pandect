@@ -12,7 +12,7 @@ export PANDECT_GID
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup up down restart logs ps shell manage migrate makemigrations task-smoke test lint format check clean _tools-image
+.PHONY: help setup up down restart logs ps shell manage migrate makemigrations task-smoke test lint format validate check clean _tools-image
 
 help: ## List public commands and their state-changing behaviour.
 	@awk 'BEGIN {FS = ":.*## "; print "Pandect commands:"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -64,14 +64,13 @@ lint: _tools-image ## [mutates Docker cache] Run Ruff formatting and lint checks
 format: _tools-image ## [mutates source/Docker cache] Format files with Ruff.
 	$(TOOLS_RUN) ruff format $(PYTHON_SOURCES)
 
-check: _tools-image ## [mutates Docker cache] Run the complete CI validation suite.
-	$(TOOLS_RUN) ruff format --check $(PYTHON_SOURCES)
-	$(TOOLS_RUN) ruff check $(PYTHON_SOURCES)
+validate: _tools-image ## [mutates Docker cache] Validate Django, migrations, Compose, and the runtime image.
 	$(TOOLS_RUN) python manage.py check
 	$(TOOLS_RUN) python manage.py makemigrations --check --dry-run
-	$(TOOLS_RUN) pytest -p no:cacheprovider
 	$(COMPOSE) config --quiet
 	$(COMPOSE) build web
+
+check: lint test validate ## [mutates Docker cache] Run the complete CI validation suite.
 
 clean: ## [mutates] Remove disposable caches/build output; preserve .env and data.
 	@./scripts/clean.sh
