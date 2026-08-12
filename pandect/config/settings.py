@@ -23,6 +23,12 @@ ALLOWED_HOSTS = comma_separated(
 INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "huey.contrib.djhuey",
+    "pandect.catalog.apps.CatalogConfig",
+    "pandect.events.apps.EventsConfig",
+    "pandect.messages.apps.MessagesConfig",
+    "pandect.notes.apps.NotesConfig",
+    "pandect.photos.apps.PhotosConfig",
+    "pandect.videos.apps.VideosConfig",
     "pandect.core.apps.CoreConfig",
 ]
 
@@ -88,6 +94,8 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+MEDIA_URL = "/media/"
+MEDIA_ROOT = DATA_DIR / "media"
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {

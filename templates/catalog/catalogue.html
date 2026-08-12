@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Catalogue — Pandect{% endblock %}
+
+{% block content %}
+  <header class="page-heading">
+    <p class="eyebrow">Catalogue</p>
+    <h1>Collected material</h1>
+    <p>Browse every item kept in this local investigation workspace.</p>
+  </header>
+
+  <section class="catalogue-toolbar" aria-labelledby="catalogue-filter-heading">
+    <div>
+      <p class="result-count">
+        <strong>{{ page.paginator.count }}</strong>
+        item{{ page.paginator.count|pluralize }}{% if active_type_label %} · {{ active_type_label }}{% endif %}
+      </p>
+      <p class="result-order">Oldest known occurrence first; unknown dates follow.</p>
+    </div>
+    <div class="catalogue-filter">
+      <h2 id="catalogue-filter-heading">Filter by type</h2>
+      <nav aria-label="Filter catalogue by type">
+        <a href="{% url 'catalogue' %}"{% if not active_type %} aria-current="page"{% endif %}>All</a>
+        {% for item_type in item_types %}
+          <a href="?type={{ item_type.value }}"{% if active_type == item_type.value %} aria-current="page"{% endif %}>{{ item_type.label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+  </section>
+
+  {% if cards %}
+    <ol class="catalogue-list" start="{{ page.start_index }}">
+      {% for card in cards %}
+        <li>
+          <article class="catalogue-item">
+            <div class="catalogue-item__main">
+              <div class="catalogue-item__label">
+                <span class="type-badge type-badge--{{ card.item.item_type }}">{{ card.type_label }}</span>
+                <span class="item-id" title="{{ card.item.id }}">#{{ card.item.id|stringformat:"s"|slice:":8" }}</span>
+              </div>
+              <h2>{{ card.title }}</h2>
+              {% if card.preview %}
+                <p class="catalogue-item__preview">{{ card.preview }}</p>
+              {% else %}
+                <p class="catalogue-item__preview catalogue-item__preview--empty">No content recorded</p>
+              {% endif %}
+              {% if card.ended_at %}
+                <p class="catalogue-item__context">Ends <time datetime="{{ card.ended_at|date:'c' }}">{{ card.ended_at|date:"M j, Y" }} at {{ card.ended_at|time:"g:i A T" }}</time></p>
+              {% elif card.context %}
+                <p class="catalogue-item__context">{{ card.context }}</p>
+              {% endif %}
+            </div>
+            <dl class="catalogue-item__dates">
+              <div>
+                <dt>Occurred</dt>
+                <dd>
+                  {% if card.item.occurred_at %}
+                    <time datetime="{{ card.item.occurred_at|date:'c' }}">{{ card.item.occurred_at|date:"M j, Y" }}<br>{{ card.item.occurred_at|time:"g:i A T" }}</time>
+                  {% else %}
+                    <span>Unknown</span>
+                  {% endif %}
+                </dd>
+              </div>
+              <div>
+                <dt>Catalogued</dt>
+                <dd><time datetime="{{ card.item.catalogued_at|date:'c' }}">{{ card.item.catalogued_at|date:"M j, Y" }}<br>{{ card.item.catalogued_at|time:"g:i A T" }}</time></dd>
+              </div>
+            </dl>
+          </article>
+        </li>
+      {% endfor %}
+    </ol>
+
+    {% if page.has_other_pages %}
+      <nav class="pagination" aria-label="Catalogue pages">
+        {% if page.has_previous %}
+          <a href="?{% if active_type %}type={{ active_type }}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>
+        {% endif %}
+        <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+        {% if page.has_next %}
+          <a href="?{% if active_type %}type={{ active_type }}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <section class="empty-state">
+      {% if active_type_label %}
+        <h2>No {{ active_type_label|lower }} items</h2>
+        <p>Nothing in the catalogue matches this filter.</p>
+        <a href="{% url 'catalogue' %}">View all catalogue items</a>
+      {% else %}
+        <h2>The catalogue is empty</h2>
+        <p>Collected images, videos, events, notes, and messages will appear here.</p>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

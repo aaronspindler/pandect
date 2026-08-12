@@ -1,0 +1,1 @@
+"""Catalogued photo records."""

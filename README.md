@@ -7,10 +7,9 @@
 > and verified an external access-control layer.
 
 Pandect is a local-first, self-hosted investigation application for one trusted
-operator. The current milestone is intentionally only a dependable application
-foundation: server-rendered Django pages, local SQLite persistence, and a
-SQLite-backed Huey worker. Investigation domain models and data-source
-integrations are not part of this milestone.
+operator. It combines a dependable server-rendered Django and SQLite foundation
+with a source-neutral catalogue for images, videos, events, notes, messages,
+and communication participants. Data-source integrations remain deferred.
 
 ## Quick start
 
@@ -64,10 +63,14 @@ make down
   boundaries for future Django apps and source integrations.
 - [`docs/architecture/0001-foundation.md`](docs/architecture/0001-foundation.md)
   records the canonical foundation architecture and explicit non-goals.
+- [`docs/catalog-domain.md`](docs/catalog-domain.md) documents the catalogue and
+  communication app boundaries, models, timestamps, deletion behaviour, and
+  extension points.
 - `make help` lists every public Make target and identifies state-changing
   operations.
 
-The foundation deliberately excludes investigation entities, evidence graphs,
-search, source adapters, scraping, polling, authentication, tenancy, a public
-API, cloud infrastructure, and a generalized plugin system. See the architecture
-decision before proposing a change to those boundaries.
+The current application deliberately excludes evidence graphs, search, source
+adapters, scraping, polling, identity resolution, authentication, tenancy, a
+public API, cloud infrastructure, and a generalized plugin system. See the
+architecture decision and domain-model document before proposing a change to
+those boundaries.

@@ -34,6 +34,24 @@ def test_application_and_huey_use_separate_sqlite_files():
     assert settings.DATABASES["default"]["OPTIONS"]["timeout"] == 5
 
 
+def test_catalog_media_uses_the_persistent_local_data_directory():
+    assert settings.MEDIA_ROOT == settings.DATA_DIR / "media"
+
+
+def test_catalogue_models_are_owned_by_focused_apps():
+    from pandect.catalog.models import CatalogItem
+    from pandect.events.models import Event
+    from pandect.messages.models import Message
+    from pandect.notes.models import Note
+    from pandect.photos.models import Image
+    from pandect.videos.models import Video
+
+    assert {
+        model._meta.app_label
+        for model in (CatalogItem, Event, Message, Note, Image, Video)
+    } == {"catalog", "events", "messages", "notes", "photos", "videos"}
+
+
 def test_foundation_does_not_install_auth_admin_or_sessions():
     assert "django.contrib.auth" not in settings.INSTALLED_APPS
     assert "django.contrib.admin" not in settings.INSTALLED_APPS

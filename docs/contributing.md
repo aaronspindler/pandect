@@ -18,8 +18,14 @@ validation passing:
 ```console
 make test
 make lint
+make validate
 make check
 ```
+
+The narrower targets match the separately reported CI steps. `make validate`
+runs Django's system check, detects missing migrations, validates the Compose
+configuration, and builds the runtime image. `make check` runs all three
+targets as the complete local pre-submit check.
 
 Tests must be hermetic: use temporary state and eager Huey execution, with no
 third-party credentials or network access. Commit intentional migrations with

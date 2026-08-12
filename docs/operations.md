@@ -74,6 +74,7 @@ supported commands are:
 | `make test` | Run the hermetic pytest suite in the tools container; may populate disposable and Docker caches. |
 | `make lint` | Check Python formatting and Ruff lint rules in the tools container; may populate caches. |
 | `make format` | Format Python source through the tools container; mutates source and may populate caches. Review the diff. |
+| `make validate` | Run Django and migration checks, validate Compose, and build the runtime image; may populate disposable and Docker caches. |
 | `make check` | Run the complete CI validation suite; may populate disposable and Docker caches. |
 | `make clean` | Remove disposable build and test artifacts. It does not delete Pandect data. |
 
@@ -115,6 +116,7 @@ configuration; the foundation does not ship source polling or domain jobs.
 
 - `application.sqlite3` is Django's application database.
 - `huey.sqlite3` is Huey's queue, schedule, and result database.
+- `media/` contains locally stored catalogued image and video files.
 - `secret.key` is the generated local Django secret unless
   `PANDECT_SECRET_KEY` is supplied explicitly.
 
@@ -240,15 +242,15 @@ Before submitting a change, run the complete local validation:
 make check
 ```
 
-The narrower `make test` and `make lint` targets are useful during development.
-`make check` additionally performs the project checks that match CI, including
-Django system checks, missing-migration detection, Compose validation, and the
-application-image build. Test, lint, format, and complete validation run in a
-short-lived, profile-gated `tools` container with Python and the frozen
-development dependencies. They do not require host-installed Python or `uv`.
-Their first run may need network access to obtain base images and locked
-dependencies, and it populates Docker's build cache; the tools service is not
-part of the long-running default stack.
+The narrower `make test`, `make lint`, and `make validate` targets match the
+separately reported CI steps and are useful during development. `make validate`
+performs Django system checks, missing-migration detection, Compose validation,
+and the application-image build. `make check` runs all three targets. Test,
+lint, format, and complete validation run in a short-lived, profile-gated
+`tools` container with Python and the frozen development dependencies. They do
+not require host-installed Python or `uv`. Their first run may need network
+access to obtain base images and locked dependencies, and it populates Docker's
+build cache; the tools service is not part of the long-running default stack.
 
 ## Troubleshooting
 
