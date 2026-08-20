@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Bulk add media — Pandect{% endblock %}
+
+{% block content %}
+  <header class="page-heading page-heading--compact">
+    <p class="eyebrow">Bulk catalogue intake</p>
+    <h1>Add images, videos, and audio</h1>
+    <p>Select up to 50 original files. Pandect verifies their contents locally, stores them unchanged, extracts available facts, and then reviews each item with you.</p>
+  </header>
+
+  <form class="catalogue-form" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% include "catalog/partials/form_fields.html" with form=form %}
+    <div class="form-actions">
+      <button type="submit">Add files and review metadata</button>
+      <a href="{% url 'catalogue-add' %}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

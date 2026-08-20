@@ -24,6 +24,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "huey.contrib.djhuey",
     "pandect.catalog.apps.CatalogConfig",
+    "pandect.audio.apps.AudioConfig",
+    "pandect.identities.apps.IdentitiesConfig",
+    "pandect.processing.apps.ProcessingConfig",
     "pandect.events.apps.EventsConfig",
     "pandect.messages.apps.MessagesConfig",
     "pandect.notes.apps.NotesConfig",
@@ -96,6 +99,39 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "/media/"
 MEDIA_ROOT = DATA_DIR / "media"
+WORK_ROOT = Path(os.environ.get("PANDECT_WORK_DIR", DATA_DIR / "work")).resolve()
+MODELS_ROOT = Path(os.environ.get("PANDECT_MODELS_DIR", DATA_DIR / "models")).resolve()
+for private_directory in (WORK_ROOT, MODELS_ROOT):
+    private_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+# Django streams uploads larger than FILE_UPLOAD_MAX_MEMORY_SIZE to this private,
+# persistent workspace. Evidence uploads must not spill into the small /tmp tmpfs.
+FILE_UPLOAD_TEMP_DIR = WORK_ROOT / "uploads"
+FILE_UPLOAD_TEMP_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+PROCESSING_MAX_IMAGE_PIXELS = 200_000_000
+PROCESSING_MAX_IMAGE_FRAMES = 100
+PROCESSING_MAX_VIDEO_FRAMES = 120
+PROCESSING_MAX_REMOTE_VIDEO_FRAMES = 12
+PROCESSING_SUBPROCESS_OUTPUT_LIMIT = 16 * 1024 * 1024
+
+CLOUDFLARE_AI_ENABLED = boolean("PANDECT_CLOUDFLARE_AI_ENABLED", default=False)
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("PANDECT_CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_API_TOKEN = os.environ.get("PANDECT_CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_GATEWAY_ID = os.environ.get("PANDECT_CLOUDFLARE_GATEWAY_ID", "pandect")
+CLOUDFLARE_TEXT_MODEL = os.environ.get(
+    "PANDECT_CLOUDFLARE_TEXT_MODEL",
+    "@cf/meta/llama-3.2-11b-vision-instruct",
+)
+CLOUDFLARE_VISION_MODEL = os.environ.get(
+    "PANDECT_CLOUDFLARE_VISION_MODEL",
+    "@cf/meta/llama-3.2-11b-vision-instruct",
+)
+CLOUDFLARE_TRANSCRIPTION_MODEL = os.environ.get(
+    "PANDECT_CLOUDFLARE_TRANSCRIPTION_MODEL", "@cf/deepgram/nova-3"
+)
+CLOUDFLARE_CLIENT_TIMEOUT_SECONDS = int(
+    os.environ.get("PANDECT_CLOUDFLARE_CLIENT_TIMEOUT_SECONDS", "300")
+)
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {

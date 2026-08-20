@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Review metadata {{ position }} of {{ total }} — Pandect{% endblock %}
+
+{% block content %}
+  <header class="page-heading page-heading--compact">
+    <p class="eyebrow">Metadata review · Item {{ position }} of {{ total }}</p>
+    <h1>Review {{ card.type_label|lower }} metadata</h1>
+    <p>Pandect pre-filled facts it could extract or derive locally. Complete what you know; leave a field blank rather than guessing.</p>
+  </header>
+
+  <aside class="review-summary" aria-label="Item being reviewed">
+    <span class="type-badge type-badge--{{ item.item_type }}">{{ card.type_label }}</span>
+    <strong>{{ card.title }}</strong>
+    {% if card.preview %}<span>{{ card.preview|truncatechars:100 }}</span>{% endif %}
+  </aside>
+
+  <progress class="review-progress" value="{{ position }}" max="{{ total }}" aria-label="Metadata review progress: item {{ position }} of {{ total }}">{{ position }} of {{ total }}</progress>
+
+  <form class="catalogue-form" method="post">
+    {% csrf_token %}
+    <input type="hidden" name="batch" value="{{ batch_token }}">
+    {% include "catalog/partials/form_fields.html" with form=form highlight_empty=True %}
+    <div class="form-actions">
+      <button type="submit" name="action" value="save">{% if position == total %}Save and finish{% else %}Save and review next{% endif %}</button>
+      <button class="button-secondary" type="submit" name="action" value="skip" formnovalidate>{% if position == total %}Leave unknown and finish{% else %}Leave unknown and continue{% endif %}</button>
+    </div>
+  </form>
+{% endblock %}

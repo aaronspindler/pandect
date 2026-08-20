@@ -42,8 +42,9 @@ case "$pandect_data_dir" in
     \'*\') pandect_data_dir=${pandect_data_dir#\'}; pandect_data_dir=${pandect_data_dir%\'} ;;
 esac
 
-mkdir -p "$pandect_data_dir"
+mkdir -p "$pandect_data_dir" "$pandect_data_dir/models" "$pandect_data_dir/work"
 chmod 700 "$pandect_data_dir"
+chmod 700 "$pandect_data_dir/models" "$pandect_data_dir/work"
 
 docker compose build
 docker compose run --rm --no-deps web python manage.py migrate --noinput

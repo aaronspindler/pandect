@@ -12,8 +12,8 @@
     <header class="site-header">
       <a class="site-name" href="{% url 'home' %}">Pandect</a>
       <nav aria-label="Primary navigation">
-        <a href="{% url 'home' %}">Home</a>
-        <a href="{% url 'catalogue' %}">Catalogue</a>
+        <a href="{% url 'home' %}"{% if request.resolver_match.url_name == "home" or request.resolver_match.url_name == "runtime-status" %} aria-current="page"{% endif %}>Home</a>
+        <a href="{% url 'catalogue' %}"{% if request.path|slice:":11" == "/catalogue/" %} aria-current="page"{% endif %}>Catalogue</a>
       </nav>
     </header>
     <div id="notifications" role="status" aria-live="polite"></div>

@@ -56,12 +56,50 @@ class RootedExtension(ValidatedModel):
         raise TypeError("Delete extension records through CatalogItem.")
 
 
+class CanonicalFileExtensionQuerySet(RootedExtensionQuerySet):
+    """Keep a media extension's canonical storage pointer create-only."""
+
+    def update(self, **kwargs):
+        if "file" in kwargs:
+            raise TypeError("A canonical media file pointer is immutable.")
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        if "file" in fields:
+            raise TypeError("A canonical media file pointer is immutable.")
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+
+class CanonicalFileExtension(RootedExtension):
+    """Rooted media extension whose original file cannot be repointed."""
+
+    objects = CanonicalFileExtensionQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            stored_name = (
+                type(self)
+                .objects.filter(pk=self.pk)
+                .values_list("file", flat=True)
+                .get()
+            )
+            current_file = self.file
+            current_name = getattr(current_file, "name", current_file) or ""
+            if current_name != stored_name:
+                raise TypeError("A canonical media file pointer is immutable.")
+        return super().save(*args, **kwargs)
+
+
 class CatalogItem(ValidatedModel):
     """The shared chronological record for every independently catalogued item."""
 
     class ItemType(models.TextChoices):
         IMAGE = "image", "Image"
         VIDEO = "video", "Video"
+        AUDIO = "audio", "Audio"
         EVENT = "event", "Event"
         NOTE = "note", "Note"
         TEXT_MESSAGE = "text_message", "Text message"

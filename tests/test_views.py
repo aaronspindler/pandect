@@ -21,6 +21,7 @@ def test_home_renders_complete_semantic_page(client):
     assert '<main id="main-content"' in content
     assert "<footer" in content
     assert 'href="#main-content">Skip to main content</a>' in content
+    assert 'href="/" aria-current="page">Home</a>' in content
     assert "/static/vendor/htmx/htmx-2.0.10.min.js" in content
     assert "X-CSRFToken" in content
     assert "NOTPROVIDED" not in content

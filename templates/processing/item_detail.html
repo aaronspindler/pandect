@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+
+{% block title %}{{ item.title|default:"Untitled item" }} — Pandect{% endblock %}
+
+{% block content %}
+  <p class="back-link"><a href="{% url 'catalogue' %}">← Back to catalogue</a></p>
+  <header class="page-heading page-heading--with-action item-detail-heading">
+    <div class="page-heading__copy">
+      <p class="eyebrow">{{ item.get_item_type_display }} · #{{ item.id|stringformat:"s"|slice:":8" }}</p>
+      <h1>{{ item.title|default:"Untitled item" }}</h1>
+      <p>Processing evidence is shown separately from the original and operator-entered record.</p>
+    </div>
+    {% if can_process %}
+      <form method="post" action="{% url 'catalogue-item-rerun' item.id %}">
+        {% csrf_token %}
+        <button type="submit">Run local processing</button>
+      </form>
+    {% endif %}
+  </header>
+
+  {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+  {% if action_error %}<div class="form-error-summary" role="alert"><p><strong>{{ action_error }}</strong></p></div>{% endif %}
+
+  <nav class="detail-navigation" aria-label="Item detail sections">
+    <a href="#canonical-evidence">Canonical facts</a>
+    <a href="#processing">Processing</a>
+    <a href="#deterministic-evidence">Extraction</a>
+    <a href="#model-evidence">Hypotheses</a>
+    <a href="#operator-evidence">Assertions</a>
+    <a href="#identity">Identity gallery</a>
+    <a href="#history">Run history</a>
+  </nav>
+
+  <section id="canonical-evidence" class="evidence-tier evidence-tier--canonical" aria-labelledby="canonical-heading">
+    <div class="evidence-tier__heading">
+      <div>
+        <p class="evidence-tier-label">Tier 1</p>
+        <h2 id="canonical-heading">Canonical and operator facts</h2>
+      </div>
+      <p>Direct fields are never overwritten by processors.</p>
+    </div>
+    <dl class="fact-grid">
+      {% for fact in canonical_facts %}
+        <div{% if fact.long %} class="fact-grid__wide"{% endif %}>
+          <dt>{{ fact.label }}</dt>
+          <dd{% if fact.monospace %} class="item-id"{% endif %}>
+            {% if fact.linked_item_id %}<a href="{% url 'catalogue-item-detail' fact.linked_item_id %}">{{ fact.value }}</a>{% else %}{{ fact.value|linebreaksbr }}{% endif %}
+          </dd>
+        </div>
+      {% endfor %}
+    </dl>
+    {% if canonical_results %}{% include "processing/partials/results.html" with results=canonical_results only %}{% endif %}
+  </section>
+
+  <section id="processing" class="detail-section" aria-label="Processing status">
+    {% include "processing/partials/status.html" with item=item selected_run=selected_run selected_run_is_historical=selected_run_is_historical stages=status_stages active=status_active only %}
+  </section>
+
+  {% if run_history %}
+    <form class="run-selector" method="get" action="{% url 'catalogue-item-detail' item.id %}">
+      <label for="run-select">Evidence run</label>
+      <select id="run-select" name="run" onchange="this.form.submit()">
+        {% for run in run_history %}
+          <option value="{{ run.id }}"{% if selected_run.id == run.id %} selected{% endif %}>
+            {{ run.created_at|date:"Y-m-d H:i:s T" }} · {{ run.get_status_display }} · {{ run.get_scope_display }} · v{{ run.processor_version }}
+          </option>
+        {% endfor %}
+      </select>
+      <noscript><button class="button-secondary" type="submit">Show run</button></noscript>
+    </form>
+  {% endif %}
+
+  <section id="deterministic-evidence" class="evidence-tier evidence-tier--deterministic" aria-labelledby="deterministic-heading">
+    <div class="evidence-tier__heading">
+      <div>
+        <p class="evidence-tier-label">Tier 2</p>
+        <h2 id="deterministic-heading">Deterministic extraction</h2>
+      </div>
+      <p>Repeatable local tool output, retained separately from direct fields.</p>
+    </div>
+    {% include "processing/partials/results.html" with results=deterministic_results only %}
+
+    {% if artifacts %}
+      <h3 class="subsection-heading">Derived artifacts</h3>
+      <ol class="artifact-list">
+        {% for artifact in artifacts %}
+          <li>
+            <strong>{{ artifact.get_role_display }}</strong> · {{ artifact.basename }} · {{ artifact.mime_type }} · {{ artifact.byte_size|filesizeformat }}
+            <span class="artifact-hash">SHA-256 {{ artifact.sha256 }}</span>
+            {% if artifact.source_start_seconds is not None or artifact.source_end_seconds is not None %}
+              <span>source {{ artifact.source_start_seconds|default:"start" }}–{{ artifact.source_end_seconds|default:"end" }} seconds</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    {% endif %}
+
+    {% if timestamp_claims %}
+      <h3 class="subsection-heading">Timestamp claims</h3>
+      <p class="section-intro">Claims remain evidence until you explicitly promote one. Offset-free values require an IANA timezone.</p>
+      <ol class="timestamp-claims">
+        {% for record in timestamp_claims %}
+          {% with claim=record.claim form=record.form %}
+            <li>
+              <div class="timestamp-claim__facts">
+                <strong>{{ claim.namespace }}:{{ claim.tag }}</strong>
+                <span>Raw: {{ claim.raw_value }}</span>
+                <span>Parsed: {{ claim.parsed_value|default:"No defensible aware value" }}</span>
+                <span>Precision: {{ claim.get_precision_display }} · timezone evidence: {{ claim.timezone_evidence|default:"none" }}</span>
+                {% if claim.conflicts %}<span class="uncertainty">Conflicts: {{ claim.conflicts|join:", " }}</span>{% endif %}
+              </div>
+              <details{% if form.errors %} open{% endif %}>
+                <summary>Promote this claim</summary>
+                <form class="compact-decision-form" method="post" action="{% url 'catalogue-item-promote-timestamp' item.id claim.id %}{% if selected_run %}?run={{ selected_run.id }}{% endif %}">
+                  {% csrf_token %}
+                  {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+                  <div class="form-field">
+                    <label for="{{ form.timezone_name.id_for_label }}">{{ form.timezone_name.label }}</label>
+                    {{ form.timezone_name }}
+                    <p class="help-text">{{ form.timezone_name.help_text }}</p>
+                    {{ form.timezone_name.errors }}
+                  </div>
+                  <div class="form-field">
+                    <label for="{{ form.fold.id_for_label }}">{{ form.fold.label }}</label>
+                    {{ form.fold }}
+                    <p class="help-text">{{ form.fold.help_text }}</p>
+                    {{ form.fold.errors }}
+                  </div>
+                  <div class="form-field">
+                    <label for="{{ form.operator_note.id_for_label }}">{{ form.operator_note.label }}</label>
+                    {{ form.operator_note }}
+                    {{ form.operator_note.errors }}
+                  </div>
+                  <button type="submit">Promote to occurred time</button>
+                </form>
+              </details>
+            </li>
+          {% endwith %}
+        {% endfor %}
+      </ol>
+    {% endif %}
+  </section>
+
+  <section id="model-evidence" class="evidence-tier evidence-tier--model" aria-labelledby="model-heading">
+    <div class="evidence-tier__heading">
+      <div>
+        <p class="evidence-tier-label">Tier 3</p>
+        <h2 id="model-heading">Model-generated hypotheses</h2>
+      </div>
+      <p>Descriptions, transcripts, scores, and candidates are uncertain evidence—not facts.</p>
+    </div>
+    {% include "processing/partials/results.html" with results=model_results only %}
+    <h3 class="subsection-heading">Optional remote processing</h3>
+    {% if not remote_enabled %}
+      <p class="empty-copy">Cloudflare AI is disabled. No evidence can leave this machine.</p>
+    {% elif remote_plan %}
+      <div class="remote-consent">
+        <p>This consent applies only to the exact manifest below. It is invalidated by any change to the source, derivative, recipient, model, prompt, or request plan.</p>
+        <dl class="fact-grid">
+          <div><dt>Recipients</dt><dd>{{ remote_plan.recipients|join:", " }}</dd></div>
+          <div><dt>Requests</dt><dd>{{ remote_plan.payloads|length }}</dd></div>
+          <div><dt>Consent notice</dt><dd>Version {{ remote_plan.manifest.value.notice_version }}</dd></div>
+          <div><dt>Transfer estimate</dt><dd>{{ remote_plan.total_payload_bytes|filesizeformat }}{% if remote_plan.total_audio_duration_seconds %} · {{ remote_plan.total_audio_duration_seconds }} seconds of audio{% endif %}</dd></div>
+          {% if remote_plan.keyframe_count or remote_plan.audio_chunk_count %}<div><dt>Derivative requests</dt><dd>{{ remote_plan.keyframe_count }} keyframe{{ remote_plan.keyframe_count|pluralize }} · {{ remote_plan.audio_chunk_count }} audio chunk{{ remote_plan.audio_chunk_count|pluralize }}</dd></div>{% endif %}
+          <div><dt>Models</dt><dd>{% for operation, model in remote_plan.model_ids.items %}{{ operation }}: {{ model }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+          <div><dt>Cloudflare destination</dt><dd>Account {{ remote_plan.destination.cloudflare_account_id }} · gateway {{ remote_plan.destination.cloudflare_gateway_id }}</dd></div>
+          <div><dt>Payload logging</dt><dd>Disabled; usage, cost, status, and timing metadata may remain available.</dd></div>
+          {% if remote_plan.adapter_privacy_contract %}<div><dt>Adapter policy</dt><dd>{{ remote_plan.adapter_privacy_contract.version }} · {{ remote_plan.adapter_privacy_contract.transport.client_total_timeout_seconds }} second total timeout</dd></div>{% endif %}
+          <div class="fact-grid__wide"><dt>Transfers</dt><dd>{% for payload in remote_plan.payloads %}{{ payload.transfer }} · {{ payload.byte_size|filesizeformat }}{% if payload.source_start_seconds is not None %} · source {{ payload.source_start_seconds }}{% if payload.source_end_seconds is not None %}–{{ payload.source_end_seconds }}{% endif %} seconds{% endif %} · SHA-256 {{ payload.sha256 }}{% if payload.transfer == "exact_original_image" and payload.embedded_metadata_included %}<br><strong>The exact original image bytes include all embedded EXIF, XMP, IPTC, and GPS metadata.</strong>{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+          <div class="fact-grid__wide"><dt>Manifest</dt><dd class="item-id">{{ remote_plan.manifest.sha256 }}</dd></div>
+        </dl>
+        <p class="uncertainty">Remote processing can incur cost and depends on Cloudflare/provider availability, model licenses, and current retention policy. Evidence is untrusted input; generated conclusions remain hypotheses.</p>
+        <form class="compact-decision-form" method="post" action="{% url 'catalogue-item-remote-consent' item.id %}">
+          {% csrf_token %}
+          {{ remote_consent_form.manifest_hash }}
+          {{ remote_consent_form.notice_version }}
+          <div class="form-field">{{ remote_consent_form.acknowledge_transfer }} <label for="{{ remote_consent_form.acknowledge_transfer.id_for_label }}">{{ remote_consent_form.acknowledge_transfer.label }}</label></div>
+          <button type="submit">Consent and start remote processing</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="empty-copy">Remote processing is not ready for this item: {{ remote_plan_error }}</p>
+    {% endif %}
+    <h3 class="subsection-heading">Optional aggregate follow-up</h3>
+    {% if not remote_enabled %}
+      <p class="empty-copy">Cloudflare AI is disabled. No aggregate evidence can leave this machine.</p>
+    {% elif remote_followup_plan %}
+      <div class="remote-consent">
+        <p>This is a separate consent. Nothing is sent automatically after transcription or local aggregation. It applies only to the exact structured merged transcript (including timing and speaker labels) and/or timestamped aggregate below.</p>
+        <dl class="fact-grid">
+          <div><dt>Recipients</dt><dd>{{ remote_followup_plan.recipients|join:", " }}</dd></div>
+          <div><dt>Requests</dt><dd>{{ remote_followup_plan.payloads|length }}</dd></div>
+          <div><dt>Consent notice</dt><dd>Version {{ remote_followup_plan.manifest.value.notice_version }}</dd></div>
+          <div><dt>Transfer estimate</dt><dd>{{ remote_followup_plan.total_payload_bytes|filesizeformat }}</dd></div>
+          <div><dt>Source aggregate run</dt><dd class="item-id">{{ remote_followup_plan.aggregate_run_id }}</dd></div>
+          <div><dt>Models</dt><dd>{% for operation, model in remote_followup_plan.model_ids.items %}{{ operation }}: {{ model }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+          <div><dt>Cloudflare destination</dt><dd>Account {{ remote_followup_plan.destination.cloudflare_account_id }} · gateway {{ remote_followup_plan.destination.cloudflare_gateway_id }}</dd></div>
+          <div><dt>Payload logging</dt><dd>Disabled; usage, cost, status, and timing metadata may remain available.</dd></div>
+          {% if remote_followup_plan.adapter_privacy_contract %}<div><dt>Adapter policy</dt><dd>{{ remote_followup_plan.adapter_privacy_contract.version }} · {{ remote_followup_plan.adapter_privacy_contract.transport.client_total_timeout_seconds }} second total timeout</dd></div>{% endif %}
+          <div class="fact-grid__wide"><dt>Transfers</dt><dd>{% for payload in remote_followup_plan.payloads %}{{ payload.transfer }} · {{ payload.byte_size|filesizeformat }} · SHA-256 {{ payload.sha256 }}<br>Input results: {% for input in payload.input_results %}{{ input.result_kind }} {{ input.result_id }} · {{ input.result_sha256 }}{% if not forloop.last %}<br>{% endif %}{% endfor %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+          <div class="fact-grid__wide"><dt>Manifest</dt><dd class="item-id">{{ remote_followup_plan.manifest.sha256 }}</dd></div>
+        </dl>
+        <p class="uncertainty">The exact aggregate inputs remain untrusted evidence. Generated semantic conclusions and video synthesis remain hypotheses and can incur additional cost.</p>
+        <form class="compact-decision-form" method="post" action="{% url 'catalogue-item-remote-followup-consent' item.id %}">
+          {% csrf_token %}
+          {{ remote_followup_consent_form.manifest_hash }}
+          {{ remote_followup_consent_form.notice_version }}
+          <div class="form-field">{{ remote_followup_consent_form.acknowledge_transfer }} <label for="{{ remote_followup_consent_form.acknowledge_transfer.id_for_label }}">I consent to this exact second-stage transfer and understand that model output is uncertain.</label></div>
+          <button type="submit">Consent and analyze aggregate evidence</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="empty-copy">Aggregate follow-up is not ready: {{ remote_followup_plan_error }}</p>
+    {% endif %}
+  </section>
+
+  <section id="operator-evidence" class="evidence-tier evidence-tier--operator" aria-labelledby="operator-heading">
+    <div class="evidence-tier__heading">
+      <div>
+        <p class="evidence-tier-label">Tier 4</p>
+        <h2 id="operator-heading">Operator-confirmed assertions</h2>
+      </div>
+      <p>Explicit decisions remain traceable to the evidence that prompted them.</p>
+    </div>
+    {% if operator_results %}{% include "processing/partials/results.html" with results=operator_results only %}{% endif %}
+    {% if timestamp_decisions %}
+      <h3 class="subsection-heading">Timestamp decisions</h3>
+      <ol class="decision-list">
+        {% for decision in timestamp_decisions %}
+          <li>
+            <strong>{{ decision.resulting_occurred_at }}</strong> from {{ decision.claim.namespace }}:{{ decision.claim.tag }}
+            {% if decision.timezone_name %} · {{ decision.timezone_name }}{% endif %}{% if decision.fold is not None %} · fold {{ decision.fold }}{% endif %}
+            <span>Previous: {{ decision.previous_occurred_at|default:"unknown" }} · decided {{ decision.decided_at }}</span>
+            {% if decision.operator_note %}<span>{{ decision.operator_note }}</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    {% endif %}
+    {% for observation in identity_records %}
+      {% if observation.active_assertion %}
+        <div class="assertion-card">
+          <strong>{{ observation.active_assertion.subject }}</strong> confirmed for {{ observation.modality|lower }} observation {{ observation.id|stringformat:"s"|slice:":8" }}
+          <span>{{ observation.active_assertion.asserted_at }}</span>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </section>
+
+  <section id="identity" class="detail-section identity-section" aria-labelledby="identity-heading">
+    <div class="evidence-tier__heading">
+      <div>
+        <p class="evidence-tier-label">Closed gallery</p>
+        <h2 id="identity-heading">Subject references and candidates</h2>
+      </div>
+      <p>Face, voice, and writing evidence stay separate. Embeddings never appear here.</p>
+    </div>
+
+    <details class="subject-create"{% if subject_form.errors %} open{% endif %}>
+      <summary>Create a local subject</summary>
+      <form class="compact-decision-form" method="post" action="{% url 'catalogue-item-create-subject' item.id %}">
+        {% csrf_token %}
+        {% include "catalog/partials/form_fields.html" with form=subject_form only %}
+        <button type="submit">Create subject</button>
+      </form>
+    </details>
+
+    {% if reference_decision_history %}
+      <details class="reference-history">
+        <summary>Reference decision history ({{ reference_decision_history|length }})</summary>
+        <ol class="decision-list">
+          {% for decision in reference_decision_history %}
+            <li>
+              <strong>{{ decision.get_action_display }}</strong>
+              <span>
+                {{ decision.decided_at }} · {{ decision.observation.get_modality_display }} observation
+                #{{ decision.observation_id|stringformat:"s"|slice:":8" }}
+              </span>
+              {% if decision.previous_subject_id %}
+                <span>{{ decision.previous_subject_label }} → {{ decision.subject_label }}</span>
+              {% elif decision.action == "removed" %}
+                <span>Removed from {{ decision.subject_label }}</span>
+              {% else %}
+                <span>Selected for {{ decision.subject_label }}</span>
+              {% endif %}
+              {% if decision.notes %}<span>Notes: {{ decision.notes }}</span>{% endif %}
+              {% if decision.previous_notes and decision.previous_notes != decision.notes %}<span>Previous notes: {{ decision.previous_notes }}</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ol>
+      </details>
+    {% endif %}
+
+    {% if identity_records %}
+      <ol class="identity-observations">
+        {% for observation in identity_records %}
+          <li>
+            <header>
+              <div>
+                <strong>{{ observation.modality }} observation</strong>
+                <span class="item-id">#{{ observation.id|stringformat:"s"|slice:":8" }}</span>
+              </div>
+              <span>{{ observation.quality }}{% if observation.quality_score is not None %} · {{ observation.quality_score|floatformat:3 }}{% endif %}</span>
+            </header>
+            <dl>
+              <div><dt>Location</dt><dd>{{ observation.source_location_json }}</dd></div>
+              <div><dt>Feature version</dt><dd>{{ observation.feature_space }}</dd></div>
+            </dl>
+            {% if observation.reference %}
+              <p class="reference-state">Reference for <strong>{{ observation.reference.subject }}</strong></p>
+              <details>
+                <summary>Change this reference</summary>
+                <form class="compact-decision-form" method="post" action="{% url 'catalogue-item-update-reference' item.id observation.id %}">
+                  {% csrf_token %}
+                  <div class="form-field">
+                    <label for="reference-subject-{{ observation.id }}">Subject</label>
+                    <select id="reference-subject-{{ observation.id }}" name="subject" required>
+                      {% for subject in subjects %}<option value="{{ subject.id }}"{% if subject.id == observation.reference.subject_id %} selected{% endif %}>{{ subject.label }}</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="form-field">
+                    <label for="reference-update-notes-{{ observation.id }}">Reference notes</label>
+                    <textarea id="reference-update-notes-{{ observation.id }}" name="notes" rows="2">{{ observation.reference.notes }}</textarea>
+                  </div>
+                  <button type="submit">Update reference</button>
+                </form>
+                <form class="compact-decision-form" method="post" action="{% url 'catalogue-item-remove-reference' item.id observation.id %}">
+                  {% csrf_token %}
+                  <button class="button-secondary" type="submit">Remove reference</button>
+                </form>
+              </details>
+            {% elif observation.quality_status == "approved" and subjects %}
+              <details{% if reference_observation_id == observation.id %} open{% endif %}>
+                <summary>Add to a subject’s references</summary>
+                <form class="compact-decision-form" method="post" action="{% url 'catalogue-item-add-reference' item.id observation.id %}">
+                  {% csrf_token %}
+                  {% if reference_observation_id == observation.id and reference_form.non_field_errors %}<div class="form-errors">{{ reference_form.non_field_errors }}</div>{% endif %}
+                  {% if reference_observation_id == observation.id %}
+                    <div class="form-field">
+                      <label for="{{ reference_form.subject.id_for_label }}">{{ reference_form.subject.label }}</label>
+                      {{ reference_form.subject }}
+                      {{ reference_form.subject.errors }}
+                    </div>
+                    <div class="form-field">
+                      <label for="{{ reference_form.notes.id_for_label }}">{{ reference_form.notes.label }}</label>
+                      {{ reference_form.notes }}
+                      {{ reference_form.notes.errors }}
+                    </div>
+                  {% else %}
+                    <div class="form-field">
+                      <label for="subject-{{ observation.id }}">Subject</label>
+                      <select id="subject-{{ observation.id }}" name="subject" required>
+                        <option value="">Choose a subject</option>
+                        {% for subject in subjects %}<option value="{{ subject.id }}">{{ subject.label }}</option>{% endfor %}
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label for="reference-notes-{{ observation.id }}">Reference notes</label>
+                      <textarea id="reference-notes-{{ observation.id }}" name="notes" rows="2"></textarea>
+                    </div>
+                  {% endif %}
+                  <button type="submit">Add reference</button>
+                </form>
+              </details>
+            {% elif observation.quality_status != "approved" %}
+              <p class="empty-copy">This observation is not quality-approved for matching.</p>
+            {% endif %}
+
+            {% if observation.candidates %}
+              <h3>Local subject candidates</h3>
+              <ol class="candidate-list">
+                {% for candidate_record in observation.candidates %}
+                  {% with candidate=candidate_record.candidate %}
+                  <li>
+                    <div>
+                      <strong>{{ candidate.rank }}. {{ candidate.subject }}</strong>
+                      <span>Cosine similarity {{ candidate.similarity_score|floatformat:4 }} · {{ candidate.reference_count }} distinct reference{{ candidate.reference_count|pluralize }} · {{ candidate_record.decision_label }}</span>
+                      <span>Candidate set {{ candidate.candidate_set_id|stringformat:"s"|slice:":8" }} · run {{ candidate_record.producing_run_id|stringformat:"s"|slice:":8" }} · stage {{ candidate_record.producing_stage_id|stringformat:"s"|slice:":8" }}</span>
+                    </div>
+                    {% if candidate_record.actionable %}
+                      <div class="candidate-actions">
+                        <form method="post" action="{% url 'catalogue-item-decide-candidate' item.id candidate.id %}">
+                          {% csrf_token %}
+                          <input type="hidden" name="decision" value="confirmed">
+                          <label class="visually-hidden" for="confirm-note-{{ candidate.id }}">Confirmation note</label>
+                          <input id="confirm-note-{{ candidate.id }}" name="note" type="text" placeholder="Optional decision note">
+                          <button type="submit">Confirm</button>
+                        </form>
+                        <form method="post" action="{% url 'catalogue-item-decide-candidate' item.id candidate.id %}">
+                          {% csrf_token %}
+                          <input type="hidden" name="decision" value="rejected">
+                          <input type="hidden" name="note" value="">
+                          <button class="button-secondary" type="submit">Reject</button>
+                        </form>
+                      </div>
+                    {% endif %}
+                    {% if candidate_record.decision_history %}
+                      <details>
+                        <summary>Decision history ({{ candidate_record.decision_history|length }})</summary>
+                        <ol class="decision-list">
+                          {% for decision in candidate_record.decision_history %}
+                            <li>
+                              <strong>{{ decision.get_decision_display }}</strong>
+                              <span>{{ decision.decided_at }} · {{ decision.get_origin_display }}</span>
+                              {% if decision.note %}<span>{{ decision.note }}</span>{% endif %}
+                            </li>
+                          {% endfor %}
+                        </ol>
+                      </details>
+                    {% endif %}
+                  </li>
+                  {% endwith %}
+                {% endfor %}
+                <li class="unknown-candidate"><strong>Unknown / not in gallery</strong><span>Always remains possible.</span></li>
+              </ol>
+            {% elif observation.has_stale_candidates %}
+              <p class="empty-copy">Previous candidate sets are retained in run history but are no longer compatible with the current source or reference gallery.</p>
+              <p class="unknown-candidate"><strong>Unknown / not in gallery</strong> always remains possible.</p>
+            {% else %}
+              <h3>Local subject candidates</h3>
+              <p class="unknown-candidate"><strong>Unknown / not in gallery</strong> is the only current candidate.</p>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="empty-copy">No face, voice, or writing observations have been recorded for this item.</p>
+    {% endif %}
+  </section>
+
+  <section id="history" class="detail-section" aria-labelledby="history-heading">
+    <div class="evidence-tier__heading">
+      <div>
+        <p class="evidence-tier-label">Provenance</p>
+        <h2 id="history-heading">Run history</h2>
+      </div>
+      <p>Every prior version and failure remains available.</p>
+    </div>
+    {% if run_history %}
+      <ol class="run-history">
+        {% for run in run_history %}
+          <li{% if selected_run.id == run.id %} aria-current="true"{% endif %}>
+            <a href="{% url 'catalogue-item-detail' item.id %}?run={{ run.id }}">{{ run.created_at|date:"M j, Y, g:i:s A T" }}</a>
+            <span>{{ run.get_status_display }} · {{ run.get_trigger_display }} · {{ run.get_scope_display }} · v{{ run.processor_version }}</span>
+            <span>{{ run.stage_count }} stage{{ run.stage_count|pluralize }}{% if run.failed_stage_count %} · {{ run.failed_stage_count }} failed{% endif %}</span>
+            <span class="item-id">source {{ run.source_fingerprint }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="empty-copy">No processing history exists for this item.</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -30,10 +30,25 @@ RUN PANDECT_DATA_DIR=/tmp/pandect-build \
 FROM python:3.13-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS runtime
 
 ENV HOME=/tmp \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    OMP_THREAD_LIMIT=1 \
+    OPENBLAS_NUM_THREADS=1 \
     PATH=/app/.venv/bin:$PATH \
     PANDECT_DATA_DIR=/data \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        ffmpeg \
+        libgomp1 \
+        libimage-exiftool-perl \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-osd \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 pandect \
     && useradd --uid 10001 --gid pandect --no-create-home \
@@ -54,6 +69,11 @@ CMD ["gunicorn", "pandect.config.wsgi:application", "--bind=0.0.0.0:8000", "--wo
 FROM python:3.13-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS tools
 
 ENV HOME=/tmp \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    OMP_THREAD_LIMIT=1 \
+    OPENBLAS_NUM_THREADS=1 \
     PATH=/opt/pandect-venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -62,6 +82,16 @@ ENV HOME=/tmp \
     UV_PROJECT_ENVIRONMENT=/opt/pandect-venv
 
 COPY --from=uv /uv /uvx /usr/local/bin/
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        ffmpeg \
+        libgomp1 \
+        libimage-exiftool-perl \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-osd \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 pandect \
     && useradd --uid 10001 --gid pandect --no-create-home \

@@ -1,18 +1,20 @@
 SHELL := /bin/sh
 
 COMPOSE ?= docker compose
+DOCKER ?= docker
 PANDECT_UID ?= $(shell id -u)
 PANDECT_GID ?= $(shell id -g)
 TOOLS_COMPOSE = $(COMPOSE) --profile tools
 TOOLS_RUN = $(TOOLS_COMPOSE) run --rm --no-deps tools
 PYTHON_SOURCES = manage.py pandect tests scripts
+CLOUDFLARE_LICENSE_ARG = $(if $(filter yes,$(ACCEPT_META_LICENSE)),--accept-meta-license,)
 
 export PANDECT_UID
 export PANDECT_GID
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup up down restart logs ps shell manage migrate makemigrations task-smoke test lint format validate check clean _tools-image
+.PHONY: help setup up down restart logs ps shell manage migrate makemigrations task-smoke processing-backfill processing-diagnostics models-provision model-smoke cloudflare-smoke test lint format validate check clean _tools-image
 
 help: ## List public commands and their state-changing behaviour.
 	@awk 'BEGIN {FS = ":.*## "; print "Pandect commands:"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -51,6 +53,23 @@ makemigrations: _tools-image ## [mutates source/Docker cache] Create migrations.
 task-smoke: ## [mutates] Verify enqueue-to-worker execution with a bounded wait.
 	$(COMPOSE) run --rm --no-deps web python manage.py task_smoke --timeout 10
 
+processing-diagnostics: ## Inspect local processing tools, models, and optional Cloudflare configuration.
+	$(COMPOSE) run --rm --no-deps web python manage.py processing_diagnostics
+
+models-provision: ## [network/mutates data] Provision pinned models; requires ACCEPT_MODEL_LICENSES=yes.
+	@test "$(ACCEPT_MODEL_LICENSES)" = "yes" || { echo 'Review with make manage ARGS="provision_processing_models --list"; then set ACCEPT_MODEL_LICENSES=yes.' >&2; exit 2; }
+	$(COMPOSE) --profile models run --rm --no-deps model-provisioner python manage.py provision_processing_models --accept-licenses $(ARGS)
+
+processing-backfill: ## [mutates] Backfill bounded items; pass ARGS="--item-type image --limit 20".
+	@test -n "$(ARGS)" || { echo 'Usage: make processing-backfill ARGS="item-id or --item-type TYPE [--limit N]"' >&2; exit 2; }
+	$(COMPOSE) run --rm --no-deps web python manage.py backfill_processing $(ARGS)
+
+model-smoke: ## Run bounded evidence-free inference with provisioned local models.
+	$(COMPOSE) run --rm --no-deps web python manage.py processing_diagnostics --smoke-models
+
+cloudflare-smoke: ## [network/cost] Check Cloudflare; set ACCEPT_META_LICENSE=yes only after reviewing Meta terms.
+	$(COMPOSE) run --rm --no-deps web python manage.py processing_diagnostics --cloudflare $(CLOUDFLARE_LICENSE_ARG)
+
 _tools-image:
 	$(TOOLS_COMPOSE) build tools
 
@@ -69,6 +88,7 @@ validate: _tools-image ## [mutates Docker cache] Validate Django, migrations, Co
 	$(TOOLS_RUN) python manage.py makemigrations --check --dry-run
 	$(COMPOSE) config --quiet
 	$(COMPOSE) build web
+	$(DOCKER) run --rm --entrypoint python pandect:local -c "import cv2, openvino, sherpa_onnx; print('Media runtime imports passed.')"
 
 check: lint test validate ## [mutates Docker cache] Run the complete CI validation suite.
 

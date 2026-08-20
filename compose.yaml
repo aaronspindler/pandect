@@ -9,14 +9,25 @@ x-pandect-service: &pandect-service
     - path: .env
       required: false
   environment:
+    MKL_NUM_THREADS: "1"
+    NUMEXPR_NUM_THREADS: "1"
+    OMP_NUM_THREADS: "1"
+    OMP_THREAD_LIMIT: "1"
+    OPENBLAS_NUM_THREADS: "1"
     PANDECT_ALLOWED_HOSTS: "${PANDECT_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
     PANDECT_DATA_DIR: /data
     PANDECT_DEBUG: "${PANDECT_DEBUG:-false}"
+    PANDECT_MODELS_DIR: /data/models
     PANDECT_TIME_ZONE: "${PANDECT_TIME_ZONE:-UTC}"
+    PANDECT_WORK_DIR: /data/work
   volumes:
     - type: bind
       source: "${PANDECT_DATA_DIR:-./data}"
       target: /data
+    - type: bind
+      source: "${PANDECT_DATA_DIR:-./data}/models"
+      target: /data/models
+      read_only: true
   init: true
   read_only: true
   tmpfs:
@@ -25,7 +36,8 @@ x-pandect-service: &pandect-service
     - no-new-privileges:true
   user: "${PANDECT_UID:-1000}:${PANDECT_GID:-1000}"
   restart: unless-stopped
-  stop_grace_period: 45s
+  stop_signal: SIGINT
+  stop_grace_period: 360s
 
 services:
   web:
@@ -55,13 +67,33 @@ services:
       retries: 3
       start_period: 10s
 
+  model-provisioner:
+    <<: *pandect-service
+    profiles: [models]
+    # This explicit one-shot service is the only supported container path that
+    # mounts the model directory writable. Web and worker receive a nested
+    # read-only mount at /data/models.
+    volumes:
+      - type: bind
+        source: "${PANDECT_DATA_DIR:-./data}"
+        target: /data
+    restart: "no"
+
   tools:
     profiles: [tools]
     image: pandect-tools:local
     build:
       context: .
       target: tools
+    # Image builds may resolve locked dependencies and OS packages. Every
+    # validation/test invocation runs afterward in a networkless namespace.
+    network_mode: none
     environment:
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      OMP_THREAD_LIMIT: "1"
+      OPENBLAS_NUM_THREADS: "1"
       PANDECT_ALLOWED_HOSTS: localhost,127.0.0.1,[::1]
       PANDECT_DATA_DIR: /tmp/pandect-data
       PANDECT_DEBUG: "false"

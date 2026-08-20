@@ -3,11 +3,30 @@
 {% block title %}Catalogue — Pandect{% endblock %}
 
 {% block content %}
-  <header class="page-heading">
-    <p class="eyebrow">Catalogue</p>
-    <h1>Collected material</h1>
-    <p>Browse every item kept in this local investigation workspace.</p>
+  <header class="page-heading page-heading--with-action">
+    <div class="page-heading__copy">
+      <p class="eyebrow">Catalogue</p>
+      <h1>Collected material</h1>
+      <p>Browse every item kept in this local investigation workspace.</p>
+    </div>
+    <a class="button-link" href="{% url 'catalogue-add' %}">Add to catalogue</a>
   </header>
+
+  {% if added_count %}
+    <div class="notice" role="status">
+      Added {{ added_count }} item{{ added_count|pluralize }} to the catalogue.
+    </div>
+  {% endif %}
+
+  {% if processing_examined_count or processing_scan_complete %}
+    <div class="notice" role="status">
+      Examined {{ processing_examined_count }} item{{ processing_examined_count|pluralize }}.
+      Created {{ processing_added_count }} versioned processing run{{ processing_added_count|pluralize }}.
+      {% if processing_current_count %}Left {{ processing_current_count }} item{{ processing_current_count|pluralize }} unchanged because current compatible processing already exists.{% endif %}
+      {% if processing_skipped_count %}Skipped {{ processing_skipped_count }} unavailable item{{ processing_skipped_count|pluralize }}.{% endif %}
+      {% if processing_scan_complete %}Reached the end of this catalogue selection.{% endif %}
+    </div>
+  {% endif %}
 
   <section class="catalogue-toolbar" aria-labelledby="catalogue-filter-heading">
     <div>
@@ -25,6 +44,20 @@
           <a href="?type={{ item_type.value }}"{% if active_type == item_type.value %} aria-current="page"{% endif %}>{{ item_type.label }}</a>
         {% endfor %}
       </nav>
+      {% if processing_backfill_available %}
+        <form class="catalogue-backfill" method="post" action="{% url 'catalogue-processing-backfill' %}">
+          {% csrf_token %}
+          <input type="hidden" name="item_type" value="{{ active_type }}">
+          <input type="hidden" name="limit" value="50">
+          <input type="hidden" name="cursor" value="{{ processing_cursor }}">
+          <button type="submit">
+            Backfill next 50 {% if active_type_label %}{{ active_type_label|lower }}{% else %}processable{% endif %} items
+          </button>
+          {% if processing_cursor %}
+            <a href="{% url 'catalogue' %}{% if active_type %}?type={{ active_type }}{% endif %}">Restart backfill scan</a>
+          {% endif %}
+        </form>
+      {% endif %}
     </div>
   </section>
 
@@ -36,9 +69,9 @@
             <div class="catalogue-item__main">
               <div class="catalogue-item__label">
                 <span class="type-badge type-badge--{{ card.item.item_type }}">{{ card.type_label }}</span>
-                <span class="item-id" title="{{ card.item.id }}">#{{ card.item.id|stringformat:"s"|slice:":8" }}</span>
+                <span class="item-id" title="{{ card.item.id }}" aria-label="Item ID {{ card.item.id }}">#{{ card.item.id|stringformat:"s"|slice:":8" }}</span>
               </div>
-              <h2>{{ card.title }}</h2>
+              <h2><a href="{% url 'catalogue-item-detail' card.item.id %}">{{ card.title }}</a></h2>
               {% if card.preview %}
                 <p class="catalogue-item__preview">{{ card.preview }}</p>
               {% else %}
@@ -90,7 +123,7 @@
         <a href="{% url 'catalogue' %}">View all catalogue items</a>
       {% else %}
         <h2>The catalogue is empty</h2>
-        <p>Collected images, videos, events, notes, and messages will appear here.</p>
+        <p>Collected images, videos, audio, events, notes, and messages will appear here.</p>
       {% endif %}
     </section>
   {% endif %}

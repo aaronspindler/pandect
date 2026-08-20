@@ -24,17 +24,26 @@ make check
 
 The narrower targets match the separately reported CI steps. `make validate`
 runs Django's system check, detects missing migrations, validates the Compose
-configuration, and builds the runtime image. `make check` runs all three
-targets as the complete local pre-submit check.
+configuration, builds the runtime image, and imports its native media runtimes.
+`make check` runs all three targets as the complete local pre-submit check.
 
 Tests must be hermetic: use temporary state and eager Huey execution, with no
-third-party credentials or network access. Commit intentional migrations with
-the model change that needs them. Keep dependencies minimal and update the
-dependency declaration and lockfile together rather than adding a second
-toolchain. Dependency updates are the one workflow that currently needs the
-same `uv` version pinned in the Dockerfile and used by CI's tools image; after
-editing `pyproject.toml`, run `uv lock`, review `uv.lock`, and finish with
-`make check`.
+third-party credentials or network access. Test settings discard ambient
+Cloudflare enablement and credentials, and the suite rejects real IP and DNS
+access. Compose also starts every `tools` invocation with `network_mode: none`,
+so pytest, real local-media checks, and the non-eager worker subprocess have no
+IP network namespace even if a Python-level guard regresses. Image builds happen
+before that container starts and may fetch only locked dependencies and OS
+packages. Exercise HTTP adapters with an in-memory mock transport; do not
+disable the suite-wide guard. Local subprocess worker tests remain supported
+because they communicate through SQLite and process signals rather than the
+network.
+Commit intentional migrations with the model change that needs them. Keep
+dependencies minimal and update the dependency declaration and lockfile
+together rather than adding a second toolchain. Dependency updates are the one
+workflow that currently needs the same `uv` version pinned in the Dockerfile
+and used by CI's tools image; after editing `pyproject.toml`, run `uv lock`,
+review `uv.lock`, and finish with `make check`.
 
 ## Adding a future Django app
 
@@ -104,3 +113,32 @@ After repeated source implementations reveal a stable common need, extract a
 small shared interface and document its minimum implementation, tests, and
 explicit registration steps. Do not predict those requirements by building a
 general plugin framework in advance.
+
+## Adding a processing stage or local model
+
+Processing is explicitly wired rather than plugin-driven. Add the stage choice,
+item-type dependency, extractor, dispatcher entry, provenance schema, and tests
+together. Parsers should accept fixed fixture output and return JSON-compatible
+values; tasks receive only UUIDs. Keep expensive work outside SQLite
+transactions and recheck the canonical input hash before appending output.
+
+Invoke local tools with argument arrays, no shell, bounded output, and a hard
+subprocess timeout. Errors must not retain evidence, paths, arguments, or tool
+output. Store derived media under the run-specific derived prefix through a
+temporary file and atomic rename. Never overwrite or delete the original.
+
+Model weights are not Python dependencies and may not be fetched at import,
+startup, health checks, or task execution. Add a digest-qualified manifest
+entry with source, exact revision, preprocessing version, platform
+compatibility, and a defensible artifact-specific training-corpus provenance
+limitation. Bind every model to the exact upstream license/NOTICE URL, digest,
+and size so explicit provisioning archives the actual text under `models/legal/`
+without replacing prior legal files. Core tests use fake adapters and may not
+load or download weights or legal text; put real inference in the explicit
+optional smoke target.
+
+Remote adapters require a new architecture/privacy review. Bind consent to
+recipient, model, prompt, exact source and derivative hashes, request count,
+and transfer configuration; a change must invalidate it. Tests must assert that
+no adapter call is possible without current item-specific consent and must stay
+fully network-isolated.

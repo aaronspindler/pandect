@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Add to catalogue — Pandect{% endblock %}
+
+{% block content %}
+  <header class="page-heading">
+    <p class="eyebrow">Catalogue intake</p>
+    <h1>Add collected material</h1>
+    <p>Add one typed record, or import a batch of original image, video, and audio files. Pandect will then guide you through metadata it could not extract locally.</p>
+  </header>
+
+  <section class="intake-section" aria-labelledby="single-add-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="single-add-heading">Add one item</h2>
+        <p>Choose the record type so only relevant content and metadata fields are shown.</p>
+      </div>
+    </div>
+    <div class="type-grid">
+      {% for item_type in item_types %}
+        <a class="type-choice" href="{% url 'catalogue-add-item' item_type.value %}">
+          <strong>{{ item_type.label }}</strong>
+          <span>{{ item_type.description }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="intake-section intake-section--bulk" aria-labelledby="bulk-add-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="bulk-add-heading">Bulk add media</h2>
+        <p>Choose several local images, videos, and audio recordings. Types and available file facts are detected before anything is catalogued.</p>
+      </div>
+    </div>
+    <a class="button-link" href="{% url 'catalogue-bulk-add' %}">Choose multiple files</a>
+  </section>
+
+  <p class="back-link"><a href="{% url 'catalogue' %}">Back to catalogue</a></p>
+{% endblock %}

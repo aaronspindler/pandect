@@ -3,6 +3,10 @@
 {% block title %}Runtime status — Pandect{% endblock %}
 
 {% block content %}
-  <h1>Runtime status</h1>
+  <header class="page-heading page-heading--compact">
+    <p class="eyebrow">Local workspace</p>
+    <h1>Runtime status</h1>
+    <p>Current application availability on this machine.</p>
+  </header>
   {% include "core/partials/runtime_status.html" %}
 {% endblock %}

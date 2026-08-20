@@ -5,13 +5,13 @@ from datetime import timedelta
 from django.db import models
 
 from pandect.catalog.models import (
+    CanonicalFileExtension,
     CatalogItem,
-    RootedExtension,
     validate_catalog_item_type,
 )
 
 
-class Video(RootedExtension):
+class Video(CanonicalFileExtension):
     """A standalone local video that may also be used by a video message."""
 
     catalog_item = models.OneToOneField(

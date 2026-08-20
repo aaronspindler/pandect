@@ -45,6 +45,12 @@ configuration surface is:
 | `PANDECT_DEBUG` | Boolean Django debug setting; defaults to `false` in Compose. |
 | `PANDECT_ALLOWED_HOSTS` | Comma-separated Django host-header allowlist; defaults to `localhost,127.0.0.1,[::1]`. |
 | `PANDECT_TIME_ZONE` | Django time zone; defaults to `UTC`. |
+| `PANDECT_WORK_DIR` | Private processing workspace; Compose uses `/data/work`. Keep it on the same filesystem as `PANDECT_DATA_DIR/media` so crash-safe derived-artifact publication can use hard links. Do not point it at `/tmp` or an originals directory. |
+| `PANDECT_MODELS_DIR` | Read-only-at-runtime, digest-qualified local model directory; Compose uses `/data/models`. |
+| `PANDECT_CLOUDFLARE_AI_ENABLED` | Optional item-consented remote processing switch; defaults to `false`. |
+| `PANDECT_CLOUDFLARE_ACCOUNT_ID`, `PANDECT_CLOUDFLARE_API_TOKEN`, `PANDECT_CLOUDFLARE_GATEWAY_ID` | Optional Cloudflare account, gateway, and runtime token with Account > Workers AI > Read for `/accounts/{account_id}/ai/*`. Gateway-management permissions are needed only to create/configure it. Never commit the token. |
+| `PANDECT_CLOUDFLARE_TEXT_MODEL`, `PANDECT_CLOUDFLARE_VISION_MODEL`, `PANDECT_CLOUDFLARE_TRANSCRIPTION_MODEL` | Allowlisted adapter model IDs; a change invalidates existing consent. |
+| `PANDECT_CLOUDFLARE_CLIENT_TIMEOUT_SECONDS` | Total remote client timeout in the enforced `1`–`300` second range; defaults to `300`. |
 
 Changing `PANDECT_ALLOWED_HOSTS` is not authentication and does not make public
 exposure safe. Keep Compose's loopback binding. `.env` is local, ignored state;
@@ -71,10 +77,15 @@ supported commands are:
 | `make migrate` | Apply committed Django migrations explicitly. |
 | `make makemigrations` | Create migrations through the tools container; mutates source and Docker cache. Review generated files. |
 | `make task-smoke` | Prove enqueue, worker execution, and result retrieval end to end. |
+| `make processing-diagnostics` | Check local media tools, model digests, private work storage, and optional Cloudflare configuration. |
+| `make processing-backfill ARGS="..."` | Create bounded, versioned runs for explicit item IDs/types. |
+| `make models-provision ACCEPT_MODEL_LICENSES=yes` | After explicit acceptance, download and verify only pinned weights plus their exact hash-bound upstream legal text; archive legal text non-destructively and atomically install weights. Optional `ARGS="--replace-invalid"` replaces checksum-invalid weights, never legal archives. |
+| `make model-smoke` | Run bounded, evidence-free real inference against explicitly provisioned local model artifacts. |
+| `make cloudflare-smoke` | Explicitly validate Cloudflare credentials, configured model availability, and Gateway execution using fixed non-evidence input. This may incur a small model cost. |
 | `make test` | Run the hermetic pytest suite in the tools container; may populate disposable and Docker caches. |
 | `make lint` | Check Python formatting and Ruff lint rules in the tools container; may populate caches. |
 | `make format` | Format Python source through the tools container; mutates source and may populate caches. Review the diff. |
-| `make validate` | Run Django and migration checks, validate Compose, and build the runtime image; may populate disposable and Docker caches. |
+| `make validate` | Run Django and migration checks, validate Compose, build the runtime image, and import its native media runtimes; may populate disposable and Docker caches. |
 | `make check` | Run the complete CI validation suite; may populate disposable and Docker caches. |
 | `make clean` | Remove disposable build and test artifacts. It does not delete Pandect data. |
 
@@ -104,10 +115,14 @@ with a bounded timeout, verifies its result, and returns nonzero if the full
 path is unavailable. Automated tests instead use eager task execution and do
 not need a running worker.
 
-Future background tasks should be idempotent where practical, use bounded
-timeouts, retry only failures that are safe and likely to be transient, and
-surface terminal failures in worker logs. A schedule belongs in explicit Huey
-configuration; the foundation does not ship source polling or domain jobs.
+Processing tasks are conditionally idempotent, use bounded subprocess timeouts,
+and retry only safe local transient failures. Durable application stages expose
+terminal failure without depending on Huey result rows. The reconciler runs
+every five minutes to recover abandoned leases. Remote stages have one
+application attempt; an unknown outcome requires manual review/retry so cost is
+not silently duplicated. Logs contain stage IDs and sanitized codes, never
+filenames, evidence text, OCR, transcripts, prompts, embeddings, tool output,
+credentials, or remote payloads.
 
 ## Persistent local state
 
@@ -116,7 +131,11 @@ configuration; the foundation does not ship source polling or domain jobs.
 
 - `application.sqlite3` is Django's application database.
 - `huey.sqlite3` is Huey's queue, schedule, and result database.
-- `media/` contains locally stored catalogued image and video files.
+- `media/` contains locally stored catalogued image, video, and audio files.
+- `media/derived/` contains append-only, source-linked derived artifacts.
+- `work/` contains disposable processing workspaces and is safe to clean only
+  when web and worker are stopped; never treat it as evidence or a backup.
+- `models/` contains explicitly provisioned local weights and their notices.
 - `secret.key` is the generated local Django secret unless
   `PANDECT_SECRET_KEY` is supplied explicitly.
 
@@ -125,10 +144,72 @@ SQLite files must remain separate. The directory may also gain SQLite `-wal`
 and `-shm` sidecar files while a database is open; those are part of live
 database state.
 
-Treat the whole directory as sensitive and persistent. It is ignored by Git.
+Treat the whole directory as sensitive and persistent. Embeddings, transcripts,
+metadata, derived media, and consent records may be especially sensitive. It is ignored by Git.
 `make down`, container recreation, `make clean`, and an application-image
 rebuild preserve it. Never commit it, copy an individual open SQLite file, or
 edit either database by hand.
+
+### Local model provisioning
+
+Review the exact filenames, revisions, licenses, and SHA-256 values before the
+first download:
+
+```console
+make manage ARGS="provision_processing_models --list"
+```
+
+After reviewing the linked upstream license terms, make acceptance explicit:
+
+```console
+make models-provision ACCEPT_MODEL_LICENSES=yes
+make model-smoke
+```
+
+Provisioning writes downloads only beneath `work/`, fsyncs and validates them,
+then installs them atomically into `models/`. Before installing weights it also
+downloads the manifest-bound upstream license/NOTICE bytes, verifies their exact
+size and SHA-256, and archives them under `models/legal/`. Legal archive files
+are content-addressed and are never replaced: an existing mismatch is preserved
+and blocks provisioning. A checksum-invalid weight is likewise left untouched
+unless `ARGS="--replace-invalid"` is supplied. The generated
+`PROCESSING-MODELS-NOTICE.txt` is cumulative: every partial provisioning action
+atomically appends its accepted model set, exact legal source/archive/digest
+references, and training-corpus limitations while preserving earlier records
+and operator annotations. Keep it and `legal/` with the weights and include the
+whole model directory in recovery backups. Compose mounts that directory
+read-only for web and worker; only the explicit one-shot `model-provisioner`
+service mounts it writable. Neither application startup nor a Huey task has a
+download path.
+`make model-smoke` is a separate optional acceptance gate, not part of
+`make check`. It revalidates the pinned files and runs actual YuNet, SFace,
+facial-expression, OpenVINO age-class/head-pose, Silero VAD, and CAM++ inference
+on generated pixels and a generated three-second waveform. No investigation
+file is opened. The child process has a 120-second hard limit, 64 KiB output
+limit, and one-thread native-runtime settings; failures expose only component
+names and sanitized error codes. It performs no download or remote request.
+
+### Cloudflare diagnostic and Meta license
+
+Remote capability checks are deliberately separate from health/readiness and
+from ordinary test execution. With Cloudflare explicitly enabled and configured,
+run `make cloudflare-smoke` to query availability for every selected model and
+execute a fixed three-token prompt through the configured Gateway. No catalogue
+item, derivative, OCR, transcript, filename, or prompt from an investigation is
+read or transferred. This check uses the configured token and may incur a small
+model charge.
+
+The configured Meta vision model requires acceptance of Meta's license and
+acceptable-use policy. Pandect never performs that state-changing/legal action
+by default. Review those terms first; only then run:
+
+```console
+make cloudflare-smoke ACCEPT_META_LICENSE=yes
+```
+
+The extra flag submits Cloudflare's documented agreement request before the
+evidence-free Gateway check. A normal `make cloudflare-smoke` leaves acceptance
+state unchanged. Neither form affects `/healthz/` or `/readyz/`.
 
 ## Backup and restore
 
@@ -245,12 +326,18 @@ make check
 The narrower `make test`, `make lint`, and `make validate` targets match the
 separately reported CI steps and are useful during development. `make validate`
 performs Django system checks, missing-migration detection, Compose validation,
-and the application-image build. `make check` runs all three targets. Test,
+the application-image build, and a native media-runtime import smoke. `make
+check` runs all three targets. Test,
 lint, format, and complete validation run in a short-lived, profile-gated
 `tools` container with Python and the frozen development dependencies. They do
-not require host-installed Python or `uv`. Their first run may need network
-access to obtain base images and locked dependencies, and it populates Docker's
-build cache; the tools service is not part of the long-running default stack.
+not require host-installed Python or `uv`. The image build may need network
+access to obtain base images and locked dependencies and populates Docker's
+build cache. Once built, every tools invocation runs with `network_mode: none`;
+pytest, real-media fixtures, the non-eager Huey subprocess test, lint, and Django
+checks therefore have no container network namespace. The tools service is not
+part of the long-running default stack.
+CI runs this complete check on native Linux amd64 and arm64 runners so both
+supported container architectures build and exercise the locked media runtime.
 
 ## Troubleshooting
 

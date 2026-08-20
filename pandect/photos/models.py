@@ -3,13 +3,13 @@
 from django.db import models
 
 from pandect.catalog.models import (
+    CanonicalFileExtension,
     CatalogItem,
-    RootedExtension,
     validate_catalog_item_type,
 )
 
 
-class Image(RootedExtension):
+class Image(CanonicalFileExtension):
     """A standalone local image that may also be used by an image message."""
 
     catalog_item = models.OneToOneField(

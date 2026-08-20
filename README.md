@@ -8,8 +8,12 @@
 
 Pandect is a local-first, self-hosted investigation application for one trusted
 operator. It combines a dependable server-rendered Django and SQLite foundation
-with a source-neutral catalogue for images, videos, events, notes, messages,
-and communication participants. Data-source integrations remain deferred.
+with a source-neutral catalogue for images, video, audio, events, notes,
+messages, and communication participants. Intake returns after bounded local
+classification, then a durable one-worker pipeline extracts technical metadata,
+OCR, text and writing profiles, timestamp claims, and acoustic evidence without
+changing originals. Optional model-generated processing remains separately
+labeled and consent-bound. Data-source integrations remain deferred.
 
 ## Quick start
 
@@ -66,11 +70,16 @@ make down
 - [`docs/catalog-domain.md`](docs/catalog-domain.md) documents the catalogue and
   communication app boundaries, models, timestamps, deletion behaviour, and
   extension points.
+- [`docs/processing.md`](docs/processing.md) documents durable stages, evidence
+  tiers, resource bounds, local models, identity matching, and optional remote
+  consent.
+- [`docs/architecture/0002-async-multimodal-processing.md`](docs/architecture/0002-async-multimodal-processing.md)
+  records the processing/provenance architecture decision.
 - `make help` lists every public Make target and identifies state-changing
   operations.
 
 The current application deliberately excludes evidence graphs, search, source
-adapters, scraping, polling, identity resolution, authentication, tenancy, a
-public API, cloud infrastructure, and a generalized plugin system. See the
-architecture decision and domain-model document before proposing a change to
+adapters, scraping, polling, open-world identity lookup, authentication,
+tenancy, a public API, cloud infrastructure as a default, and a generalized
+plugin system. See the architecture decisions before proposing a change to
 those boundaries.

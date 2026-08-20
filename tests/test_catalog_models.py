@@ -6,6 +6,7 @@ from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
+from pandect.audio.models import Audio
 from pandect.catalog.models import CatalogItem
 from pandect.catalog.services import (
     create_catalogued_item,
@@ -64,6 +65,17 @@ def test_each_catalog_item_type_can_be_created_and_loaded_explicitly():
         },
     )
     video_item = video.catalog_item
+    audio = create_catalogued_item(
+        Audio,
+        item_fields={"title": "Recording"},
+        extension_fields={
+            "file": "catalog/audio/recording.flac",
+            "mime_type": "audio/flac",
+            "original_filename": "recording.flac",
+            "duration": timedelta(seconds=12),
+        },
+    )
+    audio_item = audio.catalog_item
     event = create_catalogued_item(
         Event,
         item_fields={"title": "Observed event"},
@@ -93,12 +105,63 @@ def test_each_catalog_item_type_can_be_created_and_loaded_explicitly():
 
     assert image_item.image == image
     assert video_item.video == video
+    assert audio_item.audio == audio
     assert event_item.event == event
     assert note_item.note == note
     assert text_message.text_message.message == text_message
     assert image_message_item.message.image_message == image_message
     assert video_message_item.message.video_message == video_message
-    assert CatalogItem.objects.count() == 7
+    assert CatalogItem.objects.count() == 8
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("media_model", "item_type", "original", "replacement"),
+    [
+        (
+            Image,
+            CatalogItem.ItemType.IMAGE,
+            "catalog/images/original.jpg",
+            "catalog/images/replacement.jpg",
+        ),
+        (
+            Video,
+            CatalogItem.ItemType.VIDEO,
+            "catalog/videos/original.mp4",
+            "catalog/videos/replacement.mp4",
+        ),
+        (
+            Audio,
+            CatalogItem.ItemType.AUDIO,
+            "catalog/audio/original.wav",
+            "catalog/audio/replacement.wav",
+        ),
+    ],
+)
+def test_canonical_media_file_pointer_is_immutable_at_the_model_boundary(
+    media_model,
+    item_type,
+    original,
+    replacement,
+):
+    media = media_model.objects.create(
+        catalog_item=create_item(item_type),
+        file=original,
+        mime_type="application/octet-stream",
+    )
+
+    media.file = replacement
+    with pytest.raises(TypeError, match="file pointer is immutable"):
+        media.save()
+    with pytest.raises(TypeError, match="file pointer is immutable"):
+        media_model.objects.filter(pk=media.pk).update(file=replacement)
+    with pytest.raises(TypeError, match="file pointer is immutable"):
+        media_model.objects.bulk_update([media], ["file"])
+
+    media_model.objects.filter(pk=media.pk).update(mime_type="type/test")
+    stored = media_model.objects.get(pk=media.pk)
+    assert stored.file.name == original
+    assert stored.mime_type == "type/test"
 
 
 @pytest.mark.django_db
@@ -493,10 +556,12 @@ def test_catalog_item_type_cannot_change_after_creation():
 def test_extension_models_reject_all_mismatched_catalog_item_types():
     image = Image.objects.create(catalog_item=create_item(CatalogItem.ItemType.IMAGE))
     video = Video.objects.create(catalog_item=create_item(CatalogItem.ItemType.VIDEO))
+    audio = Audio.objects.create(catalog_item=create_item(CatalogItem.ItemType.AUDIO))
 
     invalid_extensions = [
         Image(catalog_item=create_item(CatalogItem.ItemType.VIDEO)),
         Video(catalog_item=create_item(CatalogItem.ItemType.IMAGE)),
+        Audio(catalog_item=create_item(CatalogItem.ItemType.VIDEO)),
         Event(catalog_item=create_item(CatalogItem.ItemType.NOTE)),
         Note(
             catalog_item=create_item(CatalogItem.ItemType.EVENT),
@@ -507,6 +572,9 @@ def test_extension_models_reject_all_mismatched_catalog_item_types():
     for extension in invalid_extensions:
         with pytest.raises(ValidationError, match="Catalog item type"):
             extension.save()
+
+    with pytest.raises(TypeError, match="through CatalogItem"):
+        audio.delete()
 
     image_base = Message.objects.create(
         catalog_item=create_item(CatalogItem.ItemType.IMAGE_MESSAGE)

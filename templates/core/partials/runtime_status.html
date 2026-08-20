@@ -1,5 +1,11 @@
-<section id="runtime-status" aria-labelledby="runtime-status-heading">
-  <h2 id="runtime-status-heading">Runtime status</h2>
+<section id="runtime-status" class="runtime-card" aria-labelledby="runtime-status-heading" aria-live="polite">
+  <header class="runtime-card__header">
+    <div>
+      <p class="eyebrow">System check</p>
+      <h2 id="runtime-status-heading">Runtime status</h2>
+    </div>
+    <span class="status-indicator"><span aria-hidden="true"></span>{{ runtime_state|capfirst }}</span>
+  </header>
   <dl>
     <div>
       <dt>Application</dt>
@@ -18,6 +24,6 @@
     hx-swap="outerHTML"
   >
     {% csrf_token %}
-    <button type="submit">Refresh status</button>
+    <button class="button-secondary" type="submit">Refresh status</button>
   </form>
 </section>
