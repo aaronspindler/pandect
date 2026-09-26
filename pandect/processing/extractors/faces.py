@@ -12,6 +12,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, Protocol
 
+from pandect.media_runner.routing import isolated, require_child
 from pandect.processing.extractors.errors import (
     InvalidExtractorOutputError,
     ModelIntegrityError,
@@ -377,6 +378,7 @@ def _quality(
     )
 
 
+@isolated("analyze_faces", source="image_path")
 def analyze_faces(
     image_path: str | PathLike[str],
     *,
@@ -486,6 +488,7 @@ class OpenCVFaceRuntime:
     name = "opencv+openvino"
 
     def __init__(self, paths: FaceModelPaths):
+        require_child()
         try:
             import cv2
             import numpy as np

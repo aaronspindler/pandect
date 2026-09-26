@@ -3,6 +3,13 @@
 - Status: Accepted
 - Date: 2026-08-12
 
+> Evolution for the public alpha: native parsing/inference now belongs behind
+> the isolated media-runner boundary described in the
+> [living overview](overview.md#media-boundary). Trusted publication staging
+> remains on the persistent filesystem; decoder scratch is ephemeral in the
+> runner. These changes strengthen execution isolation without changing the
+> immutable evidence, consent, or single-worker decisions in this ADR.
+
 ## Context
 
 ADR 0001 deliberately deferred evidence processing, provenance, and identity

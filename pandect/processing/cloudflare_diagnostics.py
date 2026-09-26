@@ -67,7 +67,7 @@ def diagnose_cloudflare(
     impossible unless ``accept_meta_license`` is explicitly true.
     """
     try:
-        config.validate()
+        config.validate_credentials()
     except CloudflareAIError as error:
         raise CloudflareDiagnosticError("configuration_invalid") from error
     if config.timeout_seconds <= 0:
@@ -94,7 +94,9 @@ def diagnose_cloudflare(
     )
 
     try:
-        with httpx.Client(transport=transport, timeout=timeout) as client:
+        with httpx.Client(
+            transport=transport, timeout=timeout, trust_env=False
+        ) as client:
             available = []
             for model in configured_models:
                 response = client.get(

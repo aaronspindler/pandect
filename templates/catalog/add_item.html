@@ -9,6 +9,10 @@
     <p>{{ item_type_description }} Capture the primary content first; metadata review follows.</p>
   </header>
 
+  {% if media_verification_warning %}
+    <p class="notice" role="status">{{ media_verification_warning }}</p>
+  {% endif %}
+
   <form class="catalogue-form" method="post"{% if item_type.value == "image" or item_type.value == "video" or item_type.value == "audio" %} enctype="multipart/form-data"{% endif %}>
     {% csrf_token %}
     {% include "catalog/partials/form_fields.html" with form=form %}

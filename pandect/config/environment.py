@@ -6,6 +6,12 @@ from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 
+from pandect.config.data_paths import (
+    UnsafeDataPath,
+    initialize_data_directory,
+    validate_data_path,
+)
+
 
 def boolean(name: str, *, default: bool) -> bool:
     """Read a strict boolean environment variable."""
@@ -47,12 +53,15 @@ def create_data_directory(base_dir: Path) -> Path:
         if not path.is_absolute():
             path = base_dir / path
 
-    path = path.resolve()
     try:
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    except OSError as exc:
+        path = validate_data_path(path, base_dir=base_dir, home_dir=Path.home())
+        initialize_data_directory(
+            path,
+            secret_override=bool(os.environ.get("PANDECT_SECRET_KEY")),
+        )
+    except (OSError, UnsafeDataPath) as exc:
         raise ImproperlyConfigured(
-            f"Unable to create the Pandect data directory at {path}."
+            f"Unsafe or unavailable Pandect data directory: {exc}"
         ) from exc
     return path
 

@@ -135,7 +135,7 @@ def test_runtime_and_tools_containers_cap_native_thread_pools():
     for variable in NATIVE_THREAD_ENVIRONMENT:
         assert f"{variable}=1" in runtime
         assert f"{variable}=1" in tools
-        assert compose.count(f'{variable}: "1"') == 2
+        assert compose.count(f'{variable}: "1"') == 3
 
 
 def test_tools_container_has_no_runtime_network_namespace():
@@ -143,7 +143,34 @@ def test_tools_container_has_no_runtime_network_namespace():
     tools = compose.split("  tools:\n", 1)[1]
 
     assert "    network_mode: none\n" in tools
-    assert "network_mode: none" not in compose.split("  tools:\n", 1)[0]
+    runner = compose.split("  media-runner:\n", 1)[1].split("  maintenance:\n", 1)[0]
+    assert "    network_mode: none\n" in runner
+    assert "    ipc: private\n" in runner
+    assert "init: true" not in runner
+    assert "cap_add: [CHOWN, SETUID, SETGID, KILL]" in runner
+    assert "    mem_limit: 8g\n" in runner
+    assert "    memswap_limit: 8g\n" in runner
+
+
+def test_compose_scopes_remote_token_to_worker_and_never_loads_env_files():
+    compose = (PROJECT_ROOT / "compose.yaml").read_text()
+    assert "env_file:" not in compose
+    assert compose.count("      PANDECT_CLOUDFLARE_API_TOKEN: ") == 1
+    worker = compose.split("  worker:\n", 1)[1].split("  model-provisioner:\n", 1)[0]
+    assert "PANDECT_CLOUDFLARE_API_TOKEN:" in worker
+
+
+def test_debug_is_explicit_opt_in_and_uploads_are_stream_guarded():
+    assert settings.DEBUG is False
+    assert settings.UPLOAD_MAX_FILE_BYTES == 2 * 1024**3
+    assert settings.UPLOAD_MAX_BATCH_BYTES == 8 * 1024**3
+    assert settings.UPLOAD_MAX_FILES == 50
+    from pandect.config import settings as production_settings
+
+    assert production_settings.STORAGE_FREE_RESERVE_BYTES == 2 * 1024**3
+    assert settings.FILE_UPLOAD_HANDLERS == [
+        "pandect.catalog.uploads.GuardedUploadHandler"
+    ]
 
 
 def test_static_assets_are_local_and_discoverable():

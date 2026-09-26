@@ -1,159 +1,193 @@
 # Local operations
 
-Pandect's supported runtime is Docker Compose on one trusted operator's
-machine. Run the commands in this guide from the repository root.
+Pandect runs on one trusted operator's machine. Run commands from the repository
+root. The supported distribution is source plus Docker Compose; host Python and
+uv are not required.
 
 > [!WARNING]
-> Pandect has no authentication or authorization. Keep the published web port
-> on loopback (`127.0.0.1`). Do not expose the default stack to a LAN or the
-> public internet. An operator who changes that boundary must first provide and
-> verify an external access-control layer.
+> There is no authentication or authorization. Keep the published port on
+> `127.0.0.1`; public-network and multi-user deployments are unsupported.
+> A changed host allowlist, TLS, or a reverse proxy alone does not change that
+> boundary. See [SECURITY.md](../SECURITY.md).
 
 ## First run
 
-Start Docker, then run:
+Start Docker, then:
 
 ```console
-make setup && make up
+make setup
+make up
+make ps
 ```
 
-Setup preserves existing configuration and data and is safe to repeat for the
-same source revision. It creates `.env` from the documented example when needed
-with mode `0600` and the current host user and group IDs, creates the persistent
-data directory with mode `0700`, builds the application image, and applies
-migrations. It does not replace an existing `.env` or erase persistent state.
-Stop a running stack before using setup with changed code, as required by the
-upgrade procedure below. Setup must run as an unprivileged user. Django
-generates the installation secret inside the persistent directory during the
-one-off migration command unless `.env` supplies an explicit override.
+Setup checks daemon availability and Compose 2.24+, validates configuration and
+data paths, creates private local state, builds images, prepares verified model
+permissions, and applies migrations. Run it as an unprivileged user. It preserves
+existing data and configuration, and is safe to repeat at the same revision.
+Stop services before setup when upgrading.
 
-The application is available at <http://127.0.0.1:8000/>. The default stack
-does not require PostgreSQL, Redis, Node.js, third-party credentials, or an
-internet connection after its image and locked dependencies have been built.
+Setup, backup, restore, and supported Make runtime commands share a checkout-local
+maintenance lock. This includes lifecycle commands and one-off management,
+diagnostic, provisioning, and smoke commands, preventing them from starting
+through Make during backup/restore. Normal exit removes the lock. Direct Docker
+commands, host SQLite clients, and manual file edits bypass it: keeping those
+stopped is the operator's responsibility. If a process was interrupted, inspect
+the recorded PID and confirm it is no longer operating before removing an
+abandoned lock; never remove an active lock to run conflicting maintenance.
+
+A new `.env` has mode `0600`, host UID/GID, and a stable checkout-specific
+project identity. A new private data root has mode `0700`; Django generates a
+`0600` installation secret unless you supply an explicit override. Existing
+recognized Pandect data is retained, not reinitialized.
+
+Wait for service health and open [Pandect](http://127.0.0.1:8000/). Verify the
+web/readiness/queue paths with:
+
+```console
+curl --fail http://127.0.0.1:8000/healthz/
+curl --fail http://127.0.0.1:8000/readyz/
+make task-smoke
+```
+
+Local operation needs no third-party credentials or internet after images are
+built. Model provisioning and security scans are separate explicit network
+operations. Use synthetic evidence for the [first workflow](../README.md#your-first-useful-workflow)
+and test recovery before storing irreplaceable material.
 
 ## Local configuration
 
-Setup creates `.env` from `.env.example` only when `.env` is absent. The small
-configuration surface is:
+Setup creates `.env` from `.env.example` only if absent. Resolution follows
+Compose interpolation, including quoting and explicit environment precedence;
+configuration is never evaluated as shell code. Do not share full resolved
+Compose output: it can contain secrets.
 
-| Setting | Local behaviour |
+| Setting | Supported behavior |
 | --- | --- |
-| `PANDECT_DATA_DIR` | Host persistent-data path; defaults to `./data`. Compose mounts it at `/data` in the `web` and `worker` services. Relative and absolute host paths are supported. |
-| `PANDECT_PORT` | Host web port; defaults to `8000`. Compose always binds it to `127.0.0.1`. |
-| `PANDECT_UID`, `PANDECT_GID` | Container user and group IDs. Make uses the invoking user's IDs, and setup records them in a new `.env` for direct Compose debugging, so bind-mounted state remains writable without running as root. |
-| `PANDECT_SECRET_KEY` | Optional explicit Django secret override. When omitted, setup generates `secret.key` in the persistent data directory and settings use that file. |
-| `PANDECT_DEBUG` | Boolean Django debug setting; defaults to `false` in Compose. |
-| `PANDECT_ALLOWED_HOSTS` | Comma-separated Django host-header allowlist; defaults to `localhost,127.0.0.1,[::1]`. |
-| `PANDECT_TIME_ZONE` | Django time zone; defaults to `UTC`. |
-| `PANDECT_WORK_DIR` | Private processing workspace; Compose uses `/data/work`. Keep it on the same filesystem as `PANDECT_DATA_DIR/media` so crash-safe derived-artifact publication can use hard links. Do not point it at `/tmp` or an originals directory. |
-| `PANDECT_MODELS_DIR` | Read-only-at-runtime, digest-qualified local model directory; Compose uses `/data/models`. |
-| `PANDECT_CLOUDFLARE_AI_ENABLED` | Optional item-consented remote processing switch; defaults to `false`. |
-| `PANDECT_CLOUDFLARE_ACCOUNT_ID`, `PANDECT_CLOUDFLARE_API_TOKEN`, `PANDECT_CLOUDFLARE_GATEWAY_ID` | Optional Cloudflare account, gateway, and runtime token with Account > Workers AI > Read for `/accounts/{account_id}/ai/*`. Gateway-management permissions are needed only to create/configure it. Never commit the token. |
-| `PANDECT_CLOUDFLARE_TEXT_MODEL`, `PANDECT_CLOUDFLARE_VISION_MODEL`, `PANDECT_CLOUDFLARE_TRANSCRIPTION_MODEL` | Allowlisted adapter model IDs; a change invalidates existing consent. |
-| `PANDECT_CLOUDFLARE_CLIENT_TIMEOUT_SECONDS` | Total remote client timeout in the enforced `1`–`300` second range; defaults to `300`. |
+| `PANDECT_DATA_DIR` | Dedicated host data root: default `./data` or a directory outside the checkout, mounted at `/data` in trusted services. |
+| `COMPOSE_PROJECT_NAME` | Stable checkout-path identity exported by Make even before setup and persisted by setup; explicit overrides are honored. Namespaces containers, images, and the runner socket volume. |
+| `PANDECT_PORT` | Host port, default `8000`; always published on `127.0.0.1`. |
+| `PANDECT_UID`, `PANDECT_GID` | Host IDs for non-root trusted services and data access. Make uses invoking-user IDs; setup records them for direct Compose use. |
+| `PANDECT_SECRET_KEY` | Optional explicit override; otherwise use the generated private `secret.key`. Back up overrides separately. |
+| `PANDECT_DEBUG` | Default `false`; do not enable with sensitive evidence. |
+| `PANDECT_ALLOWED_HOSTS` | Host-header allowlist, default `localhost,127.0.0.1,[::1]`; not access control. |
+| `PANDECT_TIME_ZONE` | Default `UTC`. |
+| `PANDECT_CLOUDFLARE_AI_ENABLED` | Optional item-consented remote processing, default `false`. |
+| `PANDECT_CLOUDFLARE_ACCOUNT_ID`, `PANDECT_CLOUDFLARE_API_TOKEN`, `PANDECT_CLOUDFLARE_GATEWAY_ID` | Account, token with Workers AI Read, and configured gateway. Gateway-management permissions are needed only for provisioning the gateway. Never commit tokens. |
+| `PANDECT_CLOUDFLARE_TEXT_MODEL`, `PANDECT_CLOUDFLARE_VISION_MODEL`, `PANDECT_CLOUDFLARE_TRANSCRIPTION_MODEL` | Allowlisted adapter model IDs; changes invalidate prior consent. |
+| `PANDECT_CLOUDFLARE_CLIENT_TIMEOUT_SECONDS` | Total remote timeout, 1–300 seconds; default `300`. |
 
-Changing `PANDECT_ALLOWED_HOSTS` is not authentication and does not make public
-exposure safe. Keep Compose's loopback binding. `.env` is local, ignored state;
-never commit it if it contains a secret or machine-specific configuration.
-After editing runtime settings, use `make down && make up` so Compose recreates
-the services; `make restart` does not recreate containers.
+Compose fixes trusted upload/publication staging at `/data/work` and models at
+`/data/models`. `PANDECT_WORK_DIR` and `PANDECT_MODELS_DIR` are not operator
+overrides in the supported stack. Native decoder scratch is ephemeral inside
+the runner. Services receive only their explicitly listed variables; the remote
+token belongs to the worker and explicit remote diagnostic, not web or runner.
+
+Setup validates resolved paths before creation or permission changes. It refuses
+root, home, checkout/ancestor paths, other in-checkout locations, files, and
+unsafe symlink targets. Existing roots must be operator-owned and private
+(`0700`); unsafe roots are refused rather than chmodded. New roots are marked;
+nonempty legacy roots must be recognizable Pandect installations. Choose a dedicated empty location rather
+than bypassing safeguards. There is no recursive permission reset of arbitrary
+directory contents.
+
+After configuration changes, `make down && make up` recreates services;
+`make restart` does not apply a changed container environment. Two installations
+need distinct project names, ports, and data roots.
 
 ## Command reference
 
-`make help` is the authoritative, discoverable list of public targets. The
-supported commands are:
+`make help` lists public commands and their state-changing behavior.
 
 | Command | Purpose |
 | --- | --- |
-| `make help` | List public commands, descriptions, and state-changing behaviour. |
-| `make setup` | Create local configuration and data paths, build the image, and apply migrations. |
-| `make up` | Start the web and worker services in the background. |
-| `make down` | Stop and remove containers while preserving persistent data. |
-| `make restart` | Restart the supported services. |
-| `make logs` | Follow web and worker logs; press Control-C to stop following without stopping services. |
-| `make ps` | Show service state and health. |
-| `make shell` | Open an interactive Django application shell in a one-off container; commands entered there may mutate persistent data. |
-| `make manage ARGS="..."` | Run a Django management command, for example `make manage ARGS="showmigrations"`. |
-| `make migrate` | Apply committed Django migrations explicitly. |
-| `make makemigrations` | Create migrations through the tools container; mutates source and Docker cache. Review generated files. |
-| `make task-smoke` | Prove enqueue, worker execution, and result retrieval end to end. |
-| `make processing-diagnostics` | Check local media tools, model digests, private work storage, and optional Cloudflare configuration. |
-| `make processing-backfill ARGS="..."` | Create bounded, versioned runs for explicit item IDs/types. |
-| `make models-provision ACCEPT_MODEL_LICENSES=yes` | After explicit acceptance, download and verify only pinned weights plus their exact hash-bound upstream legal text; archive legal text non-destructively and atomically install weights. Optional `ARGS="--replace-invalid"` replaces checksum-invalid weights, never legal archives. |
-| `make model-smoke` | Run bounded, evidence-free real inference against explicitly provisioned local model artifacts. |
-| `make cloudflare-smoke` | Explicitly validate Cloudflare credentials, configured model availability, and Gateway execution using fixed non-evidence input. This may incur a small model cost. |
-| `make test` | Run the hermetic pytest suite in the tools container; may populate disposable and Docker caches. |
-| `make lint` | Check Python formatting and Ruff lint rules in the tools container; may populate caches. |
-| `make format` | Format Python source through the tools container; mutates source and may populate caches. Review the diff. |
-| `make validate` | Run Django and migration checks, validate Compose, build the runtime image, and import its native media runtimes; may populate disposable and Docker caches. |
-| `make check` | Run the complete CI validation suite; may populate disposable and Docker caches. |
-| `make clean` | Remove disposable build and test artifacts. It does not delete Pandect data. |
+| `make setup` | Validate/create private configuration and data, build images, apply migrations. |
+| `make up` / `make down` | Start services / stop and remove containers without deleting evidence. |
+| `make restart` / `make ps` / `make logs` | Restart, inspect health, or follow service logs. |
+| `make shell` | Interactive Django shell; entered commands may mutate data. |
+| `make manage ARGS="..."` | Explicit management command, e.g. `showmigrations`; may mutate data. |
+| `make migrate` | Apply committed migrations explicitly. |
+| `make makemigrations` | Generate migration source through tools; review the diff. |
+| `make task-smoke` | Verify real queue delivery and worker execution with a bounded wait. |
+| `make processing-diagnostics` | Inspect local tools, model integrity, storage, and configuration. |
+| `make processing-backfill ARGS="..."` | Create bounded, versioned runs for selected items. |
+| `make models-provision ACCEPT_MODEL_LICENSES=yes` | Explicitly download pinned model/legal artifacts after reviewing terms. |
+| `make model-smoke` | Real isolated inference on synthetic inputs; provisioned models required. |
+| `make cloudflare-smoke` | Explicit credential/model/gateway check with fixed non-evidence input; may cost money. |
+| `make test` / `make lint` / `make validate` | Focused hermetic tests, style checks, or framework/runtime validation. |
+| `make format` | Rewrite Python formatting; review the diff. |
+| `make check` | Complete hermetic core validation after image builds. |
+| `make security-check` | Network-enabled advisory/image scans and redacted history/source secret checks, without evidence or credentials. |
+| `make compose-smoke` | Disposable clean Compose install, task/isolation checks, and backup/restore. |
+| `make backup BACKUP_DIR=…` | Verified full-data backup outside the checkout; requires a stopped stack. |
+| `make backup BACKUP_DIR=… BACKUP_REVISION=…` | Legacy-transition backup with an explicit locally resolvable restore-source ref/SHA; tooling revision is recorded separately. |
+| `make restore BACKUP=…` | Restore a verified archive into an empty configured data root, without migration. |
+| `make clean` | Remove disposable source/test caches, not application evidence. |
 
-Docker Compose remains directly usable for diagnosis. For example,
-`docker compose logs --tail=200 worker` shows only recent worker logs. Prefer
-the Make targets for normal operation so service names and configuration stay
-centralized.
+Compose remains available for diagnosis, for example
+`docker compose logs --tail=200 worker`. Prefer Make for normal operation.
 
-## Web and worker responsibilities
+## Service responsibilities
 
-The two long-running Compose services use the same application image and
-persistent data directory, but have separate roles:
+Three long-running services share the application image, but only trusted
+services have application-data access:
 
-- `web` runs Django through Gunicorn, serves server-rendered pages and local
-  static assets, accepts loopback-only HTTP traffic, and enqueues background
-  work.
-- `worker` runs the Huey consumer with conservative local concurrency. It
-  executes queued and future periodic tasks. It does not serve HTTP or apply
-  migrations.
+- `web` runs Django/Gunicorn, serves local assets, accepts loopback HTTP,
+  streams/validates uploads, and enqueues work. It has no remote API token.
+- `worker` runs one Huey consumer, owns orchestration/provenance/publication,
+  and performs explicitly consented remote calls. It does not serve HTTP.
+- `media-runner` has no IP network, database, queue, canonical-media mount,
+  credentials, or Docker socket. A non-decoding supervisor runs one bounded
+  native-media job at a time under a disposable unprivileged identity.
 
-Migrations are explicit: neither long-running service applies them at startup.
-Run `make migrate` (or the setup procedure) before starting code that expects a
-new schema.
+The runner receives only selected input bytes through a private Unix socket.
+Intake probes, decoders, native tools, inference, derived-media parsing, and
+diagnostics use that boundary; there is no direct execution fallback. See
+[architecture](architecture/overview.md#media-boundary) for confinement and
+[processing](processing.md#storage-and-resource-limits) for resource limits.
+A busy runner can make imports needing probes temporarily unavailable. Readiness
+checks do not download models or call providers.
 
-`make task-smoke` enqueues a side-effect-free test task, waits for the worker
-with a bounded timeout, verifies its result, and returns nonzero if the full
-path is unavailable. Automated tests instead use eager task execution and do
-not need a running worker.
-
-Processing tasks are conditionally idempotent, use bounded subprocess timeouts,
-and retry only safe local transient failures. Durable application stages expose
-terminal failure without depending on Huey result rows. The reconciler runs
-every five minutes to recover abandoned leases. Remote stages have one
-application attempt; an unknown outcome requires manual review/retry so cost is
-not silently duplicated. Logs contain stage IDs and sanitized codes, never
-filenames, evidence text, OCR, transcripts, prompts, embeddings, tool output,
-credentials, or remote payloads.
+Migrations are explicit; no long-running service applies them. Durable
+application stages expose processing failures independently of queue return
+values. Reconciliation runs every five minutes to repair abandoned leases.
+Local retries are bounded; a remote unknown outcome needs operator review
+because a retry may duplicate cost. Logs are designed to use IDs and sanitized
+codes, not evidence/credentials/tool output; review and redact before sharing.
 
 ## Persistent local state
 
-`PANDECT_DATA_DIR` selects the one persistent data directory and defaults to
-`./data` in the repository. It contains separate stores:
+The one private data root contains:
 
-- `application.sqlite3` is Django's application database.
-- `huey.sqlite3` is Huey's queue, schedule, and result database.
-- `media/` contains locally stored catalogued image, video, and audio files.
-- `media/derived/` contains append-only, source-linked derived artifacts.
-- `work/` contains disposable processing workspaces and is safe to clean only
-  when web and worker are stopped; never treat it as evidence or a backup.
-- `models/` contains explicitly provisioned local weights and their notices.
-- `secret.key` is the generated local Django secret unless
-  `PANDECT_SECRET_KEY` is supplied explicitly.
+- `application.sqlite3`: catalogue, processing, provenance, and identity state;
+- `huey.sqlite3`: separate queue, schedule, and task-result state;
+- `media/catalog/`: canonical original files;
+- `media/derived/`: append-only source-linked derivatives;
+- `work/`: private upload and publication staging, cleaned through existing
+  attempt journals/reconciliation rather than indiscriminate manual deletion;
+- `models/`: optional weights, exact legal archives, and provisioning notices;
+- `secret.key`: generated installation secret unless explicitly overridden.
 
-The `web` and `worker` services see the same directory at `/data`. The two
-SQLite files must remain separate. The directory may also gain SQLite `-wal`
-and `-shm` sidecar files while a database is open; those are part of live
-database state.
+Include SQLite sidecars in full-data backup; never copy an individual open
+database. Runner scratch is temporary and never canonical evidence. Treat
+embeddings, transcripts, metadata, consent records, and local logs as sensitive.
 
-Treat the whole directory as sensitive and persistent. Embeddings, transcripts,
-metadata, derived media, and consent records may be especially sensitive. It is ignored by Git.
-`make down`, container recreation, `make clean`, and an application-image
-rebuild preserve it. Never commit it, copy an individual open SQLite file, or
-edit either database by hand.
+The default `data/` is Git/Docker-ignored; custom supported roots are outside
+the checkout. Ignore rules are not encryption. Deleting the checkout or
+`git clean -fdx` can destroy ignored default data. Publish Git refs/source
+archives, not a raw working folder. Ordinary `make down`, `make clean`, image
+rebuilds, and container recreation preserve data.
+
+Data and backups are **plaintext**. Protect the host with appropriate disk
+encryption and use encrypted backup storage. Catalogue deletion is not secure
+erasure; immutable records restrict parent deletion, and stored originals are
+not automatically removed. See [deletion semantics](catalog-domain.md#media-storage-and-deletion).
 
 ### Local model provisioning
 
-Review the exact filenames, revisions, licenses, and SHA-256 values before the
-first download:
+Read the [artifact-specific license inventory](model-licenses.md), including
+the expression model's missing model-local license and unresolved training-data
+rights. Pandect does not establish commercial clearance. Review exact filenames,
+revisions, licenses, and SHA-256 values before downloading:
 
 ```console
 make manage ARGS="provision_processing_models --list"
@@ -177,16 +211,25 @@ unless `ARGS="--replace-invalid"` is supplied. The generated
 atomically appends its accepted model set, exact legal source/archive/digest
 references, and training-corpus limitations while preserving earlier records
 and operator annotations. Keep it and `legal/` with the weights and include the
-whole model directory in recovery backups. Compose mounts that directory
-read-only for web and worker; only the explicit one-shot `model-provisioner`
-service mounts it writable. Neither application startup nor a Huey task has a
+whole model directory in recovery backups. Setup and provisioning prepare
+sandbox permissions offline and idempotently: only hash-verified manifest
+weights and legal texts become `0644`, with public model/legal directories
+`0755`; the enclosing data root stays `0700` and the operator-annotated notice
+stays `0600`. Unknown private files are left private; unexpected public files
+or symlinks are refused, not recursively chmodded. Review and move unrelated
+content to an appropriate private directory before retrying. Never widen the
+whole data directory. The underlying command is `prepare_model_permissions`,
+run through the writable model-provisioner service, not the read-only web mount.
+
+Compose mounts models read-only for the runner and trusted services; only the
+explicit one-shot `model-provisioner` mounts that directory writable. Neither application startup nor a Huey task has a
 download path.
 `make model-smoke` is a separate optional acceptance gate, not part of
 `make check`. It revalidates the pinned files and runs actual YuNet, SFace,
 facial-expression, OpenVINO age-class/head-pose, Silero VAD, and CAM++ inference
 on generated pixels and a generated three-second waveform. No investigation
-file is opened. The child process has a 120-second hard limit, 64 KiB output
-limit, and one-thread native-runtime settings; failures expose only component
+file is opened. The isolated job has a 120-second hard limit, bounded output,
+and one-thread native-runtime settings; failures expose only component
 names and sanitized error codes. It performs no download or remote request.
 
 ### Cloudflare diagnostic and Meta license
@@ -213,131 +256,174 @@ state unchanged. Neither form affects `/healthz/` or `/readyz/`.
 
 ## Backup and restore
 
-Back up the **entire persistent data directory with `web` and `worker` stopped**.
-Stopping first gives the application database, Huey queue, sidecar files, and
-generated secret a consistent boundary. Close any direct Django shell, SQLite
-client, or other process using the directory too.
-
-For the default `./data` path:
+Stop **every container belonging to the project**, including media-runner and
+one-off shells/provisioners, before backup or restore. Also close host SQLite
+clients and any other process using the data directory. The commands refuse a
+running project; they never silently stop or restart it.
 
 ```console
 make down
-mkdir -p ../pandect-backups
-tar -czf "../pandect-backups/pandect-data-$(date +%Y%m%d-%H%M%S).tar.gz" data
+make backup BACKUP_DIR=/path/to/private/pandect-backups
 ```
 
-This writes the archive outside the repository. Store it somewhere protected.
-If `PANDECT_DATA_DIR` in `.env` points elsewhere, archive that entire directory
-instead of `data`. Keep its directory contents and permissions together.
-The default generated secret is included. If you explicitly put
-`PANDECT_SECRET_KEY` in `.env`, preserve that secret separately and securely;
-the data-directory archive does not contain the override.
+Choose a dedicated backup destination outside both the checkout and source data.
+An existing destination must be private (`0700`). The helper uses a read-only
+source mount and creates a unique `pandect-backup-<id>/` bundle containing
+`data.tar.gz`, `manifest.json`, and `SHA256SUMS`. It verifies temporary output
+before atomic publication without overwriting, with `0700` directories and
+`0600` files. Keep all three bundle files together.
+Verification checks the SQLite files and their sidecars extracted from the
+finished archive into private temporary storage, not only the original live
+paths. That verification never writes to the backed-up source mount.
 
-To restore the default path, first stop the stack and preserve the current
-directory under an unused name. The verification commands below also assume
-the default port `8000`; substitute the configured `PANDECT_PORT` if it differs.
+The complete archive includes originals, derivatives, both SQLite
+stores/sidecars, models/legal records, and the generated secret. The manifest
+records format/time, selected restore-source revision (normally current HEAD),
+actual helper/tooling revision, current-checkout dirty flags, current runtime
+image identity when locally available (otherwise `unknown`), migration state,
+and nonsecret configuration. An explicit
+`BACKUP_REVISION` must resolve to a local commit; it is used for the legacy
+transition below, not to guess which code matches arbitrary data. The recorded
+image is explicitly labeled `configured_tooling_image`, not the image that
+originally wrote the evidence; `evidence_writer_image_id` is `null` because that
+identity is not established. Dirty flags describe the current checkout, not the
+past state of the selected commit. The bundle does not copy `.env` or tokens.
+Preserve an explicit `PANDECT_SECRET_KEY` override and Cloudflare credentials
+separately in protected storage. A backup from a dirty checkout also needs
+those exact source changes retained separately to reproduce it.
+
+Archives are **not encrypted**. Use an encrypted destination and test recovery
+before relying on a backup. Checksums detect accidental changes; they do not
+authenticate a maliciously replaced archive/checksum pair.
+
+For restore, first preserve current data elsewhere with private permissions;
+do not delete it just to make the command run. Configure a dedicated empty
+destination. Pass the **bundle directory**, not `data.tar.gz`, using the path
+printed by backup:
 
 ```console
-make down
-if [ -d data ]; then mv data "../pandect-data-before-restore-$(date +%Y%m%d-%H%M%S)"; fi
-tar -xzf ../pandect-backups/pandect-data-YYYYMMDD-HHMMSS.tar.gz
-make setup
+make restore BACKUP=/path/to/private/pandect-backups/pandect-backup-ID
+```
+
+Restore checks checksums, manifest, safe archive members, and both SQLite
+databases in private sibling staging before installing into an empty target.
+It rejects traversal, unsafe links/special files, corruption, and populated
+targets. It never merges, overwrites a populated installation, or applies
+migrations. Follow the reported matching source revision, restore explicit
+credentials separately, confirm configuration and host UID/GID, then start
+that matching version:
+
+```console
 make up
 curl --fail http://127.0.0.1:8000/healthz/
 curl --fail http://127.0.0.1:8000/readyz/
 make task-smoke
 ```
 
-The archive made above contains the top-level `data` directory, so extract it
-from the repository root. For a custom `PANDECT_DATA_DIR`, restore to that same
-configured path. Do not merge a backup into a populated data directory. Keep
-the pre-restore directory until the web health check and task smoke both pass.
+Keep the pre-restore data and verified backup until records, hashes,
+service readiness, and task execution have been checked.
 
 ## Upgrade
 
-Use a source revision, database contents, and migrations that belong together.
-The commands below use the default `./data` path and port `8000`. If
-`PANDECT_DATA_DIR` is customized, change the archive command to capture that
-entire directory and verify the archive **before** pulling code or applying
-migrations. Substitute the configured `PANDECT_PORT` in verification URLs too.
+Install a published tag, not whatever happens to be on `main`. Read the target
+release notes, then stop services and verify a full backup before changing code:
 
 ```console
 make down
-mkdir -p ../pandect-backups
-tar -czf "../pandect-backups/pandect-data-before-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz" data
-git pull --ff-only
+make backup BACKUP_DIR=/path/to/private/pandect-backups
+git fetch --tags
+git switch --detach v0.1.0a1
 make setup
 make up
-curl --fail http://127.0.0.1:8000/healthz/
-curl --fail http://127.0.0.1:8000/readyz/
-make task-smoke
+make ps
 ```
 
-`make setup` rebuilds the shared image from the locked dependencies and applies
-committed migrations before services start. Read release notes before upgrading
-in case a future release adds a specific step. Do not run new code against an
-old schema or try to downgrade a migrated database in place. Rollback means
-stopping the stack, restoring the complete pre-upgrade data backup, and
-returning to its matching source revision.
+The initial tag above is usable only after publication; replace it with the
+reviewed target release for later upgrades. Do not discard local changes to
+switch tags. Setup rebuilds locked images and applies committed migrations.
+Verify health/readiness and `make task-smoke`, then inspect a known synthetic
+item. Use your configured port if not 8000.
+
+### Transition from the legacy fixed Compose project
+
+Earlier checkouts used a global `pandect` project/image. Before the first
+upgrade to checkout-specific identity, stop the legacy stack explicitly using
+its original checkout/configuration and record its revision. Preserve any local
+source changes separately before switching revisions:
+
+```console
+PANDECT_PREUPGRADE_REVISION=$(git rev-parse HEAD)
+docker compose -p pandect down --remove-orphans
+```
+
+Confirm no legacy/one-off container is still using the data. If that older
+checkout lacks `make backup`, select the reviewed published target tag and run
+the new backup tooling **without applying migrations**. Backup builds its small
+standard-library maintenance image itself; it does not require a full
+application-image build or new setup first:
+
+```console
+git fetch --tags
+git switch --detach v0.1.0a1
+make backup BACKUP_DIR=/path/to/private/pandect-backups BACKUP_REVISION="$PANDECT_PREUPGRADE_REVISION"
+```
+
+Only after the verified backup reports the intended old source revision should
+you run `make setup`, `make up`, and the health/task checks. Keep this shell's
+revision value until backup completes; if you start a new shell, recover the
+previous revision from your recorded value rather than using the new HEAD.
+The target tag above must exist; it is not yet published during release preparation.
+
+Setup records a stable identity derived from the
+checkout's physical path in local configuration unless a project name is
+already configured or explicitly overridden. It does not stop ambiguous other
+projects or delete old images/volumes for you. Never start old and new projects
+against the same SQLite data. Separate installations need distinct project
+names, ports, and data roots.
+
+### Rollback
+
+Do not downgrade a migrated database in place or run old code against a new
+schema. Stop the stack, preserve its current data privately, restore the full
+pre-upgrade bundle into an empty destination, and use the exact matching source
+revision. Restore separate configuration/credentials as needed. Verify health,
+tasks, and evidence before retiring the preserved newer data.
 
 ## Logs, health, and validation
 
-Follow both services:
-
 ```console
 make logs
-```
-
-Inspect one service without following indefinitely:
-
-```console
 docker compose logs --tail=200 web
 docker compose logs --tail=200 worker
+docker compose logs --tail=200 media-runner
 ```
 
-Logs go to standard container output. They should explain failures without
-dumping settings, secret values, or collected data; handle any local log copies
-as sensitive.
+Control-C stops following logs, not the services. Logs should explain failures
+without dumping settings, secrets, or evidence; still treat local copies as
+sensitive and inspect/redact them before sharing.
 
-The dependency-free liveness endpoint proves that Django can respond:
+`/healthz/` proves Django responds. `/readyz/` checks required local
+dependencies including the application database and media-runner; failure
+returns sanitized HTTP 503. Neither proves that a queued task completed, that
+optional models exist, or that the remote provider is available.
+`make task-smoke` checks the real queue/worker path.
 
-```console
-curl --fail http://127.0.0.1:8000/healthz/
-```
+`make check` combines Ruff, hermetic pytest, Django/migration checks, Compose
+validation, runtime builds, and native-import validation. Test execution uses a
+short-lived tools container with a networkless namespace and locked development
+dependencies. Image construction may fetch base images, locked packages, and
+OS dependencies; the offline claim applies after construction. No host Python
+or uv is needed. CI targets native Linux amd64 and arm64.
 
-The readiness endpoint also verifies that Django can query the application
-SQLite database:
-
-```console
-curl --fail http://127.0.0.1:8000/readyz/
-```
-
-It returns HTTP 503 with a sanitized response when the database is unavailable.
-Use `make ps` for Compose liveness health and `make task-smoke` for the
-queue/worker path. Neither a liveness response nor database readiness proves
-that the worker is executing tasks.
-
-Before submitting a change, run the complete local validation:
-
-```console
-make check
-```
-
-The narrower `make test`, `make lint`, and `make validate` targets match the
-separately reported CI steps and are useful during development. `make validate`
-performs Django system checks, missing-migration detection, Compose validation,
-the application-image build, and a native media-runtime import smoke. `make
-check` runs all three targets. Test,
-lint, format, and complete validation run in a short-lived, profile-gated
-`tools` container with Python and the frozen development dependencies. They do
-not require host-installed Python or `uv`. The image build may need network
-access to obtain base images and locked dependencies and populates Docker's
-build cache. Once built, every tools invocation runs with `network_mode: none`;
-pytest, real-media fixtures, the non-eager Huey subprocess test, lint, and Django
-checks therefore have no container network namespace. The tools service is not
-part of the long-running default stack.
-CI runs this complete check on native Linux amd64 and arm64 runners so both
-supported container architectures build and exercise the locked media runtime.
+`make security-check` is explicitly network-enabled for current advisory/image
+scans, without application credentials/evidence. It includes redacted secret
+scanning. `make compose-smoke` exercises a disposable installation and recovery.
+Security scanning needs several GiB of temporary disk for exported image
+archives and the expanded vulnerability database. Its private temporary cache
+is disk-backed, not a large RAM tmpfs, and is removed after the scan; it receives
+no application-data, credential, or Docker-socket mount.
+Neither small smoke fixtures nor unit tests replace full-size capacity and
+explicit real-model release gates. See [the checklist](releasing.md).
 
 ## Troubleshooting
 
@@ -413,7 +499,8 @@ For the default data path, after making the backup described above:
 ```console
 make down
 PANDECT_QUEUE_RECOVERY="../pandect-queue-recovery-$(date +%Y%m%d-%H%M%S)"
-mkdir "$PANDECT_QUEUE_RECOVERY"
+umask 077
+mkdir -m 700 "$PANDECT_QUEUE_RECOVERY"
 for file in data/huey.sqlite3 data/huey.sqlite3-wal data/huey.sqlite3-shm; do
   if [ -e "$file" ]; then mv "$file" "$PANDECT_QUEUE_RECOVERY/"; fi
 done
@@ -438,15 +525,47 @@ matching source revision. Never recover by deleting only
 `application.sqlite3`; doing so destroys application state and breaks the
 backup boundary.
 
+### Media runner is busy or unavailable
+
+A long background job occupies the single media slot. Imports requiring a probe
+return an actionable busy/unavailable response rather than waiting indefinitely
+or decoding directly in web. Retry after the indicated interval; do not
+repeatedly submit the same batch.
+
+Check `make ps` and recent `media-runner` logs. Restore the supported Compose
+capabilities/mounts/resource configuration if confinement startup fails. Do not
+add networking, privileged mode, host PID/IPC, a Docker socket, or an execution
+fallback. Missing models need explicit provisioning, not internet access for
+the runner. A crash or resource limit should fail the isolated job; keep its
+sanitized code and rerun only after diagnosing the cause.
+
+### Upload, scratch, or output limits are reached
+
+The defaults are 2 GiB/file, 8 GiB/batch, 50 files, and 2 GiB free disk reserve.
+The runner separately has 4 GiB scratch, 8 GiB memory, and 1 GiB returned-output
+limits. Encoded size is not decoded size: a valid small file can exceed these
+bounds. A rejected batch must not create partial catalogue records. Do not
+delete originals or databases to make room. Move unrelated host data, expand
+storage, or preserve the original outside Pandect until the workflow can handle
+it. Report reproducible limit failures with generated media, not real evidence.
+
+### Setup rejects a data or model path
+
+Use default `./data` or a dedicated external directory without symlink
+components. Existing data must be owned by the invoking operator and private
+(`0700`); setup refuses unsafe roots rather than changing their permissions.
+Review the exact directory and its contents yourself before deliberately
+correcting ownership/permissions. Never recursively chmod a home, checkout, or
+unknown directory. Model permission preparation similarly refuses unexpected
+public files: retain/move unrelated content privately and retry setup, rather
+than widening it for parser jobs.
+
 ## Architecture boundary
 
-[`architecture/0001-foundation.md`](architecture/0001-foundation.md) is the
-canonical decision. The supported foundation is a single-machine,
-limited-concurrency, server-rendered Django application using two local SQLite
-stores. It is not an internet-facing or multi-operator deployment design.
-
-Domain entities, cases, relationships, evidence graphs, timelines, search,
-identity resolution, source adapters, scraping, polling, browser automation,
-and source credentials are explicit non-goals of the foundation. PostgreSQL,
-Redis, Celery, cloud-managed services, remote telemetry, a public API, and a
-general plugin framework are also excluded by default.
+The [living architecture](architecture/overview.md) links both accepted ADRs.
+Pandect is a single-machine, limited-concurrency Django application with local
+SQLite state, versioned extraction, and a closed operator-curated identity
+gallery. It is not an internet-facing or multi-operator deployment design.
+Source connectors, search, open-world identity lookup, public APIs, distributed
+workers, and generic plugin infrastructure remain outside the current boundary.
+Optional Cloudflare processing is narrowly consented, not a hosted default.

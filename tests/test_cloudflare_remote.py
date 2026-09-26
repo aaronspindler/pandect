@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -131,6 +132,26 @@ def test_configuration_rejects_client_timeouts_outside_the_fixed_bound(
 ):
     with pytest.raises(CloudflareConfigurationError, match="between 1 and 300"):
         _config(timeout_seconds=timeout_seconds).validate()
+
+
+def test_planning_configuration_does_not_require_worker_credentials():
+    config = _config(api_token="")
+    config.validate()
+    with pytest.raises(CloudflareConfigurationError, match="credentials"):
+        config.validate_credentials()
+
+
+def test_config_representation_does_not_disclose_token():
+    assert "test-private-token" not in repr(_config(api_token="test-private-token"))
+
+
+def test_gateway_refuses_missing_credentials_before_opening_network_client():
+    gateway = CloudflareGateway(_config(api_token=""))
+    with (
+        patch("httpx.Client", side_effect=AssertionError("no request permitted")),
+        pytest.raises(CloudflareConfigurationError, match="credentials"),
+    ):
+        gateway._post("https://api.cloudflare.com/client/v4/accounts/account/ai/run")
 
 
 @override_settings(CLOUDFLARE_TEXT_MODEL="@cf/deepgram/nova-3")

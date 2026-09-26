@@ -9,6 +9,10 @@
     <p>Select up to 50 original files. Pandect verifies their contents locally, stores them unchanged, extracts available facts, and then reviews each item with you.</p>
   </header>
 
+  {% if media_verification_warning %}
+    <p class="notice" role="status">{{ media_verification_warning }}</p>
+  {% endif %}
+
   <form class="catalogue-form" method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {% include "catalog/partials/form_fields.html" with form=form %}

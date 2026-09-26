@@ -2,7 +2,7 @@
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any
 
@@ -205,7 +205,7 @@ def _response_audit_metadata(
 class CloudflareConfig:
     enabled: bool
     account_id: str
-    api_token: str
+    api_token: str = field(repr=False)
     gateway_id: str
     text_model: str
     vision_model: str
@@ -226,9 +226,15 @@ class CloudflareConfig:
         )
 
     def validate(self) -> None:
+        """Validate public planning/consent configuration, without credentials.
+
+        The web service deliberately has no API token. Reviewing or recording
+        an exact remote consent must not require access to worker credentials.
+        Every actual request separately calls ``validate_credentials``.
+        """
         if not self.enabled:
             raise CloudflareDisabledError("Remote processing is disabled.")
-        if not self.account_id or not self.api_token or not self.gateway_id:
+        if not self.account_id or not self.gateway_id:
             raise CloudflareConfigurationError("Remote processing is not configured.")
         if not (
             MIN_CLIENT_TIMEOUT_SECONDS
@@ -239,6 +245,14 @@ class CloudflareConfig:
                 "The remote client timeout must be between 1 and 300 seconds."
             )
         self.validate_model_roles()
+
+    def validate_credentials(self) -> None:
+        """Validate execution configuration before creating a network client."""
+        self.validate()
+        if not self.api_token:
+            raise CloudflareConfigurationError(
+                "Remote processing credentials are not configured for this service."
+            )
 
     def validate_model_roles(self) -> None:
         """Require each model to match the adapter schema for its exact role."""
@@ -432,7 +446,7 @@ class CloudflareGateway:
         provider_input_kind: str | None = None,
         **kwargs,
     ) -> dict:
-        self.config.validate()
+        self.config.validate_credentials()
         deadline = monotonic() + self.config.timeout_seconds
         transport_failed = False
         try:

@@ -25,6 +25,10 @@ CLOUDFLARE_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"
 CLOUDFLARE_TRANSCRIPTION_MODEL = "@cf/deepgram/nova-3"
 CLOUDFLARE_CLIENT_TIMEOUT_SECONDS = 300
 
+# The hermetic suite's disposable tmpfs is only 128 MiB. Capacity-specific tests
+# override this explicitly; production retains its 2 GiB free-space reserve.
+STORAGE_FREE_RESERVE_BYTES = 1024 * 1024
+
 HUEY = {**HUEY, "immediate": True}  # noqa: F405
 STATIC_ROOT = Path(_TEST_DATA_DIR) / "staticfiles"
 STATIC_ROOT.mkdir()

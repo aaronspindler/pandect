@@ -1,16 +1,15 @@
 """Report local processing and optional remote capability availability."""
 
-import shutil
-
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from pandect.media_runner.client import status as media_runner_status
+from pandect.media_runner.protocol import RunnerBusy, RunnerError, RunnerJobError
 from pandect.processing.cloudflare_diagnostics import (
     CloudflareDiagnosticError,
     diagnose_cloudflare,
 )
 from pandect.processing.extractors.errors import ExtractorError
-from pandect.processing.extractors.subprocesses import run_command
 from pandect.processing.provisioning import (
     check_models,
     check_work_storage,
@@ -18,29 +17,37 @@ from pandect.processing.provisioning import (
 )
 from pandect.processing.remote.cloudflare import CloudflareConfig
 
-TOOL_VERSION_COMMANDS = {
-    "ffmpeg": ("ffmpeg", "-version"),
-    "ffprobe": ("ffprobe", "-version"),
-    "exiftool": ("exiftool", "-ver"),
-    "tesseract": ("tesseract", "--version"),
-}
+TOOL_NAMES = ("ffmpeg", "ffprobe", "exiftool", "tesseract")
 
 
-def _tool_version(argv: tuple[str, ...]) -> str | None:
+def _tool_version(tool: str) -> str | None:
+    from pandect.media_runner.client import run_operation
+
     try:
-        result = run_command(argv, timeout_seconds=15, output_limit_bytes=64 * 1024)
-    except ExtractorError:
+        result = run_operation(
+            "tool_version",
+            inputs={},
+            parameters={"tool": tool},
+            timeout_seconds=15,
+        )
+    except (ExtractorError, RunnerJobError):
         return None
-    combined = result.stdout + b"\n" + result.stderr
-    for raw_line in combined.decode("utf-8", errors="replace").splitlines():
-        line = " ".join(raw_line.strip().split())
-        if line:
-            return line[:200]
-    return None
+    version = result.get("version")
+    return version if isinstance(version, str) and 0 < len(version) <= 200 else None
 
 
 class Command(BaseCommand):
     help = "Inspect local processing tools, models, and Cloudflare configuration."
+
+    def report_runner_state(self, state: str) -> None:
+        guidance = {
+            "ready": "",
+            "busy": "; retry diagnostics after the current job finishes.",
+            "unavailable": (
+                "; run make up or inspect docker compose logs media-runner, then retry."
+            ),
+        }
+        self.stdout.write(f"media runner: {state}{guidance[state]}")
 
     def add_arguments(self, parser):
         parser.add_argument("--smoke-models", action="store_true")
@@ -58,8 +65,29 @@ class Command(BaseCommand):
         if options["accept_meta_license"] and not options["cloudflare"]:
             raise CommandError("--accept-meta-license requires --cloudflare.")
         unavailable = []
-        for binary, argv in TOOL_VERSION_COMMANDS.items():
-            version = _tool_version(argv) if shutil.which(binary) else None
+        try:
+            runner_state = "busy" if media_runner_status()["busy"] else "ready"
+        except RunnerBusy:
+            runner_state = "busy"
+        except RunnerError:
+            runner_state = "unavailable"
+        self.report_runner_state(runner_state)
+        for binary in TOOL_NAMES:
+            version = None
+            if runner_state == "ready":
+                try:
+                    version = _tool_version(binary)
+                except RunnerBusy:
+                    runner_state = "busy"
+                    self.report_runner_state(runner_state)
+                except RunnerError:
+                    runner_state = "unavailable"
+                    self.report_runner_state(runner_state)
+            if runner_state != "ready":
+                self.stdout.write(
+                    f"tool {binary}: not checked (media runner {runner_state})"
+                )
+                continue
             if version is None:
                 unavailable.append(binary)
                 self.stdout.write(f"tool {binary}: unavailable")
@@ -83,12 +111,23 @@ class Command(BaseCommand):
         if not storage.valid:
             unavailable.append("work storage")
 
-        if options["smoke_models"]:
+        if options["smoke_models"] and runner_state != "ready":
+            unavailable.append("media runner")
+            self.stdout.write(
+                f"model runtime: not checked (media runner {runner_state})"
+            )
+        elif options["smoke_models"]:
             for check in smoke_infer_models_isolated(settings.MODELS_ROOT):
                 state = "inference passed" if check.passed else check.error_code
                 self.stdout.write(f"model runtime {check.component}: {state}")
                 if not check.passed:
                     unavailable.append(check.component)
+                    if check.error_code == "media_runner_failed":
+                        self.stdout.write(
+                            "Model smoke could not use the media runner. Retry after "
+                            "the current job finishes, or run make up and inspect "
+                            "docker compose logs media-runner."
+                        )
 
         self.stdout.write(
             "Cloudflare AI: "

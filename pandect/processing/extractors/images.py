@@ -10,6 +10,7 @@ from math import gcd
 from os import PathLike
 from typing import Any
 
+from pandect.media_runner.routing import isolated, require_child
 from pandect.processing.extractors.errors import (
     OptionalDependencyUnavailableError,
     ResourceLimitError,
@@ -37,6 +38,7 @@ _HEIF_BRANDS = {
 
 
 def _pillow():
+    require_child()
     try:
         from PIL import Image, ImageFilter, ImageOps
     except ImportError as error:  # pragma: no cover - depends on runtime image.
@@ -262,6 +264,7 @@ class ImageTechnicalMetadata:
         return deepcopy(self.technical)
 
 
+@isolated("analyze_image", source="path")
 def analyze_image(
     path: str | PathLike[str],
     *,
@@ -395,6 +398,7 @@ def analyze_image(
         Image.MAX_IMAGE_PIXELS = previous_limit
 
 
+@isolated("render_image_frame", source="path", destination="destination")
 def render_image_frame(
     path: str | PathLike[str],
     destination: str | PathLike[str],

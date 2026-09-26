@@ -1,14 +1,9 @@
-name: pandect
-
 x-pandect-service: &pandect-service
-  image: pandect:local
+  image: ${COMPOSE_PROJECT_NAME:-pandect}-runtime:local
   build:
     context: .
     target: runtime
-  env_file:
-    - path: .env
-      required: false
-  environment:
+  environment: &pandect-environment
     MKL_NUM_THREADS: "1"
     NUMEXPR_NUM_THREADS: "1"
     OMP_NUM_THREADS: "1"
@@ -17,16 +12,33 @@ x-pandect-service: &pandect-service
     PANDECT_ALLOWED_HOSTS: "${PANDECT_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
     PANDECT_DATA_DIR: /data
     PANDECT_DEBUG: "${PANDECT_DEBUG:-false}"
+    PANDECT_SECRET_KEY: "${PANDECT_SECRET_KEY:-}"
     PANDECT_MODELS_DIR: /data/models
+    PANDECT_RUNNER_SOCKET: /run/pandect-media/runner.sock
     PANDECT_TIME_ZONE: "${PANDECT_TIME_ZONE:-UTC}"
     PANDECT_WORK_DIR: /data/work
+    PANDECT_CLOUDFLARE_AI_ENABLED: "${PANDECT_CLOUDFLARE_AI_ENABLED:-false}"
+    PANDECT_CLOUDFLARE_ACCOUNT_ID: "${PANDECT_CLOUDFLARE_ACCOUNT_ID:-}"
+    PANDECT_CLOUDFLARE_GATEWAY_ID: "${PANDECT_CLOUDFLARE_GATEWAY_ID:-pandect}"
+    PANDECT_CLOUDFLARE_TEXT_MODEL: "${PANDECT_CLOUDFLARE_TEXT_MODEL:-@cf/meta/llama-3.2-11b-vision-instruct}"
+    PANDECT_CLOUDFLARE_VISION_MODEL: "${PANDECT_CLOUDFLARE_VISION_MODEL:-@cf/meta/llama-3.2-11b-vision-instruct}"
+    PANDECT_CLOUDFLARE_TRANSCRIPTION_MODEL: "${PANDECT_CLOUDFLARE_TRANSCRIPTION_MODEL:-@cf/deepgram/nova-3}"
+    PANDECT_CLOUDFLARE_CLIENT_TIMEOUT_SECONDS: "${PANDECT_CLOUDFLARE_CLIENT_TIMEOUT_SECONDS:-300}"
   volumes:
     - type: bind
       source: "${PANDECT_DATA_DIR:-./data}"
       target: /data
+      bind:
+        create_host_path: false
     - type: bind
       source: "${PANDECT_DATA_DIR:-./data}/models"
       target: /data/models
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: volume
+      source: media-socket
+      target: /run/pandect-media
       read_only: true
   init: true
   read_only: true
@@ -34,6 +46,8 @@ x-pandect-service: &pandect-service
     - /tmp:rw,noexec,nosuid,size=64m
   security_opt:
     - no-new-privileges:true
+  cap_drop: [ALL]
+  pids_limit: 64
   user: "${PANDECT_UID:-1000}:${PANDECT_GID:-1000}"
   restart: unless-stopped
   stop_signal: SIGINT
@@ -42,6 +56,11 @@ x-pandect-service: &pandect-service
 services:
   web:
     <<: *pandect-service
+    mem_limit: 512m
+    memswap_limit: 512m
+    depends_on:
+      media-runner:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${PANDECT_PORT:-8000}:8000"
     healthcheck:
@@ -59,6 +78,14 @@ services:
 
   worker:
     <<: *pandect-service
+    environment:
+      <<: *pandect-environment
+      PANDECT_CLOUDFLARE_API_TOKEN: "${PANDECT_CLOUDFLARE_API_TOKEN:-}"
+    mem_limit: 1g
+    memswap_limit: 1g
+    depends_on:
+      media-runner:
+        condition: service_healthy
     command: ["python", "manage.py", "run_huey", "-w", "1", "-k", "thread"]
     healthcheck:
       test: ["CMD", "python", "scripts/worker-healthcheck.py"]
@@ -77,11 +104,81 @@ services:
       - type: bind
         source: "${PANDECT_DATA_DIR:-./data}"
         target: /data
+        bind:
+          create_host_path: false
     restart: "no"
+
+  # Networkless native-code boundary. The supervisor must remain namespace PID
+  # 1: it kills/reaps every job descendant before allowing a subsequent job.
+  media-runner:
+    image: ${COMPOSE_PROJECT_NAME:-pandect}-runtime:local
+    build:
+      context: .
+      target: runtime
+    entrypoint: [python, -m, pandect.media_runner]
+    command: []
+    user: "0:0"
+    network_mode: none
+    ipc: private
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, KILL]
+    mem_limit: 8g
+    memswap_limit: 8g
+    cpus: 2
+    pids_limit: 128
+    ulimits:
+      core: 0
+      nofile:
+        soft: 256
+        hard: 256
+    environment:
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      OMP_THREAD_LIMIT: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      PANDECT_RUNNER_SOCKET: /run/pandect-media/runner.sock
+      PANDECT_RUNNER_APP_UID: "${PANDECT_UID:-1000}"
+      PANDECT_RUNNER_APP_GID: "${PANDECT_GID:-1000}"
+      PANDECT_RUNNER_MODELS_DIR: /models
+    volumes:
+      - type: volume
+        source: media-socket
+        target: /run/pandect-media
+      - type: bind
+        source: "${PANDECT_DATA_DIR:-./data}/models"
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /scratch:rw,nodev,nosuid,noexec,size=4g,nr_inodes=8192,mode=0700
+      - /tmp:rw,nodev,nosuid,noexec,size=1m,mode=0755
+    restart: unless-stopped
+    stop_grace_period: 10s
+    healthcheck:
+      test: [CMD, python, -m, pandect.media_runner, --healthcheck]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  maintenance:
+    profiles: [tools]
+    image: ${COMPOSE_PROJECT_NAME:-pandect}-maintenance:local
+    build:
+      context: .
+      target: maintenance
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
   tools:
     profiles: [tools]
-    image: pandect-tools:local
+    image: ${COMPOSE_PROJECT_NAME:-pandect}-tools:local
     build:
       context: .
       target: tools
@@ -111,3 +208,6 @@ services:
     security_opt:
       - no-new-privileges:true
     user: "${PANDECT_UID:-1000}:${PANDECT_GID:-1000}"
+
+volumes:
+  media-socket:

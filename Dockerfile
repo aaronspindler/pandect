@@ -2,6 +2,10 @@
 
 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a AS uv
 
+# Pinned scanner-only targets. They never receive application credentials/data.
+FROM ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f AS secret-scanner
+FROM ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 AS vulnerability-scanner
+
 FROM python:3.13-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -15,14 +19,15 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --locked --no-dev --no-install-project
 
-COPY manage.py ./
+COPY manage.py LICENSE NOTICE ./
 COPY pandect ./pandect
 COPY static ./static
 COPY templates ./templates
-COPY scripts/worker-healthcheck.py ./scripts/worker-healthcheck.py
-RUN PANDECT_DATA_DIR=/tmp/pandect-build \
+COPY scripts ./scripts
+RUN chmod -R a+rX manage.py pyproject.toml uv.lock LICENSE NOTICE pandect static templates scripts \
+    && PANDECT_DATA_DIR=/tmp/pandect-build \
     PANDECT_DEBUG=false \
     PANDECT_SECRET_KEY=container-image-build-only \
     .venv/bin/python manage.py collectstatic --noinput
@@ -44,6 +49,8 @@ RUN apt-get update \
     && apt-get install --no-install-recommends --yes \
         ffmpeg \
         libgomp1 \
+        libpcre2-8-0 \
+        libseccomp2 \
         libimage-exiftool-perl \
         tesseract-ocr \
         tesseract-ocr-eng \
@@ -58,7 +65,15 @@ RUN groupadd --gid 10001 pandect \
 
 WORKDIR /app
 
-COPY --from=builder --chown=pandect:pandect /app /app
+# Keep the large immutable native/Python environment in its own cached layer.
+# Application code is root-owned and world-readable; runtime users cannot edit it.
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/manage.py /app/pyproject.toml /app/uv.lock /app/LICENSE /app/NOTICE ./
+COPY --from=builder /app/pandect ./pandect
+COPY --from=builder /app/static ./static
+COPY --from=builder /app/staticfiles ./staticfiles
+COPY --from=builder /app/templates ./templates
+COPY --from=builder /app/scripts ./scripts
 
 USER pandect
 
@@ -87,6 +102,8 @@ RUN apt-get update \
     && apt-get install --no-install-recommends --yes \
         ffmpeg \
         libgomp1 \
+        libpcre2-8-0 \
+        libseccomp2 \
         libimage-exiftool-perl \
         tesseract-ocr \
         tesseract-ocr-eng \
@@ -101,8 +118,29 @@ WORKDIR /workspace
 
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project
+    uv sync --locked --no-install-project
 
 USER pandect
 
 CMD ["python", "manage.py", "check"]
+
+# Setup/recovery must work before the application or its dependencies are built.
+# The maintenance helper is standard-library-only and never imports Django.
+FROM python:3.13-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS maintenance
+
+# Refresh the inherited PCRE2 library from Debian security (DLA-4772-1).
+# Runtime/tools explicitly install it above for the same reason.
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes libpcre2-8-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+COPY LICENSE NOTICE ./
+COPY scripts ./scripts
+COPY pandect/config/data_paths.py ./pandect/config/data_paths.py
+RUN chmod -R a+rX /app/scripts /app/pandect /app/LICENSE /app/NOTICE
+CMD ["python", "scripts/maintenance.py", "--help"]

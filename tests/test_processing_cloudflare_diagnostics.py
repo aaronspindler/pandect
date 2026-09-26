@@ -124,6 +124,22 @@ def test_remote_diagnostic_failure_is_sanitized():
     assert "private" not in str(failure.value)
 
 
+def test_remote_diagnostic_never_trusts_ambient_proxy_credentials():
+    original_client = httpx.Client
+    with patch("httpx.Client", wraps=original_client) as client:
+        diagnose_cloudflare(_config(), transport=httpx.MockTransport(_response))
+    assert client.call_args.kwargs["trust_env"] is False
+
+
+def test_remote_diagnostic_requires_execution_credentials():
+    with (
+        patch("httpx.Client", side_effect=AssertionError("must not connect")),
+        pytest.raises(CloudflareDiagnosticError) as failure,
+    ):
+        diagnose_cloudflare(_config(api_token=""))
+    assert failure.value.code == "configuration_invalid"
+
+
 def test_remote_diagnostic_rejects_unavailable_configured_model():
     def handler(request):
         return httpx.Response(
@@ -155,7 +171,7 @@ def test_command_runs_explicit_cloudflare_diagnostic(settings, tmp_path):
     )
     command = "pandect.processing.management.commands.processing_diagnostics"
     with (
-        patch(f"{command}.shutil.which", return_value="/usr/bin/tool"),
+        patch(f"{command}.media_runner_status", return_value={"busy": False}),
         patch(f"{command}._tool_version", return_value="tool 1"),
         patch(f"{command}.check_models", return_value=()),
         patch(f"{command}.diagnose_cloudflare", return_value=report) as diagnose,
@@ -177,7 +193,10 @@ def test_command_runs_explicit_cloudflare_diagnostic(settings, tmp_path):
 @pytest.mark.django_db
 def test_health_and_readiness_do_not_run_remote_diagnostics(client):
     command = "pandect.processing.cloudflare_diagnostics.diagnose_cloudflare"
-    with patch(command, side_effect=AssertionError("must remain independent")) as run:
+    with (
+        patch(command, side_effect=AssertionError("must remain independent")) as run,
+        patch("pandect.core.views.media_runner_status", return_value={"busy": False}),
+    ):
         assert client.get("/healthz/").status_code == 200
         assert client.get("/readyz/").status_code == 200
     run.assert_not_called()

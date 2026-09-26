@@ -152,7 +152,7 @@
     {% include "processing/partials/results.html" with results=model_results only %}
     <h3 class="subsection-heading">Optional remote processing</h3>
     {% if not remote_enabled %}
-      <p class="empty-copy">Cloudflare AI is disabled. No evidence can leave this machine.</p>
+      <p class="empty-copy">Cloudflare AI is disabled. Pandect will not submit this item's evidence through its remote-processing feature. Protect the trusted host and its data; this setting is not host-wide network isolation.</p>
     {% elif remote_plan %}
       <div class="remote-consent">
         <p>This consent applies only to the exact manifest below. It is invalidated by any change to the source, derivative, recipient, model, prompt, or request plan.</p>

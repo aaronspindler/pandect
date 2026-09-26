@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from os import PathLike
 from typing import Any
 
+from pandect.media_runner.routing import isolated
 from pandect.processing.extractors.errors import InvalidExtractorOutputError
 from pandect.processing.extractors.subprocesses import CommandResult, run_command
 
@@ -185,6 +186,7 @@ def parse_ffprobe_json(value: str | bytes) -> FFProbeMetadata:
     return FFProbeMetadata(raw=raw, technical=technical)
 
 
+@isolated("probe_media", source="path")
 def probe_media(
     path: str | PathLike[str],
     *,

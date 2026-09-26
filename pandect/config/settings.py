@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = create_data_directory(BASE_DIR)
 
 SECRET_KEY = load_secret_key(DATA_DIR)
-DEBUG = boolean("PANDECT_DEBUG", default=True)
+DEBUG = boolean("PANDECT_DEBUG", default=False)
 ALLOWED_HOSTS = comma_separated(
     "PANDECT_ALLOWED_HOSTS",
     default=("localhost", "127.0.0.1", "[::1]"),
@@ -39,6 +39,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "pandect.catalog.uploads.UploadRejectionMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -108,11 +109,19 @@ for private_directory in (WORK_ROOT, MODELS_ROOT):
 FILE_UPLOAD_TEMP_DIR = WORK_ROOT / "uploads"
 FILE_UPLOAD_TEMP_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
 
+# Count actual streamed bytes before Django creates persistent upload files.
+UPLOAD_MAX_FILE_BYTES = 2 * 1024**3
+UPLOAD_MAX_BATCH_BYTES = 8 * 1024**3
+UPLOAD_MAX_FILES = 50
+STORAGE_FREE_RESERVE_BYTES = 2 * 1024**3
+FILE_UPLOAD_HANDLERS = [
+    "pandect.catalog.uploads.GuardedUploadHandler",
+]
+DATA_UPLOAD_MAX_NUMBER_FILES = UPLOAD_MAX_FILES + 1
+
 PROCESSING_MAX_IMAGE_PIXELS = 200_000_000
 PROCESSING_MAX_IMAGE_FRAMES = 100
 PROCESSING_MAX_VIDEO_FRAMES = 120
-PROCESSING_MAX_REMOTE_VIDEO_FRAMES = 12
-PROCESSING_SUBPROCESS_OUTPUT_LIMIT = 16 * 1024 * 1024
 
 CLOUDFLARE_AI_ENABLED = boolean("PANDECT_CLOUDFLARE_AI_ENABLED", default=False)
 CLOUDFLARE_ACCOUNT_ID = os.environ.get("PANDECT_CLOUDFLARE_ACCOUNT_ID", "")

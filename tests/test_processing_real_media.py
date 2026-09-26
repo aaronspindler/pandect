@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from pandect.catalog.models import CatalogItem
 from pandect.catalog.services import inspect_uploaded_media
+from pandect.media_runner.routing import child_execution
 from pandect.processing.extractors.audio import analyze_acoustics, detect_silence
 from pandect.processing.extractors.derived_media import (
     detect_scene_changes,
@@ -54,17 +55,19 @@ def _required_binary(name: str) -> str:
 
 
 def _run_ffmpeg(ffmpeg: str, *arguments: str | os.PathLike[str]) -> None:
-    run_command(
-        (
-            ffmpeg,
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            *arguments,
-        ),
-        timeout_seconds=30,
-    )
+    # Session-scoped generation precedes the per-test extractor context.
+    with child_execution():
+        run_command(
+            (
+                ffmpeg,
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                *arguments,
+            ),
+            timeout_seconds=30,
+        )
 
 
 @dataclass(frozen=True)
@@ -293,23 +296,24 @@ def exif_jpeg(tmp_path_factory) -> Path:
     exiftool = _required_binary("exiftool")
     path = tmp_path_factory.mktemp("real-image") / "timestamp-and-gps.jpg"
     Image.new("RGB", (40, 30), "#336699").save(path, format="JPEG", quality=90)
-    run_command(
-        (
-            exiftool,
-            "-overwrite_original",
-            "-EXIF:DateTimeOriginal=2026:08:12 10:11:12",
-            "-EXIF:OffsetTimeOriginal=-04:00",
-            "-EXIF:GPSLatitude=43.6533333333",
-            "-EXIF:GPSLatitudeRef=N",
-            "-EXIF:GPSLongitude=79.375",
-            "-EXIF:GPSLongitudeRef=W",
-            "-EXIF:GPSAltitude=75.5",
-            "-EXIF:GPSAltitudeRef=0",
-            "--",
-            path,
-        ),
-        timeout_seconds=30,
-    )
+    with child_execution():
+        run_command(
+            (
+                exiftool,
+                "-overwrite_original",
+                "-EXIF:DateTimeOriginal=2026:08:12 10:11:12",
+                "-EXIF:OffsetTimeOriginal=-04:00",
+                "-EXIF:GPSLatitude=43.6533333333",
+                "-EXIF:GPSLatitudeRef=N",
+                "-EXIF:GPSLongitude=79.375",
+                "-EXIF:GPSLongitudeRef=W",
+                "-EXIF:GPSAltitude=75.5",
+                "-EXIF:GPSAltitudeRef=0",
+                "--",
+                path,
+            ),
+            timeout_seconds=30,
+        )
     return path
 
 

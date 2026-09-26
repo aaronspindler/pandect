@@ -1,0 +1,10 @@
+Pandect
+Copyright 2026 Aaron Spindler
+
+Pandect's original source code and documentation are licensed under the
+Apache License, Version 2.0. See LICENSE.
+
+The vendored HTMX 2.0.10 browser library retains its Zero-Clause BSD license
+in static/vendor/htmx/LICENSE. Dependencies and optional model artifacts
+retain their respective upstream licenses; they are not relicensed by
+Pandect. See docs/third-party-notices.md and docs/model-licenses.md.

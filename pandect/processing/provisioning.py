@@ -6,7 +6,7 @@ import json
 import math
 import os
 import re
-import sys
+import stat
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,11 +16,13 @@ from uuid import uuid4
 
 import httpx
 
+from pandect.media_runner.protocol import RunnerError
+from pandect.media_runner.routing import require_child
+from pandect.media_runner.validation import validate_operation_result
 from pandect.processing.extractors.errors import (
     ExtractorError,
     InvalidExtractorOutputError,
 )
-from pandect.processing.extractors.subprocesses import run_command
 from pandect.processing.model_manifest import (
     MODEL_ARTIFACTS,
     LegalReference,
@@ -149,7 +151,7 @@ def check_models(
     checks = []
     for artifact in artifacts:
         path = artifact.path(root)
-        present = path.is_file()
+        present = not root.is_symlink() and not path.is_symlink() and path.is_file()
         try:
             byte_size = path.stat().st_size if present else 0
             actual = (
@@ -167,6 +169,102 @@ def check_models(
         )
         checks.append(ModelCheck(artifact, path, present, valid, actual, byte_size))
     return tuple(checks)
+
+
+def prepare_model_permissions(
+    root: Path,
+    *,
+    artifacts: Iterable[ModelArtifact] = MODEL_ARTIFACTS,
+) -> int:
+    """Explicitly share only verified public artifacts with isolated job UIDs.
+
+    This does not traverse the surrounding private data directory, recursively
+    chmod unknown content, or expose the provisioning notice (which may contain
+    operator annotations). Open descriptors bind validation and chmod to the
+    same regular, singly-linked file; symlinks are never followed.
+    """
+    selected = tuple(artifacts)
+    if not root.exists() and not root.is_symlink():
+        return 0
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+    directories = []
+    verified = []
+    try:
+        root_fd = os.open(root, directory_flags)
+        directories.append(root_fd)
+        public_files = {
+            artifact.filename: (artifact.sha256, artifact.byte_size, MAX_MODEL_BYTES)
+            for artifact in selected
+        }
+        public_legal = {
+            reference.document.filename: (
+                reference.document.sha256,
+                reference.document.byte_size,
+                MAX_LEGAL_DOCUMENT_BYTES,
+            )
+            for reference in _legal_references(selected)
+        }
+        inventories = [(root_fd, public_files)]
+        try:
+            legal_fd = os.open(LEGAL_DIRECTORY_NAME, directory_flags, dir_fd=root_fd)
+        except FileNotFoundError:
+            pass
+        else:
+            directories.append(legal_fd)
+            inventories.append((legal_fd, public_legal))
+
+        # Refuse an already-public unknown/invalid entry before making the
+        # enclosing directory traversable. Private legacy notices are retained.
+        for directory_fd, inventory in inventories:
+            for name in os.listdir(directory_fd):
+                if directory_fd == root_fd and name == LEGAL_DIRECTORY_NAME:
+                    continue
+                entry = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                if stat.S_ISLNK(entry.st_mode):
+                    raise ProvisioningError("model_storage_contains_symlink")
+                expected = inventory.get(name)
+                valid = False
+                if expected and stat.S_ISREG(entry.st_mode) and entry.st_nlink == 1:
+                    descriptor = os.open(name, file_flags, dir_fd=directory_fd)
+                    try:
+                        actual = os.fstat(descriptor)
+                        digest, size, maximum = expected
+                        if (
+                            stat.S_ISREG(actual.st_mode)
+                            and actual.st_nlink == 1
+                            and actual.st_size <= maximum
+                            and (size is None or actual.st_size == size)
+                        ):
+                            with os.fdopen(os.dup(descriptor), "rb") as source:
+                                actual_digest = hashlib.file_digest(source, "sha256")
+                            valid = actual_digest.hexdigest() == digest.casefold()
+                        if valid:
+                            verified.append(descriptor)
+                            descriptor = None
+                    finally:
+                        if descriptor is not None:
+                            os.close(descriptor)
+                if not valid:
+                    if entry.st_mode & 0o007:
+                        raise ProvisioningError("unverified_model_storage_is_public")
+                    # A private unknown entry must not be owned by a future
+                    # isolated job identity, which could read its owner bits.
+                    if entry.st_uid not in {0, os.geteuid()}:
+                        raise ProvisioningError("unverified_model_storage_owner")
+
+        for descriptor in verified:
+            os.fchmod(descriptor, 0o644)
+        for descriptor in directories:
+            os.fchmod(descriptor, 0o755)
+        return len(verified)
+    except ProvisioningError:
+        raise
+    except OSError as error:
+        raise ProvisioningError("model_permissions_unavailable") from error
+    finally:
+        for descriptor in (*verified, *directories):
+            os.close(descriptor)
 
 
 def _http_download(
@@ -406,6 +504,8 @@ def provision_models(
     selected = tuple(artifacts)
     if not selected:
         raise ProvisioningError("empty_manifest")
+    if root.is_symlink() or work_root.is_symlink():
+        raise ProvisioningError("model_storage_contains_symlink")
     try:
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         work_root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -473,6 +573,12 @@ def provision_models(
 
     if write_notice:
         _write_notice(root, work_root, selected)
+    # Include the complete manifest so provisioning one artifact does not
+    # reject already-provisioned public siblings. Test/custom manifests remain
+    # supported without changing any files absent from either allowlist.
+    complete = {artifact.filename: artifact for artifact in MODEL_ARTIFACTS}
+    complete.update({artifact.filename: artifact for artifact in selected})
+    prepare_model_permissions(root, artifacts=complete.values())
     return tuple(results)
 
 
@@ -535,12 +641,14 @@ def check_work_storage(work_root: Path, model_root: Path) -> StorageCheck:
 
 
 def _load_face_models(root: Path) -> None:
+    require_child()
     from pandect.processing.extractors.faces import FaceModelPaths, OpenCVFaceRuntime
 
     OpenCVFaceRuntime(FaceModelPaths.from_root(root))
 
 
 def _load_voice_models(root: Path) -> None:
+    require_child()
     from pandect.processing.extractors.voice import (
         SherpaOnnxVoiceRuntime,
         VoiceModelPaths,
@@ -619,6 +727,7 @@ def _exercise_face_runtime(runtime, frame, aligned) -> None:
 
 
 def _infer_face_models(root: Path) -> None:
+    require_child()
     import cv2
     import numpy as np
 
@@ -679,6 +788,7 @@ def _exercise_voice_runtime(runtime, waveform) -> None:
 
 
 def _infer_voice_models(root: Path) -> None:
+    require_child()
     from pandect.processing.extractors.voice import (
         SherpaOnnxVoiceRuntime,
         VoiceModelPaths,
@@ -730,7 +840,11 @@ def _parse_model_smoke_report(value: bytes) -> tuple[ModelInferenceCheck, ...]:
         decoded = json.loads(report_line)
     except (UnicodeDecodeError, TypeError, ValueError) as error:
         raise InvalidExtractorOutputError from error
-    if not isinstance(decoded, dict) or decoded.get("schema_version") != "1":
+    if (
+        not isinstance(decoded, dict)
+        or set(decoded) != {"schema_version", "checks"}
+        or decoded.get("schema_version") != "1"
+    ):
         raise InvalidExtractorOutputError
     checks = decoded.get("checks")
     if not isinstance(checks, list) or not checks:
@@ -755,28 +869,51 @@ def _parse_model_smoke_report(value: bytes) -> tuple[ModelInferenceCheck, ...]:
             raise InvalidExtractorOutputError
         seen_components.add(component)
         results.append(ModelInferenceCheck(component, passed, error_code))
+    if seen_components == {"manifest"}:
+        if results[0].passed:
+            raise InvalidExtractorOutputError
+    elif seen_components != {"face/OpenVINO", "voice/Silero/CAM++"}:
+        raise InvalidExtractorOutputError
     return tuple(results)
 
 
 def smoke_infer_models_isolated(
     root: Path,
     *,
-    python_binary: str = sys.executable,
-    runner=run_command,
+    runner=None,
 ) -> tuple[ModelInferenceCheck, ...]:
-    """Run real model inference in a hard-time-limited, output-bounded child."""
+    """Run inference only through the confined runner's fixed model mount."""
+    del root  # The public runner protocol never accepts arbitrary model paths.
+    if runner is None:
+        from pandect.media_runner.client import run_operation
+
+        runner = run_operation
     try:
         result = runner(
-            (
-                python_binary,
-                "-m",
-                "pandect.processing.model_smoke_worker",
-                "--models-root",
-                root,
-            ),
+            "model_smoke",
+            inputs={},
+            parameters={},
             timeout_seconds=MODEL_SMOKE_TIMEOUT_SECONDS,
-            output_limit_bytes=MODEL_SMOKE_OUTPUT_LIMIT_BYTES,
         )
-        return _parse_model_smoke_report(result.stdout)
+        if not isinstance(result, dict):
+            raise InvalidExtractorOutputError
+        # Transport metadata is not part of the model report. This operation
+        # must never return artifacts, even from a compromised parser child.
+        report = dict(result)
+        if report.pop("outputs", {}) != {}:
+            raise InvalidExtractorOutputError
+        validate_operation_result("model_smoke", report)
+        encoded = json.dumps(report, allow_nan=False).encode("utf-8")
+        if len(encoded) > MODEL_SMOKE_OUTPUT_LIMIT_BYTES:
+            raise InvalidExtractorOutputError
+        return _parse_model_smoke_report(MODEL_SMOKE_REPORT_PREFIX + encoded)
     except ExtractorError as error:
         return (ModelInferenceCheck("model-smoke process", False, error.code),)
+    except RunnerError:
+        return (
+            ModelInferenceCheck("model-smoke process", False, "media_runner_failed"),
+        )
+    except (TypeError, ValueError):
+        return (
+            ModelInferenceCheck("model-smoke process", False, "invalid_tool_output"),
+        )

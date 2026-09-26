@@ -54,6 +54,7 @@ from pandect.processing.remote.workflows import (
     RemotePlanError,
 )
 from pandect.processing.services import (
+    PROCESSOR_VERSION,
     ProcessingError,
     create_local_run,
     source_fingerprint,
@@ -86,7 +87,7 @@ def make_run(item, *, status=ProcessingRun.Status.SUCCEEDED):
         trigger=ProcessingRun.Trigger.AUTOMATIC,
         source_fingerprint=source_sha256,
         source_size=source_size,
-        processor_version="1",
+        processor_version=PROCESSOR_VERSION,
         status=status,
     )
 
@@ -238,7 +239,7 @@ def test_default_detail_keeps_full_local_base_and_layers_current_supplements(cli
         scope=ProcessingRun.Scope.LOCAL,
         source_fingerprint=base_run.source_fingerprint,
         source_size=base_run.source_size,
-        processor_version="1",
+        processor_version=PROCESSOR_VERSION,
         status=ProcessingRun.Status.SUCCEEDED,
         configuration={
             "workflow": "identity_gallery_rematch",

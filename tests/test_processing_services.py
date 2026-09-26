@@ -317,7 +317,6 @@ def test_local_run_snapshots_effective_configuration_and_preserves_caller_values
         PROCESSING_MAX_IMAGE_PIXELS=123_456,
         PROCESSING_MAX_IMAGE_FRAMES=7,
         PROCESSING_MAX_VIDEO_FRAMES=19,
-        PROCESSING_SUBPROCESS_OUTPUT_LIMIT=987_654,
     ):
         run = create_local_run(
             item,
@@ -337,8 +336,9 @@ def test_local_run_snapshots_effective_configuration_and_preserves_caller_values
     assert snapshot["resource_limits"]["image_max_decoded_pixels"] == 123_456
     assert snapshot["resource_limits"]["image_max_decoded_frames"] == 7
     assert snapshot["resource_limits"]["video_max_local_frames"] == 19
-    assert snapshot["resource_limits"]["subprocess_configured_output_bytes"] == (
-        987_654
+    assert snapshot["execution_policy"] == "isolated-media-runner-v1"
+    assert snapshot["resource_limits"]["subprocess_default_output_bytes"] == (
+        16 * 1024 * 1024
     )
     assert snapshot["resource_limits"]["native_inference_threads"] == 1
     assert snapshot["resource_limits"]["ffmpeg_decoder_threads"] == 1
@@ -353,7 +353,7 @@ def test_local_snapshot_retains_digest_pinned_model_provenance():
     snapshot = local_processing_configuration_snapshot(CatalogItem.ItemType.IMAGE)
 
     models = {model["filename"]: model for model in snapshot["models"]}
-    assert snapshot["schema_version"] == 3
+    assert snapshot["schema_version"] == 4
     assert models["face_detection_yunet_2023mar.onnx"]["sha256"] == (
         "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
     )

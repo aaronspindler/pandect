@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from os import PathLike
 from typing import Any
 
+from pandect.media_runner.routing import isolated
 from pandect.processing.extractors.errors import InvalidExtractorOutputError
 from pandect.processing.extractors.subprocesses import CommandResult, run_command
 
@@ -145,6 +146,7 @@ def parse_exiftool_json(value: str | bytes) -> ExifToolMetadata:
     )
 
 
+@isolated("extract_metadata", source="path")
 def extract_metadata(
     path: str | PathLike[str],
     *,

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from pandect.media_runner.routing import isolated, require_child
 from pandect.processing.extractors.errors import (
     InvalidExtractorOutputError,
     ModelIntegrityError,
@@ -647,6 +648,7 @@ def analyze_voice(
     source_start_ms: int = 0,
 ) -> VoiceAnalysis:
     """Run bounded local VAD, quality gates, and CAM++ feature extraction."""
+    require_child()
     if sample_rate != SAMPLE_RATE:
         raise ValueError("voice analysis requires mono 16 kHz samples")
     if source_start_ms < 0:
@@ -801,12 +803,31 @@ def analyze_voice(
     )
 
 
+@isolated("analyze_voice_file", source="path")
+def analyze_voice_file(path: Path, *, source_start_ms: int = 0) -> VoiceAnalysis:
+    """Decode normalized audio and infer without exporting PCM to the worker."""
+    import tempfile
+
+    from pandect.media_runner.operations import read_waveform
+
+    require_child()
+    with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+        samples, sample_rate = read_waveform(path, Path(directory))
+        return analyze_voice(
+            samples,
+            model_paths=VoiceModelPaths.from_root(Path("/models")),
+            sample_rate=sample_rate,
+            source_start_ms=source_start_ms,
+        )
+
+
 class SherpaOnnxVoiceRuntime:
     """Pinned sherpa-onnx runtime configured for one inference thread."""
 
     name = "sherpa-onnx"
 
     def __init__(self, paths: VoiceModelPaths):
+        require_child()
         try:
             import sherpa_onnx
         except ImportError as error:  # pragma: no cover - runtime image concern.

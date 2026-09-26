@@ -1,22 +1,26 @@
 """Atomic construction and local media inspection for catalogue records."""
 
-import json
+import os
+import re
 import tempfile
 from dataclasses import dataclass
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from struct import unpack
+from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
 
 from pandect.audio.models import Audio
 from pandect.catalog.models import CatalogItem
+from pandect.catalog.uploads import UploadLimitError, validate_upload_sizes
+from pandect.core.storage import StorageCapacityError, require_storage_space
 from pandect.events.models import Event
 from pandect.messages.models import ImageMessage, Message, TextMessage, VideoMessage
 from pandect.notes.models import Note
 from pandect.photos.models import Image
 from pandect.processing.extractors import ExtractorError
-from pandect.processing.extractors.subprocesses import run_command
+from pandect.processing.extractors.ffprobe import probe_media
 from pandect.videos.models import Video
 
 _ITEM_TYPES = {
@@ -82,7 +86,6 @@ class MediaInspection:
 
 
 _MEDIA_PREFIX_BYTES = 512 * 1024
-_FFPROBE_OUTPUT_BYTES = 16 * 1024 * 1024
 _FFPROBE_TIMEOUT_SECONDS = 15
 _AVIF_BRANDS = {b"avif", b"avis"}
 _HEIC_BRANDS = {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx"}
@@ -164,22 +167,6 @@ def _iso_bmff_brands(data: bytes) -> set[bytes]:
 
 def _run_ffprobe(upload) -> dict | None:
     """Return a small ffprobe stream summary, or None when probing is unavailable."""
-    command = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-probesize",
-        str(_MEDIA_PREFIX_BYTES),
-        "-analyzeduration",
-        "1000000",
-        "-show_entries",
-        (
-            "format=format_name:stream=index,codec_type,width,height:"
-            "stream_disposition=attached_pic"
-        ),
-        "-of",
-        "json",
-    ]
     temporary_probe = None
     try:
         temporary_path = upload.temporary_file_path()
@@ -199,24 +186,17 @@ def _run_ffprobe(upload) -> dict | None:
             temporary_path = temporary_probe.name
         finally:
             upload.seek(original_position)
-    command.append(str(temporary_path))
-
     try:
-        completed = run_command(
-            command,
+        metadata = probe_media(
+            temporary_path,
             timeout_seconds=_FFPROBE_TIMEOUT_SECONDS,
-            output_limit_bytes=_FFPROBE_OUTPUT_BYTES,
         )
     except ExtractorError:
         return None
     finally:
         if temporary_probe is not None:
             temporary_probe.close()
-    try:
-        payload = json.loads(completed.stdout)
-    except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
+    return metadata.raw
 
 
 def _inspection_from_probe(
@@ -408,8 +388,81 @@ def _title_from_filename(filename: str) -> str:
     return PurePath(filename).stem[:255]
 
 
+def _store_original_upload(upload, model, *, remaining_batch_bytes):
+    """Publish one exclusive original, cleaning only our provisional file.
+
+    Django's normal FileField pre-save can leave a file behind when the later
+    model insert fails, or when storage.save itself raises after opening it.
+    Own the temporary path and final publication here so both cases roll back.
+    """
+    field = model._meta.get_field("file")
+    suffix = PurePath(_original_filename(upload)).suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,12}", suffix):
+        suffix = ""
+    name = field.generate_filename(model(), f"{uuid4().hex}{suffix}")
+    target = Path(field.storage.path(name))
+    temporary = target.with_name(f".{target.name}.{uuid4().hex}.part")
+    written = 0
+    published = False
+    completed = False
+    position = upload.tell()
+    try:
+        require_storage_space(target.parent, upload.size)
+        new_directories = []
+        ancestor = target.parent
+        while not ancestor.exists():
+            new_directories.append(ancestor)
+            ancestor = ancestor.parent
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as destination:
+            upload.seek(0)
+            while chunk := upload.read(64 * 1024):
+                written += len(chunk)
+                if written > settings.UPLOAD_MAX_FILE_BYTES:
+                    raise UploadLimitError("The file exceeds the upload size limit.")
+                if written > remaining_batch_bytes:
+                    raise UploadLimitError("The batch exceeds the upload size limit.")
+                require_storage_space(target.parent, len(chunk))
+                destination.write(chunk)
+            destination.flush()
+            os.fsync(destination.fileno())
+        # link() never replaces an existing original, even on a name collision.
+        require_storage_space(target.parent)
+        os.link(temporary, target)
+        published = True
+        temporary.unlink()
+        # File fsync alone does not persist its new directory entry. Include
+        # newly-created ancestor entries so first intake is durable too, before
+        # the caller can commit a catalogue row pointing at this original.
+        directories = [target.parent, *(path.parent for path in new_directories)]
+        for directory in dict.fromkeys(directories):
+            directory_fd = os.open(
+                directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        completed = True
+        return field.storage, name, written
+    except OSError as error:
+        raise StorageCapacityError(
+            "The original could not be stored. Check the data volume's "
+            "free space and permissions, then retry."
+        ) from error
+    finally:
+        upload.seek(position)
+        # Once returned, the caller owns this exact exclusive path. A failed
+        # publication must not remove a pre-existing collision target.
+        if published and not completed:
+            target.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
+
+
 def create_uploaded_media(upload, *, expected_type=None, inspection=None):
     """Inspect and atomically catalogue one original local media file."""
+    validate_upload_sizes([upload])
     inspection = inspection or inspect_uploaded_media(upload)
     if expected_type is not None and inspection.item_type != expected_type:
         expected_label = CatalogItem.ItemType(expected_type).label.lower()
@@ -418,7 +471,6 @@ def create_uploaded_media(upload, *, expected_type=None, inspection=None):
     filename = _original_filename(upload)
     model = _MEDIA_MODELS[inspection.item_type]
     fields = {
-        "file": upload,
         "mime_type": inspection.mime_type,
         "original_filename": filename,
     }
@@ -430,12 +482,15 @@ def create_uploaded_media(upload, *, expected_type=None, inspection=None):
     saved_file = None
     try:
         with transaction.atomic():
+            storage, name, _size = _store_original_upload(
+                upload, model, remaining_batch_bytes=settings.UPLOAD_MAX_BATCH_BYTES
+            )
+            saved_file = (storage, name)
             extension = create_catalogued_item(
                 model,
                 item_fields={"title": _title_from_filename(filename)},
-                extension_fields=fields,
+                extension_fields=fields | {"file": name},
             )
-            saved_file = (extension.file.storage, extension.file.name)
             _create_automatic_processing_run(extension.catalog_item)
             return extension
     except Exception:
@@ -446,18 +501,20 @@ def create_uploaded_media(upload, *, expected_type=None, inspection=None):
 
 def create_uploaded_media_batch(uploads, *, inspections=None):
     """Validate then atomically catalogue a batch of original media files."""
+    uploads = list(uploads)
+    validate_upload_sizes(uploads)
     inspections = inspections or [inspect_uploaded_media(upload) for upload in uploads]
     if len(uploads) != len(inspections):
         raise ValueError("Each upload requires one media inspection.")
     saved_files = []
     created_items = []
+    stored_bytes = 0
     try:
         with transaction.atomic():
             for upload, inspection in zip(uploads, inspections, strict=True):
                 filename = _original_filename(upload)
                 model = _MEDIA_MODELS[inspection.item_type]
                 fields = {
-                    "file": upload,
                     "mime_type": inspection.mime_type,
                     "original_filename": filename,
                 }
@@ -469,12 +526,19 @@ def create_uploaded_media_batch(uploads, *, inspections=None):
                         "width": inspection.width,
                         "height": inspection.height,
                     }
+                storage, name, size = _store_original_upload(
+                    upload,
+                    model,
+                    remaining_batch_bytes=settings.UPLOAD_MAX_BATCH_BYTES
+                    - stored_bytes,
+                )
+                saved_files.append((storage, name))
+                stored_bytes += size
                 extension = create_catalogued_item(
                     model,
                     item_fields={"title": _title_from_filename(filename)},
-                    extension_fields=fields,
+                    extension_fields=fields | {"file": name},
                 )
-                saved_files.append((extension.file.storage, extension.file.name))
                 _create_automatic_processing_run(extension.catalog_item)
                 created_items.append(extension.catalog_item)
     except Exception:
