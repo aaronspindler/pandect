@@ -14,10 +14,10 @@ if [ -n "$source_overlay" ] && [ "$source_overlay" != --current-runner-source ];
     exit 2
 fi
 repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-fixtures=$repository/tests/sandbox_fixtures
 run_id=pandect-sandbox-smoke-$(date +%s)-$$
 runner=$run_id-runner
 socket_volume=$run_id-socket
+fixtures=
 
 cleanup() {
     result=$?
@@ -27,9 +27,26 @@ cleanup() {
     fi
     docker rm --force "$runner" >/dev/null 2>&1 || true
     docker volume rm "$socket_volume" >/dev/null 2>&1 || true
+    if [ -n "$fixtures" ]; then
+        rm -f -- "$fixtures/sandbox_smoke.py" "$fixtures/operations.py" \
+            "$fixtures/public-model.txt"
+        rmdir -- "$fixtures"
+    fi
     exit "$result"
 }
 trap cleanup EXIT HUP INT TERM
+
+# A private source export can give files mode 0600. Linux bind mounts preserve
+# those modes, so the client and fresh parser identities need readable copies.
+# Only these public synthetic fixtures are normalized; never change the checkout
+# or operator data. The private enclosing directory is not mounted in a container.
+fixtures=$(mktemp -d "${TMPDIR:-/tmp}/pandect-sandbox-fixtures.XXXXXXXX")
+fixtures=$(CDPATH= cd -- "$fixtures" && pwd -P)
+cp "$repository/tests/sandbox_smoke.py" "$fixtures/sandbox_smoke.py"
+cp "$repository/tests/sandbox_fixtures/operations.py" "$fixtures/operations.py"
+cp "$repository/tests/sandbox_fixtures/public-model.txt" "$fixtures/public-model.txt"
+chmod 0444 "$fixtures/sandbox_smoke.py" "$fixtures/operations.py" \
+    "$fixtures/public-model.txt"
 
 run_container() {
     if [ -n "$source_overlay" ]; then
@@ -78,7 +95,7 @@ client() {
         --pids-limit 32 --user "$identity:10001" \
         --tmpfs /tmp:rw,nodev,nosuid,noexec,size=16m,mode=1777 \
         --mount "type=volume,source=$socket_volume,target=/run/pandect-media,readonly" \
-        --mount "type=bind,source=$repository/tests/sandbox_smoke.py,target=/sandbox_smoke.py,readonly" \
+        --mount "type=bind,source=$fixtures/sandbox_smoke.py,target=/sandbox_smoke.py,readonly" \
         --env PANDECT_RUNNER_SOCKET=/run/pandect-media/runner.sock \
         --env PANDECT_CLOUDFLARE_API_TOKEN=synthetic-client-only-token \
         --env PYTHONPATH=/app --entrypoint python "$image" /sandbox_smoke.py "$@"
