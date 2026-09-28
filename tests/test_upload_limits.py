@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.files.uploadhandler import StopUpload
+from django.test import Client
 from django.urls import reverse
 
 from pandect.catalog.models import CatalogItem
@@ -43,10 +44,6 @@ def upload_settings(settings, tmp_path):
     settings.UPLOAD_MAX_FILES = 3
     settings.STORAGE_FREE_RESERVE_BYTES = 1024
     settings.FILE_UPLOAD_HANDLERS = ["pandect.catalog.uploads.GuardedUploadHandler"]
-    middleware = "pandect.catalog.uploads.UploadRejectionMiddleware"
-    settings.MIDDLEWARE = [middleware] + [
-        item for item in settings.MIDDLEWARE if item != middleware
-    ]
 
 
 def png_upload(name="synthetic.png"):
@@ -64,6 +61,66 @@ def handler_with_file(content_length=None):
         "files", "synthetic.bin", "application/octet-stream", content_length
     )
     return handler, request
+
+
+@pytest.mark.parametrize(
+    ("headers", "cookie"),
+    [
+        ({"HTTP_ORIGIN": "https://hostile.example"}, True),
+        ({"HTTP_ORIGIN": "null"}, True),
+        ({"secure": True, "HTTP_REFERER": "https://hostile.example/"}, True),
+        ({"HTTP_ORIGIN": "http://testserver"}, False),
+    ],
+)
+def test_csrf_rejects_before_parsing_uploads(settings, monkeypatch, headers, cookie):
+    client = Client(enforce_csrf_checks=True)
+    token = "a" * 32
+    if cookie:
+        client.cookies[settings.CSRF_COOKIE_NAME] = token
+    parse = Mock(side_effect=AssertionError("Rejected request parsed its body"))
+    monkeypatch.setattr("django.http.HttpRequest._load_post_and_files", parse)
+    response = client.post(
+        reverse("catalogue-bulk-add"),
+        {"csrfmiddlewaretoken": token, "files": [png_upload()]},
+        **headers,
+    )
+    assert response.status_code == 403
+    parse.assert_not_called()
+    assert not CatalogItem.objects.exists()
+    assert not list(settings.FILE_UPLOAD_TEMP_DIR.iterdir())
+
+
+@pytest.mark.parametrize(
+    ("outcome", "status"),
+    [("accepted", 302), ("file_limit", 413), ("storage", 507), ("bad_token", 403)],
+)
+def test_csrf_checked_upload_preserves_limits_and_cleanup(
+    settings, monkeypatch, outcome, status
+):
+    client = Client(enforce_csrf_checks=True)
+    form = client.get(reverse("catalogue-bulk-add"))
+    assert form.status_code == 200
+    token = client.cookies[settings.CSRF_COOKIE_NAME].value
+    if outcome == "file_limit":
+        settings.UPLOAD_MAX_FILE_BYTES = len(PNG) - 1
+    elif outcome == "storage":
+        monkeypatch.setattr(
+            "pandect.core.storage.shutil.disk_usage",
+            lambda _path: SimpleNamespace(free=0),
+        )
+    elif outcome == "bad_token":
+        token = "a" * 32 if token != "a" * 32 else "b" * 32
+    response = client.post(
+        reverse("catalogue-bulk-add"),
+        # Token after the file also covers StopUpload before token parsing.
+        {"files": [png_upload()], "csrfmiddlewaretoken": token},
+        HTTP_ORIGIN="http://testserver",
+    )
+    assert response.status_code == status
+    assert CatalogItem.objects.count() == (1 if outcome == "accepted" else 0)
+    assert not list(settings.FILE_UPLOAD_TEMP_DIR.iterdir())
+    if outcome != "accepted":
+        assert not stored_files(settings)
 
 
 @pytest.mark.parametrize("declared_length", [None, 0, 1, 10**12])

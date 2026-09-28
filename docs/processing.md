@@ -129,17 +129,23 @@ historical.
   2 GiB per file, 8 GiB per batch, 50 files, and a 2 GiB free-space reserve.
   Storage is checked again before original/derived publication. Rejected
   batches must not leave partial catalogue records or provisional originals.
+  Django checks request origins and CSRF cookies before multipart parsing;
+  upload-limit errors still return 413/507 if parsing stops before the form token.
 - Native tools, pixel/audio decoders, and inference execute through fixed
   media-runner operations, not directly inside web or worker. The runner has
   no IP network, application data, credentials, or database access. Trusted
   orchestration verifies returned structures/files and computes final hashes.
 - The runner permits one active job. Imports requiring a probe may return
-  busy with `Retry-After`; unavailable confinement never falls back to direct
-  execution. Its hard defaults are 8 GiB memory/no extra swap, 4 GiB scratch
+  busy with `Retry-After`; processing stages use their existing bounded retry
+  policy for the same contention. Unavailable confinement never falls back to
+  direct execution. Its hard defaults are 8 GiB memory/no extra swap, 4 GiB scratch
   with 8,192 inodes, two CPUs, 128 processes/threads, and 256 open descriptors.
   Output is capped at 1,024 regular files and 1 GiB total per job (also 1 GiB
   per file). Core dumps are disabled. Accepted upload size does not guarantee
   a file fits these decoding/output limits.
+  Voice analysis allows 3,000 seconds per job: the full supported 600-second
+  chunk's decoding budget (`2 × duration + 300s`) plus the same allowance for
+  inference, within the runner's two-hour hard limit.
 - Trusted response validation also caps a source at seven days' duration and
   64 streams, chapter/scene collections at 10,000 entries, and model output at
   1,024 observations with at most 4,096 dimensions per embedding. Invalid,

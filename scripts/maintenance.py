@@ -25,6 +25,8 @@ DATABASES = ("application.sqlite3", "huey.sqlite3")
 ARCHIVE = "data.tar.gz"
 MANIFEST = "manifest.json"
 CHECKSUMS = "SHA256SUMS"
+MAX_RESTORE_MEMBERS = 100_000
+RESTORE_INODE_RESERVE = 16
 PUBLIC_SETTINGS = (
     "PANDECT_ALLOWED_HOSTS",
     "PANDECT_DEBUG",
@@ -273,6 +275,32 @@ def create_backup(data: Path, destination: Path, metadata: dict) -> Path:
             shutil.rmtree(staging)
 
 
+def restore_requirements(archive_path: Path) -> tuple[int, int]:
+    """Bound archive metadata and count implicit parents before creating files."""
+    expanded_bytes = 0
+    seen = set()
+    paths = set()
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for count, member in enumerate(archive, start=1):
+            if count > MAX_RESTORE_MEMBERS:
+                raise ValueError("Backup exceeds the restore archive member limit.")
+            safe_archive_member(member)
+            path = PurePosixPath(member.name)
+            if path in seen:
+                raise ValueError("Archive contains duplicate paths.")
+            seen.add(path)
+            while path != PurePosixPath(".") and path not in paths:
+                paths.add(path)
+                if len(paths) > MAX_RESTORE_MEMBERS:
+                    raise ValueError(
+                        "Backup exceeds the restore filesystem entry limit."
+                    )
+                path = path.parent
+            if member.isfile():
+                expanded_bytes += member.size
+    return expanded_bytes, len(paths)
+
+
 def restore_backup(backup: Path, destination: Path) -> dict:
     manifest = verify_backup(backup)
     if (
@@ -281,14 +309,16 @@ def restore_backup(backup: Path, destination: Path) -> dict:
         or any(destination.iterdir())
     ):
         raise ValueError("Restore destination must be an empty dedicated directory.")
-    expanded_bytes = 0
-    with tarfile.open(backup / ARCHIVE, "r:gz") as archive:
-        for member in archive:
-            safe_archive_member(member)
-            if member.isfile():
-                expanded_bytes += member.size
+    expanded_bytes, entries = restore_requirements(backup / ARCHIVE)
     if expanded_bytes + 8 * 1024 * 1024 > shutil.disk_usage(destination).free:
         raise ValueError("Insufficient free space for the expanded backup.")
+    filesystem = os.statvfs(destination)
+    # Some filesystems report no fixed inode pool. Where available, leave room
+    # for staging, private database verification copies, and initialization.
+    if filesystem.f_files > 0 and (
+        entries + RESTORE_INODE_RESERVE > filesystem.f_favail
+    ):
+        raise ValueError("Insufficient free inodes for the expanded backup.")
     staging = Path(tempfile.mkdtemp(prefix=".pandect-restore-", dir=destination))
     installed = []
     directory_modes = []

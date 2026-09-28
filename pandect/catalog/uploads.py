@@ -3,6 +3,7 @@
 from django.conf import settings
 from django.core.files.uploadhandler import StopUpload, TemporaryFileUploadHandler
 from django.http import HttpResponse
+from django.middleware.csrf import CsrfViewMiddleware
 
 from pandect.core.storage import StorageCapacityError, require_storage_space
 
@@ -103,26 +104,34 @@ class GuardedUploadHandler(TemporaryFileUploadHandler):
             )
 
 
-class UploadRejectionMiddleware:
-    """Parse before CSRF so a stopped multipart request has a useful response."""
+class UploadRejectionMiddleware(CsrfViewMiddleware):
+    """Keep Django's CSRF checks ahead of multipart parsing and upload errors."""
 
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        if request.method == "POST" and request.content_type == "multipart/form-data":
-            # Accessing FILES parses the multipart stream exactly once. Never
-            # access request.body, which would buffer the complete upload.
-            files = request.FILES
-            rejection = getattr(request, "upload_rejection", None)
-            if rejection is not None:
-                for field in files:
-                    for upload in files.getlist(field):
-                        upload.close()
-                message, status = rejection
-                return HttpResponse(
-                    f"{message} No items from this upload were added.",
-                    status=status,
-                    content_type="text/plain; charset=utf-8",
-                )
-        return self.get_response(request)
+    def process_view(self, request, callback, callback_args, callback_kwargs):
+        # Django checks Origin/Referer and the CSRF cookie before reading POST.
+        # A rejected origin must never reach the persistent upload handler.
+        response = super().process_view(
+            request, callback, callback_args, callback_kwargs
+        )
+        if (
+            response is None
+            and request.method == "POST"
+            and request.content_type == "multipart/form-data"
+        ):
+            # Also cover CSRF-exempt views/tests without buffering request.body.
+            # Normally Django has already parsed this stream to check the token.
+            _ = request.FILES
+        rejection = getattr(request, "upload_rejection", None)
+        if rejection is None:
+            return response
+        # A stopped upload may omit the form token. Preserve its useful 413/507
+        # response even when Django reports a missing token after parsing.
+        for _field, uploads in request.FILES.lists():
+            for upload in uploads:
+                upload.close()
+        message, status = rejection
+        return HttpResponse(
+            f"{message} No items from this upload were added.",
+            status=status,
+            content_type="text/plain; charset=utf-8",
+        )

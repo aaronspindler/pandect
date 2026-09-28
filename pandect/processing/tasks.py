@@ -9,6 +9,7 @@ from django.db import DatabaseError
 from huey import crontab
 from huey.contrib.djhuey import db_periodic_task, db_task
 
+from pandect.media_runner.client import RunnerBusy
 from pandect.processing.execution import execute_stage
 from pandect.processing.extractors.errors import (
     ExtractorError,
@@ -383,6 +384,16 @@ def run_processing_stage(stage_id: str) -> None:
         )
     except UnsupportedPixelFormatError:
         _skip_unsupported_pixel_stage(stage)
+    except RunnerBusy:
+        # Keep the transport exception intact for intake's HTTP 503 handling;
+        # only processing stages translate contention into a bounded retry.
+        fail_stage(
+            stage.pk,
+            "media_runner_busy",
+            "Media processing is busy. Retry after the current job finishes.",
+            expected_attempt=stage.attempts,
+            retryable=True,
+        )
     except ExtractorError as error:
         fail_stage(
             stage.pk,

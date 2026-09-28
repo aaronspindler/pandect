@@ -308,7 +308,11 @@ make restore BACKUP=/path/to/private/pandect-backups/pandect-backup-ID
 Restore checks checksums, manifest, safe archive members, and both SQLite
 databases in private sibling staging before installing into an empty target.
 It rejects traversal, unsafe links/special files, corruption, and populated
-targets. It never merges, overwrites a populated installation, or applies
+targets. Before creating the extraction tree, it rejects more than 100,000
+archive members or filesystem entries (including implicit parent directories),
+checks expanded byte capacity, and checks available inodes where the filesystem
+reports a fixed inode pool, with 16 inodes reserved for verification and staging.
+It never merges, overwrites a populated installation, or applies
 migrations. Follow the reported matching source revision, restore explicit
 credentials separately, confirm configuration and host UID/GID, then start
 that matching version:

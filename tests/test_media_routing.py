@@ -246,6 +246,22 @@ def test_operation_deadlines_are_not_all_two_hours():
     assert operation_timeout("extract_video_frame", {"duration_seconds": 60}) == 420
 
 
+def test_voice_transport_allows_full_chunk_decoding_and_inference(
+    monkeypatch, tmp_path
+):
+    def transport(operation, **options):
+        assert operation == "analyze_voice_file"
+        assert options["parameters"] == {"source_start_ms": 1_800_000}
+        # Ten minutes of audio: 1,500 seconds to decode, then the same budget
+        # for inference. Remain below the supervisor's two-hour hard limit.
+        assert options["timeout_seconds"] == 3000
+        raise ReachedTransport
+
+    monkeypatch.setattr("pandect.media_runner.client.run_operation", transport)
+    with pytest.raises(ReachedTransport):
+        voice.analyze_voice_file(tmp_path / "chunk.flac", source_start_ms=1_800_000)
+
+
 def test_command_runner_cannot_accidentally_parse_media_in_trusted_process():
     from pandect.processing.extractors.subprocesses import run_command
 

@@ -9,6 +9,8 @@ import stat
 import subprocess
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -121,6 +123,107 @@ def test_restore_refuses_corruption_and_nonempty_target(
     (backup / ARCHIVE).write_bytes(b"corrupt")
     with pytest.raises(ValueError, match="checksum mismatch"):
         restore_backup(backup, restored)
+
+
+@pytest.mark.parametrize("kind", ["directories", "empty_files", "implicit_parents"])
+def test_restore_bounds_entries_before_creating_staging(
+    sample_data, tmp_path, metadata, monkeypatch, kind
+):
+    destination = tmp_path / "backups"
+    destination.mkdir(mode=0o700)
+    backup = create_backup(sample_data, destination, metadata)
+    names = (
+        ["one/two/three/empty"]
+        if kind == "implicit_parents"
+        else [f"entry-{number}" for number in range(4)]
+    )
+    with tarfile.open(backup / ARCHIVE, "w:gz") as archive:
+        for name in names:
+            member = tarfile.TarInfo(name)
+            if kind == "directories":
+                member.type = tarfile.DIRTYPE
+            archive.addfile(member)
+    (backup / CHECKSUMS).write_text(
+        "".join(f"{sha256(backup / name)}  {name}\n" for name in (ARCHIVE, MANIFEST))
+    )
+    restored = tmp_path / "restored"
+    restored.mkdir()
+    monkeypatch.setattr(maintenance_module, "MAX_RESTORE_MEMBERS", 3)
+    staging = Mock(
+        side_effect=AssertionError("Restore created staging before preflight")
+    )
+    monkeypatch.setattr(maintenance_module.tempfile, "mkdtemp", staging)
+    with pytest.raises(ValueError, match="restore .* limit"):
+        restore_backup(backup, restored)
+    staging.assert_not_called()
+    assert not list(restored.iterdir())
+
+
+def test_restore_rejects_insufficient_inodes_before_creating_staging(
+    sample_data, tmp_path, metadata, monkeypatch
+):
+    destination = tmp_path / "backups"
+    destination.mkdir(mode=0o700)
+    backup = create_backup(sample_data, destination, metadata)
+    restored = tmp_path / "restored"
+    restored.mkdir()
+    _size, entries = maintenance_module.restore_requirements(backup / ARCHIVE)
+    monkeypatch.setattr(
+        maintenance_module.os,
+        "statvfs",
+        lambda _path: SimpleNamespace(
+            f_files=1000,
+            f_favail=entries + maintenance_module.RESTORE_INODE_RESERVE - 1,
+        ),
+    )
+    # disk_usage also calls statvfs; isolate the independent free-byte check.
+    monkeypatch.setattr(
+        maintenance_module.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=1024**3),
+    )
+    staging = Mock(
+        side_effect=AssertionError("Restore created staging before preflight")
+    )
+    monkeypatch.setattr(maintenance_module.tempfile, "mkdtemp", staging)
+    with pytest.raises(ValueError, match="free inodes"):
+        restore_backup(backup, restored)
+    staging.assert_not_called()
+    assert not list(restored.iterdir())
+
+
+@pytest.mark.parametrize("fixed_inode_pool", [True, False])
+def test_restore_accepts_exact_entry_and_inode_limits(
+    sample_data, tmp_path, metadata, monkeypatch, fixed_inode_pool
+):
+    destination = tmp_path / "backups"
+    destination.mkdir(mode=0o700)
+    backup = create_backup(sample_data, destination, metadata)
+    restored = tmp_path / "restored"
+    restored.mkdir()
+    _size, entries = maintenance_module.restore_requirements(backup / ARCHIVE)
+    monkeypatch.setattr(maintenance_module, "MAX_RESTORE_MEMBERS", entries)
+    monkeypatch.setattr(
+        maintenance_module.os,
+        "statvfs",
+        lambda _path: SimpleNamespace(
+            f_files=1000 if fixed_inode_pool else 0,
+            f_favail=entries + maintenance_module.RESTORE_INODE_RESERVE
+            if fixed_inode_pool
+            else 0,
+        ),
+    )
+    monkeypatch.setattr(
+        maintenance_module.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=1024**3),
+    )
+    restore_backup(backup, restored)
+    for original in sample_data.rglob("*"):
+        if original.is_file():
+            assert sha256(original) == sha256(
+                restored / original.relative_to(sample_data)
+            )
 
 
 @pytest.mark.parametrize(

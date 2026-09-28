@@ -116,12 +116,21 @@ def operation_timeout(operation: str, parameters: dict) -> float:
     if operation in {"analyze_image", "render_image_frame", "analyze_faces"}:
         return 120
     from pandect.processing.extractors.audio import ffmpeg_timeout_seconds
+    from pandect.processing.extractors.audio_splits import DEFAULT_MAX_CHUNK_SECONDS
 
     duration = parameters.get("duration_seconds")
+    if operation == "analyze_voice_file":
+        # Voice requests carry an offset, not a duration. Budget for the full
+        # supported ten-minute chunk, plus an equal allowance for inference.
+        duration = DEFAULT_MAX_CHUNK_SECONDS
     if duration is None and "end_seconds" in parameters:
         duration = parameters["end_seconds"] - parameters.get("start_seconds", 0)
     timeout = ffmpeg_timeout_seconds(duration)
-    return min(7200, timeout * (2 if operation == "analyze_acoustics" else 1))
+    return min(
+        7200,
+        timeout
+        * (2 if operation in {"analyze_acoustics", "analyze_voice_file"} else 1),
+    )
 
 
 def runner_result(operation: str, **kwargs) -> dict:
