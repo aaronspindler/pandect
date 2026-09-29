@@ -4,6 +4,13 @@
 - Date: 2026-08-02
 - Scope: Foundation only
 
+> Historical scope: this ADR records the initial foundation, not the complete
+> current product. ADR 0002 subsequently added catalogue processing/provenance
+> and closed-gallery identity observations. The public alpha also isolates media
+> parsing in a third, network-disabled service. See the
+> [living architecture overview](overview.md) for current boundaries. The
+> single-operator, loopback-only constraints below remain in force.
+
 ## Context
 
 Pandect begins as a self-hosted investigation application for one trusted operator on one machine. The first milestone needs a small, dependable platform on which domain capabilities can later be built. It does not need the complexity, operational cost, or privacy implications of a hosted multi-user service.
@@ -69,7 +76,7 @@ Configuration uses a small set of explicit `PANDECT_` environment variables docu
 
 Runtime dependencies live in `project.dependencies`; development and validation dependencies live in the `dev` dependency group. `uv.lock` is committed, CI installs the locked environment, and updates are made intentionally through `uv` followed by the full validation suite. Python 3.13 and Django 5.2 LTS are selected for their supported lifetime and mature ecosystem; patch releases remain locked by `uv.lock`.
 
-Tests use pytest and pytest-django. Unit and request tests use temporary state, tasks run eagerly where appropriate, and no validation path requires network access or third-party credentials. `make check` is the single complete local validation command and matches CI's core checks.
+Tests use pytest and pytest-django. Unit and request tests use temporary state and tasks run eagerly where appropriate. Core test execution requires no network or third-party credentials; image construction and the separately explicit security scan fetch dependencies/advisories. `make check` is the complete core local validation command and matches CI's core checks.
 
 ## Deferred change triggers
 

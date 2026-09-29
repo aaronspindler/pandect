@@ -20,10 +20,37 @@ def test_data_directory_defaults_under_project_base(tmp_path, monkeypatch):
     assert data_dir.is_dir()
 
 
-def test_relative_data_directory_is_anchored_to_project_base(tmp_path, monkeypatch):
+def test_relative_nondefault_data_directory_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("PANDECT_DATA_DIR", "state")
 
-    assert create_data_directory(tmp_path) == tmp_path / "state"
+    with pytest.raises(ImproperlyConfigured, match="Only ./data"):
+        create_data_directory(tmp_path)
+    assert not (tmp_path / "state").exists()
+
+
+def test_absolute_external_data_directory_is_supported(tmp_path, monkeypatch):
+    base = tmp_path / "checkout"
+    base.mkdir()
+    external = tmp_path / "private-state"
+    monkeypatch.setenv("PANDECT_DATA_DIR", str(external))
+
+    assert create_data_directory(base) == external
+    assert (external / ".pandect-data").is_file()
+
+
+def test_existing_unrelated_directory_is_unchanged(tmp_path, monkeypatch):
+    base = tmp_path / "checkout"
+    base.mkdir()
+    unrelated = tmp_path / "personal"
+    unrelated.mkdir()
+    (unrelated / "keep.txt").write_text("private")
+    before = unrelated.stat().st_mode
+    monkeypatch.setenv("PANDECT_DATA_DIR", str(unrelated))
+
+    with pytest.raises(ImproperlyConfigured, match="unrelated nonempty"):
+        create_data_directory(base)
+    assert unrelated.stat().st_mode == before
+    assert list(unrelated.iterdir()) == [unrelated / "keep.txt"]
 
 
 def test_generated_secret_is_persistent_and_restrictive(tmp_path, monkeypatch):

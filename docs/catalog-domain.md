@@ -116,7 +116,10 @@ reply target, and recipients in `display name | identifier | role` format.
 
 Bulk intake is intentionally limited to original image, video, and audio files,
 where automatic local inspection is meaningful. One request accepts at most 50
-files.
+files, 2 GiB per file, and 8 GiB per batch. A streaming handler counts actual
+bytes rather than trusting a supplied content length, and preserves a 2 GiB
+free-space reserve. Failed/rejected batches roll back provisional originals and
+catalogue rows without altering previously committed evidence.
 Pandect validates every file before constructing the batch, detects the media
 type from file bytes instead of trusting the browser-provided type, and then
 walks through the same review form for each created item. A bad file prevents
@@ -131,6 +134,9 @@ formats rather than reliable media-type signatures, so intake uses a bounded
 HEIC/HEIF, M4A, MP4/QuickTime, WebM, and Matroska. They are rejected with an
 actionable message when `ffprobe` cannot establish stream truth rather than
 silently being recorded under the wrong type.
+The probe runs in the isolated, network-disabled media runner. It shares one
+slot with background media work; a busy/unavailable runner yields an actionable
+503 response and `Retry-After`, never direct decoding in the web service.
 
 Original filename and media type are recorded, image/video dimensions are
 extracted when their headers or the bounded probe exposes them, and a title is
@@ -139,9 +145,10 @@ and facts requiring deeper decoding remain visibly unknown for operator review.
 Review fields may be left blank; Pandect does not replace unknown evidence
 metadata with guesses.
 
-Uploads are stored unchanged through Django's local default storage. Automatic
-inspection reads only a bounded prefix and does not rewrite or normalize the
-file. After a media extension is created, its canonical `file` storage pointer
+Uploads are stored unchanged through Django's local default storage. Signature
+inspection reads a bounded prefix; ambiguous-container probing receives the
+selected file through the isolated runner. Neither path rewrites or normalizes
+the original. After a media extension is created, its canonical `file` storage pointer
 cannot be reassigned through instance, queryset, or bulk model writes. A future
 replacement operation must be an explicit provenance-aware service that binds a
 new processing run; ordinary metadata edits are not a replacement path. The
@@ -159,8 +166,16 @@ media cannot be deleted while any media message still uses it.
 `CatalogItem` is the only deletion root. Individual and queryset deletion on an
 image, video, event, note, message, or message subtype is rejected, preventing
 orphaned chronological records and avoiding different instance/queryset
-semantics. Delete the related `CatalogItem` instead; its cascade removes the
-extensions. Deleting a message leaves referenced media intact. Replies to a
+semantics. An unprocessed item's related `CatalogItem` can be deleted, cascading
+to its concrete extensions. Once immutable processing results, artifacts,
+timestamp evidence, remote consent, or identity observations depend on that
+item, protected relationships reject parent deletion instead of bypassing
+append-only guards. Processing run/stage deletion is similarly blocked where
+immutable evidence depends on it; a protected-deletion error is intentional.
+There is no purge or soft-delete interface. These safeguards apply to supported
+ORM/application paths, not direct trusted-operator SQLite/file edits.
+
+Where deletion is permitted, deleting a message leaves referenced media intact. Replies to a
 deleted message are retained with `reply_to` set to null. Deleting a participant
 sets sender references to null and removes recipient links. Django does not
 automatically delete the underlying stored file when a media database record is

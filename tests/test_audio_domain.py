@@ -13,7 +13,7 @@ from pandect.catalog import services
 from pandect.catalog.models import CatalogItem
 from pandect.catalog.services import inspect_uploaded_media
 from pandect.processing.extractors import ToolOutputLimitError, ToolUnavailableError
-from pandect.processing.extractors.subprocesses import CommandResult
+from pandect.processing.extractors.ffprobe import parse_ffprobe_json
 
 pytestmark = pytest.mark.django_db
 
@@ -220,16 +220,15 @@ def test_ffprobe_unavailable_is_bounded_and_restores_upload_position(monkeypatch
     media.seek(3)
     observed_path = None
 
-    def unavailable(command, **kwargs):
+    def unavailable(path, **kwargs):
         nonlocal observed_path
-        observed_path = Path(command[-1])
+        observed_path = Path(path)
         assert observed_path.parent == Path(settings.FILE_UPLOAD_TEMP_DIR)
         assert observed_path.is_file()
         assert kwargs["timeout_seconds"] == 15
-        assert kwargs["output_limit_bytes"] == 16 * 1024 * 1024
         raise ToolUnavailableError
 
-    monkeypatch.setattr(services, "run_command", unavailable)
+    monkeypatch.setattr(services, "probe_media", unavailable)
 
     assert services._run_ffprobe(media) is None
     assert media.tell() == 3
@@ -243,17 +242,13 @@ def test_ffprobe_rejects_unbounded_or_invalid_output(monkeypatch):
     def output_too_large(*args, **kwargs):
         raise ToolOutputLimitError
 
-    monkeypatch.setattr(services, "run_command", output_too_large)
+    monkeypatch.setattr(services, "probe_media", output_too_large)
     assert services._run_ffprobe(media) is None
 
     monkeypatch.setattr(
         services,
-        "run_command",
-        lambda *args, **kwargs: CommandResult(
-            returncode=0,
-            stdout=json.dumps(["not", "an", "object"]).encode(),
-            stderr=b"",
-        ),
+        "probe_media",
+        lambda *args, **kwargs: parse_ffprobe_json(json.dumps(["not", "an", "object"])),
     )
     assert services._run_ffprobe(media) is None
 

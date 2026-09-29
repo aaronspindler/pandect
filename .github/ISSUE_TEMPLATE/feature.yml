@@ -1,0 +1,22 @@
+name: Feature request
+description: Describe a concrete operator need and its fit with the local-first boundary.
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Operator need
+      description: What workflow is blocked? Use a fictional example, not real investigation details.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+      description: Explain the smallest useful change and any alternatives you considered.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Privacy and evidence implications
+      description: Does it transfer data, add a dependency, modify originals, or change the trusted-machine boundary?

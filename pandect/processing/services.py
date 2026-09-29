@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LEASE_SECONDS = 2 * 60 * 60 + 15 * 60
 DEFAULT_QUEUED_TIMEOUT_SECONDS = 10 * 60
 DEFAULT_RECONCILE_LIMIT = 100
-PROCESSOR_VERSION = "1"
+PROCESSOR_VERSION = "2"
 LOCAL_PROCESSING_SNAPSHOT_KEY = "local_processing_snapshot"
 SOURCE_CHANGED_FAILURE_CODE = "source_changed"
 SOURCE_REPLACED_FAILURE_CODE = "source_changed_replacement_recorded"
@@ -472,7 +472,8 @@ def local_processing_configuration_snapshot(
         selected_model_files.update(_VOICE_MODEL_FILES)
 
     return {
-        "schema_version": 3,
+        "schema_version": 4,
+        "execution_policy": "isolated-media-runner-v1",
         "processor_version": PROCESSOR_VERSION,
         "item_type": item_type,
         "stages": [
@@ -491,9 +492,6 @@ def local_processing_configuration_snapshot(
             "image_max_decoded_frames": int(settings.PROCESSING_MAX_IMAGE_FRAMES),
             "video_max_local_frames": int(settings.PROCESSING_MAX_VIDEO_FRAMES),
             "subprocess_default_output_bytes": DEFAULT_OUTPUT_LIMIT_BYTES,
-            "subprocess_configured_output_bytes": int(
-                settings.PROCESSING_SUBPROCESS_OUTPUT_LIMIT
-            ),
             "stage_lease_seconds": DEFAULT_LEASE_SECONDS,
             "queued_recovery_seconds": DEFAULT_QUEUED_TIMEOUT_SECONDS,
             "native_inference_threads": 1,

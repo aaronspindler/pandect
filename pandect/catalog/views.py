@@ -18,6 +18,9 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from pandect.catalog.forms import INTAKE_FORMS, METADATA_FORMS, BulkMediaForm
 from pandect.catalog.models import CatalogItem
 from pandect.catalog.services import create_uploaded_media_batch
+from pandect.core.storage import StorageCapacityError
+from pandect.media_runner.client import RunnerBusy, RunnerError
+from pandect.media_runner.client import status as runner_status
 
 REVIEW_TOKEN_SALT = "pandect.catalogue.metadata-review"
 BACKFILL_CURSOR_SALT = "pandect.catalogue.processing-backfill"
@@ -402,13 +405,18 @@ def add_catalogue_item(request: HttpRequest, item_type: str) -> HttpResponse:
         request.POST if request.method == "POST" else None,
         request.FILES if request.method == "POST" else None,
     )
-    if request.method == "POST" and form.is_valid():
-        try:
+    status = 200
+    try:
+        if request.method == "POST" and form.is_valid():
             item = form.create()
-        except ValueError as error:
-            form.add_error(None, str(error))
-        else:
             return _start_review([item])
+    except RunnerError as error:
+        return _runner_intake_error(error)
+    except StorageCapacityError as error:
+        form.add_error(None, str(error))
+        status = 507
+    except ValueError as error:
+        form.add_error(None, str(error))
 
     return render(
         request,
@@ -417,7 +425,18 @@ def add_catalogue_item(request: HttpRequest, item_type: str) -> HttpResponse:
             "form": form,
             "item_type": item_type_choice,
             "item_type_description": ITEM_TYPE_DESCRIPTIONS[item_type_choice],
+            "media_verification_warning": (
+                _media_verification_warning()
+                if item_type_choice
+                in {
+                    CatalogItem.ItemType.IMAGE,
+                    CatalogItem.ItemType.VIDEO,
+                    CatalogItem.ItemType.AUDIO,
+                }
+                else ""
+            ),
         },
+        status=status,
     )
 
 
@@ -428,16 +447,57 @@ def bulk_add_catalogue(request: HttpRequest) -> HttpResponse:
         request.POST if request.method == "POST" else None,
         request.FILES if request.method == "POST" else None,
     )
-    if request.method == "POST" and form.is_valid():
-        try:
+    status = 200
+    try:
+        if request.method == "POST" and form.is_valid():
             items = create_uploaded_media_batch(
                 form.cleaned_data["files"], inspections=form.inspections
             )
-        except ValueError as error:
-            form.add_error("files", str(error))
-        else:
             return _start_review(items)
-    return render(request, "catalog/bulk_add.html", {"form": form})
+    except RunnerError as error:
+        return _runner_intake_error(error)
+    except StorageCapacityError as error:
+        form.add_error("files", str(error))
+        status = 507
+    except ValueError as error:
+        form.add_error("files", str(error))
+    return render(
+        request,
+        "catalog/bulk_add.html",
+        {"form": form, "media_verification_warning": _media_verification_warning()},
+        status=status,
+    )
+
+
+def _media_verification_warning() -> str:
+    """A status hint is advisory; the actual probe still acquires the job slot."""
+    try:
+        if not runner_status()["busy"]:
+            return ""
+    except RunnerError:
+        return (
+            "Media verification is currently unavailable. Files requiring a probe "
+            "cannot be imported until the media-runner is available."
+        )
+    return (
+        "Media processing is currently busy. Files requiring a probe may need "
+        "to wait until the current processing step finishes before you import them."
+    )
+
+
+def _runner_intake_error(error: RunnerError) -> HttpResponse:
+    """Never turn runner unavailability into a local parsing fallback."""
+    if isinstance(error, RunnerBusy):
+        message = "Media processing is busy. Retry after the current processing step."
+    else:
+        message = "Media verification is unavailable. Check the media-runner and retry."
+    response = HttpResponse(
+        f"{message} No items from this upload were added.",
+        status=503,
+        content_type="text/plain; charset=utf-8",
+    )
+    response["Retry-After"] = "30"
+    return response
 
 
 def _next_review_item(item_ids: list[str], current_id: str):

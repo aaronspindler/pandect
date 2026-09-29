@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from os import PathLike
 from typing import Any
 
+from pandect.media_runner.routing import isolated
 from pandect.processing.extractors.errors import (
     InvalidExtractorOutputError,
     ToolFailedError,
@@ -246,6 +247,7 @@ def parse_tesseract_osd(value: str | bytes) -> dict[str, Any]:
     }
 
 
+@isolated("extract_ocr", source="path")
 def extract_ocr(
     path: str | PathLike[str],
     *,

@@ -84,10 +84,34 @@ def test_health_is_dependency_free_plain_text(client):
 
 
 def test_readiness_checks_the_database(client):
-    response = client.get(reverse("readiness"))
+    with patch("pandect.core.views.media_runner_status", return_value={"busy": False}):
+        response = client.get(reverse("readiness"))
 
     assert response.status_code == 200
     assert response.content == b"ready\n"
+
+
+def test_readiness_accepts_busy_but_healthy_runner(client):
+    with patch("pandect.core.views.media_runner_status", return_value={"busy": True}):
+        response = client.get(reverse("readiness"))
+    assert response.status_code == 200
+
+
+def test_readiness_fails_closed_without_runner(client, caplog):
+    from pandect.media_runner.client import RunnerError
+
+    with (
+        patch(
+            "pandect.core.views.media_runner_status",
+            side_effect=RunnerError("sensitive machine path"),
+        ),
+        caplog.at_level(logging.WARNING),
+    ):
+        response = client.get(reverse("readiness"))
+    assert response.status_code == 503
+    assert response.content == b"not ready\n"
+    assert "Media runner readiness check failed" in caplog.text
+    assert "sensitive machine path" not in caplog.text
 
 
 def test_readiness_fails_closed_without_exposing_database_details(client, caplog):

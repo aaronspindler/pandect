@@ -41,7 +41,11 @@ class ImmutableEvidenceQuerySet(models.QuerySet):
 
 
 class ImmutableEvidenceModel(models.Model):
-    """Prevent ordinary code from rewriting an append-only evidence record."""
+    """Prevent ordinary code from rewriting an append-only evidence record.
+
+    Parent relationships on concrete evidence models must use PROTECT: Django's
+    cascade collector does not call these instance/queryset deletion guards.
+    """
 
     objects = ImmutableEvidenceQuerySet.as_manager()
 
@@ -296,7 +300,7 @@ class ProcessingResult(ImmutableEvidenceModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     stage = models.ForeignKey(
         ProcessingStage,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="results",
     )
     result_kind = models.CharField(max_length=48, choices=Kind.choices)
@@ -400,12 +404,12 @@ class DerivedArtifact(ImmutableEvidenceModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     stage = models.ForeignKey(
         ProcessingStage,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="artifacts",
     )
     catalog_item = models.ForeignKey(
         CatalogItem,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="derived_artifacts",
     )
     file = models.FileField(upload_to=derived_artifact_upload_to, max_length=500)
@@ -489,12 +493,12 @@ class TimestampClaim(ImmutableEvidenceModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     stage = models.ForeignKey(
         ProcessingStage,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="timestamp_claims",
     )
     catalog_item = models.ForeignKey(
         CatalogItem,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="timestamp_claims",
     )
     namespace = models.CharField(max_length=128)
@@ -555,12 +559,12 @@ class TimestampDecision(ImmutableEvidenceModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     claim = models.ForeignKey(
         TimestampClaim,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="decisions",
     )
     catalog_item = models.ForeignKey(
         CatalogItem,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="timestamp_decisions",
     )
     previous_occurred_at = models.DateTimeField(
@@ -603,12 +607,12 @@ class RemoteConsent(ImmutableEvidenceModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(
         ProcessingRun,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="remote_consents",
     )
     catalog_item = models.ForeignKey(
         CatalogItem,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="remote_consents",
     )
     notice_version = models.CharField(max_length=64)

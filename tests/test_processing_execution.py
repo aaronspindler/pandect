@@ -23,7 +23,6 @@ from pandect.processing.execution import (
     _image_visual_payload,
     _provenance,
     _publish_artifact,
-    _read_flac_waveform,
     _representative_frame_limit,
     _storage_paths,
     _video_audio,
@@ -150,7 +149,8 @@ def test_storage_work_path_rejects_attempt_symlink_to_newer_workspace(tmp_path):
 
 
 def test_flac_waveform_decode_returns_one_compact_float_buffer(monkeypatch, tmp_path):
-    stage = _stage(tmp_path, item_type="audio")
+    from pandect.media_runner.operations import read_waveform
+
     normalized = tmp_path / "normalized.flac"
     normalized.write_bytes(b"input")
     observed = {}
@@ -166,9 +166,8 @@ def test_flac_waveform_decode_returns_one_compact_float_buffer(monkeypatch, tmp_
             destination.writeframes(array("h", (-32768, 0, 16384, 32767)).tobytes())
         return SimpleNamespace(stdout=b"", stderr=b"", returncode=0)
 
-    monkeypatch.setattr("pandect.processing.execution.run_command", fake_decode)
-    with override_settings(WORK_ROOT=tmp_path / "work"):
-        values, sample_rate = _read_flac_waveform(stage, normalized)
+    monkeypatch.setattr("pandect.media_runner.operations.run_command", fake_decode)
+    values, sample_rate = read_waveform(normalized, tmp_path)
 
     assert isinstance(values, array)
     assert values.typecode == "f"
@@ -181,11 +180,8 @@ def test_flac_waveform_decode_returns_one_compact_float_buffer(monkeypatch, tmp_
     assert ("-filter_complex_threads", "1") in tuple(
         zip(observed["argv"], observed["argv"][1:], strict=False)
     )
-    attempt_workspace = (
-        tmp_path / "work" / str(stage.run_id) / str(stage.pk) / "attempt-1"
-    )
-    assert observed["output"].parent == attempt_workspace
-    assert not list(attempt_workspace.glob("*.wav"))
+    assert observed["output"].parent == tmp_path
+    assert not list(tmp_path.glob("*.wav"))
 
 
 @pytest.mark.django_db
@@ -1838,7 +1834,7 @@ def test_voice_analysis_rejects_changed_audio_chunk_before_decode(
 
     monkeypatch.setattr("pandect.processing.execution._heartbeat", lambda _stage: None)
     monkeypatch.setattr(
-        "pandect.processing.execution._read_flac_waveform", fail_if_decoded
+        "pandect.processing.execution.analyze_voice_file", fail_if_decoded
     )
 
     with pytest.raises(StageProcessingError) as failure:
@@ -1851,10 +1847,6 @@ def test_voice_analysis_rejects_changed_audio_chunk_before_decode(
 def test_voice_analysis_rechecks_audio_chunk_after_inference(monkeypatch, tmp_path):
     stage, _artifact, path = _voice_chunk_stage(tmp_path)
     monkeypatch.setattr("pandect.processing.execution._heartbeat", lambda _stage: None)
-    monkeypatch.setattr(
-        "pandect.processing.execution._read_flac_waveform",
-        lambda *_args, **_kwargs: (array("f", [0.0]), 16_000),
-    )
 
     def mutate_during_inference(*_args, **_kwargs):
         path.write_bytes(b"changed-during-inference")
@@ -1867,7 +1859,7 @@ def test_voice_analysis_rechecks_audio_chunk_after_inference(monkeypatch, tmp_pa
         )
 
     monkeypatch.setattr(
-        "pandect.processing.execution.analyze_voice", mutate_during_inference
+        "pandect.processing.execution.analyze_voice_file", mutate_during_inference
     )
 
     with pytest.raises(StageProcessingError) as failure:

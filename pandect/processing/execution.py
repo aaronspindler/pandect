@@ -3,9 +3,6 @@
 import math
 import os
 import re
-import struct
-import wave
-from array import array
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import date, datetime
@@ -20,6 +17,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 
 from pandect.catalog.models import CatalogItem
+from pandect.core.storage import StorageCapacityError, require_storage_space
 from pandect.identities.models import IdentityObservation, SubjectReference
 from pandect.identities.services import (
     VIDEO_FACE_AGGREGATE_ROLE,
@@ -31,6 +29,7 @@ from pandect.identities.services import (
     observation_vector,
     rank_closed_gallery,
 )
+from pandect.media_runner.routing import EXECUTION_POLICY_VERSION, runner_result
 from pandect.processing.extractors.audio import (
     MAX_FFMPEG_TIMEOUT_SECONDS,
     analyze_acoustics,
@@ -66,7 +65,6 @@ from pandect.processing.extractors.derived_media import (
 from pandect.processing.extractors.errors import (
     ExtractorError,
     ResourceLimitError,
-    UnsupportedPixelFormatError,
 )
 from pandect.processing.extractors.exiftool import (
     EXIFTOOL_TIMEOUT_SECONDS,
@@ -92,7 +90,7 @@ from pandect.processing.extractors.timestamps import (
     timestamp_claims_from_ffprobe,
     timestamp_claims_from_tags,
 )
-from pandect.processing.extractors.voice import VoiceModelPaths, analyze_voice
+from pandect.processing.extractors.voice import analyze_voice_file
 from pandect.processing.models import (
     ArtifactPublication,
     DerivedArtifact,
@@ -115,7 +113,7 @@ from pandect.processing.services import (
     heartbeat_stage,
 )
 
-PROCESSOR_VERSION = "1"
+PROCESSOR_VERSION = "2"
 
 _BINARY_VERSION_ARGUMENTS = {
     "ffmpeg": ("ffmpeg", "-version"),
@@ -227,7 +225,7 @@ def _effective_parameters(
     stage: ProcessingStage,
     components: set[str],
 ) -> dict[str, Any]:
-    parameters: dict[str, Any] = {}
+    parameters: dict[str, Any] = {"execution_policy": EXECUTION_POLICY_VERSION}
     if components & _BINARY_VERSION_ARGUMENTS.keys():
         parameters["subprocess"] = {
             "shell": False,
@@ -565,6 +563,10 @@ def _publish_artifact(
     stage_id = stage.pk
     attempt = stage.attempts
     media_root = Path(settings.MEDIA_ROOT).resolve()
+    try:
+        require_storage_space(media_root)
+    except StorageCapacityError as error:
+        raise StageProcessingError("insufficient_storage") from error
     try:
         final_relative = final.relative_to(media_root).as_posix()
         temporary_relative = temporary.relative_to(
@@ -1033,26 +1035,28 @@ def _image_ocr(stage: ProcessingStage) -> StageOutcome:
 
 def _decode_qr_codes(path: Path) -> list[dict[str, Any]]:
     """Decode local QR payloads with geometry and no network lookup."""
-    try:
-        import cv2
-    except ImportError as error:
-        raise StageProcessingError("optional_dependency_unavailable") from error
-    cv2.setNumThreads(1)
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
-    if image is None:
-        # _image_qr performs Pillow's bounded decode first, so this is a local
-        # decoder capability gap rather than an unverified corrupt source.
-        raise UnsupportedPixelFormatError
-    detector = cv2.QRCodeDetector()
-    codes = []
-    try:
-        detected, values, points, _ = detector.detectAndDecodeMulti(image)
-    except cv2.error as error:
-        raise StageProcessingError("qr_decode_failed") from error
-    if detected and points is not None:
-        for index, value in enumerate(values):
-            geometry = points[index].tolist() if index < len(points) else []
-            codes.append({"value": value, "polygon": geometry})
+    from pandect.media_runner.routing import decode_result
+    from pandect.media_runner.validation import validate_operation_result
+
+    result = runner_result("decode_qr", inputs={"source": path}, timeout_seconds=120)
+    validate_operation_result("decode_qr", result)
+    codes = decode_result(list[dict[str, Any]], result.get("codes"))
+    for code in codes:
+        if set(code) != {"value", "polygon"} or not isinstance(code["value"], str):
+            raise StageProcessingError("invalid_tool_output")
+        polygon = code["polygon"]
+        if not isinstance(polygon, list) or len(polygon) > 4:
+            raise StageProcessingError("invalid_tool_output")
+        for point in polygon:
+            if (
+                not isinstance(point, list)
+                or len(point) != 2
+                or not all(
+                    type(value) in (int, float) and math.isfinite(value)
+                    for value in point
+                )
+            ):
+                raise StageProcessingError("invalid_tool_output")
     return codes
 
 
@@ -1310,42 +1314,6 @@ def _image_visual(stage: ProcessingStage) -> StageOutcome:
                 ProcessingResult.Kind.IMAGE_VISUAL,
                 _image_visual_payload(technical),
                 processor="pillow-literal-visual-v1",
-            ),
-        )
-    )
-
-
-def _unsupported_local_observation(stage: ProcessingStage) -> StageOutcome:
-    reasons = {
-        ProcessingStage.Kind.IMAGE_QR: "qr_decoder_not_available",
-        ProcessingStage.Kind.FACE_ANALYSIS: "face_models_not_provisioned",
-        ProcessingStage.Kind.FACE_IDENTITY: "no_eligible_face_observations",
-        ProcessingStage.Kind.VIDEO_FRAME_ANALYSIS: "frame_models_not_provisioned",
-        ProcessingStage.Kind.AUDIO_ACOUSTICS: "acoustic_analyzer_not_available",
-        ProcessingStage.Kind.VOICE_ANALYSIS: "voice_models_not_provisioned",
-        ProcessingStage.Kind.VOICE_IDENTITY: "no_eligible_voice_observations",
-    }
-    result_kind = {
-        ProcessingStage.Kind.IMAGE_QR: ProcessingResult.Kind.QR_CODES,
-        ProcessingStage.Kind.FACE_ANALYSIS: ProcessingResult.Kind.FACE_OBSERVATIONS,
-        ProcessingStage.Kind.FACE_IDENTITY: ProcessingResult.Kind.FACE_CANDIDATES,
-        ProcessingStage.Kind.VIDEO_FRAME_ANALYSIS: ProcessingResult.Kind.IMAGE_VISUAL,
-        ProcessingStage.Kind.AUDIO_ACOUSTICS: ProcessingResult.Kind.ACOUSTICS,
-        ProcessingStage.Kind.VOICE_ANALYSIS: ProcessingResult.Kind.VOICE_OBSERVATIONS,
-        ProcessingStage.Kind.VOICE_IDENTITY: ProcessingResult.Kind.VOICE_CANDIDATES,
-    }[stage.kind]
-    return StageOutcome(
-        results=(
-            _result(
-                stage,
-                result_kind,
-                {
-                    "observations": [],
-                    "candidates": [],
-                    "unknown": True,
-                    "reason": reasons[stage.kind],
-                },
-                processor="pandect.local-observation",
             ),
         )
     )
@@ -2826,69 +2794,6 @@ def _audio_acoustics(stage: ProcessingStage) -> StageOutcome:
     )
 
 
-def _read_flac_waveform(
-    stage: ProcessingStage,
-    path: Path,
-) -> tuple[array[float], int]:
-    """Decode normalized FLAC into one compact float32 sample buffer."""
-    pcm_path = _scratch_path(stage, ".wav")
-    try:
-        run_command(
-            (
-                "ffmpeg",
-                "-nostdin",
-                "-hide_banner",
-                "-v",
-                "error",
-                "-threads",
-                "1",
-                "-filter_threads",
-                "1",
-                "-filter_complex_threads",
-                "1",
-                "-i",
-                path,
-                "-map_metadata",
-                "-1",
-                "-ac",
-                "1",
-                "-ar",
-                "16000",
-                "-c:a",
-                "pcm_s16le",
-                "-threads",
-                "1",
-                "-n",
-                pcm_path,
-            ),
-            timeout_seconds=2 * 60 * 60,
-        )
-        with wave.open(str(pcm_path), "rb") as source:
-            if source.getnchannels() != 1 or source.getframerate() != 16_000:
-                raise StageProcessingError("normalized_audio_invalid")
-            if source.getsampwidth() != 2:
-                raise StageProcessingError("normalized_audio_invalid")
-            if source.getnframes() > 601 * 16_000:
-                raise StageProcessingError("normalized_audio_too_long")
-            raw = source.readframes(source.getnframes())
-        integers = array("h")
-        integers.frombytes(raw)
-        del raw
-        if struct.pack("=h", 1) != struct.pack("<h", 1):
-            integers.byteswap()
-        samples = array("f", integers)
-        del integers
-        scale = 1.0 / 32768.0
-        for index in range(len(samples)):
-            samples[index] *= scale
-        return samples, 16_000
-    finally:
-        try:
-            pcm_path.unlink()
-        except OSError:
-            pass
-
-
 def _voice_analysis(stage: ProcessingStage) -> StageOutcome:
     unit_key = getattr(stage, "unit_key", "aggregate")
     if isinstance(stage, ProcessingStage) and unit_key in {"aggregate", "default"}:
@@ -2978,12 +2883,9 @@ def _voice_analysis(stage: ProcessingStage) -> StageOutcome:
     for chunk in chunks:
         _heartbeat(stage)
         path = _verified_derived_artifact_path(chunk)
-        waveform, sample_rate = _read_flac_waveform(stage, path)
         source_start_ms = round(float(chunk.source_start_seconds or 0) * 1000)
-        analysis = analyze_voice(
-            waveform,
-            model_paths=VoiceModelPaths.from_root(Path(settings.MODELS_ROOT)),
-            sample_rate=sample_rate,
+        analysis = analyze_voice_file(
+            path,
             source_start_ms=source_start_ms,
         )
         chunk_index = int(chunk.metadata.get("chunk_index", 0))

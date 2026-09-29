@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from os import PathLike
 from typing import Any
 
+from pandect.media_runner.routing import isolated
 from pandect.processing.extractors.audio_splits import TimeRange
 from pandect.processing.extractors.errors import (
     InvalidExtractorOutputError,
@@ -91,6 +92,7 @@ def parse_silencedetect(
     return tuple(ranges)
 
 
+@isolated("detect_silence", source="path")
 def detect_silence(
     path: str | PathLike[str],
     *,
@@ -244,6 +246,7 @@ class AcousticMetadata:
         return {"loudness": dict(self.loudness), "volume": dict(self.volume)}
 
 
+@isolated("analyze_acoustics", source="path")
 def analyze_acoustics(
     path: str | PathLike[str],
     *,
@@ -300,6 +303,7 @@ def analyze_acoustics(
     )
 
 
+@isolated("extract_audio_chunk", source="source_path", destination="destination_path")
 def extract_audio_chunk(
     source_path: str | PathLike[str],
     destination_path: str | PathLike[str],

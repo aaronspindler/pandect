@@ -11,6 +11,7 @@ from pandect.catalog.services import (
     create_uploaded_media,
     inspect_uploaded_media,
 )
+from pandect.catalog.uploads import validate_upload_sizes
 from pandect.events.models import Event
 from pandect.messages.models import (
     CommunicationParticipant,
@@ -43,13 +44,18 @@ class BulkMediaForm(forms.Form):
     files = MultipleFileField(
         label="Image, video, and audio files",
         widget=MultipleFileInput(attrs={"accept": "image/*,video/*,audio/*"}),
-        help_text="Choose up to 50 files. Pandect verifies each file locally.",
+        help_text=(
+            "Choose up to 50 files, at most 2 GiB per file and 8 GiB per batch. "
+            "Pandect verifies each file locally."
+        ),
     )
 
     def clean_files(self):
         files = self.cleaned_data["files"]
-        if len(files) > 50:
-            raise ValidationError("Add no more than 50 files at a time.")
+        try:
+            validate_upload_sizes(files)
+        except ValueError as error:
+            raise ValidationError(str(error)) from error
         errors = []
         inspections = []
         for upload in files:
@@ -70,6 +76,7 @@ class MediaIntakeForm(forms.Form):
     def clean_file(self):
         upload = self.cleaned_data["file"]
         try:
+            validate_upload_sizes([upload])
             inspection = inspect_uploaded_media(upload)
         except ValueError as error:
             raise ValidationError(str(error)) from error

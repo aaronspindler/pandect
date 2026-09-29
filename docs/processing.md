@@ -1,5 +1,10 @@
 # Evidence processing
 
+See the [current architecture](architecture/overview.md) for the trusted
+orchestrator/media-runner boundary and [SECURITY.md](../SECURITY.md) for its
+limitations. This guide describes evidence behavior, not a certification of
+forensic admissibility or model accuracy.
+
 ## Durable workflow
 
 Supported catalogue intake creates a `ProcessingRun` and explicit
@@ -108,8 +113,10 @@ historical.
 - Derived files belong under `media/derived/<item>/<run>/` and are never used to
   replace an original.
 - Ephemeral work uses `PANDECT_WORK_DIR` (default `/data/work` in Compose), not
-  `/tmp`. Django also streams larger request uploads to its private `uploads/`
-  subdirectory there before canonical storage.
+  `/tmp` in the trusted services. It holds upload/publication staging; native
+  decoder jobs use separate ephemeral runner scratch with no canonical-data
+  mount. Django streams larger request uploads to its private `uploads/`
+  subdirectory before canonical storage.
 - Work and media storage must remain on the same filesystem. Each derived-file
   publication is journaled by stage attempt before Pandect creates a hard link
   into `media/derived/`; file contents and the destination directory are synced
@@ -118,6 +125,33 @@ historical.
   exact preexisting/recovered files and mismatches are preserved.
 - Model artifacts use `PANDECT_MODELS_DIR` (default `/data/models`). Tasks do
   not download weights.
+- Uploads are counted while streaming, independently of `Content-Length`:
+  2 GiB per file, 8 GiB per batch, 50 files, and a 2 GiB free-space reserve.
+  Storage is checked again before original/derived publication. Rejected
+  batches must not leave partial catalogue records or provisional originals.
+  Django checks request origins and CSRF cookies before multipart parsing;
+  upload-limit errors still return 413/507 if parsing stops before the form token.
+- Native tools, pixel/audio decoders, and inference execute through fixed
+  media-runner operations, not directly inside web or worker. The runner has
+  no IP network, application data, credentials, or database access. Trusted
+  orchestration verifies returned structures/files and computes final hashes.
+- The runner permits one active job. Imports requiring a probe may return
+  busy with `Retry-After`; processing stages use their existing bounded retry
+  policy for the same contention. Unavailable confinement never falls back to
+  direct execution. Its hard defaults are 8 GiB memory/no extra swap, 4 GiB scratch
+  with 8,192 inodes, two CPUs, 128 processes/threads, and 256 open descriptors.
+  Output is capped at 1,024 regular files and 1 GiB total per job (also 1 GiB
+  per file). Core dumps are disabled. Accepted upload size does not guarantee
+  a file fits these decoding/output limits.
+  Voice analysis allows 3,000 seconds per job: the full supported 600-second
+  chunk's decoding budget (`2 × duration + 300s`) plus the same allowance for
+  inference, within the runner's two-hour hard limit.
+- Trusted response validation also caps a source at seven days' duration and
+  64 streams, chapter/scene collections at 10,000 entries, and model output at
+  1,024 observations with at most 4,096 dimensions per embedding. Invalid,
+  non-finite, malformed, or over-limit results fail the analysis while
+  preserving the canonical original. Image source-unit/pixel limits below
+  continue to apply inside these response bounds.
 - Images are limited to 200 megapixels per decoded frame/page, 100 source
   units, and 200 megapixels in aggregate decoded work per stage. Crossing the
   unit-count or aggregate-pixel boundary truncates at the last fully approved
@@ -164,13 +198,17 @@ historical.
   pins decoder, encoder, and filter execution to one thread so a single stage
   cannot silently multiply host CPU concurrency.
 
-Run `make processing-diagnostics` to execute bounded binary-version checks and
+Run `make processing-diagnostics` to execute isolated bounded binary-version checks and
 an actual write, file-fsync, and atomic-rename probe inside the work directory.
 It also verifies every manifest digest and exact declared size. Health and
-readiness do not depend on models or Cloudflare.
+readiness do not depend on models or Cloudflare, but the media-runner must be
+available for operations that require it.
 
 Model provisioning is an explicit operator action; startup and processing tasks
-never fetch weights:
+never fetch weights. Review [artifact-specific license disclosures](model-licenses.md),
+especially the expression model's missing model-local license and unresolved
+training-corpus rights. Upstream license labels do not establish commercial
+clearance:
 
 ```console
 make manage ARGS="provision_processing_models --list"
@@ -197,18 +235,21 @@ notes, and an artifact-specific statement of what is and is not defensibly known
 about the training corpus. The same model and legal provenance is frozen into
 every applicable local processing run. Neither core tests nor runtime tasks
 download weights or legal text. `make model-smoke` additionally starts a disposable,
-120-second-limited child process, revalidates every manifest digest and size,
+120-second-limited isolated runner job, revalidates every manifest digest and size,
 and performs real inference using only generated test signals: YuNet detection,
 SFace and expression features, both FP16 OpenVINO IR pairs, Silero VAD, and a
 CAM++ speaker embedding. The synthetic face pixels and three-second waveform
-contain no catalogue evidence, are not persisted, and never leave the machine.
-Native runtimes are pinned to one thread, child output is capped at 64 KiB, and
+contain no catalogue evidence and the network-disabled job does not transfer them.
+Native runtimes are pinned to one thread, output is bounded, and
 missing, incompatible, timed-out, or invalid-output models fail with sanitized
 codes. This optional smoke gate is deliberately outside `make check` and needs
 no credentials or network access after provisioning. The Python bindings and
 their native `sherpa-onnx-core` runtime are pinned to the same release. Compose mounts
-`/data/models` read-only in both long-lived services; only the explicit one-shot
-model provisioner mounts it writable.
+models read-only for the runner and trusted services; only the explicit one-shot
+model provisioner mounts them writable. Setup/provisioning makes only verified
+manifest weights and legal texts readable to disposable job identities, leaving
+the surrounding data and annotated notice private. It does not recursively
+widen unknown model-directory contents.
 
 ## Evidence interpretation
 
@@ -254,6 +295,16 @@ Their default managers reject queryset updates, bulk updates, and deletion, and
 their instances reject subsequent saves and deletion. Candidate and reference
 decision-history events use the same append-only boundary. New interpretations
 are represented by new rows and runs rather than rewriting prior evidence.
+Their catalogue/run/stage parent relationships use protected deletion rather
+than cascades that could bypass instance/queryset guards. Unprocessed catalogue
+items remain deletable; items with immutable processing/identity evidence must
+retain that history. These are supported application/ORM protections, not a
+barrier to a trusted operator directly editing SQLite or files.
+
+The public-alpha execution-policy version is included in new run provenance.
+Prior results remain stored and can be shown as historical when they no longer
+match current processing configuration. An explicit rerun appends a new record;
+upgrading does not rewrite previous conclusions.
 
 Eligibility counts source evidence, not processing executions: a rerun of the
 same face or message counts once, and overlapping voice intervals are merged
@@ -434,12 +485,16 @@ Cloudflare receives the evidence described above and opaque run/stage IDs.
 Usage, cost, status, and timing metadata may remain available even when payload
 logging is disabled. Availability, pricing, model licenses, and provider
 retention policies can change independently of Pandect; verify them before
-consenting. Credentials and payloads are never logged.
+consenting. Pandect's adapters are designed not to log credentials or payloads;
+review local logs before sharing, and do not infer provider-side retention
+guarantees from that application behavior.
 
 ## Adding a stage
 
 Add a concrete stage kind, place its small extractor in `processing/extractors`,
 wire it explicitly in the item-type map and dispatcher, return typed
 `StageOutcome` values, and add hermetic parser plus task-state tests. Record an
-input hash and exact tool/model/preprocessing revision. Do not add a generic DAG,
+input hash and exact tool/model/preprocessing revision. Native parsing and
+inference must use a fixed isolated runner operation, including postprocessing
+and diagnostics; validate returned data before trusted publication. Do not add a generic DAG,
 plugin registry, implicit download, network fallback, or canonical-field write.

@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem using synthetic data only.
+body:
+  - type: markdown
+    attributes:
+      value: "Use private security reporting for vulnerabilities. Never attach originals, databases, embeddings, backups, .env, secret.key, or unredacted logs."
+  - type: input
+    id: version
+    attributes:
+      label: Tag or commit
+      placeholder: v0.1.0a1 or a commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS, amd64/arm64, Docker and Compose versions, and Docker memory allocation. No personal paths.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Minimal steps, expected result, and actual result. Describe how to generate input without real evidence.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Relevant error codes or short redacted logs only. Review every line before submitting.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This report contains no real investigation evidence, personal data, or credentials.
+          required: true

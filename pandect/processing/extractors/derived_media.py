@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from os import PathLike
 from typing import Any
 
+from pandect.media_runner.routing import isolated
 from pandect.processing.extractors.audio import (
     extract_audio_chunk,
     ffmpeg_timeout_seconds,
@@ -412,6 +413,7 @@ def parse_scene_changes(value: str | bytes) -> tuple[SceneChange, ...]:
     )
 
 
+@isolated("detect_scene_changes", source="source_path")
 def detect_scene_changes(
     source_path: str | PathLike[str],
     *,
@@ -495,6 +497,7 @@ def detect_scene_change_times(
     return tuple(sorted(change.timestamp_seconds for change in changes))
 
 
+@isolated("extract_video_frame", source="source_path", destination="destination_path")
 def extract_video_frame(
     source_path: str | PathLike[str],
     destination_path: str | PathLike[str],
@@ -650,6 +653,11 @@ def extract_representative_frames(
     )
 
 
+@isolated(
+    "extract_normalized_audio_stream",
+    source="source_path",
+    destination="destination_path",
+)
 def extract_normalized_audio_stream(
     source_path: str | PathLike[str],
     destination_path: str | PathLike[str],
@@ -729,6 +737,11 @@ def extract_normalized_audio_stream(
     )
 
 
+@isolated(
+    "extract_faithful_audio_stream",
+    source="source_path",
+    destination="destination_path",
+)
 def extract_faithful_audio_stream(
     source_path: str | PathLike[str],
     destination_path: str | PathLike[str],
@@ -857,6 +870,11 @@ def extract_faithful_audio_stream(
     )
 
 
+@isolated(
+    "extract_normalized_audio_chunk",
+    source="source_path",
+    destination="destination_path",
+)
 def extract_normalized_audio_chunk(
     source_path: str | PathLike[str],
     destination_path: str | PathLike[str],
@@ -995,6 +1013,9 @@ def embedded_artwork_streams_from_probe(
     return tuple(selected)
 
 
+@isolated(
+    "extract_embedded_artwork", source="source_path", destination="destination_path"
+)
 def extract_embedded_artwork(
     source_path: str | PathLike[str],
     destination_path: str | PathLike[str],
@@ -1072,6 +1093,9 @@ def subtitle_output_for_codec(codec_name: str) -> tuple[str, str] | None:
     return _SUBTITLE_CODECS.get(codec_name.casefold())
 
 
+@isolated(
+    "extract_subtitle_stream", source="source_path", destination="destination_path"
+)
 def extract_subtitle_stream(
     source_path: str | PathLike[str],
     destination_path: str | PathLike[str],

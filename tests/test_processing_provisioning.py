@@ -1,4 +1,5 @@
 import errno
+import os
 from hashlib import sha256
 from io import StringIO
 from pathlib import Path
@@ -15,7 +16,6 @@ from pandect.processing.extractors.faces import (
     HeadPose,
     ImageFrame,
 )
-from pandect.processing.extractors.subprocesses import CommandResult
 from pandect.processing.extractors.voice import VadSegment
 from pandect.processing.model_manifest import (
     MODEL_ARTIFACTS,
@@ -26,7 +26,6 @@ from pandect.processing.model_manifest import (
 from pandect.processing.provisioning import (
     LEGAL_DIRECTORY_NAME,
     MODEL_SMOKE_OUTPUT_LIMIT_BYTES,
-    MODEL_SMOKE_REPORT_PREFIX,
     MODEL_SMOKE_TIMEOUT_SECONDS,
     NOTICE_FILENAME,
     ModelInferenceCheck,
@@ -38,6 +37,7 @@ from pandect.processing.provisioning import (
     _exercise_voice_runtime,
     check_models,
     check_work_storage,
+    prepare_model_permissions,
     provision_models,
     smoke_infer_models,
     smoke_infer_models_isolated,
@@ -144,6 +144,122 @@ def test_model_checks_require_digest_and_declared_size(tmp_path):
 
     wrong_size = _artifact(byte_size=6)
     assert not check_models(tmp_path, artifacts=(wrong_size,))[0].valid
+
+
+def test_model_permissions_only_share_verified_public_files(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir(mode=0o700)
+    root = data / "models"
+    root.mkdir(mode=0o700)
+    legal_root = root / LEGAL_DIRECTORY_NAME
+    legal_root.mkdir(mode=0o700)
+    reference = _legal_reference()
+    artifact = _artifact(legal_references=(reference,))
+    model = artifact.path(root)
+    model.write_bytes(b"model")
+    model.chmod(0o600)
+    license_path = legal_root / reference.document.filename
+    license_path.write_bytes(b"upstream legal text\n")
+    license_path.chmod(0o600)
+    notice = root / NOTICE_FILENAME
+    notice.write_text("private operator annotation")
+    notice.chmod(0o600)
+    unknown = root / "private.bin"
+    unknown.write_bytes(b"private")
+    unknown.chmod(0o600)
+    before = {
+        path: path.read_bytes() for path in (model, license_path, notice, unknown)
+    }
+
+    assert prepare_model_permissions(root, artifacts=(artifact,)) == 2
+    assert prepare_model_permissions(root, artifacts=(artifact,)) == 2
+    assert data.stat().st_mode & 0o777 == 0o700
+    assert root.stat().st_mode & 0o777 == 0o755
+    assert legal_root.stat().st_mode & 0o777 == 0o755
+    assert model.stat().st_mode & 0o777 == 0o644
+    assert license_path.stat().st_mode & 0o777 == 0o644
+    assert notice.stat().st_mode & 0o777 == 0o600
+    assert unknown.stat().st_mode & 0o777 == 0o600
+    assert before == {path: path.read_bytes() for path in before}
+
+
+@pytest.mark.parametrize("kind", ("unknown", "invalid", "symlink", "hardlink"))
+def test_model_permission_migration_rejects_unverified_public_entries(tmp_path, kind):
+    root = tmp_path / "models"
+    root.mkdir(mode=0o700)
+    artifact = _artifact()
+    target = artifact.path(root)
+    if kind == "unknown":
+        target = root / "not-in-manifest.bin"
+        target.write_bytes(b"model")
+    elif kind == "invalid":
+        target.write_bytes(b"corrupt")
+    else:
+        external = tmp_path / "sensitive"
+        external.write_bytes(b"model")
+        if kind == "symlink":
+            target.symlink_to(external)
+        else:
+            os.link(external, target)
+    target.chmod(0o644)
+    with pytest.raises(ProvisioningError):
+        prepare_model_permissions(root, artifacts=(artifact,))
+    assert root.stat().st_mode & 0o777 == 0o700
+
+
+def test_private_invalid_model_is_not_made_public(tmp_path):
+    artifact = _artifact()
+    model = artifact.path(tmp_path)
+    model.write_bytes(b"invalid")
+    model.chmod(0o600)
+    assert prepare_model_permissions(tmp_path, artifacts=(artifact,)) == 0
+    assert model.stat().st_mode & 0o777 == 0o600
+
+
+def test_permission_migration_does_not_follow_model_root_symlink(tmp_path):
+    external = tmp_path / "external"
+    external.mkdir(mode=0o700)
+    root = tmp_path / "models"
+    root.symlink_to(external, target_is_directory=True)
+    with pytest.raises(ProvisioningError, match="provisioning failed"):
+        prepare_model_permissions(root, artifacts=(_artifact(),))
+    assert external.stat().st_mode & 0o777 == 0o700
+
+
+def test_provisioning_refuses_symlink_roots_before_any_download(tmp_path):
+    external = tmp_path / "external"
+    external.mkdir()
+    root = tmp_path / "models"
+    root.symlink_to(external, target_is_directory=True)
+    with pytest.raises(ProvisioningError) as failure:
+        provision_models(
+            root,
+            tmp_path / "work",
+            artifacts=(_artifact(),),
+            accept_licenses=True,
+            downloader=lambda *_args: pytest.fail("no download permitted"),
+        )
+    assert failure.value.code == "model_storage_contains_symlink"
+    assert not list(external.iterdir())
+
+
+def test_permission_command_reports_only_counts_and_preserves_private_data(
+    settings,
+    tmp_path,
+):
+    settings.MODELS_ROOT = tmp_path / "models"
+    settings.MODELS_ROOT.mkdir(mode=0o700)
+    output = StringIO()
+    call_command("prepare_model_permissions", stdout=output)
+    assert output.getvalue() == "Prepared 0 verified public model/license file(s).\n"
+
+
+def test_model_check_rejects_symlink_even_with_matching_digest(tmp_path):
+    artifact = _artifact()
+    external = tmp_path / "other"
+    external.write_bytes(b"model")
+    artifact.path(tmp_path).symlink_to(external)
+    assert not check_models(tmp_path, artifacts=(artifact,))[0].valid
 
 
 def test_provisioning_requires_explicit_license_acceptance(tmp_path):
@@ -258,6 +374,11 @@ def test_legal_archive_is_cumulative_and_never_redownloads_or_replaces(tmp_path)
         accept_licenses=True,
         artifacts=(
             _artifact(
+                b"first",
+                filename="first.onnx",
+                legal_references=(first_reference,),
+            ),
+            _artifact(
                 b"second",
                 filename="second.onnx",
                 legal_references=(first_reference, second_reference),
@@ -335,6 +456,7 @@ def test_bad_legal_download_never_installs_model_and_cleans_work_file(tmp_path):
 
 def test_partial_provisioning_appends_notice_without_destroying_prior_content(
     tmp_path,
+    monkeypatch,
 ):
     root = tmp_path / "models"
     work = tmp_path / "work"
@@ -345,6 +467,9 @@ def test_partial_provisioning_appends_notice_without_destroying_prior_content(
         training_corpus_limitation="First corpus limitation.",
     )
     second = _artifact(b"second", filename="second.onnx")
+    monkeypatch.setattr(
+        "pandect.processing.provisioning.MODEL_ARTIFACTS", (first, second)
+    )
 
     provision_models(
         root,
@@ -650,7 +775,10 @@ def test_model_inference_smoke_requires_integrity_and_sanitizes_failures(tmp_pat
     assert called == [tmp_path]
 
 
-def test_model_inference_smoke_child_is_bounded_and_parses_sanitized_report(tmp_path):
+@pytest.mark.parametrize("transport_metadata", ({}, {"outputs": {}}))
+def test_model_inference_smoke_child_is_bounded_and_parses_sanitized_report(
+    tmp_path, transport_metadata
+):
     calls = []
     checks = (
         ModelInferenceCheck("face/OpenVINO", True),
@@ -659,44 +787,64 @@ def test_model_inference_smoke_child_is_bounded_and_parses_sanitized_report(tmp_
     payload = {
         "schema_version": "1",
         "checks": [check.as_dict() for check in checks],
+        **transport_metadata,
     }
 
-    def runner(argv, **options):
-        calls.append((argv, options))
-        encoded = __import__("json").dumps(payload, separators=(",", ":")).encode()
-        return CommandResult(MODEL_SMOKE_REPORT_PREFIX + encoded + b"\n", b"", 0)
+    def runner(operation, **options):
+        calls.append((operation, options))
+        return payload
 
     assert (
         smoke_infer_models_isolated(
             tmp_path,
-            python_binary="python-test",
             runner=runner,
         )
         == checks
     )
-    argv, options = calls[0]
-    assert argv == (
-        "python-test",
-        "-m",
-        "pandect.processing.model_smoke_worker",
-        "--models-root",
-        tmp_path,
-    )
+    operation, options = calls[0]
+    assert operation == "model_smoke"
     assert options == {
+        "inputs": {},
+        "parameters": {},
         "timeout_seconds": MODEL_SMOKE_TIMEOUT_SECONDS,
-        "output_limit_bytes": MODEL_SMOKE_OUTPUT_LIMIT_BYTES,
     }
+
+
+@pytest.mark.parametrize("outputs", ({"unexpected": "file"}, [], None))
+def test_model_inference_smoke_rejects_artifact_transport_metadata(tmp_path, outputs):
+    result = smoke_infer_models_isolated(
+        tmp_path,
+        runner=lambda *_args, **_kwargs: {
+            "schema_version": "1",
+            "checks": [
+                {
+                    "component": "manifest",
+                    "passed": False,
+                    "error_code": "model_integrity_failed",
+                }
+            ],
+            "outputs": outputs,
+        },
+    )
+    assert result == (
+        ModelInferenceCheck("model-smoke process", False, "invalid_tool_output"),
+    )
 
 
 def test_model_inference_smoke_child_rejects_untrusted_output_and_sanitizes_timeout(
     tmp_path,
 ):
     def untrusted_runner(_argv, **_options):
-        report = (
-            b'{"schema_version":"1","checks":[{"component":"/secret/path",'
-            b'"passed":false,"error_code":"leaked detail"}]}'
-        )
-        return CommandResult(MODEL_SMOKE_REPORT_PREFIX + report + b"\n", b"", 0)
+        return {
+            "schema_version": "1",
+            "checks": [
+                {
+                    "component": "/secret/path",
+                    "passed": False,
+                    "error_code": "leaked detail",
+                }
+            ],
+        }
 
     assert smoke_infer_models_isolated(tmp_path, runner=untrusted_runner) == (
         ModelInferenceCheck(
@@ -711,6 +859,37 @@ def test_model_inference_smoke_child_rejects_untrusted_output_and_sanitizes_time
 
     assert smoke_infer_models_isolated(tmp_path, runner=timeout_runner) == (
         ModelInferenceCheck("model-smoke process", False, "tool_timed_out"),
+    )
+
+
+def test_model_inference_smoke_rejects_oversized_report(tmp_path):
+    assert smoke_infer_models_isolated(
+        tmp_path,
+        runner=lambda *_args, **_kwargs: {
+            "padding": "x" * MODEL_SMOKE_OUTPUT_LIMIT_BYTES
+        },
+    ) == (ModelInferenceCheck("model-smoke process", False, "invalid_tool_output"),)
+
+
+@pytest.mark.parametrize("component", ("manifest", "face/OpenVINO"))
+def test_model_inference_smoke_rejects_incomplete_success_report(tmp_path, component):
+    assert smoke_infer_models_isolated(
+        tmp_path,
+        runner=lambda *_args, **_kwargs: {
+            "schema_version": "1",
+            "checks": [{"component": component, "passed": True, "error_code": ""}],
+        },
+    ) == (ModelInferenceCheck("model-smoke process", False, "invalid_tool_output"),)
+
+
+def test_model_inference_smoke_reports_runner_failure_without_local_fallback(tmp_path):
+    from pandect.media_runner.protocol import RunnerUnavailable
+
+    def unavailable(*_args, **_kwargs):
+        raise RunnerUnavailable("private configuration should not be echoed")
+
+    assert smoke_infer_models_isolated(tmp_path, runner=unavailable) == (
+        ModelInferenceCheck("model-smoke process", False, "media_runner_failed"),
     )
 
 
@@ -762,7 +941,7 @@ def test_diagnostics_reports_storage_and_runtime_inference(settings, tmp_path):
     output = StringIO()
     command = "pandect.processing.management.commands.processing_diagnostics"
     with (
-        patch(f"{command}.shutil.which", return_value="/usr/bin/tool"),
+        patch(f"{command}.media_runner_status", return_value={"busy": False}),
         patch(f"{command}._tool_version", return_value="tool 1.2.3"),
         patch(f"{command}.check_models", return_value=(check,)),
         patch(
@@ -777,6 +956,81 @@ def test_diagnostics_reports_storage_and_runtime_inference(settings, tmp_path):
         call_command("processing_diagnostics", "--smoke-models", stdout=output)
 
     value = output.getvalue()
+    assert "media runner: ready" in value
     assert "tool ffmpeg: available (tool 1.2.3)" in value
     assert "work storage: writable and atomic" in value
     assert "model runtime fake: inference passed" in value
+
+
+@pytest.mark.parametrize("runner_state", ("busy", "unavailable"))
+@pytest.mark.parametrize("smoke_models", (False, True))
+def test_diagnostics_reports_runner_state_without_waiting_or_running_jobs(
+    runner_state,
+    smoke_models,
+):
+    from pandect.media_runner.protocol import RunnerUnavailable
+
+    output = StringIO()
+    command = "pandect.processing.management.commands.processing_diagnostics"
+    with (
+        patch(f"{command}.media_runner_status") as status,
+        patch(f"{command}._tool_version") as tool_version,
+        patch(f"{command}.smoke_infer_models_isolated") as model_smoke,
+        patch(f"{command}.check_models", return_value=()),
+        patch(
+            f"{command}.check_work_storage",
+            return_value=StorageCheck(True, True, True, True),
+        ),
+    ):
+        if runner_state == "busy":
+            status.return_value = {"busy": True}
+        else:
+            status.side_effect = RunnerUnavailable("private socket configuration")
+        if smoke_models:
+            with pytest.raises(CommandError, match="capabilities are unavailable"):
+                call_command("processing_diagnostics", "--smoke-models", stdout=output)
+        else:
+            call_command("processing_diagnostics", stdout=output)
+
+    status.assert_called_once_with()
+    tool_version.assert_not_called()
+    model_smoke.assert_not_called()
+    value = output.getvalue()
+    assert f"media runner: {runner_state}" in value
+    assert f"tool ffmpeg: not checked (media runner {runner_state})" in value
+    assert "tool ffmpeg: unavailable" not in value
+    assert "Cloudflare AI: disabled" in value
+    assert "work storage: writable and atomic" in value
+    assert "private socket configuration" not in value
+    if runner_state == "busy":
+        assert "retry diagnostics after the current job finishes" in value
+    else:
+        assert "make up" in value
+        assert "docker compose logs media-runner" in value
+
+
+@pytest.mark.parametrize("runner_state", ("busy", "unavailable"))
+def test_diagnostics_reports_runner_race_and_does_not_retry_version_jobs(runner_state):
+    from pandect.media_runner.protocol import RunnerBusy, RunnerUnavailable
+
+    output = StringIO()
+    command = "pandect.processing.management.commands.processing_diagnostics"
+    exception = RunnerBusy if runner_state == "busy" else RunnerUnavailable
+    with (
+        patch(f"{command}.media_runner_status", return_value={"busy": False}),
+        patch(
+            f"{command}._tool_version",
+            side_effect=exception("private error content"),
+        ) as tool_version,
+        patch(f"{command}.check_models", return_value=()),
+        patch(
+            f"{command}.check_work_storage",
+            return_value=StorageCheck(True, True, True, True),
+        ),
+    ):
+        call_command("processing_diagnostics", stdout=output)
+    tool_version.assert_called_once_with("ffmpeg")
+    value = output.getvalue()
+    assert f"media runner: {runner_state}" in value
+    assert "private error content" not in value
+    assert f"tool tesseract: not checked (media runner {runner_state})" in value

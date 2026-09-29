@@ -1,46 +1,62 @@
 # Pandect
 
+Pandect is a local-first investigation application for **one trusted operator
+on one machine**. Catalogue images, video, audio, messages, notes, and events;
+retain originals; and review versioned extraction, provenance, and explicitly
+uncertain model observations separately from your own conclusions.
+
 > [!WARNING]
-> **Pandect currently has no authentication or authorization.** The supported
-> stack must remain bound to a trusted local interface. Do not expose it to a
-> LAN, the public internet, or any other untrusted network unless you have added
-> and verified an external access-control layer.
+> This is alpha software with **no authentication or authorization**. Keep it
+> on `127.0.0.1`; LAN, public-internet, shared-machine, and multi-user deployment
+> are not supported. Use synthetic or replaceable material until you have
+> tested backup and restore. Read the [security policy](SECURITY.md).
 
-Pandect is a local-first, self-hosted investigation application for one trusted
-operator. It combines a dependable server-rendered Django and SQLite foundation
-with a source-neutral catalogue for images, video, audio, events, notes,
-messages, and communication participants. Intake returns after bounded local
-classification, then a durable one-worker pipeline extracts technical metadata,
-OCR, text and writing profiles, timestamp claims, and acoustic evidence without
-changing originals. Optional model-generated processing remains separately
-labeled and consent-bound. Data-source integrations remain deferred.
+The application uses Django, server-rendered HTML, local HTMX assets, SQLite,
+and one Huey worker. A separate, network-disabled media runner handles native
+decoding and inference. Cloudflare processing is optional, disabled by default,
+and requires item-specific consent. No models download at startup.
 
-## Quick start
+## Install and start
 
-### Prerequisites
+This project is distributed as source and Docker Compose configuration, not a
+PyPI package or prebuilt container image. **Do not use `pip install pandect`**;
+that package name is not this installation workflow.
 
-- macOS or Linux with a POSIX shell and standard Unix utilities
-- Git
-- Make
-- Docker with Compose plugin version 2.24 or newer (`docker compose version`
-  must work; the legacy `docker-compose` command is not supported)
-- A running Docker daemon, such as Docker Desktop or Docker Engine
-- `curl` for the optional command-line health checks below
+You need:
 
-Clone the repository, initialize it, and start the stack:
+- macOS or Linux with Git, Make, a POSIX shell, and a running Docker daemon;
+- Docker Compose plugin **2.24 or newer** (`docker compose`, not `docker-compose`);
+- a **16 GiB RAM host**, with **12 GiB allocated to Docker Desktop**, as the
+  large-media capacity-test target; Linux amd64 and arm64 are the CI targets;
+- space for Docker images/build cache, originals, derivatives, upload staging,
+  optional models, and separate backups. Intake retains at least 2 GiB free;
+- internet access for the initial image build and explicitly requested model
+  provisioning or security scans. Built local processing can run offline.
+
+The first build downloads the locked Python/native dependencies and OS media
+tools, takes several minutes, and uses several GiB of Docker storage. Model
+weights are a separate optional download of approximately 77 MiB. Compressed
+media may expand far beyond its upload size; resource limits can reject a file
+that fits the upload limit.
+
+The initial release being prepared is **`0.1.0a1`**, tag **`v0.1.0a1`**. The
+commands below are for that tag **after it is published**. For an unreleased
+checkout, stay on your existing reviewed revision and start at `make setup`.
 
 ```console
-git clone https://github.com/aaronspindler/pandect.git
+git clone --branch v0.1.0a1 https://github.com/aaronspindler/pandect.git
 cd pandect
-make setup && make up
+make setup
+make up
+make ps
 ```
 
-`make setup` creates local configuration and persistent-data paths, builds the
-shared application image, and applies Django migrations. Open
-<http://127.0.0.1:8000/> after `make up` starts the web and worker services.
-Use `make ps` and wait until both services are healthy before checking them.
-
-Verify the web, database, and worker paths:
+Wait for service health, then open [Pandect](http://127.0.0.1:8000/).
+`make setup` creates private local configuration and data, builds images, and
+applies migrations. It preserves existing configuration and evidence. Do not
+run it as root. Existing installations should follow the
+[upgrade procedure](docs/operations.md#upgrade), including the legacy Compose
+project transition.
 
 ```console
 curl --fail http://127.0.0.1:8000/healthz/
@@ -48,38 +64,67 @@ curl --fail http://127.0.0.1:8000/readyz/
 make task-smoke
 ```
 
-`/healthz/` proves the web process responds, `/readyz/` verifies access to the
-application database, and `make task-smoke` sends a harmless demonstrative
-task through the real Huey queue and worker.
+These check web liveness, application readiness, and actual queue execution.
+They do not prove the accuracy of extracted or model-generated observations.
 
-Stop the stack without deleting local data:
+## Your first useful workflow
+
+1. Open the catalogue and add a small **synthetic** image, audio file, video,
+   or text message to try processing. Notes/events are catalogue-only records;
+   a blank media-message caption has no separate text-processing run. Bulk
+   upload supports media files only.
+2. Review the title and known metadata. Leave unknown times and facts blank;
+   an original occurrence time is different from the time you catalogued it.
+3. Open the item's detail page. Watch local stages finish and inspect their
+   source hashes, extraction results, warnings, and provenance. A rerun appends
+   history instead of replacing prior evidence.
+4. Optional face/voice model stages need explicitly provisioned models; without
+   them those stages can fail visibly while catalogue storage and deterministic
+   extraction remain usable. Review [model licensing](docs/model-licenses.md)
+   before choosing to provision. Missing models do not trigger a remote fallback.
+5. Review any proposed timestamp or identity match as a hypothesis, not a fact.
+   Operator confirmation is recorded separately. Remote processing, if configured,
+   requires reviewing the exact item-specific transfer manifest first.
+6. Stop the stack and make a backup before adding irreplaceable material.
+
+Uploads are limited to **2 GiB per file, 8 GiB per batch, and 50 files per
+batch**. Media probing and background processing share one execution slot;
+imports needing probing may report busy until the active job finishes.
+
+Stop services without deleting data:
 
 ```console
 make down
 ```
 
-## Where to go next
+## Privacy, limits, and help
 
-- [`docs/operations.md`](docs/operations.md) covers commands, processes,
-  persistence, backup and restore, upgrades, health checks, logs, and
-  troubleshooting.
-- [`docs/contributing.md`](docs/contributing.md) covers validation and the
-  boundaries for future Django apps and source integrations.
-- [`docs/architecture/0001-foundation.md`](docs/architecture/0001-foundation.md)
-  records the canonical foundation architecture and explicit non-goals.
-- [`docs/catalog-domain.md`](docs/catalog-domain.md) documents the catalogue and
-  communication app boundaries, models, timestamps, deletion behaviour, and
-  extension points.
-- [`docs/processing.md`](docs/processing.md) documents durable stages, evidence
-  tiers, resource bounds, local models, identity matching, and optional remote
-  consent.
-- [`docs/architecture/0002-async-multimodal-processing.md`](docs/architecture/0002-async-multimodal-processing.md)
-  records the processing/provenance architecture decision.
-- `make help` lists every public Make target and identifies state-changing
-  operations.
+Originals, derived media, databases, identity features, and secrets are stored
+locally **without application-level encryption**. Protect the host and backups.
+Local-first does not mean the trusted web/worker processes have no network
+access, and the media sandbox does not protect against a compromised host or
+Docker daemon. Remote providers receive only the consent-described inputs, but
+their retention, pricing, and model terms remain external dependencies.
 
-The current application deliberately excludes evidence graphs, search, source
-adapters, scraping, polling, open-world identity lookup, authentication,
-tenancy, a public API, cloud infrastructure as a default, and a generalized
-plugin system. See the architecture decisions before proposing a change to
-those boundaries.
+Pandect is not a forensic certification, a guarantee of admissibility, a truth
+detector, or open-world identification. Scores are not identity probabilities.
+It currently excludes source connectors, scraping, search, evidence graphs,
+authentication, tenancy, and public APIs. See the
+[current architecture](docs/architecture/overview.md) before proposing changes
+to those boundaries.
+
+- [Operations](docs/operations.md): configuration, commands, backup/restore,
+  upgrades, and troubleshooting.
+- [Processing](docs/processing.md) and [catalogue domain](docs/catalog-domain.md):
+  evidence lifecycle, limits, consent, and extension points.
+- [Contributing](docs/contributing.md): development, tests, and contribution terms.
+- [Security](SECURITY.md): threat model, supported releases, and private reporting.
+- [Changelog](CHANGELOG.md) and [release checklist](docs/releasing.md): release
+  status and required validation. `make help` lists operational commands.
+
+## License
+
+Copyright 2026 Aaron Spindler. Original Pandect code and documentation are
+licensed under [Apache-2.0](LICENSE). [Third-party dependencies](docs/third-party-notices.md)
+and [optional models](docs/model-licenses.md) retain their upstream terms;
+Pandect's license does not establish rights to your evidence or model training data.

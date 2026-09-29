@@ -8,6 +8,9 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from pandect.media_runner.client import RunnerError
+from pandect.media_runner.client import status as media_runner_status
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +43,7 @@ def health(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def readiness(request: HttpRequest) -> HttpResponse:
-    """Report whether the application database accepts a simple query."""
+    """Require database and confined executor availability; busy is healthy."""
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
@@ -48,5 +51,10 @@ def readiness(request: HttpRequest) -> HttpResponse:
     except DatabaseError:
         # The underlying exception may contain a machine-specific database path.
         logger.warning("Application database readiness check failed")
+        return HttpResponse("not ready\n", status=503, content_type="text/plain")
+    try:
+        media_runner_status()
+    except RunnerError:
+        logger.warning("Media runner readiness check failed")
         return HttpResponse("not ready\n", status=503, content_type="text/plain")
     return HttpResponse("ready\n", content_type="text/plain")

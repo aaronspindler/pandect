@@ -1,0 +1,1 @@
+Synthetic public model fixture. Not a real model or investigation artifact.

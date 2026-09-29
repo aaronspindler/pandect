@@ -91,6 +91,17 @@ def run_command(
     and public message.
     """
     command = _validated_argv(argv)
+    # Version-only probes never receive evidence. Every other invocation must
+    # originate in the confined child, including future extractor additions.
+    if tuple(command) not in {
+        ("ffmpeg", "-version"),
+        ("ffprobe", "-version"),
+        ("exiftool", "-ver"),
+        ("tesseract", "--version"),
+    }:
+        from pandect.media_runner.routing import require_child
+
+        require_child()
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
     if output_limit_bytes <= 0:

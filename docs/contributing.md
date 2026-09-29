@@ -1,9 +1,29 @@
-# Contributing to the foundation
+# Contributing to Pandect
+
+Small, focused contributions are welcome. For substantial behavior or
+architecture changes, discuss the user need in an issue first. Use synthetic
+reproductions: never submit investigation originals, databases, embeddings,
+backups, tokens, or unredacted logs. Report suspected vulnerabilities through
+the [private security process](../SECURITY.md), not a public issue or PR.
+
+By intentionally submitting a contribution for inclusion, you provide it under
+Pandect's [Apache-2.0 license](../LICENSE), unless explicitly agreed otherwise.
+Only contribute material you have the right to share and preserve upstream
+notices. No separate CLA or sign-off requirement is imposed. Treat other
+contributors respectfully and keep review focused on behavior and evidence.
 
 Read the relevant issue, the root [`AGENTS.md`](../AGENTS.md), and
-[`architecture/0001-foundation.md`](architecture/0001-foundation.md) before
+the [current architecture](architecture/overview.md) and its linked ADRs before
 changing Pandect. The root guidance is authoritative for engineering style,
 local-first operation, evidence integrity, and validation.
+
+Use a focused branch and PR for changes to `main`. Explain the operator need,
+include a synthetic reproduction for bugs, and report exactly which checks
+passed or could not run. Keep unrelated refactors out of the patch and resolve
+review discussions before merging. CI checks are required; a passing workflow
+does not replace reviewing evidence/privacy behavior. You do not need to use
+an AI coding tool to contribute; `AGENTS.md` also records shared engineering
+constraints, while this guide is the human workflow.
 
 ## Validation
 
@@ -41,9 +61,25 @@ network.
 Commit intentional migrations with the model change that needs them. Keep
 dependencies minimal and update the dependency declaration and lockfile
 together rather than adding a second toolchain. Dependency updates are the one
-workflow that currently needs the same `uv` version pinned in the Dockerfile
-and used by CI's tools image; after editing `pyproject.toml`, run `uv lock`,
-review `uv.lock`, and finish with `make check`.
+workflow that needs the same `uv` version pinned in the Dockerfile
+and used by CI's tools image; after editing `pyproject.toml`, regenerate
+`uv.lock` with that version, review the diff, and finish with `make check`.
+Locked installation rejects stale project metadata instead of ignoring it.
+
+`make security-check` is a separate, explicitly network-enabled check: it audits
+the lockfile, scans runtime and maintenance images for fixable high/critical vulnerabilities,
+and scans Git history plus nonignored working files for secrets with redacted
+output. It runs without application evidence or credentials. Its advisory
+lookups/image downloads are not part of the hermetic-test claim. The scan needs
+several GiB of temporary disk for image archives and the expanded vulnerability
+database; the private disk cache is cleaned afterwards. Exceptions in
+`security-exceptions.json` must name one advisory and scanner, owner,
+justification, and an unexpired review deadline; a blanket ignore is not an
+acceptable workaround. Never include a live secret in a suppression or report.
+
+CI validates Linux amd64 and arm64. The release checklist additionally requires
+real Compose recovery/isolation smoke checks and the documented large-media
+capacity test. Do not infer those results from a unit-test pass.
 
 ## Adding a future Django app
 
@@ -122,11 +158,18 @@ together. Parsers should accept fixed fixture output and return JSON-compatible
 values; tasks receive only UUIDs. Keep expensive work outside SQLite
 transactions and recheck the canonical input hash before appending output.
 
-Invoke local tools with argument arrays, no shell, bounded output, and a hard
-subprocess timeout. Errors must not retain evidence, paths, arguments, or tool
-output. Store derived media under the run-specific derived prefix through a
-temporary file and atomic rename. Never overwrite or delete the original.
+Every native tool, decoder, and model call must run through the media runner's
+fixed operation interface, including probes, diagnostics, and validation of
+derived media. There is no direct-execution fallback. Inside a job use argument
+arrays, no shell, bounded output, and a hard timeout. Do not add arbitrary
+executable/path/environment parameters to the protocol. Validate runner output
+before the trusted orchestrator records it; recompute file hashes rather than
+trusting a parser's claimed digest. Keep credentials, database access, consent
+decisions, and evidence publication outside the runner. Errors must not retain
+evidence, paths, arguments, or tool output. Use existing attempt-journaled
+publication for derived media; never overwrite or delete the original.
 
+Read the [model licensing inventory](model-licenses.md) before changing a model.
 Model weights are not Python dependencies and may not be fetched at import,
 startup, health checks, or task execution. Add a digest-qualified manifest
 entry with source, exact revision, preprocessing version, platform

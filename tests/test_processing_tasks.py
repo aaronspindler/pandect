@@ -3,7 +3,7 @@ from datetime import timedelta
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -12,6 +12,8 @@ from django.test import override_settings
 from django.utils import timezone
 
 from pandect.catalog.models import CatalogItem
+from pandect.media_runner.client import RunnerBusy
+from pandect.media_runner.routing import runner_result
 from pandect.messages.models import Message, TextMessage
 from pandect.photos.models import Image
 from pandect.processing import execution
@@ -39,6 +41,57 @@ def make_text_item(body: str = "Task input") -> CatalogItem:
     message = Message.objects.create(catalog_item=item, body=body)
     TextMessage.objects.create(message=message)
     return item
+
+
+@pytest.mark.media_runner
+@pytest.mark.django_db
+@pytest.mark.parametrize("remains_busy", [False, True])
+def test_media_runner_contention_uses_bounded_stage_retries(
+    monkeypatch, django_capture_on_commit_callbacks, remains_busy
+):
+    run = create_local_run(make_text_item(), enqueue=False)
+    stage = run.stages.get(kind=ProcessingStage.Kind.TEXT_EXTRACTION)
+    ProcessingStage.objects.filter(pk=stage.pk).update(
+        status=ProcessingStage.Status.QUEUED, max_attempts=2
+    )
+    busy = RunnerBusy("private transport details must not be persisted")
+    transport = Mock(side_effect=[busy, busy if remains_busy else {}])
+    monkeypatch.setattr("pandect.media_runner.client.run_operation", transport)
+    dispatch = Mock(return_value=SimpleNamespace(id="retry-delivery"))
+    monkeypatch.setattr("pandect.processing.services._dispatch_stage_task", dispatch)
+
+    def processor(_stage):
+        runner_result("probe_media", inputs={})
+        return StageOutcome()
+
+    monkeypatch.setattr("pandect.processing.tasks.execute_stage", processor)
+    with django_capture_on_commit_callbacks(execute=True):
+        run_processing_stage(str(stage.pk))
+        stage.refresh_from_db()
+        assert stage.status == ProcessingStage.Status.PENDING
+        assert stage.failure_code == "media_runner_busy"
+        assert "private" not in stage.failure_detail
+    stage.refresh_from_db()
+    assert stage.status == ProcessingStage.Status.QUEUED
+    assert stage.attempts == 1
+    assert stage.failure_code == ""
+    dispatch.assert_called_once_with(stage.pk)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        run_processing_stage(str(stage.pk))
+    stage.refresh_from_db()
+    assert stage.status == (
+        ProcessingStage.Status.FAILED
+        if remains_busy
+        else ProcessingStage.Status.SUCCEEDED
+    )
+    assert stage.attempts == stage.max_attempts == 2
+    if remains_busy:
+        assert stage.failure_code == "media_runner_busy"
+        assert "private" not in stage.failure_detail
+        dispatch.assert_called_once_with(stage.pk)
+    run_processing_stage(str(stage.pk))
+    assert transport.call_count == 2
 
 
 @pytest.mark.django_db

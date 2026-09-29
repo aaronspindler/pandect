@@ -72,6 +72,21 @@ def make_image_item(content=b"original-image-with-metadata"):
 
 
 @pytest.mark.django_db
+def test_web_can_review_and_record_exact_consent_without_worker_token(settings):
+    item = make_text_item()
+    worker_plan = build_remote_plan(item)
+    settings.CLOUDFLARE_API_TOKEN = ""
+    web_plan = build_remote_plan(item)
+    assert web_plan.manifest.sha256 == worker_plan.manifest.sha256
+    run = create_consented_remote_run(
+        item,
+        expected_manifest_hash=web_plan.manifest.sha256,
+        enqueue=False,
+    )
+    assert run.stages.filter(kind=ProcessingStage.Kind.REMOTE_SEMANTIC).exists()
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("item_factory", "schema_name"),
     (
