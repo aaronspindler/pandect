@@ -66,15 +66,19 @@ pytestmark = pytest.mark.django_db
 
 
 class ElementParser(HTMLParser):
-    """Inspect rendered form controls and their accessible descriptions."""
+    """Inspect rendered text, form controls, and accessible descriptions."""
 
     def __init__(self, content):
         super().__init__()
         self.elements = []
+        self.text_parts = []
         self.feed(content)
 
     def handle_starttag(self, tag, attrs):
         self.elements.append((tag, dict(attrs)))
+
+    def handle_data(self, data):
+        self.text_parts.append(data)
 
 
 def make_message_item(body="Original message", *, sender=None):
@@ -147,8 +151,13 @@ def make_writing_observation(
     )
 
 
-def test_item_detail_separates_four_evidence_tiers_and_escapes_results(client):
+@pytest.mark.parametrize("microseconds", [250_000, 750_000])
+def test_item_detail_separates_four_evidence_tiers_and_escapes_results(
+    client, microseconds
+):
     item = make_message_item("Do not execute <script>alert(1)</script>")
+    item.catalogued_at = datetime(2026, 8, 12, 10, 0, 30, microseconds, tzinfo=UTC)
+    item.save(update_fields=["catalogued_at"])
     run = make_run(item)
     stage = make_stage(run)
     ProcessingResult.objects.create(
@@ -181,8 +190,9 @@ def test_item_detail_separates_four_evidence_tiers_and_escapes_results(client):
     assert "&lt;unsafe&gt;" in content
     assert "A hypothesis, not a fact." in content
     assert "writing-v1" in content
-    assert "0.25" not in content
-    assert "0.75" not in content
+    rendered_text = "".join(ElementParser(content).text_parts)
+    assert "0.25" not in rendered_text
+    assert "0.75" not in rendered_text
 
 
 def test_default_detail_keeps_full_local_base_and_layers_current_supplements(client):
