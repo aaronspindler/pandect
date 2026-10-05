@@ -128,10 +128,10 @@ CMD ["python", "manage.py", "check"]
 # The maintenance helper is standard-library-only and never imports Django.
 FROM python:3.13-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS maintenance
 
-# Refresh the inherited PCRE2 library from Debian security (DLA-4772-1).
-# Runtime/tools explicitly install it above for the same reason.
+# Refresh inherited PCRE2 and Perl from Debian security (DLA-4772-1/DLA-4821-1).
+# Runtime/tools install PCRE2 and Perl-dependent ExifTool above.
 RUN apt-get update \
-    && apt-get install --no-install-recommends --yes libpcre2-8-0 \
+    && apt-get install --no-install-recommends --yes libpcre2-8-0 perl-base \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
