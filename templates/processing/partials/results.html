@@ -12,18 +12,21 @@
         {% if result.text %}<div class="evidence-text">{{ result.text|linebreaksbr }}</div>{% endif %}
         {% if result.data_json %}
           <details>
-            <summary>Structured result</summary>
+            <summary>View structured information</summary>
             <pre>{{ result.data_json }}</pre>
           </details>
         {% endif %}
         {% if result.uncertainty %}<p class="uncertainty"><strong>Uncertainty:</strong> {{ result.uncertainty }}</p>{% endif %}
-        <p class="provenance-line">
-          {{ result.processor }} {{ result.processor_version }} · schema {{ result.schema_version }} ·
-          <time datetime="{{ result.created_at|date:'c' }}">{{ result.created_at|date:"M j, Y, g:i:s A T" }}</time>
-        </p>
+        <details class="technical-details">
+          <summary>How and when this result was created</summary>
+          <p class="provenance-line">
+            {{ result.processor }} {{ result.processor_version }} · schema {{ result.schema_version }} ·
+            <time datetime="{{ result.created_at|date:'c' }}">{{ result.created_at|date:"M j, Y, g:i:s A T" }}</time>
+          </p>
+        </details>
       </li>
     {% endfor %}
   </ol>
 {% else %}
-  <p class="empty-copy">No results in this evidence tier for the selected run.</p>
+  <p class="empty-copy">{{ empty_message|default:"No results are available in this section for the selected view." }}</p>
 {% endif %}

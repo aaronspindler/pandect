@@ -7,24 +7,25 @@
     <div class="page-heading__copy">
       <p class="eyebrow">Catalogue</p>
       <h1>Collected material</h1>
-      <p>Browse every item kept in this local investigation workspace.</p>
+      <p>Your saved files, messages, notes, and events. Open an item to review its details and processing results.</p>
     </div>
-    <a class="button-link" href="{% url 'catalogue-add' %}">Add to catalogue</a>
+    <a class="button-link" href="{% url 'catalogue-add' %}">Add material</a>
   </header>
 
   {% if added_count %}
     <div class="notice" role="status">
-      Added {{ added_count }} item{{ added_count|pluralize }} to the catalogue.
+      <strong>{{ added_count }} item{{ added_count|pluralize }} saved.</strong>
+      Open an item below to see its details and any processing results.
     </div>
   {% endif %}
 
   {% if processing_examined_count or processing_scan_complete %}
     <div class="notice" role="status">
-      Examined {{ processing_examined_count }} item{{ processing_examined_count|pluralize }}.
-      Created {{ processing_added_count }} versioned processing run{{ processing_added_count|pluralize }}.
-      {% if processing_current_count %}Left {{ processing_current_count }} item{{ processing_current_count|pluralize }} unchanged because current compatible processing already exists.{% endif %}
-      {% if processing_skipped_count %}Skipped {{ processing_skipped_count }} unavailable item{{ processing_skipped_count|pluralize }}.{% endif %}
-      {% if processing_scan_complete %}Reached the end of this catalogue selection.{% endif %}
+      Checked {{ processing_examined_count }} item{{ processing_examined_count|pluralize }}.
+      Queued {{ processing_added_count }} new local processing run{{ processing_added_count|pluralize }}.
+      {% if processing_current_count %}{{ processing_current_count }} item{{ processing_current_count|pluralize }} already had up-to-date processing.{% endif %}
+      {% if processing_skipped_count %}Could not process {{ processing_skipped_count }} item{{ processing_skipped_count|pluralize }}. Check the source files and their item records before trying again.{% endif %}
+      {% if processing_scan_complete %}All items in this selection have been checked.{% else %}Continue with the next batch under “Process existing material” below.{% endif %}
     </div>
   {% endif %}
 
@@ -34,7 +35,7 @@
         <strong>{{ page.paginator.count }}</strong>
         item{{ page.paginator.count|pluralize }}{% if active_type_label %} · {{ active_type_label }}{% endif %}
       </p>
-      <p class="result-order">Oldest known occurrence first; unknown dates follow.</p>
+      <p class="result-order">Ordered by when it happened, oldest first. Items with unknown dates follow.</p>
     </div>
     <div class="catalogue-filter">
       <h2 id="catalogue-filter-heading">Filter by type</h2>
@@ -44,20 +45,6 @@
           <a href="?type={{ item_type.value }}"{% if active_type == item_type.value %} aria-current="page"{% endif %}>{{ item_type.label }}</a>
         {% endfor %}
       </nav>
-      {% if processing_backfill_available %}
-        <form class="catalogue-backfill" method="post" action="{% url 'catalogue-processing-backfill' %}">
-          {% csrf_token %}
-          <input type="hidden" name="item_type" value="{{ active_type }}">
-          <input type="hidden" name="limit" value="50">
-          <input type="hidden" name="cursor" value="{{ processing_cursor }}">
-          <button type="submit">
-            Backfill next 50 {% if active_type_label %}{{ active_type_label|lower }}{% else %}processable{% endif %} items
-          </button>
-          {% if processing_cursor %}
-            <a href="{% url 'catalogue' %}{% if active_type %}?type={{ active_type }}{% endif %}">Restart backfill scan</a>
-          {% endif %}
-        </form>
-      {% endif %}
     </div>
   </section>
 
@@ -73,7 +60,7 @@
               </div>
               <h2><a href="{% url 'catalogue-item-detail' card.item.id %}">{{ card.title }}</a></h2>
               {% if card.preview %}
-                <p class="catalogue-item__preview">{{ card.preview }}</p>
+                <p class="catalogue-item__preview">{{ card.preview|truncatechars:240 }}</p>
               {% else %}
                 <p class="catalogue-item__preview catalogue-item__preview--empty">No content recorded</p>
               {% endif %}
@@ -85,7 +72,7 @@
             </div>
             <dl class="catalogue-item__dates">
               <div>
-                <dt>Occurred</dt>
+                <dt>When it happened</dt>
                 <dd>
                   {% if card.item.occurred_at %}
                     <time datetime="{{ card.item.occurred_at|date:'c' }}">{{ card.item.occurred_at|date:"M j, Y" }}<br>{{ card.item.occurred_at|time:"g:i A T" }}</time>
@@ -95,7 +82,7 @@
                 </dd>
               </div>
               <div>
-                <dt>Catalogued</dt>
+                <dt>Added to catalogue</dt>
                 <dd><time datetime="{{ card.item.catalogued_at|date:'c' }}">{{ card.item.catalogued_at|date:"M j, Y" }}<br>{{ card.item.catalogued_at|time:"g:i A T" }}</time></dd>
               </div>
             </dl>
@@ -119,12 +106,33 @@
     <section class="empty-state">
       {% if active_type_label %}
         <h2>No {{ active_type_label|lower }} items</h2>
-        <p>Nothing in the catalogue matches this filter.</p>
+        <p>No saved items match this type. Choose another filter, view all items, or add material.</p>
         <a href="{% url 'catalogue' %}">View all catalogue items</a>
       {% else %}
         <h2>The catalogue is empty</h2>
-        <p>Collected images, videos, audio, events, notes, and messages will appear here.</p>
+        <p>Start by adding a file, message, note, or event. Pandect will help you review its details.</p>
+        <a class="button-link" href="{% url 'catalogue-add' %}">Add your first item</a>
       {% endif %}
     </section>
+  {% endif %}
+
+  {% if processing_backfill_available and page.paginator.count %}
+    <details class="catalogue-processing"{% if processing_examined_count or processing_scan_complete %} open{% endif %}>
+      <summary>Process existing material</summary>
+      <p>Check saved items for missing or outdated local processing, up to 50 at a time. This uses the current type filter and queues new results without changing originals. Items with up-to-date processing are left unchanged.</p>
+      <form class="catalogue-backfill" method="post" action="{% url 'catalogue-processing-backfill' %}">
+        {% csrf_token %}
+        <input type="hidden" name="item_type" value="{{ active_type }}">
+        <input type="hidden" name="limit" value="50">
+        <input type="hidden" name="cursor" value="{{ processing_cursor }}">
+        {% if not processing_scan_complete %}<button class="button-secondary" type="submit">
+          Check {% if processing_cursor %}next {% endif %}50 {% if active_type_label %}{{ active_type_label|lower }}{% else %}eligible{% endif %} items
+        </button>{% endif %}
+        {% if processing_cursor %}
+          <a href="{% url 'catalogue' %}{% if active_type %}?type={{ active_type }}{% endif %}">Start again from the first item</a>
+        {% endif %}
+      </form>
+      <p class="help-text">Open an item to follow its progress. New files and text messages normally start local processing when added.</p>
+    </details>
   {% endif %}
 {% endblock %}

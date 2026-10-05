@@ -72,19 +72,17 @@ from pandect.processing.services import (
 )
 
 NOTICE_MESSAGES = {
-    "rerun_started": "A new local processing run was created.",
-    "retry_started": "A new versioned run was created from the failed-stage retry.",
+    "rerun_started": "Local processing started. Earlier results remain in the history.",
+    "retry_started": "Retrying local processing. Earlier results are preserved.",
     "timestamp_promoted": (
-        "The timestamp claim was promoted to the item occurrence time."
+        "The occurrence time was updated. Your timestamp decision has been recorded."
     ),
-    "subject_created": "The local subject was created.",
+    "subject_created": "The person or subject was added to your local gallery.",
     "reference_added": "The observation was added to the subject reference gallery.",
     "reference_updated": "The subject reference was updated and rematching started.",
     "reference_removed": "The subject reference was removed and rematching started.",
-    "candidate_confirmed": (
-        "The subject association was confirmed as an operator assertion."
-    ),
-    "candidate_rejected": "The subject candidate was rejected.",
+    "candidate_confirmed": "The identity match was saved as your confirmed decision.",
+    "candidate_rejected": "The suggested identity match was rejected.",
     "remote_started": "The consented remote processing run was created.",
     "remote_followup_started": (
         "The separately consented transcript/video follow-up run was created."
@@ -125,8 +123,16 @@ def _canonical_facts(item: CatalogItem) -> list[dict[str, object]]:
     facts: list[dict[str, object]] = [
         {"label": "Item type", "value": item.get_item_type_display()},
         {"label": "Title", "value": item.title or "Untitled"},
-        {"label": "Occurred", "value": item.occurred_at or "Unknown"},
-        {"label": "Catalogued", "value": item.catalogued_at},
+        {
+            "label": "When it happened",
+            "value": item.occurred_at or "Unknown",
+            "is_timestamp": item.occurred_at is not None,
+        },
+        {
+            "label": "Added to catalogue",
+            "value": item.catalogued_at,
+            "is_timestamp": True,
+        },
         {"label": "Item ID", "value": item.pk, "monospace": True},
     ]
     if item.item_type == CatalogItem.ItemType.IMAGE:
@@ -139,11 +145,11 @@ def _canonical_facts(item: CatalogItem) -> list[dict[str, object]]:
                         "value": image.original_filename or "Unknown",
                     },
                     {
-                        "label": "Declared MIME type",
+                        "label": "Recorded file format (MIME type)",
                         "value": image.mime_type or "Unknown",
                     },
                     {
-                        "label": "Operator dimensions",
+                        "label": "Recorded dimensions",
                         "value": (
                             f"{image.width} × {image.height}"
                             if image.width is not None and image.height is not None
@@ -162,15 +168,17 @@ def _canonical_facts(item: CatalogItem) -> list[dict[str, object]]:
                         "value": video.original_filename or "Unknown",
                     },
                     {
-                        "label": "Declared MIME type",
+                        "label": "Recorded file format (MIME type)",
                         "value": video.mime_type or "Unknown",
                     },
                     {
-                        "label": "Operator duration",
-                        "value": video.duration or "Unknown",
+                        "label": "Recorded duration",
+                        "value": (
+                            video.duration if video.duration is not None else "Unknown"
+                        ),
                     },
                     {
-                        "label": "Operator dimensions",
+                        "label": "Recorded dimensions",
                         "value": (
                             f"{video.width} × {video.height}"
                             if video.width is not None and video.height is not None
@@ -189,12 +197,14 @@ def _canonical_facts(item: CatalogItem) -> list[dict[str, object]]:
                         "value": audio.original_filename or "Unknown",
                     },
                     {
-                        "label": "Declared MIME type",
+                        "label": "Recorded file format (MIME type)",
                         "value": audio.mime_type or "Unknown",
                     },
                     {
-                        "label": "Operator duration",
-                        "value": audio.duration or "Unknown",
+                        "label": "Recorded duration",
+                        "value": (
+                            audio.duration if audio.duration is not None else "Unknown"
+                        ),
                     },
                 )
             )
@@ -203,7 +213,11 @@ def _canonical_facts(item: CatalogItem) -> list[dict[str, object]]:
         if event:
             facts.extend(
                 (
-                    {"label": "Event ends", "value": event.ended_at or "Unknown"},
+                    {
+                        "label": "Event ends",
+                        "value": event.ended_at or "Unknown",
+                        "is_timestamp": event.ended_at is not None,
+                    },
                     {
                         "label": "Description",
                         "value": event.description or "Not recorded",
@@ -214,7 +228,7 @@ def _canonical_facts(item: CatalogItem) -> list[dict[str, object]]:
     elif item.item_type == CatalogItem.ItemType.NOTE:
         note = _optional_relation(item, "note")
         if note:
-            facts.append({"label": "Operator note", "value": note.body, "long": True})
+            facts.append({"label": "Note text", "value": note.body, "long": True})
     else:
         message = _optional_relation(item, "message")
         if message:
@@ -652,10 +666,11 @@ def _detail_context(
         "remote_plan_error": remote_plan_error,
         "remote_consent_form": (
             RemoteConsentForm(
+                auto_id="id_remote_%s",
                 initial={
                     "manifest_hash": remote_plan.manifest.sha256,
                     "notice_version": REMOTE_NOTICE_VERSION,
-                }
+                },
             )
             if remote_plan is not None
             else None
@@ -664,10 +679,11 @@ def _detail_context(
         "remote_followup_plan_error": remote_followup_plan_error,
         "remote_followup_consent_form": (
             RemoteConsentForm(
+                auto_id="id_followup_%s",
                 initial={
                     "manifest_hash": remote_followup_plan.manifest.sha256,
                     "notice_version": FOLLOWUP_NOTICE_VERSION,
-                }
+                },
             )
             if remote_followup_plan is not None
             else None
@@ -706,6 +722,7 @@ def _status_context(
         "selected_run_is_historical": historical,
         "stages": stages,
         "active": active,
+        "can_process": item.item_type in LOCAL_STAGE_DEFINITIONS,
     }
 
 
@@ -855,7 +872,7 @@ def add_subject_reference(
         pk=observation_id,
         catalog_item=item,
     )
-    form = SubjectReferenceForm(request.POST)
+    form = SubjectReferenceForm(request.POST, auto_id="id_reference_%s")
     source_is_current = observation_source_is_current(observation)
     if form.is_valid() and not source_is_current:
         form.add_error(
@@ -909,7 +926,7 @@ def update_subject_reference(
         pk=observation_id,
         catalog_item=item,
     )
-    form = SubjectReferenceForm(request.POST)
+    form = SubjectReferenceForm(request.POST, auto_id="id_reference_%s")
     if not form.is_valid():
         return HttpResponseBadRequest("The subject reference could not be updated.")
     if not observation_source_is_current(observation):

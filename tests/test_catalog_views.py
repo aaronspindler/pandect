@@ -132,6 +132,8 @@ def test_catalogue_has_clear_empty_states(client):
     response = client.get(reverse("catalogue"))
 
     assert "The catalogue is empty" in response.content.decode()
+    assert 'href="/catalogue/add/">Add your first item</a>' in response.content.decode()
+    assert "Process existing material" not in response.content.decode()
 
     item = create_item(CatalogItem.ItemType.NOTE)
     Note.objects.create(catalog_item=item, body="A note")
@@ -140,6 +142,20 @@ def test_catalogue_has_clear_empty_states(client):
     filtered_content = filtered_response.content.decode()
     assert "No video items" in filtered_content
     assert 'href="/catalogue/">View all catalogue items</a>' in filtered_content
+
+
+def test_catalogue_previews_are_short_without_truncating_saved_content(client):
+    body = "A lengthy observation. " * 30
+    item = create_item(CatalogItem.ItemType.NOTE, title="Long observation")
+    Note.objects.create(catalog_item=item, body=body)
+
+    catalogue = client.get(reverse("catalogue"))
+    detail = client.get(reverse("catalogue-item-detail", args=(item.pk,)))
+
+    assert body not in catalogue.content.decode()
+    assert body in detail.content.decode()
+    item.note.refresh_from_db()
+    assert item.note.body == body
 
 
 def test_catalogue_fetches_one_page_without_per_item_queries(
@@ -224,7 +240,7 @@ def test_catalogue_backfill_cursor_advances_past_fifty_current_items(
     assert created == []
     continued_page = client.get(first["Location"])
     continued_content = continued_page.content.decode()
-    assert "Backfill next 50 text message items" in continued_content
+    assert "Check next 50 text message items" in continued_content
     assert (
         f'name="cursor" value="{first_query["processing_cursor"][0]}"'
         in continued_content
@@ -393,7 +409,7 @@ def test_single_image_add_preserves_file_and_prefills_extracted_metadata(client)
     assert review.context["position"] == 1
     assert review.context["total"] == 1
     assert review.context["form"]["width"].value() == 640
-    assert "not extracted" in review.content.decode()
+    assert "Not provided" in review.content.decode()
 
 
 @pytest.mark.parametrize(
@@ -607,3 +623,129 @@ def test_metadata_review_rejects_a_tampered_sequence(client):
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/catalogue/add/",
+        "/catalogue/add/note/",
+        "/catalogue/add/bulk/",
+    ],
+)
+def test_intake_explains_the_add_review_catalogue_workflow(client, url):
+    response = client.get(url)
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'aria-label="Adding material"' in content
+    assert 'class="workflow-step is-current" aria-current="step"' in content
+    assert "Add material" in content
+    assert "Review details" in content
+    assert "Browse catalogue" in content
+
+
+@pytest.mark.parametrize("media_type", ["image", "video"])
+def test_media_message_intake_explains_and_links_the_upload_first_step(
+    client, media_type
+):
+    response = client.get(
+        reverse("catalogue-add-item", kwargs={"item_type": f"{media_type}_message"})
+    )
+
+    content = response.content.decode()
+    upload_url = reverse("catalogue-add-item", kwargs={"item_type": media_type})
+    assert f'href="{upload_url}">add the original {media_type} first</a>' in content
+    assert f"Choose a saved {media_type}" in content
+    assert response.context["form"][media_type].field.required
+    assert not response.context["form"]["body"].field.required
+    assert 'id="id_body_helptext"' in content
+    assert 'aria-describedby="id_body_helptext"' in content
+
+
+def test_intake_errors_link_to_fields_and_preserve_accessible_help(client):
+    response = client.post(reverse("catalogue-bulk-add"), {})
+
+    content = response.content.decode()
+    assert (
+        'href="#id_files">Image, video, and audio files: This field is required.'
+        in (content)
+    )
+    assert 'id="id_files_error"' in content
+    assert 'id="id_files_helptext"' in content
+    assert 'aria-describedby="id_files_helptext id_files_error"' in content
+    assert 'aria-invalid="true"' in content
+
+
+def test_blank_metadata_is_highlighted_without_treating_zero_as_missing():
+    from django import forms
+    from django.template.loader import render_to_string
+
+    class MetadataExampleForm(forms.Form):
+        count = forms.IntegerField(required=False, initial=0)
+        duration = forms.DurationField(required=False, initial=timedelta(0))
+        blank = forms.CharField(required=False, initial="")
+        unknown = forms.CharField(required=False)
+
+    content = render_to_string(
+        "catalog/partials/form_fields.html",
+        {"form": MetadataExampleForm(), "highlight_empty": True},
+    )
+    fields = content.split('<div class="form-field')[1:]
+
+    assert len(fields) == 4
+    assert 'value="0"' in fields[0]
+    assert 'value="00:00:00"' in fields[1]
+    for field in fields[:2]:
+        assert "form-field--unknown" not in field
+        assert "Not provided" not in field
+    for field in fields[2:]:
+        assert "form-field--unknown" in field
+        assert "Not provided" in field
+
+
+def test_review_explains_timezone_and_the_saved_item_skip_behavior(client):
+    intake_response = client.post(
+        reverse("catalogue-add-item", kwargs={"item_type": "note"}),
+        {"body": "Original note"},
+    )
+    with timezone.override("America/Toronto"):
+        review = client.get(intake_response["Location"])
+
+    content = review.content.decode()
+    assert "Your item is already saved." in content
+    assert "Enter the time in America/Toronto." in content
+    assert 'aria-describedby="id_occurred_at_helptext"' in content
+    assert 'id="id_occurred_at_helptext"' in content
+    assert "Finish without changes" in content
+    assert "Edits you typed on this page will not be saved." in content
+    assert 'aria-describedby="skip-review-help" formnovalidate' in content
+    item = CatalogItem.objects.get()
+
+    response = client.post(
+        reverse("catalogue-review-metadata", kwargs={"item_id": item.pk}),
+        {
+            "batch": review.context["batch_token"],
+            "action": "skip",
+            "title": "Unsaved title",
+            "body": "Unsaved note",
+        },
+    )
+
+    assert response.status_code == 302
+    item.refresh_from_db()
+    assert item.title == "Original note"
+    assert item.note.body == "Original note"
+
+
+def test_text_message_review_marks_existing_required_content_as_required(client):
+    intake_response = client.post(
+        reverse("catalogue-add-item", kwargs={"item_type": "text_message"}),
+        {"body": "Message as received"},
+    )
+
+    review = client.get(intake_response["Location"])
+
+    assert review.context["form"]["body"].field.required
+    assert not review.context["form"]["sender_name"].field.required
+    assert 'name="body" cols="40" rows="6" required' in review.content.decode()

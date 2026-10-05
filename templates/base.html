@@ -11,17 +11,21 @@
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <header class="site-header">
       <a class="site-name" href="{% url 'home' %}">Pandect</a>
+      {% with page_name=request.resolver_match.url_name %}
       <nav aria-label="Primary navigation">
         <a href="{% url 'home' %}"{% if request.resolver_match.url_name == "home" or request.resolver_match.url_name == "runtime-status" %} aria-current="page"{% endif %}>Home</a>
-        <a href="{% url 'catalogue' %}"{% if request.path|slice:":11" == "/catalogue/" %} aria-current="page"{% endif %}>Catalogue</a>
+        <a href="{% url 'catalogue' %}"{% if request.path|slice:":11" == "/catalogue/" and page_name != "catalogue-add" and page_name != "catalogue-add-item" and page_name != "catalogue-bulk-add" and page_name != "catalogue-review-metadata" %} aria-current="page"{% endif %}>Catalogue</a>
+        <a href="{% url 'catalogue-add' %}"{% if page_name == "catalogue-add" or page_name == "catalogue-add-item" or page_name == "catalogue-bulk-add" or page_name == "catalogue-review-metadata" %} aria-current="page"{% endif %}>Add material</a>
       </nav>
+      {% endwith %}
     </header>
     <div id="notifications" role="status" aria-live="polite"></div>
     <main id="main-content" tabindex="-1">
       {% block content %}{% endblock %}
     </main>
     <footer>
-      <small>Local-first investigation workspace</small>
+      <small>Pandect · Local investigation workspace</small>
+      <small>Originals preserved. Results kept separately.</small>
     </footer>
   </body>
 </html>

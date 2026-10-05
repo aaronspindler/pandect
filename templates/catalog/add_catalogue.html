@@ -4,16 +4,22 @@
 
 {% block content %}
   <header class="page-heading">
-    <p class="eyebrow">Catalogue intake</p>
-    <h1>Add collected material</h1>
-    <p>Add one typed record, or import a batch of original image, video, and audio files. Pandect will then guide you through metadata it could not extract locally.</p>
+    <p class="eyebrow">Build your catalogue</p>
+    <h1>Add material</h1>
+    <p>Save a file, record something that happened, or write a note. You’ll then review its details before returning to the catalogue.</p>
   </header>
+
+  <ol class="workflow-steps" aria-label="Adding material">
+    <li class="workflow-step is-current" aria-current="step"><span>1</span><strong>Add material</strong></li>
+    <li class="workflow-step"><span>2</span><strong>Review details</strong></li>
+    <li class="workflow-step"><span>3</span><strong>Browse catalogue</strong></li>
+  </ol>
 
   <section class="intake-section" aria-labelledby="single-add-heading">
     <div class="section-heading">
       <div>
         <h2 id="single-add-heading">Add one item</h2>
-        <p>Choose the record type so only relevant content and metadata fields are shown.</p>
+        <p>Choose what you want to save. The next page asks only for the content needed for that kind of item.</p>
       </div>
     </div>
     <div class="type-grid">
@@ -29,12 +35,13 @@
   <section class="intake-section intake-section--bulk" aria-labelledby="bulk-add-heading">
     <div class="section-heading">
       <div>
-        <h2 id="bulk-add-heading">Bulk add media</h2>
-        <p>Choose several local images, videos, and audio recordings. Types and available file facts are detected before anything is catalogued.</p>
+        <h2 id="bulk-add-heading">Add several files at once</h2>
+        <p>Select up to 50 images, videos, and audio recordings from your computer. You can mix file types and review each item’s details afterward.</p>
       </div>
     </div>
     <a class="button-link" href="{% url 'catalogue-bulk-add' %}">Choose multiple files</a>
   </section>
 
+  <p class="help-text">For an image or video message, add the original file first. Then choose Image message or Video message to link the file with its caption, sender, and recipients.</p>
   <p class="back-link"><a href="{% url 'catalogue' %}">Back to catalogue</a></p>
 {% endblock %}

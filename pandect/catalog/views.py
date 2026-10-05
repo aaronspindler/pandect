@@ -27,14 +27,20 @@ BACKFILL_CURSOR_SALT = "pandect.catalogue.processing-backfill"
 CATALOGUE_BACKFILL_LIMIT = 50
 
 ITEM_TYPE_DESCRIPTIONS = {
-    CatalogItem.ItemType.IMAGE: "An original image file and its media facts.",
-    CatalogItem.ItemType.VIDEO: "An original video file and its media facts.",
-    CatalogItem.ItemType.AUDIO: "An original audio file and its media facts.",
-    CatalogItem.ItemType.EVENT: "An occurrence with optional start and end times.",
-    CatalogItem.ItemType.NOTE: "A plain-text observation made by the operator.",
-    CatalogItem.ItemType.TEXT_MESSAGE: "A communication whose primary content is text.",
-    CatalogItem.ItemType.IMAGE_MESSAGE: "A communication that uses a catalogued image.",
-    CatalogItem.ItemType.VIDEO_MESSAGE: "A communication that uses a catalogued video.",
+    CatalogItem.ItemType.IMAGE: "A photo, screenshot, or scanned document.",
+    CatalogItem.ItemType.VIDEO: "A video recording from your computer.",
+    CatalogItem.ItemType.AUDIO: "An audio recording from your computer.",
+    CatalogItem.ItemType.EVENT: (
+        "Something that happened, with an optional date and time."
+    ),
+    CatalogItem.ItemType.NOTE: "Your own observation or working note.",
+    CatalogItem.ItemType.TEXT_MESSAGE: "The text of a message or conversation excerpt.",
+    CatalogItem.ItemType.IMAGE_MESSAGE: (
+        "A message linked to an image already in the catalogue."
+    ),
+    CatalogItem.ItemType.VIDEO_MESSAGE: (
+        "A message linked to a video already in the catalogue."
+    ),
 }
 
 

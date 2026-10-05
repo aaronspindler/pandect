@@ -1,13 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}Bulk add media — Pandect{% endblock %}
+{% block title %}Add multiple files — Pandect{% endblock %}
 
 {% block content %}
   <header class="page-heading page-heading--compact">
-    <p class="eyebrow">Bulk catalogue intake</p>
+    <p class="eyebrow">Add multiple files</p>
     <h1>Add images, videos, and audio</h1>
-    <p>Select up to 50 original files. Pandect verifies their contents locally, stores them unchanged, extracts available facts, and then reviews each item with you.</p>
+    <p>Select up to 50 files from your computer. Pandect checks them locally, saves each original unchanged, and fills in any details it can read from the file.</p>
   </header>
+
+  <ol class="workflow-steps" aria-label="Adding material">
+    <li class="workflow-step is-current" aria-current="step"><span>1</span><strong>Add material</strong></li>
+    <li class="workflow-step"><span>2</span><strong>Review details</strong></li>
+    <li class="workflow-step"><span>3</span><strong>Browse catalogue</strong></li>
+  </ol>
 
   {% if media_verification_warning %}
     <p class="notice" role="status">{{ media_verification_warning }}</p>
@@ -15,10 +21,11 @@
 
   <form class="catalogue-form" method="post" enctype="multipart/form-data">
     {% csrf_token %}
+    <p class="form-guidance">After adding the files, you’ll review their details one item at a time. You can leave unknown details blank.</p>
     {% include "catalog/partials/form_fields.html" with form=form %}
     <div class="form-actions">
-      <button type="submit">Add files and review metadata</button>
-      <a href="{% url 'catalogue-add' %}">Cancel</a>
+      <button type="submit">Save files and review details</button>
+      <a href="{% url 'catalogue-add' %}">Back to add options</a>
     </div>
   </form>
 {% endblock %}

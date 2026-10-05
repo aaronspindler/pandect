@@ -1,13 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}Review metadata {{ position }} of {{ total }} — Pandect{% endblock %}
+{% block title %}Review details {{ position }} of {{ total }} — Pandect{% endblock %}
 
 {% block content %}
   <header class="page-heading page-heading--compact">
-    <p class="eyebrow">Metadata review · Item {{ position }} of {{ total }}</p>
-    <h1>Review {{ card.type_label|lower }} metadata</h1>
-    <p>Pandect pre-filled facts it could extract or derive locally. Complete what you know; leave a field blank rather than guessing.</p>
+    <p class="eyebrow">Review details · Item {{ position }} of {{ total }}</p>
+    <h1>Review {{ card.type_label|lower }} details</h1>
+    <p>Your item is already saved. Check the details below, including any filled in from the file. Add what you know and leave unknown details blank.</p>
   </header>
+
+  <ol class="workflow-steps" aria-label="Adding material">
+    <li class="workflow-step"><span>1</span><strong>Add material</strong></li>
+    <li class="workflow-step is-current" aria-current="step"><span>2</span><strong>Review details</strong></li>
+    <li class="workflow-step"><span>3</span><strong>Browse catalogue</strong></li>
+  </ol>
 
   <aside class="review-summary" aria-label="Item being reviewed">
     <span class="type-badge type-badge--{{ item.item_type }}">{{ card.type_label }}</span>
@@ -20,10 +26,12 @@
   <form class="catalogue-form" method="post">
     {% csrf_token %}
     <input type="hidden" name="batch" value="{{ batch_token }}">
+    <p class="form-guidance">Required fields have an asterisk (*) and must be filled in to save changes. Other fields are optional. “Not provided” means the field is blank.</p>
     {% include "catalog/partials/form_fields.html" with form=form highlight_empty=True %}
     <div class="form-actions">
       <button type="submit" name="action" value="save">{% if position == total %}Save and finish{% else %}Save and review next{% endif %}</button>
-      <button class="button-secondary" type="submit" name="action" value="skip" formnovalidate>{% if position == total %}Leave unknown and finish{% else %}Leave unknown and continue{% endif %}</button>
+      <button class="button-secondary" type="submit" name="action" value="skip" aria-describedby="skip-review-help" formnovalidate>{% if position == total %}Finish without changes{% else %}Next item without changes{% endif %}</button>
     </div>
+    <p class="help-text" id="skip-review-help">Continuing without changes keeps the item and its saved details. Edits you typed on this page will not be saved.</p>
   </form>
 {% endblock %}
