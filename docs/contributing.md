@@ -32,6 +32,12 @@ development dependencies pinned by the project lockfile and image. Host Python
 and `uv` are not required; do not substitute an independent dependency
 workflow.
 
+The application and tools images use the supported Python 3.13 interpreter
+from their pinned base image. Builds disable automatic Python downloads so an
+incompatible base-image update fails during dependency installation. Update the
+Python constraint, lockfile, local version pin, and image pins together when
+intentionally changing the supported Python version.
+
 Run the focused tests while developing, then leave the repository with the full
 validation passing:
 
