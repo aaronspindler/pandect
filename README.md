@@ -97,6 +97,28 @@ Stop services without deleting data:
 make down
 ```
 
+## Using the workspace
+
+1. Choose **Add material** from Home or the navigation bar. Add a file, event,
+   note, or message, or select up to 50 media files at once. For an image or video
+   message, add its original file first, then link it to the message.
+2. Review the saved item's details. Required fields have an asterisk; other
+   fields can remain blank when unknown. Dates use the timezone stated beside
+   the field. **Finish without changes** keeps the item and its saved details,
+   but does not save edits made on the review page.
+3. Open an item in **Catalogue** to review its original record, processing
+   progress, extracted information, and AI suggestions. Evidence tiers remain
+   separate, and previous runs remain available in **Processing history**.
+   Selecting a history run requires **Show processing run**; select **Current
+   results** to return to the combined current view.
+
+New files and text messages start local processing when added. **Process
+existing material** checks batches for missing or outdated processing. Notes
+and events are saved for manual review. Optional remote AI processing requires
+separate consent to the displayed transfer details; local processing preserves
+the originals. **Application status** on Home checks the web application, not
+the background worker.
+
 ## Privacy, limits, and help
 
 Originals, derived media, databases, identity features, and secrets are stored

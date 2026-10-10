@@ -2,13 +2,14 @@
 
 import uuid
 from datetime import UTC, datetime
+from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import Client, override_settings
 from django.urls import reverse
 
 from pandect.audio.models import Audio
@@ -39,6 +40,7 @@ from pandect.messages.models import (
     TextMessage,
 )
 from pandect.photos.models import Image
+from pandect.processing.forms import TimestampPromotionForm
 from pandect.processing.models import (
     ProcessingResult,
     ProcessingRun,
@@ -61,6 +63,22 @@ from pandect.processing.services import (
 )
 
 pytestmark = pytest.mark.django_db
+
+
+class ElementParser(HTMLParser):
+    """Inspect rendered text, form controls, and accessible descriptions."""
+
+    def __init__(self, content):
+        super().__init__()
+        self.elements = []
+        self.text_parts = []
+        self.feed(content)
+
+    def handle_starttag(self, tag, attrs):
+        self.elements.append((tag, dict(attrs)))
+
+    def handle_data(self, data):
+        self.text_parts.append(data)
 
 
 def make_message_item(body="Original message", *, sender=None):
@@ -133,8 +151,13 @@ def make_writing_observation(
     )
 
 
-def test_item_detail_separates_four_evidence_tiers_and_escapes_results(client):
+@pytest.mark.parametrize("microseconds", [250_000, 750_000])
+def test_item_detail_separates_four_evidence_tiers_and_escapes_results(
+    client, microseconds
+):
     item = make_message_item("Do not execute <script>alert(1)</script>")
+    item.catalogued_at = datetime(2026, 8, 12, 10, 0, 30, microseconds, tzinfo=UTC)
+    item.save(update_fields=["catalogued_at"])
     run = make_run(item)
     stage = make_stage(run)
     ProcessingResult.objects.create(
@@ -167,8 +190,9 @@ def test_item_detail_separates_four_evidence_tiers_and_escapes_results(client):
     assert "&lt;unsafe&gt;" in content
     assert "A hypothesis, not a fact." in content
     assert "writing-v1" in content
-    assert "0.25" not in content
-    assert "0.75" not in content
+    rendered_text = "".join(ElementParser(content).text_parts)
+    assert "0.25" not in rendered_text
+    assert "0.75" not in rendered_text
 
 
 def test_default_detail_keeps_full_local_base_and_layers_current_supplements(client):
@@ -409,6 +433,212 @@ def test_catalogue_card_links_to_item_detail(client):
     assert (
         reverse("catalogue-item-detail", args=(item.pk,)) in response.content.decode()
     )
+
+
+def test_history_selection_requires_submit_and_can_return_to_current_results(client):
+    item = make_message_item()
+    run = make_run(item)
+    url = reverse("catalogue-item-detail", args=(item.pk,))
+
+    current = client.get(url)
+    elements = ElementParser(current.content.decode()).elements
+    selector = next(attrs for tag, attrs in elements if tag == "select")
+    assert selector["id"] == "run-select"
+    assert "onchange" not in selector
+    assert selector["aria-describedby"] == "run-select-help"
+    assert any(
+        tag == "button" and attrs.get("type") == "submit" for tag, attrs in elements
+    )
+    assert b"Show processing run" in current.content
+    assert any(
+        tag == "option" and attrs["value"] == "" and "selected" in attrs
+        for tag, attrs in elements
+    )
+
+    historical = client.get(url, {"run": str(run.pk)})
+    assert historical.context["selected_run"] == run
+    assert any(
+        tag == "option" and attrs["value"] == str(run.pk) and "selected" in attrs
+        for tag, attrs in ElementParser(historical.content.decode()).elements
+    )
+    current_again = client.get(url, {"run": ""})
+    assert current_again.context["selected_run"] == run
+    assert current_again.context["selected_run_is_historical"] is False
+
+
+@pytest.mark.parametrize(
+    ("status", "heading", "guidance"),
+    [
+        (ProcessingRun.Status.PENDING, "Waiting to start", "background worker"),
+        (
+            ProcessingRun.Status.RUNNING,
+            "Processing in progress",
+            "updates automatically",
+        ),
+        (ProcessingRun.Status.SUCCEEDED, "Processing complete", "source supports"),
+        (
+            ProcessingRun.Status.PARTIAL,
+            "Some steps need attention",
+            "results are available",
+        ),
+        (
+            ProcessingRun.Status.FAILED,
+            "Processing needs attention",
+            "before trying again",
+        ),
+    ],
+)
+def test_processing_status_explains_progress_and_next_step(
+    client, status, heading, guidance
+):
+    item = make_message_item()
+    run = make_run(item, status=status)
+    make_stage(run)
+
+    response = client.get(
+        reverse("catalogue-item-processing-status", args=(item.pk,)),
+        {"run": run.pk},
+    )
+
+    content = response.content.decode()
+    assert heading in content
+    assert guidance in content
+    details = [
+        tag for tag, _attrs in ElementParser(content).elements if tag == "details"
+    ]
+    if status in (ProcessingRun.Status.PENDING, ProcessingRun.Status.RUNNING):
+        # Polling replaces this fragment. Keep its diagnostics readable without
+        # disclosures that would close and remove keyboard focus every two seconds.
+        assert not details
+        assert "Attempt 0 of" in content
+    else:
+        assert details
+
+
+def test_no_run_guidance_matches_processing_availability(client):
+    message = make_message_item()
+    note = CatalogItem.objects.create(item_type=CatalogItem.ItemType.NOTE)
+
+    processable = client.get(
+        reverse("catalogue-item-processing-status", args=(message.pk,))
+    )
+    assert b"Run local processing" in processable.content
+    assert b"keeping the original evidence intact" in processable.content
+
+    manual = client.get(reverse("catalogue-item-processing-status", args=(note.pk,)))
+    assert b"saved for manual review" in manual.content
+    assert (
+        reverse("catalogue-item-rerun", args=(note.pk,)) not in manual.content.decode()
+    )
+
+
+def test_skipped_dependency_explains_why_it_did_not_run(client):
+    item = make_message_item()
+    run = make_run(item, status=ProcessingRun.Status.PARTIAL)
+    stage = make_stage(run, status=ProcessingStage.Status.SKIPPED)
+    stage.failure_code = "dependency_failed"
+    stage.save(update_fields=["failure_code"])
+
+    response = client.get(
+        reverse("catalogue-item-processing-status", args=(item.pk,)),
+        {"run": run.pk},
+    )
+
+    assert b"A required earlier step failed" in response.content
+    assert (
+        reverse("catalogue-item-retry-stage", args=(item.pk, stage.pk))
+        not in response.content.decode()
+    )
+
+
+def test_retry_button_in_full_detail_has_a_working_csrf_token():
+    client = Client(enforce_csrf_checks=True)
+    item = make_message_item()
+    run = make_run(item, status=ProcessingRun.Status.FAILED)
+    stage = make_stage(run, status=ProcessingStage.Status.FAILED)
+    response = client.get(reverse("catalogue-item-detail", args=(item.pk,)))
+    retry_url = reverse("catalogue-item-retry-stage", args=(item.pk, stage.pk))
+    retry_form = (
+        response.content.decode()
+        .split(f'action="{retry_url}"', 1)[1]
+        .split("</form>", 1)[0]
+    )
+    csrf_field = next(
+        attrs
+        for tag, attrs in ElementParser(retry_form).elements
+        if tag == "input" and attrs.get("name") == "csrfmiddlewaretoken"
+    )
+
+    with patch(
+        "pandect.processing.views.create_local_run",
+        return_value=SimpleNamespace(pk=uuid.uuid4()),
+    ) as create:
+        retried = client.post(retry_url, {"csrfmiddlewaretoken": csrf_field["value"]})
+
+    assert retried.status_code == 302
+    create.assert_called_once()
+
+
+def test_timestamp_help_and_errors_reference_existing_ids_in_detail(client):
+    item = make_message_item()
+    run = make_run(item)
+    stage = make_stage(run)
+    claim = TimestampClaim.objects.create(
+        stage=stage,
+        catalog_item=item,
+        namespace="EXIF",
+        tag="DateTimeOriginal",
+        raw_value="2025:11:02 01:30:00",
+        precision=TimestampClaim.Precision.SECOND,
+        timezone_evidence="naive",
+    )
+
+    initial = client.get(reverse("catalogue-item-detail", args=(item.pk,)))
+    invalid = client.post(
+        reverse("catalogue-item-promote-timestamp", args=(item.pk, claim.pk)),
+        {"timezone_name": "", "fold": "", "operator_note": ""},
+    )
+    assert invalid.status_code == 400
+    for response in (initial, invalid):
+        elements = ElementParser(response.content.decode()).elements
+        ids = [attrs["id"] for _tag, attrs in elements if "id" in attrs]
+        assert len(ids) == len(set(ids))
+        for _tag, attrs in elements:
+            for description_id in attrs.get("aria-describedby", "").split():
+                assert description_id in ids
+
+
+def test_timestamp_form_accessibility_supports_prefixes():
+    form = TimestampPromotionForm(
+        claim=SimpleNamespace(raw_value="2025:11:02 01:30:00"),
+        prefix="review",
+    )
+
+    for field_name in ("timezone_name", "fold", "operator_note"):
+        field = form[field_name]
+        assert f'aria-describedby="id_review-{field_name}_helptext"' in str(field)
+        assert field.auto_id == f"id_review-{field_name}"
+
+
+def test_invalid_reference_form_keeps_subject_and_reference_descriptions_distinct(
+    client,
+):
+    item = make_message_item()
+    observation = make_writing_observation(item)
+    Subject.objects.create(label="Known person")
+
+    response = client.post(
+        reverse("catalogue-item-add-reference", args=(item.pk, observation.pk)),
+        {"subject": "", "notes": "Why this could be a reference"},
+    )
+
+    assert response.status_code == 400
+    elements = ElementParser(response.content.decode()).elements
+    ids = [attrs["id"] for _tag, attrs in elements if "id" in attrs]
+    assert len(ids) == len(set(ids))
+    for _tag, attrs in elements:
+        for description_id in attrs.get("aria-describedby", "").split():
+            assert description_id in ids
 
 
 def test_status_fragment_polls_only_while_run_is_active(client):
@@ -1145,6 +1375,45 @@ def test_followup_plan_is_shown_as_a_separate_explicit_consent(client):
     assert manifest.sha256 in content
     assert f'name="notice_version" value="{FOLLOWUP_NOTICE_VERSION}"' in content
     assert reverse("catalogue-item-remote-followup-consent", args=(item.pk,)) in content
+
+    initial_plan = RemotePlan(
+        item_id=item.pk,
+        item_type=item.item_type,
+        source_sha256="b" * 64,
+        source_size=15,
+        operations=("semantic",),
+        artifact_ids=(),
+        payloads=(
+            {"transfer": "exact_message_body", "byte_size": 15, "sha256": "b" * 64},
+        ),
+        model_ids={"semantic": "fixture-model"},
+        prompt_versions={"semantic": "fixture-prompt"},
+        prompt_hashes={"semantic": "c" * 64},
+        recipients=("Cloudflare AI Gateway",),
+        destination=plan.destination,
+        manifest=ConsentManifest({"notice_version": REMOTE_NOTICE_VERSION}, "a" * 64),
+    )
+    with (
+        patch("pandect.processing.views.build_remote_plan", return_value=initial_plan),
+        patch("pandect.processing.views.build_followup_plan", return_value=plan),
+    ):
+        both_plans = client.get(reverse("catalogue-item-detail", args=(item.pk,)))
+
+    elements = ElementParser(both_plans.content.decode()).elements
+    ids = [attrs["id"] for _tag, attrs in elements if "id" in attrs]
+    assert len(ids) == len(set(ids))
+    checkboxes = [
+        attrs
+        for tag, attrs in elements
+        if tag == "input" and attrs.get("type") == "checkbox"
+    ]
+    assert len(checkboxes) == 2
+    assert checkboxes[0]["id"] != checkboxes[1]["id"]
+    for checkbox in checkboxes:
+        assert any(
+            tag == "label" and attrs.get("for") == checkbox["id"]
+            for tag, attrs in elements
+        )
 
     response = client.post(
         reverse("catalogue-item-remote-followup-consent", args=(item.pk,)),

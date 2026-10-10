@@ -15,27 +15,32 @@ class TimestampPromotionForm(forms.Form):
     timezone_name = forms.CharField(
         required=False,
         max_length=64,
-        label="IANA timezone",
+        label="Timezone",
         help_text=(
-            "Required when the extracted timestamp has no offset, for example "
-            "America/Toronto."
+            "If the timestamp has no UTC offset, enter an IANA timezone such as "
+            "America/Toronto. Use evidence from the source to choose it."
         ),
     )
     fold = forms.TypedChoiceField(
         required=False,
         coerce=int,
         empty_value=None,
+        label="Repeated local time",
         choices=(
             ("", "Choose when required"),
-            ("0", "First offset"),
-            ("1", "Second offset"),
+            ("0", "First occurrence (before the clock moves back)"),
+            ("1", "Second occurrence (after the clock moves back)"),
         ),
-        help_text="Required only when the local time occurs twice at a DST transition.",
+        help_text=(
+            "Choose only if the clock moved back and this local time occurred "
+            "twice. Otherwise leave this blank."
+        ),
     )
     operator_note = forms.CharField(
         required=False,
         widget=forms.Textarea(attrs={"rows": 3}),
         label="Decision note",
+        help_text="Optional. Record why you chose this timestamp.",
     )
 
     def __init__(self, *args, claim, **kwargs):
@@ -146,15 +151,27 @@ class SubjectForm(forms.ModelForm):
         model = Subject
         fields = ("label", "notes")
         widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
+        labels = {"label": "Person or subject name", "notes": "Notes"}
+        help_texts = {
+            "label": "A name you will recognize in your local reference gallery.",
+            "notes": "Optional context to help distinguish this subject.",
+        }
 
 
 class SubjectReferenceForm(forms.Form):
     """Select an approved local observation as a subject reference."""
 
-    subject = forms.ModelChoiceField(queryset=Subject.objects.none())
+    subject = forms.ModelChoiceField(
+        queryset=Subject.objects.none(),
+        label="Person or subject",
+        help_text="Choose who this observation will help identify in later items.",
+        empty_label="Choose a person or subject",
+    )
     notes = forms.CharField(
         required=False,
         widget=forms.Textarea(attrs={"rows": 2}),
+        label="Reference notes",
+        help_text="Optional. Explain why this is a useful reference for the subject.",
     )
 
     def __init__(self, *args, **kwargs):

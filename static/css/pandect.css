@@ -96,7 +96,10 @@ footer {
 
 .site-header {
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 0.5rem;
   min-height: 4.25rem;
+  padding: 0.5rem 0;
 }
 
 .site-name {
@@ -124,7 +127,7 @@ footer {
   color: var(--text-muted);
   display: inline-flex;
   font-size: 0.875rem;
-  min-height: 2.5rem;
+  min-height: 2.75rem;
   padding: 0.4rem 0.7rem;
   text-decoration: none;
 }
@@ -150,7 +153,10 @@ footer {
   border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 0.8125rem;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
   min-height: 4.25rem;
+  padding: 0.75rem 0;
 }
 
 .page-heading {
@@ -166,7 +172,122 @@ footer {
 }
 
 .page-heading__copy {
+  min-width: 0;
   max-width: 46rem;
+}
+
+.page-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.getting-started {
+  margin-top: 3rem;
+}
+
+.guide-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+}
+
+.guide-grid li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 1.5rem;
+}
+
+.guide-grid h3 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.guide-grid li > p:not(.eyebrow),
+.workspace-note p {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  margin: 0.6rem 0 0.85rem;
+}
+
+.guide-grid a {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  min-height: 2.75rem;
+}
+
+.guide-hint {
+  color: var(--text-muted);
+  display: block;
+  font-size: 0.8125rem;
+}
+
+.workspace-note {
+  background: var(--accent-soft);
+  border-left: 0.2rem solid var(--accent);
+  border-radius: 0.25rem;
+  margin-top: 1.5rem;
+  padding: 1.1rem 1.25rem;
+}
+
+.workspace-note p {
+  margin-bottom: 0;
+  max-width: 58rem;
+}
+
+.workspace-status {
+  border-top: 1px solid var(--border);
+  margin-top: 2rem;
+  padding-top: 1rem;
+}
+
+.workspace-status .runtime-card {
+  margin-top: 1rem;
+}
+
+.workflow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  list-style: none;
+  margin: 1.5rem 0;
+  padding: 0;
+}
+
+.workflow-step {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.workflow-step > span {
+  align-items: center;
+  background: var(--surface-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  display: inline-flex;
+  flex: 0 0 1.75rem;
+  height: 1.75rem;
+  justify-content: center;
+}
+
+.workflow-step.is-current {
+  color: var(--accent);
+}
+
+.workflow-step.is-current > span {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
 }
 
 .page-heading h1 {
@@ -210,7 +331,7 @@ button {
   justify-content: center;
   line-height: 1.2;
   margin: 0;
-  min-height: 2.625rem;
+  min-height: 2.75rem;
   padding: 0.55rem 0.9rem;
   text-decoration: none;
 }
@@ -280,7 +401,7 @@ button:hover {
 
 .catalogue-filter h2 {
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.09em;
   margin: 0 0 0.3rem;
@@ -302,7 +423,7 @@ button:hover {
   color: var(--text-muted);
   display: inline-flex;
   font-size: 0.8rem;
-  min-height: 2.25rem;
+  min-height: 2.75rem;
   padding: 0.35rem 0.55rem;
   text-decoration: none;
 }
@@ -321,40 +442,59 @@ button:hover {
 }
 
 .catalogue-backfill {
-  margin-top: 0.65rem;
-  text-align: right;
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 
-.catalogue-backfill button {
-  background: transparent;
-  border: 0;
-  color: var(--accent);
-  font-size: 0.78rem;
-  padding: 0;
-  text-decoration: underline;
-  text-decoration-thickness: 0.075em;
-  text-underline-offset: 0.18em;
+.catalogue-backfill a {
+  align-items: center;
+  display: inline-flex;
+  font-size: 0.875rem;
+  min-height: 2.75rem;
 }
 
-.catalogue-backfill button:hover {
-  color: var(--accent-hover);
+.catalogue-processing {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  margin-top: 2rem;
+  padding: 1rem 1.25rem;
+}
+
+.catalogue-processing > p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  max-width: 55rem;
 }
 
 .catalogue-list {
   list-style: none;
-  margin: 0;
+  margin: 1rem 0 0;
   padding: 0;
 }
 
 .catalogue-list > li {
-  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.catalogue-list > li + li {
+  margin-top: 0.75rem;
+}
+
+.catalogue-list > li:hover {
+  border-color: var(--border-strong);
 }
 
 .catalogue-item {
   display: grid;
   gap: 2rem;
   grid-template-columns: minmax(0, 1fr) 19rem;
-  padding: 1.2rem 0;
+  padding: 1.25rem;
 }
 
 .catalogue-item__label {
@@ -400,10 +540,11 @@ button:hover {
 }
 
 .catalogue-item h2 {
-  font-size: 1rem;
+  font-size: 1.1rem;
   letter-spacing: -0.01em;
   line-height: 1.3;
   margin: 0.45rem 0 0;
+  overflow-wrap: anywhere;
 }
 
 .catalogue-item h2 a {
@@ -439,7 +580,7 @@ button:hover {
 
 .catalogue-item__dates dt {
   color: var(--text-muted);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.075em;
   text-transform: uppercase;
@@ -584,13 +725,33 @@ button:hover {
 
 .form-field label {
   display: block;
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
   font-weight: 700;
   margin-bottom: 0.35rem;
 }
 
 .required-marker {
   color: var(--danger);
+}
+
+.field-optional {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+.form-guidance {
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: 0 0 1.25rem;
+  padding-bottom: 1rem;
+}
+
+.form-field--error input,
+.form-field--error select,
+.form-field--error textarea {
+  border-color: var(--danger) !important;
 }
 
 .form-field input:not([type="checkbox"]):not([type="radio"]),
@@ -637,19 +798,19 @@ button:hover {
 
 .field-status {
   color: var(--warning);
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 
 .help-text {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   margin: 0.3rem 0 0;
 }
 
 .errorlist {
   color: var(--danger);
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   margin: 0.35rem 0 0;
   padding-left: 1.2rem;
 }
@@ -668,8 +829,14 @@ button:hover {
 
 .form-error-summary p + p {
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   margin-top: 0.15rem;
+}
+
+.form-error-summary a {
+  align-items: center;
+  display: inline-flex;
+  min-height: 2.75rem;
 }
 
 .form-errors {
@@ -830,9 +997,65 @@ button:hover {
 
 .detail-navigation a {
   border-radius: 0.2rem;
-  font-size: 0.75rem;
+  align-items: center;
+  display: inline-flex;
+  font-size: 0.875rem;
+  min-height: 2.75rem;
   padding: 0.35rem 0.5rem;
   text-decoration: none;
+}
+
+.item-workflow {
+  border-left: 0.2rem solid var(--accent);
+  margin-top: 1.5rem;
+  padding: 0.25rem 1rem;
+}
+
+.item-workflow p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+}
+
+.item-workflow .workflow-steps {
+  display: block;
+  list-style: decimal;
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.item-workflow h2 {
+  font-size: 1.05rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.item-workflow li {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  padding: 0.25rem 0;
+}
+
+.item-workflow strong {
+  color: var(--text);
+}
+
+.processing-next-step {
+  background: var(--accent-soft);
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.technical-details {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  margin-top: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.stage-list__item > .technical-details {
+  grid-column: 1 / -1;
+  margin-top: 0;
 }
 
 .detail-navigation a:hover {
@@ -891,7 +1114,7 @@ button:hover {
 
 .evidence-tier__heading > p {
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   max-width: 28rem;
   text-align: right;
 }
@@ -925,7 +1148,7 @@ button:hover {
 .fact-grid dt,
 .identity-observations dt {
   color: var(--text-muted);
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -953,7 +1176,7 @@ button:hover {
 .section-intro,
 .empty-copy {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .processing-run-meta {
@@ -986,7 +1209,7 @@ button:hover {
   display: flex;
   flex-direction: column;
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: 0.8125rem;
   text-align: right;
 }
 
@@ -1003,19 +1226,25 @@ button:hover {
 }
 
 .button-compact {
-  min-height: 2rem;
+  min-height: 2.75rem;
   padding: 0.3rem 0.55rem;
 }
 
 .run-selector {
   align-items: center;
-  display: flex;
+  display: grid;
   gap: 0.65rem;
+  grid-template-columns: minmax(0, 1fr) auto;
   margin: 1rem 0;
 }
 
+.run-selector label,
+.run-selector .help-text {
+  grid-column: 1 / -1;
+}
+
 .run-selector label {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
@@ -1023,7 +1252,8 @@ button:hover {
   background: var(--surface);
   border: 1px solid var(--control-border);
   color: var(--text);
-  min-height: 2.5rem;
+  flex: 1;
+  min-height: 2.75rem;
   min-width: 0;
   padding: 0.4rem;
 }
@@ -1071,8 +1301,10 @@ button:hover {
 details > summary {
   color: var(--accent);
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 700;
+  min-height: 2.75rem;
+  padding: 0.65rem 0;
 }
 
 .evidence-result pre {
@@ -1218,7 +1450,7 @@ details > summary {
 }
 
 .candidate-actions button {
-  min-height: 2.2rem;
+  min-height: 2.75rem;
   padding: 0.35rem 0.6rem;
 }
 
@@ -1238,6 +1470,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
+summary:focus-visible,
 main:focus-visible {
   outline: 0.2rem solid var(--focus);
   outline-offset: 0.18rem;
@@ -1290,6 +1523,10 @@ main:focus-visible {
 }
 
 @media (max-width: 52rem) {
+  .guide-grid {
+    grid-template-columns: 1fr;
+  }
+
   .catalogue-toolbar {
     align-items: stretch;
     gap: 0.9rem;
@@ -1374,7 +1611,7 @@ main:focus-visible {
 
   .run-selector {
     align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .candidate-actions form:first-child {
@@ -1394,7 +1631,7 @@ main:focus-visible {
   }
 
   .site-header nav a {
-    min-height: 2.25rem;
+    min-height: 2.75rem;
     padding: 0.35rem 0.5rem;
   }
 

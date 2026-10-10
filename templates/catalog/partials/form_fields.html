@@ -1,20 +1,27 @@
 {% if form.is_bound and form.errors %}
   <div class="form-error-summary" role="alert" aria-labelledby="form-error-summary-heading">
-    <p id="form-error-summary-heading"><strong>Check the highlighted fields.</strong></p>
-    <p>Correct the errors below and submit again.</p>
+    <p id="form-error-summary-heading"><strong>Some details need your attention.</strong></p>
+    <p>Review the errors below. Links take you to the fields that need correcting.</p>
+    {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+    <ul>
+      {% for field in form %}
+        {% for error in field.errors %}
+          <li><a href="#{{ field.id_for_label }}">{{ field.label }}: {{ error }}</a></li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
   </div>
-{% endif %}
-{% if form.non_field_errors %}
-  <div class="form-errors">{{ form.non_field_errors }}</div>
 {% endif %}
 {% for field in form %}
-  <div class="form-field{% if highlight_empty and not field.value %} form-field--unknown{% endif %}">
-    <label for="{{ field.id_for_label }}">
-      {{ field.label }}{% if field.field.required %} <span class="required-marker" aria-hidden="true">*</span><span class="visually-hidden"> (required)</span>{% endif %}
-      {% if highlight_empty and not field.value %}<span class="field-status">· not extracted</span>{% endif %}
-    </label>
-    {{ field }}
-    {% if field.help_text %}<p class="help-text" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
-    {{ field.errors }}
-  </div>
+  {% with value=field.value %}
+    <div class="form-field{% if highlight_empty and value is None or highlight_empty and value == '' %} form-field--unknown{% endif %}{% if field.errors %} form-field--error{% endif %}">
+      <label for="{{ field.id_for_label }}">
+        {{ field.label }}{% if field.field.required %} <span class="required-marker" aria-hidden="true">*</span><span class="visually-hidden"> (required)</span>{% else %} <span class="field-optional">(optional)</span>{% endif %}
+        {% if highlight_empty and value is None or highlight_empty and value == '' %}<span class="field-status">· Not provided</span>{% endif %}
+      </label>
+      {{ field }}
+      {% if field.help_text %}<p class="help-text" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
+      {{ field.errors }}
+    </div>
+  {% endwith %}
 {% endfor %}

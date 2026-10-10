@@ -3,6 +3,7 @@
 from django import forms
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from pandect.catalog.models import CatalogItem
 from pandect.catalog.services import (
@@ -45,8 +46,9 @@ class BulkMediaForm(forms.Form):
         label="Image, video, and audio files",
         widget=MultipleFileInput(attrs={"accept": "image/*,video/*,audio/*"}),
         help_text=(
-            "Choose up to 50 files, at most 2 GiB per file and 8 GiB per batch. "
-            "Pandect verifies each file locally."
+            "Select 1–50 files from your computer. You can mix images, videos, "
+            "and audio recordings, at most 2 GiB per file and 8 GiB per batch. "
+            "Each original is checked locally and saved unchanged."
         ),
     )
 
@@ -100,6 +102,7 @@ class ImageIntakeForm(MediaIntakeForm):
     file = forms.FileField(
         label="Image file",
         widget=forms.FileInput(attrs={"accept": "image/*"}),
+        help_text="Choose an original image from your computer, such as a JPG or PNG.",
     )
 
 
@@ -108,6 +111,7 @@ class VideoIntakeForm(MediaIntakeForm):
     file = forms.FileField(
         label="Video file",
         widget=forms.FileInput(attrs={"accept": "video/*"}),
+        help_text="Choose an original video from your computer, such as an MP4.",
     )
 
 
@@ -116,13 +120,18 @@ class AudioIntakeForm(MediaIntakeForm):
     file = forms.FileField(
         label="Audio file",
         widget=forms.FileInput(attrs={"accept": "audio/*"}),
+        help_text="Choose an audio recording from your computer, such as WAV or MP3.",
     )
 
 
 class EventIntakeForm(forms.Form):
     description = forms.CharField(
+        label="What happened?",
         widget=forms.Textarea(attrs={"rows": 5}),
-        help_text="Record the event as observed. You can add its time next.",
+        help_text=(
+            "Describe what you observed, for example ‘A vehicle arrived at the "
+            "north entrance.’ You can add the date and time in the next step."
+        ),
     )
 
     def create(self):
@@ -133,7 +142,14 @@ class EventIntakeForm(forms.Form):
 
 
 class NoteIntakeForm(forms.Form):
-    body = forms.CharField(label="Note", widget=forms.Textarea(attrs={"rows": 8}))
+    body = forms.CharField(
+        label="Note text",
+        widget=forms.Textarea(attrs={"rows": 8}),
+        help_text=(
+            "Write your observation or working note. The first non-empty line "
+            "becomes its title; you can change the title in the next step."
+        ),
+    )
 
     def create(self):
         body = self.cleaned_data["body"]
@@ -147,7 +163,12 @@ class NoteIntakeForm(forms.Form):
 
 class TextMessageIntakeForm(forms.Form):
     body = forms.CharField(
-        label="Message text", widget=forms.Textarea(attrs={"rows": 8})
+        label="Message text",
+        widget=forms.Textarea(attrs={"rows": 8}),
+        help_text=(
+            "Enter the message as received. You can add its sender, recipients, "
+            "and date and time in the next step."
+        ),
     )
 
     def create(self):
@@ -165,6 +186,7 @@ class MediaMessageIntakeForm(forms.Form):
         label="Caption or message text",
         required=False,
         widget=forms.Textarea(attrs={"rows": 5}),
+        help_text="Enter any text that accompanied the image or video, if known.",
     )
 
     def __init__(self, *args, **kwargs):
@@ -187,8 +209,10 @@ class ImageMessageIntakeForm(MediaMessageIntakeForm):
     message_model = ImageMessage
     media_field = "image"
     image = forms.ModelChoiceField(
+        label="Image already in the catalogue",
         queryset=Image.objects.none(),
-        help_text="Add the original image to the catalogue first if it is not listed.",
+        empty_label="Choose a saved image",
+        help_text="Choose the image that was sent with this message.",
     )
 
 
@@ -197,8 +221,10 @@ class VideoMessageIntakeForm(MediaMessageIntakeForm):
     message_model = VideoMessage
     media_field = "video"
     video = forms.ModelChoiceField(
+        label="Video already in the catalogue",
         queryset=Video.objects.none(),
-        help_text="Add the original video to the catalogue first if it is not listed.",
+        empty_label="Choose a saved video",
+        help_text="Choose the video that was sent with this message.",
     )
 
 
@@ -215,12 +241,15 @@ INTAKE_FORMS = {
 
 
 class ItemMetadataForm(forms.Form):
-    title = forms.CharField(max_length=255, required=False)
+    title = forms.CharField(
+        max_length=255,
+        required=False,
+        help_text="A short name to help you recognize this item in the catalogue.",
+    )
     occurred_at = forms.DateTimeField(
-        label="Occurred at",
+        label="Date and time",
         required=False,
         widget=DATETIME_WIDGET,
-        help_text="Leave blank when the original time is unknown.",
     )
 
     def __init__(self, *args, item, **kwargs):
@@ -229,6 +258,11 @@ class ItemMetadataForm(forms.Form):
         initial.update(self.extension_initial())
         kwargs["initial"] = initial | kwargs.get("initial", {})
         super().__init__(*args, **kwargs)
+        self.fields["occurred_at"].help_text = (
+            "When this happened or the material was created, rather than when "
+            "you added it. Enter the time in "
+            f"{timezone.get_current_timezone_name()}. Leave blank if unknown."
+        )
 
     def extension_initial(self):
         return {}
@@ -246,10 +280,29 @@ class ItemMetadataForm(forms.Form):
 
 
 class ImageMetadataForm(ItemMetadataForm):
-    original_filename = forms.CharField(max_length=255, required=False)
-    mime_type = forms.CharField(label="Media type", max_length=255, required=False)
-    width = forms.IntegerField(min_value=1, required=False)
-    height = forms.IntegerField(min_value=1, required=False)
+    original_filename = forms.CharField(
+        max_length=255,
+        required=False,
+        help_text="The source filename and extension, for example photo.jpg.",
+    )
+    mime_type = forms.CharField(
+        label="File format (MIME type)",
+        max_length=255,
+        required=False,
+        help_text="The technical file format, for example image/jpeg or video/mp4.",
+    )
+    width = forms.IntegerField(
+        label="Width in pixels",
+        min_value=1,
+        required=False,
+        help_text="The image or video frame width, for example 1920.",
+    )
+    height = forms.IntegerField(
+        label="Height in pixels",
+        min_value=1,
+        required=False,
+        help_text="The image or video frame height, for example 1080.",
+    )
 
     def extension_initial(self):
         image = self.item.image
@@ -297,8 +350,19 @@ class VideoMetadataForm(ImageMetadataForm):
 
 
 class AudioMetadataForm(ItemMetadataForm):
-    original_filename = forms.CharField(max_length=255, required=False)
-    mime_type = forms.CharField(label="Media type", max_length=255, required=False)
+    original_filename = forms.CharField(
+        max_length=255,
+        required=False,
+        help_text=(
+            "The source filename, including its extension, for example recording.wav."
+        ),
+    )
+    mime_type = forms.CharField(
+        label="File format (MIME type)",
+        max_length=255,
+        required=False,
+        help_text="The technical file format, for example audio/wav or audio/mpeg.",
+    )
     duration = forms.DurationField(
         required=False,
         help_text="Use HH:MM:SS, for example 00:02:15.",
@@ -321,11 +385,21 @@ class AudioMetadataForm(ItemMetadataForm):
 
 class EventMetadataForm(ItemMetadataForm):
     ended_at = forms.DateTimeField(
-        label="Ended at", required=False, widget=DATETIME_WIDGET
+        label="End date and time", required=False, widget=DATETIME_WIDGET
     )
     description = forms.CharField(
-        required=False, widget=forms.Textarea(attrs={"rows": 6})
+        label="What happened?",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 6}),
+        help_text="Describe the event as observed, without guessing missing details.",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["ended_at"].help_text = (
+            f"When the event ended, in {timezone.get_current_timezone_name()}. "
+            "Leave blank if the end time is unknown."
+        )
 
     def extension_initial(self):
         return {
@@ -369,7 +443,11 @@ class EventMetadataForm(ItemMetadataForm):
 
 
 class NoteMetadataForm(ItemMetadataForm):
-    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 8}))
+    body = forms.CharField(
+        label="Note text",
+        widget=forms.Textarea(attrs={"rows": 8}),
+        help_text="Review the observation or working note you saved in the last step.",
+    )
 
     def extension_initial(self):
         return {"body": self.item.note.body}
@@ -385,33 +463,46 @@ class MessageMetadataForm(ItemMetadataForm):
         label="Message text or caption",
         required=False,
         widget=forms.Textarea(attrs={"rows": 6}),
+        help_text="The message as received, or any caption accompanying its media.",
     )
-    sender_name = forms.CharField(max_length=255, required=False)
+    sender_name = forms.CharField(
+        max_length=255,
+        required=False,
+        help_text="The sender’s display name, if known, for example Alex Kim.",
+    )
     sender_identifier = forms.CharField(
         max_length=512,
         required=False,
         help_text="For example an email address, phone number, or account ID.",
     )
     sender_type = forms.ChoiceField(
+        label="Sender kind",
         choices=CommunicationParticipant.ParticipantType.choices,
         required=False,
+        help_text="Choose the kind of sender, or Unknown if you do not know.",
     )
     recipients = forms.CharField(
         required=False,
         widget=forms.Textarea(attrs={"rows": 5}),
         help_text=(
-            "One per line: display name | identifier | role. Roles are to, cc, "
-            "bcc, mentioned, or unknown."
+            "Enter one recipient per line, for example Alex Kim | "
+            "alex@example.test | to. Use | to separate name, identifier, and role. "
+            "A name alone is also accepted. Roles: to, cc, bcc, mentioned, unknown."
         ),
     )
     reply_to = forms.ModelChoiceField(
         label="Replies to",
         queryset=Message.objects.none(),
         required=False,
+        empty_label="No known earlier message",
+        help_text="Choose the earlier catalogue message that this message answers.",
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.item.item_type == CatalogItem.ItemType.TEXT_MESSAGE:
+            self.fields["body"].required = True
+            self.fields["body"].label = "Message text"
         self.fields["reply_to"].queryset = Message.objects.exclude(
             pk=self.item.pk
         ).select_related("catalog_item")
