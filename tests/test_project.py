@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 import sys
+import tomllib
 from io import StringIO
 from pathlib import Path
 
@@ -21,6 +22,32 @@ NATIVE_THREAD_ENVIRONMENT = (
     "OMP_THREAD_LIMIT",
     "OPENBLAS_NUM_THREADS",
 )
+
+
+def test_python_version_matches_locked_environment_and_container_stages():
+    major, minor = map(
+        int, (PROJECT_ROOT / ".python-version").read_text().strip().split(".")[:2]
+    )
+    python_version = f"{major}.{minor}"
+    project = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    lock = tomllib.loads((PROJECT_ROOT / "uv.lock").read_text())
+
+    assert project["project"]["requires-python"] == (
+        f">={python_version},<{major}.{minor + 1}"
+    )
+    assert lock["requires-python"] == f"=={python_version}.*"
+    assert sys.version_info[:2] == (major, minor)
+
+    container_versions = {}
+    for line in (PROJECT_ROOT / "Dockerfile").read_text().splitlines():
+        if line.startswith("FROM python:"):
+            _, image, _, stage = line.split()
+            release = image.removeprefix("python:").split("-", 1)[0]
+            container_versions[stage] = tuple(map(int, release.split(".")[:2]))
+    assert container_versions == {
+        stage: (major, minor)
+        for stage in ("builder", "runtime", "tools", "maintenance")
+    }
 
 
 def test_django_system_checks_pass():

@@ -91,11 +91,14 @@ for image_kind in runtime maintenance; do
         runtime) scan_image=$runtime_image ;;
         maintenance) scan_image=$maintenance_image ;;
     esac
-    docker image save --output "$audit_dir/audit/image.tar" "$scan_image"
+    # Docker save replaces files atomically. Reusing a previously mounted path
+    # can leave Docker Desktop's file sharing attached to its removed inode.
+    image_archive="$audit_dir/audit/$image_kind.tar"
+    docker image save --output "$image_archive" "$scan_image"
     docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
         --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,noexec,nosuid,size=64m \
         --env TMPDIR=/scratch \
-        --mount "type=bind,src=$audit_dir/audit/image.tar,dst=/image.tar,readonly" \
+        --mount "type=bind,src=$image_archive,dst=/image.tar,readonly" \
         --mount "type=bind,src=$audit_dir/report,dst=/report" \
         --mount "type=bind,src=$audit_dir/cache,dst=/cache" \
         --mount "type=bind,src=$audit_dir/scratch,dst=/scratch" \
@@ -109,4 +112,5 @@ for image_kind in runtime maintenance; do
         "$tools_image" python /audit/security_policy.py trivy \
         --exceptions /audit/security-exceptions.json --image-kind "$image_kind" \
         --report "/report/$image_kind.json"
+    rm -- "$image_archive"
 done
