@@ -14,7 +14,7 @@ dependencies = [
     "opencv-python-headless==5.0.0.93",
     "openvino==2026.2.1",
     "Pillow>=11.3,<13",
-    "sherpa-onnx==1.13.4",
+    "sherpa-onnx==1.13.8",
     "sherpa-onnx-core==1.13.4",
     "whitenoise>=6.9,<7",
 ]
