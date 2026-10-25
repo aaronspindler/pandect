@@ -11,5 +11,7 @@
 !cases/**
 !evidence/
 !evidence/**
+!people/
+!people/**
 **/__pycache__/
 **/*.py[cod]

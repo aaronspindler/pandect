@@ -34,6 +34,10 @@ Evidence tests cover all material types, required cases/uploaders, exact origina
 bytes and checksums, metadata bounds, immutable originals, historical attribution,
 private storage paths, committed deletion cleanup, rollback, and storage failures.
 They use synthetic content and temporary storage, without external services.
+Person tests cover partial identities, contact validation, case linkage and
+deletion, timestamps, duplicate contacts, scoped lists/search/history, owner and
+editor writes, read-only viewers, forged case selections, revoked/downgraded
+memberships, model permissions, CSRF, and case-deletion permission requirements.
 
 `make compose-smoke` needs Docker only. It creates a unique project with temporary
 synthetic configuration, random loopback ports, and fresh volumes. It builds the

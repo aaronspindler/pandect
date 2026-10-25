@@ -5,6 +5,7 @@
 - [Local development, configuration, and uv](development.md)
 - [Architecture and implemented scope](architecture.md)
 - [Cases, collaboration, and Django admin](cases.md)
+- [People, contact details, and case-scoped administration](people.md)
 - [Evidence models, original storage, and integrity](evidence.md)
 - [Validation, CI, and Dependabot](validation.md)
 - [Compose operation, backup, and recovery](operations.md)
@@ -22,9 +23,10 @@ The Django project was generated from the repository root using
 | ASGI server entry point | `config.asgi:application` |
 
 The initial migrations use `accounts.User`; application and integration tests use
-PostgreSQL. Case ownership, viewer/editor memberships, and scoped Django admin
-and evidence storage models are implemented. Invitations, investigator-facing
-screens, evidence processing, and AI integration remain planned capabilities.
+PostgreSQL. Case ownership, viewer/editor memberships, evidence storage models,
+person records, and scoped Django administration are implemented. Invitations,
+investigator-facing screens, evidence processing, and AI integration remain
+planned capabilities.
 
 ## Codex project configuration
 

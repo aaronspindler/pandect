@@ -7,7 +7,8 @@ traceable evidence.
 **Status:** Early rebuild. The Django foundation is runnable with uv and
 PostgreSQL, locally or through Docker Compose. It includes a custom user model,
 django-allauth authentication, case ownership and collaboration models, a scoped
-case admin, case-scoped evidence storage models, and a database readiness endpoint.
+case admin, person records with case-scoped administration, evidence storage
+models, and a database readiness endpoint.
 Evidence supports image, audio, document files, and original text; upload and
 download interfaces remain planned.
 

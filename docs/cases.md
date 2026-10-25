@@ -23,8 +23,8 @@ an additional user. As with ordinary Django models, direct ORM writes do not
 automatically call `full_clean()`; code creating memberships must validate them.
 The owner exclusion is model validation, not a cross-table database constraint.
 
-Deleting a case cascades to its memberships and evidence. Evidence files are
-removed after the deletion commits. Deleting a collaborating user removes
+Deleting a case cascades to its memberships, people, and evidence. Evidence files
+are removed after the deletion commits. Deleting a collaborating user removes
 their memberships and preserves the case, unless retained evidence protects that
 user as its uploader. The owner's foreign key uses `PROTECT`:
 an owner cannot be deleted while they own a case, including through user admin or
@@ -46,6 +46,9 @@ must still own or share a case to inspect it.
 | Change a collaborator or role | Owner of a saved case | `cases.change_case` and `cases.change_casemembership` |
 | Remove a collaborator | Owner of a saved case | `cases.change_case` and `cases.delete_casemembership` |
 | Delete a case and its memberships | Owner | `cases.delete_case` |
+
+Deleting a case containing [people](people.md) also requires
+`people.delete_person` in Django admin, because those records are deleted too.
 
 Owners need `cases.view_casemembership` or `cases.change_casemembership` to inspect
 existing memberships in the inline. Assign the appropriate case and membership
@@ -77,10 +80,10 @@ database before applying migrations as described in [operations](operations.md).
 This implements the root records and admin workflow. Invitations, public APIs,
 investigator-facing screens, ownership transfer, evidence upload/download
 workflows, and background/AI processing remain planned. Viewer/editor roles are
-stored now for future case material permissions; both roles currently have the
-same read-only case metadata
-access in admin. Ordinary non-staff collaborators will need the future product
-interface to access cases.
+used for case material permissions: editors can create and edit people, while
+viewers can inspect them. Both roles have read-only case metadata access in admin.
+Ordinary non-staff collaborators will need the future product interface to access
+cases.
 
 The implementation follows Django's [intermediary model pattern](https://docs.djangoproject.com/en/6.1/topics/db/models/#extra-fields-on-many-to-many-relationships)
 and [admin permission hooks](https://docs.djangoproject.com/en/6.1/ref/contrib/admin/#django.contrib.admin.ModelAdmin.has_view_permission).

@@ -3,8 +3,9 @@
 Pandect has one Django configuration and user model for self-hosted and
 operator-hosted operation. Environment variables supply deployment differences.
 The implemented scope is authentication, case and collaboration models, scoped
-case administration, evidence storage models, database readiness, dependency
-management, and reproducible development and validation.
+case administration, person records and administration, evidence storage models,
+database readiness, dependency management, and reproducible development and
+validation.
 
 ## Runtime decisions
 
@@ -54,6 +55,9 @@ required by that image's version-specific layout.
   image, audio, document, and text models. Each record has one required case and
   uploader. Original files/text have generated checksums and are protected against
   replacement through normal model saves. See [evidence storage](evidence.md).
+- `people/` contains `Person`, an investigator-maintained name/contact record
+  linked to one case, with scoped Django administration. Owners and editors can
+  create and edit people; only owners can delete them. See [people](people.md).
 
 Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
 Allauth does not implement case invitations or authorization.

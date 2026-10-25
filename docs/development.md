@@ -40,7 +40,10 @@ In admin, use **Cases → Add case** to create a case owned by the signed-in use
 Save it before adding collaborators. Staff access and Django model permissions
 remain required; even superusers see only cases they own or share. See
 [case administration](cases.md) for permissions and membership management.
-The investigator-facing interface is planned. [Evidence models](evidence.md)
+Use **People → Add person** to add [people and contact details](people.md) to
+an owned case or one where you are an editor. Person permissions must also be
+assigned to staff users/groups. The investigator-facing interface is planned.
+[Evidence models](evidence.md)
 support private original storage through the ORM; upload screens and downloads
 are not implemented.
 

@@ -216,14 +216,18 @@ durable project requirements change.
 
 The rebuild foundation now includes `config/`, `accounts.User`, django-allauth,
 PostgreSQL, `cases.Case` and collaboration memberships, scoped case administration,
-case-scoped evidence storage models, uv dependency management, Docker Compose,
-and matching local/CI checks.
+case-scoped people and administration, evidence storage models, uv dependency
+management, Docker Compose, and matching local/CI checks.
 Read `docs/development.md` and `docs/validation.md` for executable commands. The
 compatible runtime versions and upgrade constraints are in `docs/architecture.md`.
 Use `cases.Case` for future investigation and evidence relationships. See
 `docs/cases.md` for the implemented model and admin permissions. Invitations,
 investigator-facing screens, evidence upload/download workflows and processing,
 background jobs, and AI remain planned.
+Read `docs/people.md` before extending person records or their admin permissions.
+People belong to a single case; owners and editors can add/edit them, viewers can
+inspect them, and only owners can delete them. Person records are independent of
+login accounts and do not establish verified identity.
 Read `docs/evidence.md` before extending evidence models, original storage, or
 deletion cleanup. Original preservation is enforced through model validation and
 saves; every future access path must separately enforce current case permissions.
