@@ -1,0 +1,17 @@
+# Project defaults for implementation.
+model = "gpt-6.1-sol"
+model_reasoning_effort = "xhigh"
+model_verbosity = "low"
+service_tier = "fast"
+
+# Select GPT-6 Astra when entering Plan mode; Codex 0.164.0 has no
+# plan-specific model setting. See docs/README.md for the workflow.
+plan_mode_reasoning_effort = "ultra"
+
+# Route approval requests to automatic review.
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+sandbox_mode = "workspace-write"
+
+# Look up current internet documentation with Codex's built-in web search.
+web_search = "live"

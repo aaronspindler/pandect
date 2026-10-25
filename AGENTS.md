@@ -53,8 +53,18 @@ best practices and standards in every change. Do not overengineer the project.
 
 ## Architecture and deployment
 
+- Use the latest stable releases of Python and Django when scaffolding the
+  application and keep them current. Verify release versions and compatibility
+  against official documentation; do not use prereleases as the default.
 - Build a modular Django application with PostgreSQL as the database in both local
   and hosted deployments. Use PostgreSQL for database integration tests as well.
+- Name the Django project configuration package `config` and place it in
+  `config/`. Create it with `python -m django startproject config .` from the
+  repository root. Use `config.settings` for `DJANGO_SETTINGS_MODULE`,
+  `config.urls` for `ROOT_URLCONF`, `config.wsgi.application` for
+  `WSGI_APPLICATION`, and `config.asgi.application` for `ASGI_APPLICATION`.
+  Keep `manage.py`, `config/wsgi.py`, `config/asgi.py`, and deployment server
+  entry points aligned with these module paths.
 - Maintain one application codebase and domain model for self-hosting and the
   operator-hosted service. Configure deployment differences rather than creating
   separate product implementations.
@@ -71,9 +81,9 @@ best practices and standards in every change. Do not overengineer the project.
   evidence or publish partial results as complete.
 - Use configurable storage suitable for local files and hosted operation. Evidence
   downloads and derived artifacts must remain subject to case authorization.
-- Choose supported framework versions, the queue implementation, and specialized
-  libraries during implementation. Record significant decisions in `docs/` and
-  keep runtime pins, dependency metadata, lockfiles, and container images aligned.
+- Choose the queue implementation and specialized libraries during implementation.
+  Record significant decisions in `docs/` and keep Python and Django versions,
+  runtime pins, dependency metadata, lockfiles, CI, and container images aligned.
 
 ## Identity, ownership, and collaboration
 
