@@ -4,6 +4,7 @@
 
 - [Local development, configuration, and uv](development.md)
 - [Architecture and implemented scope](architecture.md)
+- [Cases, collaboration, and Django admin](cases.md)
 - [Validation, CI, and Dependabot](validation.md)
 - [Compose operation, backup, and recovery](operations.md)
 
@@ -19,9 +20,10 @@ The Django project was generated from the repository root using
 | WSGI server entry point | `config.wsgi:application` |
 | ASGI server entry point | `config.asgi:application` |
 
-The initial migration uses `accounts.User`; application and integration tests use
-PostgreSQL. Case management, collaboration, evidence processing, and AI integration
-remain planned capabilities.
+The initial migrations use `accounts.User`; application and integration tests use
+PostgreSQL. Case ownership, viewer/editor memberships, and scoped Django admin
+are implemented. Invitations, investigator-facing screens, evidence processing,
+and AI integration remain planned capabilities.
 
 ## Codex project configuration
 

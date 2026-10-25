@@ -2,8 +2,9 @@
 
 Pandect has one Django configuration and user model for self-hosted and
 operator-hosted operation. Environment variables supply deployment differences.
-The initial scope is authentication, admin, database readiness, dependency
-management, and reproducible development and validation.
+The implemented scope is authentication, case and collaboration models, scoped
+case administration, database readiness, dependency management, and reproducible
+development and validation.
 
 ## Runtime decisions
 
@@ -45,6 +46,9 @@ required by that image's version-specific layout.
 - django-allauth supplies username/email sign-in, registration, mandatory email
   verification, password recovery, and sign-out under `/accounts/`.
 - Django admin uses the custom user model and requires staff permissions.
+- `cases/` contains `Case`, the root record for future investigation and evidence
+  relationships, and `CaseMembership` for viewer/editor collaboration. Ownership
+  is separate from membership. See [case models and admin permissions](cases.md).
 - `/health/` checks database connectivity without returning secrets or case data.
 
 Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
@@ -52,10 +56,10 @@ Allauth does not implement case invitations or authorization.
 
 ## Planned work
 
-Cases, owner/editor/viewer permissions, evidence storage and ingestion, background
-jobs, search, visual analysis, and reporting are not implemented. No queue,
-external AI client, or paid service is required by the foundation. Future inference
+Case invitations, investigator-facing screens, evidence storage and ingestion,
+background jobs, search, visual analysis, and reporting are not implemented. No
+queue, external AI client, or paid service is required by the foundation. Future inference
 must use the centralized Cloudflare AI Gateway boundary from [AGENTS.md](../AGENTS.md).
 Evidence must remain private: there is deliberately no public media URL route.
-Production deployment automation, authorization workflows, and a polished product
-interface will be delivered with those capabilities.
+Production deployment automation, evidence authorization workflows, and a polished
+product interface will be delivered with those capabilities.

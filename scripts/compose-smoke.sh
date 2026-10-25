@@ -30,11 +30,31 @@ unset DJANGO_DEBUG DJANGO_SECRET_KEY DJANGO_ALLOWED_HOSTS POSTGRES_DB POSTGRES_U
 unset POSTGRES_PASSWORD PANDECT_DB_PORT PANDECT_WEB_PORT
 compose up --build --wait --wait-timeout 180
 compose exec -T web python manage.py migrate --check
-compose exec -T web python manage.py shell -c \
-    'from django.contrib.auth import get_user_model; get_user_model().objects.create_user(username="smoke", password="synthetic-smoke-password")'
+compose exec -T web python manage.py shell <<'PY'
+from django.contrib.auth import get_user_model
+from cases.models import Case, CaseMembership
+
+owner = get_user_model().objects.create_user(
+    username="smoke", password="synthetic-smoke-password"
+)
+collaborator = get_user_model().objects.create_user(username="collaborator")
+case = Case.objects.create(owner=owner)
+CaseMembership.objects.create(case=case, user=collaborator)
+PY
 compose stop
 compose up --wait --wait-timeout 180
-compose exec -T web python manage.py shell -c \
-    'from django.contrib.auth import get_user_model; assert get_user_model().objects.get(username="smoke").check_password("synthetic-smoke-password")'
+compose exec -T web python manage.py shell <<'PY'
+from django.contrib.auth import get_user_model
+from cases.models import Case
+
+owner = get_user_model().objects.get(username="smoke")
+assert owner.check_password("synthetic-smoke-password")
+case = Case.objects.get(owner=owner)
+assert case.created_at is not None
+membership = case.memberships.get()
+assert membership.user.username == "collaborator"
+assert membership.role == "viewer"
+assert case.additional_users.get() == membership.user
+PY
 compose exec -T web python -c \
     'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok"}'

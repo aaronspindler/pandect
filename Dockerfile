@@ -18,6 +18,7 @@ RUN groupadd --system pandect && useradd --system --create-home --gid pandect pa
 COPY manage.py ./
 COPY config/ config/
 COPY accounts/ accounts/
+COPY cases/ cases/
 USER pandect
 EXPOSE 8000
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--access-logfile", "-"]

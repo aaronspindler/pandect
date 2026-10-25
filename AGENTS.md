@@ -215,10 +215,14 @@ durable project requirements change.
 ## Rebuild context
 
 The rebuild foundation now includes `config/`, `accounts.User`, django-allauth,
-PostgreSQL, uv dependency management, Docker Compose, and matching local/CI checks.
+PostgreSQL, `cases.Case` and collaboration memberships, scoped case administration,
+uv dependency management, Docker Compose, and matching local/CI checks.
 Read `docs/development.md` and `docs/validation.md` for executable commands. The
 compatible runtime versions and upgrade constraints are in `docs/architecture.md`.
-Case management, evidence processing, background jobs, and AI remain planned.
+Use `cases.Case` for future investigation and evidence relationships. See
+`docs/cases.md` for the implemented model and admin permissions. Invitations,
+investigator-facing screens, evidence processing, background jobs, and AI remain
+planned.
 
 The new requirements supersede historical SQLite and single-operator assumptions.
 Do not delete or migrate existing runtime data as an incidental part of unrelated

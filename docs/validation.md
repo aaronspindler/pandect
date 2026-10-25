@@ -25,13 +25,18 @@ calling them locally. `make format` applies Ruff fixes and formatting.
 
 Tests cover the custom user, password hashing, sign-in failure, email verification,
 registration, CSRF, sign-out semantics, staff access, and database readiness and
-failure. Case-role tests will accompany case authorization implementation.
+failure. Case tests cover required ownership, stable creation timestamps,
+collaborator roles and constraints, protected owners, and membership cleanup.
+Admin tests cover model-permission gates, scoped lists and direct URLs (including
+history and deletion), owner-only changes, unrelated superusers, revoked access,
+CSRF, and forged ownership, membership IDs, parent cases, and roles.
 
 `make compose-smoke` needs Docker only. It creates a unique project with temporary
 synthetic configuration, random loopback ports, and fresh volumes. It builds the
 runtime image, checks initial migrations and HTTP readiness, creates a synthetic
-user, stops and restarts the stack, and verifies persistence. Its exit trap removes
-only that project's containers and volumes. It never uses your `.env` or data.
+owner, collaborator, case, and membership, stops and restarts the stack, and
+verifies their persistence. Its exit trap removes only that project's containers
+and volumes. It never uses your `.env` or data.
 
 `make security-check` exports the hash-locked dependency graph, including developer
 tools, and runs pip-audit against it without re-resolving dependencies. It requires

@@ -27,9 +27,9 @@ with PostgreSQL before updating configuration.
 
 ## Database backup and restoration
 
-Keep backups private and off-host. For this initial foundation, the database
-contains accounts and authentication state. Future evidence features will require
-coordinated backups of file storage as well.
+Keep backups private and off-host. The database contains accounts, authentication
+state, cases, and collaboration memberships. Future evidence features will
+require coordinated backups of file storage as well.
 
 ```sh
 mkdir -p backups

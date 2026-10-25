@@ -36,7 +36,11 @@ The development container applies migrations on startup and runs Django's
 development server. Registration requires email confirmation; development emails
 appear in `docker compose logs web`. The superuser command creates an operator for
 Django admin, whose staff authentication is separate from allauth email verification.
-These are the framework's initial screens; the investigation interface is planned.
+In admin, use **Cases → Add case** to create a case owned by the signed-in user.
+Save it before adding collaborators. Staff access and Django model permissions
+remain required; even superusers see only cases they own or share. See
+[case administration](cases.md) for permissions and membership management.
+The investigator-facing interface is planned.
 
 ## Run Python on the host
 

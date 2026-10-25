@@ -7,5 +7,7 @@
 !config/**
 !accounts/
 !accounts/**
+!cases/
+!cases/**
 **/__pycache__/
 **/*.py[cod]
