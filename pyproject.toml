@@ -1,0 +1,30 @@
+[project]
+name = "pandect"
+version = "0.1.0"
+description = "An approachable investigation and intelligence platform."
+readme = "README.md"
+requires-python = ">=3.14.9,<3.15"
+dependencies = [
+    "django>=6.1.2,<6.2",
+    "django-allauth>=65.20.1,<66",
+    "gunicorn>=23,<26",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[dependency-groups]
+dev = [
+    "pip-audit>=2.9,<3",
+    "ruff>=0.14,<1",
+]
+
+[tool.uv]
+package = false
+required-version = ">=0.13.5,<0.14"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+extend-exclude = ["**/migrations/*.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "DJ"]

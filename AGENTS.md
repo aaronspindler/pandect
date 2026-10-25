@@ -214,16 +214,16 @@ durable project requirements change.
 
 ## Rebuild context
 
-This guide defines the target architecture, not the current implementation status.
-At the start of the rebuild, retained GitHub workflows reference tooling that is
-absent from the checkout, and legacy runtime files remain. Inspect the repository
-before relying on commands or prior behavior. Update this context when application
-scaffolding and validation tooling are established.
+The rebuild foundation now includes `config/`, `accounts.User`, django-allauth,
+PostgreSQL, uv dependency management, Docker Compose, and matching local/CI checks.
+Read `docs/development.md` and `docs/validation.md` for executable commands. The
+compatible runtime versions and upgrade constraints are in `docs/architecture.md`.
+Case management, evidence processing, background jobs, and AI remain planned.
 
 The new requirements supersede historical SQLite and single-operator assumptions.
 Do not delete or migrate existing runtime data as an incidental part of unrelated
-work. Selecting dependencies, creating licensing files, and restoring application
-or CI scaffolding are separate implementation tasks from creating this guide.
+work. No legacy data migration or project licensing decision is part of the
+application foundation.
 
 ## Primary integration references
 

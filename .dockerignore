@@ -1,0 +1,11 @@
+*
+!pyproject.toml
+!uv.lock
+!.python-version
+!manage.py
+!config/
+!config/**
+!accounts/
+!accounts/**
+**/__pycache__/
+**/*.py[cod]

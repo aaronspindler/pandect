@@ -1,17 +1,14 @@
 # Pandect documentation
 
-## Application foundation (planned)
+## Application foundation
 
-The rebuild must use the latest stable [Python](https://www.python.org/downloads/)
-and [Django](https://www.djangoproject.com/download/) releases. Verify their
-[compatibility](https://docs.djangoproject.com/en/stable/faq/install/#what-python-version-can-i-use-with-django)
-when implementing the application, and keep dependency metadata, lockfiles,
-runtime pins, CI, and container images aligned as versions change.
+- [Local development, configuration, and uv](development.md)
+- [Architecture and implemented scope](architecture.md)
+- [Validation, CI, and Dependabot](validation.md)
+- [Compose operation, backup, and recovery](operations.md)
 
-Create the Django project from the repository root with
-`python -m django startproject config .`. The configuration package must be
-`config/`, containing settings, URL configuration, `wsgi.py`, and `asgi.py`.
-Use these module paths throughout application and deployment configuration:
+The Django project was generated from the repository root using
+`python -m django startproject config .`. Its configuration lives in `config/`:
 
 | Configuration | Module path |
 | --- | --- |
@@ -22,8 +19,9 @@ Use these module paths throughout application and deployment configuration:
 | WSGI server entry point | `config.wsgi:application` |
 | ASGI server entry point | `config.asgi:application` |
 
-Application scaffolding is not yet present. Configure the custom user model and
-PostgreSQL before running initial migrations, as required by [AGENTS.md](../AGENTS.md).
+The initial migration uses `accounts.User`; application and integration tests use
+PostgreSQL. Case management, collaboration, evidence processing, and AI integration
+remain planned capabilities.
 
 ## Codex project configuration
 

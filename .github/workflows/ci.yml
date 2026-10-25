@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     name: Test, lint, and validate (${{ matrix.architecture }})
@@ -21,35 +25,67 @@ jobs:
           - architecture: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    timeout-minutes: 20
+    env:
+      DJANGO_SECRET_KEY: synthetic-ci-secret-not-for-deployment
+      POSTGRES_DB: pandect
+      POSTGRES_USER: pandect
+      POSTGRES_PASSWORD: synthetic-ci-password
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_DB: pandect
+          POSTGRES_USER: pandect
+          POSTGRES_PASSWORD: synthetic-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pandect -d pandect"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Lint Python
-        run: make lint
+      - name: Install uv and the pinned Python runtime
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.5"
+          enable-cache: true
 
-      - name: Run tests
-        run: make test
+      - name: Install locked dependencies
+        run: uv sync --locked
 
-      - name: Validate application and container configuration
-        run: make validate
+      - name: Apply initial migrations to PostgreSQL
+        run: uv run --locked python manage.py migrate --noinput
+
+      - name: Lint, test against PostgreSQL, and validate configuration
+        run: make check
 
       - name: Exercise isolated first-run and recovery workflow
         run: make compose-smoke
 
   security:
-    name: Secret, dependency, and image audit
+    name: Locked Python dependency audit
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - name: Check out all publishable history
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Run explicit network-enabled security checks
+      - name: Install uv and the pinned Python runtime
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.5"
+          enable-cache: true
+
+      - name: Audit locked dependencies
         run: make security-check
