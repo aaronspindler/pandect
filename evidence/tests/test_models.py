@@ -74,9 +74,11 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
         for model in ALL_MODELS:
             with self.subTest(model=model.__name__):
                 evidence = self.new_evidence(model)
+                generated_id = evidence.pk
                 evidence.full_clean()
                 evidence.save()
                 evidence.refresh_from_db()
+                self.assertEqual(evidence.pk, generated_id)
                 self.assertEqual(evidence.case, self.case)
                 self.assertEqual(evidence.uploaded_by, self.editor)
                 self.assertEqual(str(evidence), evidence.title)
@@ -335,12 +337,32 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
         self.assertFalse(TextEvidence.objects.exists())
 
     def test_explicit_ids_cannot_replace_existing_records(self):
-        evidence = self.create_evidence()
-        replacement = self.new_evidence(pk=evidence.pk, body="Replacement text")
-        with self.assertRaises(ValidationError):
-            replacement.save()
-        evidence.refresh_from_db()
-        self.assertNotEqual(evidence.body, replacement.body)
+        for model in ALL_MODELS:
+            evidence = self.create_evidence(model)
+            checksum = evidence.sha256
+            replacement = self.new_evidence(
+                model, pk=evidence.pk, title="Replacement material"
+            )
+            with self.subTest(model=model.__name__):
+                with self.assertRaises(ValidationError):
+                    replacement.full_clean()
+                for options in (
+                    {},
+                    {"force_update": True},
+                    {"update_fields": ["title"]},
+                ):
+                    with self.assertRaises(ValidationError):
+                        replacement.save(**options)
+                evidence.refresh_from_db()
+                self.assertNotEqual(evidence.title, replacement.title)
+                self.assertEqual(evidence.sha256, checksum)
+
+    def test_new_evidence_cannot_force_update_with_a_preassigned_uuid(self):
+        for options in ({"force_update": True}, {"update_fields": ["title"]}):
+            with self.subTest(options=options):
+                with self.assertRaises(ValueError):
+                    self.new_evidence().save(**options)
+        self.assertFalse(TextEvidence.objects.exists())
 
     def test_newest_records_are_listed_first(self):
         first = self.create_evidence()

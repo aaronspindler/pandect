@@ -7,13 +7,14 @@ investigation model or unscoped collection of evidence.
 
 ## Data model
 
-A case has Django's default `BigAutoField` primary key, a required `owner` pointing
+A case has an automatically generated UUIDv4 primary key, a required `owner` pointing
 to `settings.AUTH_USER_MODEL`, and an automatically recorded `created_at` timestamp
 that remains unchanged on later saves. It is displayed as `Case #<id>`; title and
 status fields are not implemented.
 
 `Case.additional_users` is an optional many-to-many relationship through
-`CaseMembership`. Each membership has a required case, user, and role: `viewer`
+`CaseMembership`. Each membership has its own UUIDv4 primary key and a required
+case, user, and role: `viewer`
 (the default) or `editor`. PostgreSQL constraints enforce one membership per
 case/user pair and reject invalid roles. A collaborator may belong to multiple
 cases. Membership changes never modify the case's owner.
@@ -71,11 +72,12 @@ next request, including requests in an existing session.
 
 ## Scope and migration
 
-`cases/0001_initial` is an additive schema migration with a swappable dependency
+`cases/0001_initial` creates the UUID schema with a swappable dependency
 on the configured user model. Run the usual `python manage.py migrate` command
-with the documented environment, or start the updated Compose image. No legacy
-data import, runtime upgrade, or dependency change is required. Back up an existing
-database before applying migrations as described in [operations](operations.md).
+with the documented environment, or start the updated Compose image. The
+[pre-release UUID baseline](architecture.md#primary-keys-and-the-initial-schema)
+requires a fresh database if the earlier integer initial migrations were applied.
+No legacy data import, runtime upgrade, or dependency change is included.
 
 This implements the root records and admin workflow. Invitations, public APIs,
 investigator-facing screens, ownership transfer, evidence upload/download

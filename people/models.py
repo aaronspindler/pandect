@@ -1,9 +1,12 @@
+from uuid import uuid4
+
 from django.db import models
 
 
 class Person(models.Model):
     """An investigator-maintained person record within a single case."""
 
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey(
         "cases.Case", on_delete=models.CASCADE, related_name="people"
     )

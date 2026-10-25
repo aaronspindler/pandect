@@ -27,6 +27,9 @@ Tests cover the custom user, password hashing, sign-in failure, email verificati
 registration, CSRF, sign-out semantics, staff access, and database readiness and
 failure. Case tests cover required ownership, stable creation timestamps,
 collaborator roles and constraints, protected owners, and membership cleanup.
+Identifier tests cover independent UUIDv4 defaults on every Pandect model and
+native PostgreSQL UUID columns for their keys and all referencing foreign keys,
+including Django/allauth and automatically generated join tables.
 Admin tests cover model-permission gates, scoped lists and direct URLs (including
 history and deletion), owner-only changes, unrelated superusers, revoked access,
 CSRF, and forged ownership, membership IDs, parent cases, and roles.

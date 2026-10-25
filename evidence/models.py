@@ -19,6 +19,7 @@ def original_upload_path(instance, filename):
 class Evidence(models.Model):
     """Shared case boundary, provenance, and integrity of original material."""
 
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey(
         "cases.Case",
         on_delete=models.CASCADE,
@@ -71,6 +72,8 @@ class Evidence(models.Model):
             if not self.case_id or not self.uploaded_by_id:
                 raise ValidationError("Evidence requires a case and an uploader.")
             self._prepare_original()
+            # A preassigned UUID must never turn a new record into an UPDATE.
+            force_insert = True
         else:
             # Prevent Django's update-then-insert fallback after concurrent deletion.
             force_update = True
@@ -88,10 +91,8 @@ class Evidence(models.Model):
 
     def _check_original(self, using):
         if self._state.adding:
-            if self.pk is not None:
-                raise ValidationError(
-                    "New evidence must use an automatically assigned ID."
-                )
+            if type(self)._base_manager.using(using).filter(pk=self.pk).exists():
+                raise ValidationError("New evidence cannot replace an existing record.")
             return
         original = (
             type(self)

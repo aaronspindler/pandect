@@ -58,6 +58,10 @@ best practices and standards in every change. Do not overengineer the project.
   against official documentation; do not use prereleases as the default.
 - Build a modular Django application with PostgreSQL as the database in both local
   and hosted deployments. Use PostgreSQL for database integration tests as well.
+- Declare UUID primary keys on every Pandect model with
+  `models.UUIDField(primary_key=True, default=uuid4, editable=False)`. Inherit this
+  field in abstract domain bases where appropriate. Keep Django/allauth internal
+  models and automatically generated join tables on their upstream schemas.
 - Name the Django project configuration package `config` and place it in
   `config/`. Create it with `python -m django startproject config .` from the
   repository root. Use `config.settings` for `DJANGO_SETTINGS_MODULE`,

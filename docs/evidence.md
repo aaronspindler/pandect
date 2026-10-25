@@ -9,6 +9,7 @@ table: `Evidence` and `FileEvidence` are abstract Django models.
 
 All four concrete models inherit these fields from `Evidence`:
 
+- An automatically generated, non-editable UUIDv4 primary key (`id`).
 - Required `case`, `uploaded_by`, and `title` (up to 255 characters).
 - Automatic `created_at` and `edited_at` timestamps. `edited_at` changes on normal
   saves, including `save(update_fields=[...])`; creation time remains fixed.
@@ -87,6 +88,10 @@ Removing a collaborator does not remove their retained evidence or attribution.
 The uploader uses `PROTECT`: users with evidence cannot be deleted until that
 evidence is removed.
 
+UUIDs are assigned before saving. A new instance cannot replace an existing
+record with the same ID, including through forced updates; creation always
+inserts a new row. Saving a deleted instance does not recreate it.
+
 These safeguards cover model `clean()` and `save()`. Queryset/bulk writes, raw SQL,
 `FieldFile.save()`/`delete()`, and direct storage writes bypass some or all model
 safeguards and must be treated as trusted maintenance operations. In particular,
@@ -124,7 +129,9 @@ key in the configured application's management shell:
 ```python
 from django.core.files.storage import default_storage
 
-default_storage.delete("evidence/cases/123/documentevidence/GENERATED_KEY_FROM_LOG")
+default_storage.delete(
+    "evidence/cases/CASE_UUID/documentevidence/GENERATED_KEY_FROM_LOG"
+)
 ```
 
 Database and storage writes are not atomic. Failed or rolled-back creation can
@@ -136,8 +143,10 @@ delete files merely because an upload or transaction reported an error.
 ## Migration and backup
 
 The initial evidence migration depends on the configured user model and
-`cases/0001_initial`; it adds four tables without altering existing material or
-requiring new dependencies. Apply it with the usual documented `migrate` command.
+`cases/0001_initial`; it creates four UUID tables without requiring new
+dependencies. Apply it with the usual documented `migrate` command on a fresh
+database. See the [pre-release UUID baseline](architecture.md#primary-keys-and-the-initial-schema)
+if the earlier integer initial migrations were already applied.
 Back up before upgrades. Database backups include text and file metadata; file
 originals require a matching private storage backup. See [operations](operations.md).
 

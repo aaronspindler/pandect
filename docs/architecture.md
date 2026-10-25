@@ -62,6 +62,32 @@ required by that image's version-specific layout.
 Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
 Allauth does not implement case invitations or authorization.
 
+## Primary keys and the initial schema
+
+Every Pandect model uses an explicit, non-editable `UUIDField` primary key with
+`default=uuid4`: `User`, `Case`, `CaseMembership`, `Person`, and all four concrete
+evidence models. Each new instance receives an independent UUIDv4 before saving;
+use the model's adding state rather than the presence of a primary key to tell
+whether it has been saved. Foreign keys to these models use PostgreSQL's native
+`uuid` type, including user references in Django admin and allauth.
+
+Declare the same field on future Pandect models. Django's `DEFAULT_AUTO_FIELD`
+requires an `AutoField` subclass and cannot be set to `UUIDField`; the setting
+remains `BigAutoField` for upstream Django/allauth models and automatically
+generated join-table primary keys. Their user foreign keys still use UUIDs.
+UUIDs do not replace case authorization. UUIDv4 values do not encode creation
+order; use timestamps when ordering by age.
+
+This pre-release change rewrites the four application initial migrations because
+there are no active installations or real investigation databases. New databases
+start directly with UUIDs; there is no integer-to-UUID data migration. An existing
+disposable development database that applied the old integer migrations needs a
+fresh database/volume: `migrate` cannot update migrations already marked as applied.
+Create a fresh isolated development environment deliberately; no command in the
+application automatically deletes or resets an existing database or evidence.
+
+Reference: [Django UUID fields](https://docs.djangoproject.com/en/6.1/ref/models/fields/#uuidfield).
+
 ## Planned work
 
 Case invitations, investigator-facing screens, evidence upload/download workflows

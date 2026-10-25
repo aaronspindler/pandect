@@ -100,6 +100,8 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
+# Pandect models declare UUID primary keys explicitly. This fallback is for
+# Django/allauth internals and automatically generated many-to-many tables.
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 STATIC_URL = "static/"

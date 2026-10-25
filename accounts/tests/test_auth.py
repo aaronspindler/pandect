@@ -29,7 +29,10 @@ class AuthenticationTests(TestCase):
             {"login": self.user.email, "password": self.password},
         )
         self.assertRedirects(response, reverse("account_email"))
-        self.assertEqual(int(self.client.session["_auth_user_id"]), self.user.pk)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        self.assertEqual(
+            self.client.get(reverse("account_email")).wsgi_request.user, self.user
+        )
 
     def test_incorrect_password_does_not_create_session(self):
         response = self.client.post(

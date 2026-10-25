@@ -10,6 +10,7 @@ These records capture investigative work, not verified evidence or model output.
 
 | Field | Behavior |
 | --- | --- |
+| `id` | Automatically generated, non-editable UUIDv4 primary key. |
 | `case` | Required case foreign key. Deleting the case deletes its people. |
 | `first_name`, `last_name` | Optional text, up to 150 characters each. |
 | `phone_number` | Optional text, up to 64 characters; preserves international formatting and extensions. |
@@ -71,10 +72,12 @@ an individual person leaves its case and other people intact.
 
 ## Migration and scope
 
-`people/0001_initial` adds the person table with a dependency on
+`people/0001_initial` creates the UUID person table with a dependency on
 `cases/0001_initial`. Apply it with the [documented migration workflow](development.md),
-or start the updated Compose image. No existing data is imported or rewritten,
-and no dependencies or runtime versions change.
+or start the updated Compose image. See the
+[pre-release UUID baseline](architecture.md#primary-keys-and-the-initial-schema)
+for databases that applied the earlier integer migrations. No data conversion,
+dependency changes, or runtime upgrades are included.
 
 Authorization is enforced by the current admin entry points, not automatically
 by ORM queries. Future views, exports, background jobs, and integrations must

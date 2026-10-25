@@ -175,7 +175,7 @@ class PersonAdminTests(TestCase):
                     self.url("add"), self.data(email="new@example.com")
                 )
                 self.assertRedirects(response, self.url())
-                person = Person.objects.latest("pk")
+                person = Person.objects.latest("created_at")
                 self.assertEqual(person.case, self.case)
                 self.assertEqual(person.email, "new@example.com")
                 response = self.client.post(

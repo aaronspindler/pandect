@@ -35,6 +35,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from cases.models import Case, CaseMembership
 from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, TextEvidence
+from people.models import Person
 
 owner = get_user_model().objects.create_user(
     username="smoke", password="synthetic-smoke-password"
@@ -42,6 +43,7 @@ owner = get_user_model().objects.create_user(
 collaborator = get_user_model().objects.create_user(username="collaborator")
 case = Case.objects.create(owner=owner)
 CaseMembership.objects.create(case=case, user=collaborator)
+Person.objects.create(case=case, first_name="Synthetic person")
 for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
     model.objects.create(
         case=case,
@@ -58,19 +60,29 @@ compose up --wait --wait-timeout 180
 compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
 import hashlib
+from uuid import UUID
 from cases.models import Case
 from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, TextEvidence
+from people.models import Person
 
 owner = get_user_model().objects.get(username="smoke")
+assert isinstance(owner.pk, UUID)
 assert owner.check_password("synthetic-smoke-password")
 case = Case.objects.get(owner=owner)
+assert isinstance(case.pk, UUID)
 assert case.created_at is not None
 membership = case.memberships.get()
+assert isinstance(membership.pk, UUID)
+assert isinstance(membership.user_id, UUID)
 assert membership.user.username == "collaborator"
 assert membership.role == "viewer"
 assert case.additional_users.get() == membership.user
+person = Person.objects.get(case=case)
+assert isinstance(person.pk, UUID)
+assert person.first_name == "Synthetic person"
 for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
     evidence = model.objects.get(case=case)
+    assert isinstance(evidence.pk, UUID)
     assert evidence.uploaded_by == owner
     assert evidence.original_filename == "original.bin"
     with evidence.file.open("rb") as original:
@@ -79,6 +91,7 @@ for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
     assert evidence.byte_size == len(content)
     assert evidence.sha256 == hashlib.sha256(content).hexdigest()
 text = TextEvidence.objects.get(case=case)
+assert isinstance(text.pk, UUID)
 assert text.body == "Original café\r\n"
 assert text.sha256 == hashlib.sha256(text.body.encode("utf-8")).hexdigest()
 PY

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -6,6 +8,7 @@ from django.db import models
 class Case(models.Model):
     """The root investigation record and boundary for future case material."""
 
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -28,6 +31,7 @@ class CaseMembership(models.Model):
         VIEWER = "viewer", "Viewer"
         EDITOR = "editor", "Editor"
 
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name="memberships")
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

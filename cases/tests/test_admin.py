@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.contrib import admin
 from django.contrib.admin.models import ADDITION, LogEntry
 from django.contrib.auth import get_user_model
@@ -77,7 +79,7 @@ class CaseAdminTests(TestCase):
             },
         )
         self.assertRedirects(response, self.url())
-        case = Case.objects.latest("pk")
+        case = Case.objects.latest("created_at")
         self.assertEqual(case.owner, self.owner)
         self.assertGreater(case.created_at.year, 2000)
         self.assertFalse(case.memberships.exists())
@@ -87,7 +89,7 @@ class CaseAdminTests(TestCase):
         self.client.force_login(user)
         response = self.client.post(self.url("add"), {"_save": "Save"})
         self.assertEqual(response.status_code, 302)
-        case = Case.objects.latest("pk")
+        case = Case.objects.get(owner=user)
         self.assertEqual(case.owner, user)
         self.assertEqual(self.client.get(self.url("change", case)).status_code, 403)
 
@@ -334,7 +336,7 @@ class CaseAdminTests(TestCase):
         self.other_case.owner = self.owner
         self.other_case.save()
         self.client.force_login(self.owner)
-        for membership_id in (self.foreign_membership.pk, 999999999):
+        for membership_id in (self.foreign_membership.pk, uuid4(), "invalid-uuid"):
             with self.subTest(membership_id=membership_id):
                 response = self.client.post(
                     self.url("change", self.case),
