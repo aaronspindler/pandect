@@ -30,13 +30,18 @@ collaborator roles and constraints, protected owners, and membership cleanup.
 Admin tests cover model-permission gates, scoped lists and direct URLs (including
 history and deletion), owner-only changes, unrelated superusers, revoked access,
 CSRF, and forged ownership, membership IDs, parent cases, and roles.
+Evidence tests cover all material types, required cases/uploaders, exact original
+bytes and checksums, metadata bounds, immutable originals, historical attribution,
+private storage paths, committed deletion cleanup, rollback, and storage failures.
+They use synthetic content and temporary storage, without external services.
 
 `make compose-smoke` needs Docker only. It creates a unique project with temporary
 synthetic configuration, random loopback ports, and fresh volumes. It builds the
 runtime image, checks initial migrations and HTTP readiness, creates a synthetic
-owner, collaborator, case, and membership, stops and restarts the stack, and
-verifies their persistence. Its exit trap removes only that project's containers
-and volumes. It never uses your `.env` or data.
+owner, collaborator, case, membership, and evidence of all four types, stops and
+restarts the stack, and verifies records and original file bytes persist. Its exit
+trap removes only that project's containers and volumes. It never uses your `.env`
+or data.
 
 `make security-check` exports the hash-locked dependency graph, including developer
 tools, and runs pip-audit against it without re-resolving dependencies. It requires

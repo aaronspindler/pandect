@@ -19,6 +19,7 @@ COPY manage.py ./
 COPY config/ config/
 COPY accounts/ accounts/
 COPY cases/ cases/
+COPY evidence/ evidence/
 USER pandect
 EXPOSE 8000
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--access-logfile", "-"]

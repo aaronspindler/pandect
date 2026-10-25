@@ -32,7 +32,9 @@ compose up --build --wait --wait-timeout 180
 compose exec -T web python manage.py migrate --check
 compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from cases.models import Case, CaseMembership
+from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, TextEvidence
 
 owner = get_user_model().objects.create_user(
     username="smoke", password="synthetic-smoke-password"
@@ -40,12 +42,24 @@ owner = get_user_model().objects.create_user(
 collaborator = get_user_model().objects.create_user(username="collaborator")
 case = Case.objects.create(owner=owner)
 CaseMembership.objects.create(case=case, user=collaborator)
+for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
+    model.objects.create(
+        case=case,
+        uploaded_by=owner,
+        title="Synthetic original",
+        file=ContentFile(b"Synthetic smoke original\x00\r\n", name="original.bin"),
+    )
+TextEvidence.objects.create(
+    case=case, uploaded_by=owner, title="Synthetic text", body="Original café\r\n"
+)
 PY
 compose stop
 compose up --wait --wait-timeout 180
 compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
+import hashlib
 from cases.models import Case
+from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, TextEvidence
 
 owner = get_user_model().objects.get(username="smoke")
 assert owner.check_password("synthetic-smoke-password")
@@ -55,6 +69,18 @@ membership = case.memberships.get()
 assert membership.user.username == "collaborator"
 assert membership.role == "viewer"
 assert case.additional_users.get() == membership.user
+for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
+    evidence = model.objects.get(case=case)
+    assert evidence.uploaded_by == owner
+    assert evidence.original_filename == "original.bin"
+    with evidence.file.open("rb") as original:
+        content = original.read()
+    assert content == b"Synthetic smoke original\x00\r\n"
+    assert evidence.byte_size == len(content)
+    assert evidence.sha256 == hashlib.sha256(content).hexdigest()
+text = TextEvidence.objects.get(case=case)
+assert text.body == "Original café\r\n"
+assert text.sha256 == hashlib.sha256(text.body.encode("utf-8")).hexdigest()
 PY
 compose exec -T web python -c \
     'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok"}'

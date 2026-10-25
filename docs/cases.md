@@ -1,7 +1,8 @@
 # Cases and collaboration
 
 `cases.Case` is the concrete root investigation record and access boundary. Future
-investigation data and evidence must reference this model. There is no separate
+investigation data must reference this model. Every implemented evidence model
+has one required case; see [evidence storage](evidence.md). There is no separate
 investigation model or unscoped collection of evidence.
 
 ## Data model
@@ -22,8 +23,10 @@ an additional user. As with ordinary Django models, direct ORM writes do not
 automatically call `full_clean()`; code creating memberships must validate them.
 The owner exclusion is model validation, not a cross-table database constraint.
 
-Deleting a case cascades to its memberships. Deleting a collaborating user removes
-their memberships and preserves the case. The owner's foreign key uses `PROTECT`:
+Deleting a case cascades to its memberships and evidence. Evidence files are
+removed after the deletion commits. Deleting a collaborating user removes
+their memberships and preserves the case, unless retained evidence protects that
+user as its uploader. The owner's foreign key uses `PROTECT`:
 an owner cannot be deleted while they own a case, including through user admin or
 queryset deletion. Ownership transfer is not implemented in admin.
 
@@ -72,9 +75,10 @@ data import, runtime upgrade, or dependency change is required. Back up an exist
 database before applying migrations as described in [operations](operations.md).
 
 This implements the root records and admin workflow. Invitations, public APIs,
-investigator-facing screens, ownership transfer, evidence, and background/AI
-processing remain planned. Viewer/editor roles are stored now for future case
-material permissions; both roles currently have the same read-only case metadata
+investigator-facing screens, ownership transfer, evidence upload/download
+workflows, and background/AI processing remain planned. Viewer/editor roles are
+stored now for future case material permissions; both roles currently have the
+same read-only case metadata
 access in admin. Ordinary non-staff collaborators will need the future product
 interface to access cases.
 

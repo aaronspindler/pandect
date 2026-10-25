@@ -9,5 +9,7 @@
 !accounts/**
 !cases/
 !cases/**
+!evidence/
+!evidence/**
 **/__pycache__/
 **/*.py[cod]

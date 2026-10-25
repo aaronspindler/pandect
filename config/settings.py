@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "accounts.apps.AccountsConfig",
     "cases.apps.CasesConfig",
+    "evidence.apps.EvidenceConfig",
     "allauth",
     "allauth.account",
 ]

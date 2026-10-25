@@ -14,7 +14,7 @@ docker compose down
 ```
 
 `stop` and `down` retain named volumes. `postgres_data` holds PostgreSQL;
-`app_data` reserves application file storage. Do not use `down --volumes` on data
+`app_data` holds private evidence originals. Do not use `down --volumes` on data
 you want to retain. Existing legacy runtime files are not mounted or migrated.
 
 On first run the database must become healthy before the application applies
@@ -28,13 +28,19 @@ with PostgreSQL before updating configuration.
 ## Database backup and restoration
 
 Keep backups private and off-host. The database contains accounts, authentication
-state, cases, and collaboration memberships. Future evidence features will
-require coordinated backups of file storage as well.
+state, cases, collaboration memberships, text evidence, and file evidence metadata.
+File originals live separately in `app_data`; a database dump alone is incomplete.
+Stop application writers while taking matching database and file snapshots. For
+the current Compose stack, stop `web`, create both backups, then restart it:
 
 ```sh
 mkdir -p backups
+docker compose stop web
 docker compose exec -T db sh -c \
   'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > backups/pandect.dump
+docker compose run --rm --no-deps -T web tar -C /app/data -cf - . \
+  > backups/pandect-files.tar
+docker compose up --wait web
 ```
 
 Test restoration into a **new** database, preserving the original:
@@ -53,6 +59,14 @@ For actual recovery, stop `web`, set `POSTGRES_DB=pandect_restore` in `.env`, an
 start the stack with `docker compose up --wait`. Keep the original database until
 the restored application and expected data have been checked. Do not restore an
 untrusted dump or change PostgreSQL major versions by replacing a container tag.
+
+When recovering evidence, restore the matching file snapshot into a separate
+private storage location and configure the recovered application to use it before
+serving requests. For Compose, use a separate recovery project's `app_data` volume;
+do not unpack a snapshot over the original volume. Keep storage keys unchanged.
+For an external storage backend, use its coordinated snapshot/restore procedure.
+Verify original bytes against stored checksums after restoration. See
+[evidence lifecycle and failed cleanup recovery](evidence.md#private-storage-and-deletion).
 
 ## Upgrades and hosted deployment
 

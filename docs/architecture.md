@@ -3,8 +3,8 @@
 Pandect has one Django configuration and user model for self-hosted and
 operator-hosted operation. Environment variables supply deployment differences.
 The implemented scope is authentication, case and collaboration models, scoped
-case administration, database readiness, dependency management, and reproducible
-development and validation.
+case administration, evidence storage models, database readiness, dependency
+management, and reproducible development and validation.
 
 ## Runtime decisions
 
@@ -50,16 +50,21 @@ required by that image's version-specific layout.
   relationships, and `CaseMembership` for viewer/editor collaboration. Ownership
   is separate from membership. See [case models and admin permissions](cases.md).
 - `/health/` checks database connectivity without returning secrets or case data.
+- `evidence/` contains abstract `Evidence` and `FileEvidence` bases and concrete
+  image, audio, document, and text models. Each record has one required case and
+  uploader. Original files/text have generated checksums and are protected against
+  replacement through normal model saves. See [evidence storage](evidence.md).
 
 Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
 Allauth does not implement case invitations or authorization.
 
 ## Planned work
 
-Case invitations, investigator-facing screens, evidence storage and ingestion,
-background jobs, search, visual analysis, and reporting are not implemented. No
-queue, external AI client, or paid service is required by the foundation. Future inference
-must use the centralized Cloudflare AI Gateway boundary from [AGENTS.md](../AGENTS.md).
+Case invitations, investigator-facing screens, evidence upload/download workflows
+and processing, background jobs, search, visual analysis, and reporting are not
+implemented. No queue, external AI client, or paid service is required by the
+foundation. Future inference must use the centralized Cloudflare AI Gateway
+boundary from [AGENTS.md](../AGENTS.md).
 Evidence must remain private: there is deliberately no public media URL route.
 Production deployment automation, evidence authorization workflows, and a polished
 product interface will be delivered with those capabilities.
