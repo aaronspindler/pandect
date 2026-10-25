@@ -1,1 +1,0 @@
-"""Catalogued note records."""

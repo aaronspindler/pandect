@@ -1,1 +1,0 @@
-"""Catalogued event records."""
