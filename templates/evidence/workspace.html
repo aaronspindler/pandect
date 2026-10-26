@@ -9,7 +9,7 @@
     <div class="evidence-list-toolbar">
       <div class="evidence-list-heading">
         {% if item %}<h2>Evidence</h2>{% else %}<h1>Evidence</h1>{% endif %}
-        {% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case_id=case.pk %}">{% include 'components/icon.html' with name='plus' %} Add evidence</a>{% endif %}
+        {% if can_edit %}<div class="evidence-create-actions"><a class="button button-primary" href="{% url 'evidence:create' case_id=case.pk %}">Add<span class="visually-hidden"> evidence</span></a><a href="{% url 'evidence:bulk_create' case_id=case.pk %}">Bulk add files</a></div>{% endif %}
       </div>
       <form method="get" action="{% url 'evidence:list' case_id=case.pk %}" class="evidence-search" role="search" aria-label="Search case evidence">
         <label class="visually-hidden" for="evidence-query">Search evidence</label>

@@ -1,0 +1,8 @@
+/* Retained originals and full checksums must remain readable on narrow screens. */
+.aligned .readonly {
+    overflow-wrap: anywhere;
+}
+
+.aligned .readonly pre {
+    white-space: pre-wrap;
+}

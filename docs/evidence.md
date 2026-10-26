@@ -17,10 +17,27 @@ to preserve a text file's exact bytes, upload the file as a Document instead.
 Browser textareas may normalize line endings, but the server does not trim or
 normalize received original text.
 
-The normal form supports one record without JavaScript. With JavaScript, select
-or drop a batch and review each entry's title, category, and source details before
-uploading. Defaults are 20 files per batch, 100 MiB per file, and 1 MiB of UTF-8
-captured text. Configured limits appear in the form; see
+Owners and editors can choose **Bulk add files** from the case overview,
+Evidence collection, or Add evidence form. Select or drop documents, images,
+and audio together, then review titles, suggested categories, and source details.
+**Add more files** appends to the queue without replacing entries or edits.
+Filenames supply initial titles; browser-declared image/audio types suggest a
+category, with Document as the fallback. These suggestions do not verify format.
+
+Expand **Shared source details** to enter a source name, URL, description, and
+collection time once. Changes follow pending files unless that individual field
+has been edited, including cleared. **Use shared details** restores an entry's
+shared source fields without changing its investigator description. Saved and
+unconfirmed originals keep their submitted details unchanged. Shared controls
+are disabled while uploading; file selection is also disabled while any save
+confirmation remains unresolved.
+
+The normal Add evidence form supports one record without JavaScript and retains
+its existing enhanced file queue. The bulk page links to that single-record
+fallback when browser support or JavaScript is unavailable. Defaults are 20 files
+per batch, 100 MiB per file, and 1 MiB of UTF-8 captured text. Saved entries count
+toward the bulk page's limit; **Start another batch** opens a fresh page after all
+entries are added or removed. Configured limits appear in the form; see
 [configuration](development.md#configuration) for operator settings.
 
 Batch uploads send one file at a time and show uploading, saving, added, failure,
@@ -125,6 +142,51 @@ including when archived. This protects the original association. Confirmed
 whole-case deletion still cascades to both the evidence and its person. There is
 no separate shared location table or individual evidence deletion route.
 
+## Django admin
+
+All six concrete evidence models are available under **Evidence** at `/admin/`.
+Active staff status and the corresponding Django model permission are required
+in addition to current case access. Lists, searches, history, and direct record
+URLs include only cases the operator owns or shares, including for superusers.
+
+| Operation | Case requirement | Model permission |
+| --- | --- | --- |
+| List, search, inspect originals and history | Owner, viewer, or editor | `view_<model>` or `change_<model>` |
+| Add evidence | Owner or editor of the selected case | `add_<model>` |
+| Edit metadata, archive, restore | Owner or editor | `change_<model>` |
+
+Permission names use the `evidence` app and lowercase model names, for example
+`evidence.add_documentevidence`. Case permissions alone do not grant evidence
+permissions. Staff without an editable case cannot open an evidence creation form.
+Removing or downgrading membership affects subsequent requests in existing sessions.
+
+Choose a type, select an editable case, and supply its original and source details.
+The uploader is assigned to the signed-in operator. Person-location choices
+include people from editable cases; the selected person must belong to the
+selected case, with mismatches rejected on the server. File/text limits also apply
+in admin, and original text and addresses are preserved without trimming.
+
+Existing originals, case, uploader, checksum, submission ID, and generated
+timestamps are read-only. Declared technical metadata remains editable. Change
+**Is archived** to archive or restore; the server records the operator and time of
+each actual transition. Original filenames are shown without exposing storage
+paths or backend URLs. **View on site** opens the normal evidence detail and
+private download workflow, which requires verified email as well as current case
+access. Admin adds and edits appear in Django admin history; this is not a
+versioned evidence journal.
+
+Individual deletion and bulk actions are disabled. Owner-confirmed whole-case
+deletion in admin requires `cases.delete_case`, the `delete_<model>` permission
+for every contained evidence type, and any other permissions listed on Django's
+confirmation screen. It removes retained evidence, people, and original files
+through the existing cascade and committed cleanup. No schema migration is needed
+for these admin registrations.
+
+The implementation uses Django's standard
+[ModelAdmin hooks](https://docs.djangoproject.com/en/6.1/ref/contrib/admin/),
+including the case deletion confirmation hook to preserve the whole-case cascade
+while denying individual evidence deletion.
+
 ## Creating and editing records
 
 Use the documented environment to open `python manage.py shell`. This example
@@ -198,7 +260,8 @@ storage dependency or credentials are installed by this change.
 Product upload/detail/download/archive routes check current case access and
 parent-case membership. File responses use attachment disposition,
 `application/octet-stream`, `nosniff`, and no-store caching; text attachments
-reproduce the saved UTF-8 body. No evidence admin or public media route exists.
+reproduce the saved UTF-8 body. Admin never exposes storage URLs; no public media
+route exists.
 Do not expose the media directory or use a public storage bucket. WhiteNoise
 serves application assets only and never private originals. Future exports and
 jobs must enforce the same current access boundary. `uploaded_by` records

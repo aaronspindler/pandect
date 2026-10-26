@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Bulk add files · {{ case.name }}{% endblock %}
+{% block content %}
+<div class="page-content">
+  <a class="back-link" href="{% url 'evidence:list' case_id=case.pk %}">Back to evidence</a>
+  <header class="page-header"><div><p class="eyebrow">{{ case.name }}</p><h1>Bulk add files</h1><p>Add documents, images, and audio together. Review each file before uploading.</p></div></header>
+  <p data-bulk-fallback class="notice">Bulk uploads need browser support and JavaScript. You can always <a href="{% url 'evidence:create' case_id=case.pk %}">add one file at a time</a>.</p>
+  <form method="post" action="{% url 'evidence:create' case_id=case.pk %}" enctype="multipart/form-data" class="form-layout bulk-upload-form" data-evidence-upload data-bulk-upload data-upload-url="{% url 'evidence:create' case_id=case.pk %}" data-max-file-bytes="{{ max_file_bytes }}" data-max-batch-files="{{ max_batch_files }}" data-kind="document" hidden>
+    {% csrf_token %}
+    <details class="bulk-shared-details">
+    <summary>Shared source details <span class="optional">Optional</span></summary>
+    <fieldset data-shared-details aria-describedby="shared-details-help">
+      <legend class="visually-hidden">Shared source details</legend>
+      <p id="shared-details-help" class="muted">These details apply to pending files unless you edit that field for an individual file. Originals already added stay unchanged.</p>
+      {% for field in shared_fields %}
+      <div class="field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="help-text" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</div>{% endif %}</div>
+      {% endfor %}
+    </fieldset>
+    </details>
+    <div class="field bulk-file-picker">
+      <label for="id_file" data-file-label>Select files</label>
+      <input type="file" id="id_file" name="file" multiple aria-describedby="id_file_helptext">
+      <div class="help-text" id="id_file_helptext">Select or drop documents, images, and audio here. Up to {{ max_batch_files }} files per batch, {{ max_file_bytes|filesizeformat }} each. Each original is retained without automatic format verification.</div>
+    </div>
+    <section id="upload-queue" class="upload-queue" aria-labelledby="upload-queue-heading">
+      <div class="upload-queue-heading"><h2 id="upload-queue-heading">Files to add</h2><button type="button" class="button button-secondary" data-stop-uploads disabled>Stop after this file</button></div>
+      <p role="status" data-upload-status>No files selected. Choose files to build your queue.</p>
+      <div data-upload-entries></div>
+    </section>
+    <div class="actions"><button class="button button-primary" type="submit" disabled>Upload files</button><a class="button button-secondary" href="{% url 'evidence:list' case_id=case.pk %}">Back to evidence</a><a class="button button-secondary" href="{% url 'evidence:bulk_create' case_id=case.pk %}" data-new-batch hidden>Start another batch</a></div>
+  </form>
+</div>
+{% endblock %}

@@ -39,6 +39,10 @@ private storage paths, committed deletion cleanup, rollback, and storage failure
 Location coverage includes paired/ranged coordinates, original JSON/checksum
 stability, same-case person selection, retained person links, whole-case deletion,
 and source creation/edit/search across every evidence type.
+Evidence admin coverage includes all six registrations, role/model-permission
+gates, scoped searches and direct/history URLs, forged originals and attribution,
+same-case person links, upload limits, archive attribution, disabled individual
+deletion, and permission-checked whole-case cleanup.
 Product-view tests additionally cover current role gates and cross-case UUID
 requests, private downloads, metadata conflicts, archive/restore, bounded uploads,
 and idempotent retries after uncertain confirmation. Case/invitation tests cover
@@ -90,8 +94,13 @@ material.
 The suite exercises account/case/people/evidence/collaboration workflows,
 JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
 navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
+evidence admin creation/editing, archive controls and authorized downloads,
 location/person-location forms and private JSON downloads, source fields in file
-batches, and dense desktop record visibility. Visual targets are 12 complete ordinary
+batches, bulk mixed-file uploads with shared-field inheritance/overrides/reset,
+append limits, invalid-file removal, pause/retry, access removal between files,
+safe interrupted-confirmation retry, and dense desktop record visibility.
+Bulk captures include desktop, tablet, mobile, 320px reflow, enlarged text, dark,
+reduced-motion, and forced-colors layouts. Visual targets are 12 complete ordinary
 rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible hit
 areas; screen-reader review and operator deployment checks remain separate human
 validation activities. A successful build or HTTP readiness response is not a

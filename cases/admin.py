@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.contrib import admin
 from django.db.models import Q
 from django.forms.models import BaseInlineFormSet
@@ -98,3 +99,15 @@ class CaseAdmin(admin.ModelAdmin):
         if not change:
             obj.owner = request.user
         super().save_model(request, obj, form, change)
+
+    def get_deleted_objects(self, objs, request):
+        deleted, counts, permissions, protected = super().get_deleted_objects(
+            objs, request
+        )
+        # Evidence denies individual deletion. An owner may still confirm the
+        # entire case cascade, with the ordinary per-model delete permissions.
+        for model in apps.get_app_config("evidence").get_models():
+            opts = model._meta
+            if request.user.has_perm(f"{opts.app_label}.delete_{opts.model_name}"):
+                permissions.discard(opts.verbose_name)
+        return deleted, counts, permissions, protected

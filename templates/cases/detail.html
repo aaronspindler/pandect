@@ -12,7 +12,7 @@
 {% endif %}
 </div>
 {% if can_edit %}
-<a class="button button-primary" href="{% url 'evidence:create' case.pk %}">Add evidence</a>
+<div class="actions"><a class="button button-primary" href="{% url 'evidence:create' case.pk %}">Add evidence</a><a class="button button-secondary" href="{% url 'evidence:bulk_create' case.pk %}">Bulk add files</a></div>
 {% endif %}
 </div>
 <dl class="metadata-grid">

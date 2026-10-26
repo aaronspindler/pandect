@@ -868,6 +868,19 @@ textarea {
   min-height:44px
 }
 
+.evidence-create-actions {
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  flex-wrap:wrap
+}
+
+.evidence-create-actions>a {
+  display:inline-flex;
+  align-items:center;
+  min-height:44px
+}
+
 .evidence-list-heading h1,.evidence-list-heading h2 {
   font-size:1.25rem;
   font-weight:600;
@@ -1163,6 +1176,44 @@ textarea {
   justify-content:space-between;
   gap:1rem;
   margin-bottom:1rem
+}
+
+.bulk-upload-form fieldset {
+  border:0;
+  padding:0;
+  margin:0 0 1.5rem;
+  min-width:0
+}
+
+.bulk-upload-form legend {
+  font-size:1.25rem;
+  font-weight:600;
+  margin-bottom:.5rem
+}
+
+.bulk-shared-details {
+  margin-bottom:1.5rem
+}
+
+.bulk-shared-details>summary {
+  padding:.625rem 0;
+  min-height:44px;
+  cursor:pointer;
+  font-weight:600
+}
+
+.bulk-file-picker {
+  padding:1rem;
+  border:1px dashed var(--boundary);
+  border-radius:.5rem
+}
+
+.bulk-upload-form .upload-queue-heading {
+  flex-wrap:wrap
+}
+
+.bulk-upload-form .upload-queue-heading h2 {
+  margin:0
 }
 
 .upload-entry {

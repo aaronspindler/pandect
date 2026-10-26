@@ -155,6 +155,19 @@ A normal single-item HTML form is the complete fallback. JavaScript enhances
 file selection into a local batch;
 it is not required to add any supported evidence type.
 
+**Bulk add files** is a dedicated page linked beside Add evidence on the case
+overview and Evidence collection, and from the ordinary creation form. Its picker
+and drag/drop append files without replacing pending edits. Shared source name,
+URL, description, and collection time live in an optional disclosure. They follow
+pending entries per field until individually overridden, including by a blank
+value; **Use shared details** resets an entry's source overrides. Investigator
+descriptions remain individual. Frozen and saved entries never inherit later
+changes. Disable shared controls while uploading, and block file additions while
+running or any confirmation is unresolved. Saved entries count toward the page's
+queue limit. Once every entry is added or removed, **Start another batch** opens
+a fresh page. If enhanced upload support is unavailable, explain the limitation
+and link to the ordinary single-file form.
+
 Default bounded limits are 20 entries per browser batch, 100 MiB per file, and
 1 MiB of UTF-8 for captured text. Make these operator-configurable and display
 the configured values. A batch is a sequence of individual requests, not a
@@ -283,6 +296,7 @@ admin routes. All mutations use CSRF-protected POST, never GET.
 | `/cases/<uuid:case_id>/` | Overview. |
 | `/cases/<uuid:case_id>/settings/`, `.../delete/` | Owner metadata/access settings; delete confirmation and POST. |
 | `/cases/<uuid:case_id>/evidence/`, `.../new/` | Filtered collection; create one typed record per request. |
+| `.../evidence/bulk/` | Owner/editor bulk-file review page; uploads use the existing creation endpoint. |
 | `.../evidence/<type>/<uuid:evidence_id>/` | Original/details view, with preserved list query and `section=original\|details`. |
 | `.../evidence/<type>/<uuid:evidence_id>/edit/` | Edit descriptive/provenance/type details. |
 | `.../evidence/<type>/<uuid:evidence_id>/download/` | Authorized attachment, including captured UTF-8 text. |

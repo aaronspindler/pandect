@@ -4,7 +4,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
@@ -95,7 +94,6 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
                 self.assertFalse(model.objects.filter(case=self.other_case).exists())
                 reverse_name = model._meta.get_field("case").remote_field.related_name
                 self.assertEqual(getattr(self.case, reverse_name).get(), evidence)
-                self.assertFalse(admin.site.is_registered(model))
 
     def test_case_and_uploader_are_required_by_validation_and_database(self):
         for model in ALL_MODELS:

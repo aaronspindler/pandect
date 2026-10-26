@@ -19,6 +19,7 @@ from pathlib import Path
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -31,7 +32,9 @@ from playwright.sync_api import expect, sync_playwright
 
 from cases.models import Case, CaseInvitation, CaseMembership
 from evidence.models import (
+    AudioEvidence,
     DocumentEvidence,
+    ImageEvidence,
     LocationEvidence,
     PersonLocationEvidence,
     TextEvidence,
@@ -201,6 +204,79 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             kind="text",
             evidence_id=(record or self.records[-1]).pk,
         )
+
+    def test_evidence_admin_journey(self):
+        self.owner.is_staff = True
+        self.owner.save(update_fields=["is_staff"])
+        self.owner.user_permissions.set(
+            Permission.objects.filter(content_type__app_label="evidence")
+        )
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic document",
+            file=SimpleUploadedFile("source.txt", b"Synthetic source bytes."),
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(self.url("admin:evidence_textevidence_add"))
+                page.get_by_label("Case:", exact=True).select_option(str(self.case.pk))
+                page.get_by_label("Title:", exact=True).fill(f"Admin source {engine}")
+                page.get_by_label("Body:", exact=True).fill("  Synthetic original.\n ")
+                page.locator('input[name="_save"]').click()
+                source = page.locator("#result_list").get_by_role(
+                    "link", name=f"Admin source {engine}", exact=True
+                )
+                expect(source).to_be_visible()
+                source.click()
+                expect(page.locator('textarea[name="body"]')).to_have_count(0)
+                expect(page.locator('select[name="case"]')).to_have_count(0)
+                expect(
+                    page.get_by_role("link", name="Delete", exact=True)
+                ).to_have_count(0)
+                page.get_by_label("Title:", exact=True).focus()
+                page.get_by_label("Title:", exact=True).press("Tab")
+                expect(page.get_by_label("Description:", exact=True)).to_be_focused()
+                page.get_by_label("Is archived", exact=True).check()
+                page.locator('input[name="_continue"]').click()
+                expect(page.get_by_label("Is archived", exact=True)).to_be_checked()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    expect(page.get_by_label("Title:", exact=True)).to_be_visible()
+                    self.assertLessEqual(
+                        page.evaluate(
+                            "document.documentElement.scrollWidth - innerWidth"
+                        ),
+                        1,
+                    )
+                    self.capture(page, engine, f"evidence-admin-{width}-{height}")
+                page.goto(
+                    self.live_server_url
+                    + reverse(
+                        "admin:evidence_documentevidence_change", args=[document.pk]
+                    )
+                )
+                expect(page.get_by_text("source.txt", exact=True)).to_be_visible()
+                expect(page.locator('input[type="file"]')).to_have_count(0)
+                self.assertNotIn(document.file.name, page.content())
+                page.get_by_role("link", name="View on site", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Synthetic document", exact=True)
+                ).to_be_visible()
+                with page.expect_download() as original:
+                    page.locator("header").get_by_role(
+                        "link", name="Download original", exact=True
+                    ).click()
+                self.assertEqual(
+                    Path(original.value.path()).read_bytes(), b"Synthetic source bytes."
+                )
 
     def test_location_and_person_location_journey(self):
         person = Person.objects.create(case=self.case, first_name="Alex Example")
@@ -501,7 +577,10 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("evidence:create", case_id=self.case.pk))
+                page.goto(self.url("evidence:bulk_create", case_id=self.case.pk))
+                expect(page.locator("[data-bulk-fallback]")).to_be_visible()
+                expect(page.locator("[data-bulk-upload]")).to_be_hidden()
+                page.get_by_role("link", name="add one file at a time").click()
                 page.get_by_label("Title", exact=True).fill("Keep this proposed title")
                 page.get_by_role("button", name="Upload file", exact=True).click()
                 expect(page.locator("#id_title")).to_have_value(
@@ -540,7 +619,10 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 upload_url = self.url("evidence:create", case_id=self.case.pk)
-                page.goto(upload_url)
+                bulk_url = self.url("evidence:bulk_create", case_id=self.case.pk)
+                page.goto(bulk_url)
+                page.locator(".bulk-shared-details>summary").click()
+                page.locator("#id_source").fill("Original shared source")
                 page.locator("#id_file").set_input_files(
                     {
                         "name": f"interrupted-{engine}.txt",
@@ -619,6 +701,11 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(entry).to_have_attribute("data-state", "unknown", timeout=15000)
                 expect(entry.locator(".upload-status")).to_contain_text("interrupted")
                 expect(entry.get_by_label("Title", exact=True)).to_be_disabled()
+                expect(page.locator("#id_file")).to_be_disabled()
+                page.locator("#id_source").fill("Later shared source")
+                expect(entry.locator('[data-field-name="source"]')).to_have_value(
+                    "Original shared source"
+                )
                 expect(
                     entry.get_by_role(
                         "button",
@@ -663,6 +750,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.assertEqual(retried.submission_id, submission_id)
                 self.assertEqual(retried.file.name, original_key)
                 self.assertEqual(retried.sha256, original_checksum)
+                self.assertEqual(retried.source, "Original shared source")
                 self.assertEqual(
                     {
                         path.relative_to(self.media_directory.name).as_posix()
@@ -672,7 +760,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     files_after_commit,
                 )
 
-                page.goto(upload_url)
+                page.goto(bulk_url)
                 page.locator("#id_file").set_input_files(
                     {
                         "name": f"proxy-rejected-{engine}.txt",
@@ -720,6 +808,267 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                             case=self.case, title=reviewed_title
                         ).count
                     ),
+                    1,
+                )
+
+    @override_settings(PANDECT_MAX_BATCH_FILES=4, PANDECT_MAX_FILE_BYTES=128)
+    def test_bulk_files_shared_details_append_pause_and_validation(self):
+        originals = [
+            {"name": "report.txt", "mimeType": "text/plain", "buffer": b"Report bytes"},
+            {"name": "photo.png", "mimeType": "image/png", "buffer": b"Image bytes"},
+            {"name": "sound.wav", "mimeType": "audio/wav", "buffer": b"Audio bytes"},
+        ]
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                files = [
+                    {**item, "name": f"{engine}-{item['name']}"} for item in originals
+                ]
+                page.goto(self.url("cases:case_detail", case_id=self.case.pk))
+                page.get_by_role("link", name="Bulk add files", exact=True).click()
+                expect(page.locator("[data-bulk-fallback]")).to_be_hidden()
+                shared = page.locator("[data-shared-details]")
+                page.locator(".bulk-shared-details>summary").click()
+                shared.get_by_label("Source", exact=True).fill("Batch source")
+                shared.get_by_label("Source URL", exact=True).fill(
+                    "https://example.com/source"
+                )
+                shared.get_by_label("Source description", exact=True).fill(
+                    "Synthetic collection"
+                )
+                shared.get_by_label("Source collected at (UTC)").fill(
+                    "2026-10-26T12:30"
+                )
+                picker = page.locator("#id_file")
+                picker.set_input_files(files[:2])
+                entries = page.locator(".upload-entry")
+                expect(entries).to_have_count(2)
+                first, second = entries.nth(0), entries.nth(1)
+                first.get_by_text("Description and source details", exact=True).click()
+                first.get_by_label("Source", exact=True).fill("Individual witness")
+                second.get_by_text("Description and source details", exact=True).click()
+                second.get_by_label("Source", exact=True).fill("")
+                second.get_by_label("Source URL", exact=True).fill("invalid-url")
+                picker.set_input_files(files[2])
+                expect(entries).to_have_count(3)
+                third = entries.nth(2)
+                third.get_by_text("Description and source details", exact=True).click()
+                third.get_by_label("Source", exact=True).fill("Temporary override")
+                third.get_by_role("button", name="Use shared details").click()
+                shared.get_by_label("Source", exact=True).fill("Reviewed batch source")
+                expect(first.get_by_label("Source", exact=True)).to_have_value(
+                    "Individual witness"
+                )
+                expect(second.get_by_label("Source", exact=True)).to_have_value("")
+                expect(third.get_by_label("Source", exact=True)).to_have_value(
+                    "Reviewed batch source"
+                )
+                for index, category in enumerate(("document", "image", "audio")):
+                    expect(entries.nth(index).get_by_label("Category")).to_have_value(
+                        category
+                    )
+                    expect(entries.nth(index).get_by_label("Title")).to_have_value(
+                        files[index]["name"]
+                    )
+                picker.set_input_files(files[:2])
+                expect(entries).to_have_count(3)
+                expect(page.locator("[data-upload-status]")).to_contain_text(
+                    "room for 1 more file"
+                )
+                page.locator(".bulk-shared-details>summary").click()
+                for details in entries.locator("details").all():
+                    details.locator("summary").click()
+                title = first.get_by_label("Title", exact=True)
+                title.focus()
+                title.press(
+                    "Alt+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Tab"
+                )
+                expect(first.get_by_label("Category")).to_be_focused()
+                self.assertNotEqual(
+                    first.get_by_label("Category").evaluate(
+                        "node => getComputedStyle(node).outlineStyle"
+                    ),
+                    "none",
+                )
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.evaluate("window.scrollTo(0, 0)")
+                    self.assertLessEqual(
+                        page.evaluate(
+                            "document.documentElement.scrollWidth - innerWidth"
+                        ),
+                        1,
+                    )
+                    self.capture(page, engine, f"bulk-files-{width}-{height}")
+                    if width == 390:
+                        page.screenshot(
+                            path=str(self.artifacts / f"{engine}-bulk-files-full.png"),
+                            full_page=True,
+                        )
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "bulk-files-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(page, engine, "bulk-files-forced-colors")
+                    page.emulate_media(forced_colors="none")
+                page.emulate_media(color_scheme="light")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 1441
+                )
+                self.capture(page, engine, "bulk-files-200-percent-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                upload_url = self.url("evidence:create", case_id=self.case.pk)
+
+                def pause_first(route, *, picker=picker, shared=shared):
+                    expect(picker).to_be_disabled()
+                    self.assertTrue(shared.evaluate("node => node.disabled"))
+                    page.get_by_role("button", name="Stop after this file").click()
+                    route.continue_()
+
+                page.route(upload_url, pause_first, times=1)
+                page.get_by_role("button", name="Upload files", exact=True).click()
+                expect(first).to_have_attribute("data-state", "added")
+                expect(page.locator("[data-upload-status]")).to_contain_text("paused")
+                expect(second).to_have_attribute("data-state", "ready")
+                page.locator(".bulk-shared-details>summary").click()
+                shared.get_by_label("Source", exact=True).fill("After first upload")
+                expect(first.locator('[data-field-name="source"]')).to_have_value(
+                    "Individual witness"
+                )
+                expect(third.locator('[data-field-name="source"]')).to_have_value(
+                    "After first upload"
+                )
+                page.get_by_role("button", name="Upload files", exact=True).click()
+                expect(second).to_have_attribute("data-state", "failed")
+                expect(third).to_have_attribute("data-state", "added")
+                second.get_by_text("Description and source details", exact=True).click()
+                second.get_by_label("Source URL", exact=True).fill(
+                    "https://example.com/corrected"
+                )
+                second.get_by_role("button", name="Retry this file").click()
+                expect(second).to_have_attribute("data-state", "added")
+                expect(
+                    page.get_by_role("link", name="Start another batch")
+                ).to_be_visible()
+                # Another deliberate selection of the same filename is a new record.
+                picker.set_input_files(files[0])
+                expect(entries).to_have_count(4)
+                expect(
+                    page.get_by_role("link", name="Start another batch")
+                ).to_be_hidden()
+                page.get_by_role("button", name="Upload files", exact=True).click()
+                expect(entries.nth(3)).to_have_attribute("data-state", "added")
+                expect(page.locator("[data-upload-status]")).to_contain_text(
+                    "4 of 4 files added"
+                )
+                for model, filename, source, original in (
+                    (
+                        DocumentEvidence,
+                        files[0]["name"],
+                        "Individual witness",
+                        files[0],
+                    ),
+                    (ImageEvidence, files[1]["name"], "", files[1]),
+                    (AudioEvidence, files[2]["name"], "After first upload", files[2]),
+                ):
+                    record = self.db(
+                        model.objects.get,
+                        case=self.case,
+                        original_filename=filename,
+                        source=source,
+                    )
+                    self.assertEqual(
+                        record.sha256, hashlib.sha256(original["buffer"]).hexdigest()
+                    )
+                    self.assertEqual(record.uploaded_by_id, self.owner.pk)
+                    self.assertEqual(
+                        record.collected_at.isoformat(), "2026-10-26T12:30:00+00:00"
+                    )
+                    self.assertEqual(
+                        Path(record.file.path).read_bytes(), original["buffer"]
+                    )
+                page.get_by_role("link", name="Start another batch").click()
+                expect(page.locator(".upload-entry")).to_have_count(0)
+                expect(page.get_by_role("button", name="Upload files")).to_be_disabled()
+
+    @override_settings(PANDECT_MAX_FILE_BYTES=16)
+    def test_bulk_invalid_files_removal_and_access_removed_between_uploads(self):
+        for engine in self.engines:
+            editor = self.make_user(f"bulk-editor-{engine}")
+            membership = CaseMembership.objects.create(
+                case=self.case, user=editor, role="editor"
+            )
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, editor)
+                page.goto(self.url("evidence:bulk_create", case_id=self.case.pk))
+                picker = page.locator("#id_file")
+                picker.set_input_files(
+                    [
+                        {"name": "empty.txt", "mimeType": "text/plain", "buffer": b""},
+                        {
+                            "name": "large.txt",
+                            "mimeType": "text/plain",
+                            "buffer": b"x" * 17,
+                        },
+                    ]
+                )
+                entries = page.locator(".upload-entry")
+                expect(
+                    page.locator('.upload-entry[data-state="failed"]')
+                ).to_have_count(2)
+                expect(page.get_by_role("button", name="Upload files")).to_be_disabled()
+                expect(
+                    page.get_by_role("button", name="Retry this file")
+                ).to_have_count(0)
+                for _ in range(2):
+                    entries.first.get_by_role(
+                        "button", name="Remove from queue"
+                    ).click()
+                expect(entries).to_have_count(0)
+                picker.set_input_files(
+                    [
+                        {
+                            "name": f"{engine}-{i}.txt",
+                            "mimeType": "text/plain",
+                            "buffer": b"Synthetic bytes",
+                        }
+                        for i in range(3)
+                    ]
+                )
+
+                def pause_first(route):
+                    page.get_by_role("button", name="Stop after this file").click()
+                    route.continue_()
+
+                page.route(
+                    self.url("evidence:create", case_id=self.case.pk),
+                    pause_first,
+                    times=1,
+                )
+                page.get_by_role("button", name="Upload files").click()
+                expect(entries.first).to_have_attribute("data-state", "added")
+                expect(page.locator("[data-upload-status]")).to_contain_text("paused")
+                self.db(membership.delete)
+                page.get_by_role("button", name="Upload files").click()
+                expect(entries.nth(1)).to_have_attribute("data-state", "blocked")
+                expect(entries.nth(2)).to_have_attribute("data-state", "ready")
+                expect(picker).to_be_disabled()
+                expect(page.get_by_role("button", name="Upload files")).to_be_disabled()
+                expect(page.locator("[data-upload-status]")).to_contain_text(
+                    "access is unavailable"
+                )
+                self.assertEqual(
+                    self.db(DocumentEvidence.objects.filter(uploaded_by=editor).count),
                     1,
                 )
 

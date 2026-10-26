@@ -98,6 +98,55 @@ class EvidenceViewTestMixin:
 
 
 class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
+    def test_bulk_page_requires_current_case_edit_access(self):
+        self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 302)
+        for role, status in (
+            ("owner", 200),
+            ("editor", 200),
+            ("viewer", 403),
+            ("outsider", 404),
+        ):
+            self.login(role)
+            with self.subTest(role=role):
+                response = self.client.get(self.url("bulk_create"))
+                self.assertEqual(response.status_code, status)
+                collection = self.client.get(self.url("list"))
+                if status == 200:
+                    self.assertContains(collection, self.url("bulk_create"))
+                    self.assertContains(response, "Shared source details")
+                    self.assertContains(response, self.url("create"))
+                    directives = response["Cache-Control"].split(", ")
+                    self.assertIn("private", directives)
+                    self.assertIn("no-store", directives)
+                elif role == "viewer":
+                    self.assertNotContains(collection, self.url("bulk_create"))
+        self.login("editor")
+        CaseMembership.objects.filter(
+            case=self.case, user=self.users["editor"]
+        ).delete()
+        self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 404)
+        self.users["outsider"].is_superuser = True
+        self.users["outsider"].save()
+        self.login("outsider")
+        self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 404)
+
+    def test_bulk_page_rejects_unverified_users_and_writes(self):
+        self.login("owner")
+        self.assertEqual(
+            self.client.post(self.url("bulk_create"), self.payload()).status_code, 405
+        )
+        EmailAddress.objects.filter(user=self.users["owner"]).update(verified=False)
+        self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 302)
+        self.assertEqual(TextEvidence.objects.count(), 0)
+
+    @override_settings(PANDECT_MAX_BATCH_FILES=3, PANDECT_MAX_FILE_BYTES=4096)
+    def test_bulk_page_displays_configured_limits_and_single_file_fallback(self):
+        self.login("editor")
+        response = self.client.get(self.url("bulk_create"))
+        self.assertContains(response, 'data-max-batch-files="3"')
+        self.assertContains(response, 'data-max-file-bytes="4096"')
+        self.assertContains(response, "add one file at a time")
+
     def test_create_all_types_for_owner_and_editor_preserves_originals(self):
         for role in ("owner", "editor"):
             self.login(role)

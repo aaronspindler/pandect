@@ -235,6 +235,24 @@ def _created_response(request, case, kind, item, *, created):
 
 
 @product_login_required
+@require_safe
+def bulk_create(request, case_id):
+    case = get_case(request.user, case_id, edit=True)
+    form = evidence_form("document")(
+        kind="document", instance=KINDS["document"](case=case, uploaded_by=request.user)
+    )
+    context = case_context(case, request.user) | {
+        "shared_fields": [
+            form[name]
+            for name in ("source", "source_url", "source_description", "collected_at")
+        ],
+        "max_batch_files": settings.PANDECT_MAX_BATCH_FILES,
+        "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
+    }
+    return _private(render(request, "evidence/bulk_form.html", context))
+
+
+@product_login_required
 @require_http_methods(["GET", "POST"])
 def create(request, case_id):
     try:
