@@ -1,5 +1,15 @@
 # Interface design references
 
+## Brand artwork
+
+The [selected Pandect arch identity](brand/pandect-arch/README.md) includes
+transparent full-logo and symbol PNGs, light/dark/monochrome previews, and
+generation provenance. The shared header and case sidebar use optimized light
+and dark logo variants from `static/pandect/brand/`; browser and touch icons use
+the standalone arch.
+
+## Interface references
+
 The planning reference images were generated with the built-in Image
 Generation tool on 2026-10-25. They are visual references, not application assets
 or evidence of a running interface. No private investigation material was used.

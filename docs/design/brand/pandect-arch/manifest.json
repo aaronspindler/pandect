@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "date": "2026-10-26",
+  "alphaHashes": {
+    "logo": "b86586399d41a10d0898cca047fcb3bc4fad82c24b377490637a7bc5b2d59ace",
+    "symbol": "56801f947189cc6a552e927decdfc28e903de13f15a50278c1f3e01979ed8a77"
+  },
+  "files": [
+    {
+      "filename": "README.md",
+      "bytes": 3450,
+      "sha256": "1d7597144abb62a0942b88db30720626af88afb474e2b085920e8e8d430f4c98"
+    },
+    {
+      "filename": "pandect-logo-black.png",
+      "bytes": 176509,
+      "sha256": "9d926c9c0015df246450fb76aa8b11758c6cb0bdf70c8d8f4aba0a0dffb79a72",
+      "width": 2048,
+      "height": 807,
+      "hasAlpha": true
+    },
+    {
+      "filename": "pandect-logo-ivory.png",
+      "bytes": 239725,
+      "sha256": "4be579487540ed64e12dca929f9f020f219d1c600fac594431ccd3172230f342",
+      "width": 2048,
+      "height": 807,
+      "hasAlpha": true
+    },
+    {
+      "filename": "pandect-logo-oxblood.png",
+      "bytes": 250529,
+      "sha256": "12df2d65cb5d1a05b2f9571840c57db6023b2f54b40f958c07034aee2a3b4f8f",
+      "width": 2048,
+      "height": 807,
+      "hasAlpha": true
+    },
+    {
+      "filename": "pandect-symbol-black.png",
+      "bytes": 57799,
+      "sha256": "cf982c6bb2599c7d5a2d649ca93ebf4f2d52e78b31d347e293e8366b6191c00a",
+      "width": 664,
+      "height": 1024,
+      "hasAlpha": true
+    },
+    {
+      "filename": "pandect-symbol-ivory.png",
+      "bytes": 75779,
+      "sha256": "beccc32a4f7e4da55e158180cf8adc07d107c18cf6237505156059c03f4c8658",
+      "width": 664,
+      "height": 1024,
+      "hasAlpha": true
+    },
+    {
+      "filename": "pandect-symbol-oxblood.png",
+      "bytes": 78547,
+      "sha256": "850dc9085d9164b65dc30d15b1027e3db9002574ee510dd64f7b3871d06cd119",
+      "width": 664,
+      "height": 1024,
+      "hasAlpha": true
+    },
+    {
+      "filename": "preview-dark.png",
+      "bytes": 45394,
+      "sha256": "9e15ef891461da95dd34a1bf66520aa3579b984039a14b27b20b6236f20653b4",
+      "width": 1096,
+      "height": 340,
+      "hasAlpha": false
+    },
+    {
+      "filename": "preview-light.png",
+      "bytes": 46612,
+      "sha256": "9b96084a49a4c738402c886191e95d67b8a4d9c4ae7ea4d9edd2558074a960f0",
+      "width": 1096,
+      "height": 340,
+      "hasAlpha": false
+    },
+    {
+      "filename": "preview-monochrome.png",
+      "bytes": 39068,
+      "sha256": "8abf69665e5630e4198c5bac669f86a26d4ed93943f6a78557c89d1a23f74661",
+      "width": 1096,
+      "height": 340,
+      "hasAlpha": false
+    },
+    {
+      "filename": "preview-overview.png",
+      "bytes": 155292,
+      "sha256": "51c358f278f61a3f0c2983cb2112897f06de554dcc20555185347bdccdd60ecd",
+      "width": 1120,
+      "height": 1596,
+      "hasAlpha": false
+    },
+    {
+      "filename": "preview-small-sizes.png",
+      "bytes": 23167,
+      "sha256": "f095d273066c333699cee648087d873b35d0970e63f51e25fda0abc3841743bd",
+      "width": 1096,
+      "height": 504,
+      "hasAlpha": false
+    },
+    {
+      "filename": "preview.html",
+      "bytes": 3644,
+      "sha256": "a8780c792a54a2d0eae33917fd12692f9a27396fb1990b67ca52726af47d31aa"
+    },
+    {
+      "filename": "provenance.json",
+      "bytes": 6436,
+      "sha256": "9fd0412d2ee28eb56e2345d0befafbfc49005bed7a6e6ab9e5c1a0b16211e568"
+    },
+    {
+      "filename": "source/approved-concept.png",
+      "bytes": 1204242,
+      "sha256": "ac5f4ac6f5598fd5cacf9cab672e04ac6f371aa60d21b2a60d2be3ec4d507872",
+      "width": 1536,
+      "height": 1024,
+      "hasAlpha": false
+    },
+    {
+      "filename": "source/logo-alpha.png",
+      "bytes": 518560,
+      "sha256": "70b9f3f54435d8390740af4ee7fe4fcba9ec4d1b70d837b2c61782c201a90b3e",
+      "width": 2172,
+      "height": 724,
+      "hasAlpha": true
+    },
+    {
+      "filename": "source/symbol-alpha.png",
+      "bytes": 1160385,
+      "sha256": "e67186a81b651a4c5d5ad789cb42ef9e9538557ce38eddfbed1bcfdcb055dcbf",
+      "width": 1024,
+      "height": 1536,
+      "hasAlpha": true
+    }
+  ]
+}

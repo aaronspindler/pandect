@@ -154,7 +154,24 @@ strong {
   line-height:1.2;
   display:inline-flex;
   align-items:center;
-  min-height:44px
+  min-height:44px;
+  width:10rem;
+  max-width:100%;
+  min-width:0;
+  flex-shrink:0
+}
+
+.wordmark picture,.wordmark img {
+  display:block;
+  width:100%
+}
+
+.wordmark img {
+  height:auto
+}
+
+.wordmark-fallback {
+  display:none
 }
 
 .global-header {
@@ -212,7 +229,8 @@ strong {
 }
 
 .case-sidebar>.wordmark {
-  margin:0 .5rem 1.25rem
+  margin:0 .5rem 1.25rem;
+  width:calc(100% - 1rem)
 }
 
 .nav-link {
@@ -1430,7 +1448,8 @@ textarea {
   }
   .case-sidebar>.wordmark {
     margin:0;
-    font-size:1.5rem
+    font-size:1.5rem;
+    width:8.5rem
   }
   .all-cases {
     font-size:.875rem;
@@ -1524,7 +1543,8 @@ textarea {
     gap:.75rem
   }
   .global-header .wordmark {
-    font-size:1.5rem
+    font-size:1.5rem;
+    width:8.5rem
   }
   .global-header nav a {
     font-size:.8125rem
@@ -1635,6 +1655,12 @@ textarea {
   }
   .button {
     border:1px solid ButtonText
+  }
+  .wordmark picture {
+    display:none
+  }
+  .wordmark-fallback {
+    display:inline
   }
   .evidence-row.is-selected,.nav-link[aria-current] {
     outline:2px solid Highlight;
