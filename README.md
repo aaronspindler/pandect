@@ -11,7 +11,7 @@ Pandect is built with Django and PostgreSQL, with one codebase for self-hosting
 and operator-hosted deployments.
 
 **Status:** Pandect is in active development. The current application provides
-the core case, collaboration, people, and evidence workflows described below.
+the core case, collaboration, people, vehicle, and evidence workflows described below.
 Analysis and visualization capabilities are being built incrementally.
 
 ## Features
@@ -22,6 +22,8 @@ Analysis and visualization capabilities are being built incrementally.
   manage collaborators from case settings. Each case has one owner.
 - **People records:** Capture names, contact details, and investigator notes
   within a case, including partial or uncertain identities.
+- **Vehicle records:** Capture make, model, year, color, plate, VIN, and investigator
+  notes within a case, including partial or uncertain identifiers.
 - **Evidence collection:** Upload images, audio, and documents, or capture original
   text. Queue multiple files and record source details and collection times.
 - **Location observations:** Record addresses or coordinates, optionally linked to
@@ -89,7 +91,8 @@ verification:
 1. Choose **All cases → Create case**.
 2. Use **Add evidence** to upload files or capture text and location observations.
 3. Open **People → Add person** to record people involved in the investigation.
-4. Use **Settings → Invite collaborator** to share the case.
+4. Open **Vehicles → Add vehicle** to record vehicles encountered in the investigation.
+5. Use **Settings → Invite collaborator** to share the case.
 
 Ordinary investigators do not need staff or administrator permissions.
 
@@ -106,6 +109,7 @@ deployment.
 - [Local setup and configuration](docs/development.md)
 - [Cases, invitations, and permissions](docs/cases.md)
 - [People records](docs/people.md)
+- [Vehicle records](docs/vehicles.md)
 - [Evidence handling and retention](docs/evidence.md)
 - [Architecture and implemented scope](docs/architecture.md)
 - [Operations, backup, and recovery](docs/operations.md)

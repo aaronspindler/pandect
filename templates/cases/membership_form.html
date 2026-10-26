@@ -10,7 +10,7 @@
 </div>
 <form method="post" class="form-panel">
 {% csrf_token %}{% include "components/form_fields.html" %}
-<p class="muted">Viewer can inspect/download material. Editor can also add/edit people and evidence and archive/restore evidence.</p>
+<p class="muted">Viewer can inspect/download material. Editor can also add/edit people, vehicles, and evidence and archive/restore evidence.</p>
 <div class="form-actions">
 <button class="button button-primary" type="submit">Save access</button>
 <a class="button" href="{% url 'cases:case_settings' case.pk %}">Cancel</a>

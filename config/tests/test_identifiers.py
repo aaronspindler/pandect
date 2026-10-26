@@ -4,7 +4,7 @@ from django.apps import apps
 from django.db import connection, models
 from django.test import SimpleTestCase, TestCase
 
-PANDECT_APPS = ("accounts", "cases", "evidence", "people")
+PANDECT_APPS = ("accounts", "cases", "evidence", "people", "vehicles")
 
 
 class IdentifierDefaultTests(SimpleTestCase):

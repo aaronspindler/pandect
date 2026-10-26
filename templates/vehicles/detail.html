@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ vehicle }} · {{ case }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'vehicles:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to vehicles</a></p>
+<div class="page-header"><div><p class="eyebrow">Vehicle in {{ case }}</p><h1>{{ vehicle }}</h1></div>{% if can_edit %}<a class="button button-primary" href="{% url 'vehicles:edit' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit vehicle</a>{% endif %}</div>
+{% if not can_edit %}<p class="secondary">You have viewer access to this vehicle record.</p>{% endif %}
+<section class="panel" aria-labelledby="vehicle-heading"><h2 id="vehicle-heading">Vehicle details</h2>
+  <dl class="metadata-grid">
+    <div><dt>Make</dt><dd>{{ vehicle.make|default:"Not recorded" }}</dd></div>
+    <div><dt>Model</dt><dd>{{ vehicle.model|default:"Not recorded" }}</dd></div>
+    <div><dt>Year</dt><dd>{{ vehicle.year|default:"Not recorded" }}</dd></div>
+    <div><dt>Color</dt><dd>{{ vehicle.color|default:"Not recorded" }}</dd></div>
+    <div><dt>License plate</dt><dd>{{ vehicle.license_plate|default:"Not recorded" }}</dd></div>
+    <div><dt>VIN</dt><dd>{{ vehicle.vin|default:"Not recorded" }}</dd></div>
+  </dl>
+</section>
+<section class="panel" aria-labelledby="notes-heading"><h2 id="notes-heading">Investigator notes</h2><div class="prose">{{ vehicle.notes|default:"No notes recorded."|linebreaksbr }}</div><p class="secondary">A vehicle record captures investigative work; matching details do not verify identity, ownership, or a person's association with a vehicle.</p></section>
+<dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ vehicle.created_at|date:'c' }}">{{ vehicle.created_at|date:"j M Y, H:i" }} UTC</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ vehicle.updated_at|date:'c' }}">{{ vehicle.updated_at|date:"j M Y, H:i" }} UTC</time></dd></div></dl>
+{% if is_owner %}<div class="danger-zone"><a class="button button-danger" href="{% url 'vehicles:delete' case_id=case.pk vehicle_id=vehicle.pk %}">Delete vehicle</a></div>{% endif %}
+{% endblock %}

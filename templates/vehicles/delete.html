@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ vehicle }} · {{ case }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'vehicles:detail' case_id=case.pk vehicle_id=vehicle.pk %}">Back to vehicle</a></p>
+<div class="page-header"><div><p class="eyebrow">{{ case }}</p><h1>Delete {{ vehicle }}?</h1><p>This permanently removes this vehicle record and its notes. There is no in-app undo.</p></div></div>
+<p>Evidence, people, other vehicles, the case, and login accounts are retained.</p>
+<form method="post" class="form-layout">
+  {% csrf_token %}{% include "components/form_fields.html" with form=form %}
+  <div class="actions"><a class="button button-secondary" href="{% url 'vehicles:detail' case_id=case.pk vehicle_id=vehicle.pk %}">Cancel</a><button class="button button-danger" type="submit">Permanently delete vehicle</button></div>
+</form>
+{% endblock %}

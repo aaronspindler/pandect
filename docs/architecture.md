@@ -2,7 +2,7 @@
 
 Pandect has one Django configuration and user model for self-hosted and
 operator-hosted operation. Environment variables supply deployment differences.
-The implemented scope includes account screens, case and people management,
+The implemented scope includes account screens, case, people, and vehicle management,
 email invitations and viewer/editor collaboration, evidence upload/capture,
 private downloads, archive/restore, scoped operator administration, and reproducible
 development and validation. The UI uses Django templates, local CSS, and focused
@@ -65,6 +65,9 @@ required by that image's version-specific layout.
 - `people/` contains `Person`, an investigator-maintained name/contact record
   linked to one case, with scoped Django administration. Owners and editors can
   create and edit people; only owners can delete them. See [people](people.md).
+- `vehicles/` contains `Vehicle`, a case-scoped record of reported vehicle details
+  and investigator notes, with the same roles and scoped administration as people.
+  See [vehicles](vehicles.md).
 
 Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
 Allauth does not implement case invitations or authorization.
@@ -72,7 +75,7 @@ Allauth does not implement case invitations or authorization.
 ## Primary keys and the initial schema
 
 Every Pandect model uses an explicit, non-editable `UUIDField` primary key with
-`default=uuid4`: `User`, `Case`, `CaseMembership`, `CaseInvitation`, `Person`,
+`default=uuid4`: `User`, `Case`, `CaseMembership`, `CaseInvitation`, `Person`, `Vehicle`,
 and all six concrete evidence models. Each new instance receives an independent
 UUIDv4 before saving; use the model's adding state rather than the presence of a
 primary key to tell whether it has been saved. Foreign keys to these models use

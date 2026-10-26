@@ -36,6 +36,7 @@ from django.core.files.base import ContentFile
 from cases.models import Case, CaseMembership
 from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, TextEvidence
 from people.models import Person
+from vehicles.models import Vehicle
 
 owner = get_user_model().objects.create_user(
     username="smoke", password="synthetic-smoke-password"
@@ -44,6 +45,7 @@ collaborator = get_user_model().objects.create_user(username="collaborator")
 case = Case.objects.create(owner=owner)
 CaseMembership.objects.create(case=case, user=collaborator)
 person = Person.objects.create(case=case, first_name="Synthetic person")
+Vehicle.objects.create(case=case, make="Synthetic Motors", license_plate="SYN-001")
 for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
     model.objects.create(
         case=case,
@@ -74,6 +76,7 @@ from uuid import UUID
 from cases.models import Case
 from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, TextEvidence
 from people.models import Person
+from vehicles.models import Vehicle
 
 owner = get_user_model().objects.get(username="smoke")
 assert isinstance(owner.pk, UUID)
@@ -90,6 +93,10 @@ assert case.additional_users.get() == membership.user
 person = Person.objects.get(case=case)
 assert isinstance(person.pk, UUID)
 assert person.first_name == "Synthetic person"
+vehicle = case.vehicles.get()
+assert isinstance(vehicle.pk, UUID)
+assert vehicle.make == "Synthetic Motors"
+assert vehicle.license_plate == "SYN-001"
 for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
     evidence = model.objects.get(case=case)
     assert isinstance(evidence.pk, UUID)

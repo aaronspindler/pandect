@@ -142,7 +142,7 @@ useful evidence, not a substitute for keyboard and assistive-technology review.
 | Access removed | Stop subsequent operations and explain that the user no longer has access; return to All cases. |
 | Edit conflict | Preserve proposed values and ask the user to review newer saved details before retrying. |
 | Archive/restore | State that originals remain retained and accessible; offer the reverse action. |
-| Delete case/person | Show the named target and consequences; cancel is safe; mutation requires POST. |
+| Delete case/person/vehicle | Show the named target and consequences; cancel is safe; mutation requires POST. |
 
 Use plain verbs: **Create case**, **Add evidence**, **Save changes**, **Invite
 collaborator**, **Archive**, **Restore**, and **Download original**. Avoid exposing

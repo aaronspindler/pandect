@@ -94,7 +94,7 @@ creation/UUID tie-breaker. An empty first visit explains cases and offers Create
 case. An empty filtered result offers Clear filters.
 
 Deletion is a separate full-page owner confirmation showing the case name and
-counts of people, active evidence, archived evidence, and collaborators. Explain
+counts of people, vehicles, active evidence, archived evidence, and collaborators. Explain
 that originals and case records are removed, accounts are retained, and this has
 no in-app undo. Require an explicit acknowledgement and a final **Permanently
 delete case** POST. Report case deletion without promising verified erasure from
@@ -227,7 +227,7 @@ technical claims under clear headings/disclosures. Original content, case,
 uploader, upload timestamp, original filename, byte size, declared content type,
 and checksum are read-only. There is no Replace original action.
 
-Detect stale case/person/evidence edit forms using their saved update timestamp.
+Detect stale case/person/vehicle/evidence edit forms using their saved update timestamp.
 On conflict, retain proposed values, explain that saved details changed, and
 provide a way to reload/review before explicitly resubmitting. Do not silently
 overwrite another investigator's changes or automatically merge their assertions.
@@ -245,11 +245,22 @@ not evidence or another person with matching contact details. Case membership
 and user accounts are separate from these investigative records. Case cannot
 be changed through the person form.
 
+### Vehicles
+
+The implemented vehicle workflow follows People with make, model, year, color,
+license plate, VIN, and investigator notes. Require at least a make, model, plate,
+or VIN, allow partial identifiers, and display missing details as Not recorded.
+Owners/editors create and edit; viewers inspect; only owners delete after a
+named-target confirmation. Case is fixed after creation. Matching identifiers
+do not establish ownership or link vehicles to people. Lists preserve search and
+pagination context, and stale edits require reviewed resubmission. See
+[vehicles](vehicles.md) for fields, routes, and administration.
+
 ### Collaboration and invitations
 
 The owner sees a compact access table: owner (fixed), current collaborators with
 Viewer/Editor roles, and pending invitations. Describe Viewer as able to inspect
-material and Editor as additionally able to add/edit people and evidence and
+material and Editor as additionally able to add/edit people, vehicles, and evidence and
 archive/restore evidence. Changing a collaborator's role is an explicit save;
 removal has a named confirmation and takes effect on subsequent requests.
 
@@ -275,11 +286,11 @@ link must not create another membership or change a current member's role.
 
 | Action | Owner | Editor | Viewer |
 | --- | --- | --- | --- |
-| Inspect case, people, active/archived evidence; download originals | Yes | Yes | Yes |
-| Add/edit people and evidence | Yes | Yes | No |
+| Inspect case, people, vehicles, active/archived evidence; download originals | Yes | Yes | Yes |
+| Add/edit people, vehicles, and evidence | Yes | Yes | No |
 | Archive/restore evidence | Yes | Yes | No |
 | Edit case metadata/manage access/delete case | Yes | No | No |
-| Delete a person | Yes | No | No |
+| Delete a person or vehicle | Yes | No | No |
 | Permanently delete individual evidence | No | No | No |
 
 Every operation requires current case access and an object belonging to that
@@ -303,6 +314,8 @@ admin routes. All mutations use CSRF-protected POST, never GET.
 | `.../evidence/<type>/<uuid:evidence_id>/archive/`, `.../restore/` | Idempotent lifecycle POSTs; no individual delete route. |
 | `/cases/<uuid:case_id>/people/`, `.../new/` | Scoped list; create. |
 | `.../people/<uuid:person_id>/`, `.../edit/`, `.../delete/` | Scoped inspect, edit, owner delete confirmation and POST. |
+| `/cases/<uuid:case_id>/vehicles/`, `.../new/` | Scoped list; create. |
+| `.../vehicles/<uuid:vehicle_id>/`, `.../edit/`, `.../delete/` | Scoped inspect, edit, owner delete confirmation and POST. |
 | `.../invitations/new/`, `.../invitations/<uuid:invitation_id>/resend/`, `.../revoke/`, `.../edit/` | Owner invitation creation/delivery/role management. |
 | `.../memberships/<uuid:membership_id>/edit/`, `.../remove/` | Owner role management and removal. |
 | `/invitations/<opaque-token>/` | Recipient confirmation and POST acceptance. |

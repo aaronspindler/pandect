@@ -28,7 +28,7 @@ with PostgreSQL before updating configuration.
 ## Database backup and restoration
 
 Keep backups private and off-host. The database contains accounts, authentication
-state, cases, invitations, collaboration memberships, people, captured text,
+state, cases, invitations, collaboration memberships, people, vehicles, captured text,
 archive attribution, and file evidence metadata.
 File originals live separately in `app_data`; a database dump alone is incomplete.
 Stop application writers while taking matching database and file snapshots. For

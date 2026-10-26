@@ -34,7 +34,7 @@
 <div class="section-header">
 <div>
 <h2 id="collaborators-heading">Collaborators</h2>
-<p class="muted">Viewers inspect material. Editors can also add and edit people/evidence, and archive or restore evidence.</p>
+<p class="muted">Viewers inspect material. Editors can also add and edit people, vehicles, and evidence, and archive or restore evidence.</p>
 </div>
 <a class="button" href="{% url 'cases:invitation_create' case.pk %}">Invite collaborator</a>
 </div>
@@ -92,7 +92,7 @@
 </section>
 <section class="danger-section" aria-labelledby="delete-heading">
 <h2 id="delete-heading">Delete this case</h2>
-<p>Permanently remove this case, its people, and all retained evidence, including archived originals. There is no in-app undo.</p>
+<p>Permanently remove this case, its people, vehicles, and all retained evidence, including archived originals. There is no in-app undo.</p>
 <a class="button button-danger" href="{% url 'cases:case_delete' case.pk %}">Delete case…</a>
 </section>
 {% endblock %}

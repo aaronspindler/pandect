@@ -13,6 +13,7 @@ urlpatterns = [
     path("accounts/", include("allauth.urls")),
     path("cases/", include("cases.urls")),
     path("cases/<uuid:case_id>/people/", include("people.urls")),
+    path("cases/<uuid:case_id>/vehicles/", include("vehicles.urls")),
     path("cases/<uuid:case_id>/evidence/", include("evidence.urls")),
     path("invitations/<str:token>/", invitation_accept, name="invitation_accept"),
     path("admin/", admin.site.urls),

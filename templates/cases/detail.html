@@ -72,4 +72,14 @@
 </div>
 <p>Keep contact details and investigator notes separate from verified evidence or identity claims.</p>
 </section>
+<section aria-labelledby="vehicles-heading">
+<div class="section-header">
+<div>
+<h2 id="vehicles-heading">Vehicles</h2>
+<p class="muted">{{ vehicles_count }} vehicle record{{ vehicles_count|pluralize }}</p>
+</div>
+<a href="{% url 'vehicles:list' case.pk %}">View vehicles</a>
+</div>
+<p>Record vehicle details and source context without treating matching identifiers as proof of ownership.</p>
+</section>
 {% endblock %}

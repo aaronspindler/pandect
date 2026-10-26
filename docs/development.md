@@ -42,9 +42,11 @@ the configured SMTP mailer instead.
 
 After verification, **All cases → Create case** creates a case owned by you.
 Inside it, use **Add evidence** to upload files, capture original text, or
-record locations, **People → Add person** for contact details/notes, and
+record locations, **People → Add person** for contact details/notes,
+**Vehicles → Add vehicle** for vehicle details/notes, and
 **Settings → Invite collaborator** to grant Viewer or Editor access. See
-[cases](cases.md), [evidence](evidence.md), and [people](people.md) for workflow
+[cases](cases.md), [evidence](evidence.md), [people](people.md), and
+[vehicles](vehicles.md) for workflow
 details and limits. Ordinary investigators do not need staff permissions.
 
 The optional `createsuperuser` command creates an operator for `/admin/`. Staff

@@ -8,16 +8,16 @@ investigation model or unscoped collection of evidence.
 ## Investigator workflow
 
 Sign in with a verified account and open **All cases**. Choose **Create case**,
-enter a name and optional description, then add evidence or people from the case
+enter a name and optional description, then add evidence, people, or vehicles from the case
 navigation. The signed-in user becomes the owner. All cases supports scoped name/
 description search and owned/shared filtering; its results never include unrelated
 cases, even for superusers.
 
 Owners can edit the name/description under **Settings**, invite collaborators,
-change their Viewer/Editor roles, and remove access. Viewers can inspect people
+change their Viewer/Editor roles, and remove access. Viewers can inspect people, vehicles,
 and active/archived evidence and download originals. Editors can additionally
-add/edit people and evidence and archive/restore evidence; only the owner can
-change case metadata, manage access, delete people, or delete the case.
+add/edit people, vehicles, and evidence and archive/restore evidence; only the owner can
+change case metadata, manage access, delete people or vehicles, or delete the case.
 Ordinary product users do not need staff status or Django model permissions.
 
 Case edits detect stale updates. A conflict shows the latest saved details beside
@@ -73,7 +73,7 @@ an additional user. As with ordinary Django models, direct ORM writes do not
 automatically call `full_clean()`; code creating memberships must validate them.
 The owner exclusion is model validation, not a cross-table database constraint.
 
-Deleting a case cascades to its memberships, people, and evidence. Evidence files
+Deleting a case cascades to its memberships, people, vehicles, and evidence. Evidence files
 are removed after the deletion commits. Deleting a collaborating user removes
 their memberships and preserves the case, unless retained evidence protects that
 user as its uploader. The owner's foreign key uses `PROTECT`:
@@ -99,6 +99,7 @@ must still own or share a case to inspect it.
 
 Deleting a case containing [people](people.md) also requires
 `people.delete_person` in Django admin, because those records are deleted too.
+Cases containing [vehicles](vehicles.md) also require `vehicles.delete_vehicle`.
 
 Owners need `cases.view_casemembership` or `cases.change_casemembership` to inspect
 existing memberships in the inline. Assign the appropriate case and membership

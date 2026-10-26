@@ -21,6 +21,7 @@ COPY accounts/ accounts/
 COPY cases/ cases/
 COPY evidence/ evidence/
 COPY people/ people/
+COPY vehicles/ vehicles/
 COPY templates/ templates/
 COPY static/ static/
 # A synthetic build-only setting is sufficient; collectstatic never needs a DB.

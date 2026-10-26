@@ -6,6 +6,7 @@
 - [Architecture and implemented scope](architecture.md)
 - [Case workflows, invitations, collaboration, and Django admin](cases.md)
 - [People, contact details, and case-scoped administration](people.md)
+- [Vehicles, identifying details, and case-scoped administration](vehicles.md)
 - [Evidence uploads, private downloads, retention, and integrity](evidence.md)
 - [Validation, CI, and Dependabot](validation.md)
 - [Compose operation, backup, and recovery](operations.md)
@@ -24,8 +25,8 @@ The Django project was generated from the repository root using
 
 The initial migrations use `accounts.User`; application and integration tests use
 PostgreSQL. Account screens, case management, email invitations, viewer/editor
-collaboration, people management, and retained evidence uploads/downloads are
-implemented alongside scoped operator administration. Evidence processing, AI,
+collaboration, people and vehicle management, and retained evidence uploads/downloads
+are implemented alongside scoped operator administration. Evidence processing, AI,
 and visual analysis remain planned capabilities.
 
 ## Interface design and delivery
@@ -33,7 +34,7 @@ and visual analysis remain planned capabilities.
 - [Project design standard](../DESIGN.md)
 - [Investigator screens, workflows, and density specification](interface-design.md)
 - [Interface implementation plan and acceptance criteria](interface-plan.md)
-- [Interface QA and captured implementation](../design-qa.md)
+- [Browser validation and local captures](validation.md#browser-checks)
 
 The implemented interface follows the compact three-pane investigation workspace.
 The design documents remain the reference for behavior and acceptance criteria;

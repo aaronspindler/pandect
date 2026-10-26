@@ -1563,6 +1563,12 @@ textarea {
     content:"Updated: ";
     color:var(--secondary)
   }
+  .vehicle-table td:nth-child(2)::before {
+    content:"License plate: "
+  }
+  .vehicle-table td:nth-child(3)::before {
+    content:"Color: "
+  }
   .search-form .actions {
     flex-wrap:wrap
   }

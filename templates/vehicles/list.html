@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Vehicles · {{ case }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><p class="eyebrow">{{ case }}</p><h1>Vehicles</h1><p class="secondary">Investigator-maintained vehicle details and notes.</p></div>
+  {% if can_edit %}<a class="button button-primary" href="{% url 'vehicles:create' case_id=case.pk %}">Add vehicle</a>{% endif %}
+</div>
+<form class="search-form" method="get" role="search" aria-label="Search vehicles">
+  <label for="vehicles-search">Search vehicles</label>
+  <div class="actions"><input id="vehicles-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Make, model, year, plate, VIN, color, or notes"><button class="button button-secondary" type="submit">Search</button>{% if query %}<a class="button button-secondary" href="{% url 'vehicles:list' case_id=case.pk %}">Clear filters</a>{% endif %}</div>
+</form>
+{% if page_obj.object_list %}
+<p class="secondary">{{ page_obj.paginator.count }} vehicle record{{ page_obj.paginator.count|pluralize }}</p>
+<div class="table-wrap"><table class="record-table vehicle-table">
+  <caption class="visually-hidden">Vehicles in {{ case }}</caption>
+  <thead><tr><th scope="col">Vehicle</th><th scope="col">License plate</th><th scope="col">Color</th><th scope="col">Updated</th></tr></thead>
+  <tbody>{% for vehicle in page_obj %}<tr>
+    <td><a class="record-link" href="{% url 'vehicles:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ vehicle }}</a></td>
+    <td>{{ vehicle.license_plate|default:"Not recorded" }}</td><td>{{ vehicle.color|default:"Not recorded" }}</td>
+    <td><time datetime="{{ vehicle.updated_at|date:'c' }}">{{ vehicle.updated_at|date:"j M Y" }}</time></td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Vehicles pages">
+  {% if page_obj.has_previous %}<a class="button button-secondary" href="?{% if search_query %}{{ search_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}<a class="button button-secondary" href="?{% if search_query %}{{ search_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+</nav>{% endif %}
+{% else %}
+<section class="empty-state"><h2>{% if query %}No matching vehicles{% else %}Keep the vehicles in this case together{% endif %}</h2>
+  <p>{% if query %}Try another make, model, year, plate, VIN, color, or note.{% else %}Add the vehicle details you encounter. Partial details are enough to start.{% endif %}</p>
+  {% if query %}<a class="button button-secondary" href="{% url 'vehicles:list' case_id=case.pk %}">Clear filters</a>{% elif can_edit %}<a class="button button-primary" href="{% url 'vehicles:create' case_id=case.pk %}">Add vehicle</a>{% else %}<p class="secondary">You have viewer access. The owner or an editor can add vehicles.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

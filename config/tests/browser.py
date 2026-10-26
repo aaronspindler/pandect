@@ -40,6 +40,7 @@ from evidence.models import (
     TextEvidence,
 )
 from people.models import Person
+from vehicles.models import Vehicle
 
 
 @override_settings(
@@ -204,6 +205,172 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             kind="text",
             evidence_id=(record or self.records[-1]).pk,
         )
+
+    def test_vehicle_workflow_responsive_keyboard_and_read_only_access(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(self.url("cases:case_detail", case_id=self.case.pk))
+                page.get_by_role("link", name="Vehicles", exact=True).click()
+                expect(page.locator('[aria-current="page"]')).to_have_text("Vehicles")
+                if engine == self.engines[0]:
+                    expect(
+                        page.get_by_role(
+                            "heading", name="Keep the vehicles in this case together"
+                        )
+                    ).to_be_visible()
+                page.get_by_role("link", name="Add vehicle").first.focus()
+                page.get_by_role("link", name="Add vehicle").first.press("Enter")
+                page.get_by_label("Investigator notes", exact=True).fill(
+                    "Synthetic observation"
+                )
+                page.get_by_role("button", name="Add vehicle", exact=True).click()
+                expect(page.locator(".error-summary")).to_be_focused()
+                expect(
+                    page.get_by_label("Investigator notes", exact=True)
+                ).to_have_value("Synthetic observation")
+                make = page.get_by_label("Make", exact=True)
+                make.fill("Synthetic Motors")
+                make.focus()
+                make.press("Tab")
+                expect(page.get_by_label("Model", exact=True)).to_be_focused()
+                self.assertNotEqual(
+                    page.get_by_label("Model", exact=True).evaluate(
+                        "node => getComputedStyle(node).outlineStyle"
+                    ),
+                    "none",
+                )
+                page.get_by_label("Model", exact=True).fill(f"Hatchback {engine}")
+                page.get_by_label("Year", exact=True).fill("2020")
+                page.get_by_label("Color", exact=True).fill("Blue")
+                page.get_by_label("License plate", exact=True).fill(f"SYN-{engine}")
+                page.get_by_label("VIN", exact=True).fill("SYNTHETIC-PARTIAL")
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"vehicle-form-{width}-{height}")
+                page.get_by_role("button", name="Add vehicle", exact=True).click()
+                title = f"2020 Synthetic Motors Hatchback {engine}"
+                expect(
+                    page.get_by_role("heading", name=title, exact=True)
+                ).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"vehicle-detail-{width}-{height}")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "vehicle-detail-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(page, engine, "vehicle-detail-forced-colors")
+                    page.emulate_media(forced_colors="none")
+                page.emulate_media(color_scheme="light")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 1441
+                )
+                self.capture(page, engine, "vehicle-detail-200-percent-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.get_by_role("link", name="Back to vehicles").click()
+                page.get_by_role("searchbox", name="Search vehicles").fill(
+                    "no matching vehicle"
+                )
+                page.get_by_role("button", name="Search", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="No matching vehicles")
+                ).to_be_visible()
+                page.get_by_role("link", name="Clear filters").first.click()
+                for width, height in ((1440, 900), (390, 844), (320, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    if width <= 390:
+                        self.assertEqual(
+                            page.locator(
+                                ".vehicle-table td:nth-child(2)"
+                            ).first.evaluate(
+                                "node => getComputedStyle(node, '::before').content"
+                            ),
+                            '"License plate: "',
+                        )
+                    self.capture(page, engine, f"vehicle-list-{width}-{height}")
+                page.get_by_role("link", name=title, exact=True).click()
+                page.get_by_role("link", name="Edit vehicle").click()
+                page.get_by_label("Investigator notes", exact=True).fill(
+                    "Reviewed proposal"
+                )
+                self.db(
+                    Vehicle.objects.filter(
+                        case=self.case, license_plate=f"SYN-{engine}"
+                    ).update,
+                    notes="A newer observation",
+                    updated_at=self.case.updated_at,
+                )
+                page.get_by_role("button", name="Save changes", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Review the latest saved details")
+                ).to_be_visible()
+                expect(
+                    page.get_by_label("Investigator notes", exact=True)
+                ).to_have_value("Reviewed proposal")
+                page.get_by_role("button", name="Save reviewed changes").click()
+                expect(
+                    page.get_by_text("Reviewed proposal", exact=True)
+                ).to_be_visible()
+
+            viewer = self.make_user(f"vehicle-viewer-{engine}")
+            CaseMembership.objects.create(case=self.case, user=viewer)
+            # Verify ordinary links/forms without JavaScript for a read-only role.
+            with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                self.sign_in(page, viewer)
+                page.goto(self.url("vehicles:list", case_id=self.case.pk))
+                expect(page.get_by_role("link", name="Add vehicle")).to_have_count(0)
+                page.get_by_role("link", name=title, exact=True).click()
+                expect(
+                    page.get_by_text("You have viewer access to this vehicle record.")
+                ).to_be_visible()
+                expect(page.get_by_role("link", name="Edit vehicle")).to_have_count(0)
+                expect(page.get_by_role("link", name="Delete vehicle")).to_have_count(0)
+
+            # Owner-only deletion also works without JavaScript and needs confirmation.
+            with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                self.sign_in(page)
+                page.goto(self.url("vehicles:list", case_id=self.case.pk))
+                page.get_by_role("link", name="Add vehicle").first.click()
+                page.get_by_label("License plate", exact=True).fill(f"DELETE-{engine}")
+                page.get_by_role("button", name="Add vehicle", exact=True).click()
+                page.get_by_role("link", name="Delete vehicle").click()
+                expect(
+                    page.get_by_role("heading", name=f"Delete DELETE-{engine}?")
+                ).to_be_visible()
+                page.get_by_role("checkbox").check()
+                page.get_by_role("button", name="Permanently delete vehicle").click()
+                expect(
+                    page.get_by_role("heading", name="Vehicles", exact=True)
+                ).to_be_visible()
+                self.assertFalse(
+                    self.db(
+                        Vehicle.objects.filter(license_plate=f"DELETE-{engine}").exists
+                    )
+                )
 
     def test_evidence_admin_journey(self):
         self.owner.is_staff = True

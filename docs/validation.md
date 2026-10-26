@@ -53,11 +53,14 @@ Person tests cover partial identities, contact validation, case linkage and
 deletion, timestamps, duplicate contacts, scoped lists/search/history, owner and
 editor writes, read-only viewers, forged case selections, revoked/downgraded
 memberships, model permissions, CSRF, and case-deletion permission requirements.
+Vehicle tests cover partial identifiers, year/identity database constraints,
+duplicate identifiers, scoped searches, role gates, forged case choices,
+revocation, reviewed stale edits, deletion, and admin model permissions.
 
 `make compose-smoke` needs Docker only. It creates a unique project with temporary
 synthetic configuration, random loopback ports, and fresh volumes. It builds the
 runtime image, checks initial migrations and HTTP readiness, creates a synthetic
-owner, collaborator, case, membership, and evidence of all six types, stops and
+owner, collaborator, case, membership, person, vehicle, and evidence of all six types, stops and
 restarts the stack, and verifies records and original file bytes persist. It also
 checks that the production image serves its collected application assets with
 debug disabled. Its exit trap removes only that project's containers and volumes. It never uses your `.env`
@@ -91,7 +94,7 @@ which defaults to ignored `data/validation/browser`. Browser artifacts are local
 validation output. Do not replace the synthetic fixtures with real investigation
 material.
 
-The suite exercises account/case/people/evidence/collaboration workflows,
+The suite exercises account/case/people/vehicle/evidence/collaboration workflows,
 JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
 navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
 evidence admin creation/editing, archive controls and authorized downloads,
@@ -99,6 +102,9 @@ location/person-location forms and private JSON downloads, source fields in file
 batches, bulk mixed-file uploads with shared-field inheritance/overrides/reset,
 append limits, invalid-file removal, pause/retry, access removal between files,
 safe interrupted-confirmation retry, and dense desktop record visibility.
+Vehicle journeys also capture forms, lists, and details at desktop/mobile sizes,
+check keyboard focus and conflict review, and exercise creation, read-only viewer
+access, and confirmed owner deletion without JavaScript.
 Bulk captures include desktop, tablet, mobile, 320px reflow, enlarged text, dark,
 reduced-motion, and forced-colors layouts. Visual targets are 12 complete ordinary
 rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible hit

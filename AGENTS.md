@@ -223,7 +223,7 @@ durable project requirements change.
 ## Rebuild context
 
 The rebuild includes `config/`, `accounts.User`, django-allauth, PostgreSQL,
-case/people management, invitations and viewer/editor collaboration, retained
+case/people/vehicle management, invitations and viewer/editor collaboration, retained
 image/audio/document/text/location/person-location evidence and private downloads,
 scoped operator administration, uv dependency management, Docker Compose, and local/CI checks.
 The investigator interface follows `DESIGN.md` and the refined three-pane design;
@@ -238,6 +238,9 @@ Read `docs/people.md` before extending person records or their admin permissions
 People belong to a single case; owners and editors can add/edit them, viewers can
 inspect them, and only owners can delete them. Person records are independent of
 login accounts and do not establish verified identity.
+Read `docs/vehicles.md` before extending vehicle records or their administration.
+Vehicles belong to a single case and follow the same roles as people. Reported
+plates and VINs do not establish identity, ownership, or a person's association.
 Read `docs/evidence.md` before extending evidence models, original storage, or
 deletion cleanup. Original preservation is enforced through model validation and
 saves; current product routes enforce case permissions and every future access

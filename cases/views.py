@@ -89,6 +89,7 @@ def _case_summary(case):
         "active_evidence_count": active_count,
         "archived_evidence_count": archived_count,
         "people_count": case.people.count(),
+        "vehicles_count": case.vehicles.count(),
         "collaborator_count": case.memberships.count(),
         "pending_invitation_count": case.invitations.filter(
             accepted_at__isnull=True,

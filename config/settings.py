@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "cases.apps.CasesConfig",
     "evidence.apps.EvidenceConfig",
     "people.apps.PeopleConfig",
+    "vehicles.apps.VehiclesConfig",
     "allauth",
     "allauth.account",
 ]
