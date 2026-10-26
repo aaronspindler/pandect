@@ -24,12 +24,18 @@ for name in ("DJANGO_SECRET_KEY", "POSTGRES_PASSWORD"):
 path.write_text(content)
 path.chmod(0o600)
 PY
-docker compose up --build --wait
+make run
 ```
 
-Open <http://localhost:8000/>. Create an account and follow its email-verification
-link before opening case material. The development container applies migrations
-on startup and runs Django's development server. With `DJANGO_DEBUG=true`,
+After this setup, use `make run` whenever you want to start the website locally.
+It builds the application image, starts PostgreSQL and the website in the
+background, and waits for their health checks to pass. Stop them with
+`docker compose stop`; the database and evidence volumes are retained.
+
+Open <http://localhost:8000/> (or your configured `PANDECT_WEB_PORT`). Create an
+account and follow its email-verification link before opening case material.
+The development container applies migrations on startup and runs Django's
+development server. With `DJANGO_DEBUG=true`,
 verification and invitation emails appear in `docker compose logs web`; these
 messages contain private links, so keep development logs private. Production uses
 the configured SMTP mailer instead.

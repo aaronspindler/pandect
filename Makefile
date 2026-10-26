@@ -1,10 +1,13 @@
 UV ?= uv
 RUN = $(UV) run --locked
 
-.PHONY: sync lint format test validate check security-check compose-smoke browser-check
+.PHONY: sync run lint format test validate check security-check compose-smoke browser-check
 
 sync:
 	$(UV) sync --locked
+
+run:
+	docker compose up --build --wait
 
 lint:
 	$(RUN) ruff check .
