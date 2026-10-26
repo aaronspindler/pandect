@@ -5,6 +5,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
+from evidence.models import PersonLocationEvidence
 from people.models import Person
 
 
@@ -87,6 +88,24 @@ class PersonAdminTests(TestCase):
         self.owner.save()
         self.client.force_login(self.owner)
         self.assertEqual(self.client.get(self.url()).status_code, 302)
+
+    def test_retained_person_location_blocks_individual_admin_deletion(self):
+        item = PersonLocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            person=self.person,
+            title="Synthetic reported location",
+            address="Synthetic harbour office",
+        )
+        self.client.force_login(self.owner)
+        url = self.url("delete", self.person)
+        confirmation = self.client.get(url)
+        self.assertEqual(confirmation.status_code, 200)
+        self.assertTrue(confirmation.context["protected"])
+        response = self.client.post(url, {"post": "yes"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Person.objects.filter(pk=self.person.pk).exists())
+        self.assertTrue(PersonLocationEvidence.objects.filter(pk=item.pk).exists())
 
     def test_staff_without_person_permissions_cannot_access_admin(self):
         self.owner.user_permissions.remove(

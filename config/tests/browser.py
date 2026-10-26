@@ -5,6 +5,8 @@ Playwright browsers first; use PANDECT_BROWSER_ENGINES to select engines and
 PANDECT_BROWSER_ARTIFACTS to choose the synthetic screenshot directory.
 """
 
+import hashlib
+import json
 import os
 import re
 import sys
@@ -28,7 +30,12 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 
 from cases.models import Case, CaseInvitation, CaseMembership
-from evidence.models import DocumentEvidence, TextEvidence
+from evidence.models import (
+    DocumentEvidence,
+    LocationEvidence,
+    PersonLocationEvidence,
+    TextEvidence,
+)
 from people.models import Person
 
 
@@ -195,6 +202,103 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             evidence_id=(record or self.records[-1]).pk,
         )
 
+    def test_location_and_person_location_journey(self):
+        person = Person.objects.create(case=self.case, first_name="Alex Example")
+        for engine in self.engines:
+            for kind, model in (
+                ("location", LocationEvidence),
+                ("person-location", PersonLocationEvidence),
+            ):
+                with (
+                    self.subTest(engine=engine, kind=kind),
+                    self.browser_page(engine, java_script_enabled=False) as (_, page),
+                ):
+                    self.sign_in(page)
+                    page.goto(
+                        self.url("evidence:create", case_id=self.case.pk)
+                        + f"?kind={kind}"
+                    )
+                    source = page.get_by_label("Source", exact=True)
+                    source.focus()
+                    expect(source).to_be_focused()
+                    self.assertNotEqual(
+                        source.evaluate("node => getComputedStyle(node).outlineStyle"),
+                        "none",
+                    )
+                    page.locator("h1").scroll_into_view_if_needed()
+                    for width, height in (
+                        (1440, 900),
+                        (1440, 1024),
+                        (768, 1024),
+                        (390, 844),
+                        (320, 844),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                        )
+                        page.screenshot(
+                            path=str(
+                                self.artifacts
+                                / f"{engine}-{kind}-form-{width}x{height}.png"
+                            ),
+                            full_page=True,
+                        )
+                    title = f"Synthetic {kind} {engine}"
+                    page.get_by_label("Title", exact=True).fill(title)
+                    source.fill("Synthetic harbour witness")
+                    if kind == "person-location":
+                        page.get_by_label("Person", exact=True).select_option(
+                            str(person.pk)
+                        )
+                    page.get_by_role("button", name="Save location").click()
+                    expect(page.locator("#id_title")).to_have_value(title)
+                    expect(page.locator("#id_source")).to_have_value(
+                        "Synthetic harbour witness"
+                    )
+                    expect(page.locator(".error-summary")).to_be_visible()
+                    page.get_by_label("Address", exact=True).fill(
+                        "Synthetic harbour office"
+                    )
+                    page.get_by_label("Latitude", exact=True).fill("0")
+                    page.get_by_label("Longitude", exact=True).fill("-79.123456")
+                    page.get_by_label("Observed at (UTC)", exact=True).fill(
+                        "2026-01-02T03:04"
+                    )
+                    page.get_by_role("button", name="Save location").click()
+                    expect(
+                        page.get_by_role("heading", name=title, exact=True)
+                    ).to_be_visible()
+                    expect(
+                        page.get_by_role("heading", name="Reported location")
+                    ).to_be_visible()
+                    record = self.db(model.objects.get, case=self.case, title=title)
+                    self.assertEqual(record.source, "Synthetic harbour witness")
+                    with page.expect_download() as event:
+                        page.get_by_role(
+                            "link", name="Download original", exact=True
+                        ).click()
+                    content = Path(event.value.path()).read_bytes()
+                    self.assertEqual(hashlib.sha256(content).hexdigest(), record.sha256)
+                    self.assertEqual(json.loads(content)["latitude"], "0.000000")
+                    for width, height in ((1440, 900), (390, 844), (320, 844)):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                        )
+                        self.capture(page, engine, f"{kind}-original-{width}x{height}")
+                    page.get_by_role("link", name="Edit details", exact=True).click()
+                    expect(page.locator("#id_address")).to_have_count(0)
+                    page.get_by_label("Source", exact=True).fill(
+                        "Updated synthetic source"
+                    )
+                    page.get_by_role("button", name="Save changes", exact=True).click()
+                    self.db(record.refresh_from_db)
+                    self.assertEqual(record.source, "Updated synthetic source")
+                    self.assertEqual(hashlib.sha256(content).hexdigest(), record.sha256)
+
     def test_management_and_collaboration_journey(self):
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
@@ -282,6 +386,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 first_entry.get_by_text(
                     "Description and source details", exact=True
                 ).click()
+                first_entry.get_by_label("Source", exact=True).fill(
+                    "Synthetic batch source"
+                )
                 first_entry.get_by_label("Source URL", exact=True).fill("invalid-url")
                 page.get_by_role("button", name="Upload files", exact=True).click()
                 expect(
@@ -309,6 +416,14 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.assertEqual(
                     self.db(DocumentEvidence.objects.filter(case=case).count),
                     2,
+                )
+                self.assertEqual(
+                    self.db(
+                        DocumentEvidence.objects.get,
+                        case=case,
+                        original_filename="synthetic-1.txt",
+                    ).source,
+                    "Synthetic batch source",
                 )
                 self.capture(page, engine, "batch-upload-recovery")
 

@@ -5,23 +5,44 @@ from uuid import uuid4
 from django import forms
 from django.conf import settings
 
-from .models import AudioEvidence, DocumentEvidence, ImageEvidence, TextEvidence
+from .models import (
+    AudioEvidence,
+    DocumentEvidence,
+    ImageEvidence,
+    LocationEvidence,
+    PersonLocationEvidence,
+    TextEvidence,
+)
 
 KINDS = {
     "image": ImageEvidence,
     "audio": AudioEvidence,
     "document": DocumentEvidence,
     "text": TextEvidence,
+    "location": LocationEvidence,
+    "person-location": PersonLocationEvidence,
 }
 KIND_LABELS = {
     "image": "Image",
     "audio": "Audio",
     "document": "Document",
     "text": "Text",
+    "location": "Location",
+    "person-location": "Person location",
+}
+FILE_KINDS = ("image", "audio", "document")
+LOCATION_KINDS = ("location", "person-location")
+LOCATION_FIELDS = ("address", "latitude", "longitude", "observed_at")
+ORIGINAL_FIELDS = {
+    **dict.fromkeys(FILE_KINDS, ("file",)),
+    "text": ("body",),
+    "location": LOCATION_FIELDS,
+    "person-location": ("person", *LOCATION_FIELDS),
 }
 COMMON_FIELDS = (
     "title",
     "description",
+    "source",
     "source_url",
     "source_description",
     "collected_at",
@@ -31,6 +52,8 @@ TYPE_FIELDS = {
     "audio": ("duration", "sample_rate", "channel_count"),
     "document": ("page_count",),
     "text": ("language",),
+    "location": (),
+    "person-location": (),
 }
 
 
@@ -47,7 +70,11 @@ class EvidenceForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["kind"].initial = kind
         self.fields["title"].label = "Title"
+        self.fields["source_url"].label = "Source URL"
         self.fields["description"].label = "Investigator description"
+        self.fields[
+            "source"
+        ].help_text = "Name the source, such as a witness, publication, or record."
         self.fields[
             "description"
         ].help_text = "Your description does not change the original."
@@ -97,6 +124,36 @@ class EvidenceForm(forms.ModelForm):
                 }
             )
             self.fields["submission_id"].required = True
+        if kind in LOCATION_KINDS and self.instance._state.adding:
+            self.fields["submission_id"].required = True
+            self.fields["address"].strip = False
+            self.fields["address"].help_text = (
+                "Enter an address or both coordinates. "
+                "These original values are retained."
+            )
+            self.fields[
+                "latitude"
+            ].help_text = "Decimal degrees, from -90 to 90 (WGS 84)."
+            self.fields[
+                "longitude"
+            ].help_text = "Decimal degrees, from -180 to 180 (WGS 84)."
+            self.fields["observed_at"].label = "Observed at (UTC)"
+            self.fields[
+                "observed_at"
+            ].help_text = (
+                "When the source reports this location; leave blank if unknown."
+            )
+            self.fields["observed_at"].widget = forms.DateTimeInput(
+                attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
+            )
+            if "person" in self.fields:
+                self.fields["person"].queryset = self.fields["person"].queryset.filter(
+                    case_id=self.instance.case_id
+                )
+                self.fields["person"].help_text = (
+                    "Choose a person in this case. This reports an association, "
+                    "not verified identity or presence."
+                )
 
     def clean_file(self):
         original = self.cleaned_data["file"]
@@ -134,5 +191,5 @@ def evidence_form(kind, *, editing=False):
     model = KINDS[kind]
     fields = COMMON_FIELDS + TYPE_FIELDS[kind]
     if not editing:
-        fields += ("body",) if kind == "text" else ("file",)
+        fields += ORIGINAL_FIELDS[kind]
     return forms.modelform_factory(model, form=EvidenceForm, fields=fields)

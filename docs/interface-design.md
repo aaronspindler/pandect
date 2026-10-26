@@ -146,8 +146,13 @@ paths, exception details, or a public media URL.
 ### Evidence creation and batch uploads
 
 **Files** accepts images, audio, and documents using the existing file models.
-**Text** accepts one pasted original at a time. A normal single-item HTML form
-is the complete fallback. JavaScript enhances file selection into a local batch;
+**Text** accepts one pasted original at a time. **Location** captures an address
+or coordinate pair with an optional observation time. **Person location** adds a
+required person from the same case. All types include a Source name/citation,
+source URL, source description, and collection time. Location originals and person
+associations remain read-only after creation, with private JSON downloads.
+A normal single-item HTML form is the complete fallback. JavaScript enhances
+file selection into a local batch;
 it is not required to add any supported evidence type.
 
 Default bounded limits are 20 entries per browser batch, 100 MiB per file, and
@@ -158,12 +163,13 @@ bounded metadata. Enforce file limits during streaming and validate received
 size server-side; memory thresholds alone are not upload-size limits.
 
 The batch screen uses a compact list with filename, editable title, evidence
-category, and status. Filename provides the initial title. Browser MIME/extension
-hints may suggest Image or Audio; otherwise default to Document. The user can
-correct the category; this suggestion is not verification. A Details disclosure
-on each pending entry contains description, source URL/source description, and
-collection time. Optional type-specific technical claims can be entered on the
-ordinary create/detail form and remain editable after upload.
+category, and status. Filename provides the initial title. Browser
+MIME/extension hints may suggest Image or Audio; otherwise default to Document.
+The user can correct the category; this suggestion is not verification. A
+Details disclosure on each pending entry contains description, source name,
+source URL/source description, and collection time. Optional type-specific
+technical claims can be entered on the ordinary create/detail form and remain
+editable after upload.
 
 | Entry state | Behavior |
 | --- | --- |

@@ -224,8 +224,8 @@ durable project requirements change.
 
 The rebuild includes `config/`, `accounts.User`, django-allauth, PostgreSQL,
 case/people management, invitations and viewer/editor collaboration, retained
-image/audio/document/text evidence uploads and private downloads, scoped operator
-administration, uv dependency management, Docker Compose, and local/CI checks.
+image/audio/document/text/location/person-location evidence and private downloads,
+scoped operator administration, uv dependency management, Docker Compose, and local/CI checks.
 The investigator interface follows `DESIGN.md` and the refined three-pane design;
 normal users do not need staff permissions.
 Read `docs/development.md` and `docs/validation.md` for executable commands. The
@@ -243,6 +243,10 @@ deletion cleanup. Original preservation is enforced through model validation and
 saves; current product routes enforce case permissions and every future access
 path must do so too. Owners/editors archive or restore individual evidence; only
 owner-confirmed whole-case deletion removes retained evidence through the product.
+All evidence types include an optional Source name/citation. Location originals
+retain an address or coordinate pair and optional observation time. Person-location
+evidence also retains a same-case person link; it prevents individual deletion
+of that person, while whole-case deletion removes both together.
 Read `docs/operations.md` before changing upload limits, mail, static delivery,
 private logging, storage, or deployment behavior.
 

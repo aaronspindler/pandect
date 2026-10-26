@@ -34,7 +34,7 @@ compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from cases.models import Case, CaseMembership
-from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, TextEvidence
+from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, TextEvidence
 from people.models import Person
 
 owner = get_user_model().objects.create_user(
@@ -43,16 +43,26 @@ owner = get_user_model().objects.create_user(
 collaborator = get_user_model().objects.create_user(username="collaborator")
 case = Case.objects.create(owner=owner)
 CaseMembership.objects.create(case=case, user=collaborator)
-Person.objects.create(case=case, first_name="Synthetic person")
+person = Person.objects.create(case=case, first_name="Synthetic person")
 for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
     model.objects.create(
         case=case,
         uploaded_by=owner,
         title="Synthetic original",
+        source="Synthetic smoke source",
         file=ContentFile(b"Synthetic smoke original\x00\r\n", name="original.bin"),
     )
 TextEvidence.objects.create(
-    case=case, uploaded_by=owner, title="Synthetic text", body="Original café\r\n"
+    case=case, uploaded_by=owner, title="Synthetic text", body="Original café\r\n",
+    source="Synthetic smoke source",
+)
+LocationEvidence.objects.create(
+    case=case, uploaded_by=owner, title="Synthetic location",
+    source="Synthetic smoke source", address="Synthetic harbour office",
+)
+PersonLocationEvidence.objects.create(
+    case=case, uploaded_by=owner, title="Synthetic person location",
+    source="Synthetic smoke source", person=person, latitude="0", longitude="-79.123456",
 )
 PY
 compose stop
@@ -62,7 +72,7 @@ from django.contrib.auth import get_user_model
 import hashlib
 from uuid import UUID
 from cases.models import Case
-from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, TextEvidence
+from evidence.models import AudioEvidence, DocumentEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, TextEvidence
 from people.models import Person
 
 owner = get_user_model().objects.get(username="smoke")
@@ -84,6 +94,7 @@ for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
     evidence = model.objects.get(case=case)
     assert isinstance(evidence.pk, UUID)
     assert evidence.uploaded_by == owner
+    assert evidence.source == "Synthetic smoke source"
     assert evidence.original_filename == "original.bin"
     with evidence.file.open("rb") as original:
         content = original.read()
@@ -94,6 +105,14 @@ text = TextEvidence.objects.get(case=case)
 assert isinstance(text.pk, UUID)
 assert text.body == "Original café\r\n"
 assert text.sha256 == hashlib.sha256(text.body.encode("utf-8")).hexdigest()
+assert text.source == "Synthetic smoke source"
+for model in (LocationEvidence, PersonLocationEvidence):
+    location = model.objects.get(case=case)
+    assert isinstance(location.pk, UUID)
+    assert location.source == "Synthetic smoke source"
+    assert location.sha256 == hashlib.sha256(location.original_bytes()).hexdigest()
+assert LocationEvidence.objects.get(case=case).address == "Synthetic harbour office"
+assert PersonLocationEvidence.objects.get(case=case).person == person
 PY
 compose exec -T web python -c \
     'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok"}'

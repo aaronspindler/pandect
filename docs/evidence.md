@@ -1,18 +1,21 @@
 # Evidence models and original storage
 
-The `evidence` app stores original investigation material. Each record belongs to
-exactly one `cases.Case` through a required foreign key. A case can contain many
-records of each type. There is no global evidence pool or concrete shared evidence
-table: `Evidence` and `FileEvidence` are abstract Django models.
+The `evidence` app stores original investigation material. Each record belongs
+to exactly one `cases.Case` through a required foreign key. A case can contain
+many records of each type. There is no global evidence pool or concrete shared
+evidence table: `Evidence`, `FileEvidence`, and `LocationContent` are abstract
+Django models.
 
 ## Investigator workflow
 
 Inside a case, owners and editors choose **Add evidence** and select Document,
-Image, Audio, or Text. File categories describe the submitted material; no parser
-verifies them. Enter a title and optional description/source details. Text captures
-one browser-submitted original; to preserve a text file's exact bytes, upload the
-file as a Document instead. Browser textareas may normalize line endings, but the
-server does not trim or normalize received original text.
+Image, Audio, Text, Location, or Person location. File categories describe the
+submitted material; no parser verifies them. Enter a title, an optional
+**Source** name/citation, and optional description, source URL, source
+description, and collection time. Text captures one browser-submitted original;
+to preserve a text file's exact bytes, upload the file as a Document instead.
+Browser textareas may normalize line endings, but the server does not trim or
+normalize received original text.
 
 The normal form supports one record without JavaScript. With JavaScript, select
 or drop a batch and review each entry's title, category, and source details before
@@ -27,11 +30,12 @@ retry the same frozen submission so an already-saved original is not duplicated.
 **Stop after this file** pauses pending entries. Queues live only in page memory;
 reloading may require file reselection, and uploads are not resumable.
 
-The Evidence collection searches title, descriptions, source details/URL, and
-original filenames, with type and Active/Archived/All filters. It uses 25 records
-per page. Wide screens keep the record list beside the selected original/details;
-smaller screens use the same canonical detail pages and browser navigation.
-Text originals are shown as escaped read-only text. Files are downloaded through
+The Evidence collection searches title, descriptions, source name/details/URL,
+original filenames, location addresses, and linked person names/contact details,
+with type and Active/Archived/All filters. It uses 25 records per page. Wide
+screens keep the record list beside the selected original/details; smaller
+screens use the same canonical detail pages and browser navigation. Text
+originals are shown as escaped read-only text. Files are downloaded through
 currently authorized attachment routes; this release does not embed documents,
 render image previews, or play audio.
 
@@ -44,15 +48,17 @@ whole-case deletion removes retained evidence through the product interface.
 
 ## Models and metadata
 
-All four concrete models inherit these fields from `Evidence`:
+All six concrete models inherit these fields from `Evidence`:
 
 - An automatically generated, non-editable UUIDv4 primary key (`id`).
 - Required `case`, `uploaded_by`, and `title` (up to 255 characters).
 - Automatic `created_at` and `edited_at` timestamps. `edited_at` changes on normal
   saves, including `save(update_fields=[...])`; creation time remains fixed.
-- Optional `description`, `source_url`, `source_description`, and `collected_at`.
+- Optional `description`, `source` (a name/citation up to 255 characters),
+  `source_url`, `source_description`, and `collected_at`.
   Collection time describes source provenance, not the upload timestamp.
-- Generated `sha256`, calculated from the original bytes or captured UTF-8 text.
+- Generated `sha256`, calculated from the original bytes, captured UTF-8 text,
+  or canonical location JSON.
 - `is_archived`, plus `archive_changed_at` and protected `archive_changed_by`
   attribution for the latest real archive/restore transition; this is not a full
   history journal.
@@ -65,6 +71,8 @@ All four concrete models inherit these fields from `Evidence`:
 | `AudioEvidence` | `file` | `duration` as a `timedelta`, `sample_rate` in Hz, `channel_count` |
 | `DocumentEvidence` | `file` | `page_count` |
 | `TextEvidence` | `body` | `language` tag, up to 35 characters |
+| `LocationEvidence` | `address` and/or `latitude` + `longitude`, optional `observed_at` | Shared source/description fields |
+| `PersonLocationEvidence` | Same location fields plus a required `person` in the same case | Shared source/description fields |
 
 File models inherit `file`, generated `original_filename` and `byte_size`, and
 optional `declared_content_type` from `FileEvidence`. Uploaded-file content types
@@ -78,6 +86,44 @@ or automatic metadata verification. Image originals use `FileField`, without a
 Pillow dependency. Text files may be stored as documents; `TextEvidence.body`
 holds pasted original text. Descriptions and optional metadata are analyst input,
 not extracted facts or AI results. File checksums do not prove a source is truthful.
+
+## Location observations
+
+Choose **Location** to capture an address or a pair of coordinates. Choose
+**Person location** for a reported association with an existing person in the
+same case. Both types inherit every shared evidence field, including **Source**,
+source URL, source description, collection time, uploader, checksum, and archive
+attribution. The person selector includes only people in the current case;
+forged selections are rejected by forms and normal model validation/saves.
+
+An address can contain up to 20,000 characters and is preserved without
+trimming. Coordinates use WGS 84 decimal degrees with up to six decimal places.
+Supply both latitude (-90 to 90) and longitude (-180 to 180), or neither. At
+least a non-whitespace address or a coordinate pair is required. Zero is a valid
+coordinate. Optional **Observed at (UTC)** records the time reported by the
+source, separately from source collection time and the time the record was
+added. Unknown values remain unknown. There is no geocoding, map, tracking, or
+presence verification.
+
+The address, coordinates, observation time, and person link are immutable
+originals. Correct a description or source through **Edit details**; create
+another record to correct the original observation. Person names shown in the
+reader reflect the current person record, while its retained UUID identifies the
+original association. A reported association is not proof of identity or
+presence.
+
+**Download original** returns the canonical UTF-8 JSON used for SHA-256: sorted
+keys, compact separators, unescaped Unicode, coordinates as six-place decimal
+strings (zero always positive), missing coordinates/times as JSON null, and
+observation time as a UTC ISO timestamp. The schema is `pandect.location.v1` or
+`pandect.person-location.v1`; the latter also includes `person_id`. Shared editable
+metadata, including Source, is separate from this original and its checksum.
+Authorized viewers can read/download archived observations as with other evidence.
+
+Retained person-location evidence restricts individual person deletion,
+including when archived. This protects the original association. Confirmed
+whole-case deletion still cascades to both the evidence and its person. There is
+no separate shared location table or individual evidence deletion route.
 
 ## Creating and editing records
 
@@ -123,12 +169,12 @@ PostgreSQL constraints enforce required content, relationships, checksums, and
 numeric bounds.
 
 Normal validation and saves reject changes to the case, uploader, creation time,
-original text/file, original filename, byte size, declared content type, and
-checksum, and submission ID. A changed original must become a new record. Descriptions, source
-descriptions, collection dates, and optional type metadata may be corrected.
-Removing a collaborator does not remove their retained evidence or attribution.
-The uploader uses `PROTECT`: users with evidence cannot be deleted until that
-evidence is removed.
+original text/file/location/person link, original filename, byte size, declared
+content type, and checksum, and submission ID. A changed original must become a
+new record. Descriptions, source names/descriptions, collection dates, and optional
+type metadata may be corrected. Removing a collaborator does not remove their
+retained evidence or attribution. The uploader uses `PROTECT`: users with
+evidence cannot be deleted until that evidence is removed.
 
 UUIDs are assigned before saving. A new instance cannot replace an existing
 record with the same ID, including through forced updates; creation always
@@ -161,10 +207,11 @@ backend interface rather than an end-user permission boundary.
 
 Trusted maintenance can delete evidence through the ORM, which removes its row;
 ordinary users have no individual deletion path. Deleting a case cascades to all
-its active and archived evidence. For file evidence, a `post_delete` receiver removes the original through
-the storage API only after database commit, including queryset/cascading deletion.
-A rolled-back deletion preserves both the row and file. Text originals disappear
-with their database records. Files belonging to other cases are preserved.
+its active and archived evidence. For file evidence, a `post_delete` receiver
+removes the original through the storage API only after database commit,
+including queryset/cascading deletion. A rolled-back deletion preserves both the
+row and file. Text and location originals disappear with their database records.
+Files belonging to other cases are preserved.
 
 Storage failures do not undo a committed deletion or prevent cleanup of other
 files. The `evidence.signals` logger reports a generated storage key without the
@@ -191,13 +238,18 @@ delete files merely because an upload or transaction reported an error.
 The initial evidence migration depends on the configured user model and
 `cases/0001_initial`; it creates four UUID tables without requiring new
 dependencies. Apply it with the usual documented `migrate` command on a fresh
-database. See the [pre-release UUID baseline](architecture.md#primary-keys-and-the-initial-schema)
-if the earlier integer initial migrations were already applied.
-The additive evidence `0002` migration adds archive attribution/state and
-submission IDs. Existing material starts active with null archive attribution
-and submission ID; original bytes and integrity metadata are unchanged. Apply
-pending migrations using the documented upgrade workflow, without resetting
-existing databases. Back up before upgrades. Database backups include text and
+database. See the [pre-release UUID
+baseline](architecture.md#primary-keys-and-the-initial-schema) if the earlier
+integer initial migrations were already applied. The additive evidence `0002`
+migration adds archive attribution/state and submission IDs. Existing material
+starts active with null archive attribution and submission ID; original bytes
+and integrity metadata are unchanged. Apply pending migrations using the
+documented upgrade workflow, without resetting existing databases. The additive
+`0003_location_evidence_and_source` migration creates the two location tables
+and adds optional `source` fields to all four existing evidence tables. Existing
+records receive an empty source name; their source URLs, descriptions,
+checksums, and originals remain unchanged. No reset or data import is required.
+Back up before upgrades. Database backups include text/location originals and
 file metadata; file originals require a matching private storage backup. See
 [operations](operations.md).
 

@@ -1,15 +1,16 @@
 from urllib.parse import urlencode
 
-from config.access import product_login_required
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
+from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
+from config.access import product_login_required
 
 from .forms import PersonDeleteForm, PersonForm, person_revision
 from .models import Person
@@ -156,9 +157,17 @@ def person_delete(request, case_id, person_id):
         person = get_object_or_404(people, pk=person_id)
         form = PersonDeleteForm(request.POST if request.method == "POST" else None)
         if request.method == "POST" and form.is_valid():
-            person.delete()
-            messages.success(request, "Person record deleted.")
-            return redirect("people:list", case_id=case.pk)
+            try:
+                person.delete()
+            except RestrictedError:
+                form.add_error(
+                    None,
+                    "This person is linked to retained location evidence and cannot "
+                    "be deleted individually. Archived evidence also retains its link.",
+                )
+            else:
+                messages.success(request, "Person record deleted.")
+                return redirect("people:list", case_id=case.pk)
     return render(
         request,
         "people/delete.html",

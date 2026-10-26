@@ -56,9 +56,10 @@ required by that image's version-specific layout.
   model support the product workflows. `cases.permissions` provides current case
   authorization shared by product views. See [case workflows and permissions](cases.md).
 - `/health/` checks database connectivity without returning secrets or case data.
-- `evidence/` contains abstract `Evidence` and `FileEvidence` bases and concrete
-  image, audio, document, and text models. Each record has one required case and
-  uploader. Original files/text have generated checksums and are protected against
+- `evidence/` contains abstract `Evidence`, `FileEvidence`, and `LocationContent`
+  bases and concrete image, audio, document, text, location, and person-location
+  models. Each record has one required case and uploader. Original files, text,
+  and location observations have generated checksums and are protected against
   replacement through normal model saves. Archive state retains originals; immutable
   submission UUIDs make uncertain upload retries idempotent. See [evidence](evidence.md).
 - `people/` contains `Person`, an investigator-maintained name/contact record
@@ -71,11 +72,12 @@ Allauth does not implement case invitations or authorization.
 ## Primary keys and the initial schema
 
 Every Pandect model uses an explicit, non-editable `UUIDField` primary key with
-`default=uuid4`: `User`, `Case`, `CaseMembership`, `CaseInvitation`, `Person`, and
-all four concrete evidence models. Each new instance receives an independent UUIDv4 before saving;
-use the model's adding state rather than the presence of a primary key to tell
-whether it has been saved. Foreign keys to these models use PostgreSQL's native
-`uuid` type, including user references in Django admin and allauth.
+`default=uuid4`: `User`, `Case`, `CaseMembership`, `CaseInvitation`, `Person`,
+and all six concrete evidence models. Each new instance receives an independent
+UUIDv4 before saving; use the model's adding state rather than the presence of a
+primary key to tell whether it has been saved. Foreign keys to these models use
+PostgreSQL's native `uuid` type, including user references in Django admin and
+allauth.
 
 Declare the same field on future Pandect models. Django's `DEFAULT_AUTO_FIELD`
 requires an `AutoField` subclass and cannot be set to `UUIDField`; the setting

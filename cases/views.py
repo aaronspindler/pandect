@@ -51,6 +51,8 @@ def _evidence_models():
         AudioEvidence,
         DocumentEvidence,
         ImageEvidence,
+        LocationEvidence,
+        PersonLocationEvidence,
         TextEvidence,
     )
 
@@ -59,6 +61,8 @@ def _evidence_models():
         ("audio", AudioEvidence),
         ("document", DocumentEvidence),
         ("text", TextEvidence),
+        ("location", LocationEvidence),
+        ("person-location", PersonLocationEvidence),
     )
 
 
@@ -76,7 +80,7 @@ def _case_summary(case):
                 {
                     "title": item["title"],
                     "created_at": item["created_at"],
-                    "kind": kind.title(),
+                    "kind": kind.replace("-", " ").title(),
                     "url": reverse("evidence:detail", args=(case.pk, kind, item["pk"])),
                 }
             )

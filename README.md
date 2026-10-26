@@ -1,27 +1,144 @@
 # Pandect
 
 Pandect is an open-source investigation and intelligence platform designed to
-make open-source intelligence (OSINT) approachable, with clear workflows and
-traceable evidence.
+make open-source intelligence (OSINT) approachable. Its goal is to bring
+evidence, people, connections, and analysis into one clear investigation
+workflow, with the care and usability expected of an everyday application.
 
-**Status:** Core investigator interfaces are implemented on the Django and
-PostgreSQL foundation. Verified accounts can create cases, invite collaborators,
-manage people, and upload or capture image, audio, document, and text evidence.
-The responsive interface uses the refined three-pane design, with private
-original downloads and explicit source/investigator details.
+Investigators should be able to understand where information came from, preserve
+uncertainty, and collaborate without losing control of their case material.
+Pandect is built with Django and PostgreSQL, with one codebase for self-hosting
+and operator-hosted deployments.
 
-Owners and editors can edit descriptive evidence details and archive or restore
-material. Individual evidence is retained; only owner-confirmed deletion of a
-whole case removes its originals. Case permissions apply to every product request.
+**Status:** Pandect is in active development. The current application provides
+the core case, collaboration, people, and evidence workflows described below.
+Analysis and visualization capabilities are being built incrementally.
 
-To start, follow [local setup](docs/development.md), create and verify an account,
-then choose **Create case**. Add evidence, record people, and invite collaborators
-from case settings. Ordinary investigators do not need Django admin access.
+## Features
 
-Extraction, AI, graphs, maps, timelines, and reporting remain planned. One codebase
-supports local self-hosting and operator-hosted deployment without requiring an
-AI service for routine investigation work.
+- **Case management:** Create investigations with their own people, evidence, and
+  access permissions. Search your cases and filter owned or shared work.
+- **Collaboration:** Invite people by email, grant viewer or editor access, and
+  manage collaborators from case settings. Each case has one owner.
+- **People records:** Capture names, contact details, and investigator notes
+  within a case, including partial or uncertain identities.
+- **Evidence collection:** Upload images, audio, and documents, or capture original
+  text. Queue multiple files and record source details and collection times.
+- **Location observations:** Record addresses or coordinates, optionally linked to
+  a person in the same case, with source details and an observation time. These
+  capture reported information rather than verified whereabouts.
+- **Original preservation:** Retain originals with SHA-256 checksums. Edit
+  descriptive details separately, archive or restore evidence, and download files
+  through case-authorized routes. Individual evidence is retained until its owner
+  confirms deletion of the whole case.
+- **Investigator workspace:** Search and filter evidence in a responsive interface
+  with a three-pane desktop layout, mobile views, and keyboard navigation.
+- **Self-hosting:** Run locally with Docker Compose. Ordinary case management
+  requires no AI credentials or hosted Pandect subscription.
 
-- [Project documentation](docs/README.md)
-- [Local setup and dependency management](docs/development.md)
-- [Contributor and agent guide](AGENTS.md)
+### Planned capabilities
+
+The longer-term direction includes evidence extraction and previews, AI-assisted
+analysis, search across accessible cases, entity and relationship analysis,
+graphs, timelines, maps, annotations, and reporting. These are planned features,
+not capabilities of the current release.
+
+## Getting started
+
+Install Docker with Compose v2, `make`, and
+[uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.5. uv manages
+the project's pinned Python version and dependencies.
+
+Clone the repository and prepare a local environment:
+
+```sh
+git clone https://github.com/aaronspindler/pandect.git
+cd pandect
+uv sync --locked
+cp .env.example .env
+```
+
+Generate a unique Django secret key and database password in the new `.env`
+file, then start the application:
+
+```sh
+uv run --locked python - <<'PY'
+import secrets
+from pathlib import Path
+
+path = Path(".env")
+content = path.read_text()
+for name in ("DJANGO_SECRET_KEY", "POSTGRES_PASSWORD"):
+    content = content.replace(f"{name}=\n", f"{name}={secrets.token_urlsafe(50)}\n")
+path.write_text(content)
+path.chmod(0o600)
+PY
+make run
+```
+
+Open <http://localhost:8000/>, create an account, and verify your email. In the
+default local configuration, verification and invitation messages appear in:
+
+```sh
+docker compose logs web
+```
+
+Keep these logs private because they contain account and invitation links. After
+verification:
+
+1. Choose **All cases → Create case**.
+2. Use **Add evidence** to upload files or capture text and location observations.
+3. Open **People → Add person** to record people involved in the investigation.
+4. Use **Settings → Invite collaborator** to share the case.
+
+Ordinary investigators do not need staff or administrator permissions.
+
+Use `docker compose stop` to stop the application while retaining its database
+and evidence. Run `make run` to start it again. For configuration, alternate
+ports, or running Python on the host, see the [local development
+guide](docs/development.md). The supplied Compose setup is for local
+development; see [operations](docs/operations.md) before configuring a hosted
+deployment.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Local setup and configuration](docs/development.md)
+- [Cases, invitations, and permissions](docs/cases.md)
+- [People records](docs/people.md)
+- [Evidence handling and retention](docs/evidence.md)
+- [Architecture and implemented scope](docs/architecture.md)
+- [Operations, backup, and recovery](docs/operations.md)
+- [Validation and CI](docs/validation.md)
+
+## Contributing
+
+Bug reports, feature requests, documentation improvements, and pull requests are
+welcome. Start with the [contributor guide](AGENTS.md), inspect the relevant
+documentation, and read [DESIGN.md](DESIGN.md) before changing the interface.
+
+After completing local setup, run the core checks against the local PostgreSQL
+database:
+
+```sh
+uv run --locked --env-file .env make check
+```
+
+See [validation](docs/validation.md) for the full workflow and additional
+checks. Use synthetic or sanitized examples in contributions; keep investigation
+material, credentials, uploads, and private logs out of issues and pull
+requests.
+
+## Contact
+
+- **Maintainer:** [Aaron Spindler](https://github.com/aaronspindler).
+- **Questions, bugs, and feature requests:**
+  [Open an issue](https://github.com/aaronspindler/pandect/issues).
+- **Security vulnerabilities:**
+  [Report privately through GitHub](https://github.com/aaronspindler/pandect/security/advisories/new).
+
+## License
+
+This repository does not currently include a project-wide license file. Bundled
+third-party assets retain their own licenses; see the [icon
+license](static/pandect/icons/LICENSE).

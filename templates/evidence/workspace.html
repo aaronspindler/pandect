@@ -32,7 +32,7 @@
       <div class="empty-state compact-empty">
         {% if query or selected_kind %}<h2>No matching evidence</h2><p>Try another search or clear your filters.</p><a href="{% url 'evidence:list' case_id=case.pk %}">Clear filters</a>
         {% elif state == 'archived' %}<h2>No archived evidence</h2><p>Archived originals remain available here until the whole case is deleted.</p>
-        {% else %}<h2>Your evidence belongs here</h2><p>Add original files or captured text with their source details.</p>{% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case_id=case.pk %}">Add evidence</a>{% else %}<p>Your Viewer role lets you inspect material added to this case.</p>{% endif %}{% endif %}
+        {% else %}<h2>Your evidence belongs here</h2><p>Add files, captured text, or reported locations with their source details.</p>{% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case_id=case.pk %}">Add evidence</a>{% else %}<p>Your Viewer role lets you inspect material added to this case.</p>{% endif %}{% endif %}
       </div>
       {% endfor %}
     </div>
@@ -57,13 +57,21 @@
     {% if not can_edit %}<p class="role-note">You have Viewer access. You can inspect this evidence and download its original.</p>{% endif %}
     {% if item.is_archived %}<p class="notice">Archived evidence is retained and remains accessible to current case members.</p>{% endif %}
     <nav class="section-tabs" aria-label="Evidence sections"><a href="?section=original{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'original' %} aria-current="page"{% endif %}>Original</a><a href="?section=details{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'details' %} aria-current="page"{% endif %}>Details</a></nav>
-    <div class="evidence-provenance"><span>Source: {{ item.source_description|default:"Not recorded" }}</span><span>Added by {{ item.uploaded_by }}</span><time datetime="{{ item.created_at|date:'c' }}">{{ item.created_at|date:"d M Y, H:i" }} UTC</time></div>
+    <div class="evidence-provenance"><span>Source: {{ item.source|default:item.source_description|default:"Not recorded" }}</span><span>Added by {{ item.uploaded_by }}</span><time datetime="{{ item.created_at|date:'c' }}">{{ item.created_at|date:"d M Y, H:i" }} UTC</time></div>
     {% if section == 'original' %}
-      {% if kind == 'text' %}<div class="original-text">{{ item.body }}</div>{% else %}<div class="file-original panel"><h2>{{ item.original_filename }}</h2><p>{{ item.byte_size|filesizeformat }} · {{ item.declared_content_type|default:"Content type not supplied" }}</p><p>The original is retained without automatic format verification or processing. Download it to inspect the file.</p><a class="button button-primary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">Download original</a></div>{% endif %}
+      {% if kind == 'text' %}<div class="original-text">{{ item.body }}</div>{% elif is_location %}
+      <section class="panel" aria-labelledby="location-heading"><h2 id="location-heading">Reported location</h2><p class="muted">Source-supplied information; not independently verified.</p><dl class="metadata-grid">
+        {% if kind == 'person-location' %}<div><dt>Person</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.person_id %}">{{ item.person }}</a></dd></div>{% endif %}
+        <div><dt>Address</dt><dd>{{ item.address|default:"Not recorded"|linebreaksbr }}</dd></div>
+        <div><dt>Latitude</dt><dd>{{ item.latitude|default_if_none:"Not recorded" }}</dd></div>
+        <div><dt>Longitude</dt><dd>{{ item.longitude|default_if_none:"Not recorded" }}</dd></div>
+        <div><dt>Observed at</dt><dd>{% if item.observed_at %}{{ item.observed_at|date:"d M Y, H:i" }} UTC{% else %}Not recorded{% endif %}</dd></div>
+      </dl>{% if kind == 'person-location' %}<p>A reported association does not verify identity or presence. Person names reflect the current person record.</p>{% endif %}</section>
+      {% else %}<div class="file-original panel"><h2>{{ item.original_filename }}</h2><p>{{ item.byte_size|filesizeformat }} · {{ item.declared_content_type|default:"Content type not supplied" }}</p><p>The original is retained without automatic format verification or processing. Download it to inspect the file.</p><a class="button button-primary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">Download original</a></div>{% endif %}
       <section class="description-section"><h2>Investigator description</h2>{% if item.description %}<div class="prose">{{ item.description|linebreaksbr }}</div>{% else %}<p class="muted">No description recorded.</p>{% endif %}</section>
     {% else %}
       <h2>Source and provenance</h2>
-      <dl class="metadata-grid"><div><dt>Source description</dt><dd>{{ item.source_description|default:"Not recorded"|linebreaksbr }}</dd></div><div><dt>Source URL</dt><dd>{% if item.source_url %}<a href="{{ item.source_url }}" rel="noopener noreferrer" referrerpolicy="no-referrer">{{ item.source_url }}</a>{% else %}Not recorded{% endif %}</dd></div><div><dt>Source collected at</dt><dd>{% if item.collected_at %}{{ item.collected_at|date:"d M Y, H:i" }} UTC{% else %}Not recorded{% endif %}</dd></div><div><dt>Details last changed</dt><dd>{{ item.edited_at|date:"d M Y, H:i" }} UTC</dd></div></dl>
+      <dl class="metadata-grid"><div><dt>Source</dt><dd>{{ item.source|default:"Not recorded" }}</dd></div><div><dt>Source description</dt><dd>{{ item.source_description|default:"Not recorded"|linebreaksbr }}</dd></div><div><dt>Source URL</dt><dd>{% if item.source_url %}<a href="{{ item.source_url }}" rel="noopener noreferrer" referrerpolicy="no-referrer">{{ item.source_url }}</a>{% else %}Not recorded{% endif %}</dd></div><div><dt>Source collected at</dt><dd>{% if item.collected_at %}{{ item.collected_at|date:"d M Y, H:i" }} UTC{% else %}Not recorded{% endif %}</dd></div><div><dt>Details last changed</dt><dd>{{ item.edited_at|date:"d M Y, H:i" }} UTC</dd></div></dl>
       <h2>Investigator description</h2><div class="prose">{{ item.description|default:"Not recorded"|linebreaksbr }}</div>
       {% if technical_details %}<h2>Declared technical details</h2><p class="muted">Investigator-supplied information; not verified by a parser.</p><dl class="metadata-grid">{% for label,value in technical_details %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl>{% endif %}
       {% if item.archive_changed_at %}<p class="muted">{% if item.is_archived %}Archived{% else %}Restored{% endif %} by {{ item.archive_changed_by }} on {{ item.archive_changed_at|date:"d M Y, H:i" }} UTC.</p>{% endif %}

@@ -16,11 +16,12 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
-from evidence.forms import KINDS
+from evidence.forms import FILE_KINDS, KINDS, LOCATION_KINDS
 from evidence.models import DocumentEvidence, TextEvidence
+from people.models import Person
 
 
-class EvidenceViewTests(TestCase):
+class EvidenceViewTestMixin:
     @classmethod
     def setUpTestData(cls):
         cls.users = {}
@@ -38,6 +39,7 @@ class EvidenceViewTests(TestCase):
         cls.other_case = Case.objects.create(
             owner=cls.users["outsider"], name="Other case"
         )
+        cls.person = Person.objects.create(case=cls.case, first_name="Synthetic person")
         CaseMembership.objects.create(
             case=cls.case, user=cls.users["editor"], role="editor"
         )
@@ -77,10 +79,15 @@ class EvidenceViewTests(TestCase):
             "submission_id": str(uuid4()),
             "title": "New source",
             "description": "Investigator description",
+            "source": "Synthetic witness",
             "source_description": "Synthetic source",
         }
         if kind == "text":
             data["body"] = "  Original café\r\nunchanged.  "
+        elif kind in LOCATION_KINDS:
+            data["address"] = "  Synthetic harbour office\r\n"
+            if kind == "person-location":
+                data["person"] = str(self.person.pk)
         else:
             data["file"] = SimpleUploadedFile(
                 "original.bin",
@@ -89,6 +96,8 @@ class EvidenceViewTests(TestCase):
             )
         return data | overrides
 
+
+class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
     def test_create_all_types_for_owner_and_editor_preserves_originals(self):
         for role in ("owner", "editor"):
             self.login(role)
@@ -99,8 +108,10 @@ class EvidenceViewTests(TestCase):
                         data["body"].encode()
                         if kind == "text"
                         else bytes(data["file"].read())
+                        if kind in FILE_KINDS
+                        else None
                     )
-                    if kind != "text":
+                    if kind in FILE_KINDS:
                         data["file"].seek(0)
                     response = self.client.post(
                         self.url("create"), data, HTTP_ACCEPT="application/json"
@@ -109,11 +120,17 @@ class EvidenceViewTests(TestCase):
                     item = model.objects.get(pk=response.json()["id"])
                     self.assertEqual(item.uploaded_by, self.users[role])
                     self.assertEqual(item.case, self.case)
-                    self.assertEqual(item.sha256, hashlib.sha256(original).hexdigest())
+                    self.assertEqual(item.source, "Synthetic witness")
+                    if original is not None:
+                        self.assertEqual(
+                            item.sha256, hashlib.sha256(original).hexdigest()
+                        )
                     if kind == "text":
                         self.assertEqual(item.body, data["body"])
-                    else:
+                    elif kind in FILE_KINDS:
                         self.assertEqual(item.file.read(), original)
+                    else:
+                        self.assertEqual(item.address, data["address"])
 
     def test_ordinary_html_forms_and_download_work_for_every_type(self):
         self.login("owner")

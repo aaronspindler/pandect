@@ -36,6 +36,9 @@ CSRF, and forged ownership, membership IDs, parent cases, and roles.
 Evidence tests cover all material types, required cases/uploaders, exact original
 bytes and checksums, metadata bounds, immutable originals, historical attribution,
 private storage paths, committed deletion cleanup, rollback, and storage failures.
+Location coverage includes paired/ranged coordinates, original JSON/checksum
+stability, same-case person selection, retained person links, whole-case deletion,
+and source creation/edit/search across every evidence type.
 Product-view tests additionally cover current role gates and cross-case UUID
 requests, private downloads, metadata conflicts, archive/restore, bounded uploads,
 and idempotent retries after uncertain confirmation. Case/invitation tests cover
@@ -50,7 +53,7 @@ memberships, model permissions, CSRF, and case-deletion permission requirements.
 `make compose-smoke` needs Docker only. It creates a unique project with temporary
 synthetic configuration, random loopback ports, and fresh volumes. It builds the
 runtime image, checks initial migrations and HTTP readiness, creates a synthetic
-owner, collaborator, case, membership, and evidence of all four types, stops and
+owner, collaborator, case, membership, and evidence of all six types, stops and
 restarts the stack, and verifies records and original file bytes persist. It also
 checks that the production image serves its collected application assets with
 debug disabled. Its exit trap removes only that project's containers and volumes. It never uses your `.env`
@@ -87,7 +90,8 @@ material.
 The suite exercises account/case/people/evidence/collaboration workflows,
 JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
 navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
-and dense desktop record visibility. Visual targets are 12 complete ordinary
+location/person-location forms and private JSON downloads, source fields in file
+batches, and dense desktop record visibility. Visual targets are 12 complete ordinary
 rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible hit
 areas; screen-reader review and operator deployment checks remain separate human
 validation activities. A successful build or HTTP readiness response is not a

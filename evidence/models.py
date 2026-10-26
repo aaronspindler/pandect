@@ -1,10 +1,11 @@
 import hashlib
-from datetime import timedelta
+import json
+from datetime import UTC, timedelta
 from uuid import uuid4
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, router
 from django.utils import timezone
 
@@ -34,6 +35,7 @@ class Evidence(models.Model):
     edited_at = models.DateTimeField(auto_now=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+    source = models.CharField(max_length=255, blank=True)
     source_url = models.URLField(max_length=2048, blank=True)
     source_description = models.TextField(blank=True)
     collected_at = models.DateTimeField(null=True, blank=True)
@@ -304,3 +306,131 @@ class TextEvidence(Evidence):
         if not isinstance(self.body, str) or not self.body:
             raise ValidationError({"body": "Supply the original text."})
         self.sha256 = hashlib.sha256(self.body.encode("utf-8")).hexdigest()
+
+
+class LocationContent(Evidence):
+    """An immutable, investigator-supplied location observation."""
+
+    address = models.TextField(blank=True, max_length=20000)
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-90), MaxValueValidator(90)],
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-180), MaxValueValidator(180)],
+    )
+    observed_at = models.DateTimeField(null=True, blank=True)
+
+    immutable_fields = (
+        *Evidence.immutable_fields,
+        "address",
+        "latitude",
+        "longitude",
+        "observed_at",
+    )
+
+    class Meta(Evidence.Meta):
+        abstract = True
+        constraints = [
+            *Evidence.Meta.constraints,
+            models.CheckConstraint(
+                condition=models.Q(address__regex=r"\S")
+                | models.Q(latitude__isnull=False, longitude__isnull=False),
+                name="%(app_label)s_%(class)s_location_present",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(latitude__isnull=True, longitude__isnull=True)
+                | models.Q(latitude__isnull=False, longitude__isnull=False),
+                name="%(app_label)s_%(class)s_coordinate_pair",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(latitude__isnull=True)
+                | models.Q(latitude__gte=-90, latitude__lte=90),
+                name="%(app_label)s_%(class)s_latitude_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(longitude__isnull=True)
+                | models.Q(longitude__gte=-180, longitude__lte=180),
+                name="%(app_label)s_%(class)s_longitude_range",
+            ),
+        ]
+
+    def original_data(self):
+        """Versioned JSON values shared by hashing and private downloads."""
+        return {
+            "schema": "pandect.location.v1",
+            "address": self.address,
+            "latitude": (
+                format(self.latitude or 0, ".6f") if self.latitude is not None else None
+            ),
+            "longitude": (
+                format(self.longitude or 0, ".6f")
+                if self.longitude is not None
+                else None
+            ),
+            "observed_at": (
+                self.observed_at.astimezone(UTC).isoformat()
+                if self.observed_at is not None
+                else None
+            ),
+        }
+
+    def original_bytes(self):
+        return json.dumps(
+            self.original_data(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+    def _prepare_original(self):
+        for name in ("address", "latitude", "longitude", "observed_at"):
+            field = self._meta.get_field(name)
+            setattr(self, name, field.clean(getattr(self, name), self))
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValidationError("Enter both latitude and longitude, or neither.")
+        if not self.address.strip() and self.latitude is None:
+            raise ValidationError("Enter an address or both coordinates.")
+        if self.observed_at is not None and timezone.is_naive(self.observed_at):
+            self.observed_at = timezone.make_aware(self.observed_at)
+        self.sha256 = hashlib.sha256(self.original_bytes()).hexdigest()
+
+
+class LocationEvidence(LocationContent):
+    pass
+
+
+class PersonLocationEvidence(LocationContent):
+    """A reported association with a case person, not proof of presence."""
+
+    person = models.ForeignKey(
+        "people.Person", on_delete=models.RESTRICT, related_name="location_evidence"
+    )
+
+    immutable_fields = (*LocationContent.immutable_fields, "person_id")
+
+    def _check_original(self, using):
+        super()._check_original(using)
+        from people.models import Person
+
+        if (
+            not self.person_id
+            or not Person.objects.using(using)
+            .filter(pk=self.person_id, case_id=self.case_id)
+            .exists()
+        ):
+            raise ValidationError({"person": "Choose a person in this case."})
+
+    def original_data(self):
+        return {
+            **super().original_data(),
+            "schema": "pandect.person-location.v1",
+            "person_id": str(self.person_id),
+        }

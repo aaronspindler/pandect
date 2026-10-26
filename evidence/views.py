@@ -22,7 +22,15 @@ from django.views.decorators.http import (
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 
-from .forms import COMMON_FIELDS, KIND_LABELS, KINDS, TYPE_FIELDS, evidence_form
+from .forms import (
+    COMMON_FIELDS,
+    FILE_KINDS,
+    KIND_LABELS,
+    KINDS,
+    LOCATION_KINDS,
+    TYPE_FIELDS,
+    evidence_form,
+)
 
 
 def _wants_json(request):
@@ -58,6 +66,8 @@ def _model(kind):
 
 def _record(case, kind, evidence_id, *, lock=False):
     queryset = _model(kind).objects.filter(case=case)
+    if kind == "person-location":
+        queryset = queryset.filter(person__case=case).select_related("person")
     if lock:
         queryset = queryset.select_for_update(of=("self",))
     try:
@@ -99,17 +109,29 @@ def _list_context(request, case):
         if selected_kind and kind != selected_kind:
             continue
         queryset = model.objects.filter(case=case)
+        if kind == "person-location":
+            queryset = queryset.filter(person__case=case)
         if state != "all":
             queryset = queryset.filter(is_archived=state == "archived")
         if query:
             condition = (
                 Q(title__icontains=query)
                 | Q(description__icontains=query)
+                | Q(source__icontains=query)
                 | Q(source_description__icontains=query)
                 | Q(source_url__icontains=query)
             )
-            if kind != "text":
+            if kind in FILE_KINDS:
                 condition |= Q(original_filename__icontains=query)
+            if kind in LOCATION_KINDS:
+                condition |= Q(address__icontains=query)
+            if kind == "person-location":
+                condition |= (
+                    Q(person__first_name__icontains=query)
+                    | Q(person__last_name__icontains=query)
+                    | Q(person__email__icontains=query)
+                    | Q(person__phone_number__icontains=query)
+                )
             queryset = queryset.filter(condition)
         queries.append(
             queryset.order_by()
@@ -191,6 +213,7 @@ def detail(request, case_id, kind, evidence_id):
             "technical_details": technical,
             "section": section,
             "nav_section": "evidence",
+            "is_location": kind in LOCATION_KINDS,
         }
     )
     return _private(render(request, "evidence/workspace.html", context))
@@ -334,6 +357,7 @@ def create(request, case_id):
         "kind": kind,
         "kind_label": KIND_LABELS[kind],
         "kind_choices": KIND_LABELS.items(),
+        "is_file": kind in FILE_KINDS,
         "nav_section": "evidence",
         "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
         "max_batch_files": getattr(settings, "PANDECT_MAX_BATCH_FILES", 20),
@@ -404,6 +428,11 @@ def download(request, case_id, kind, evidence_id):
         )
         response["Content-Disposition"] = (
             f'attachment; filename="evidence-{item.pk}.txt"'
+        )
+    elif kind in LOCATION_KINDS:
+        response = HttpResponse(item.original_bytes(), content_type="application/json")
+        response["Content-Disposition"] = (
+            f'attachment; filename="evidence-{item.pk}.json"'
         )
     else:
         try:

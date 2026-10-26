@@ -19,11 +19,15 @@ from evidence.models import (
     AudioEvidence,
     DocumentEvidence,
     ImageEvidence,
+    LocationEvidence,
+    PersonLocationEvidence,
     TextEvidence,
 )
+from people.models import Person
 
 FILE_MODELS = (ImageEvidence, AudioEvidence, DocumentEvidence)
-ALL_MODELS = (*FILE_MODELS, TextEvidence)
+LOCATION_MODELS = (LocationEvidence, PersonLocationEvidence)
+ALL_MODELS = (*FILE_MODELS, TextEvidence, *LOCATION_MODELS)
 ORIGINAL = b"Synthetic original material\x00\r\n"
 
 
@@ -36,6 +40,7 @@ class EvidenceTestMixin:
         cls.outsider = get_user_model().objects.create_user(username="outsider")
         cls.case = Case.objects.create(owner=cls.owner)
         cls.other_case = Case.objects.create(owner=cls.outsider)
+        cls.person = Person.objects.create(case=cls.case, first_name="Synthetic person")
         CaseMembership.objects.create(
             case=cls.case, user=cls.editor, role=CaseMembership.Role.EDITOR
         )
@@ -57,6 +62,10 @@ class EvidenceTestMixin:
         }
         if model is TextEvidence:
             values["body"] = "Original café\r\nincluding spacing.  "
+        elif model in LOCATION_MODELS:
+            values["address"] = "  Synthetic harbour office\r\n"
+            if model is PersonLocationEvidence:
+                values["person"] = self.person
         else:
             values["file"] = SimpleUploadedFile(
                 "original.bin", ORIGINAL, content_type="application/octet-stream"
@@ -162,7 +171,7 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
                 evidence.description = "Analyst description"
                 later = timezone.now() + timedelta(days=1)
                 with patch("django.utils.timezone.now", return_value=later):
-                    if model is TextEvidence:
+                    if model not in FILE_MODELS:
                         evidence.save(update_fields=["description"])
                     else:
                         with patch.object(evidence.file.storage, "open") as opened:
@@ -186,6 +195,8 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
             }
             if model is TextEvidence:
                 changes["body"] = "Replacement text"
+            elif model in LOCATION_MODELS:
+                changes["address"] = "Replacement location"
             else:
                 changes |= {
                     "file": "evidence/another-case/original",
@@ -281,6 +292,8 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
             fields = {"title": "", "sha256": "not-a-checksum"}
             if model is TextEvidence:
                 fields["body"] = ""
+            elif model in LOCATION_MODELS:
+                fields["address"] = ""
             else:
                 fields |= {"file": "", "original_filename": "", "byte_size": 0}
             for field, value in fields.items():

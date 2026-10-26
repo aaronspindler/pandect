@@ -21,8 +21,12 @@ form. Case reassignment, identity verification, and automatic merging are not
 supported.
 
 Only the owner can delete an individual person, after a separate named-target
-confirmation. This does not delete evidence, a login account, or another person
-with matching contacts. Ordinary investigators do not need Django admin access.
+confirmation. Deleting an unlinked person retains evidence, login accounts, and
+other people with matching contacts. A person referenced by retained
+person-location evidence cannot be deleted individually, even if the evidence is
+archived. Whole-case deletion still removes both together; see [location
+observations](evidence.md#location-observations). Ordinary investigators do not
+need Django admin access.
 
 ## Fields and validation
 
@@ -101,4 +105,6 @@ Authorization is enforced by both product and admin entry points, not
 automatically by ORM queries. Future exports, background jobs, and integrations
 must check current case permissions themselves. This interface delivery reuses
 the existing person schema; no person migration is required. Public APIs,
-multiple contact records, and evidence/identity linkage remain planned.
+multiple contact records, and broader identity linkage remain planned.
+Person-location evidence provides a reported association, not verified identity
+or presence; its immutable person link is case-scoped.

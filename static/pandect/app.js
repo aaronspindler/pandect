@@ -80,6 +80,7 @@
     if (type !== "textarea") input.type = type;
     input.value = value;
     if (name === "title") {input.maxLength = 255; input.required = true;}
+    if (name === "source") input.maxLength = 255;
     input.addEventListener("input", () => {
       entry.values[name] = input.value;
       dirtyForms.delete(form);
@@ -130,6 +131,7 @@
     const details = element("details", null);
     details.append(element("summary", "Description and source details"));
     inputField(details, entry, "description", "Investigator description", "textarea", defaults.description);
+    inputField(details, entry, "source", "Source", "text", defaults.source);
     inputField(details, entry, "source_description", "Source description", "textarea", defaults.source_description);
     inputField(details, entry, "source_url", "Source URL", "url", defaults.source_url);
     inputField(details, entry, "collected_at", "Source collected at (UTC)", "datetime-local", defaults.collected_at);
