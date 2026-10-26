@@ -9,7 +9,7 @@
     {
       "filename": "README.md",
       "bytes": 3450,
-      "sha256": "1d7597144abb62a0942b88db30720626af88afb474e2b085920e8e8d430f4c98"
+      "sha256": "a471e07f7b0f7bca2a92ee0c3d0795efb30438fd32b76fb27bf852ae2eb65b57"
     },
     {
       "filename": "pandect-logo-black.png",
@@ -106,8 +106,8 @@
     },
     {
       "filename": "provenance.json",
-      "bytes": 6436,
-      "sha256": "9fd0412d2ee28eb56e2345d0befafbfc49005bed7a6e6ab9e5c1a0b16211e568"
+      "bytes": 6586,
+      "sha256": "83bf2807fe4bc92a8d7994309950687c04c2fa948c03c5cc7305b38720fc7dea"
     },
     {
       "filename": "source/approved-concept.png",

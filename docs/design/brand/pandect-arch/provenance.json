@@ -152,11 +152,11 @@
       "scope": "Local checkout and isolated production image; no hosted CI or deployment evidence",
       "makeCheck": {
         "passed": true,
-        "applicationTests": 190
+        "applicationTests": 261
       },
       "browser": {
         "passed": true,
-        "tests": 6,
+        "tests": 10,
         "engines": [
           "chromium",
           "webkit"
@@ -203,7 +203,9 @@
         "status": 200,
         "contentType": "image/png",
         "sha256Verified": true
-      }
+      },
+      "validatedBaseCommit": "61c7fff8454793e0c7e60550a07b996650ee5285",
+      "validatedRuntimeCommit": "fba755ed6ccbcadc6583eb90df2618ffcf8c984f"
     }
   }
 }
