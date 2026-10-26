@@ -64,6 +64,17 @@ dividers do not replace the stronger boundary required to identify an input.
 - Use one consistent, locally served, appropriately licensed outline icon set.
   Provide text labels for actions; hide decorative icons from assistive tools.
 
+### Brand identity
+
+Use the [approved gothic arch identity](docs/design/brand/pandect-arch/README.md)
+in the shared header and case navigation. Serve the optimized logo assets from
+`static/pandect/brand/`, using oxblood on light surfaces and ivory in dark mode.
+Preserve the artwork's proportions and clear space; its lettering is part of
+the image and does not require a downloaded font. The linked logo has the
+accessible name **Pandect** and at least a `44px` hit area. In forced-colors mode,
+show readable system-font text in place of the image. Browser and touch icons
+use the standalone arch on an ivory background.
+
 ## Layout and information density
 
 The selected direction is a three-pane investigation workspace: case navigation,

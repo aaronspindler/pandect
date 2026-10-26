@@ -1,0 +1,211 @@
+{
+  "selectedOn": "2026-10-26",
+  "selectedDirection": "A — arch + manuscript",
+  "generationTool": "built-in image_gen",
+  "approvedReference": {
+    "filename": "source/approved-concept.png",
+    "sha256": "ac5f4ac6f5598fd5cacf9cab672e04ac6f371aa60d21b2a60d2be3ec4d507872"
+  },
+  "generatedAlphaSources": {
+    "logo": {
+      "filename": "source/logo-alpha.png",
+      "originalFilename": "exec-416e1f34-6fc1-4dbf-a5be-bdf975b9cc33.png",
+      "sha256": "70b9f3f54435d8390740af4ee7fe4fcba9ec4d1b70d837b2c61782c201a90b3e",
+      "width": 2172,
+      "height": 724
+    },
+    "symbol": {
+      "filename": "source/symbol-alpha.png",
+      "originalFilename": "exec-610f91b1-d5a9-4f95-bfe1-3e962720a780.png",
+      "sha256": "e67186a81b651a4c5d5ad789cb42ef9e9538557ce38eddfbed1bcfdcb055dcbf",
+      "width": 1024,
+      "height": 1536
+    }
+  },
+  "productionBriefs": {
+    "logo": "Faithful background-removal edit of approved A. Preserve gothic arch, open-page base, three circular evidence nodes, angular route, diamond terminal, full exact Pandect blackletter wordmark, letter silhouettes and spacing. True transparent alpha; no redesign.",
+    "symbol": "Faithful extraction of only the approved left-hand gothic arch. Preserve approved silhouette, three evidence circles, angular path, diamond terminal and page-shaped base; remove wordmark and parchment. True transparent alpha; no redesign."
+  },
+  "deterministicExport": "Chromium renders each generated alpha mask with a uniform CSS fill. Canvas bounds, padding, and scale are normalized. No letterforms or symbol geometry are redrawn. PNG exports are raster artwork.",
+  "palette": {
+    "oxblood": "#692D39",
+    "ivory": "#F1E9DA",
+    "black": "#000000",
+    "charcoal": "#1F1C20"
+  },
+  "validation": {
+    "transparentAlpha": true,
+    "solidInkRgbMatchesPalette": true,
+    "solidInkAlphaThreshold": 250,
+    "desktopAnd390pxPreviewLoads": true,
+    "intendedPaletteContrast": {
+      "oxbloodOnIvory": 8.55,
+      "ivoryOnCharcoal": 13.98,
+      "blackOnWhite": 21
+    },
+    "smallSizeProofs": "preview-small-sizes.png shows symbols within 24, 32, 48, and 64 CSS-pixel squares at device scale factor 1.",
+    "visualReview": {
+      "spelling": "Pandect",
+      "lightDarkAndMonochrome": "reviewed",
+      "symbol24px": "silhouette recognizable; fine nodes and diamond lose definition",
+      "symbol32px": "usable; recommended minimum",
+      "symbol48px": "connection details read clearly"
+    }
+  },
+  "exports": [
+    {
+      "filename": "pandect-logo-oxblood.png",
+      "kind": "logo",
+      "color": "#692D39",
+      "width": 2048,
+      "height": 807,
+      "transparentPixels": 1183938,
+      "solidInkRgbVerified": true,
+      "solidInkAlphaThreshold": 250
+    },
+    {
+      "filename": "pandect-logo-ivory.png",
+      "kind": "logo",
+      "color": "#F1E9DA",
+      "width": 2048,
+      "height": 807,
+      "transparentPixels": 1183938,
+      "solidInkRgbVerified": true,
+      "solidInkAlphaThreshold": 250
+    },
+    {
+      "filename": "pandect-logo-black.png",
+      "kind": "logo",
+      "color": "#000000",
+      "width": 2048,
+      "height": 807,
+      "transparentPixels": 1183938,
+      "solidInkRgbVerified": true,
+      "solidInkAlphaThreshold": 250
+    },
+    {
+      "filename": "pandect-symbol-oxblood.png",
+      "kind": "symbol",
+      "color": "#692D39",
+      "width": 664,
+      "height": 1024,
+      "transparentPixels": 472173,
+      "solidInkRgbVerified": true,
+      "solidInkAlphaThreshold": 250
+    },
+    {
+      "filename": "pandect-symbol-ivory.png",
+      "kind": "symbol",
+      "color": "#F1E9DA",
+      "width": 664,
+      "height": 1024,
+      "transparentPixels": 472173,
+      "solidInkRgbVerified": true,
+      "solidInkAlphaThreshold": 250
+    },
+    {
+      "filename": "pandect-symbol-black.png",
+      "kind": "symbol",
+      "color": "#000000",
+      "width": 664,
+      "height": 1024,
+      "transparentPixels": 472173,
+      "solidInkRgbVerified": true,
+      "solidInkAlphaThreshold": 250
+    }
+  ],
+  "websiteIntegration": {
+    "date": "2026-10-26",
+    "source": "Approved final PNG artwork; proportional downsampling only. Square browser and touch icons place the original symbol on an ivory background.",
+    "assets": [
+      {
+        "path": "static/pandect/brand/apple-touch-icon.png",
+        "width": 180,
+        "height": 180,
+        "bytes": 7607,
+        "sha256": "a1034ada2235db711a5ae0c68b220c9746de452f29fe55f78ae9a4c1ad203f53"
+      },
+      {
+        "path": "static/pandect/brand/favicon.png",
+        "width": 32,
+        "height": 32,
+        "bytes": 1044,
+        "sha256": "721156d42b4415cd0b9ae7c55f5e8413da10d312e48ab2eaa977824dc10c0680"
+      },
+      {
+        "path": "static/pandect/brand/logo-ivory.png",
+        "width": 432,
+        "height": 170,
+        "bytes": 29964,
+        "sha256": "7ccfddad8e9a64a39f13cc57bb737ac3cd4d945bfe6ad34b6e627ec2365e9dae"
+      },
+      {
+        "path": "static/pandect/brand/logo-oxblood.png",
+        "width": 432,
+        "height": 170,
+        "bytes": 26874,
+        "sha256": "2ec500814a02b4b601c8a4be01d378198533a1c990df2e1c488b77e1c96186e5"
+      }
+    ],
+    "validation": {
+      "date": "2026-10-26",
+      "scope": "Local checkout and isolated production image; no hosted CI or deployment evidence",
+      "makeCheck": {
+        "passed": true,
+        "applicationTests": 261
+      },
+      "browser": {
+        "passed": true,
+        "tests": 10,
+        "engines": [
+          "chromium",
+          "webkit"
+        ],
+        "viewports": [
+          [
+            1440,
+            900
+          ],
+          [
+            1440,
+            1024
+          ],
+          [
+            768,
+            1024
+          ],
+          [
+            390,
+            844
+          ],
+          [
+            320,
+            844
+          ]
+        ],
+        "checks": [
+          "light and dark artwork",
+          "loaded image resources",
+          "favicon and touch icon",
+          "responsive reflow",
+          "44px logo link",
+          "keyboard focus and activation",
+          "200% text sizing",
+          "Chromium forced-colors text fallback"
+        ]
+      },
+      "composeSmoke": {
+        "passed": true
+      },
+      "productionStaticAssets": {
+        "passed": true,
+        "files": 4,
+        "status": 200,
+        "contentType": "image/png",
+        "sha256Verified": true
+      },
+      "validatedBaseCommit": "61c7fff8454793e0c7e60550a07b996650ee5285",
+      "validatedRuntimeCommit": "fba755ed6ccbcadc6583eb90df2618ffcf8c984f"
+    }
+  }
+}
