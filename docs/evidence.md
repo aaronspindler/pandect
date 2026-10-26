@@ -5,6 +5,43 @@ exactly one `cases.Case` through a required foreign key. A case can contain many
 records of each type. There is no global evidence pool or concrete shared evidence
 table: `Evidence` and `FileEvidence` are abstract Django models.
 
+## Investigator workflow
+
+Inside a case, owners and editors choose **Add evidence** and select Document,
+Image, Audio, or Text. File categories describe the submitted material; no parser
+verifies them. Enter a title and optional description/source details. Text captures
+one browser-submitted original; to preserve a text file's exact bytes, upload the
+file as a Document instead. Browser textareas may normalize line endings, but the
+server does not trim or normalize received original text.
+
+The normal form supports one record without JavaScript. With JavaScript, select
+or drop a batch and review each entry's title, category, and source details before
+uploading. Defaults are 20 files per batch, 100 MiB per file, and 1 MiB of UTF-8
+captured text. Configured limits appear in the form; see
+[configuration](development.md#configuration) for operator settings.
+
+Batch uploads send one file at a time and show uploading, saving, added, failure,
+and uncertain-confirmation states. Successful entries remain saved. A known
+validation rejection allows corrections; an interrupted confirmation must first
+retry the same frozen submission so an already-saved original is not duplicated.
+**Stop after this file** pauses pending entries. Queues live only in page memory;
+reloading may require file reselection, and uploads are not resumable.
+
+The Evidence collection searches title, descriptions, source details/URL, and
+original filenames, with type and Active/Archived/All filters. It uses 25 records
+per page. Wide screens keep the record list beside the selected original/details;
+smaller screens use the same canonical detail pages and browser navigation.
+Text originals are shown as escaped read-only text. Files are downloaded through
+currently authorized attachment routes; this release does not embed documents,
+render image previews, or play audio.
+
+Owners/editors can **Edit details** without replacing the original. Conflicting
+metadata edits display newer saved values alongside the retained draft for an
+explicit **Save reviewed changes**. **Archive** and **Restore** organize retained
+material; current case members can still inspect/download archived evidence.
+There is no individual evidence delete or purge route. Only owner-confirmed
+whole-case deletion removes retained evidence through the product interface.
+
 ## Models and metadata
 
 All four concrete models inherit these fields from `Evidence`:
@@ -15,7 +52,12 @@ All four concrete models inherit these fields from `Evidence`:
   saves, including `save(update_fields=[...])`; creation time remains fixed.
 - Optional `description`, `source_url`, `source_description`, and `collected_at`.
   Collection time describes source provenance, not the upload timestamp.
-- Generated `sha256`, calculated from the original bytes or exact UTF-8 text.
+- Generated `sha256`, calculated from the original bytes or captured UTF-8 text.
+- `is_archived`, plus `archive_changed_at` and protected `archive_changed_by`
+  attribution for the latest real archive/restore transition; this is not a full
+  history journal.
+- Optional, immutable, unique `submission_id` UUID for idempotent product uploads.
+  Existing records and trusted maintenance callers may leave it null.
 
 | Model | Original | Optional metadata |
 | --- | --- | --- |
@@ -82,7 +124,7 @@ numeric bounds.
 
 Normal validation and saves reject changes to the case, uploader, creation time,
 original text/file, original filename, byte size, declared content type, and
-checksum. A changed original must become a new record. Descriptions, source
+checksum, and submission ID. A changed original must become a new record. Descriptions, source
 descriptions, collection dates, and optional type metadata may be corrected.
 Removing a collaborator does not remove their retained evidence or attribution.
 The uploader uses `PROTECT`: users with evidence cannot be deleted until that
@@ -107,15 +149,19 @@ filename or extension. No code relies on a filesystem-only `.path` API. Hosted
 operators can configure Django's `STORAGES` with a private backend; no hosted
 storage dependency or credentials are installed by this change.
 
-There is no evidence admin, upload screen, download route, or public media route.
-Do not expose the media directory or use a public storage bucket. Future views,
-admin, downloads, exports, and jobs must check the user's current case access on
-every operation. Owners/editors may add material; viewers may inspect it. An
-`uploaded_by` value records attribution and does not authorize an operation.
-The ORM is a trusted backend interface, not an end-user permission boundary.
+Product upload/detail/download/archive routes check current case access and
+parent-case membership. File responses use attachment disposition,
+`application/octet-stream`, `nosniff`, and no-store caching; text attachments
+reproduce the saved UTF-8 body. No evidence admin or public media route exists.
+Do not expose the media directory or use a public storage bucket. WhiteNoise
+serves application assets only and never private originals. Future exports and
+jobs must enforce the same current access boundary. `uploaded_by` records
+attribution and does not authorize an operation; the ORM remains a trusted
+backend interface rather than an end-user permission boundary.
 
-Deleting evidence removes its database row. Deleting a case cascades to all its
-evidence. For file evidence, a `post_delete` receiver removes the original through
+Trusted maintenance can delete evidence through the ORM, which removes its row;
+ordinary users have no individual deletion path. Deleting a case cascades to all
+its active and archived evidence. For file evidence, a `post_delete` receiver removes the original through
 the storage API only after database commit, including queryset/cascading deletion.
 A rolled-back deletion preserves both the row and file. Text originals disappear
 with their database records. Files belonging to other cases are preserved.
@@ -147,8 +193,13 @@ The initial evidence migration depends on the configured user model and
 dependencies. Apply it with the usual documented `migrate` command on a fresh
 database. See the [pre-release UUID baseline](architecture.md#primary-keys-and-the-initial-schema)
 if the earlier integer initial migrations were already applied.
-Back up before upgrades. Database backups include text and file metadata; file
-originals require a matching private storage backup. See [operations](operations.md).
+The additive evidence `0002` migration adds archive attribution/state and
+submission IDs. Existing material starts active with null archive attribution
+and submission ID; original bytes and integrity metadata are unchanged. Apply
+pending migrations using the documented upgrade workflow, without resetting
+existing databases. Back up before upgrades. Database backups include text and
+file metadata; file originals require a matching private storage backup. See
+[operations](operations.md).
 
 References: [Django abstract models](https://docs.djangoproject.com/en/6.1/topics/db/models/#abstract-base-classes),
 [file storage](https://docs.djangoproject.com/en/6.1/topics/files/), and

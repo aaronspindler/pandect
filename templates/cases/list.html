@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}All cases{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+<p class="eyebrow">Your investigations</p>
+<h1>All cases</h1>
+<p class="muted">Keep your evidence, people, and investigative work together.</p>
+</div>
+  <a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>
+</div>
+<form method="get" class="filter-bar" role="search" aria-label="Search cases">
+  <div class="field">
+<label for="case-query">Search cases</label>
+<input id="case-query" type="search" name="q" value="{{ query }}" maxlength="200" placeholder="Search by name or description">
+</div>
+  <div class="field">
+<label for="ownership">Show</label>
+<select id="ownership" name="ownership">
+<option value="all" {% if ownership == 'all' %}selected{% endif %}>All cases</option>
+<option value="owned" {% if ownership == 'owned' %}selected{% endif %}>Owned by me</option>
+<option value="shared" {% if ownership == 'shared' %}selected{% endif %}>Shared with me</option>
+</select>
+</div>
+  <button class="button" type="submit">Search</button>
+  {% if query or ownership != 'all' %}
+<a href="{% url 'cases:case_list' %}">Clear filters</a>
+{% endif %}
+</form>
+{% if page_obj %}
+<p class="result-count muted">{{ page_obj.paginator.count }} case{{ page_obj.paginator.count|pluralize }}</p>
+<div class="record-list">
+{% for item in page_obj %}
+<a class="record-row" href="{% url 'cases:case_detail' item.pk %}">
+<div>
+<strong>{{ item.name }}</strong>
+{% if item.description %}
+<p class="muted">{{ item.description|truncatechars:150 }}</p>
+{% endif %}
+<span class="muted">Updated {{ item.updated_at|date:"j M Y" }}</span>
+</div>
+<span class="status">{{ item.current_role|title }}</span>
+</a>
+{% endfor %}
+</div>
+<nav class="pagination" aria-label="Case pages">
+{% if page_obj.has_previous %}
+<a class="button" href="?q={{ query|urlencode }}&amp;ownership={{ ownership }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>
+{% endif %}
+<span>{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }}</span>
+{% if page_obj.has_next %}
+<a class="button" href="?q={{ query|urlencode }}&amp;ownership={{ ownership }}&amp;page={{ page_obj.next_page_number }}">Next</a>
+{% endif %}
+</nav>
+{% else %}
+<div class="empty-state">
+<h2>
+{% if query or ownership != 'all' %}No matching cases{% else %}Start your first investigation{% endif %}
+</h2>
+<p>
+{% if query or ownership != 'all' %}Try a different name or clear your filters.{% else %}Create a case to collect original material and build a clear picture with your collaborators.{% endif %}
+</p>
+{% if not query and ownership == 'all' %}
+<a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>
+{% endif %}
+</div>
+{% endif %}
+{% endblock %}

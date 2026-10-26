@@ -25,27 +25,31 @@ path.write_text(content)
 path.chmod(0o600)
 PY
 docker compose up --build --wait
-docker compose exec web python manage.py createsuperuser
 ```
 
-Open <http://localhost:8000/accounts/login/> or <http://localhost:8000/admin/>.
-`/` redirects to sign-in. `/health/` returns 200 only when PostgreSQL is reachable,
-and 503 when it is unavailable. Compose waits for this readiness check.
+Open <http://localhost:8000/>. Create an account and follow its email-verification
+link before opening case material. The development container applies migrations
+on startup and runs Django's development server. With `DJANGO_DEBUG=true`,
+verification and invitation emails appear in `docker compose logs web`; these
+messages contain private links, so keep development logs private. Production uses
+the configured SMTP mailer instead.
 
-The development container applies migrations on startup and runs Django's
-development server. Registration requires email confirmation; development emails
-appear in `docker compose logs web`. The superuser command creates an operator for
-Django admin, whose staff authentication is separate from allauth email verification.
-In admin, use **Cases → Add case** to create a case owned by the signed-in user.
-Save it before adding collaborators. Staff access and Django model permissions
-remain required; even superusers see only cases they own or share. See
-[case administration](cases.md) for permissions and membership management.
-Use **People → Add person** to add [people and contact details](people.md) to
-an owned case or one where you are an editor. Person permissions must also be
-assigned to staff users/groups. The investigator-facing interface is planned.
-[Evidence models](evidence.md)
-support private original storage through the ORM; upload screens and downloads
-are not implemented.
+After verification, **All cases → Create case** creates a case owned by you.
+Inside it, use **Add evidence** to upload files or capture original text,
+**People → Add person** for contact details/notes, and **Settings → Invite
+collaborator** to grant Viewer or Editor access. See [cases](cases.md),
+[evidence](evidence.md), and [people](people.md) for workflow details and limits.
+Ordinary investigators do not need staff permissions.
+
+The optional `createsuperuser` command creates an operator for `/admin/`. Staff
+permissions remain separate from product access; even superusers can inspect only
+cases they own or share. `/health/` returns 200 when PostgreSQL is reachable and
+503 otherwise. Compose waits for this readiness check. If operator administration
+is needed, create that separate account with:
+
+```sh
+docker compose exec web python manage.py createsuperuser
+```
 
 ## Run Python on the host
 
@@ -74,14 +78,20 @@ files. Compose reads `.env` itself and sets the database hostname to `db`.
 | `POSTGRES_HOST`, `POSTGRES_PORT` | Host commands default to `127.0.0.1:5432`; Compose uses `db:5432`. |
 | `PANDECT_DB_PORT` | Compose's loopback database port, default `5432`. |
 | `PANDECT_WEB_PORT` | Compose's loopback web port, default `8000`. |
-| `PANDECT_MEDIA_ROOT` | Optional filesystem storage path; defaults to `data/media`. No download route exists yet. |
+| `PANDECT_MEDIA_ROOT` | Optional private original-storage path; defaults to `data/media`. Originals are served only through case-authorized download routes. |
+| `PANDECT_PUBLIC_ORIGIN` | Public HTTP(S) origin used in invitation emails, default `http://localhost:8000`; no path, credentials, query, or fragment. Match the actual deployment address/port. |
+| `PANDECT_INVITATION_DAYS` | Positive invitation lifetime in days, default `7`. |
+| `PANDECT_MAX_FILE_BYTES` | Positive per-file limit, default `104857600` (100 MiB), enforced while streaming and before storage. |
+| `PANDECT_MAX_TEXT_BYTES` | Positive captured-text UTF-8 limit, default `1048576` (1 MiB). |
+| `PANDECT_MAX_BATCH_FILES` | Positive browser-queue size limit, default `20`; files are sent sequentially, one per request. |
 | `DJANGO_DEFAULT_FROM_EMAIL` | Sender address, default `pandect@localhost`. |
 | `DJANGO_EMAIL_HOST`, `DJANGO_EMAIL_PORT` | SMTP host and port when debug is disabled; defaults `localhost:587`. |
 | `DJANGO_EMAIL_HOST_USER`, `DJANGO_EMAIL_HOST_PASSWORD` | Operator SMTP credentials when debug is disabled. SMTP uses STARTTLS and a ten-second timeout. |
 
 For a port conflict, change `PANDECT_DB_PORT` and `POSTGRES_PORT` to the same unused
-port in `.env`, and/or change `PANDECT_WEB_PORT`. The containers always use 5432
-and 8000 internally. Compose is a local development configuration and passes only
+port in `.env`, and/or change `PANDECT_WEB_PORT`. Update `PANDECT_PUBLIC_ORIGIN`
+when changing the externally visible web port. The containers always use 5432 and
+8000 internally. Compose is a local development configuration and passes only
 the variables it declares; hosted configuration is supplied directly to Django.
 
 Keep `.env`, databases, uploads, and backups out of Git. Existing legacy runtime

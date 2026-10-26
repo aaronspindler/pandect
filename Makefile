@@ -1,7 +1,7 @@
 UV ?= uv
 RUN = $(UV) run --locked
 
-.PHONY: sync lint format test validate check security-check compose-smoke
+.PHONY: sync lint format test validate check security-check compose-smoke browser-check
 
 sync:
 	$(UV) sync --locked
@@ -16,6 +16,9 @@ format:
 
 test:
 	$(RUN) python manage.py test
+
+browser-check:
+	$(RUN) python manage.py test config.tests.browser --noinput
 
 validate:
 	$(UV) lock --check

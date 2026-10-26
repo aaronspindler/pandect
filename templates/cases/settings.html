@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Case settings · {{ case.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+<div>
+<p class="eyebrow">{{ case.name }}</p>
+<h1>Case settings</h1>
+<p class="muted">Manage details and access. You are the case owner.</p>
+</div>
+</div>
+<section aria-labelledby="case-details-heading">
+<h2 id="case-details-heading">Case details</h2>
+{% if latest_details %}
+<section class="notice" aria-labelledby="latest-details-heading">
+<h3 id="latest-details-heading">Latest saved details</h3>
+<p>Compare these saved values with your proposed changes below before saving again.</p>
+<dl class="metadata-grid">
+<div><dt>Case name</dt><dd>{{ latest_details.name }}</dd></div>
+<div><dt>Description</dt><dd>{{ latest_details.description|default:"Not recorded"|linebreaksbr }}</dd></div>
+</dl>
+</section>
+{% endif %}
+<form method="post" class="form-panel" data-unsaved-form>
+{% csrf_token %}{% include "components/form_fields.html" %}
+<div class="form-actions">
+<button class="button button-primary" type="submit">{% if latest_details %}Save reviewed changes{% else %}Save changes{% endif %}</button>
+{% if form.errors %}
+<a class="button" href="{% url 'cases:case_settings' case.pk %}">Reload saved details</a>
+{% endif %}
+</div>
+</form>
+</section>
+<section aria-labelledby="collaborators-heading">
+<div class="section-header">
+<div>
+<h2 id="collaborators-heading">Collaborators</h2>
+<p class="muted">Viewers inspect material. Editors can also add and edit people/evidence, and archive or restore evidence.</p>
+</div>
+<a class="button" href="{% url 'cases:invitation_create' case.pk %}">Invite collaborator</a>
+</div>
+<div class="record-list">
+<div class="record-row">
+<div>
+<strong>{{ case.owner.get_username }}</strong>
+<p class="muted">{{ case.owner.email }}</p>
+</div>
+<span class="status">Owner</span>
+</div>
+{% for membership in memberships %}
+<div class="record-row">
+<div>
+<strong>{{ membership.user.get_username }}</strong>
+<p class="muted">{{ membership.user.email }} · {{ membership.get_role_display }}</p>
+</div>
+<div class="row-actions">
+<a class="button" href="{% url 'cases:membership_edit' case.pk membership.pk %}">Change access</a>
+<a class="button" href="{% url 'cases:membership_remove' case.pk membership.pk %}">Remove</a>
+</div>
+</div>
+{% empty %}
+<p class="muted">You are the only person with access. Invite someone to collaborate.</p>
+{% endfor %}
+</div>
+</section>
+<section aria-labelledby="invitations-heading">
+<h2 id="invitations-heading">Invitations</h2>
+{% if invitations %}
+<div class="record-list">
+{% for invitation in invitations %}
+<div class="record-row">
+<div>
+<strong>{{ invitation.email }}</strong>
+<p class="muted">{{ invitation.get_role_display }} · {{ invitation.status }}{% if invitation.is_pending %} · expires {{ invitation.expires_at|date:"j M Y" }}{% endif %}
+</p>
+</div>
+{% if invitation.is_pending %}
+<div class="row-actions">
+<a class="button" href="{% url 'cases:invitation_edit' case.pk invitation.pk %}">Change access</a>
+<form method="post" action="{% url 'cases:invitation_resend' case.pk invitation.pk %}">
+{% csrf_token %}
+<button class="button" type="submit">Resend invitation</button>
+</form>
+<a class="button" href="{% url 'cases:invitation_revoke' case.pk invitation.pk %}">Revoke</a>
+</div>
+{% endif %}
+</div>
+{% endfor %}
+</div>
+{% else %}
+<p class="muted">No invitations have been sent.</p>
+{% endif %}
+</section>
+<section class="danger-section" aria-labelledby="delete-heading">
+<h2 id="delete-heading">Delete this case</h2>
+<p>Permanently remove this case, its people, and all retained evidence, including archived originals. There is no in-app undo.</p>
+<a class="button button-danger" href="{% url 'cases:case_delete' case.pk %}">Delete case…</a>
+</section>
+{% endblock %}

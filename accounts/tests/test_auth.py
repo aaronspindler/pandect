@@ -28,7 +28,7 @@ class AuthenticationTests(TestCase):
             reverse("account_login"),
             {"login": self.user.email, "password": self.password},
         )
-        self.assertRedirects(response, reverse("account_email"))
+        self.assertRedirects(response, reverse("cases:case_list"))
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
         self.assertEqual(
             self.client.get(reverse("account_email")).wsgi_request.user, self.user

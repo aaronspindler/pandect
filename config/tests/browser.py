@@ -1,0 +1,723 @@
+"""Explicit browser journeys: python manage.py test config.tests.browser.
+
+This module is intentionally outside default ``test*.py`` discovery. Install the
+Playwright browsers first; use PANDECT_BROWSER_ENGINES to select engines and
+PANDECT_BROWSER_ARTIFACTS to choose the synthetic screenshot directory.
+"""
+
+import os
+import re
+import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, suppress
+from email import policy
+from email.parser import BytesParser
+from pathlib import Path
+
+from allauth.account.models import EmailAddress
+from django.contrib.auth import get_user_model
+from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connections
+from django.test import override_settings
+from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
+from django.urls import reverse
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import expect, sync_playwright
+
+from cases.models import Case, CaseInvitation, CaseMembership
+from evidence.models import DocumentEvidence, TextEvidence
+from people.models import Person
+
+
+@override_settings(
+    SESSION_COOKIE_SECURE=False,
+    CSRF_COOKIE_SECURE=False,
+    ACCOUNT_RATE_LIMITS={},
+    MAILERS={"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}},
+)
+class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
+    password = "synthetic-browser-correct-horse-742!"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.engines = tuple(
+            engine.strip()
+            for engine in os.environ.get(
+                "PANDECT_BROWSER_ENGINES", "chromium,webkit"
+            ).split(",")
+            if engine.strip()
+        )
+        if not cls.engines or set(cls.engines) - {"chromium", "webkit"}:
+            raise ValueError(
+                "PANDECT_BROWSER_ENGINES must contain chromium and/or webkit."
+            )
+
+    def setUp(self):
+        super().setUp()
+        # Playwright's sync API runs an event loop on the calling thread. Start
+        # it only after fixtures, stop it before Django teardown, and execute
+        # in-journey ORM assertions in a synchronous worker. Django's async
+        # safety checks remain enabled in both the tests and application.
+        self.playwright = None
+        self.browsers = {}
+        self.browser_context_number = 0
+        self.database_worker = ThreadPoolExecutor(max_workers=1)
+        self.addCleanup(self.database_worker.shutdown)
+        self.media_directory = tempfile.TemporaryDirectory(prefix="pandect-browser-")
+        self.addCleanup(self.media_directory.cleanup)
+        self.enterContext(override_settings(MEDIA_ROOT=self.media_directory.name))
+        self.artifacts = Path(
+            os.environ.get("PANDECT_BROWSER_ARTIFACTS", "data/validation/browser")
+        ).resolve()
+        self.artifacts.mkdir(parents=True, exist_ok=True)
+        self.owner = self.make_user("browser-owner")
+        self.case = Case.objects.create(
+            owner=self.owner,
+            name="Harbour records",
+            description="Synthetic browser investigation; no real evidence.",
+        )
+        self.records = [
+            TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=(f"Source {number:02d}" if number < 25 else "Interview notes"),
+                body=(
+                    "Synthetic source excerpt for interface validation.\n\n"
+                    "The harbour office was closed at 16:30. This statement "
+                    "is a synthetic observation, not a verified conclusion."
+                ),
+                source_description="Synthetic interview",
+                description="Investigator context is separate from the original.",
+            )
+            for number in range(1, 26)
+        ]
+
+    def make_user(self, username):
+        user = get_user_model().objects.create_user(
+            username=username,
+            email=f"{username}@example.com",
+            password=self.password,
+        )
+        EmailAddress.objects.create(
+            user=user, email=user.email, primary=True, verified=True
+        )
+        return user
+
+    def url(self, name, **kwargs):
+        return self.live_server_url + reverse(name, kwargs=kwargs)
+
+    def db(self, operation, *args, **kwargs):
+        def run():
+            try:
+                return operation(*args, **kwargs)
+            finally:
+                connections.close_all()
+
+        return self.database_worker.submit(run).result()
+
+    @contextmanager
+    def browser_page(self, engine, **options):
+        outermost = self.playwright is None
+        if outermost:
+            self.playwright = sync_playwright().start()
+        context = None
+        page = None
+        self.browser_context_number += 1
+        context_number = self.browser_context_number
+        try:
+            if engine not in self.browsers:
+                self.browsers[engine] = getattr(self.playwright, engine).launch()
+            context = self.browsers[engine].new_context(
+                viewport={"width": 1440, "height": 900},
+                locale="en-US",
+                timezone_id="UTC",
+                color_scheme="light",
+                accept_downloads=True,
+                **options,
+            )
+            page = context.new_page()
+            page.set_default_timeout(15000)
+            script_errors = []
+            page.on("pageerror", lambda error: script_errors.append(str(error)))
+            yield context, page
+            self.assertEqual(script_errors, [], "Unexpected browser script errors")
+        except Exception:
+            # Preserve the failing state without masking the original assertion.
+            if page is not None and not page.is_closed():
+                with suppress(PlaywrightError, OSError):
+                    page.screenshot(
+                        path=str(
+                            self.artifacts
+                            / (
+                                f"{engine}-failure-{self._testMethodName}"
+                                f"-context-{context_number}.png"
+                            )
+                        ),
+                        timeout=5000,
+                    )
+            raise
+        finally:
+            try:
+                if context is not None:
+                    context.close()
+            finally:
+                if outermost:
+                    try:
+                        for browser in self.browsers.values():
+                            browser.close()
+                    finally:
+                        self.playwright.stop()
+                        self.playwright = None
+                        self.browsers = {}
+
+    def sign_in(self, page, user=None):
+        user = user or self.owner
+        page.goto(self.url("account_login"))
+        page.locator("input[name='login']").fill(user.email)
+        page.locator("input[name='password']").fill(self.password)
+        page.get_by_role("button", name=re.compile(r"^sign in$", re.I)).click()
+        expect(
+            page.get_by_role("heading", name="All cases", exact=True)
+        ).to_be_visible()
+
+    def capture(self, page, engine, name):
+        page.screenshot(path=str(self.artifacts / f"{engine}-{name}.png"))
+
+    def evidence_url(self, record=None, *, case=None):
+        return self.url(
+            "evidence:detail",
+            case_id=(case or self.case).pk,
+            kind="text",
+            evidence_id=(record or self.records[-1]).pk,
+        )
+
+    def test_management_and_collaboration_journey(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.get_by_role("link", name="Create case", exact=True).first.click()
+                name = f"Synthetic browser case {engine}"
+                page.get_by_label("Case name", exact=True).fill(name)
+                page.get_by_label("Description", exact=True).fill(
+                    "Synthetic material for a browser regression journey."
+                )
+                page.get_by_role("button", name="Create case", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name=name, exact=True)
+                ).to_be_visible()
+                case = self.db(Case.objects.get, name=name, owner=self.owner)
+
+                page.goto(self.url("people:create", case_id=case.pk))
+                page.get_by_label("First name", exact=True).fill("Alex")
+                page.get_by_label("Last name", exact=True).fill("Browser Example")
+                page.get_by_label("Investigator notes", exact=True).fill(
+                    "Unconfirmed synthetic contact."
+                )
+                page.get_by_role("button", name="Add person", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Alex Browser Example", exact=True)
+                ).to_be_visible()
+                page.get_by_role("link", name="Edit person", exact=True).click()
+                page.get_by_label("Investigator notes", exact=True).fill(
+                    "Updated synthetic source context."
+                )
+                page.get_by_role("button", name="Save changes", exact=True).click()
+                expect(
+                    page.get_by_text("Updated synthetic source context.")
+                ).to_be_visible()
+                self.assertEqual(
+                    self.db(Person.objects.get, case=case).notes,
+                    "Updated synthetic source context.",
+                )
+
+                page.goto(self.url("evidence:create", case_id=case.pk) + "?kind=text")
+                title = f"Browser captured source {engine}"
+                original = "Synthetic original.\n<untrusted> remains source text."
+                page.get_by_label("Title", exact=True).fill(title)
+                page.get_by_label("Original text", exact=True).fill(original)
+                page.get_by_role("button", name="Save text", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name=title, exact=True)
+                ).to_be_visible()
+                expect(page.locator(".original-text")).to_have_text(original)
+                record = self.db(TextEvidence.objects.get, case=case, title=title)
+                checksum = record.sha256
+                page.get_by_role("button", name="Archive", exact=True).click()
+                expect(
+                    page.get_by_role("button", name="Restore", exact=True)
+                ).to_be_visible()
+                expect(page.locator(".original-text")).to_have_text(original)
+                page.get_by_role("button", name="Restore", exact=True).click()
+                expect(
+                    page.get_by_role("button", name="Archive", exact=True)
+                ).to_be_visible()
+                self.db(record.refresh_from_db)
+                self.assertFalse(record.is_archived)
+                self.assertEqual(record.sha256, checksum)
+
+                page.goto(self.url("evidence:list", case_id=case.pk))
+                page.get_by_label("Search evidence", exact=True).fill("captured source")
+                page.get_by_role("button", name="Search", exact=True).click()
+                expect(page.locator(".evidence-row")).to_have_count(1)
+                expect(page.locator(".evidence-row")).to_contain_text(title)
+
+                page.goto(self.url("evidence:create", case_id=case.pk))
+                page.locator("#id_file").set_input_files(
+                    [
+                        {
+                            "name": f"synthetic-{index}.txt",
+                            "mimeType": "text/plain",
+                            "buffer": f"Synthetic batch original {index}.".encode(),
+                        }
+                        for index in (1, 2)
+                    ]
+                )
+                entries = page.locator(".upload-entry")
+                expect(entries).to_have_count(2)
+                first_entry = entries.first
+                first_entry.get_by_text(
+                    "Description and source details", exact=True
+                ).click()
+                first_entry.get_by_label("Source URL", exact=True).fill("invalid-url")
+                page.get_by_role("button", name="Upload files", exact=True).click()
+                expect(
+                    page.locator('.upload-entry[data-state="failed"]')
+                ).to_have_count(1)
+                expect(page.locator('.upload-entry[data-state="added"]')).to_have_count(
+                    1
+                )
+                source_input = first_entry.get_by_label("Source URL", exact=True)
+                expect(source_input).to_have_attribute("aria-invalid", "true")
+                expect(source_input).to_have_attribute(
+                    "aria-describedby",
+                    first_entry.locator(".upload-status").get_attribute("id"),
+                )
+                first_entry.get_by_label("Source URL", exact=True).fill(
+                    "https://example.com/synthetic-source"
+                )
+                first_entry.get_by_role(
+                    "button", name="Retry this file", exact=True
+                ).click()
+                expect(page.locator('.upload-entry[data-state="added"]')).to_have_count(
+                    2
+                )
+                expect(source_input).not_to_have_attribute("aria-invalid", "true")
+                self.assertEqual(
+                    self.db(DocumentEvidence.objects.filter(case=case).count),
+                    2,
+                )
+                self.capture(page, engine, "batch-upload-recovery")
+
+                guest = self.db(self.make_user, f"browser-guest-{engine}")
+                page.goto(self.url("cases:case_settings", case_id=case.pk))
+                page.get_by_role("link", name="Invite collaborator", exact=True).click()
+                page.get_by_label("Email address", exact=True).fill(guest.email)
+                page.get_by_label("Case access", exact=True).select_option("editor")
+                page.get_by_role("button", name="Send invitation", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Case settings")
+                ).to_be_visible()
+                invitation = self.db(
+                    CaseInvitation.objects.get, case=case, email=guest.email
+                )
+                self.assertFalse(invitation.delivery_failed)
+                sent = next(
+                    item for item in reversed(mail.outbox) if guest.email in item.to
+                )
+                token = re.search(r"/invitations/([A-Za-z0-9_-]+)/", sent.body)
+                self.assertIsNotNone(token)
+                with self.browser_page(engine) as (_, guest_page):
+                    self.sign_in(guest_page, guest)
+                    guest_page.goto(self.url("invitation_accept", token=token[1]))
+                    guest_page.get_by_role(
+                        "button", name="Accept invitation", exact=True
+                    ).click()
+                    expect(
+                        guest_page.get_by_role("heading", name=name, exact=True)
+                    ).to_be_visible()
+                    self.assertEqual(
+                        self.db(CaseMembership.objects.get, case=case, user=guest).role,
+                        "editor",
+                    )
+                    page.goto(self.url("cases:case_settings", case_id=case.pk))
+                    page.locator(".record-row").filter(
+                        has_text=guest.email
+                    ).get_by_role("link", name="Change access", exact=True).click()
+                    page.locator("select[name='role']").select_option("viewer")
+                    page.get_by_role("button", name="Save access", exact=True).click()
+                    expect(
+                        page.get_by_role("heading", name="Case settings")
+                    ).to_be_visible()
+                    guest_page.goto(self.evidence_url(record, case=case))
+                    expect(
+                        guest_page.get_by_role("heading", name=title, exact=True)
+                    ).to_be_visible()
+                    expect(
+                        guest_page.get_by_role("button", name="Archive", exact=True)
+                    ).to_have_count(0)
+                    expect(
+                        guest_page.get_by_role("link", name="Edit details", exact=True)
+                    ).to_have_count(0)
+                    page.get_by_role("link", name="Remove", exact=True).click()
+                    page.get_by_role("checkbox").check()
+                    page.get_by_role(
+                        "button", name="Remove collaborator", exact=True
+                    ).click()
+                    expect(
+                        page.get_by_role("heading", name="Case settings")
+                    ).to_be_visible()
+                    response = guest_page.goto(self.evidence_url(record, case=case))
+                    self.assertEqual(response.status, 404)
+                    self.assertFalse(
+                        self.db(
+                            CaseMembership.objects.filter(case=case, user=guest).exists
+                        )
+                    )
+                self.capture(page, engine, "collaboration-settings")
+
+    def test_file_upload_and_recovery_without_javascript(self):
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("evidence:create", case_id=self.case.pk))
+                page.get_by_label("Title", exact=True).fill("Keep this proposed title")
+                page.get_by_role("button", name="Upload file", exact=True).click()
+                expect(page.locator("#id_title")).to_have_value(
+                    "Keep this proposed title"
+                )
+                expect(page.get_by_role("heading", name="Add evidence")).to_be_visible()
+                content = b"Synthetic source file.\r\nPreserve these original bytes.\n"
+                title = f"No-JavaScript document {engine}"
+                page.get_by_label("Title", exact=True).fill(title)
+                page.locator("#id_file").set_input_files(
+                    {
+                        "name": "synthetic-source.txt",
+                        "mimeType": "text/plain",
+                        "buffer": content,
+                    }
+                )
+                page.get_by_role("button", name="Upload file", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name=title, exact=True)
+                ).to_be_visible()
+                with page.expect_download() as event:
+                    page.get_by_role(
+                        "link", name="Download original", exact=True
+                    ).first.click()
+                download = event.value
+                self.assertEqual(Path(download.path()).read_bytes(), content)
+                document = self.db(
+                    DocumentEvidence.objects.get, case=self.case, title=title
+                )
+                self.assertEqual(document.byte_size, len(content))
+                self.capture(page, engine, "no-javascript-document")
+
+    def test_uncertain_commit_retry_and_proxy_size_limit_recovery(self):
+        original = b"Synthetic original with interrupted confirmation."
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                upload_url = self.url("evidence:create", case_id=self.case.pk)
+                page.goto(upload_url)
+                page.locator("#id_file").set_input_files(
+                    {
+                        "name": f"interrupted-{engine}.txt",
+                        "mimeType": "text/plain",
+                        "buffer": original,
+                    }
+                )
+                entry = page.locator(".upload-entry")
+                expect(entry).to_have_count(1)
+                title = f"Interrupted confirmation {engine}"
+                entry.get_by_label("Title", exact=True).fill(title)
+                files_before = {
+                    path.relative_to(self.media_directory.name).as_posix()
+                    for path in Path(self.media_directory.name).rglob("*")
+                    if path.is_file()
+                }
+                self.interrupted_statuses = []
+                self.interrupted_details = []
+
+                def commit_then_abort(route):
+                    # Fetch reaches the real view and commits its transaction;
+                    # only the browser's confirmation is deliberately lost.
+                    body = route.request.post_data_buffer or b""
+                    headers = route.request.headers.copy()
+                    if original not in body:
+                        # macOS WebKit omits file bytes from routed multipart
+                        # request bodies. Preserve the captured fields (including
+                        # the actual queue submission UUID) and authentication/
+                        # CSRF headers, restoring only the same selected fixture
+                        # file through Django's standard multipart encoder.
+                        message = BytesParser(policy=policy.default).parsebytes(
+                            (
+                                f"Content-Type: {headers['content-type']}\r\n"
+                                "MIME-Version: 1.0\r\n\r\n"
+                            ).encode("ascii")
+                            + body
+                        )
+                        fields = {}
+                        for part in message.iter_parts():
+                            name = part.get_param("name", header="content-disposition")
+                            filename = part.get_filename()
+                            if filename is not None:
+                                fields[name] = SimpleUploadedFile(
+                                    filename,
+                                    original,
+                                    content_type=part.get_content_type(),
+                                )
+                            else:
+                                fields[name] = part.get_payload(decode=True).decode(
+                                    "utf-8"
+                                )
+                        body = encode_multipart(BOUNDARY, fields)
+                        headers.pop("content-length", None)
+                        headers["content-type"] = MULTIPART_CONTENT
+                    response = route.fetch(
+                        headers=headers, post_data=body, timeout=10000
+                    )
+                    self.interrupted_statuses.append(response.status)
+                    if response.status != 201:
+                        self.interrupted_details.append(
+                            {
+                                "response": response.json(),
+                                "request_bytes": len(
+                                    route.request.post_data_buffer or b""
+                                ),
+                                "has_original": (
+                                    b"Synthetic original with interrupted confirmation."
+                                    in (route.request.post_data_buffer or b"")
+                                ),
+                            }
+                        )
+                    route.abort("failed")
+
+                page.route(upload_url, commit_then_abort)
+                page.get_by_role("button", name="Upload file", exact=True).click()
+                expect(entry).to_have_attribute("data-state", "unknown", timeout=15000)
+                expect(entry.locator(".upload-status")).to_contain_text("interrupted")
+                expect(entry.get_by_label("Title", exact=True)).to_be_disabled()
+                expect(
+                    entry.get_by_role(
+                        "button",
+                        name="Remove from queue",
+                        exact=True,
+                        include_hidden=True,
+                    )
+                ).to_be_hidden()
+                self.assertEqual(
+                    self.interrupted_statuses, [201], self.interrupted_details
+                )
+                committed = self.db(
+                    DocumentEvidence.objects.get, case=self.case, title=title
+                )
+                committed_id = committed.pk
+                submission_id = committed.submission_id
+                original_key = committed.file.name
+                original_checksum = committed.sha256
+                files_after_commit = {
+                    path.relative_to(self.media_directory.name).as_posix()
+                    for path in Path(self.media_directory.name).rglob("*")
+                    if path.is_file()
+                }
+                self.assertEqual(len(files_after_commit - files_before), 1)
+                self.capture(page, engine, "upload-confirmation-interrupted")
+
+                page.unroute(upload_url, commit_then_abort)
+                entry.get_by_role("button", name="Retry this file", exact=True).click()
+                expect(entry).to_have_attribute("data-state", "added")
+                self.assertEqual(
+                    self.db(
+                        DocumentEvidence.objects.filter(
+                            case=self.case, title=title
+                        ).count
+                    ),
+                    1,
+                )
+                retried = self.db(
+                    DocumentEvidence.objects.get, case=self.case, title=title
+                )
+                self.assertEqual(retried.pk, committed_id)
+                self.assertEqual(retried.submission_id, submission_id)
+                self.assertEqual(retried.file.name, original_key)
+                self.assertEqual(retried.sha256, original_checksum)
+                self.assertEqual(
+                    {
+                        path.relative_to(self.media_directory.name).as_posix()
+                        for path in Path(self.media_directory.name).rglob("*")
+                        if path.is_file()
+                    },
+                    files_after_commit,
+                )
+
+                page.goto(upload_url)
+                page.locator("#id_file").set_input_files(
+                    {
+                        "name": f"proxy-rejected-{engine}.txt",
+                        "mimeType": "text/plain",
+                        "buffer": b"Synthetic original rejected before Django.",
+                    }
+                )
+                entry = page.locator(".upload-entry")
+                proxy_title = f"Proxy rejected original {engine}"
+                entry.get_by_label("Title", exact=True).fill(proxy_title)
+
+                def reject_at_proxy(route):
+                    route.fulfill(
+                        status=413,
+                        content_type="text/html",
+                        body="<html><body>Request body too large</body></html>",
+                    )
+
+                page.route(upload_url, reject_at_proxy)
+                page.get_by_role("button", name="Upload file", exact=True).click()
+                expect(entry).to_have_attribute("data-state", "failed")
+                expect(entry.locator(".upload-status")).to_contain_text(
+                    "server's upload limit"
+                )
+                expect(entry.get_by_label("Title", exact=True)).to_be_enabled()
+                expect(
+                    entry.get_by_role("button", name="Retry this file", exact=True)
+                ).to_be_enabled()
+                self.assertFalse(
+                    self.db(
+                        DocumentEvidence.objects.filter(
+                            case=self.case, title=proxy_title
+                        ).exists
+                    )
+                )
+                self.capture(page, engine, "proxy-upload-limit")
+                page.unroute(upload_url, reject_at_proxy)
+                reviewed_title = f"Reviewed proxy rejection {engine}"
+                entry.get_by_label("Title", exact=True).fill(reviewed_title)
+                entry.get_by_role("button", name="Retry this file", exact=True).click()
+                expect(entry).to_have_attribute("data-state", "added")
+                self.assertEqual(
+                    self.db(
+                        DocumentEvidence.objects.filter(
+                            case=self.case, title=reviewed_title
+                        ).count
+                    ),
+                    1,
+                )
+
+    def test_dense_responsive_workspace_keyboard_and_appearance(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(self.evidence_url())
+                expect(page.locator(".evidence-row")).to_have_count(25)
+                for height, minimum in ((900, 12), (1024, 14)):
+                    page.set_viewport_size({"width": 1440, "height": height})
+                    visible = page.locator(".evidence-row").evaluate_all(
+                        """rows => {
+                          const pane = document.querySelector('.evidence-records')
+                            .getBoundingClientRect();
+                          const top = Math.max(0, pane.top);
+                          const bottom = Math.min(innerHeight, pane.bottom);
+                          return rows.filter(row => {
+                            const box = row.getBoundingClientRect();
+                            return box.height >= 44 && box.top >= top - 0.5
+                              && box.bottom <= bottom + 0.5;
+                          }).length;
+                        }"""
+                    )
+                    self.assertGreaterEqual(
+                        visible, minimum, f"{engine}: density at 1440x{height}"
+                    )
+                    self.assertGreaterEqual(
+                        page.locator("body").evaluate(
+                            "node => parseFloat(getComputedStyle(node).fontSize)"
+                        ),
+                        16,
+                    )
+                    self.capture(page, engine, f"workspace-1440x{height}")
+
+                first = page.locator(".evidence-row").first
+                second = page.locator(".evidence-row").nth(1)
+                title = second.locator(".evidence-row-title").inner_text()
+                first.focus()
+                expect(first).to_be_focused()
+                # Safari on macOS uses Option-Tab for links unless its advanced
+                # keyboard preference is changed; Linux WebKit uses ordinary Tab.
+                # https://support.apple.com/guide/safari/cpsh003/mac
+                first.press(
+                    "Alt+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Tab"
+                )
+                expect(second).to_be_focused()
+                self.assertNotEqual(
+                    second.evaluate("node => getComputedStyle(node).outlineStyle"),
+                    "none",
+                )
+                second.press("Enter")
+                expect(
+                    page.get_by_role("heading", name=title, exact=True)
+                ).to_be_visible()
+
+                light = page.locator("body").evaluate(
+                    "node => getComputedStyle(node).backgroundColor"
+                )
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.assertNotEqual(
+                    page.locator("body").evaluate(
+                        "node => getComputedStyle(node).backgroundColor"
+                    ),
+                    light,
+                )
+                self.assertTrue(
+                    page.evaluate(
+                        "matchMedia('(prefers-reduced-motion: reduce)').matches"
+                    )
+                )
+                self.capture(page, engine, "workspace-dark-reduced-motion")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(page, engine, "workspace-forced-colors")
+                    page.emulate_media(forced_colors="none")
+                page.emulate_media(color_scheme="light", reduced_motion="no-preference")
+
+                for width, height in ((768, 1024), (390, 844), (320, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.goto(self.evidence_url())
+                    expect(
+                        page.get_by_role("link", name="Back to evidence")
+                    ).to_be_visible()
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"),
+                        width + 1,
+                        f"{engine}: detail page overflow at {width}px",
+                    )
+                    self.capture(page, engine, f"detail-{width}x{height}")
+                    page.get_by_role("link", name="Back to evidence").click()
+                    expect(page.locator(".evidence-row").first).to_be_visible()
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    if width == 390:
+                        self.capture(page, engine, "list-390x844")
+                    page.locator(".evidence-row").first.click()
+                    expect(page.locator(".original-text")).to_be_visible()
+
+                # Emulate 200% text sizing independently of device pixel density.
+                # Unitless row line heights must grow with the enlarged text.
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.goto(self.evidence_url())
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 1441
+                )
+                title_box = page.locator(".evidence-row-title").first.bounding_box()
+                meta_box = page.locator(".evidence-row-meta").first.bounding_box()
+                self.assertGreaterEqual(
+                    meta_box["y"], title_box["y"] + title_box["height"] - 1
+                )
+                self.capture(page, engine, "workspace-200-percent-text")

@@ -27,6 +27,10 @@ capabilities to build incrementally, not claims about what already exists.
   conclusions understandable within the investigation workflow.
 - Treat usability and visual polish as part of feature completion.
 
+Read [DESIGN.md](DESIGN.md) before designing or changing visible interfaces. Keep
+detailed screen specifications and implementation plans in `docs/`, and distinguish
+design targets from implemented capabilities.
+
 ## Simplicity and maintainability
 
 Keep architecture and code simple, maintainable, and consistent with established
@@ -218,23 +222,29 @@ durable project requirements change.
 
 ## Rebuild context
 
-The rebuild foundation now includes `config/`, `accounts.User`, django-allauth,
-PostgreSQL, `cases.Case` and collaboration memberships, scoped case administration,
-case-scoped people and administration, evidence storage models, uv dependency
-management, Docker Compose, and matching local/CI checks.
+The rebuild includes `config/`, `accounts.User`, django-allauth, PostgreSQL,
+case/people management, invitations and viewer/editor collaboration, retained
+image/audio/document/text evidence uploads and private downloads, scoped operator
+administration, uv dependency management, Docker Compose, and local/CI checks.
+The investigator interface follows `DESIGN.md` and the refined three-pane design;
+normal users do not need staff permissions.
 Read `docs/development.md` and `docs/validation.md` for executable commands. The
 compatible runtime versions and upgrade constraints are in `docs/architecture.md`.
 Use `cases.Case` for future investigation and evidence relationships. See
-`docs/cases.md` for the implemented model and admin permissions. Invitations,
-investigator-facing screens, evidence upload/download workflows and processing,
-background jobs, and AI remain planned.
+`docs/cases.md` for implemented workflows, invitations, and product/admin
+permissions. Evidence parsing/previews, background jobs, AI, graphs, maps,
+timelines, and reporting remain planned.
 Read `docs/people.md` before extending person records or their admin permissions.
 People belong to a single case; owners and editors can add/edit them, viewers can
 inspect them, and only owners can delete them. Person records are independent of
 login accounts and do not establish verified identity.
 Read `docs/evidence.md` before extending evidence models, original storage, or
 deletion cleanup. Original preservation is enforced through model validation and
-saves; every future access path must separately enforce current case permissions.
+saves; current product routes enforce case permissions and every future access
+path must do so too. Owners/editors archive or restore individual evidence; only
+owner-confirmed whole-case deletion removes retained evidence through the product.
+Read `docs/operations.md` before changing upload limits, mail, static delivery,
+private logging, storage, or deployment behavior.
 
 The new requirements supersede historical SQLite and single-operator assumptions.
 Do not delete or migrate existing runtime data as an incidental part of unrelated

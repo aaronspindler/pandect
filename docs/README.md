@@ -4,9 +4,9 @@
 
 - [Local development, configuration, and uv](development.md)
 - [Architecture and implemented scope](architecture.md)
-- [Cases, collaboration, and Django admin](cases.md)
+- [Case workflows, invitations, collaboration, and Django admin](cases.md)
 - [People, contact details, and case-scoped administration](people.md)
-- [Evidence models, original storage, and integrity](evidence.md)
+- [Evidence uploads, private downloads, retention, and integrity](evidence.md)
 - [Validation, CI, and Dependabot](validation.md)
 - [Compose operation, backup, and recovery](operations.md)
 
@@ -23,10 +23,21 @@ The Django project was generated from the repository root using
 | ASGI server entry point | `config.asgi:application` |
 
 The initial migrations use `accounts.User`; application and integration tests use
-PostgreSQL. Case ownership, viewer/editor memberships, evidence storage models,
-person records, and scoped Django administration are implemented. Invitations,
-investigator-facing screens, evidence processing, and AI integration remain
-planned capabilities.
+PostgreSQL. Account screens, case management, email invitations, viewer/editor
+collaboration, people management, and retained evidence uploads/downloads are
+implemented alongside scoped operator administration. Evidence processing, AI,
+and visual analysis remain planned capabilities.
+
+## Interface design and delivery
+
+- [Project design standard](../DESIGN.md)
+- [Investigator screens, workflows, and density specification](interface-design.md)
+- [Interface implementation plan and acceptance criteria](interface-plan.md)
+- [Interface QA and captured implementation](../design-qa.md)
+
+The implemented interface follows the compact three-pane investigation workspace.
+The design documents remain the reference for behavior and acceptance criteria;
+validation results must be reported separately from implementation status.
 
 ## Codex project configuration
 

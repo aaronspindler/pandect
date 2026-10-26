@@ -13,5 +13,9 @@
 !evidence/**
 !people/
 !people/**
+!templates/
+!templates/**
+!static/
+!static/**
 **/__pycache__/
 **/*.py[cod]

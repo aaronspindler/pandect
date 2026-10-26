@@ -36,6 +36,11 @@ CSRF, and forged ownership, membership IDs, parent cases, and roles.
 Evidence tests cover all material types, required cases/uploaders, exact original
 bytes and checksums, metadata bounds, immutable originals, historical attribution,
 private storage paths, committed deletion cleanup, rollback, and storage failures.
+Product-view tests additionally cover current role gates and cross-case UUID
+requests, private downloads, metadata conflicts, archive/restore, bounded uploads,
+and idempotent retries after uncertain confirmation. Case/invitation tests cover
+verified recipients, token rotation/replay/expiry, mail failure, preserved member
+roles, confirmed deletion, and reviewed stale-edit resubmission.
 They use synthetic content and temporary storage, without external services.
 Person tests cover partial identities, contact validation, case linkage and
 deletion, timestamps, duplicate contacts, scoped lists/search/history, owner and
@@ -46,18 +51,54 @@ memberships, model permissions, CSRF, and case-deletion permission requirements.
 synthetic configuration, random loopback ports, and fresh volumes. It builds the
 runtime image, checks initial migrations and HTTP readiness, creates a synthetic
 owner, collaborator, case, membership, and evidence of all four types, stops and
-restarts the stack, and verifies records and original file bytes persist. Its exit
-trap removes only that project's containers and volumes. It never uses your `.env`
+restarts the stack, and verifies records and original file bytes persist. It also
+checks that the production image serves its collected application assets with
+debug disabled. Its exit trap removes only that project's containers and volumes. It never uses your `.env`
 or data.
 
 `make security-check` exports the hash-locked dependency graph, including developer
 tools, and runs pip-audit against it without re-resolving dependencies. It requires
 internet access to the advisory service. Temporary exports are removed on exit.
 
+## Browser checks
+
+Install the locked developer tools and browser engines, then run the focused
+live-server suite against the same isolated PostgreSQL test setup:
+
+```sh
+uv sync --locked
+uv run --locked playwright install chromium webkit
+uv run --locked --env-file .env make browser-check
+```
+
+On Linux, install browser OS dependencies as required by Playwright (CI uses
+`playwright install --with-deps chromium webkit`). `make browser-check` runs
+`python manage.py test config.tests.browser`; it is separate from the ordinary
+unit suite. Browser fixtures use synthetic accounts/material and temporary
+private file storage. Never run competing Django test processes against the same
+test database, or point the suite at an investigation database.
+
+`PANDECT_BROWSER_ENGINES` selects `chromium`, `webkit`, or both (comma-separated;
+default both). `PANDECT_BROWSER_ARTIFACTS` overrides the screenshot destination,
+which defaults to ignored `data/validation/browser`. Browser artifacts are local
+validation output. Do not replace the synthetic fixtures with real investigation
+material.
+
+The suite exercises account/case/people/evidence/collaboration workflows,
+JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
+navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
+and dense desktop record visibility. Visual targets are 12 complete ordinary
+rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible hit
+areas; screen-reader review and operator deployment checks remain separate human
+validation activities. A successful build or HTTP readiness response is not a
+substitute for these browser interactions and captures.
+
 ## GitHub Actions
 
 - **CI** runs the same checks, fresh PostgreSQL migrations, and Compose smoke on
   Linux amd64 and arm64. uv reads `.python-version` and installs from `uv.lock`.
+- A separate Linux amd64 browser job installs Chromium/WebKit and runs
+  `make browser-check` with synthetic configuration and PostgreSQL.
 - A separate CI job audits locked dependencies without database credentials.
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
 - **CodeQL** analyzes Python on pushes, pull requests, and a weekly schedule. The

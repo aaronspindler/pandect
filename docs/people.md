@@ -6,6 +6,24 @@ are independent of login accounts: a matching name, email, or phone number is no
 proof of identity, and matching records are not automatically linked or merged.
 These records capture investigative work, not verified evidence or model output.
 
+## Investigator workflow
+
+Open a case and choose **People**. Owners and editors can **Add person**, enter
+any known name/contact details, and save. A partial identity is valid; at least
+one name, phone number, or email is required. Viewers can inspect records without
+mutation controls. The searchable list and all detail/edit/delete routes remain
+scoped to the current case.
+
+Choose **Edit person** to correct details or investigator notes. A stale form
+shows newer saved values alongside the preserved draft and requires explicit
+**Save reviewed changes**. A removed/deleted record is not recreated by a stale
+form. Case reassignment, identity verification, and automatic merging are not
+supported.
+
+Only the owner can delete an individual person, after a separate named-target
+confirmation. This does not delete evidence, a login account, or another person
+with matching contacts. Ordinary investigators do not need Django admin access.
+
 ## Fields and validation
 
 | Field | Behavior |
@@ -57,7 +75,7 @@ Assign permissions through Django's user/group administration. Case model
 permissions alone do not grant person permissions. An editor can edit people
 without being allowed to change case metadata or manage collaborators. Users
 without an editable case cannot open the person creation form. Ordinary non-staff
-collaborators require the future investigator-facing interface.
+collaborators use the product interface described above.
 
 Lists and searches include only accessible cases. Direct object, history, and
 deletion URLs use the same case boundary. Submitted case choices are restricted
@@ -79,7 +97,8 @@ or start the updated Compose image. See the
 for databases that applied the earlier integer migrations. No data conversion,
 dependency changes, or runtime upgrades are included.
 
-Authorization is enforced by the current admin entry points, not automatically
-by ORM queries. Future views, exports, background jobs, and integrations must
-check current case permissions themselves. Public APIs, investigator-facing
-screens, multiple contact records, and evidence/identity linkage remain planned.
+Authorization is enforced by both product and admin entry points, not
+automatically by ORM queries. Future exports, background jobs, and integrations
+must check current case permissions themselves. This interface delivery reuses
+the existing person schema; no person migration is required. Public APIs,
+multiple contact records, and evidence/identity linkage remain planned.

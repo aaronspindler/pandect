@@ -97,3 +97,41 @@ assert text.sha256 == hashlib.sha256(text.body.encode("utf-8")).hexdigest()
 PY
 compose exec -T web python -c \
     'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok"}'
+compose exec -T web python <<'PY'
+import os
+import subprocess
+import time
+from urllib.error import URLError
+from urllib.request import urlopen
+
+# Exercise the actual non-debug WSGI/static path as the unprivileged image user.
+process = subprocess.Popen(
+    ["gunicorn", "config.wsgi:application", "--bind", "127.0.0.1:8001",
+     "--logger-class", "config.privacy.PrivateAccessLogger", "--log-level", "warning"],
+    env=os.environ | {"DJANGO_DEBUG": "false"},
+)
+try:
+    for attempt in range(50):
+        try:
+            with urlopen("http://127.0.0.1:8001/health/", timeout=2) as response:
+                assert response.status == 200
+            break
+        except URLError:
+            if process.poll() is not None:
+                raise RuntimeError("The production WSGI server exited.")
+            time.sleep(0.1)
+    else:
+        raise RuntimeError("The production WSGI server did not become ready.")
+    for path, expected in (
+        ("/static/pandect/app.css", b"evidence-workspace"),
+        ("/static/pandect/app.js", b"data-evidence-upload"),
+        ("/static/pandect/icons/file-text.svg", b"<svg"),
+        ("/accounts/login/", b"Welcome to Pandect"),
+    ):
+        with urlopen("http://127.0.0.1:8001" + path, timeout=5) as response:
+            assert response.status == 200, path
+            assert expected in response.read(), path
+finally:
+    process.terminate()
+    process.wait(timeout=10)
+PY

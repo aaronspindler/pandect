@@ -71,6 +71,49 @@ jobs:
       - name: Exercise isolated first-run and recovery workflow
         run: make compose-smoke
 
+  browser:
+    name: Investigator journeys (Chromium and WebKit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DJANGO_SECRET_KEY: synthetic-browser-ci-secret-not-for-deployment
+      POSTGRES_DB: pandect_browser
+      POSTGRES_USER: pandect
+      POSTGRES_PASSWORD: synthetic-browser-ci-password
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      PANDECT_BROWSER_ARTIFACTS: data/validation/browser
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_DB: pandect_browser
+          POSTGRES_USER: pandect
+          POSTGRES_PASSWORD: synthetic-browser-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pandect -d pandect_browser"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv and the pinned Python runtime
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.5"
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Install browser engines and Linux dependencies
+        run: uv run --locked playwright install --with-deps chromium webkit
+      - name: Exercise core user journeys and responsive layouts
+        run: make browser-check
+
   security:
     name: Locked Python dependency audit
     runs-on: ubuntu-24.04

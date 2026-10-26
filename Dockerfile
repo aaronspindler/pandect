@@ -21,6 +21,11 @@ COPY accounts/ accounts/
 COPY cases/ cases/
 COPY evidence/ evidence/
 COPY people/ people/
+COPY templates/ templates/
+COPY static/ static/
+# A synthetic build-only setting is sufficient; collectstatic never needs a DB.
+RUN DJANGO_SECRET_KEY=static-collection-build-only python manage.py collectstatic --noinput \
+    && chown -R pandect:pandect /app/staticfiles
 USER pandect
 EXPOSE 8000
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--access-logfile", "-"]
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "180", "--access-logfile", "-", "--logger-class", "config.privacy.PrivateAccessLogger"]

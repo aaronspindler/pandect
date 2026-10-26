@@ -4,19 +4,23 @@ Pandect is an open-source investigation and intelligence platform designed to
 make open-source intelligence (OSINT) approachable, with clear workflows and
 traceable evidence.
 
-**Status:** Early rebuild. The Django foundation is runnable with uv and
-PostgreSQL, locally or through Docker Compose. It includes a custom user model,
-django-allauth authentication, case ownership and collaboration models, a scoped
-case admin, person records with case-scoped administration, evidence storage
-models, and a database readiness endpoint.
-Evidence supports image, audio, document files, and original text; upload and
-download interfaces remain planned.
+**Status:** Core investigator interfaces are implemented on the Django and
+PostgreSQL foundation. Verified accounts can create cases, invite collaborators,
+manage people, and upload or capture image, audio, document, and text evidence.
+The responsive interface uses the refined three-pane design, with private
+original downloads and explicit source/investigator details.
 
-Planned capabilities include invitations, investigator-facing case screens,
-evidence ingestion, search, relationship analysis, timelines, maps, annotations,
-and reporting. The target architecture uses Django and PostgreSQL, with Docker
-Compose for local operation and one codebase for self-hosted and operator-hosted
-deployments.
+Owners and editors can edit descriptive evidence details and archive or restore
+material. Individual evidence is retained; only owner-confirmed deletion of a
+whole case removes its originals. Case permissions apply to every product request.
+
+To start, follow [local setup](docs/development.md), create and verify an account,
+then choose **Create case**. Add evidence, record people, and invite collaborators
+from case settings. Ordinary investigators do not need Django admin access.
+
+Extraction, AI, graphs, maps, timelines, and reporting remain planned. One codebase
+supports local self-hosting and operator-hosted deployment without requiring an
+AI service for routine investigation work.
 
 - [Project documentation](docs/README.md)
 - [Local setup and dependency management](docs/development.md)

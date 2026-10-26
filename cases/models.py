@@ -3,6 +3,8 @@ from uuid import uuid4
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower
+from django.utils import timezone
 
 
 class Case(models.Model):
@@ -15,6 +17,9 @@ class Case(models.Model):
         related_name="owned_cases",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    name = models.CharField(max_length=255, default="")
+    description = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
     additional_users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="CaseMembership",
@@ -22,8 +27,23 @@ class Case(models.Model):
         blank=True,
     )
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(name__regex=r"\S"),
+                name="cases_case_name_present",
+            )
+        ]
+
     def __str__(self):
-        return f"Case #{self.pk}"
+        return self.name or f"Case #{self.pk}"
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.name.strip():
+            self.name = f"Case #{self.pk}"
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"updated_at"}
+        super().save(*args, **kwargs)
 
 
 class CaseMembership(models.Model):
@@ -64,3 +84,67 @@ class CaseMembership(models.Model):
             raise ValidationError(
                 {"user": "The owner already has access to this case."}
             )
+
+
+class CaseInvitation(models.Model):
+    """A revocable, email-bound invitation; raw tokens are never stored."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name="invitations")
+    email = models.EmailField(max_length=254)
+    role = models.CharField(
+        max_length=6, choices=CaseMembership.Role, default=CaseMembership.Role.VIEWER
+    )
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="case_invitations_sent",
+    )
+    token_digest = models.CharField(max_length=64, unique=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="case_invitations_accepted",
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    delivery_failed = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ("-created_at", "pk")
+        constraints = [
+            models.UniqueConstraint(
+                Lower("email"),
+                models.F("case"),
+                condition=models.Q(accepted_at__isnull=True, revoked_at__isnull=True),
+                name="cases_one_pending_invitation",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(role__in=("viewer", "editor")),
+                name="cases_valid_invitation_role",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.email} ({self.get_role_display()})"
+
+    @property
+    def status(self):
+        if self.accepted_at:
+            return "Accepted"
+        if self.revoked_at:
+            return "Revoked"
+        if self.expires_at <= timezone.now():
+            return "Expired"
+        if self.delivery_failed:
+            return "Delivery failed"
+        return "Pending"
+
+    @property
+    def is_pending(self):
+        return not self.accepted_at and not self.revoked_at

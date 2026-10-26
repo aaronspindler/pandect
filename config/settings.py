@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -36,19 +37,21 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "config.privacy.PrivatePageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -92,8 +95,9 @@ AUTH_PASSWORD_VALIDATORS = [
 ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
+ACCOUNT_ADAPTER = "accounts.adapter.PandectAccountAdapter"
 LOGIN_URL = "account_login"
-LOGIN_REDIRECT_URL = "account_email"
+LOGIN_REDIRECT_URL = "cases:case_list"
 LOGOUT_REDIRECT_URL = "account_login"
 
 LANGUAGE_CODE = "en-us"
@@ -104,9 +108,14 @@ USE_TZ = True
 # Django/allauth internals and automatically generated many-to-many tables.
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
-# No public media route: future evidence downloads must check case permissions.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+# Private evidence is deliberately outside WhiteNoise's static root.
 MEDIA_ROOT = Path(
     os.environ.get("PANDECT_MEDIA_ROOT", str(BASE_DIR / "data" / "media"))
 )
@@ -114,6 +123,72 @@ MEDIA_ROOT = Path(
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 X_FRAME_OPTIONS = "DENY"
+
+
+def positive_env(name, default):
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError as error:
+        raise ImproperlyConfigured(f"{name} must be a positive integer.") from error
+    if value <= 0:
+        raise ImproperlyConfigured(f"{name} must be a positive integer.")
+    return value
+
+
+PANDECT_MAX_FILE_BYTES = positive_env("PANDECT_MAX_FILE_BYTES", 100 * 1024 * 1024)
+PANDECT_MAX_TEXT_BYTES = positive_env("PANDECT_MAX_TEXT_BYTES", 1024 * 1024)
+PANDECT_MAX_BATCH_FILES = positive_env("PANDECT_MAX_BATCH_FILES", 20)
+PANDECT_INVITATION_DAYS = positive_env("PANDECT_INVITATION_DAYS", 7)
+PANDECT_PUBLIC_ORIGIN = os.environ.get(
+    "PANDECT_PUBLIC_ORIGIN", "http://localhost:8000"
+).rstrip("/")
+origin = urlsplit(PANDECT_PUBLIC_ORIGIN)
+if (
+    origin.scheme not in {"http", "https"}
+    or not origin.netloc
+    or origin.username
+    or origin.password
+    or origin.path
+    or origin.query
+    or origin.fragment
+):
+    raise ImproperlyConfigured("PANDECT_PUBLIC_ORIGIN must be an HTTP(S) origin.")
+FILE_UPLOAD_HANDLERS = [
+    "evidence.uploads.LimitedUploadHandler",
+    "django.core.files.uploadhandler.MemoryFileUploadHandler",
+    "django.core.files.uploadhandler.TemporaryFileUploadHandler",
+]
+DATA_UPLOAD_MAX_MEMORY_SIZE = max(2 * 1024 * 1024, PANDECT_MAX_TEXT_BYTES + 65536)
+DATA_UPLOAD_MAX_NUMBER_FILES = 1
+FILE_UPLOAD_PERMISSIONS = 0o600
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {"private_urls": {"()": "config.privacy.RedactPrivateURLs"}},
+    "handlers": {
+        "private_console": {
+            "class": "logging.StreamHandler",
+            "filters": ["private_urls"],
+        }
+    },
+    "loggers": {
+        "django.server": {
+            "handlers": ["private_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django": {
+            "handlers": ["private_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "evidence": {
+            "handlers": ["private_console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+}
 
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "pandect@localhost")
 if DEBUG:

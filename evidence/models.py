@@ -38,8 +38,25 @@ class Evidence(models.Model):
     source_description = models.TextField(blank=True)
     collected_at = models.DateTimeField(null=True, blank=True)
     sha256 = models.CharField(max_length=64, editable=False, blank=True)
+    submission_id = models.UUIDField(null=True, blank=True, unique=True, editable=False)
+    is_archived = models.BooleanField(default=False)
+    archive_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    archive_changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="%(app_label)s_%(class)s_archive_changes",
+    )
 
-    immutable_fields = ("case_id", "uploaded_by_id", "created_at", "sha256")
+    immutable_fields = (
+        "case_id",
+        "uploaded_by_id",
+        "created_at",
+        "sha256",
+        "submission_id",
+    )
 
     class Meta:
         abstract = True
@@ -52,6 +69,20 @@ class Evidence(models.Model):
             models.CheckConstraint(
                 condition=models.Q(sha256__regex=r"^[0-9a-f]{64}$"),
                 name="%(app_label)s_%(class)s_sha256_format",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        archive_changed_at__isnull=True,
+                        archive_changed_by__isnull=True,
+                        is_archived=False,
+                    )
+                    | models.Q(
+                        archive_changed_at__isnull=False,
+                        archive_changed_by__isnull=False,
+                    )
+                ),
+                name="%(app_label)s_%(class)s_archive_attribution",
             ),
         ]
 

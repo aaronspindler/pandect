@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}Evidence could not be saved{% endblock %}
+{% block content %}<div class="page-content"><h1>Evidence could not be saved</h1><p>{{ error_message }}</p><p>Keep your original file or text. Return to the form to review it and try again.</p><a href="{% url 'cases:case_list' %}" class="button button-secondary">All cases</a></div>{% endblock %}
