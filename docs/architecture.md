@@ -57,11 +57,14 @@ required by that image's version-specific layout.
   authorization shared by product views. See [case workflows and permissions](cases.md).
 - `/health/` checks database connectivity without returning secrets or case data.
 - `evidence/` contains abstract `Evidence`, `FileEvidence`, and `LocationContent`
-  bases and concrete image, audio, document, text, location, and person-location
-  models. Each record has one required case and uploader. Original files, text,
+  bases, plus abstract communication/call bases and concrete image, audio,
+  document, text, location, person-location, vehicle-location, text-message,
+  phone-call, and FaceTime models. Each record has one required case and uploader. Original files, text,
   and location observations have generated checksums and are protected against
   replacement through normal model saves. Archive state retains originals; immutable
-  submission UUIDs make uncertain upload retries idempotent. See [evidence](evidence.md).
+  submission UUIDs make uncertain upload retries idempotent. Call attachments
+  retain independently hashed transcripts/recordings with attribution, without
+  replacing the call original or earlier additions. See [evidence](evidence.md).
 - `people/` contains `Person`, an investigator-maintained name/contact record
   linked to one case, with scoped Django administration. Owners and editors can
   create and edit people; only owners can delete them. See [people](people.md).
@@ -76,7 +79,9 @@ Allauth does not implement case invitations or authorization.
 
 Every Pandect model uses an explicit, non-editable `UUIDField` primary key with
 `default=uuid4`: `User`, `Case`, `CaseMembership`, `CaseInvitation`, `Person`, `Vehicle`,
-and all six concrete evidence models. Each new instance receives an independent
+all ten concrete evidence models, `CallEvidenceAttachment`, and
+`VehicleLocationImport`.
+Each new instance receives an independent
 UUIDv4 before saving; use the model's adding state rather than the presence of a
 primary key to tell whether it has been saved. Foreign keys to these models use
 PostgreSQL's native `uuid` type, including user references in Django admin and
@@ -127,7 +132,9 @@ need matching treatment. See [operations](operations.md).
 
 ## Planned work
 
-Extraction, document/media previews, background processing, AI, cross-case/global
+Bounded Asset Location CSV parsing into retained vehicle-location observations is
+implemented; see [vehicle-location imports](vehicle-location-imports.md).
+Other extraction, document/media previews, background processing, AI, cross-case/global
 search, graphs, maps, timelines, and reporting remain planned. No queue, external
 AI client, or paid service is required by core management. Future inference must
 use the centralized Cloudflare AI Gateway boundary from [AGENTS.md](../AGENTS.md).

@@ -7,11 +7,16 @@ from django.conf import settings
 
 from .models import (
     AudioEvidence,
+    CallEvidenceAttachment,
     DocumentEvidence,
+    FaceTimeEvidence,
     ImageEvidence,
     LocationEvidence,
     PersonLocationEvidence,
+    PhoneCallEvidence,
     TextEvidence,
+    TextMessageEvidence,
+    VehicleLocationEvidence,
 )
 
 KINDS = {
@@ -21,6 +26,10 @@ KINDS = {
     "text": TextEvidence,
     "location": LocationEvidence,
     "person-location": PersonLocationEvidence,
+    "vehicle-location": VehicleLocationEvidence,
+    "text-message": TextMessageEvidence,
+    "phone-call": PhoneCallEvidence,
+    "facetime": FaceTimeEvidence,
 }
 KIND_LABELS = {
     "image": "Image",
@@ -29,15 +38,25 @@ KIND_LABELS = {
     "text": "Text",
     "location": "Location",
     "person-location": "Person location",
+    "vehicle-location": "Vehicle location",
+    "text-message": "Text message",
+    "phone-call": "Phone call",
+    "facetime": "FaceTime",
 }
 FILE_KINDS = ("image", "audio", "document")
-LOCATION_KINDS = ("location", "person-location")
+CALL_KINDS = ("phone-call", "facetime")
+COMMUNICATION_KINDS = ("text-message", *CALL_KINDS)
+COMMUNICATION_FIELDS = ("sender", "recipient", "occurred_at")
+LOCATION_KINDS = ("location", "person-location", "vehicle-location")
 LOCATION_FIELDS = ("address", "latitude", "longitude", "observed_at")
 ORIGINAL_FIELDS = {
     **dict.fromkeys(FILE_KINDS, ("file",)),
     "text": ("body",),
     "location": LOCATION_FIELDS,
     "person-location": ("person", *LOCATION_FIELDS),
+    "vehicle-location": ("vehicle", *LOCATION_FIELDS),
+    "text-message": (*COMMUNICATION_FIELDS, "body"),
+    **dict.fromkeys(CALL_KINDS, (*COMMUNICATION_FIELDS, "duration")),
 }
 COMMON_FIELDS = (
     "title",
@@ -54,7 +73,27 @@ TYPE_FIELDS = {
     "text": ("language",),
     "location": (),
     "person-location": (),
+    "vehicle-location": (),
+    **dict.fromkeys(COMMUNICATION_KINDS, ()),
 }
+
+
+def validate_file(original):
+    if not original:
+        return original
+    if len(getattr(original, "content_type", "") or "") > 255:
+        raise forms.ValidationError(
+            "The declared content type is too long. Select the file again."
+        )
+    if original.size > settings.PANDECT_MAX_FILE_BYTES:
+        raise forms.ValidationError("This file exceeds the configured upload limit.")
+    return original
+
+
+def validate_text(text):
+    if len(text.encode("utf-8")) > settings.PANDECT_MAX_TEXT_BYTES:
+        raise forms.ValidationError("This text exceeds the configured capture limit.")
+    return text
 
 
 class EvidenceForm(forms.ModelForm):
@@ -124,6 +163,40 @@ class EvidenceForm(forms.ModelForm):
                 }
             )
             self.fields["submission_id"].required = True
+        if kind in COMMUNICATION_KINDS and self.instance._state.adding:
+            self.fields["submission_id"].required = True
+            for name in ("sender", "recipient"):
+                self.fields[name].queryset = self.fields[name].queryset.filter(
+                    case_id=self.instance.case_id
+                )
+                self.fields[name].help_text = (
+                    "Choose a person in this case. This reports an association, "
+                    "not verified identity."
+                )
+            self.fields["occurred_at"].label = (
+                "Sent at (UTC)" if kind == "text-message" else "Call started at (UTC)"
+            )
+            self.fields["occurred_at"].widget = forms.DateTimeInput(
+                attrs={"type": "datetime-local", "step": "1"},
+                format="%Y-%m-%dT%H:%M:%S",
+            )
+            self.fields[
+                "occurred_at"
+            ].help_text = "Time reported by the source; leave blank if unknown."
+            if kind == "text-message":
+                self.fields["body"].label = "Original message"
+            else:
+                if "file" in self.fields:
+                    self.fields["file"].label = "Audio file"
+                    self.fields["file"].help_text = (
+                        "Optional original recording, retained without automatic "
+                        "format verification. Later recordings are new attachments."
+                    )
+                    self.fields["transcript"].widget.attrs["rows"] = 12
+                self.fields["duration"].help_text = (
+                    "Reported duration, such as 00:01:30. "
+                    "Leave blank if unknown; zero is valid."
+                )
         if kind in LOCATION_KINDS and self.instance._state.adding:
             self.fields["submission_id"].required = True
             self.fields["address"].strip = False
@@ -154,30 +227,20 @@ class EvidenceForm(forms.ModelForm):
                     "Choose a person in this case. This reports an association, "
                     "not verified identity or presence."
                 )
+            if "vehicle" in self.fields:
+                self.fields["vehicle"].queryset = self.fields[
+                    "vehicle"
+                ].queryset.filter(case_id=self.instance.case_id)
+                self.fields["vehicle"].help_text = (
+                    "Choose a vehicle in this case. This reports an association, "
+                    "not verified identity, ownership, or presence."
+                )
 
     def clean_file(self):
-        original = self.cleaned_data["file"]
-        if len(getattr(original, "content_type", "") or "") > 255:
-            raise forms.ValidationError(
-                "The declared content type is too long. Select the file again."
-            )
-        if original.size > getattr(
-            settings, "PANDECT_MAX_FILE_BYTES", 100 * 1024 * 1024
-        ):
-            raise forms.ValidationError(
-                "This file exceeds the configured upload limit."
-            )
-        return original
+        return validate_file(self.cleaned_data["file"])
 
     def clean_body(self):
-        body = self.cleaned_data["body"]
-        if len(body.encode("utf-8")) > getattr(
-            settings, "PANDECT_MAX_TEXT_BYTES", 1024 * 1024
-        ):
-            raise forms.ValidationError(
-                "This text exceeds the configured capture limit."
-            )
-        return body
+        return validate_text(self.cleaned_data["body"])
 
     def clean(self):
         cleaned = super().clean()
@@ -187,9 +250,71 @@ class EvidenceForm(forms.ModelForm):
         return cleaned
 
 
+class CallContentForm(forms.Form):
+    transcript = forms.CharField(
+        required=False,
+        strip=False,
+        widget=forms.Textarea(attrs={"rows": 12, "spellcheck": "false"}),
+        help_text=(
+            "Supplied transcript, retained as entered. "
+            "Later corrections are additional attachments."
+        ),
+    )
+    file = forms.FileField(
+        required=False,
+        label="Audio file",
+        help_text=(
+            "Optional original recording. Its format is declared, "
+            "not automatically verified."
+        ),
+    )
+
+    def clean_transcript(self):
+        return validate_text(self.cleaned_data["transcript"])
+
+    def clean_file(self):
+        return validate_file(self.cleaned_data["file"])
+
+
+class CallCreationForm(EvidenceForm, CallContentForm):
+    pass
+
+
+class CallAttachmentForm(CallContentForm):
+    submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
+
+    def clean(self):
+        cleaned = super().clean()
+        if (
+            not self.errors
+            and not cleaned.get("transcript")
+            and not cleaned.get("file")
+        ):
+            raise forms.ValidationError("Supply a transcript, an audio file, or both.")
+        return cleaned
+
+
+def save_call_content(call, actor, data, submission_id):
+    if not data.get("transcript") and not data.get("file"):
+        return None
+    return CallEvidenceAttachment.objects.create(
+        case_id=call.case_id,
+        uploaded_by=actor,
+        submission_id=submission_id,
+        **{
+            "phone_call"
+            if call.communication_kind == "phone-call"
+            else "facetime": call
+        },
+        transcript=data.get("transcript", ""),
+        file=data.get("file") or "",
+    )
+
+
 def evidence_form(kind, *, editing=False):
     model = KINDS[kind]
     fields = COMMON_FIELDS + TYPE_FIELDS[kind]
     if not editing:
         fields += ORIGINAL_FIELDS[kind]
-    return forms.modelform_factory(model, form=EvidenceForm, fields=fields)
+    base = CallCreationForm if kind in CALL_KINDS and not editing else EvidenceForm
+    return forms.modelform_factory(model, form=base, fields=fields)

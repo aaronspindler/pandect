@@ -7,7 +7,8 @@
 - [Case workflows, invitations, collaboration, and Django admin](cases.md)
 - [People, contact details, and case-scoped administration](people.md)
 - [Vehicles, identifying details, and case-scoped administration](vehicles.md)
-- [Evidence uploads, private downloads, retention, and integrity](evidence.md)
+- [Evidence, communications, retained call material, and private downloads](evidence.md)
+- [Vehicle locations and Asset Location CSV imports](vehicle-location-imports.md)
 - [Validation, CI, and Dependabot](validation.md)
 - [Compose operation, backup, and recovery](operations.md)
 
@@ -26,8 +27,14 @@ The Django project was generated from the repository root using
 The initial migrations use `accounts.User`; application and integration tests use
 PostgreSQL. Account screens, case management, email invitations, viewer/editor
 collaboration, people and vehicle management, and retained evidence uploads/downloads
-are implemented alongside scoped operator administration. Evidence processing, AI,
+are implemented alongside scoped operator administration and bounded vehicle-location
+CSV imports. Other evidence processing, AI,
 and visual analysis remain planned capabilities.
+
+## Product planning
+
+- [Evidence analysis and extraction catalogue (proposed capabilities)](evidence-analysis.md)
+- [Evidence analysis implementation roadmap (proposed priorities)](evidence-analysis-roadmap.md)
 
 ## Interface design and delivery
 
@@ -77,5 +84,27 @@ network access for shell commands.
 Configuration was checked against the installed Codex CLI 0.164.0 and its bundled
 model catalog. These settings do not change an already-running conversation.
 
+### Simplicity review
+
+The project agent
+[`simplicity_reviewer`](../.codex/agents/simplicity_reviewer.toml) checks the final
+task changes for overengineering and unnecessary bloat before handoff. It
+inherits the parent model and reasoning settings and is instructed to inspect
+without making edits. Its permissions still come from the parent session.
+
+As required by [the contributor guide](../AGENTS.md#simplicity-and-maintainability),
+the implementing agent supplies the requirements and final scoped diff (including
+new files), waits for the review, and resolves material findings before handing
+back changes. The reviewer identifies concrete maintenance costs and simpler
+alternatives while preserving the project's correctness and integrity requirements.
+Substantive fixes require affected checks and another review.
+
+Open a new trusted Codex session to discover the custom agent. You can request it
+explicitly: "Have simplicity_reviewer review the final changes for this task."
+The handoff requirement is an agent instruction, not a Git or CI hook. If the
+client cannot load custom agents, delegate the review using the instructions in
+the same TOML file and disclose that fallback.
+
 References: [OpenAI configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
-and [configuration layering and profiles](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles).
+[configuration layering and profiles](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles),
+and [custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents#custom-agents).

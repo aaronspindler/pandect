@@ -1,5 +1,10 @@
 # Pandect
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="static/pandect/brand/logo-ivory.png">
+  <img src="static/pandect/brand/logo-oxblood.png" alt="Pandect logo" width="432">
+</picture>
+
 Pandect is an open-source investigation and intelligence platform designed to
 make open-source intelligence (OSINT) approachable. Its goal is to bring
 evidence, people, connections, and analysis into one clear investigation
@@ -26,9 +31,15 @@ Analysis and visualization capabilities are being built incrementally.
   notes within a case, including partial or uncertain identifiers.
 - **Evidence collection:** Upload images, audio, and documents, or capture original
   text. Queue multiple files and record source details and collection times.
+- **Communication evidence:** Capture individual text messages, phone calls, and
+  FaceTime calls between case people, with optional event times/call durations.
+  Add retained transcripts and recordings when available, including later additions.
 - **Location observations:** Record addresses or coordinates, optionally linked to
-  a person in the same case, with source details and an observation time. These
+  a person or vehicle in the same case, with source details and an observation time. These
   capture reported information rather than verified whereabouts.
+- **Vehicle location imports:** Review Asset Location CSV exports, explicitly select
+  their timezone and case vehicles, and retain source rows and telemetry alongside
+  the original CSV. Imports are bounded to 250 rows and 1 MiB.
 - **Original preservation:** Retain originals with SHA-256 checksums. Edit
   descriptive details separately, archive or restore evidence, and download files
   through case-authorized routes. Individual evidence is retained until its owner
@@ -111,6 +122,7 @@ deployment.
 - [People records](docs/people.md)
 - [Vehicle records](docs/vehicles.md)
 - [Evidence handling and retention](docs/evidence.md)
+- [Vehicle locations and CSV imports](docs/vehicle-location-imports.md)
 - [Architecture and implemented scope](docs/architecture.md)
 - [Operations, backup, and recovery](docs/operations.md)
 - [Validation and CI](docs/validation.md)

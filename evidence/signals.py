@@ -5,7 +5,12 @@ from django.db import transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 
-from .models import AudioEvidence, DocumentEvidence, ImageEvidence
+from .models import (
+    AudioEvidence,
+    CallEvidenceAttachment,
+    DocumentEvidence,
+    ImageEvidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +29,7 @@ def delete_original(storage, name):
 @receiver(post_delete, sender=ImageEvidence)
 @receiver(post_delete, sender=AudioEvidence)
 @receiver(post_delete, sender=DocumentEvidence)
+@receiver(post_delete, sender=CallEvidenceAttachment)
 def schedule_original_deletion(sender, instance, using, **kwargs):
     if instance.file:
         transaction.on_commit(

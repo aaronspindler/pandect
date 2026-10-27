@@ -42,12 +42,15 @@ the configured SMTP mailer instead.
 
 After verification, **All cases → Create case** creates a case owned by you.
 Inside it, use **Add evidence** to upload files, capture original text, or
-record locations, **People → Add person** for contact details/notes,
+record locations and communications, **People → Add person** for contact details/notes,
 **Vehicles → Add vehicle** for vehicle details/notes, and
 **Settings → Invite collaborator** to grant Viewer or Editor access. See
 [cases](cases.md), [evidence](evidence.md), [people](people.md), and
 [vehicles](vehicles.md) for workflow
 details and limits. Ordinary investigators do not need staff permissions.
+For Asset Location CSV exports, choose **Vehicles → Import vehicle locations**,
+then select the export timezone and review case-vehicle mappings before confirming.
+See [vehicle-location imports](vehicle-location-imports.md).
 
 The optional `createsuperuser` command creates an operator for `/admin/`. Staff
 permissions remain separate from product access; even superusers can inspect only

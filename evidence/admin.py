@@ -6,10 +6,101 @@ from django.contrib import admin
 from django.db.models import F, Q
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
 
 from cases.models import Case, CaseMembership
 
-from .forms import COMMON_FIELDS, FILE_KINDS, KINDS, ORIGINAL_FIELDS, TYPE_FIELDS
+from .forms import (
+    CALL_KINDS,
+    COMMON_FIELDS,
+    COMMUNICATION_KINDS,
+    FILE_KINDS,
+    KINDS,
+    ORIGINAL_FIELDS,
+    TYPE_FIELDS,
+)
+from .models import CallEvidenceAttachment
+
+
+class CallAttachmentInline(admin.StackedInline):
+    model = CallEvidenceAttachment
+    extra = 0
+    can_delete = False
+    fields = readonly_fields = (
+        "transcript",
+        "original_file",
+        "uploaded_by",
+        "created_at",
+        "sha256",
+        "audio_sha256",
+        "inspect",
+    )
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_view_permission(self, request, obj=None):
+        if obj is None:
+            parent_model = self.model._meta.get_field(self.fk_name).related_model
+            return request.user.has_perm(
+                f"evidence.view_{parent_model._meta.model_name}"
+            ) or request.user.has_perm(
+                f"evidence.change_{parent_model._meta.model_name}"
+            )
+        return (
+            request.user.has_perm(f"evidence.view_{obj._meta.model_name}")
+            or request.user.has_perm(f"evidence.change_{obj._meta.model_name}")
+        ) and (
+            obj.case.owner_id == request.user.pk
+            or obj.case.memberships.filter(user=request.user).exists()
+        )
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .filter(
+                Q(case__owner=request.user) | Q(case__memberships__user=request.user)
+            )
+            .filter(
+                Q(phone_call__case_id=F("case_id")) | Q(facetime__case_id=F("case_id"))
+            )
+            .distinct()
+        )
+
+    @admin.display(description="Original audio")
+    def original_file(self, obj):
+        return obj.original_filename or "No audio supplied"
+
+    @admin.display(description="Private evidence workflow")
+    def inspect(self, obj):
+        url = reverse(
+            "evidence:detail",
+            kwargs={
+                "case_id": obj.case_id,
+                "kind": "phone-call" if obj.phone_call_id else "facetime",
+                "evidence_id": obj.phone_call_id or obj.facetime_id,
+            },
+        )
+        return format_html(
+            '<a href="{}#attachment-{}">Inspect or add retained material</a>',
+            url,
+            obj.pk,
+        )
+
+
+class PhoneCallAttachmentInline(CallAttachmentInline):
+    fk_name = "phone_call"
+
+
+class FaceTimeAttachmentInline(CallAttachmentInline):
+    fk_name = "facetime"
 
 
 class EvidenceAdminForm(forms.ModelForm):
@@ -84,8 +175,14 @@ class EvidenceAdmin(admin.ModelAdmin):
             )
             .distinct()
         )
-        if self.kind == "person-location":
+        if self.kind in COMMUNICATION_KINDS:
+            queryset = queryset.filter(
+                sender__case_id=F("case_id"), recipient__case_id=F("case_id")
+            )
+        elif self.kind == "person-location":
             queryset = queryset.filter(person__case_id=F("case_id"))
+        elif self.kind == "vehicle-location":
+            queryset = queryset.filter(vehicle__case_id=F("case_id"))
         return queryset
 
     def get_editable_cases(self, request):
@@ -100,12 +197,12 @@ class EvidenceAdmin(admin.ModelAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "case":
             kwargs["queryset"] = self.get_editable_cases(request)
-        elif db_field.name == "person":
+        elif db_field.name in ("person", "vehicle", "sender", "recipient"):
             kwargs["queryset"] = db_field.related_model.objects.filter(
                 case__in=self.get_editable_cases(request)
             )
             kwargs["help_text"] = (
-                "Choose a person belonging to the selected case. "
+                "Choose a record belonging to the selected case. "
                 "This reports an association, not verified identity or presence."
             )
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
@@ -115,12 +212,29 @@ class EvidenceAdmin(admin.ModelAdmin):
             kwargs["strip"] = False
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
+    def get_inlines(self, request, obj=None):
+        if obj is not None and self.kind in CALL_KINDS and obj.attachments.exists():
+            return (
+                (PhoneCallAttachmentInline,)
+                if self.kind == "phone-call"
+                else (FaceTimeAttachmentInline,)
+            )
+        return ()
+
     def get_readonly_fields(self, request, obj=None):
         fields = super().get_readonly_fields(request, obj)
         if obj is not None:
             fields += ("case", *ORIGINAL_FIELDS[self.kind])
             if self.kind in FILE_KINDS:
                 fields += ("original_filename", "byte_size", "declared_content_type")
+            if self.kind == "vehicle-location":
+                fields += (
+                    "import_batch",
+                    "source_row",
+                    "raw_row",
+                    "speed_kmh",
+                    "received_at",
+                )
         return fields
 
     def get_fieldsets(self, request, obj=None):
@@ -141,6 +255,21 @@ class EvidenceAdmin(admin.ModelAdmin):
                 },
             ),
         )
+        if obj is not None and self.kind == "vehicle-location":
+            fieldsets += (
+                (
+                    "Imported source values",
+                    {
+                        "fields": (
+                            "import_batch",
+                            "source_row",
+                            "raw_row",
+                            "speed_kmh",
+                            "received_at",
+                        )
+                    },
+                ),
+            )
         if TYPE_FIELDS[self.kind]:
             fieldsets += (
                 (

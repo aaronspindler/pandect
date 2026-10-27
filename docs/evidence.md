@@ -3,13 +3,14 @@
 The `evidence` app stores original investigation material. Each record belongs
 to exactly one `cases.Case` through a required foreign key. A case can contain
 many records of each type. There is no global evidence pool or concrete shared
-evidence table: `Evidence`, `FileEvidence`, and `LocationContent` are abstract
-Django models.
+evidence table: `Evidence`, `FileEvidence`, `LocationContent`, `CommunicationEvidence`, and
+`CallEvidence` are abstract Django models.
 
 ## Investigator workflow
 
 Inside a case, owners and editors choose **Add evidence** and select Document,
-Image, Audio, Text, Location, or Person location. File categories describe the
+Image, Audio, Text, Location, Person location, Vehicle location, Text message,
+Phone call, or FaceTime. File categories describe the
 submitted material; no parser verifies them. Enter a title, an optional
 **Source** name/citation, and optional description, source URL, source
 description, and collection time. Text captures one browser-submitted original;
@@ -65,7 +66,7 @@ whole-case deletion removes retained evidence through the product interface.
 
 ## Models and metadata
 
-All six concrete models inherit these fields from `Evidence`:
+All ten concrete evidence models inherit these fields from `Evidence`:
 
 - An automatically generated, non-editable UUIDv4 primary key (`id`).
 - Required `case`, `uploaded_by`, and `title` (up to 255 characters).
@@ -75,7 +76,7 @@ All six concrete models inherit these fields from `Evidence`:
   `source_url`, `source_description`, and `collected_at`.
   Collection time describes source provenance, not the upload timestamp.
 - Generated `sha256`, calculated from the original bytes, captured UTF-8 text,
-  or canonical location JSON.
+  or canonical location/communication JSON.
 - `is_archived`, plus `archive_changed_at` and protected `archive_changed_by`
   attribution for the latest real archive/restore transition; this is not a full
   history journal.
@@ -90,6 +91,9 @@ All six concrete models inherit these fields from `Evidence`:
 | `TextEvidence` | `body` | `language` tag, up to 35 characters |
 | `LocationEvidence` | `address` and/or `latitude` + `longitude`, optional `observed_at` | Shared source/description fields |
 | `PersonLocationEvidence` | Same location fields plus a required `person` in the same case | Shared source/description fields |
+| `VehicleLocationEvidence` | Same location fields plus a required same-case `vehicle`; optional immutable CSV row, speed, receipt time, and import provenance | Shared source/description fields |
+| `TextMessageEvidence` | Required same-case `sender` and `recipient`, one `body`, optional `occurred_at` | Shared source/description fields |
+| `PhoneCallEvidence` / `FaceTimeEvidence` | Required same-case `sender` and `recipient`, optional `occurred_at` and `duration` | Shared source/description fields; retained attachments added separately |
 
 File models inherit `file`, generated `original_filename` and `byte_size`, and
 optional `declared_content_type` from `FileEvidence`. Uploaded-file content types
@@ -103,6 +107,65 @@ or automatic metadata verification. Image originals use `FileField`, without a
 Pillow dependency. Text files may be stored as documents; `TextEvidence.body`
 holds pasted original text. Descriptions and optional metadata are analyst input,
 not extracted facts or AI results. File checksums do not prove a source is truthful.
+
+## Communications and retained call material
+
+Choose **Text message**, **Phone call**, or **FaceTime** inside the case's Add
+evidence workflow. Sender and recipient are required existing people in that
+case; they may be the same person. Add people first when the case has none.
+A message captures exactly one original message, not a conversation thread.
+Optional **Sent at (UTC)** or **Call started at (UTC)** records reported event
+time, separately from source collection and upload time. Calls also accept an
+optional reported duration such as `00:01:30`; zero is valid and blank is unknown.
+No time, duration, or identity is inferred.
+
+Participants, reported time/duration, and message text are immutable originals.
+Names shown in the reader follow current person records, while retained UUIDs
+identify the original associations. These associations do not verify identity.
+Both participants are restricted to the same case by product/admin forms and
+normal model validation/saves. Either participant link prevents individual person
+deletion, including for archived evidence; whole-case deletion removes both.
+
+A call can be saved without content, with a supplied transcript, with one audio
+file, or with both. Initial material is saved atomically with the call. Later,
+owners/editors choose **Add transcript or audio** to append another retained
+addition. Each addition is a `CallEvidenceAttachment`, with its own case, UUID,
+uploader, creation time, unique submission ID, checksum, and exactly one phone-call
+or FaceTime parent. An addition must contain transcript text, audio, or both.
+There is no edit, replacement, archive, or individual deletion action for an
+attachment. Add a further transcript to record a correction; earlier material
+stays visible. Archiving the call retains all its material and still permits
+owners/editors to add material. Viewers can inspect and download it.
+
+Transcript text preserves the server-received text without trimming; browser
+line-ending handling still applies. Transcripts are supplied material, not
+verified facts or automatic transcription. One file is accepted per request;
+`PANDECT_MAX_FILE_BYTES` and `PANDECT_MAX_TEXT_BYTES` apply to recordings and
+transcripts respectively. Calls use ordinary forms, not the bulk-file queue.
+After an uncertain submission, retry with the original submission ID and content;
+new additions need new IDs. Failed file submissions can require reselection.
+
+**Download communication record** returns the canonical JSON whose UTF-8 bytes
+produce the record's SHA-256: sorted keys, compact separators, unescaped Unicode,
+participant UUIDs, UTC ISO event time or null, and original message text or call
+duration as integer microseconds or null. Schemas are `pandect.text-message.v1`,
+`pandect.phone-call.v1`, and `pandect.facetime.v1`. Call checksums describe the
+original call record and stay unchanged as content is added.
+
+Each addition independently hashes a `pandect.call-attachment.v1` JSON record
+containing the case/parent identity, transcript, and optional audio metadata and
+byte checksum. Attachment integrity details expose this record for download;
+**Download transcript** returns its exact UTF-8 text, and **Download audio** returns
+its original bytes as an attachment. All routes recheck current access and parent
+membership and use private/no-store caching and `nosniff`; storage URLs stay private.
+The collection searches participant names/contact details and audio filenames
+without counting a call more than once when several attachments match.
+
+The three models use existing scoped admin permissions. Calls show retained
+attachments read-only, without storage URLs; **View on site** opens the product
+flow for adding material. Attachments are not independently registered in admin.
+Whole-case admin deletion also requires `evidence.delete_callevidenceattachment`
+when retained call attachments exist, alongside the existing per-model permissions.
 
 ## Location observations
 
@@ -138,9 +201,9 @@ metadata, including Source, is separate from this original and its checksum.
 Authorized viewers can read/download archived observations as with other evidence.
 
 Original downloads use `application/octet-stream` with an attachment filename so
-browsers save them consistently, including Linux WebKit. Location originals keep
-their `.json` filenames and canonical bytes; captured text keeps its `.txt`
-filename and UTF-8 bytes.
+browsers save them consistently, including Linux WebKit. Location, communication,
+and call-attachment records keep their `.json` filenames and canonical bytes;
+captured text and transcripts keep their `.txt` filenames and UTF-8 bytes.
 
 Retained person-location evidence restricts individual person deletion,
 including when archived. This protects the original association. Confirmed
@@ -149,7 +212,12 @@ no separate shared location table or individual evidence deletion route.
 
 ## Django admin
 
-All six concrete evidence models are available under **Evidence** at `/admin/`.
+Vehicle location originals and the bounded Asset Location CSV import flow are
+documented in [Vehicle locations and CSV imports](vehicle-location-imports.md).
+Source CSVs remain retained Document evidence. Imported telemetry and associations
+are immutable; ordinary description/source edits do not replace them.
+
+All ten concrete evidence models are available under **Evidence** at `/admin/`.
 Active staff status and the corresponding Django model permission are required
 in addition to current case access. Lists, searches, history, and direct record
 URLs include only cases the operator owns or shares, including for superusers.
@@ -317,8 +385,13 @@ documented upgrade workflow, without resetting existing databases. The additive
 and adds optional `source` fields to all four existing evidence tables. Existing
 records receive an empty source name; their source URLs, descriptions,
 checksums, and originals remain unchanged. No reset or data import is required.
-Back up before upgrades. Database backups include text/location originals and
-file metadata; file originals require a matching private storage backup. See
+The additive `0004_vehicle_locations` migration creates vehicle-location evidence
+and import provenance tables. It does not change existing records. The additive
+`0005_communication_evidence` migration adds three communication tables and the
+call-attachment table with native UUID keys; existing originals are unchanged.
+Back up before upgrades. Database backups include text/location/communication
+originals, transcripts, and file metadata; file originals require a matching
+private storage backup. See
 [operations](operations.md).
 
 References: [Django abstract models](https://docs.djangoproject.com/en/6.1/topics/db/models/#abstract-base-classes),

@@ -16,9 +16,10 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
-from evidence.forms import FILE_KINDS, KINDS, LOCATION_KINDS
+from evidence.forms import COMMUNICATION_KINDS, FILE_KINDS, KINDS, LOCATION_KINDS
 from evidence.models import DocumentEvidence, TextEvidence
 from people.models import Person
+from vehicles.models import Vehicle
 
 
 class EvidenceViewTestMixin:
@@ -40,6 +41,7 @@ class EvidenceViewTestMixin:
             owner=cls.users["outsider"], name="Other case"
         )
         cls.person = Person.objects.create(case=cls.case, first_name="Synthetic person")
+        cls.vehicle = Vehicle.objects.create(case=cls.case, model="Synthetic van")
         CaseMembership.objects.create(
             case=cls.case, user=cls.users["editor"], role="editor"
         )
@@ -84,10 +86,16 @@ class EvidenceViewTestMixin:
         }
         if kind == "text":
             data["body"] = "  Original café\r\nunchanged.  "
+        elif kind in COMMUNICATION_KINDS:
+            data |= {"sender": str(self.person.pk), "recipient": str(self.person.pk)}
+            if kind == "text-message":
+                data["body"] = "  One original message.\r\n"
         elif kind in LOCATION_KINDS:
             data["address"] = "  Synthetic harbour office\r\n"
             if kind == "person-location":
                 data["person"] = str(self.person.pk)
+            elif kind == "vehicle-location":
+                data["vehicle"] = str(self.vehicle.pk)
         else:
             data["file"] = SimpleUploadedFile(
                 "original.bin",
@@ -178,8 +186,11 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                         self.assertEqual(item.body, data["body"])
                     elif kind in FILE_KINDS:
                         self.assertEqual(item.file.read(), original)
-                    else:
+                    elif kind in LOCATION_KINDS:
                         self.assertEqual(item.address, data["address"])
+                    else:
+                        self.assertEqual(item.sender_id, self.person.pk)
+                        self.assertEqual(item.recipient_id, self.person.pk)
 
     def test_ordinary_html_forms_and_download_work_for_every_type(self):
         self.login("owner")

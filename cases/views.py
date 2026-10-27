@@ -50,10 +50,14 @@ def _evidence_models():
     from evidence.models import (
         AudioEvidence,
         DocumentEvidence,
+        FaceTimeEvidence,
         ImageEvidence,
         LocationEvidence,
         PersonLocationEvidence,
+        PhoneCallEvidence,
         TextEvidence,
+        TextMessageEvidence,
+        VehicleLocationEvidence,
     )
 
     return (
@@ -63,6 +67,10 @@ def _evidence_models():
         ("text", TextEvidence),
         ("location", LocationEvidence),
         ("person-location", PersonLocationEvidence),
+        ("vehicle-location", VehicleLocationEvidence),
+        ("text-message", TextMessageEvidence),
+        ("phone-call", PhoneCallEvidence),
+        ("facetime", FaceTimeEvidence),
     )
 
 
@@ -80,7 +88,9 @@ def _case_summary(case):
                 {
                     "title": item["title"],
                     "created_at": item["created_at"],
-                    "kind": kind.replace("-", " ").title(),
+                    "kind": "FaceTime"
+                    if kind == "facetime"
+                    else kind.replace("-", " ").title(),
                     "url": reverse("evidence:detail", args=(case.pk, kind, item["pk"])),
                 }
             )

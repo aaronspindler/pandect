@@ -39,10 +39,15 @@ private storage paths, committed deletion cleanup, rollback, and storage failure
 Location coverage includes paired/ranged coordinates, original JSON/checksum
 stability, same-case person selection, retained person links, whole-case deletion,
 and source creation/edit/search across every evidence type.
-Evidence admin coverage includes all six registrations, role/model-permission
+Evidence admin coverage includes all ten evidence registrations, role/model-permission
 gates, scoped searches and direct/history URLs, forged originals and attribution,
 same-case person links, upload limits, archive attribution, disabled individual
 deletion, and permission-checked whole-case cleanup.
+Communication coverage includes same-case sender/recipient links, immutable
+message/time/duration originals, all initial call-content combinations, appended
+transcripts/recordings, independent hashes, parent-scoped private downloads,
+retry IDs, upload/storage failures, access revocation, person-deletion protection,
+case cascade/rollback, and read-only admin attachments.
 Product-view tests additionally cover current role gates and cross-case UUID
 requests, private downloads, metadata conflicts, archive/restore, bounded uploads,
 and idempotent retries after uncertain confirmation. Case/invitation tests cover
@@ -56,11 +61,16 @@ memberships, model permissions, CSRF, and case-deletion permission requirements.
 Vehicle tests cover partial identifiers, year/identity database constraints,
 duplicate identifiers, scoped searches, role gates, forged case choices,
 revocation, reviewed stale edits, deletion, and admin model permissions.
+Vehicle-location CSV coverage includes source retention and checksum/provenance,
+explicit timezone conversion and DST rejection, format/resource bounds, same-case
+vehicle mappings, current roles and CSRF, exact retries, possible duplicate review,
+atomic rollback, corrupted/unavailable sources, and retained-link deletion rules.
 
 `make compose-smoke` needs Docker only. It creates a unique project with temporary
 synthetic configuration, random loopback ports, and fresh volumes. It builds the
 runtime image, checks initial migrations and HTTP readiness, creates a synthetic
-owner, collaborator, case, membership, person, vehicle, and evidence of all six types, stops and
+owner, collaborator, case, membership, person, vehicle, and evidence of all ten types,
+including a retained vehicle-location import and its source and call transcripts/audio, stops and
 restarts the stack, and verifies records and original file bytes persist. It also
 checks that the production image serves its collected application assets with
 debug disabled. Its exit trap removes only that project's containers and volumes. It never uses your `.env`
@@ -98,13 +108,19 @@ The suite exercises account/case/people/vehicle/evidence/collaboration workflows
 JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
 navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
 evidence admin creation/editing, archive controls and authorized downloads,
-location/person-location forms and private JSON downloads, source fields in file
+location/person-location forms and private JSON downloads, communication forms,
+later call attachments, private audio/record downloads, and read-only viewer access, vehicle-location CSV
+upload/review/confirmation and source JSON, source fields in file
 batches, bulk mixed-file uploads with shared-field inheritance/overrides/reset,
 append limits, invalid-file removal, pause/retry, access removal between files,
 safe interrupted-confirmation retry, and dense desktop record visibility.
 Vehicle journeys also capture forms, lists, and details at desktop/mobile sizes,
 check keyboard focus and conflict review, and exercise creation, read-only viewer
 access, and confirmed owner deletion without JavaScript.
+CSV journeys capture desktop, tablet, mobile, 320px reflow, dark, and forced-colors
+layouts in both engines; they exercise native disclosure and confirmation controls
+by keyboard, explicit timezone/vehicle selection, read-only viewer access, and
+private JSON downloads without JavaScript.
 Bulk captures include desktop, tablet, mobile, 320px reflow, enlarged text, dark,
 reduced-motion, and forced-colors layouts. Visual targets are 12 complete ordinary
 rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible hit
