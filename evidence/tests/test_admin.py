@@ -11,8 +11,16 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
-from evidence.forms import FILE_KINDS, KINDS, ORIGINAL_FIELDS
+from evidence.forms import (
+    COMMUNICATION_KINDS,
+    FILE_KINDS,
+    KINDS,
+    LOCATION_KINDS,
+    ORIGINAL_FIELDS,
+)
+from evidence.models import CallEvidenceAttachment, PhoneCallEvidence
 from people.models import Person
+from vehicles.models import Vehicle
 
 
 class EvidenceAdminTests(TestCase):
@@ -39,6 +47,10 @@ class EvidenceAdminTests(TestCase):
         )
         CaseMembership.objects.create(case=cls.case, user=cls.viewer)
         cls.person = Person.objects.create(case=cls.case, first_name="Alex Example")
+        cls.vehicle = Vehicle.objects.create(case=cls.case, model="Synthetic van")
+        cls.other_vehicle = Vehicle.objects.create(
+            case=cls.other_case, model="Hidden van"
+        )
         cls.other_person = Person.objects.create(
             case=cls.other_case, first_name="Hidden person"
         )
@@ -51,7 +63,9 @@ class EvidenceAdminTests(TestCase):
             cls.other_items[kind] = model.objects.create(
                 case=cls.other_case,
                 uploaded_by=cls.outsider,
-                **cls.original(kind, person=cls.other_person),
+                **cls.original(
+                    kind, person=cls.other_person, vehicle=cls.other_vehicle
+                ),
                 title="Hidden original",
             )
 
@@ -60,20 +74,35 @@ class EvidenceAdminTests(TestCase):
         user = get_user_model().objects.create_user(username=username, is_staff=True)
         user.user_permissions.set(
             Permission.objects.filter(
-                content_type__app_label__in=("evidence", "cases", "people")
+                content_type__app_label__in=("evidence", "cases", "people", "vehicles")
             )
         )
         return user
 
     @classmethod
-    def original(cls, kind, *, person=None):
+    def original(cls, kind, *, person=None, vehicle=None):
         if kind in FILE_KINDS:
             return {"file": SimpleUploadedFile("original.txt", b"Synthetic original.")}
+        if kind in COMMUNICATION_KINDS:
+            return {
+                "sender": person or cls.person,
+                "recipient": person or cls.person,
+                **(
+                    {"body": "  Original message.\r\n"}
+                    if kind == "text-message"
+                    else {}
+                ),
+            }
         if kind == "text":
             return {"body": "  Synthetic original.\r\n "}
         return {
             "address": "  Synthetic harbour office\n ",
             **({"person": person or cls.person} if kind == "person-location" else {}),
+            **(
+                {"vehicle": vehicle or cls.vehicle}
+                if kind == "vehicle-location"
+                else {}
+            ),
         }
 
     @staticmethod
@@ -86,6 +115,11 @@ class EvidenceAdminTests(TestCase):
     def data(self, **overrides):
         if isinstance(overrides.get("person"), Person):
             overrides["person"] = overrides["person"].pk
+        for field in ("sender", "recipient"):
+            if isinstance(overrides.get(field), Person):
+                overrides[field] = overrides[field].pk
+        if isinstance(overrides.get("vehicle"), Vehicle):
+            overrides["vehicle"] = overrides["vehicle"].pk
         return {
             "case": self.case.pk,
             "title": "New source",
@@ -93,7 +127,7 @@ class EvidenceAdminTests(TestCase):
             **overrides,
         }
 
-    def test_all_six_concrete_models_are_registered(self):
+    def test_all_concrete_evidence_models_are_registered(self):
         self.client.force_login(self.owner)
         response = self.client.get(reverse("admin:index"))
         for kind, model in KINDS.items():
@@ -184,8 +218,10 @@ class EvidenceAdminTests(TestCase):
                     elif kind in FILE_KINDS:
                         with item.file.open("rb") as original:
                             self.assertEqual(original.read(), b"Synthetic original.")
-                    else:
+                    elif kind in LOCATION_KINDS:
                         self.assertEqual(item.address, self.original(kind)["address"])
+                    else:
+                        self.assertEqual(item.sender, self.person)
                     self.assertTrue(
                         LogEntry.objects.filter(
                             object_id=str(item.pk), user=user, action_flag=ADDITION
@@ -445,3 +481,25 @@ class EvidenceAdminTests(TestCase):
             self.assertEqual(model.objects.count(), 1)
         self.assertFalse(Person.objects.filter(pk=self.person.pk).exists())
         self.assertTrue(Person.objects.filter(pk=self.other_person.pk).exists())
+
+    def test_retained_call_attachments_are_readonly_without_storage_urls(self):
+        item = self.items["phone-call"]
+        addition = CallEvidenceAttachment.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            phone_call=item,
+            transcript="Supplied transcript",
+            file=SimpleUploadedFile("call.wav", b"audio"),
+        )
+        self.client.force_login(self.owner)
+        response = self.client.get(self.url("phone-call", "change", item))
+        self.assertContains(response, "Supplied transcript")
+        self.assertContains(response, "Inspect or add retained material")
+        self.assertNotContains(response, addition.file.name)
+        self.assertNotContains(response, addition.file.url)
+        inline = admin.site._registry[PhoneCallEvidence].get_inline_instances(
+            response.wsgi_request, item
+        )[0]
+        self.assertFalse(inline.has_add_permission(response.wsgi_request, item))
+        self.assertFalse(inline.has_change_permission(response.wsgi_request, item))
+        self.assertFalse(inline.has_delete_permission(response.wsgi_request, item))

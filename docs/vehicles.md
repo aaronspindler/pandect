@@ -4,7 +4,8 @@
 `cases.Case`. Use `case.vehicles.all()` for its vehicles. Vehicle records capture
 reported details and investigative work; matching plates or VINs do not establish
 identity, ownership, or a person's association with a vehicle. Records are not
-automatically linked to people, evidence, or other vehicles.
+automatically linked to people or other vehicles. Investigators can explicitly
+link reported location evidence to a same-case vehicle.
 
 ## Investigator workflow
 
@@ -24,6 +25,15 @@ Only the case owner can delete an individual vehicle after a separate named-targ
 confirmation. This retains evidence, people, other vehicles, login accounts, and
 the case. Whole-case deletion also removes its vehicles, and its confirmation
 shows the vehicle count. Ordinary investigators do not need staff permissions.
+Retained vehicle-location observations, including archived evidence, prevent
+individual vehicle deletion. Whole-case deletion removes both together.
+
+The vehicle detail page lists up to 25 recent reported locations. Owners and
+editors can add **Vehicle location** evidence or choose **Import vehicle
+locations** to review an Asset Location CSV and explicitly map source assets to
+case vehicles. Source identifiers never overwrite plates/VINs or establish
+identity, ownership, or presence. See [Vehicle locations and CSV
+imports](vehicle-location-imports.md) for formats, retention, limits, and recovery.
 
 ## Fields and validation
 
@@ -86,5 +96,6 @@ permissions themselves.
 image with `make run`. Existing records and migrations are unchanged; no data
 conversion, database reset, new dependency, or runtime upgrade is required.
 
-Vehicle evidence, person/vehicle relationships, external lookups, public APIs,
-and analysis are outside this delivery.
+Vehicle-location evidence and bounded CSV ingestion are implemented through the
+additive `evidence/0004_vehicle_locations` migration. Person/vehicle relationships,
+external lookups, public APIs, and analysis remain planned.

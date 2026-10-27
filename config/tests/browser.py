@@ -38,7 +38,9 @@ from evidence.models import (
     LocationEvidence,
     PersonLocationEvidence,
     TextEvidence,
+    VehicleLocationEvidence,
 )
+from evidence.tests.test_vehicle_imports import csv_content
 from people.models import Person
 from vehicles.models import Vehicle
 
@@ -46,7 +48,7 @@ from vehicles.models import Vehicle
 @override_settings(
     SESSION_COOKIE_SECURE=False,
     CSRF_COOKIE_SECURE=False,
-    ACCOUNT_RATE_LIMITS={},
+    ACCOUNT_RATE_LIMITS=False,
     MAILERS={"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}},
 )
 class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
@@ -197,6 +199,325 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
 
     def capture(self, page, engine, name):
         page.screenshot(path=str(self.artifacts / f"{engine}-{name}.png"))
+
+    def test_communication_evidence_and_retained_attachments(self):
+        sender = Person.objects.create(case=self.case, first_name="Alex Sender")
+        recipient = Person.objects.create(case=self.case, first_name="Jordan Recipient")
+        viewer = self.make_user("communications-viewer")
+        CaseMembership.objects.create(case=self.case, user=viewer)
+        for engine in self.engines:
+            for kind in ("text-message", "phone-call", "facetime"):
+                with (
+                    self.subTest(engine=engine, kind=kind),
+                    self.browser_page(engine, java_script_enabled=False) as (_, page),
+                ):
+                    self.sign_in(page)
+                    page.goto(
+                        self.url("evidence:create", case_id=self.case.pk)
+                        + f"?kind={kind}"
+                    )
+                    title = f"Synthetic {kind} {engine}"
+                    page.get_by_label("Title", exact=True).fill(title)
+                    page.get_by_role("button", name=re.compile(r"^Save ")).click()
+                    expect(page.get_by_label("Sender", exact=True)).to_be_focused()
+                    expect(page.get_by_label("Title", exact=True)).to_have_value(title)
+                    page.get_by_label("Sender", exact=True).select_option(
+                        str(sender.pk)
+                    )
+                    page.get_by_label("Recipient", exact=True).select_option(
+                        str(recipient.pk)
+                    )
+                    page.get_by_label("Sender", exact=True).focus()
+                    page.get_by_label("Sender", exact=True).press(
+                        "Alt+Tab"
+                        if engine == "webkit" and sys.platform == "darwin"
+                        else "Tab"
+                    )
+                    expect(page.get_by_label("Recipient", exact=True)).to_be_focused()
+                    self.assertNotEqual(
+                        page.get_by_label("Recipient", exact=True).evaluate(
+                            "node => getComputedStyle(node).outlineStyle"
+                        ),
+                        "none",
+                    )
+                    for name in ("Sender", "Recipient"):
+                        self.assertGreaterEqual(
+                            page.get_by_label(name, exact=True).bounding_box()[
+                                "height"
+                            ],
+                            44,
+                        )
+                    if kind == "text-message":
+                        page.get_by_label("Original message", exact=True).fill(
+                            "  Synthetic message <source>\n  "
+                        )
+                        page.get_by_label("Sent at (UTC)", exact=True).fill(
+                            "2026-10-26T12:30:15"
+                        )
+                    else:
+                        page.get_by_label("Call started at (UTC)", exact=True).fill(
+                            "2026-10-26T12:30:15"
+                        )
+                        page.get_by_label("Duration", exact=True).fill("00:00:00")
+                    for width, height in (
+                        (1440, 900),
+                        (1440, 1024),
+                        (768, 1024),
+                        (390, 844),
+                        (320, 844),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                        )
+                        if kind != "facetime":
+                            page.screenshot(
+                                path=str(
+                                    self.artifacts / f"{engine}-{kind}-form-{width}.png"
+                                ),
+                                full_page=True,
+                            )
+                    page.get_by_role("button", name=re.compile(r"^Save ")).click()
+                    expect(
+                        page.get_by_role("heading", name=title, exact=True)
+                    ).to_be_visible()
+                    detail_url = page.url
+                    if kind != "text-message":
+                        expect(
+                            page.get_by_text(
+                                "No transcript or audio has been added to this call.",
+                                exact=False,
+                            )
+                        ).to_be_visible()
+                        page.get_by_role(
+                            "link", name="Add transcript or audio", exact=True
+                        ).click()
+                        page.get_by_role(
+                            "button", name="Add transcript or audio", exact=True
+                        ).click()
+                        expect(page.locator(".error-summary")).to_be_visible()
+                        page.get_by_label("Transcript", exact=True).fill(
+                            "  Supplied synthetic transcript <source>\n  "
+                        )
+                        page.get_by_label("Audio file", exact=True).set_input_files(
+                            {
+                                "name": "synthetic-call.wav",
+                                "mimeType": "audio/wav",
+                                "buffer": b"Synthetic audio\x00\r\n",
+                            }
+                        )
+                        self.capture(page, engine, f"{kind}-attachment-mobile")
+                        page.get_by_role(
+                            "button", name="Add transcript or audio", exact=True
+                        ).click()
+                        expect(
+                            page.get_by_role(
+                                "heading", name="synthetic-call.wav", exact=True
+                            )
+                        ).to_be_visible()
+                        with page.expect_download() as event:
+                            page.get_by_role(
+                                "link", name="Download audio", exact=True
+                            ).click()
+                        self.assertEqual(
+                            Path(event.value.path()).read_bytes(),
+                            b"Synthetic audio\x00\r\n",
+                        )
+                        page.get_by_role(
+                            "link", name="Add transcript or audio", exact=True
+                        ).click()
+                        page.get_by_label("Transcript", exact=True).fill(
+                            "Later retained correction"
+                        )
+                        page.get_by_role(
+                            "button", name="Add transcript or audio", exact=True
+                        ).click()
+                        expect(
+                            page.get_by_text("Later retained correction", exact=True)
+                        ).to_be_visible()
+                        expect(
+                            page.get_by_role(
+                                "heading", name="synthetic-call.wav", exact=True
+                            )
+                        ).to_be_visible()
+                    with page.expect_download() as event:
+                        page.get_by_role(
+                            "link", name="Download communication record", exact=True
+                        ).click()
+                    data = json.loads(Path(event.value.path()).read_bytes())
+                    self.assertEqual(data["sender_id"], str(sender.pk))
+                    self.assertEqual(data["recipient_id"], str(recipient.pk))
+                    for width, height in ((1440, 900), (390, 844), (320, 844)):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                        )
+                        page.screenshot(
+                            path=str(
+                                self.artifacts / f"{engine}-{kind}-original-{width}.png"
+                            ),
+                            full_page=True,
+                        )
+                    page.emulate_media(
+                        color_scheme="dark",
+                        forced_colors="active",
+                        reduced_motion="reduce",
+                    )
+                    self.capture(page, engine, f"{kind}-forced-colors")
+                    with self.browser_page(engine, java_script_enabled=False) as (
+                        _,
+                        page,
+                    ):
+                        self.sign_in(page, viewer)
+                        page.goto(detail_url)
+                        expect(
+                            page.get_by_role("heading", name=title, exact=True)
+                        ).to_be_visible()
+                        expect(
+                            page.get_by_role(
+                                "link", name="Add transcript or audio", exact=True
+                            )
+                        ).to_have_count(0)
+                        expect(
+                            page.get_by_role("link", name="Edit details", exact=True)
+                        ).to_have_count(0)
+
+    def test_vehicle_location_csv_import_journey(self):
+        vehicle = Vehicle.objects.create(case=self.case, model="Synthetic van")
+        viewer = self.make_user("vehicle-import-viewer")
+        CaseMembership.objects.create(case=self.case, user=viewer)
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("vehicles:list", case_id=self.case.pk))
+                page.get_by_role("link", name="Import vehicle locations").click()
+                expect(
+                    page.get_by_role("heading", name="Import vehicle locations")
+                ).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"vehicle-import-upload-{width}")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.get_by_label("Asset Location CSV").set_input_files(
+                    {
+                        "name": "synthetic-assets.csv",
+                        "mimeType": "text/csv",
+                        "buffer": csv_content(),
+                    }
+                )
+                page.get_by_label("Export timezone", exact=True).select_option(
+                    "America/Toronto"
+                )
+                page.get_by_label("Source name or citation").fill(
+                    "Synthetic tracking export"
+                )
+                page.get_by_label(
+                    "Use Created Time as the reported observation time"
+                ).check()
+                page.get_by_role("button", name="Retain CSV and review").click()
+                expect(
+                    page.get_by_role("heading", name="Review vehicle locations")
+                ).to_be_visible()
+                page.locator(".import-observation summary").focus()
+                page.locator(".import-observation summary").press("Enter")
+                expect(
+                    page.get_by_text("16 Sep 2026, 18:57:22 UTC", exact=True)
+                ).to_be_visible()
+                self.assertEqual(page.locator(".import-observation[open]").count(), 1)
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"vehicle-import-review-{width}")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "vehicle-import-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "vehicle-import-forced-colors")
+                page.emulate_media(forced_colors="none")
+                page.locator("select[name=vehicle_0]").select_option(str(vehicle.pk))
+                if page.locator("input[name=confirm_duplicates]").count():
+                    page.get_by_label(
+                        "Keep the possible duplicates as separate observations"
+                    ).check()
+                confirmation = page.get_by_label(
+                    "Import these observations with the selected vehicle associations"
+                )
+                confirmation.focus()
+                confirmation.press("Space")
+                expect(confirmation).to_be_checked()
+                page.get_by_role(
+                    "button", name="Import 1 observation", exact=True
+                ).focus()
+                page.get_by_role(
+                    "button", name="Import 1 observation", exact=True
+                ).press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Vehicle locations imported")
+                ).to_be_visible()
+                self.capture(page, engine, "vehicle-import-complete")
+                page.locator(".import-results a").click()
+                expect(
+                    page.get_by_role("heading", name="Reported location")
+                ).to_be_visible()
+                expect(page.get_by_text("0.000 km/h", exact=True)).to_be_visible()
+                for width, height in ((1440, 900), (390, 844), (320, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"vehicle-location-original-{width}")
+                with page.expect_download() as event:
+                    page.get_by_role(
+                        "link", name="Download original", exact=True
+                    ).click()
+                original = json.loads(Path(event.value.path()).read_bytes())
+                self.assertEqual(original["schema"], "pandect.vehicle-location.v1")
+                self.assertEqual(
+                    original["raw_row"]["Serial Number"], "000000000000123"
+                )
+                detail_url = page.url
+                with self.browser_page(engine, java_script_enabled=False) as (
+                    _,
+                    viewer_page,
+                ):
+                    self.sign_in(viewer_page, viewer)
+                    viewer_page.goto(detail_url)
+                    expect(
+                        viewer_page.get_by_text("You have Viewer access.", exact=False)
+                    ).to_be_visible()
+                    expect(
+                        viewer_page.get_by_role("link", name="Edit details")
+                    ).to_have_count(0)
+                    expect(
+                        viewer_page.get_by_role(
+                            "link", name="Download original", exact=True
+                        )
+                    ).to_be_visible()
+        self.assertEqual(
+            self.db(VehicleLocationEvidence.objects.count), len(self.engines)
+        )
 
     def evidence_url(self, record=None, *, case=None):
         return self.url(

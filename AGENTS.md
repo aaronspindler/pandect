@@ -55,6 +55,16 @@ best practices and standards in every change. Do not overengineer the project.
   integrity, accessibility, and meaningful tests. Small amounts of code are not a
   substitute for clear behavior and sound engineering.
 
+Before handing changes back to the user, the implementing agent must invoke
+[`simplicity_reviewer`](.codex/agents/simplicity_reviewer.toml) after implementation
+and relevant validation. Give it the task requirements and final scoped diff,
+including new files, while excluding unrelated existing changes. Wait for its
+findings, resolve material issues within scope, and rerun affected checks and
+review after substantive fixes. Report any remaining findings or inability to run
+the review honestly. The reviewer returns findings directly and does not invoke
+another reviewer. See [the review workflow](docs/README.md#simplicity-review)
+for invocation and configuration details.
+
 ## Architecture and deployment
 
 - Use the latest stable releases of Python and Django when scaffolding the
@@ -224,7 +234,8 @@ durable project requirements change.
 
 The rebuild includes `config/`, `accounts.User`, django-allauth, PostgreSQL,
 case/people/vehicle management, invitations and viewer/editor collaboration, retained
-image/audio/document/text/location/person-location evidence and private downloads,
+image/audio/document/text/location/person-location/vehicle-location/communication evidence
+and private downloads,
 scoped operator administration, uv dependency management, Docker Compose, and local/CI checks.
 The investigator interface follows `DESIGN.md` and the refined three-pane design;
 normal users do not need staff permissions.
@@ -232,7 +243,8 @@ Read `docs/development.md` and `docs/validation.md` for executable commands. The
 compatible runtime versions and upgrade constraints are in `docs/architecture.md`.
 Use `cases.Case` for future investigation and evidence relationships. See
 `docs/cases.md` for implemented workflows, invitations, and product/admin
-permissions. Evidence parsing/previews, background jobs, AI, graphs, maps,
+permissions. Bounded Asset Location CSV imports are implemented; other evidence
+parsing/previews, background jobs, AI, graphs, maps,
 timelines, and reporting remain planned.
 Read `docs/people.md` before extending person records or their admin permissions.
 People belong to a single case; owners and editors can add/edit them, viewers can
@@ -246,10 +258,19 @@ deletion cleanup. Original preservation is enforced through model validation and
 saves; current product routes enforce case permissions and every future access
 path must do so too. Owners/editors archive or restore individual evidence; only
 owner-confirmed whole-case deletion removes retained evidence through the product.
+Communication evidence requires same-case sender/recipient people. Its originals
+are immutable; owners/editors may append retained call transcripts/audio with
+independent attribution/checksums, never replace earlier content. Read
+`docs/evidence.md` before extending these workflows or private attachments.
 All evidence types include an optional Source name/citation. Location originals
 retain an address or coordinate pair and optional observation time. Person-location
 evidence also retains a same-case person link; it prevents individual deletion
 of that person, while whole-case deletion removes both together.
+Vehicle-location evidence retains a same-case vehicle link with equivalent
+deletion protection. Read `docs/vehicle-location-imports.md` before changing the
+bounded CSV parser, explicit timezone/vehicle interpretation, source-row provenance,
+atomic completion, or duplicate-safe retries. Keep larger ingestion out of request
+handlers until a background processing workflow is implemented.
 Read `docs/operations.md` before changing upload limits, mail, static delivery,
 private logging, storage, or deployment behavior.
 

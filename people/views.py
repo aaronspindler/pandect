@@ -162,7 +162,8 @@ def person_delete(request, case_id, person_id):
             except RestrictedError:
                 form.add_error(
                     None,
-                    "This person is linked to retained location evidence and cannot "
+                    "This person is linked to retained location evidence or "
+                    "communications and cannot "
                     "be deleted individually. Archived evidence also retains its link.",
                 )
             else:

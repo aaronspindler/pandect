@@ -23,7 +23,8 @@ supported.
 Only the owner can delete an individual person, after a separate named-target
 confirmation. Deleting an unlinked person retains evidence, login accounts, and
 other people with matching contacts. A person referenced by retained
-person-location evidence cannot be deleted individually, even if the evidence is
+person-location evidence or a sender/recipient link in communication evidence
+cannot be deleted individually, even if the evidence is
 archived. Whole-case deletion still removes both together; see [location
 observations](evidence.md#location-observations). Ordinary investigators do not
 need Django admin access.

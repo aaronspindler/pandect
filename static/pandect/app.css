@@ -1711,3 +1711,11 @@ a.record-row:hover { background: var(--background); }
 .section-tabs { flex-wrap: wrap; }
 .global-header { height: auto; min-height: 80px; flex-wrap: wrap; padding-top: .75rem; padding-bottom: .75rem; }
 .global-header nav { flex-wrap: wrap; }
+/* CSV review uses native disclosure controls and ordinary document scrolling. */
+.import-observation { border-bottom: 1px solid var(--divider); padding-block: 0.5rem; overflow-wrap: anywhere; }
+.import-observation > summary { min-height: 44px; padding-block: 0.75rem; cursor: pointer; }
+.import-results { padding-left: 1.5rem; overflow-wrap: anywhere; }
+.import-results li { margin-block: 0.75rem; }
+
+/* Native WebKit selects need an explicit height to retain a full touch target. */
+.communication-form select { height: 2.75rem; }

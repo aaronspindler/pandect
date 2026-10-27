@@ -276,7 +276,7 @@ class LocationViewTests(EvidenceViewTestMixin, TestCase):
                     item.title,
                 )
         results = self.client.get(self.url("list"), {"q": "Synthetic person"})
-        self.assertEqual(results.context["page_obj"].paginator.count, 1)
+        self.assertEqual(results.context["page_obj"].paginator.count, 4)
 
     def test_person_delete_retains_location_evidence_and_case_counts_it(self):
         self.login("owner")
@@ -285,7 +285,7 @@ class LocationViewTests(EvidenceViewTestMixin, TestCase):
         summary = self.client.get(
             reverse("cases:case_detail", kwargs={"case_id": self.case.pk})
         )
-        self.assertEqual(summary.context["active_evidence_count"], 2)
+        self.assertEqual(summary.context["active_evidence_count"], len(LOCATION_KINDS))
         response = self.client.post(
             reverse(
                 "people:delete",

@@ -17,16 +17,22 @@ from cases.models import Case, CaseMembership
 from evidence.models import (
     AudioEvidence,
     DocumentEvidence,
+    FaceTimeEvidence,
     ImageEvidence,
     LocationEvidence,
     PersonLocationEvidence,
+    PhoneCallEvidence,
     TextEvidence,
+    TextMessageEvidence,
+    VehicleLocationEvidence,
 )
 from people.models import Person
+from vehicles.models import Vehicle
 
 FILE_MODELS = (ImageEvidence, AudioEvidence, DocumentEvidence)
-LOCATION_MODELS = (LocationEvidence, PersonLocationEvidence)
-ALL_MODELS = (*FILE_MODELS, TextEvidence, *LOCATION_MODELS)
+LOCATION_MODELS = (LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence)
+COMMUNICATION_MODELS = (TextMessageEvidence, PhoneCallEvidence, FaceTimeEvidence)
+ALL_MODELS = (*FILE_MODELS, TextEvidence, *LOCATION_MODELS, *COMMUNICATION_MODELS)
 ORIGINAL = b"Synthetic original material\x00\r\n"
 
 
@@ -40,6 +46,7 @@ class EvidenceTestMixin:
         cls.case = Case.objects.create(owner=cls.owner)
         cls.other_case = Case.objects.create(owner=cls.outsider)
         cls.person = Person.objects.create(case=cls.case, first_name="Synthetic person")
+        cls.vehicle = Vehicle.objects.create(case=cls.case, model="Synthetic van")
         CaseMembership.objects.create(
             case=cls.case, user=cls.editor, role=CaseMembership.Role.EDITOR
         )
@@ -61,10 +68,16 @@ class EvidenceTestMixin:
         }
         if model is TextEvidence:
             values["body"] = "Original café\r\nincluding spacing.  "
+        elif model in COMMUNICATION_MODELS:
+            values |= {"sender": self.person, "recipient": self.person}
+            if model is TextMessageEvidence:
+                values["body"] = "  Original message.\r\n"
         elif model in LOCATION_MODELS:
             values["address"] = "  Synthetic harbour office\r\n"
             if model is PersonLocationEvidence:
                 values["person"] = self.person
+            elif model is VehicleLocationEvidence:
+                values["vehicle"] = self.vehicle
         else:
             values["file"] = SimpleUploadedFile(
                 "original.bin", ORIGINAL, content_type="application/octet-stream"
@@ -195,6 +208,17 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
                 changes["body"] = "Replacement text"
             elif model in LOCATION_MODELS:
                 changes["address"] = "Replacement location"
+            elif model in COMMUNICATION_MODELS:
+                changes |= {
+                    "sender": Person.objects.create(
+                        case=self.case, first_name="New person"
+                    ),
+                    "occurred_at": timezone.now(),
+                }
+                if model is TextMessageEvidence:
+                    changes["body"] = "Replacement"
+                else:
+                    changes["duration"] = timedelta(seconds=5)
             else:
                 changes |= {
                     "file": "evidence/another-case/original",
@@ -245,7 +269,9 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
         for value in (original.file.name, original.file):
             with self.subTest(value=type(value).__name__):
                 evidence = self.new_evidence(
-                    DocumentEvidence, case=self.other_case, file=value
+                    DocumentEvidence,
+                    case=self.other_case,
+                    file=value,
                 )
                 with self.assertRaises(ValidationError):
                     evidence.save()
@@ -292,6 +318,10 @@ class EvidenceModelTests(EvidenceTestMixin, TestCase):
                 fields["body"] = ""
             elif model in LOCATION_MODELS:
                 fields["address"] = ""
+            elif model in COMMUNICATION_MODELS:
+                fields["sender"] = None
+                if model is TextMessageEvidence:
+                    fields["body"] = ""
             else:
                 fields |= {"file": "", "original_filename": "", "byte_size": 0}
             for field, value in fields.items():

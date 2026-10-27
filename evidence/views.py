@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied, SuspiciousFileOperation
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Q, Value
+from django.db.models import CharField, Exists, OuterRef, Q, Value
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -23,14 +23,19 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 
 from .forms import (
+    CALL_KINDS,
     COMMON_FIELDS,
+    COMMUNICATION_KINDS,
     FILE_KINDS,
     KIND_LABELS,
     KINDS,
     LOCATION_KINDS,
     TYPE_FIELDS,
+    CallAttachmentForm,
     evidence_form,
+    save_call_content,
 )
+from .models import CallEvidenceAttachment, VehicleLocationImport
 
 
 def _wants_json(request):
@@ -66,8 +71,21 @@ def _model(kind):
 
 def _record(case, kind, evidence_id, *, lock=False):
     queryset = _model(kind).objects.filter(case=case)
+    if kind in COMMUNICATION_KINDS:
+        queryset = queryset.filter(
+            sender__case=case, recipient__case=case
+        ).select_related("sender", "recipient")
     if kind == "person-location":
         queryset = queryset.filter(person__case=case).select_related("person")
+    elif kind == "vehicle-location":
+        queryset = (
+            queryset.filter(vehicle__case=case)
+            .filter(
+                Q(import_batch__isnull=True)
+                | Q(import_batch__case=case, import_batch__document__case=case)
+            )
+            .select_related("vehicle", "import_batch__document")
+        )
     if lock:
         queryset = queryset.select_for_update(of=("self",))
     try:
@@ -109,8 +127,12 @@ def _list_context(request, case):
         if selected_kind and kind != selected_kind:
             continue
         queryset = model.objects.filter(case=case)
+        if kind in COMMUNICATION_KINDS:
+            queryset = queryset.filter(sender__case=case, recipient__case=case)
         if kind == "person-location":
             queryset = queryset.filter(person__case=case)
+        elif kind == "vehicle-location":
+            queryset = queryset.filter(vehicle__case=case)
         if state != "all":
             queryset = queryset.filter(is_archived=state == "archived")
         if query:
@@ -125,12 +147,34 @@ def _list_context(request, case):
                 condition |= Q(original_filename__icontains=query)
             if kind in LOCATION_KINDS:
                 condition |= Q(address__icontains=query)
+            if kind in COMMUNICATION_KINDS:
+                for participant in ("sender", "recipient"):
+                    for field in ("first_name", "last_name", "email", "phone_number"):
+                        condition |= Q(**{f"{participant}__{field}__icontains": query})
+            if kind in CALL_KINDS:
+                parent = "phone_call" if kind == "phone-call" else "facetime"
+                matching_files = CallEvidenceAttachment.objects.filter(
+                    case=case,
+                    **{f"{parent}_id": OuterRef("pk")},
+                    original_filename__icontains=query,
+                )
+                queryset = queryset.alias(matching_audio=Exists(matching_files))
+                condition |= Q(matching_audio=True)
             if kind == "person-location":
                 condition |= (
                     Q(person__first_name__icontains=query)
                     | Q(person__last_name__icontains=query)
                     | Q(person__email__icontains=query)
                     | Q(person__phone_number__icontains=query)
+                )
+            if kind == "vehicle-location":
+                condition |= (
+                    Q(vehicle__make__icontains=query)
+                    | Q(vehicle__model__icontains=query)
+                    | Q(vehicle__license_plate__icontains=query)
+                    | Q(vehicle__vin__icontains=query)
+                    | Q(raw_row__Asset__icontains=query)
+                    | Q(**{"raw_row__Serial Number__icontains": query})
                 )
             queryset = queryset.filter(condition)
         queries.append(
@@ -214,8 +258,18 @@ def detail(request, case_id, kind, evidence_id):
             "section": section,
             "nav_section": "evidence",
             "is_location": kind in LOCATION_KINDS,
+            "is_communication": kind in COMMUNICATION_KINDS,
+            "is_call": kind in CALL_KINDS,
         }
     )
+    if kind in CALL_KINDS:
+        context["attachments"] = item.attachments.filter(case=case).select_related(
+            "uploaded_by"
+        )
+    if kind == "document":
+        context["vehicle_import"] = VehicleLocationImport.objects.filter(
+            case=case, document=item
+        ).first()
     return _private(render(request, "evidence/workspace.html", context))
 
 
@@ -325,6 +379,10 @@ def create(request, case_id):
                 )
                 if form.is_valid():
                     item = form.save()
+                    if kind in CALL_KINDS:
+                        save_call_content(
+                            item, request.user, form.cleaned_data, submission_id
+                        )
                     return _created_response(request, case, kind, item, created=True)
                 status = 400
         except PermissionDenied:
@@ -376,6 +434,10 @@ def create(request, case_id):
         "kind_label": KIND_LABELS[kind],
         "kind_choices": KIND_LABELS.items(),
         "is_file": kind in FILE_KINDS,
+        "is_communication": kind in COMMUNICATION_KINDS,
+        "is_call": kind in CALL_KINDS,
+        "has_people": kind not in COMMUNICATION_KINDS
+        or form.fields["sender"].queryset.exists(),
         "nav_section": "evidence",
         "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
         "max_batch_files": getattr(settings, "PANDECT_MAX_BATCH_FILES", 20),
@@ -447,7 +509,7 @@ def download(request, case_id, kind, evidence_id):
         response["Content-Disposition"] = (
             f'attachment; filename="evidence-{item.pk}.txt"'
         )
-    elif kind in LOCATION_KINDS:
+    elif kind in (*LOCATION_KINDS, *COMMUNICATION_KINDS):
         response = HttpResponse(item.original_bytes(), content_type="application/json")
         response["Content-Disposition"] = (
             f'attachment; filename="evidence-{item.pk}.json"'
@@ -512,3 +574,164 @@ def _set_archive(request, case_id, kind, evidence_id, archived):
         else "Evidence restored to the active collection.",
     )
     return redirect(_detail_url(case, kind, item) + _query_suffix(request))
+
+
+@product_login_required
+@require_http_methods(["GET", "POST"])
+def add_attachment(request, case_id, kind, evidence_id):
+    if kind not in CALL_KINDS:
+        raise Http404("Call not found.")
+    status = 200
+    with transaction.atomic():
+        case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")
+        item = _record(case, kind, evidence_id, lock=request.method == "POST")
+        form = CallAttachmentForm(request.POST or None, request.FILES or None)
+        if request.method == "POST":
+            if getattr(request, "evidence_upload_too_large", False):
+                return _error(
+                    request,
+                    "file_too_large",
+                    "The file exceeds the configured upload limit.",
+                    413,
+                )
+            if sum(len(request.FILES.getlist(key)) for key in request.FILES) > 1:
+                return _error(request, "too_many_files", "Send one file at a time.")
+            if form.is_valid():
+                submission_id = form.cleaned_data["submission_id"]
+                previous = CallEvidenceAttachment.objects.filter(
+                    submission_id=submission_id
+                ).first()
+                if previous and (
+                    previous.case_id != case.pk
+                    or previous.uploaded_by_id != request.user.pk
+                    or previous.phone_call_id
+                    != (item.pk if kind == "phone-call" else None)
+                    or previous.facetime_id != (item.pk if kind == "facetime" else None)
+                ):
+                    return _error(
+                        request,
+                        "submission_conflict",
+                        "This submission cannot be reused.",
+                        409,
+                    )
+                try:
+                    # Preserve the case lock transaction after integrity errors.
+                    with transaction.atomic():
+                        attachment = previous or save_call_content(
+                            item, request.user, form.cleaned_data, submission_id
+                        )
+                except OSError:
+                    form.add_error(
+                        None,
+                        (
+                            "The original could not be saved. "
+                            "Keep your file and try again."
+                        ),
+                    )
+                    status = 503
+                except IntegrityError:
+                    return _error(
+                        request,
+                        "submission_conflict",
+                        (
+                            "This submission could not be confirmed. "
+                            "Retry with the same submission ID."
+                        ),
+                        409,
+                    )
+                else:
+                    url = _detail_url(case, kind, item) + f"#attachment-{attachment.pk}"
+                    if _wants_json(request):
+                        return _private(
+                            JsonResponse(
+                                {"id": str(attachment.pk), "detail_url": url},
+                                status=200 if previous else 201,
+                            )
+                        )
+                    messages.success(
+                        request,
+                        "This attachment was already saved."
+                        if previous
+                        else "Transcript or audio added. Earlier material is retained.",
+                    )
+                    return redirect(url)
+            else:
+                status = 400
+            if _wants_json(request):
+                return _error(
+                    request,
+                    "storage_unavailable" if status == 503 else "validation_error",
+                    "Review the highlighted fields.",
+                    status,
+                    form.errors.get_json_data(),
+                )
+    return _private(
+        render(
+            request,
+            "evidence/attachment_form.html",
+            case_context(case, request.user)
+            | {
+                "item": item,
+                "kind": kind,
+                "form": form,
+                "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
+                "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
+                "nav_section": "evidence",
+            },
+            status=status,
+        )
+    )
+
+
+@product_login_required
+@require_safe
+def attachment_download(request, case_id, kind, evidence_id, attachment_id, component):
+    if kind not in CALL_KINDS:
+        raise Http404("Attachment not found.")
+    case = get_case(request.user, case_id)
+    item = _record(case, kind, evidence_id)
+    try:
+        attachment = item.attachments.get(pk=attachment_id, case=case)
+    except CallEvidenceAttachment.DoesNotExist:
+        raise Http404("Attachment not found.") from None
+    if component == "manifest":
+        response = HttpResponse(
+            attachment.original_bytes(), content_type="application/json"
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="attachment-{attachment.pk}.json"'
+        )
+    elif component == "transcript" and attachment.transcript:
+        response = HttpResponse(
+            attachment.transcript.encode("utf-8"),
+            content_type="text/plain; charset=utf-8",
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="transcript-{attachment.pk}.txt"'
+        )
+    elif component == "audio" and attachment.file:
+        try:
+            original = attachment.file.open("rb")
+        except OSError, ValueError:
+            return _private(
+                render(
+                    request,
+                    "evidence/unavailable.html",
+                    case_context(case, request.user) | {"item": item, "kind": kind},
+                    status=503,
+                )
+            )
+        try:
+            filename = get_valid_filename(attachment.original_filename)
+        except SuspiciousFileOperation:
+            filename = f"audio-{attachment.pk}"
+        response = FileResponse(
+            original,
+            as_attachment=True,
+            filename=filename,
+            content_type="application/octet-stream",
+        )
+    else:
+        raise Http404("Attachment not found.")
+    response["X-Content-Type-Options"] = "nosniff"
+    return _private(response)

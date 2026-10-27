@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{% if batch.completed_at %}Vehicle locations imported{% else %}Review vehicle locations{% endif %} · {{ case.name }}{% endblock %}
+{% block content %}
+<div class="page-content">
+  <a class="back-link" href="{% url 'evidence:list' case_id=case.pk %}">Back to evidence</a>
+  <header class="page-header"><div><p class="eyebrow">{{ case.name }}</p><h1>{% if batch.completed_at %}Vehicle locations imported{% else %}Review vehicle locations{% endif %}</h1><p>{% if batch.completed_at %}The source and its imported observations remain retained.{% else %}Review the reported values and choose a case vehicle for each asset.{% endif %}</p></div></header>
+  <dl class="metadata-grid"><div><dt>Source CSV</dt><dd><a href="{% url 'evidence:detail' case_id=case.pk kind='document' evidence_id=batch.document_id %}">{{ batch.document.original_filename }}</a></dd></div><div><dt>Export timezone</dt><dd>{{ batch.timezone }}</dd></div><div><dt>Observation time</dt><dd>Created Time from the export, converted to UTC</dd></div></dl>
+  <p class="muted">A reported association does not verify identity, ownership, or presence. Received Time is separate from observation and collection times. No coordinates or observation intervals are inferred.</p>
+  {% if error_message %}<p class="notice" role="alert">{{ error_message }}</p>{% endif %}
+  {% if batch.completed_at %}
+    <p role="status">{{ observations|length }} observation{{ observations|length|pluralize }} imported. Repeating the confirmation will not add them again.</p>
+    <ul class="import-results">{% for observation in observations %}<li><a href="{% url 'evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=observation.pk %}">{{ observation.title }}</a> · {{ observation.vehicle }}{% if observation.is_archived %} · Archived{% endif %}</li>{% endfor %}</ul>
+  {% else %}
+    {% if invalid %}<p class="notice" role="alert">Some rows need correction. No observations can be imported from this review. Upload a corrected CSV; this original remains retained.</p>{% endif %}
+    {% if rows %}<section aria-labelledby="preview-heading"><h2 id="preview-heading">{{ rows|length }} reported observation{{ rows|length|pluralize }}</h2><p>Expand a row to inspect all original values and their interpreted times. Possible duplicates are retained only after explicit review.</p>
+    {% for row in rows %}<details class="import-observation"{% if row.errors %} open{% endif %}>
+      <summary>Row {{ row.number }} · {{ row.asset|default:row.serial }}{% if row.values.observed_at %} · {{ row.values.observed_at|date:"d M Y, H:i:s" }} UTC{% endif %}{% if row.errors %} · Needs correction{% endif %}{% if row.duplicate %} · Possible duplicate{% endif %}</summary>
+      {% if row.errors %}<ul class="errorlist">{% for error in row.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+      {% if row.duplicate %}<p class="notice">An identical source row appears earlier in this CSV or in a retained import using this timezone. It may describe the same event. Check its vehicle association before continuing.</p>{% endif %}
+      <dl class="metadata-grid">{% for label,value in row.raw.items %}<div><dt>{{ label }}</dt><dd>{{ value|default:"Not supplied"|linebreaksbr }}</dd></div>{% endfor %}<div><dt>Interpreted observation time</dt><dd>{% if row.values.observed_at %}{{ row.values.observed_at|date:"d M Y, H:i:s" }} UTC{% else %}Unavailable{% endif %}</dd></div><div><dt>Interpreted receipt time</dt><dd>{% if row.values.received_at %}{{ row.values.received_at|date:"d M Y, H:i:s" }} UTC{% else %}Not supplied or invalid{% endif %}</dd></div></dl>
+    </details>{% endfor %}</section>{% endif %}
+    {% if can_edit and form and not invalid %}
+    <section aria-labelledby="mapping-heading"><h2 id="mapping-heading">Choose the vehicles</h2><p>Asset labels and serial numbers are source claims. Select an existing vehicle in this case without changing its details. <a href="{% url 'vehicles:create' case_id=case.pk %}">Add a vehicle</a> if needed, then return to this review.</p>
+    <form method="post" class="form-layout" data-unsaved-form>
+      {% csrf_token %}{% include 'components/form_fields.html' with form=form %}
+      <div class="actions"><button class="button button-primary" type="submit">Import {{ rows|length }} observation{{ rows|length|pluralize }}</button><a class="button button-secondary" href="{% url 'evidence:list' case_id=case.pk %}">Leave review</a></div>
+    </form></section>
+    {% elif not can_edit %}<p class="role-note">You have Viewer access. An owner or editor can complete this import.</p>{% endif %}
+  {% endif %}
+  {% if can_edit %}<p><a href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Upload another CSV</a></p>{% endif %}
+</div>
+{% endblock %}

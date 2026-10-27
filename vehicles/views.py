@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
+from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_safe
@@ -71,6 +72,9 @@ def vehicle_detail(request, case_id, vehicle_id):
         {
             **case_context(case, request.user),
             "vehicle": vehicle,
+            "locations": vehicle.location_evidence.filter(case=case).order_by(
+                "-observed_at", "-created_at"
+            )[:25],
             "list_query": list_query(request),
             "active_nav": "vehicles",
         },
@@ -159,9 +163,17 @@ def vehicle_delete(request, case_id, vehicle_id):
         vehicle = get_object_or_404(vehicles, pk=vehicle_id)
         form = VehicleDeleteForm(request.POST if request.method == "POST" else None)
         if request.method == "POST" and form.is_valid():
-            vehicle.delete()
-            messages.success(request, "Vehicle record deleted.")
-            return redirect("vehicles:list", case_id=case.pk)
+            try:
+                vehicle.delete()
+            except RestrictedError:
+                form.add_error(
+                    None,
+                    "This vehicle is linked to retained location evidence and cannot "
+                    "be deleted individually. Archived evidence also retains its link.",
+                )
+            else:
+                messages.success(request, "Vehicle record deleted.")
+                return redirect("vehicles:list", case_id=case.pk)
     return render(
         request,
         "vehicles/delete.html",

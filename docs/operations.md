@@ -102,8 +102,20 @@ never reset a database as an incidental upgrade step.
 The application streams one file per request and enforces
 `PANDECT_MAX_FILE_BYTES` before retaining an original. The browser may queue up to
 `PANDECT_MAX_BATCH_FILES`, sending entries sequentially; it does not submit one
-large multipart batch. `PANDECT_MAX_TEXT_BYTES` bounds captured UTF-8 text.
+large multipart batch. `PANDECT_MAX_TEXT_BYTES` bounds captured UTF-8 text,
+including message bodies and supplied call transcripts. Phone-call and FaceTime
+recordings use the same per-file limit and private storage as other originals.
+Backups must include call/attachment rows, transcript text, and the corresponding
+private audio files. Attachments follow the existing after-commit deletion
+cleanup and manual orphan-reconciliation procedures; rollback does not remove
+retained files. No background service or external transcription is introduced.
 Django's upload memory threshold controls temporary storage, not maximum file size.
+Asset Location CSV imports have a separate hard cap of 1 MiB and 250 rows,
+respecting a smaller operator file limit. Their route streams with the smaller
+byte limit. Imports run synchronously and atomically within these bounds; larger
+ingestion requires a background workflow first. Original CSV documents, import
+interpretations, and source-row provenance must be included in coordinated
+database/private-file backups. See [vehicle-location imports](vehicle-location-imports.md).
 
 Configure the serving proxy/CDN to limit the entire request body as well. With the
 default 100 MiB file limit, use a 102 MiB request cap to leave room for ordinary

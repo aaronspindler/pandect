@@ -5,6 +5,7 @@
   <div><p class="eyebrow">{{ case }}</p><h1>Vehicles</h1><p class="secondary">Investigator-maintained vehicle details and notes.</p></div>
   {% if can_edit %}<a class="button button-primary" href="{% url 'vehicles:create' case_id=case.pk %}">Add vehicle</a>{% endif %}
 </div>
+{% if can_edit %}<p><a href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a> from an Asset Location CSV.</p>{% endif %}
 <form class="search-form" method="get" role="search" aria-label="Search vehicles">
   <label for="vehicles-search">Search vehicles</label>
   <div class="actions"><input id="vehicles-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Make, model, year, plate, VIN, color, or notes"><button class="button button-secondary" type="submit">Search</button>{% if query %}<a class="button button-secondary" href="{% url 'vehicles:list' case_id=case.pk %}">Clear filters</a>{% endif %}</div>

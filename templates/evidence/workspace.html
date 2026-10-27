@@ -32,7 +32,7 @@
       <div class="empty-state compact-empty">
         {% if query or selected_kind %}<h2>No matching evidence</h2><p>Try another search or clear your filters.</p><a href="{% url 'evidence:list' case_id=case.pk %}">Clear filters</a>
         {% elif state == 'archived' %}<h2>No archived evidence</h2><p>Archived originals remain available here until the whole case is deleted.</p>
-        {% else %}<h2>Your evidence belongs here</h2><p>Add files, captured text, or reported locations with their source details.</p>{% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case_id=case.pk %}">Add evidence</a>{% else %}<p>Your Viewer role lets you inspect material added to this case.</p>{% endif %}{% endif %}
+        {% else %}<h2>Your evidence belongs here</h2><p>Add files, captured text, communications, or reported locations with their source details.</p>{% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case_id=case.pk %}">Add evidence</a>{% else %}<p>Your Viewer role lets you inspect material added to this case.</p>{% endif %}{% endif %}
       </div>
       {% endfor %}
     </div>
@@ -50,7 +50,7 @@
       <div class="actions">
         {% if item.is_archived %}<span class="badge">Archived</span>{% endif %}
         {% if can_edit %}<a class="button button-secondary" href="{% url 'evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">{% include 'components/icon.html' with name='pencil' %} Edit details</a>{% endif %}
-        <a class="button button-secondary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">{% include 'components/icon.html' with name='download' %} {% if kind == 'text' %}Download text{% else %}Download original{% endif %}</a>
+        <a class="button button-secondary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">{% include 'components/icon.html' with name='download' %} {% if is_communication %}Download communication record{% elif kind == 'text' %}Download text{% else %}Download original{% endif %}</a>
         {% if can_edit %}<form method="post" action="{% if item.is_archived %}{% url 'evidence:restore' case_id=case.pk kind=kind evidence_id=item.pk %}{% else %}{% url 'evidence:archive' case_id=case.pk kind=kind evidence_id=item.pk %}{% endif %}{{ list_suffix }}">{% csrf_token %}<button class="button button-secondary" type="submit">{% include 'components/icon.html' with name='archive' %}{% if item.is_archived %}Restore{% else %}Archive{% endif %}</button></form>{% endif %}
       </div>
     </header>
@@ -59,14 +59,14 @@
     <nav class="section-tabs" aria-label="Evidence sections"><a href="?section=original{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'original' %} aria-current="page"{% endif %}>Original</a><a href="?section=details{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'details' %} aria-current="page"{% endif %}>Details</a></nav>
     <div class="evidence-provenance"><span>Source: {{ item.source|default:item.source_description|default:"Not recorded" }}</span><span>Added by {{ item.uploaded_by }}</span><time datetime="{{ item.created_at|date:'c' }}">{{ item.created_at|date:"d M Y, H:i" }} UTC</time></div>
     {% if section == 'original' %}
-      {% if kind == 'text' %}<div class="original-text">{{ item.body }}</div>{% elif is_location %}
+      {% if is_communication %}{% include 'evidence/communication_original.html' %}{% elif kind == 'text' %}<div class="original-text">{{ item.body }}</div>{% elif is_location %}
       <section class="panel" aria-labelledby="location-heading"><h2 id="location-heading">Reported location</h2><p class="muted">Source-supplied information; not independently verified.</p><dl class="metadata-grid">
-        {% if kind == 'person-location' %}<div><dt>Person</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.person_id %}">{{ item.person }}</a></dd></div>{% endif %}
+        {% if kind == 'person-location' %}<div><dt>Person</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.person_id %}">{{ item.person }}</a></dd></div>{% elif kind == 'vehicle-location' %}{% include 'evidence/vehicle_location_source.html' %}{% endif %}
         <div><dt>Address</dt><dd>{{ item.address|default:"Not recorded"|linebreaksbr }}</dd></div>
         <div><dt>Latitude</dt><dd>{{ item.latitude|default_if_none:"Not recorded" }}</dd></div>
         <div><dt>Longitude</dt><dd>{{ item.longitude|default_if_none:"Not recorded" }}</dd></div>
-        <div><dt>Observed at</dt><dd>{% if item.observed_at %}{{ item.observed_at|date:"d M Y, H:i" }} UTC{% else %}Not recorded{% endif %}</dd></div>
-      </dl>{% if kind == 'person-location' %}<p>A reported association does not verify identity or presence. Person names reflect the current person record.</p>{% endif %}</section>
+        <div><dt>Observed at</dt><dd>{% if item.observed_at %}{{ item.observed_at|date:"d M Y, H:i:s" }} UTC{% else %}Not recorded{% endif %}</dd></div>
+      </dl>{% if kind == 'person-location' %}<p>A reported association does not verify identity or presence. Person names reflect the current person record.</p>{% elif kind == 'vehicle-location' %}<p>A reported association does not verify identity, ownership, or presence. Vehicle details reflect the current vehicle record.</p>{% if item.import_batch_id %}<p><a href="{% url 'evidence:vehicle_import_review' case_id=case.pk import_id=item.import_batch_id %}">View import and observations</a></p><details><summary>Original CSV row and interpretation</summary><dl class="metadata-grid">{% for label,value in item.raw_row.items %}<div><dt>{{ label }}</dt><dd>{{ value|default:"Not supplied"|linebreaksbr }}</dd></div>{% endfor %}<div><dt>Parser version</dt><dd>{{ item.import_batch.parser_version }}</dd></div></dl><p>Time Summary is retained without inferring a duration or interval. Original serial numbers are source identifiers, not VINs.</p></details>{% endif %}{% endif %}</section>
       {% else %}<div class="file-original panel"><h2>{{ item.original_filename }}</h2><p>{{ item.byte_size|filesizeformat }} · {{ item.declared_content_type|default:"Content type not supplied" }}</p><p>The original is retained without automatic format verification or processing. Download it to inspect the file.</p><a class="button button-primary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">Download original</a></div>{% endif %}
       <section class="description-section"><h2>Investigator description</h2>{% if item.description %}<div class="prose">{{ item.description|linebreaksbr }}</div>{% else %}<p class="muted">No description recorded.</p>{% endif %}</section>
     {% else %}
@@ -77,6 +77,7 @@
       {% if item.archive_changed_at %}<p class="muted">{% if item.is_archived %}Archived{% else %}Restored{% endif %} by {{ item.archive_changed_by }} on {{ item.archive_changed_at|date:"d M Y, H:i" }} UTC.</p>{% endif %}
     {% endif %}
     <details class="integrity-details"><summary>Integrity details</summary><p>A checksum identifies original content. It does not verify truth or identity.</p><dl><dt>SHA-256</dt><dd><code id="evidence-checksum">{{ item.sha256 }}</code></dd></dl><button type="button" class="button button-secondary" data-copy-target="evidence-checksum">Copy checksum</button></details>
+    {% if vehicle_import %}<p><a href="{% url 'evidence:vehicle_import_review' case_id=case.pk import_id=vehicle_import.pk %}">{% if vehicle_import.completed_at %}View vehicle location import{% else %}Resume vehicle location review{% endif %}</a></p>{% endif %}
     {% else %}
     <div class="empty-state reader-empty"><h2>Make room for the facts.</h2><p>Select evidence to read its original and review its source details.</p>{% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case_id=case.pk %}">Add evidence</a>{% endif %}</div>
     {% endif %}
