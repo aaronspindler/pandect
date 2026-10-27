@@ -324,6 +324,7 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
                     else response.content
                 )
                 self.assertEqual(actual, expected)
+                self.assertEqual(response["Content-Type"], "application/octet-stream")
                 self.assertIn("attachment;", response["Content-Disposition"])
                 self.assertIn("no-store", response["Cache-Control"])
                 self.assertEqual(response["X-Content-Type-Options"], "nosniff")

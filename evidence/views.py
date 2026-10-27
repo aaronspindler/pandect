@@ -502,15 +502,18 @@ def edit(request, case_id, kind, evidence_id):
 def download(request, case_id, kind, evidence_id):
     case = get_case(request.user, case_id)
     item = _record(case, kind, evidence_id)
+    # Linux WebKit can render typed attachments inline; use a download MIME type.
     if kind == "text":
         response = HttpResponse(
-            item.body.encode("utf-8"), content_type="text/plain; charset=utf-8"
+            item.body.encode("utf-8"), content_type="application/octet-stream"
         )
         response["Content-Disposition"] = (
             f'attachment; filename="evidence-{item.pk}.txt"'
         )
     elif kind in (*LOCATION_KINDS, *COMMUNICATION_KINDS):
-        response = HttpResponse(item.original_bytes(), content_type="application/json")
+        response = HttpResponse(
+            item.original_bytes(), content_type="application/octet-stream"
+        )
         response["Content-Disposition"] = (
             f'attachment; filename="evidence-{item.pk}.json"'
         )
@@ -696,7 +699,7 @@ def attachment_download(request, case_id, kind, evidence_id, attachment_id, comp
         raise Http404("Attachment not found.") from None
     if component == "manifest":
         response = HttpResponse(
-            attachment.original_bytes(), content_type="application/json"
+            attachment.original_bytes(), content_type="application/octet-stream"
         )
         response["Content-Disposition"] = (
             f'attachment; filename="attachment-{attachment.pk}.json"'
@@ -704,7 +707,7 @@ def attachment_download(request, case_id, kind, evidence_id, attachment_id, comp
     elif component == "transcript" and attachment.transcript:
         response = HttpResponse(
             attachment.transcript.encode("utf-8"),
-            content_type="text/plain; charset=utf-8",
+            content_type="application/octet-stream",
         )
         response["Content-Disposition"] = (
             f'attachment; filename="transcript-{attachment.pk}.txt"'

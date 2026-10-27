@@ -324,6 +324,28 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                             Path(event.value.path()).read_bytes(),
                             b"Synthetic audio\x00\r\n",
                         )
+                        with page.expect_download() as transcript:
+                            page.get_by_role(
+                                "link", name="Download transcript", exact=True
+                            ).click()
+                        self.assertEqual(
+                            Path(transcript.value.path()).read_bytes(),
+                            # Native forms submit textarea line endings as CRLF.
+                            b"  Supplied synthetic transcript <source>\r\n  ",
+                        )
+                        page.get_by_text(
+                            "Attachment integrity details", exact=True
+                        ).click()
+                        with page.expect_download() as manifest:
+                            page.get_by_role(
+                                "link", name="Download attachment record", exact=True
+                            ).click()
+                        self.assertEqual(
+                            json.loads(Path(manifest.value.path()).read_bytes())[
+                                "schema"
+                            ],
+                            "pandect.call-attachment.v1",
+                        )
                         page.get_by_role(
                             "link", name="Add transcript or audio", exact=True
                         ).click()
@@ -844,6 +866,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                             "link", name="Download original", exact=True
                         ).click()
                     content = Path(event.value.path()).read_bytes()
+                    self.assertEqual(
+                        event.value.suggested_filename, f"evidence-{record.pk}.json"
+                    )
                     self.assertEqual(hashlib.sha256(content).hexdigest(), record.sha256)
                     self.assertEqual(json.loads(content)["latitude"], "0.000000")
                     for width, height in ((1440, 900), (390, 844), (320, 844)):
@@ -1100,6 +1125,18 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 )
                 self.assertEqual(document.byte_size, len(content))
                 self.capture(page, engine, "no-javascript-document")
+
+                record = self.records[-1]
+                page.goto(self.evidence_url(record))
+                with page.expect_download() as text_original:
+                    page.get_by_role("link", name="Download text", exact=True).click()
+                self.assertEqual(
+                    text_original.value.suggested_filename, f"evidence-{record.pk}.txt"
+                )
+                self.assertEqual(
+                    Path(text_original.value.path()).read_bytes(),
+                    record.body.encode("utf-8"),
+                )
 
     def test_uncertain_commit_retry_and_proxy_size_limit_recovery(self):
         original = b"Synthetic original with interrupted confirmation."

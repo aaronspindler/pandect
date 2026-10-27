@@ -200,6 +200,11 @@ observation time as a UTC ISO timestamp. The schema is `pandect.location.v1` or
 metadata, including Source, is separate from this original and its checksum.
 Authorized viewers can read/download archived observations as with other evidence.
 
+Original downloads use `application/octet-stream` with an attachment filename so
+browsers save them consistently, including Linux WebKit. Location, communication,
+and call-attachment records keep their `.json` filenames and canonical bytes;
+captured text and transcripts keep their `.txt` filenames and UTF-8 bytes.
+
 Retained person-location evidence restricts individual person deletion,
 including when archived. This protects the original association. Confirmed
 whole-case deletion still cascades to both the evidence and its person. There is
