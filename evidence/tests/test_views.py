@@ -235,7 +235,11 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, "<script>alert")
         download = self.client.get(self.url("download", item))
         self.assertEqual(download.content, item.body.encode())
-        self.assertIn("attachment", download["Content-Disposition"])
+        self.assertEqual(download["Content-Type"], "application/octet-stream")
+        self.assertEqual(
+            download["Content-Disposition"],
+            f'attachment; filename="evidence-{item.pk}.txt"',
+        )
         self.assertEqual(download["X-Content-Type-Options"], "nosniff")
 
     def test_direct_object_download_and_search_are_case_scoped(self):

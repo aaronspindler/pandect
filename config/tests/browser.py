@@ -523,6 +523,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                             "link", name="Download original", exact=True
                         ).click()
                     content = Path(event.value.path()).read_bytes()
+                    self.assertEqual(
+                        event.value.suggested_filename, f"evidence-{record.pk}.json"
+                    )
                     self.assertEqual(hashlib.sha256(content).hexdigest(), record.sha256)
                     self.assertEqual(json.loads(content)["latitude"], "0.000000")
                     for width, height in ((1440, 900), (390, 844), (320, 844)):
@@ -779,6 +782,18 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 )
                 self.assertEqual(document.byte_size, len(content))
                 self.capture(page, engine, "no-javascript-document")
+
+                record = self.records[-1]
+                page.goto(self.evidence_url(record))
+                with page.expect_download() as text_original:
+                    page.get_by_role("link", name="Download text", exact=True).click()
+                self.assertEqual(
+                    text_original.value.suggested_filename, f"evidence-{record.pk}.txt"
+                )
+                self.assertEqual(
+                    Path(text_original.value.path()).read_bytes(),
+                    record.body.encode("utf-8"),
+                )
 
     def test_uncertain_commit_retry_and_proxy_size_limit_recovery(self):
         original = b"Synthetic original with interrupted confirmation."

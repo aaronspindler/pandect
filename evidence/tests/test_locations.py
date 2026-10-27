@@ -180,7 +180,11 @@ class LocationViewTests(EvidenceViewTestMixin, TestCase):
             download = self.client.get(self.url("download", item, kind=kind))
             self.assertEqual(hashlib.sha256(download.content).hexdigest(), item.sha256)
             self.assertEqual(json.loads(download.content)["latitude"], "0.000000")
-            self.assertIn("attachment", download["Content-Disposition"])
+            self.assertEqual(download["Content-Type"], "application/octet-stream")
+            self.assertEqual(
+                download["Content-Disposition"],
+                f'attachment; filename="evidence-{item.pk}.json"',
+            )
             self.assertIn("no-store", download["Cache-Control"])
             self.assertEqual(download["X-Content-Type-Options"], "nosniff")
             self.client.post(self.url("archive", item, kind=kind))
