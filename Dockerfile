@@ -17,9 +17,11 @@ RUN groupadd --system pandect && useradd --system --create-home --gid pandect pa
     && mkdir -p /app/data && chown pandect:pandect /app/data
 COPY manage.py ./
 COPY config/ config/
+COPY background/ background/
 COPY accounts/ accounts/
 COPY cases/ cases/
 COPY evidence/ evidence/
+COPY analysis/ analysis/
 COPY people/ people/
 COPY vehicles/ vehicles/
 COPY templates/ templates/

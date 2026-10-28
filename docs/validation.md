@@ -54,6 +54,10 @@ and idempotent retries after uncertain confirmation. Case/invitation tests cover
 verified recipients, token rotation/replay/expiry, mail failure, preserved member
 roles, confirmed deletion, and reviewed stale-edit resubmission.
 They use synthetic content and temporary storage, without external services.
+Background coverage checks the real PostgreSQL task backend in debug mode,
+execution and recorded failure, same-transaction commit/rollback and visibility
+from a second database connection, diagnostic success/failure/mismatch/timeout,
+safe worker logs, and denial of global task admin access even to superusers.
 Person tests cover partial identities, contact validation, case linkage and
 deletion, timestamps, duplicate contacts, scoped lists/search/history, owner and
 editor writes, read-only viewers, forged case selections, revoked/downgraded
@@ -72,7 +76,11 @@ runtime image, checks initial migrations and HTTP readiness, creates a synthetic
 owner, collaborator, case, membership, person, vehicle, and evidence of all ten types,
 including a retained vehicle-location import and its source and call transcripts/audio, stops and
 restarts the stack, and verifies records and original file bytes persist. It also
-checks that the production image serves its collected application assets with
+verifies worker execution through the diagnostic, queues a probe with the worker
+stopped, restarts the database/web while keeping the worker stopped, checks the
+probe is still queued, and starts the worker to verify completion exactly once
+in this controlled run. This does not claim exactly-once delivery after crashes.
+It also checks that the production image serves its collected application assets with
 debug disabled. Its exit trap removes only that project's containers and volumes. It never uses your `.env`
 or data.
 
@@ -127,6 +135,33 @@ rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible h
 areas; screen-reader review and operator deployment checks remain separate human
 validation activities. A successful build or HTTP readiness response is not a
 substitute for these browser interactions and captures.
+
+## Analysis validation
+
+Run the ordinary checks for retained-content search, current-field reports,
+processing/review history, case-scoped inference, native imports, text/style,
+conversation, and location calculations:
+
+```sh
+uv run --locked --env-file .env make check
+uv run --locked --env-file .env python manage.py test analysis.browser --noinput
+make compose-smoke
+make security-check
+```
+
+The focused analysis browser suite uses Chromium and WebKit with synthetic
+material, no JavaScript, all five design viewport sizes, keyboard focus,
+light/dark/forced colors, extraction, reviews, downloads, and access revocation.
+Captures default to ignored `data/validation/analysis-browser`. Run it separately
+from other PostgreSQL suites; `PANDECT_BROWSER_ENGINES` and
+`PANDECT_BROWSER_ARTIFACTS` have the same meaning as in the core suite.
+
+Processing tests include real same-database worker dispatch and concurrent
+idempotent submissions. Inference/geocoding tests mock HTTP; parser tests decode
+synthetic files in real bounded child processes. These establish handling and
+provenance, not live model recognition accuracy. The isolated Compose smoke
+also queues native extraction while its worker is stopped, restarts the stack,
+then verifies retained extraction/search output after worker recovery.
 
 ## GitHub Actions
 

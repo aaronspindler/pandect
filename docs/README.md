@@ -4,6 +4,8 @@
 
 - [Local development, configuration, and uv](development.md)
 - [Architecture and implemented scope](architecture.md)
+- [Background-worker setup, diagnostics, and recovery](background-tasks.md)
+- [Case analysis, reports, processing, and external AI configuration](analysis.md)
 - [Case workflows, invitations, collaboration, and Django admin](cases.md)
 - [People, contact details, and case-scoped administration](people.md)
 - [Vehicles, identifying details, and case-scoped administration](vehicles.md)
@@ -28,8 +30,8 @@ The initial migrations use `accounts.User`; application and integration tests us
 PostgreSQL. Account screens, case management, email invitations, viewer/editor
 collaboration, people and vehicle management, and retained evidence uploads/downloads
 are implemented alongside scoped operator administration and bounded vehicle-location
-CSV imports. Other evidence processing, AI,
-and visual analysis remain planned capabilities.
+CSV imports. Bounded extraction and investigation workflows are documented in
+[case analysis](analysis.md); the broader catalogue remains a planning reference.
 
 ## Product planning
 

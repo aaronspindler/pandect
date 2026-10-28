@@ -5,12 +5,16 @@
 !manage.py
 !config/
 !config/**
+!background/
+!background/**
 !accounts/
 !accounts/**
 !cases/
 !cases/**
 !evidence/
 !evidence/**
+!analysis/
+!analysis/**
 !people/
 !people/**
 !vehicles/

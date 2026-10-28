@@ -7,8 +7,11 @@ requires-python = ">=3.14.9,<3.15"
 dependencies = [
     "django>=6.1.2,<6.2",
     "django-allauth>=65.20.1,<66",
+    "django-tasks-db>=0.13.0,<0.14",
     "gunicorn>=23,<26",
+    "pillow>=13.0.0,<14",
     "psycopg[binary]>=3.2,<4",
+    "pypdf>=6.21.3,<7",
     "whitenoise>=6.12,<7",
 ]
 

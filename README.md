@@ -46,15 +46,20 @@ Analysis and visualization capabilities are being built incrementally.
   confirms deletion of the whole case.
 - **Investigator workspace:** Search and filter evidence in a responsive interface
   with a three-pane desktop layout, mobile views, and keyboard navigation.
+- **Case analysis:** Inspect call/vehicle/duplicate reports, search retained and
+  extracted text, and run supported document/image/audio extraction. Review
+  source-linked conversation, writing-style, visit and journey candidates with
+  retained processing history. See [supported inputs and configuration](docs/analysis.md).
 - **Self-hosting:** Run locally with Docker Compose. Ordinary case management
   requires no AI credentials or hosted Pandect subscription.
 
 ### Planned capabilities
 
-The longer-term direction includes evidence extraction and previews, AI-assisted
-analysis, search across accessible cases, entity and relationship analysis,
-graphs, timelines, maps, annotations, and reporting. These are planned features,
-not capabilities of the current release.
+The longer-term direction includes broader extraction and specialist analysis,
+search across accessible cases, entity and relationship exploration, graphs,
+unified timelines, annotations, and case-report synthesis. The
+[analysis catalogue](docs/evidence-analysis.md) describes possibilities beyond the
+current supported workflows.
 
 ## Getting started
 

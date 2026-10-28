@@ -1,0 +1,549 @@
+"""Ordinary case-authorized analysis and source inspection workflows."""
+
+import hashlib
+import json
+from uuid import uuid4
+
+from django.contrib import messages
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.db.models import Q
+from django.http import FileResponse, Http404, HttpResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.views.decorators.http import (
+    require_http_methods,
+    require_POST,
+    require_safe,
+)
+
+from cases.permissions import case_context, get_case
+from config.access import product_login_required
+
+from .errors import AnalysisError, error_message
+from .forms import AnalysisForm, ReportForm, selection
+from .models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
+from .navigation import FINDINGS_PER_PAGE, finding_url
+from .operations import INPUT_GUIDANCE, OPERATIONS, get_operation
+from .presentation import measurement_formatter
+from .reports import report
+from .services import cancel_run, resolve_inputs, review_result, start_run
+
+
+def private(response):
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def _context(request, case):
+    return case_context(case, request.user) | {"nav_section": "analysis"}
+
+
+def _run(case, run_id):
+    try:
+        return (
+            AnalysisRun.objects.select_related("requested_by", "previous_run")
+            .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
+            .get(case=case, pk=run_id)
+        )
+    except AnalysisRun.DoesNotExist:
+        raise Http404("Processing not found.") from None
+
+
+def _url(case, run):
+    return reverse("analysis:detail", kwargs={"case_id": case.pk, "run_id": run.pk})
+
+
+@product_login_required
+@require_safe
+def index(request, case_id):
+    case = get_case(request.user, case_id)
+    page = Paginator(
+        AnalysisRun.objects.filter(case=case).select_related("requested_by"), 25
+    ).get_page(request.GET.get("page"))
+    for run in page:
+        run.label = get_operation(run.operation).label
+    return private(
+        render(
+            request,
+            "analysis/index.html",
+            _context(request, case)
+            | {
+                "page_obj": page,
+                "reports": (
+                    ("calls", "Call patterns"),
+                    ("vehicle-coverage", "Vehicle observation coverage"),
+                    ("vehicle-speed", "Vehicle speed and heading"),
+                    ("duplicates", "Exact file duplicates"),
+                ),
+            },
+        )
+    )
+
+
+@product_login_required
+@require_safe
+def current_report(request, case_id, name):
+    case = get_case(request.user, case_id)
+    if name not in {"calls", "vehicle-coverage", "vehicle-speed", "duplicates"}:
+        raise Http404("Report not found.")
+    form = ReportForm(request.GET or None, case=case, report_name=name)
+    data = None
+    if not form.is_bound or form.is_valid():
+        values = form.cleaned_data if form.is_bound else {"state": "active"}
+        try:
+            data = report(case, name, **{k: v or None for k, v in values.items()})
+        except ValidationError as error:
+            form.add_error(None, error)
+    if data is not None:
+        formatter = measurement_formatter(data, case=case)
+        data["measurements"] = formatter(data.get("metrics", {}))
+        for item in data.get("items", []):
+            item["measurements"] = formatter(
+                item.get("values", {}), duplicate_text=item.get("text", "")
+            )
+    return private(
+        render(
+            request,
+            "analysis/report.html",
+            _context(request, case) | {"form": form, "data": data, "name": name},
+        )
+    )
+
+
+@product_login_required
+@require_http_methods(["GET", "POST"])
+def create(request, case_id):
+    case = get_case(request.user, case_id, edit=True)
+    operation = (
+        request.POST.get("operation")
+        if request.method == "POST"
+        else request.GET.get("operation", "native_text")
+    )
+    if operation not in OPERATIONS:
+        operation = "native_text"
+    query = request.GET.get("q", "")[:200]
+    form = AnalysisForm(
+        request.POST if request.method == "POST" else None,
+        case=case,
+        operation=operation,
+        query=query,
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            run, created = start_run(
+                request.user,
+                case.pk,
+                form.cleaned_data["operation"],
+                [selection(x) for x in form.cleaned_data["sources"]],
+                parameters=form.parameters(),
+                submission_id=form.cleaned_data["submission_id"],
+                external_processing=form.cleaned_data["external_processing"],
+            )
+        except (ValidationError, AnalysisError) as error:
+            form.add_error(
+                None,
+                error
+                if isinstance(error, ValidationError)
+                else (
+                    "The selected source is unavailable or changed. "
+                    "Review it and try again."
+                ),
+            )
+        else:
+            messages.success(
+                request,
+                "Analysis queued." if created else "This analysis was already queued.",
+            )
+            return redirect(_url(case, run))
+    return private(
+        render(
+            request,
+            "analysis/create.html",
+            _context(request, case)
+            | {
+                "form": form,
+                "operations": OPERATIONS.items(),
+                "operation": operation,
+                "operation_label": OPERATIONS[operation].label,
+                "input_guidance": INPUT_GUIDANCE.get(operation, ""),
+                "query": query,
+            },
+        )
+    )
+
+
+def _items(data, sources, case, run, *, offset=0):
+    source_map = {str(x.id): x for x in sources}
+    formatter = measurement_formatter(data, case=case, sources=sources)
+    previews = {
+        str(x.source_id): x
+        for x in AnalysisArtifact.objects.filter(
+            case=case, result__case=case, result__run=run
+        )
+    }
+    items = []
+    latest_reviews = {}
+    for reviewed in AnalysisReview.objects.filter(
+        case=case,
+        result__case=case,
+        result__run=run,
+        item_index__gte=offset,
+        item_index__lt=offset + len(data.get("items", [])),
+    ):
+        latest_reviews.setdefault(reviewed.item_index, reviewed)
+    for index, finding in enumerate(data.get("items", [])):
+        item = dict(finding)
+        item["measurements"] = formatter(
+            item.get("values", {}), duplicate_text=item.get("text", "")
+        )
+        item["number"] = index + 1 + offset
+        item["index"] = index + offset
+        item["latest_review"] = latest_reviews.get(item["index"])
+        links = []
+        for source_id in item.get("source_ids", []):
+            source = source_map.get(source_id)
+            if source is not None:
+                anchors = [
+                    x
+                    for x in item.get("anchors", [])
+                    if x.get("source_id") == source_id
+                ]
+                url = source.url
+                display_anchors = list(anchors)
+                for anchor in anchors:
+                    if source.derived_run_id and anchor.get("extraction_ranges"):
+                        first = anchor["extraction_ranges"][0]
+                        finding = first["finding_index"]
+                        url = finding_url(case.pk, source.derived_run_id, finding)
+                        display_anchors.extend(
+                            x
+                            for part in anchor["extraction_ranges"]
+                            for x in part.get("original_anchors", [])
+                        )
+                links.append(
+                    {
+                        "label": source.item.title,
+                        "url": url,
+                        "anchors": display_anchors,
+                        "derived": bool(source.derived_result_id),
+                    }
+                )
+                for anchor in anchors:
+                    if "start_seconds" in anchor and (
+                        source.kind == "audio" or source.attachment is not None
+                    ):
+                        item["audio_url"] = (
+                            reverse(
+                                "analysis:audio",
+                                kwargs={
+                                    "case_id": case.pk,
+                                    "run_id": run.pk,
+                                    "source_id": source_id,
+                                },
+                            )
+                            + f"#t={anchor['start_seconds']},{anchor['end_seconds']}"
+                        )
+        item["sources"] = links
+        for anchor in item.get("anchors", []):
+            preview = previews.get(anchor.get("source_id"))
+            if preview and "region" in anchor:
+                left, top, right, bottom = anchor["region"]
+                item["preview"] = {
+                    "url": reverse(
+                        "analysis:artifact",
+                        kwargs={
+                            "case_id": case.pk,
+                            "run_id": run.pk,
+                            "artifact_id": preview.pk,
+                        },
+                    ),
+                    "width": preview.width,
+                    "height": preview.height,
+                    "x": left * preview.width,
+                    "y": top * preview.height,
+                    "region_width": (right - left) * preview.width,
+                    "region_height": (bottom - top) * preview.height,
+                }
+                break
+        items.append(item)
+    return items
+
+
+def _map_points(sources):
+    points = [x for x in sources if x.coordinates is not None]
+    if not points:
+        return []
+    latitudes = [x.coordinates[0] for x in points]
+    longitudes = [x.coordinates[1] for x in points]
+    low_lat, high_lat = min(latitudes), max(latitudes)
+    low_lon, high_lon = min(longitudes), max(longitudes)
+    return [
+        {
+            "x": 30
+            + 540 * (s.coordinates[1] - low_lon) / max(high_lon - low_lon, 0.00001),
+            "y": 270
+            - 240 * (s.coordinates[0] - low_lat) / max(high_lat - low_lat, 0.00001),
+            "label": s.item.title,
+            "url": s.url,
+            "derived": getattr(s.item, "latitude", None) is None,
+        }
+        for s in points
+    ]
+
+
+@product_login_required
+@require_safe
+def detail(request, case_id, run_id):
+    case = get_case(request.user, case_id)
+    run = _run(case, run_id)
+    context = _context(request, case) | {
+        "run": run,
+        "operation_label": get_operation(run.operation).label,
+        "retry_submission_id": uuid4(),
+        "error_message": error_message(run.error_code),
+    }
+    try:
+        sources = resolve_inputs(run, case, require_current_review=False)
+        try:
+            resolve_inputs(run, case)
+        except AnalysisError as error:
+            if error.code == "geocode_review_required":
+                context["source_review_changed"] = True
+            else:
+                raise
+    except AnalysisError, Http404:
+        context["source_unavailable"] = True
+        sources = []
+    context["sources"] = sources
+    context["assumptions"] = measurement_formatter(
+        run.parameters, case=case, sources=sources
+    )(run.parameters)
+    context["map_points"] = _map_points(sources)
+    if not context.get("source_unavailable"):
+        result = AnalysisResult.objects.filter(
+            case=case, run=run, run__case=case
+        ).first()
+        if result is not None:
+            finding_page = Paginator(
+                result.data.get("items", []), FINDINGS_PER_PAGE
+            ).get_page(request.GET.get("page"))
+            context |= {
+                "result": result,
+                "data": result.data,
+                "metrics": measurement_formatter(
+                    result.data.get("metrics", {}), case=case, sources=sources
+                )(result.data.get("metrics", {})),
+                "items": _items(
+                    result.data | {"items": list(finding_page)},
+                    sources,
+                    case,
+                    run,
+                    offset=(finding_page.number - 1) * FINDINGS_PER_PAGE,
+                ),
+                "finding_page": finding_page,
+                "reviews": result.reviews.filter(case=case).select_related(
+                    "reviewed_by"
+                ),
+            }
+    context["can_retry"] = run.status in {
+        "failed",
+        "cancelled",
+        "partial",
+        "unsupported",
+        "insufficient",
+        "empty",
+        "complete",
+    }
+    return private(render(request, "analysis/detail.html", context))
+
+
+@product_login_required
+@require_POST
+def cancel(request, case_id, run_id):
+    run = cancel_run(request.user, case_id, run_id)
+    messages.success(
+        request,
+        (
+            "Processing cancelled. Already dispatched external requests cannot be "
+            "recalled; their results will not be published."
+        ),
+    )
+    return redirect(_url(run.case, run))
+
+
+@product_login_required
+@require_POST
+def retry(request, case_id, run_id):
+    case = get_case(request.user, case_id, edit=True)
+    prior = _run(case, run_id)
+    if prior.status in {"queued", "running"}:
+        messages.error(
+            request,
+            (
+                "Cancel the earlier run before starting another attempt. Confirm a "
+                "stopped worker before recovering abandoned work."
+            ),
+        )
+        return redirect(_url(case, prior))
+    choices = [
+        {
+            "kind": x["kind"],
+            "id": x["evidence_id"],
+            **{
+                k: x[k]
+                for k in ("attachment_id", "result_id", "geocode_candidate")
+                if x.get(k) is not None
+            },
+        }
+        for x in prior.inputs
+    ]
+    try:
+        run, _ = start_run(
+            request.user,
+            case.pk,
+            prior.operation,
+            choices,
+            parameters=prior.parameters,
+            external_processing=prior.external_processing,
+            previous_run=prior,
+            submission_id=request.POST.get("submission_id") or uuid4(),
+        )
+    except ValidationError, AnalysisError:
+        messages.error(
+            request,
+            (
+                "The inputs changed or are no longer available. Start a new analysis "
+                "and review its source selection."
+            ),
+        )
+        return redirect(_url(case, prior))
+    messages.success(request, "A new run is queued; the earlier history is retained.")
+    return redirect(_url(case, run))
+
+
+@product_login_required
+@require_POST
+def review(request, case_id, run_id):
+    case = get_case(request.user, case_id, edit=True)
+    run = _run(case, run_id)
+    try:
+        item_index = None
+        if "item_index" in request.POST:
+            raw_index = request.POST["item_index"]
+            if (
+                not raw_index.isascii()
+                or not raw_index.isdecimal()
+                or len(raw_index) > 8
+            ):
+                raise ValidationError("Choose a valid finding index.")
+            item_index = int(raw_index)
+        result = AnalysisResult.objects.get(case=case, run=run)
+        review_result(
+            request.user,
+            case_id,
+            result.pk,
+            request.POST.get("decision", ""),
+            request.POST.get("comment", ""),
+            item_index=item_index,
+        )
+    except AnalysisResult.DoesNotExist:
+        raise Http404("Result not found.") from None
+    except ValidationError, AnalysisError:
+        messages.error(
+            request,
+            (
+                "Choose a review decision and a comment of at most 4,000 characters. "
+                "Sources must remain available."
+            ),
+        )
+    else:
+        messages.success(
+            request,
+            "Review recorded. Original evidence and earlier reviews are retained.",
+        )
+    return redirect(_url(case, run))
+
+
+@product_login_required
+@require_safe
+def download(request, case_id, run_id):
+    case = get_case(request.user, case_id)
+    run = _run(case, run_id)
+    try:
+        resolve_inputs(run, case, require_current_review=False)
+        result = AnalysisResult.objects.get(case=case, run=run)
+    except AnalysisError, AnalysisResult.DoesNotExist:
+        raise Http404("Result not found.") from None
+    data = {
+        "case_id": str(case.pk),
+        "run_id": str(run.pk),
+        "operation": run.operation,
+        "inputs": run.inputs,
+        "parameters": run.parameters,
+        "result": result.data,
+        "provenance": result.provenance,
+    }
+    response = HttpResponse(
+        json.dumps(data, ensure_ascii=False, indent=2), content_type="application/json"
+    )
+    response["Content-Disposition"] = f'attachment; filename="analysis-{run.pk}.json"'
+    return private(response)
+
+
+@product_login_required
+@require_safe
+def audio(request, case_id, run_id, source_id):
+    case = get_case(request.user, case_id)
+    run = _run(case, run_id)
+    try:
+        source = next(
+            x
+            for x in resolve_inputs(run, case, require_current_review=False)
+            if x.id == str(source_id)
+        )
+    except AnalysisError, StopIteration:
+        raise Http404("Recording not found.") from None
+    file = (
+        source.attachment.file
+        if source.attachment
+        else getattr(source.item, "file", None)
+    )
+    if not file or (source.kind != "audio" and source.attachment is None):
+        raise Http404("Recording not found.")
+    try:
+        stream = file.open("rb")
+        header = stream.read(12)
+        stream.seek(0)
+        if header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+            stream.close()
+            raise Http404("This recording cannot be played inline.")
+    except OSError:
+        raise Http404("Recording unavailable.") from None
+    return private(FileResponse(stream, content_type="audio/wav", as_attachment=False))
+
+
+@product_login_required
+@require_safe
+def artifact(request, case_id, run_id, artifact_id):
+    case = get_case(request.user, case_id)
+    run = _run(case, run_id)
+    try:
+        resolve_inputs(run, case, require_current_review=False)
+        preview = AnalysisArtifact.objects.get(
+            pk=artifact_id, case=case, result__case=case, result__run=run
+        )
+        with preview.file.open("rb") as original:
+            content = original.read(2 * 1024 * 1024 + 1)
+        if (
+            str(preview.source_id) not in {x["id"] for x in run.inputs}
+            or len(content) > 2 * 1024 * 1024
+            or hashlib.sha256(content).hexdigest() != preview.sha256
+        ):
+            raise Http404("Preview unavailable.")
+    except AnalysisArtifact.DoesNotExist, AnalysisError, OSError:
+        raise Http404("Preview unavailable.") from None
+    response = HttpResponse(content, content_type="image/jpeg")
+    response["Content-Disposition"] = f'inline; filename="preview-{preview.pk}.jpg"'
+    return private(response)

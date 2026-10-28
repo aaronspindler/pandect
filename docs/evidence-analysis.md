@@ -7,8 +7,9 @@ accuracy target, or delivery order.
 
 Pandect retains originals, provenance, supplied metadata, and case associations.
 Its bounded Asset Location CSV importer already extracts vehicle-location
-observations. General media/document parsing, OCR, transcription, semantic
-analysis, maps, and background analysis remain planned. See
+observations. This planning snapshot predates the bounded processing and
+investigation workflows described in [case analysis](analysis.md). The catalogue
+is not a claim that every listed feature is implemented. See
 [implemented evidence behavior](evidence.md) and
 [vehicle-location imports](vehicle-location-imports.md).
 
@@ -68,9 +69,10 @@ inapplicable to a particular case rather than intrinsically low-value.
 whole row from today's Pandect, including missing ingestion, derived results,
 provenance, case permissions, review, failure handling, and relevant validation.
 Use established libraries/services where suitable; do not assume training a
-model from scratch. The current app has no shared analysis/result framework,
-background worker, Gateway client, or geocoder. Initial processing features
-therefore carry common setup work. Shared foundations can make later features
+model from scratch. At the scoring baseline, the app had no shared retained
+results, Gateway client, or geocoder and its worker ran diagnostics only.
+Implemented support is now documented separately in [case analysis](analysis.md).
+These features therefore carry common setup work. Shared foundations can make later features
 easier; the scores are not additive estimates of total project effort.
 
 Scope matters: a combined exact/near-duplicate row includes visual comparison,

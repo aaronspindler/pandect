@@ -39,8 +39,12 @@ class RedactPrivateURLs(logging.Filter):
     def filter(self, record):
         record.msg = redact_url(record.getMessage())
         record.args = ()
-        if 400 <= getattr(record, "status_code", 0) < 500:
-            # Expected permission/validation failures need no traceback payload.
+        if 400 <= getattr(record, "status_code", 0) < 500 or record.name.startswith(
+            ("django.tasks", "django_tasks_db")
+        ):
+            # Task exceptions can contain untrusted evidence or secrets. Retain
+            # diagnostics in the private task store, not routine worker logs.
+            # Expected permission/validation failures also need no traceback.
             record.exc_info = None
             record.exc_text = None
         return True

@@ -1719,3 +1719,26 @@ a.record-row:hover { background: var(--background); }
 
 /* Native WebKit selects need an explicit height to retain a full touch target. */
 .communication-form select { height: 2.75rem; }
+
+/* Analysis uses the same readable surfaces and ordinary document scrolling. */
+.analysis-history-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-block: 1rem; border-bottom: 1px solid var(--divider); }
+.analysis-history-row p { margin: .25rem 0 0; }
+.analysis-form fieldset { margin-block: 1.5rem; min-width: 0; }
+.analysis-form fieldset label { display: flex; align-items: baseline; gap: .5rem; min-height: 2.75rem; overflow-wrap: anywhere; }
+.analysis-form fieldset input[type="checkbox"] { flex: 0 0 auto; width: auto; }
+.analysis-map { display: block; width: 100%; max-height: 24rem; color: var(--text); }
+.analysis-map a:focus { outline: 3px solid var(--accent); }
+audio { width: 100%; max-width: 42rem; }
+@media (max-width: 48rem) { .analysis-history-row { align-items: flex-start; flex-direction: column; } }
+
+.analysis-image-preview { width: 100%; max-height: 32rem; color: var(--accent); }
+.analysis-image-preview image { pointer-events: none; }
+
+.analysis-measurements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 2rem; }
+.analysis-measurements dt { color: var(--secondary); font-size: .875rem; }
+.analysis-measurements dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+.analysis-measurements .analysis-measurements { display: block; }
+.analysis-measurements .analysis-measurements > div { margin-bottom: .5rem; }
+.analysis-example { margin-block: 1rem; padding-left: 1rem; border-left: 2px solid var(--divider); }
+.analysis-example blockquote { margin: 0 0 .5rem; white-space: pre-wrap; }
+@media (max-width: 48rem) { .analysis-measurements { grid-template-columns: minmax(0, 1fr); } }

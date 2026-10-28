@@ -243,9 +243,16 @@ Read `docs/development.md` and `docs/validation.md` for executable commands. The
 compatible runtime versions and upgrade constraints are in `docs/architecture.md`.
 Use `cases.Case` for future investigation and evidence relationships. See
 `docs/cases.md` for implemented workflows, invitations, and product/admin
-permissions. Bounded Asset Location CSV imports are implemented; other evidence
-parsing/previews, background jobs, AI, graphs, maps,
-timelines, and reporting remain planned.
+permissions. Bounded Asset Location CSV imports and case-scoped analysis are
+implemented; read `docs/analysis.md` for supported extraction profiles, source
+anchors, reports, background processing, Gateway configuration, and review
+semantics. Broader catalogue features, graphs, unified timelines, and specialist
+analysis remain planned.
+The Django Tasks/PostgreSQL worker supports diagnostics and case analysis. Other
+existing product workflows remain synchronous. Read
+`docs/background-tasks.md` before adding tasks or changing worker operations,
+atomic enqueueing, private task logging, or manual failure recovery. The queue
+does not supply case authorization, automatic retries, or stale-task reclamation.
 Read `docs/people.md` before extending person records or their admin permissions.
 People belong to a single case; owners and editors can add/edit them, viewers can
 inspect them, and only owners can delete them. Person records are independent of

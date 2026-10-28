@@ -16,7 +16,8 @@ services:
       retries: 30
   web:
     build: .
-    environment:
+    image: ${COMPOSE_PROJECT_NAME:-pandect}-app
+    environment: &app_environment
       DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
@@ -30,6 +31,23 @@ services:
       PANDECT_MAX_FILE_BYTES: ${PANDECT_MAX_FILE_BYTES:-104857600}
       PANDECT_MAX_TEXT_BYTES: ${PANDECT_MAX_TEXT_BYTES:-1048576}
       PANDECT_MAX_BATCH_FILES: ${PANDECT_MAX_BATCH_FILES:-20}
+      PANDECT_AI_ACCOUNT_ID: ${PANDECT_AI_ACCOUNT_ID:-}
+      PANDECT_AI_GATEWAY_ID: ${PANDECT_AI_GATEWAY_ID:-}
+      PANDECT_AI_GATEWAY_TOKEN: ${PANDECT_AI_GATEWAY_TOKEN:-}
+      PANDECT_AI_WORKERS_TOKEN: ${PANDECT_AI_WORKERS_TOKEN:-}
+      PANDECT_AI_TIMEOUT: ${PANDECT_AI_TIMEOUT:-60}
+      PANDECT_AI_DAILY_CASE_REQUESTS: ${PANDECT_AI_DAILY_CASE_REQUESTS:-100}
+      PANDECT_AI_MAX_REQUEST_BYTES: ${PANDECT_AI_MAX_REQUEST_BYTES:-8388608}
+      PANDECT_AI_MAX_RESPONSE_BYTES: ${PANDECT_AI_MAX_RESPONSE_BYTES:-2097152}
+      PANDECT_AI_TEXT_MODEL: ${PANDECT_AI_TEXT_MODEL:-@cf/meta/llama-3.3-70b-instruct-fp8-fast}
+      PANDECT_AI_VISION_MODEL: ${PANDECT_AI_VISION_MODEL:-@cf/meta/llama-4-scout-17b-16e-instruct}
+      PANDECT_AI_TRANSCRIPTION_MODEL: ${PANDECT_AI_TRANSCRIPTION_MODEL:-@cf/openai/whisper-large-v3-turbo}
+      PANDECT_GEOCODER_URL: ${PANDECT_GEOCODER_URL:-}
+      PANDECT_GEOCODER_NAME: ${PANDECT_GEOCODER_NAME:-}
+      PANDECT_GEOCODER_VERSION: ${PANDECT_GEOCODER_VERSION:-}
+      PANDECT_GEOCODER_ATTRIBUTION: ${PANDECT_GEOCODER_ATTRIBUTION:-}
+      PANDECT_GEOCODER_USER_AGENT: ${PANDECT_GEOCODER_USER_AGENT:-Pandect/0.1}
+      PANDECT_GEOCODER_TIMEOUT: ${PANDECT_GEOCODER_TIMEOUT:-10}
       DJANGO_DEFAULT_FROM_EMAIL: ${DJANGO_DEFAULT_FROM_EMAIL:-pandect@localhost}
       DJANGO_EMAIL_HOST: ${DJANGO_EMAIL_HOST:-localhost}
       DJANGO_EMAIL_PORT: ${DJANGO_EMAIL_PORT:-587}
@@ -56,6 +74,17 @@ services:
       timeout: 5s
       retries: 30
       start_period: 10s
+  worker:
+    image: ${COMPOSE_PROJECT_NAME:-pandect}-app
+    environment: *app_environment
+    command: ["python", "manage.py", "db_worker", "--no-reload"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      web:
+        condition: service_healthy
 
 volumes:
   postgres_data:

@@ -7,7 +7,8 @@ configuration are for local use.
 ```sh
 docker compose up --build --wait
 docker compose ps
-docker compose logs --tail 100 web db
+docker compose logs --tail 100 web worker db
+docker compose exec web python manage.py check_task_worker --timeout 30
 docker compose stop
 docker compose up --wait
 docker compose down
@@ -25,23 +26,32 @@ fails, inspect logs, verify environment variables, correct the problem, and reru
 change passwords already stored in an initialized PostgreSQL volume; rotate them
 with PostgreSQL before updating configuration.
 
+The background worker starts after web readiness and uses the same application
+image, configuration, and private evidence volume. Its process restarts unless
+explicitly stopped. HTTP readiness does not prove queue execution; use the
+diagnostic above. Worker failures, manual recovery, and result pruning are
+documented in [background tasks](background-tasks.md).
+
 ## Database backup and restoration
 
 Keep backups private and off-host. The database contains accounts, authentication
 state, cases, invitations, collaboration memberships, people, vehicles, captured text,
 archive attribution, and file evidence metadata.
+It also contains queued work and operational task results, including private
+arguments, return values, and exception details.
 File originals live separately in `app_data`; a database dump alone is incomplete.
 Stop application writers while taking matching database and file snapshots. For
-the current Compose stack, stop `web`, create both backups, then restart it:
+the current Compose stack, stop `web` and `worker`, create both backups, then
+restart them:
 
 ```sh
 mkdir -p backups
-docker compose stop web
+docker compose stop web worker
 docker compose exec -T db sh -c \
   'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > backups/pandect.dump
 docker compose run --rm --no-deps -T web tar -C /app/data -cf - . \
   > backups/pandect-files.tar
-docker compose up --wait web
+docker compose up --wait web worker
 ```
 
 Test restoration into a **new** database, preserving the original:
@@ -56,10 +66,15 @@ docker compose exec -T db sh -c \
   'psql -U "$POSTGRES_USER" -d pandect_restore -c "SELECT count(*) FROM accounts_user"'
 ```
 
-For actual recovery, stop `web`, set `POSTGRES_DB=pandect_restore` in `.env`, and
-start the stack with `docker compose up --wait`. Keep the original database until
-the restored application and expected data have been checked. Do not restore an
+For actual recovery, stop `web` and `worker`, set `POSTGRES_DB=pandect_restore` in
+`.env`, and start only `db web` with `docker compose up --wait db web`.
+Keep the original database until the restored application and expected data
+have been checked. Do not restore an
 untrusted dump or change PostgreSQL major versions by replacing a container tag.
+Before starting a worker against a restored database, inspect queued/running work:
+restoration can replay pending work whose external effects already happened.
+Review the task store and feature-specific recovery needs, then start `worker`
+and run its diagnostic. Do not blindly replay running tasks.
 
 When recovering evidence, restore the matching file snapshot into a separate
 private storage location and configure the recovered application to use it before
@@ -74,7 +89,7 @@ Verify original bytes against stored checksums after restoration. See
 Back up before upgrades. After reviewing dependency/runtime compatibility:
 
 ```sh
-docker compose stop web
+docker compose stop web worker
 docker compose build web
 docker compose run --rm web python manage.py migrate --noinput
 docker compose up --wait
@@ -90,7 +105,9 @@ published by the proxy or a public storage bucket.
 Compose remains a local development configuration, not a hosted deployment
 recipe. A hosted deployment must explicitly configure HTTPS, allowed hosts,
 secure secret storage, SMTP, a matching `PANDECT_PUBLIC_ORIGIN`, private persistent
-storage, database backups, and a separate migration step before starting replicas.
+storage, database backups, and a separate migration step before starting web or
+worker replicas. Queue tables are added by the dependency's migrations; no
+Pandect domain migration or data reset is needed for the worker foundation.
 Debug is disabled by default; session/CSRF cookies require HTTPS in that mode.
 Run `python manage.py check --deploy` with the actual deployment configuration and
 resolve its findings. Trusted proxy headers must only be configured for a
@@ -108,7 +125,8 @@ recordings use the same per-file limit and private storage as other originals.
 Backups must include call/attachment rows, transcript text, and the corresponding
 private audio files. Attachments follow the existing after-commit deletion
 cleanup and manual orphan-reconciliation procedures; rollback does not remove
-retained files. No background service or external transcription is introduced.
+retained files. The worker foundation does not change cleanup or introduce
+external transcription.
 Django's upload memory threshold controls temporary storage, not maximum file size.
 Asset Location CSV imports have a separate hard cap of 1 MiB and 250 rows,
 respecting a smaller operator file limit. Their route streams with the smaller

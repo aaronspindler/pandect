@@ -1,0 +1,242 @@
+"""Retained investigation processing history, independent of disposable queue rows."""
+
+from uuid import uuid4
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import models
+
+from evidence.models import original_upload_path
+
+
+class AnalysisRun(models.Model):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        COMPLETE = "complete", "Complete"
+        PARTIAL = "partial", "Partial"
+        EMPTY = "empty", "No findings"
+        INSUFFICIENT = "insufficient", "Insufficient evidence"
+        UNSUPPORTED = "unsupported", "Unsupported input"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    operation = models.CharField(max_length=64)
+    method_version = models.CharField(max_length=64)
+    parameters = models.JSONField(default=dict)
+    inputs = models.JSONField(default=list)
+    submission_id = models.UUIDField(default=uuid4, unique=True, editable=False)
+    previous_run = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL
+    )
+    external_processing = models.BooleanField(default=False)
+    status = models.CharField(max_length=16, choices=Status, default=Status.QUEUED)
+    progress = models.PositiveSmallIntegerField(default=0)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    error_code = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(progress__lte=100), name="analysis_progress_range"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(attempts__lte=3), name="analysis_attempt_bound"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Processing {self.pk}"
+
+    def save(self, *args, **kwargs):
+        if self.previous_run_id and self.previous_run.case_id != self.case_id:
+            raise ValidationError("Earlier processing must belong to the same case.")
+        if not self._state.adding:
+            prior = type(self).objects.get(pk=self.pk)
+            immutable = (
+                "case_id",
+                "created_at",
+                "requested_by_id",
+                "operation",
+                "method_version",
+                "parameters",
+                "inputs",
+                "submission_id",
+                "previous_run_id",
+                "external_processing",
+            )
+            if any(getattr(self, name) != getattr(prior, name) for name in immutable):
+                raise ValidationError(
+                    "Inputs and attribution are retained. Start another run."
+                )
+        if self._state.adding:
+            kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+
+class AnalysisResult(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    run = models.OneToOneField(
+        AnalysisRun, on_delete=models.CASCADE, related_name="result"
+    )
+    data = models.JSONField(default=dict)
+    provenance = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Result {self.pk}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError(
+                "Retained results cannot be replaced. Start another run."
+            )
+        self.clean()
+        if self._state.adding:
+            kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if self.run_id and self.run.case_id != self.case_id:
+            raise ValidationError("The result must belong to its processing case.")
+
+
+class AnalysisReview(models.Model):
+    class Decision(models.TextChoices):
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+        UNRESOLVED = "unresolved", "Unresolved"
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    result = models.ForeignKey(
+        AnalysisResult, on_delete=models.CASCADE, related_name="reviews"
+    )
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    decision = models.CharField(max_length=16, choices=Decision)
+    comment = models.TextField(blank=True, max_length=4000)
+    item_index = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+
+    def __str__(self):
+        return f"Review {self.pk}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Reviews are retained. Add a further review.")
+        self.full_clean()
+        if self._state.adding:
+            kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if self.result_id and self.result.case_id != self.case_id:
+            raise ValidationError("Review and result must belong to the same case.")
+        if self.item_index is not None and self.item_index >= len(
+            self.result.data.get("items", [])
+        ):
+            raise ValidationError("Choose an available finding to review.")
+
+
+class GatewayRequest(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    run = models.ForeignKey(
+        AnalysisRun, on_delete=models.CASCADE, related_name="gateway_requests"
+    )
+    model = models.CharField(max_length=255)
+    status = models.CharField(max_length=32, default="pending")
+    request_bytes = models.PositiveIntegerField()
+    response_bytes = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(null=True)
+    output_tokens = models.PositiveIntegerField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Gateway request {self.pk}"
+
+    def save(self, *args, **kwargs):
+        if self.run.case_id != self.case_id:
+            raise ValidationError("Gateway usage must belong to the run's case.")
+        if self._state.adding:
+            kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+
+class ExtractedPassage(models.Model):
+    """Concrete lexical-search projection of retained extraction output."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    result = models.ForeignKey(
+        AnalysisResult, on_delete=models.CASCADE, related_name="passages"
+    )
+    kind = models.CharField(max_length=32)
+    evidence_id = models.UUIDField()
+    evidence_sha256 = models.CharField(max_length=64)
+    attachment_id = models.UUIDField(null=True, blank=True)
+    text = models.TextField()
+    item_index = models.PositiveIntegerField(default=0)
+    anchors = models.JSONField(default=list)
+
+    class Meta:
+        indexes = [models.Index(fields=["case", "kind", "evidence_id"])]
+
+    def __str__(self):
+        return f"Extracted passage {self.pk}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Extracted passages are retained with their result.")
+        if self.result.case_id != self.case_id:
+            raise ValidationError("Passage and result must belong to the same case.")
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+
+from .communication_models import CommunicationContext  # noqa: E402, F401
+
+
+class AnalysisArtifact(models.Model):
+    """Private sanitized previews generated alongside a retained result."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    result = models.ForeignKey(
+        AnalysisResult, on_delete=models.CASCADE, related_name="artifacts"
+    )
+    source_id = models.UUIDField()
+    file = models.FileField(upload_to=original_upload_path)
+    sha256 = models.CharField(max_length=64)
+    width = models.PositiveIntegerField()
+    height = models.PositiveIntegerField()
+
+    def __str__(self):
+        return f"Analysis preview {self.pk}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Derived previews are retained with their result.")
+        if self.result.case_id != self.case_id or str(self.source_id) not in {
+            x["id"] for x in self.result.run.inputs
+        }:
+            raise ValidationError(
+                "The preview must refer to its result's case and source."
+            )
+        if not 1 <= self.width <= 4096 or not 1 <= self.height <= 4096:
+            raise ValidationError("Preview dimensions exceed the supported range.")
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)

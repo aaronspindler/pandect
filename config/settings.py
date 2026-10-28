@@ -28,9 +28,12 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_tasks_db",
+    "background.apps.BackgroundConfig",
     "accounts.apps.AccountsConfig",
     "cases.apps.CasesConfig",
     "evidence.apps.EvidenceConfig",
+    "analysis.apps.AnalysisConfig",
     "people.apps.PeopleConfig",
     "vehicles.apps.VehiclesConfig",
     "allauth",
@@ -76,6 +79,13 @@ DATABASES = {
         "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
         "PORT": os.environ.get("POSTGRES_PORT", "5432"),
         "OPTIONS": {"connect_timeout": 5},
+    }
+}
+# Use the durable queue in development too; DEBUG must not run work inline.
+TASKS = {
+    "default": {
+        "BACKEND": "django_tasks_db.DatabaseBackend",
+        "QUEUES": ["default"],
     }
 }
 AUTH_USER_MODEL = "accounts.User"
@@ -188,6 +198,11 @@ LOGGING = {
             "level": "WARNING",
             "propagate": False,
         },
+        "django_tasks_db": {
+            "handlers": ["private_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
 
@@ -208,3 +223,40 @@ else:
             },
         }
     }
+
+# Operator credentials remain backend-only. Empty credentials disable inference.
+PANDECT_AI_GATEWAY = {
+    "account": os.environ.get("PANDECT_AI_ACCOUNT_ID", ""),
+    "gateway": os.environ.get("PANDECT_AI_GATEWAY_ID", ""),
+    "gateway_token": os.environ.get("PANDECT_AI_GATEWAY_TOKEN", ""),
+    "workers_token": os.environ.get("PANDECT_AI_WORKERS_TOKEN", ""),
+    "models": {
+        "text": os.environ.get(
+            "PANDECT_AI_TEXT_MODEL", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+        ),
+        "vision": os.environ.get(
+            "PANDECT_AI_VISION_MODEL", "@cf/meta/llama-4-scout-17b-16e-instruct"
+        ),
+        "transcription": os.environ.get(
+            "PANDECT_AI_TRANSCRIPTION_MODEL", "@cf/openai/whisper-large-v3-turbo"
+        ),
+    },
+    "timeout": min(120, positive_env("PANDECT_AI_TIMEOUT", 60)),
+    "daily_requests": positive_env("PANDECT_AI_DAILY_CASE_REQUESTS", 100),
+    "max_request_bytes": positive_env("PANDECT_AI_MAX_REQUEST_BYTES", 8 * 1024 * 1024),
+    "max_response_bytes": positive_env(
+        "PANDECT_AI_MAX_RESPONSE_BYTES", 2 * 1024 * 1024
+    ),
+}
+PANDECT_ANALYSIS_MAX_SOURCES = 500
+PANDECT_ANALYSIS_MAX_BYTES = 16 * 1024 * 1024
+PANDECT_ANALYSIS_MAX_TEXT = 2 * 1024 * 1024
+PANDECT_GEOCODER_URL = os.environ.get("PANDECT_GEOCODER_URL", "")
+PANDECT_GEOCODER_NAME = os.environ.get("PANDECT_GEOCODER_NAME", "")
+PANDECT_GEOCODER_VERSION = os.environ.get("PANDECT_GEOCODER_VERSION", "")
+PANDECT_GEOCODER_ATTRIBUTION = os.environ.get("PANDECT_GEOCODER_ATTRIBUTION", "")
+PANDECT_GEOCODER_USER_AGENT = os.environ.get(
+    "PANDECT_GEOCODER_USER_AGENT", "Pandect/0.1"
+)
+
+PANDECT_GEOCODER_TIMEOUT = min(30, positive_env("PANDECT_GEOCODER_TIMEOUT", 10))

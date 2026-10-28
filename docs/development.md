@@ -28,8 +28,11 @@ make run
 ```
 
 After this setup, use `make run` whenever you want to start the website locally.
-It builds the application image, starts PostgreSQL and the website in the
-background, and waits for their health checks to pass. Stop them with
+It builds the shared application image, starts PostgreSQL, the website, and a
+background worker, and waits for web/database health and worker startup. Verify
+actual queue execution with
+`docker compose exec web python manage.py check_task_worker --timeout 30`.
+Stop them with
 `docker compose stop`; the database and evidence volumes are retained.
 
 Open <http://localhost:8000/> (or your configured `PANDECT_WEB_PORT`). Create an
@@ -67,7 +70,7 @@ docker compose exec web python manage.py createsuperuser
 To use your editor and Django's autoreloader while keeping PostgreSQL in Docker:
 
 ```sh
-docker compose stop web
+docker compose stop web worker
 docker compose up -d --wait db
 uv run --locked --env-file .env python manage.py migrate
 uv run --locked --env-file .env python manage.py runserver
@@ -76,6 +79,10 @@ uv run --locked --env-file .env python manage.py runserver
 Use `uv run --locked --env-file .env python manage.py <command>` for other
 management commands. uv explicitly loads `.env`; Django does not implicitly load
 files. Compose reads `.env` itself and sets the database hostname to `db`.
+Run `uv run --locked --env-file .env python manage.py db_worker --no-reload`
+in another terminal to process tasks while using the host web server. See
+[background tasks](background-tasks.md) for diagnostics, recovery, and pruning.
+Existing invitation and import workflows do not enqueue tasks yet.
 
 ## Configuration
 

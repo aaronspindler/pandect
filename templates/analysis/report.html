@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}Recorded activity · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'analysis:index' case.pk %}">Back to analysis</a>
+<header class="page-header"><div><h1>Recorded activity</h1><p>Inspect the records behind counts and comparisons. Gaps show unavailable observations.</p></div></header>
+<form method="get" class="panel" aria-label="Report selection">{% include 'components/form_fields.html' %}<button class="button button-primary" type="submit">Update report</button><a href="?">Reset selection</a></form>
+{% if data %}<section class="panel"><h2>{{ data.summary }}</h2>{% for warning in data.warnings %}<p class="notice">{{ warning }}</p>{% endfor %}{% include 'analysis/measurements.html' with measurements=data.measurements only %}</section>
+{% for item in data.items %}<article class="panel"><h2>{% if item.url %}<a href="{{ item.url }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</h2><p>{{ item.text }}</p>{% include 'analysis/measurements.html' with measurements=item.measurements only %}{% if item.related %}<ul>{% for source in item.related %}<li><a href="{{ source.url }}">{{ source.label }}</a></li>{% endfor %}</ul>{% endif %}</article>{% empty %}<div class="empty-state"><h2>No records in this selection</h2><p>Broaden the period or archive filter.</p></div>{% endfor %}{% endif %}
+{% endblock %}

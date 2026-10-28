@@ -42,6 +42,15 @@ serves public application assets. Private evidence is outside its static root.
 Compose overrides the command for local development. PostgreSQL 18 stores its named volume at `/var/lib/postgresql`, as
 required by that image's version-specific layout.
 
+Django's native Tasks API uses `django-tasks-db` 0.13 with the existing PostgreSQL
+database and one `default` queue. Compose runs a separate worker from the same
+application image after web readiness confirms migrations. This keeps self-hosting
+to PostgreSQL plus application processes, with no separate broker. The dependency
+is beta software; integration and restart behavior are covered locally and in CI.
+The queue supplies transport and operational records; [case analysis](analysis.md)
+adds domain-level authorization, immutable results, progress, and recovery. See
+[background tasks](background-tasks.md) for operator diagnostics.
+
 ## Modules and identity
 
 - `config/` contains settings, routes, readiness, and WSGI/ASGI entry points.
@@ -71,6 +80,12 @@ required by that image's version-specific layout.
 - `vehicles/` contains `Vehicle`, a case-scoped record of reported vehicle details
   and investigator notes, with the same roles and scoped administration as people.
   See [vehicles](vehicles.md).
+- `analysis/` contains durable case-scoped runs, results, reviews and private
+  previews. Concrete extraction/investigation modules share input resolution and
+  publication services, while current-field reports remain direct queries.
+- `background/` supplies a synthetic worker probe and a bounded operator diagnostic
+  command. It has no domain models or product routes. The queue's globally visible
+  upstream admin is disabled because task records have no case authorization.
 
 Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
 Allauth does not implement case invitations or authorization.
@@ -134,9 +149,11 @@ need matching treatment. See [operations](operations.md).
 
 Bounded Asset Location CSV parsing into retained vehicle-location observations is
 implemented; see [vehicle-location imports](vehicle-location-imports.md).
-Other extraction, document/media previews, background processing, AI, cross-case/global
-search, graphs, maps, timelines, and reporting remain planned. No queue, external
-AI client, or paid service is required by core management. Future inference must
-use the centralized Cloudflare AI Gateway boundary from [AGENTS.md](../AGENTS.md).
+Case-scoped analysis adds bounded extraction, direct reports, conversation/text/
+location workflows, durable processing history, and a centralized Gateway client;
+see [implemented analysis and supported inputs](analysis.md). The same PostgreSQL
+queue executes UUID-only processing jobs. Cross-case/global search, graphs, unified
+timelines, and broader specialist analyses remain planned. Core management and
+deterministic analyses do not require an external AI service.
 Ownership transfer and self-service account deletion are not implemented.
 There is deliberately no public evidence/media route.

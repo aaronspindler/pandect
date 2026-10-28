@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied, SuspiciousFileOperation
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Exists, OuterRef, Q, Value
+from django.db.models import CharField, Q, Value
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -19,6 +19,7 @@ from django.views.decorators.http import (
     require_safe,
 )
 
+from analysis.search import derived_content_condition, derived_text_matches
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 
@@ -36,6 +37,8 @@ from .forms import (
     save_call_content,
 )
 from .models import CallEvidenceAttachment, VehicleLocationImport
+from .queries import get_evidence, scoped_evidence
+from .search import retained_content_condition, retained_text_matches
 
 
 def _wants_json(request):
@@ -70,30 +73,7 @@ def _model(kind):
 
 
 def _record(case, kind, evidence_id, *, lock=False):
-    queryset = _model(kind).objects.filter(case=case)
-    if kind in COMMUNICATION_KINDS:
-        queryset = queryset.filter(
-            sender__case=case, recipient__case=case
-        ).select_related("sender", "recipient")
-    if kind == "person-location":
-        queryset = queryset.filter(person__case=case).select_related("person")
-    elif kind == "vehicle-location":
-        queryset = (
-            queryset.filter(vehicle__case=case)
-            .filter(
-                Q(import_batch__isnull=True)
-                | Q(import_batch__case=case, import_batch__document__case=case)
-            )
-            .select_related("vehicle", "import_batch__document")
-        )
-    if lock:
-        queryset = queryset.select_for_update(of=("self",))
-    try:
-        return queryset.select_related("uploaded_by", "archive_changed_by").get(
-            pk=evidence_id
-        )
-    except _model(kind).DoesNotExist:
-        raise Http404("Evidence not found.") from None
+    return get_evidence(case, kind, evidence_id, lock=lock)
 
 
 def _detail_url(case, kind, item):
@@ -123,16 +103,10 @@ def _list_context(request, case):
     if state not in {"active", "archived", "all"}:
         state = "active"
     queries = []
-    for kind, model in KINDS.items():
+    for kind in KINDS:
         if selected_kind and kind != selected_kind:
             continue
-        queryset = model.objects.filter(case=case)
-        if kind in COMMUNICATION_KINDS:
-            queryset = queryset.filter(sender__case=case, recipient__case=case)
-        if kind == "person-location":
-            queryset = queryset.filter(person__case=case)
-        elif kind == "vehicle-location":
-            queryset = queryset.filter(vehicle__case=case)
+        queryset = scoped_evidence(case, kind)
         if state != "all":
             queryset = queryset.filter(is_archived=state == "archived")
         if query:
@@ -151,15 +125,14 @@ def _list_context(request, case):
                 for participant in ("sender", "recipient"):
                     for field in ("first_name", "last_name", "email", "phone_number"):
                         condition |= Q(**{f"{participant}__{field}__icontains": query})
-            if kind in CALL_KINDS:
-                parent = "phone_call" if kind == "phone-call" else "facetime"
-                matching_files = CallEvidenceAttachment.objects.filter(
-                    case=case,
-                    **{f"{parent}_id": OuterRef("pk")},
-                    original_filename__icontains=query,
-                )
-                queryset = queryset.alias(matching_audio=Exists(matching_files))
-                condition |= Q(matching_audio=True)
+            queryset, content_condition = retained_content_condition(
+                queryset, case=case, kind=kind, query=query
+            )
+            condition |= content_condition
+            queryset, extracted_condition = derived_content_condition(
+                queryset, case=case, kind=kind, query=query
+            )
+            condition |= extracted_condition
             if kind == "person-location":
                 condition |= (
                     Q(person__first_name__icontains=query)
@@ -206,6 +179,14 @@ def _list_context(request, case):
             + suffix
         )
         rows.append(row)
+    matches = derived_text_matches(case=case, rows=rows, query=query)
+    matches.update(retained_text_matches(case=case, rows=rows, query=query))
+    for row in rows:
+        row["content_match"] = matches.get((row["kind"], row["id"]))
+        if row["content_match"] and row["content_match"].get("url"):
+            row["url"] = row["content_match"]["url"]
+        if row["content_match"] and row["content_match"].get("anchor"):
+            row["url"] += "#" + row["content_match"]["anchor"]
     pagination = {}
     for name, number in (
         ("previous", page.previous_page_number() if page.has_previous() else None),
@@ -266,6 +247,35 @@ def detail(request, case_id, kind, evidence_id):
         context["attachments"] = item.attachments.filter(case=case).select_related(
             "uploaded_by"
         )
+    if kind == "text-message":
+        from analysis.communication_models import CommunicationContext
+
+        context["communication_context"] = (
+            CommunicationContext.objects.filter(
+                case=case, message=item, source_document__case=case
+            )
+            .select_related("source_document")
+            .first()
+        )
+        imported = context["communication_context"]
+        if imported:
+            related = CommunicationContext.objects.filter(
+                case=case, source_document=imported.source_document, message__case=case
+            )
+            context["native_reply_candidates"] = (
+                related.filter(native_message_id=imported.reply_to_id).select_related(
+                    "message"
+                )[:20]
+                if imported.reply_to_id
+                else []
+            )
+            context["native_thread_messages"] = (
+                related.filter(native_thread_id=imported.native_thread_id)
+                .select_related("message")
+                .order_by("source_row")[:100]
+                if imported.native_thread_id
+                else []
+            )
     if kind == "document":
         context["vehicle_import"] = VehicleLocationImport.objects.filter(
             case=case, document=item

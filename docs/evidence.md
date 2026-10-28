@@ -102,9 +102,9 @@ explicitly. It is a claim, not a verified format. Numeric metadata defaults to
 `NULL` (unknown); supplied counts and dimensions must be positive and duration
 must be nonnegative. A zero duration is distinct from an unknown duration.
 
-There is no image decoding, EXIF extraction, OCR, transcription, document parsing,
-or automatic metadata verification. Image originals use `FileField`, without a
-Pillow dependency. Text files may be stored as documents; `TextEvidence.body`
+Optional [case analysis](analysis.md) extracts bounded document/image/audio content
+and retains derived metadata, OCR, and transcripts separately. Image originals
+continue to use `FileField`; parsing never replaces supplied metadata. Text files may be stored as documents; `TextEvidence.body`
 holds pasted original text. Descriptions and optional metadata are analyst input,
 not extracted facts or AI results. File checksums do not prove a source is truthful.
 

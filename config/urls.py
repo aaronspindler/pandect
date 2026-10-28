@@ -15,6 +15,7 @@ urlpatterns = [
     path("cases/<uuid:case_id>/people/", include("people.urls")),
     path("cases/<uuid:case_id>/vehicles/", include("vehicles.urls")),
     path("cases/<uuid:case_id>/evidence/", include("evidence.urls")),
+    path("cases/<uuid:case_id>/analysis/", include("analysis.urls")),
     path("invitations/<str:token>/", invitation_accept, name="invitation_accept"),
     path("admin/", admin.site.urls),
 ]

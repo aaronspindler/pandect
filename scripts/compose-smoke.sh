@@ -3,8 +3,9 @@
 set -eu
 project="pandect-smoke-$(date +%s)-$$"
 smoke_env=$(mktemp)
+smoke_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 compose() {
-    docker compose --project-name "$project" --env-file "$smoke_env" "$@"
+    docker compose --file "$smoke_root/compose.yaml" --project-directory "$smoke_root" --project-name "$project" --env-file "$smoke_env" "$@"
 }
 cleanup() {
     result=$?
@@ -28,11 +29,40 @@ ENV
 # Prevent inherited development/CI environment values from overriding isolation.
 unset DJANGO_DEBUG DJANGO_SECRET_KEY DJANGO_ALLOWED_HOSTS POSTGRES_DB POSTGRES_USER
 unset POSTGRES_PASSWORD PANDECT_DB_PORT PANDECT_WEB_PORT
+unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
+unset PANDECT_AI_ACCOUNT_ID PANDECT_AI_GATEWAY_ID PANDECT_AI_GATEWAY_TOKEN
+unset PANDECT_AI_WORKERS_TOKEN PANDECT_GEOCODER_URL PANDECT_GEOCODER_NAME
+unset PANDECT_GEOCODER_VERSION PANDECT_GEOCODER_ATTRIBUTION
+# Verify every disposable volume is local to this unique synthetic project.
+compose config --format json | python3 -c '
+import json, sys
+config = json.load(sys.stdin)
+project = config["name"]
+assert project.startswith("pandect-smoke-")
+assert set(config["volumes"]) == {"postgres_data", "app_data"}
+for key, volume in config["volumes"].items():
+    assert not volume.get("external", False)
+    assert volume["name"] == f"{project}_{key}"
+print("Verified synthetic project and scoped disposable volumes:", project)
+'
 compose up --build --wait --wait-timeout 180
 compose exec -T web python manage.py migrate --check
+compose exec -T web python manage.py check_task_worker --timeout 30
+compose stop worker
+compose exec -T web python manage.py shell <<'PY'
+from background.tasks import worker_probe
+from django.tasks import TaskResultStatus
+
+result = worker_probe.enqueue("compose-worker-restart")
+result.refresh()
+assert result.status == TaskResultStatus.READY
+assert result.started_at is None
+PY
 compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from allauth.account.models import EmailAddress
+from analysis.services import start_run
 from cases.models import Case, CaseMembership
 from evidence.models import AudioEvidence, CallEvidenceAttachment, DocumentEvidence, FaceTimeEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, PhoneCallEvidence, TextEvidence, TextMessageEvidence, VehicleLocationEvidence, VehicleLocationImport
 from evidence.vehicle_imports import parse_csv
@@ -41,8 +71,9 @@ from people.models import Person
 from vehicles.models import Vehicle
 
 owner = get_user_model().objects.create_user(
-    username="smoke", password="synthetic-smoke-password"
+    username="smoke", email="smoke@example.test", password="synthetic-smoke-password"
 )
+EmailAddress.objects.create(user=owner, email=owner.email, verified=True, primary=True)
 collaborator = get_user_model().objects.create_user(username="collaborator")
 case = Case.objects.create(owner=owner)
 CaseMembership.objects.create(case=case, user=collaborator)
@@ -56,6 +87,14 @@ for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
         source="Synthetic smoke source",
         file=ContentFile(b"Synthetic smoke original\x00\r\n", name="original.bin"),
     )
+native_document = DocumentEvidence.objects.create(
+    case=case, uploaded_by=owner, title="Synthetic analysis source",
+    file=ContentFile(b"Source-anchored native extraction.\n", name="analysis-native.txt"),
+)
+run, created = start_run(owner, case.pk, "native_text", [
+    {"kind": "document", "id": str(native_document.pk)},
+])
+assert created and run.status == "queued"
 TextEvidence.objects.create(
     case=case, uploaded_by=owner, title="Synthetic text", body="Original café\r\n",
     source="Synthetic smoke source",
@@ -100,7 +139,7 @@ batch.vehicle_mapping = {"0": str(vehicle.pk)}
 batch.save()
 PY
 compose stop
-compose up --wait --wait-timeout 180
+compose up --wait --wait-timeout 180 db web
 compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
 import hashlib
@@ -175,6 +214,39 @@ assert batch.completed_at is not None
 assert batch.vehicle_mapping == {"0": str(vehicle.pk)}
 assert batch.document.sha256 == hashlib.sha256(batch.document.file.read()).hexdigest()
 assert location.raw_row["Serial Number"] == "000001"
+PY
+compose exec -T web python manage.py shell <<'PY'
+from django.tasks import TaskResultStatus
+from django_tasks_db.models import DBTaskResult
+
+result = DBTaskResult.objects.get(
+    args_kwargs={"args": ["compose-worker-restart"], "kwargs": {}},
+)
+assert result.status == TaskResultStatus.READY
+assert result.started_at is None
+PY
+compose up -d --wait --wait-timeout 180 worker
+compose exec -T web python manage.py check_task_worker --timeout 30
+compose exec -T web python manage.py shell <<'PY'
+from django.tasks import TaskResultStatus
+from django_tasks_db.models import DBTaskResult
+
+result = DBTaskResult.objects.get(
+    args_kwargs={"args": ["compose-worker-restart"], "kwargs": {}},
+)
+assert result.status == TaskResultStatus.SUCCESSFUL
+assert result.return_value == "compose-worker-restart"
+assert len(result.worker_ids) == 1
+
+from analysis.models import AnalysisRun, ExtractedPassage
+run = AnalysisRun.objects.get(operation="native_text")
+assert run.status == "complete", run.error_code
+assert run.result.data["items"][0]["text"] == "Source-anchored native extraction.\n"
+assert run.result.provenance["source_inputs"] == run.inputs
+assert ExtractedPassage.objects.get(result=run.result).text == run.result.data["items"][0]["text"]
+assert run.inputs[0]["sha256"] == run.case.evidence_documentevidence_items.get(
+    original_filename="analysis-native.txt",
+).sha256
 PY
 compose exec -T web python -c \
     'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok"}'
