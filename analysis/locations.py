@@ -272,12 +272,43 @@ def normalize_addresses(sources, parameters):
     )
 
 
+def _source_order_discrepancies(sources):
+    groups = defaultdict(list)
+    for source in sources:
+        if _subject(source) is not None:
+            groups[_subject(source)].append(source)
+    items = []
+    for group in groups.values():
+        # Source row order is meaningful only within the same retained export.
+        imports = defaultdict(list)
+        for source in group:
+            if getattr(source.item, "import_batch_id", None) and getattr(
+                source.item, "source_row", None
+            ):
+                imports[str(source.item.import_batch_id)].append(source)
+        for imported in imports.values():
+            ordered = sorted(imported, key=lambda s: s.item.source_row)
+            for first, second in pairwise(ordered):
+                if _time(first) and _time(second) and _time(second) < _time(first):
+                    items.append(
+                        _item(
+                            "Source-row ordering discrepancy",
+                            (
+                                "Later export row reports an earlier event "
+                                "time; originals are not reordered or "
+                                "corrected."
+                            ),
+                            [first, second],
+                        )
+                    )
+    return items
+
+
 def location_quality(sources, parameters):
     sources = _selected(sources, allow_alternatives=True)
     radius = number(parameters, "distance_m")
     items = []
     signatures = defaultdict(list)
-    groups = defaultdict(list)
     for source in sources:
         item = source.item
         position, observed = _point(source), _time(source)
@@ -325,8 +356,6 @@ def location_quality(sources, parameters):
         signatures[
             (_subject(source), position, _iso(observed), getattr(item, "address", ""))
         ].append(source)
-        if _subject(source) is not None:
-            groups[_subject(source)].append(source)
     interpretations = defaultdict(list)
     for source in sources:
         interpretations[(source.kind, str(source.item.pk))].append(source)
@@ -353,29 +382,7 @@ def location_quality(sources, parameters):
                     **{"Original occurrences": len(originals)},
                 )
             )
-    for group in groups.values():
-        # Source row order is meaningful only within the same retained export.
-        imports = defaultdict(list)
-        for source in group:
-            if getattr(source.item, "import_batch_id", None) and getattr(
-                source.item, "source_row", None
-            ):
-                imports[str(source.item.import_batch_id)].append(source)
-        for imported in imports.values():
-            ordered = sorted(imported, key=lambda s: s.item.source_row)
-            for first, second in pairwise(ordered):
-                if _time(first) and _time(second) and _time(second) < _time(first):
-                    items.append(
-                        _item(
-                            "Source-row ordering discrepancy",
-                            (
-                                "Later export row reports an earlier event "
-                                "time; originals are not reordered or "
-                                "corrected."
-                            ),
-                            [first, second],
-                        )
-                    )
+    items.extend(_source_order_discrepancies(sources))
     return output(
         ("Review time semantics, positional interpretation and repeated observations."),
         items=items,
@@ -1280,12 +1287,7 @@ def travel_discrepancies(sources, parameters):
                         )
                     )
     # Only retained row order can support a chronology claim; selection order cannot.
-    quality = location_quality(sources, parameters)
-    items.extend(
-        item
-        for item in quality["items"]
-        if item["label"] == "Source-row ordering discrepancy"
-    )
+    items.extend(_source_order_discrepancies(sources))
     return output(
         ("Review apparently incompatible transitions and source-order discrepancies."),
         items=items,

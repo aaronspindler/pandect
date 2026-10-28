@@ -378,6 +378,15 @@ class TextAnalysisTests(SimpleTestCase):
             "empty",
         )
 
+    def test_passage_word_limit_is_checked_before_comparing_any_pairs(self):
+        oversized = source("word " * 5001)
+        for selections in ([oversized], [source("brief text"), oversized]):
+            with (
+                self.subTest(sources=len(selections)),
+                self.assertRaisesMessage(ValidationError, "no more than 5,000 words"),
+            ):
+                copied_text(selections, {})
+
     def test_keywords_do_not_require_inference(self):
         original = source("Harbour harbour delivery. The package needs delivery.")
         result = keywords([original], {})

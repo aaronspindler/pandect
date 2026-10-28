@@ -200,6 +200,10 @@ observation time as a UTC ISO timestamp. The schema is `pandect.location.v1` or
 metadata, including Source, is separate from this original and its checksum.
 Authorized viewers can read/download archived observations as with other evidence.
 
+New vehicle observations normalize a signed zero speed to positive zero before
+hashing, matching PostgreSQL's retained numeric representation. This does not
+rewrite existing originals or checksums.
+
 Original downloads use `application/octet-stream` with an attachment filename so
 browsers save them consistently, including Linux WebKit. Location, communication,
 and call-attachment records keep their `.json` filenames and canonical bytes;
@@ -221,6 +225,11 @@ All ten concrete evidence models are available under **Evidence** at `/admin/`.
 Active staff status and the corresponding Django model permission are required
 in addition to current case access. Lists, searches, history, and direct record
 URLs include only cases the operator owns or shares, including for superusers.
+Admin, product readers, and case overviews share the same relationship checks:
+linked people, vehicles, import batches, and source documents must belong to the
+evidence's case. Inconsistent records created through trusted maintenance writes
+are excluded from these views. Owner-only case deletion confirmation still counts
+all evidence belonging to the case, without displaying inconsistent source details.
 
 | Operation | Case requirement | Model permission |
 | --- | --- | --- |

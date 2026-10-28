@@ -19,6 +19,11 @@ addition; an extraction match opens the retained processing version. Queries kee
 case, type, archive, and pagination boundaries. Text resembling HTML is displayed
 as text.
 
+Extraction excerpts use one bounded candidate query for the current evidence
+page, considering at most ten matching passages per record. Each candidate must
+match its retained source, checksum, and call attachment. An unavailable newer
+run can fall back to an older valid candidate within that limit.
+
 Analysis reports cover call counts/durations/timing, vehicle observation coverage
 and receipt delays, reported speed/heading, and exact file-byte duplicates. Each
 report bounds its source selection to 500 records and discloses truncation,
@@ -33,6 +38,9 @@ Choose **Start analysis**, select an operation and retained sources, and queue i
 The picker shows at most 500 choices; use its title search to narrow larger cases.
 Select an exact extraction version to analyze derived text. Review grouping/time
 assumptions before starting an investigation workflow.
+Only the selected operation's settings are validated and saved. Finding reviews
+return to the reviewed finding, including its results page; invalid reviews retain
+the entered decision and comment for correction.
 
 The PostgreSQL worker described in [background tasks](background-tasks.md) executes
 queued work. Queued, running, complete, partial, no findings, insufficient evidence,
@@ -71,6 +79,16 @@ visible warning.
 - [Locations, journeys, visits, and geographic lookup](analysis-locations.md)
   describes grouping assumptions, gaps, observed dwell bounds, proximity,
   co-location, geographic estimates, and source-specific limits.
+- [Automatic geographic context and retained reference snapshots](analysis-geographic-context.md)
+  describes road, venue, building and neighbourhood candidates, historical map
+  snapshots, private reference downloads and operator configuration.
+
+Image OCR offers printed English and experimental English handwriting/mixed
+profiles. Handwriting suggestions require source inspection; representative live
+recognition evaluation remains outstanding. Map context uses a separate configured
+reference service and does not require AI credentials. Address-only miTrail
+observations first need an explicitly reviewed geocode. Local spatial grouping
+continues to work without an external map service.
 
 ## External AI configuration
 
@@ -125,6 +143,11 @@ Concrete document/media/text/conversation/location modules perform bounded work;
 `analysis.services` owns authorization, input snapshots, publication, and reviews.
 `analysis.tasks` is a thin UUID-only queue entrypoint. Durable runs/results/reviews
 and extraction search passages survive operational queue housekeeping.
+
+Source resolution reuses originals and prior results only within one validation
+pass. Search similarly validates a shared run once per request. External requests
+and publication still perform fresh authorization and source checks, so this
+reuse does not preserve access or acceptance after it changes.
 
 Apply additive analysis migrations with the normal upgrade workflow; existing
 originals are retained. Back up PostgreSQL and private storage together. Whole-case

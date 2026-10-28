@@ -1,6 +1,5 @@
 """Current authorization, immutable input selection and duplicate-safe publication."""
 
-import base64
 import hashlib
 import inspect
 import json
@@ -13,6 +12,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import OuterRef, Subquery
 from django.http import Http404
 from django.utils import timezone
 
@@ -21,6 +21,11 @@ from evidence.models import CallEvidenceAttachment
 from evidence.queries import get_evidence
 from evidence.types import CALL_KINDS
 
+from .artifacts import (
+    MAX_PREVIEW_TOTAL_BYTES,
+    MAX_REFERENCE_TOTAL_BYTES,
+    decode_artifact,
+)
 from .errors import AnalysisError
 from .geocoding import GeocodingError
 from .models import (
@@ -59,44 +64,90 @@ def _attachment(case, kind, item, attachment_id):
 
 def resolve_inputs(run, case, *, require_current_review=True):
     sources = []
+    originals = {}
+    attachments = {}
+    prior_results = {}
+    validated_originals = set()
+
+    def original(selected):
+        key = (selected["kind"], selected["evidence_id"])
+        if key not in originals:
+            originals[key] = get_evidence(case, *key)
+        item = originals[key]
+        attachment_id = selected.get("attachment_id")
+        if not attachment_id:
+            return item, None
+        attachment_key = (*key, attachment_id)
+        if attachment_key not in attachments:
+            attachments[attachment_key] = _attachment(
+                case, selected["kind"], item, attachment_id
+            )
+        return item, attachments[attachment_key]
+
     for selected in run.inputs:
         try:
-            item = get_evidence(case, selected["kind"], selected["evidence_id"])
-            attachment = _attachment(
-                case, selected["kind"], item, selected.get("attachment_id")
-            )
+            item, attachment = original(selected)
         except Http404, ValueError, KeyError, ValidationError:
             raise AnalysisError("source_unavailable") from None
         checksum = attachment.sha256 if attachment else item.sha256
-        original_file = attachment.file if attachment else getattr(item, "file", None)
-        if original_file:
-            try:
-                available = original_file.storage.exists(original_file.name)
-            except OSError:
-                available = False
-            if not available:
-                raise AnalysisError("source_unavailable")
         if checksum != selected["sha256"]:
             raise AnalysisError("source_changed")
-        if (
-            selected["kind"] == "text"
-            and hashlib.sha256(item.body.encode()).hexdigest() != checksum
-        ):
-            raise AnalysisError("source_changed")
+        identity = (
+            selected["kind"],
+            selected["evidence_id"],
+            selected.get("attachment_id"),
+        )
+        if identity not in validated_originals:
+            original_file = (
+                attachment.file if attachment else getattr(item, "file", None)
+            )
+            if original_file:
+                try:
+                    available = original_file.storage.exists(original_file.name)
+                except OSError:
+                    available = False
+                if not available:
+                    raise AnalysisError("source_unavailable")
+            if (
+                selected["kind"] == "text"
+                and hashlib.sha256(item.body.encode()).hexdigest() != checksum
+            ):
+                raise AnalysisError("source_changed")
+            validated_originals.add(identity)
         text = None
         coordinates = None
         derived_result_id = derived_run_id = None
         segments = []
         if selected.get("result_id"):
-            try:
-                prior = AnalysisResult.objects.select_related("run").get(
-                    pk=selected["result_id"],
-                    case=case,
-                    run__case=case,
-                    run__status__in=("complete", "partial", "empty"),
-                )
-            except AnalysisResult.DoesNotExist:
-                raise AnalysisError("source_unavailable") from None
+            result_id = selected["result_id"]
+            if result_id not in prior_results:
+                try:
+                    prior = AnalysisResult.objects.select_related("run").get(
+                        pk=result_id,
+                        case=case,
+                        run__case=case,
+                        run__status__in=("complete", "partial", "empty"),
+                    )
+                    if prior.run.pk == run.pk:
+                        raise AnalysisError("invalid_source_chain")
+                    # Check each retained source once per resolution, including
+                    # sources not selected by this downstream run.
+                    for previous in prior.run.inputs:
+                        old, old_attachment = original(previous)
+                        if (
+                            old_attachment.sha256 if old_attachment else old.sha256
+                        ) != previous["sha256"]:
+                            raise AnalysisError("source_changed")
+                except (
+                    AnalysisResult.DoesNotExist,
+                    Http404,
+                    ValueError,
+                    KeyError,
+                    ValidationError,
+                ):
+                    raise AnalysisError("source_unavailable") from None
+                prior_results[result_id] = prior
+            prior = prior_results[result_id]
             matching = {
                 x["id"]
                 for x in prior.run.inputs
@@ -107,18 +158,6 @@ def resolve_inputs(run, case, *, require_current_review=True):
             }
             if not matching:
                 raise AnalysisError("source_changed")
-            # Revalidate the prior source selection as well; do not trust JSON IDs.
-            if prior.run.pk == run.pk:
-                raise AnalysisError("invalid_source_chain")
-            for original in prior.run.inputs:
-                old = get_evidence(case, original["kind"], original["evidence_id"])
-                old_attachment = _attachment(
-                    case, original["kind"], old, original.get("attachment_id")
-                )
-                if (
-                    old_attachment.sha256 if old_attachment else old.sha256
-                ) != original["sha256"]:
-                    raise AnalysisError("source_changed")
             pieces = []
             cursor = 0
             for index, piece in enumerate(prior.data.get("items", [])):
@@ -179,7 +218,37 @@ def resolve_inputs(run, case, *, require_current_review=True):
     return sources
 
 
-def authorize_run(run, *, lock=False, allow_finished=False):
+def require_current_geocode_reviews(run, sources):
+    """Check current acceptance after historical inputs have been resolved."""
+    geocodes = {
+        source.id for source in sources if source.derived_coordinates is not None
+    }
+    review_ids = {
+        selected["review_id"] for selected in run.inputs if selected["id"] in geocodes
+    }
+    if not review_ids:
+        return
+    latest = AnalysisReview.objects.filter(
+        case_id=run.case_id,
+        result_id=OuterRef("result_id"),
+        item_index=OuterRef("item_index"),
+    ).order_by("-created_at", "id")
+    accepted = (
+        AnalysisReview.objects.filter(
+            pk__in=review_ids,
+            case_id=run.case_id,
+            result__case_id=run.case_id,
+            result__run__case_id=run.case_id,
+        )
+        .annotate(current_decision=Subquery(latest.values("decision")[:1]))
+        .filter(current_decision=AnalysisReview.Decision.ACCEPTED)
+        .count()
+    )
+    if accepted != len(review_ids):
+        raise AnalysisError("geocode_review_required")
+
+
+def _authorize_run(run, *, lock=False, allow_finished=False):
     actor = get_user_model().objects.get(pk=run.requested_by_id)
     case = get_case(actor, run.case_id, edit=True, lock=lock)
     if not EmailAddress.objects.filter(user=actor, verified=True).exists():
@@ -189,6 +258,11 @@ def authorize_run(run, *, lock=False, allow_finished=False):
         not allow_finished and current.status in FINISHED
     ):
         raise AnalysisError("processing_cancelled")
+    return case
+
+
+def authorize_run(run, *, lock=False, allow_finished=False):
+    case = _authorize_run(run, lock=lock, allow_finished=allow_finished)
     resolve_inputs(run, case)
     return case
 
@@ -236,10 +310,10 @@ def start_run(
         )
         attachment = _attachment(case, kind, item, attachment_id)
         result_id = _uuid(choice["result_id"]) if choice.get("result_id") else None
-        identity = (kind, str(item.pk), attachment_id, result_id)
-        if identity in seen:
-            raise ValidationError("Choose each source once.")
-        seen.add(identity)
+        candidate = choice.get("geocode_candidate")
+        if candidate is not None and type(candidate) is not int:
+            raise AnalysisError("ambiguous_geocode")
+        identity_candidate = None
         review_id = None
         if result_id:
             prior = (
@@ -264,12 +338,17 @@ def start_run(
                 candidate_index = choice.get("geocode_candidate")
                 if candidate_index is None and len(candidates) == 1:
                     candidate_index = candidates[0][0]
+                identity_candidate = candidate_index
                 accepted = prior.reviews.filter(item_index=candidate_index).first()
                 review_id = (
                     str(accepted.pk)
                     if accepted and accepted.decision == "accepted"
                     else None
                 )
+        identity = (kind, str(item.pk), attachment_id, result_id, identity_candidate)
+        if identity in seen:
+            raise ValidationError("Choose each source once.")
+        seen.add(identity)
         snapshots.append(
             {
                 "geocode_candidate": choice.get("geocode_candidate"),
@@ -406,7 +485,7 @@ def process_run(run_id):
         run.save(update_fields=["status", "attempts", "started_at", "progress"])
     stored_files = []
     try:
-        case = authorize_run(run)
+        case = _authorize_run(run)
         sources = resolve_inputs(run, case)
         operation = get_operation(run.operation)
         if operation.version != run.method_version:
@@ -423,7 +502,7 @@ def process_run(run_id):
         if "infer" in signature.parameters and run.external_processing:
             kwargs["infer"] = gateway.infer
         parameters = dict(run.parameters)
-        if run.operation == "geocode_locations":
+        if run.operation in {"geocode_locations", "geographic_context"}:
             parameters["external_processing"] = run.external_processing
         data = operation.function(sources, parameters, **kwargs)
         artifacts = data.pop("artifacts", [])
@@ -450,31 +529,34 @@ def process_run(run_id):
                     "source_inputs": run.inputs,
                 },
             )
-            total_preview_bytes = 0
-            for preview in artifacts:
-                try:
-                    raw = base64.b64decode(preview["data_base64"], validate=True)
-                    total_preview_bytes += len(raw)
-                    if (
-                        preview["source_id"] not in {s.id for s in sources}
-                        or preview["content_type"] != "image/jpeg"
-                        or not raw.startswith(b"\xff\xd8\xff")
-                        or total_preview_bytes > 2 * 1024 * 1024
-                    ):
-                        raise AnalysisError("invalid_preview")
-                    artifact = AnalysisArtifact(
-                        case=case,
-                        result=result,
-                        source_id=preview["source_id"],
-                        sha256=hashlib.sha256(raw).hexdigest(),
-                        width=preview["width"],
-                        height=preview["height"],
-                    )
-                    artifact.file.save("preview.jpg", ContentFile(raw), save=False)
-                    stored_files.append((artifact.file.storage, artifact.file.name))
-                    artifact.save()
-                except ValueError, KeyError, TypeError:
-                    raise AnalysisError("invalid_preview") from None
+            totals = {kind: 0 for kind in AnalysisArtifact.Kind.values}
+            reference_keys = set()
+            source_ids = {str(s.id) for s in sources}
+            for payload in artifacts:
+                raw, values = decode_artifact(payload, source_ids)
+                kind = values["kind"]
+                totals[kind] += len(raw)
+                reference = kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
+                limit = (
+                    MAX_REFERENCE_TOTAL_BYTES if reference else MAX_PREVIEW_TOTAL_BYTES
+                )
+                if totals[kind] > limit:
+                    raise AnalysisError("invalid_artifact")
+                if reference:
+                    key = values["metadata"]["reference_key"]
+                    if key in reference_keys:
+                        raise AnalysisError("invalid_artifact")
+                    reference_keys.add(key)
+                artifact = AnalysisArtifact(
+                    case=case,
+                    result=result,
+                    sha256=hashlib.sha256(raw).hexdigest(),
+                    **values,
+                )
+                filename = "reference.json" if reference else "preview.jpg"
+                artifact.file.save(filename, ContentFile(raw), save=False)
+                stored_files.append((artifact.file.storage, artifact.file.name))
+                artifact.save()
             if run.operation in {"native_text", "ocr", "transcription"}:
                 for item_index, item in enumerate(data.get("items", [])):
                     if not item.get("text"):

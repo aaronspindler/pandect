@@ -204,3 +204,15 @@ HTML character range. Unresolved rows stay visible in the partial result for
 recovery. Whole publication rollback removes newly created messages/context.
 Retries reuse the same document/row identity; a conflicting mapping or content
 interpretation is rejected for review instead of replacing the earlier original.
+
+Import method version `2` uses parser `imessage-html-v2` with the same supported
+HTML profile. Source ranges follow literal LF line positions and include the exact
+closing tag, including whitespace. This corrects ranges for exports containing
+standalone CR or Unicode line separators before later LF characters. Existing
+results and imported message context retain their original version and ranges;
+they are never rewritten. A new run retains corrected result anchors and reuses
+previously imported messages when their interpretation agrees. Finish queued
+imports with the old worker before upgrading when possible. Queued method `1`
+runs otherwise fail with the visible method-version-unavailable outcome after
+upgrading; start a new run with the same source and settings. No database reset
+or data migration is required.

@@ -10,13 +10,24 @@ from django.test import TestCase
 from django.urls import reverse
 
 from evidence.forms import KINDS, LOCATION_KINDS
-from evidence.models import PersonLocationEvidence
+from evidence.models import PersonLocationEvidence, VehicleLocationEvidence
 from evidence.tests.test_models import LOCATION_MODELS, EvidenceTestMixin
 from evidence.tests.test_views import EvidenceViewTestMixin
 from people.models import Person
 
 
 class LocationModelTests(EvidenceTestMixin, TestCase):
+    def test_vehicle_speed_checksum_survives_postgresql_zero_normalization(self):
+        for speed in (Decimal("-0.000"), Decimal("0.000"), Decimal("12.125"), None):
+            with self.subTest(speed=speed):
+                item = self.create_evidence(VehicleLocationEvidence, speed_kmh=speed)
+                original = item.original_bytes()
+                checksum = item.sha256
+                item.refresh_from_db()
+                self.assertEqual(item.speed_kmh, speed)
+                self.assertEqual(item.original_bytes(), original)
+                self.assertEqual(hashlib.sha256(original).hexdigest(), checksum)
+
     def test_address_coordinates_and_observation_time_are_retained_and_hashed(self):
         for model in LOCATION_MODELS:
             for address, latitude, longitude in (

@@ -6,6 +6,7 @@
 - [Architecture and implemented scope](architecture.md)
 - [Background-worker setup, diagnostics, and recovery](background-tasks.md)
 - [Case analysis, reports, processing, and external AI configuration](analysis.md)
+- [Automatic geographic context and retained map references](analysis-geographic-context.md)
 - [Case workflows, invitations, collaboration, and Django admin](cases.md)
 - [People, contact details, and case-scoped administration](people.md)
 - [Vehicles, identifying details, and case-scoped administration](vehicles.md)

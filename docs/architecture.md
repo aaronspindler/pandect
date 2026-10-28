@@ -81,7 +81,7 @@ adds domain-level authorization, immutable results, progress, and recovery. See
   and investigator notes, with the same roles and scoped administration as people.
   See [vehicles](vehicles.md).
 - `analysis/` contains durable case-scoped runs, results, reviews and private
-  previews. Concrete extraction/investigation modules share input resolution and
+  previews/reference snapshots. Concrete extraction/investigation modules share input resolution and
   publication services, while current-field reports remain direct queries.
 - `background/` supplies a synthetic worker probe and a bounded operator diagnostic
   command. It has no domain models or product routes. The queue's globally visible

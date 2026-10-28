@@ -18,7 +18,11 @@ from evidence.forms import (
     LOCATION_KINDS,
     ORIGINAL_FIELDS,
 )
-from evidence.models import CallEvidenceAttachment, PhoneCallEvidence
+from evidence.models import (
+    CallEvidenceAttachment,
+    PhoneCallEvidence,
+    VehicleLocationImport,
+)
 from people.models import Person
 from vehicles.models import Vehicle
 
@@ -295,6 +299,38 @@ class EvidenceAdminTests(TestCase):
             self.client.get(self.url("person-location", "change", item)),
             reverse("admin:index"),
         )
+
+    def test_inconsistent_vehicle_import_sources_are_hidden_from_admin(self):
+        item = self.items["vehicle-location"]
+        batch = VehicleLocationImport.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            document=self.items["document"],
+            timezone="UTC",
+        )
+        type(item).objects.filter(pk=item.pk).update(import_batch=batch, source_row=2)
+        self.client.force_login(self.owner)
+        response = self.client.get(self.url("vehicle-location"))
+        self.assertEqual(list(response.context["cl"].queryset), [item])
+        for changes in (
+            {"case": self.other_case},
+            {"document": self.other_items["document"]},
+        ):
+            # Trusted bulk writes can create an inconsistent provenance chain.
+            VehicleLocationImport.objects.filter(pk=batch.pk).update(**changes)
+            for user in (self.owner, self.editor, self.viewer):
+                with self.subTest(changes=changes, user=user):
+                    self.client.force_login(user)
+                    response = self.client.get(self.url("vehicle-location"))
+                    self.assertEqual(list(response.context["cl"].queryset), [])
+                    for action in ("change", "history"):
+                        self.assertRedirects(
+                            self.client.get(self.url("vehicle-location", action, item)),
+                            reverse("admin:index"),
+                        )
+            VehicleLocationImport.objects.filter(pk=batch.pk).update(
+                case=self.case, document=self.items["document"]
+            )
 
     def test_edits_ignore_forged_originals_and_record_history(self):
         self.client.force_login(self.editor)

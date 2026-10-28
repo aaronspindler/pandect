@@ -11,6 +11,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import Case, CaseInvitation, CaseMembership
+from evidence.models import PersonLocationEvidence, PhoneCallEvidence, TextEvidence
+from people.models import Person
 
 
 @override_settings(PANDECT_PUBLIC_ORIGIN="https://pandect.example")
@@ -68,6 +70,69 @@ class CaseInterfaceTests(TestCase):
         )
         self.viewer_membership.delete()
         self.assertEqual(self.client.get(self.url("case_detail")).status_code, 404)
+
+    def test_overview_scopes_details_but_deletion_counts_all_case_evidence(self):
+        person = Person.objects.create(case=self.case, first_name="Reported person")
+        other_person = Person.objects.create(
+            case=self.other_case, first_name="Unrelated person"
+        )
+        common = {"case": self.case, "uploaded_by": self.owner}
+        location = PersonLocationEvidence.objects.create(
+            **common,
+            person=person,
+            address="Reported address",
+            title="Invalid location",
+        )
+        call = PhoneCallEvidence.objects.create(
+            **common, sender=person, recipient=person, title="Invalid call"
+        )
+        PersonLocationEvidence.objects.filter(pk=location.pk).update(
+            person=other_person
+        )
+        PhoneCallEvidence.objects.filter(pk=call.pk).update(
+            recipient=other_person,
+            is_archived=True,
+            archive_changed_by=self.owner,
+            archive_changed_at=timezone.now(),
+        )
+        active = TextEvidence.objects.create(**common, title="Active note", body="Text")
+        archived = TextEvidence.objects.create(
+            **common,
+            title="Archived note",
+            body="Earlier text",
+            is_archived=True,
+            archive_changed_by=self.owner,
+            archive_changed_at=timezone.now(),
+        )
+        for user in (self.owner, self.editor, self.viewer):
+            with self.subTest(user=user):
+                self.login(user)
+                response = self.client.get(self.url("case_detail"))
+                self.assertEqual(response.context["active_evidence_count"], 1)
+                self.assertEqual(response.context["archived_evidence_count"], 1)
+                self.assertCountEqual(
+                    [item["title"] for item in response.context["recent_evidence"]],
+                    [active.title, archived.title],
+                )
+                self.assertNotContains(response, location.title)
+                self.assertNotContains(response, call.title)
+                if user != self.owner:
+                    self.assertEqual(
+                        self.client.get(self.url("case_delete")).status_code, 403
+                    )
+        self.login(self.owner)
+        for response in (
+            self.client.get(self.url("case_delete")),
+            self.client.post(self.url("case_delete"), {}),
+        ):
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.context["active_evidence_count"], 2)
+            self.assertEqual(response.context["archived_evidence_count"], 2)
+            self.assertNotIn("recent_evidence", response.context)
+            self.assertNotContains(response, location.title)
+            self.assertNotContains(response, call.title)
+            self.assertNotContains(response, other_person.first_name)
+        self.assertTrue(Case.objects.filter(pk=self.case.pk).exists())
 
     def test_create_sets_current_owner_and_requires_a_name(self):
         self.login(self.viewer)

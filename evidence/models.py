@@ -397,12 +397,7 @@ class LocationContent(Evidence):
         }
 
     def original_bytes(self):
-        return json.dumps(
-            self.original_data(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        return canonical_bytes(self.original_data())
 
     def _prepare_original(self):
         for name in ("address", "latitude", "longitude", "observed_at"):
@@ -589,6 +584,9 @@ class VehicleLocationEvidence(LocationContent):
         for name in ("speed_kmh", "received_at", "source_row", "raw_row"):
             field = self._meta.get_field(name)
             setattr(self, name, field.clean(getattr(self, name), self))
+        if self.speed_kmh == 0:
+            # PostgreSQL numeric discards a zero's sign; hash its retained form.
+            self.speed_kmh = abs(self.speed_kmh)
         if (self.import_batch_id is None) != (self.source_row is None):
             raise ValidationError("An imported observation requires its source row.")
         if self.received_at is not None and timezone.is_naive(self.received_at):

@@ -33,6 +33,9 @@ unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
 unset PANDECT_AI_ACCOUNT_ID PANDECT_AI_GATEWAY_ID PANDECT_AI_GATEWAY_TOKEN
 unset PANDECT_AI_WORKERS_TOKEN PANDECT_GEOCODER_URL PANDECT_GEOCODER_NAME
 unset PANDECT_GEOCODER_VERSION PANDECT_GEOCODER_ATTRIBUTION
+unset PANDECT_MAP_CONTEXT_URL PANDECT_MAP_CONTEXT_NAME PANDECT_MAP_CONTEXT_VERSION
+unset PANDECT_MAP_CONTEXT_ATTRIBUTION PANDECT_MAP_CONTEXT_USER_AGENT
+unset PANDECT_MAP_CONTEXT_TIMEOUT PANDECT_MAP_CONTEXT_HISTORY_START
 # Verify every disposable volume is local to this unique synthetic project.
 compose config --format json | python3 -c '
 import json, sys
@@ -247,6 +250,18 @@ assert ExtractedPassage.objects.get(result=run.result).text == run.result.data["
 assert run.inputs[0]["sha256"] == run.case.evidence_documentevidence_items.get(
     original_filename="analysis-native.txt",
 ).sha256
+
+# Verify native geometry dependencies in the bounded Linux parser, without HTTP.
+import json
+from analysis.parsers import run_parser
+context = run_parser("geographic_context", json.dumps({"elements": [{
+    "type": "node", "id": 1, "lat": 43.65, "lon": -79.38,
+    "tags": {"amenity": "cafe", "name": "Synthetic map reference"},
+}]}).encode(), options={
+    "center": [43.65, -79.38], "points": [[43.65, -79.38]],
+    "radius_m": 500, "boundary_m": 10,
+})
+assert context["matches"][0]["feature_id"] == "node/1"
 PY
 compose exec -T web python -c \
     'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok"}'

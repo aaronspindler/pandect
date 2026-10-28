@@ -232,6 +232,28 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, "Record review")
         self.assertNotContains(response, "Start another run with these inputs")
 
+    def test_invalid_review_preserves_input_for_correction_and_retry(self):
+        run = self.analysis_run()
+        self.login("editor")
+        url = self.analysis_url("review", run=run)
+        comment = "<script>Retained review wording</script>" + "x" * 4000
+        response = self.client.post(url, {"decision": "accepted", "comment": comment})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.context["form"]["comment"].value(), comment)
+        self.assertContains(response, "data-error-summary", status_code=400)
+        self.assertContains(
+            response, "&lt;script&gt;Retained review wording", status_code=400
+        )
+        self.assertNotContains(response, 'name="item_index"', status_code=400)
+        self.assertEqual(AnalysisReview.objects.count(), 0)
+        self.assert_private(response)
+        corrected = "  Source checked; uncertainty remains.\n"
+        response = self.client.post(url, {"decision": "accepted", "comment": corrected})
+        self.assertRedirects(response, self.analysis_url("detail", run=run))
+        saved = AnalysisReview.objects.get()
+        self.assertEqual(saved.comment, corrected)
+        self.assertIsNone(saved.item_index)
+
     def test_crosscase_run_source_and_relation_parameters_fail_closed(self):
         run = self.analysis_run()
         self.login("outsider")

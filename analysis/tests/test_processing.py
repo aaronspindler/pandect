@@ -1,5 +1,6 @@
 """Case authorization, retained provenance and atomic processing lifecycle checks."""
 
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Barrier
@@ -10,6 +11,7 @@ from uuid import uuid4
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.files.base import ContentFile
 from django.db import IntegrityError, close_old_connections, transaction
 from django.http import Http404
 from django.test import TestCase, TransactionTestCase
@@ -28,6 +30,7 @@ from analysis.operations import get_operation
 from analysis.services import (
     cancel_run,
     process_run,
+    require_current_geocode_reviews,
     resolve_inputs,
     review_result,
     start_run,
@@ -38,6 +41,7 @@ from background.tests.test_tasks import drain_queue
 from cases.models import Case, CaseMembership
 from evidence.models import (
     CallEvidenceAttachment,
+    DocumentEvidence,
     LocationEvidence,
     PhoneCallEvidence,
     TextEvidence,
@@ -454,6 +458,128 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         with self.assertRaisesMessage(AnalysisError, "invalid_source_chain"):
             resolve_inputs(run, self.case)
 
+    def test_derived_sources_load_shared_history_once_per_resolution(self):
+        originals = [self.original] + [
+            TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title=f"Synthetic source {index}",
+                body=f"Source {index}: example{index}@example.test",
+            )
+            for index in range(4)
+        ]
+        prior, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "entities",
+            [self.selection(item) for item in originals],
+        )
+        process_run(str(prior.pk))
+        result_id = str(prior.result.pk)
+        current = AnalysisRun(
+            case=self.case,
+            inputs=[entry | {"result_id": result_id} for entry in prior.inputs],
+        )
+        with self.assertNumQueries(len(originals) + 1):
+            resolved = resolve_inputs(current, self.case)
+        self.assertEqual(len(resolved), len(originals))
+        self.assertTrue(all(source.extracted_text for source in resolved))
+
+        # A later resolution must reload even history outside the new selection.
+        current.inputs = current.inputs[:1]
+        TextEvidence.objects.filter(pk=originals[-1].pk).update(sha256="0" * 64)
+        with self.assertRaisesMessage(AnalysisError, "source_changed"):
+            resolve_inputs(current, self.case)
+
+    def test_processing_resolves_inputs_once_before_work_and_again_at_publication(self):
+        run, _ = self.start()
+        with patch("analysis.services.resolve_inputs", wraps=resolve_inputs) as resolve:
+            process_run(str(run.pk))
+        self.assertEqual(resolve.call_count, 2)
+
+    def test_multiple_result_versions_check_text_integrity_once_but_refresh_later(self):
+        first, _ = self.complete()
+        second, _ = self.complete()
+        current, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "entities",
+            [self.selection(result_id=str(run.result.pk)) for run in (first, second)],
+        )
+        with patch("analysis.services.hashlib.sha256", wraps=hashlib.sha256) as digest:
+            self.assertEqual(len(resolve_inputs(current, self.case)), 2)
+        self.assertEqual(digest.call_count, 1)
+        # Reusing a verified original must not skip each selection's snapshot hash.
+        current.inputs[1]["sha256"] = "0" * 64
+        with self.assertRaisesMessage(AnalysisError, "source_changed"):
+            resolve_inputs(current, self.case)
+        current.inputs[1]["sha256"] = self.original.sha256
+        TextEvidence.objects.filter(pk=self.original.pk).update(
+            body="Changed by maintenance"
+        )
+        with self.assertRaisesMessage(AnalysisError, "source_changed"):
+            resolve_inputs(current, self.case)
+
+    def test_multiple_result_versions_check_storage_once_but_detect_later_missing_file(
+        self,
+    ):
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic document",
+            file=ContentFile(b"Retained source text", name="source.txt"),
+        )
+        selections = []
+        for version in range(2):
+            source_id = str(uuid4())
+            prior = AnalysisRun.objects.create(
+                case=self.case,
+                requested_by=self.users["owner"],
+                operation="native_text",
+                method_version="1",
+                status="complete",
+                inputs=[
+                    {
+                        "id": source_id,
+                        "kind": "document",
+                        "evidence_id": str(document.pk),
+                        "sha256": document.sha256,
+                    }
+                ],
+            )
+            result = AnalysisResult.objects.create(
+                case=self.case,
+                run=prior,
+                data=output(
+                    "Retained text",
+                    items=[
+                        {
+                            "label": f"Version {version}",
+                            "text": "Retained source text",
+                            "source_ids": [source_id],
+                        }
+                    ],
+                ),
+            )
+            selections.append(
+                {
+                    "kind": "document",
+                    "id": str(document.pk),
+                    "result_id": str(result.pk),
+                }
+            )
+        current, _ = start_run(
+            self.users["owner"], self.case.pk, "entities", selections
+        )
+        with patch.object(
+            document.file.storage, "exists", wraps=document.file.storage.exists
+        ) as exists:
+            self.assertEqual(len(resolve_inputs(current, self.case)), 2)
+        self.assertEqual(exists.call_count, 1)
+        document.file.storage.delete(document.file.name)
+        with self.assertRaisesMessage(AnalysisError, "source_unavailable"):
+            resolve_inputs(current, self.case)
+
     def test_result_validation_rejects_forged_sources_and_out_of_bounds_anchors(self):
         source = Source(str(uuid4()), "text", self.original)
         valid = {"label": "Derived item", "text": "source", "source_ids": [source.id]}
@@ -549,6 +675,104 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
                 resolve_inputs(current, self.case)
         self.assertEqual(result.reviews.filter(item_index=2).count(), 3)
         self.assertEqual(result.reviews.filter(item_index=1).count(), 1)
+
+    def test_quality_can_compare_accepted_candidates_without_counting_them_as_samples(
+        self,
+    ):
+        observations, _, result = self.geocode_fixture()
+        for index in (0, 2):
+            review_result(
+                self.users["owner"],
+                self.case.pk,
+                result.pk,
+                "accepted",
+                item_index=index,
+            )
+        choices = [
+            {
+                "kind": "location",
+                "id": str(observations[0].pk),
+                "result_id": str(result.pk),
+                "geocode_candidate": index,
+            }
+            for index in (0, 2)
+        ]
+        run, _ = start_run(
+            self.users["owner"], self.case.pk, "location_quality", choices
+        )
+        process_run(str(run.pk))
+        self.assertEqual(run.result.data["metrics"]["Unique original observations"], 1)
+        self.assertEqual(run.result.data["metrics"]["Selected interpretations"], 2)
+        with self.assertRaisesMessage(ValidationError, "Choose each source once"):
+            start_run(
+                self.users["owner"],
+                self.case.pk,
+                "location_quality",
+                [choices[0], choices[0]],
+            )
+        review_result(
+            self.users["owner"], self.case.pk, result.pk, "accepted", item_index=1
+        )
+        sole_candidate = {
+            "kind": "location",
+            "id": str(observations[1].pk),
+            "result_id": str(result.pk),
+        }
+        with self.assertRaisesMessage(ValidationError, "Choose each source once"):
+            start_run(
+                self.users["owner"],
+                self.case.pk,
+                "location_quality",
+                [sole_candidate, sole_candidate | {"geocode_candidate": 1}],
+            )
+        movement, _ = start_run(
+            self.users["owner"], self.case.pk, "spatial_groups", choices
+        )
+        process_run(str(movement.pk))
+        movement.refresh_from_db()
+        self.assertEqual(movement.status, "failed")
+        self.assertFalse(AnalysisResult.objects.filter(run=movement).exists())
+
+    def test_current_geocode_review_check_reuses_historical_resolution(self):
+        observations, _, result = self.geocode_fixture()
+        review_result(
+            self.users["owner"], self.case.pk, result.pk, "accepted", item_index=0
+        )
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "spatial_groups",
+            [
+                {
+                    "kind": "location",
+                    "id": str(observations[0].pk),
+                    "result_id": str(result.pk),
+                    "geocode_candidate": 0,
+                }
+            ],
+        )
+        sources = resolve_inputs(run, self.case, require_current_review=False)
+        with self.assertNumQueries(1):
+            require_current_geocode_reviews(run, sources)
+        review_result(
+            self.users["owner"], self.case.pk, result.pk, "rejected", item_index=0
+        )
+        with (
+            self.assertNumQueries(1),
+            self.assertRaisesMessage(AnalysisError, "geocode_review_required"),
+        ):
+            require_current_geocode_reviews(run, sources)
+        # A later accepted review restores current usability without replacing
+        # the recorded historical acceptance or resolved coordinates.
+        review_result(
+            self.users["owner"], self.case.pk, result.pk, "accepted", item_index=0
+        )
+        require_current_geocode_reviews(run, sources)
+        plain, _ = self.start()
+        with self.assertNumQueries(0):
+            require_current_geocode_reviews(
+                plain, [Source("plain", "text", self.original)]
+            )
 
     def test_geocode_selection_rejects_wrong_source_boolean_and_unknown_candidate(self):
         observations, prior, result = self.geocode_fixture()

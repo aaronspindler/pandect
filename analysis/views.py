@@ -20,14 +20,21 @@ from django.views.decorators.http import (
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 
+from .artifacts import MAX_ARTIFACT_BYTES
 from .errors import AnalysisError, error_message
-from .forms import AnalysisForm, ReportForm, selection
+from .forms import AnalysisForm, ReportForm, ReviewForm, selection
 from .models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
 from .navigation import FINDINGS_PER_PAGE, finding_url
 from .operations import INPUT_GUIDANCE, OPERATIONS, get_operation
 from .presentation import measurement_formatter
 from .reports import report
-from .services import cancel_run, resolve_inputs, review_result, start_run
+from .services import (
+    cancel_run,
+    require_current_geocode_reviews,
+    resolve_inputs,
+    review_result,
+    start_run,
+)
 
 
 def private(response):
@@ -177,11 +184,18 @@ def create(request, case_id):
 def _items(data, sources, case, run, *, offset=0):
     source_map = {str(x.id): x for x in sources}
     formatter = measurement_formatter(data, case=case, sources=sources)
+    artifacts = list(
+        AnalysisArtifact.objects.filter(case=case, result__case=case, result__run=run)
+    )
     previews = {
         str(x.source_id): x
-        for x in AnalysisArtifact.objects.filter(
-            case=case, result__case=case, result__run=run
-        )
+        for x in artifacts
+        if x.kind == AnalysisArtifact.Kind.IMAGE_PREVIEW
+    }
+    references = {
+        x.metadata.get("reference_key"): x
+        for x in artifacts
+        if x.kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
     }
     items = []
     latest_reviews = {}
@@ -191,7 +205,7 @@ def _items(data, sources, case, run, *, offset=0):
         result__run=run,
         item_index__gte=offset,
         item_index__lt=offset + len(data.get("items", [])),
-    ):
+    ).select_related("reviewed_by"):
         latest_reviews.setdefault(reviewed.item_index, reviewed)
     for index, finding in enumerate(data.get("items", [])):
         item = dict(finding)
@@ -246,6 +260,9 @@ def _items(data, sources, case, run, *, offset=0):
                             + f"#t={anchor['start_seconds']},{anchor['end_seconds']}"
                         )
         item["sources"] = links
+        reference = references.get(item.get("values", {}).get("Reference snapshot"))
+        if reference is not None:
+            item["reference_snapshot"] = reference
         for anchor in item.get("anchors", []):
             preview = previews.get(anchor.get("source_id"))
             if preview and "region" in anchor:
@@ -307,7 +324,7 @@ def detail(request, case_id, run_id):
     try:
         sources = resolve_inputs(run, case, require_current_review=False)
         try:
-            resolve_inputs(run, case)
+            require_current_geocode_reviews(run, sources)
         except AnalysisError as error:
             if error.code == "geocode_review_required":
                 context["source_review_changed"] = True
@@ -345,6 +362,9 @@ def detail(request, case_id, run_id):
                 "finding_page": finding_page,
                 "reviews": result.reviews.filter(case=case).select_related(
                     "reviewed_by"
+                ),
+                "reference_snapshots": result.artifacts.filter(
+                    case=case, kind=AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
                 ),
             }
     context["can_retry"] = run.status in {
@@ -429,41 +449,59 @@ def review(request, case_id, run_id):
     case = get_case(request.user, case_id, edit=True)
     run = _run(case, run_id)
     try:
-        item_index = None
-        if "item_index" in request.POST:
-            raw_index = request.POST["item_index"]
-            if (
-                not raw_index.isascii()
-                or not raw_index.isdecimal()
-                or len(raw_index) > 8
-            ):
-                raise ValidationError("Choose a valid finding index.")
-            item_index = int(raw_index)
         result = AnalysisResult.objects.get(case=case, run=run)
-        review_result(
-            request.user,
-            case_id,
-            result.pk,
-            request.POST.get("decision", ""),
-            request.POST.get("comment", ""),
-            item_index=item_index,
-        )
     except AnalysisResult.DoesNotExist:
         raise Http404("Result not found.") from None
-    except ValidationError, AnalysisError:
-        messages.error(
+    form = ReviewForm(request.POST)
+    if form.is_valid():
+        try:
+            review_result(
+                request.user,
+                case_id,
+                result.pk,
+                form.cleaned_data["decision"],
+                form.cleaned_data["comment"],
+                item_index=form.cleaned_data.get("item_index"),
+            )
+        except ValidationError as error:
+            form.add_error(None, error)
+        except AnalysisError:
+            form.add_error(
+                None,
+                "A selected source is unavailable or changed. "
+                "Your review has not been saved. Check the source before retrying.",
+            )
+        else:
+            messages.success(
+                request,
+                "Review recorded. Original evidence and earlier reviews are retained.",
+            )
+            index = form.cleaned_data.get("item_index")
+            return redirect(
+                _url(case, run)
+                if index is None
+                else finding_url(case.pk, run.pk, index)
+            )
+    index = form.cleaned_data.get("item_index")
+    valid_index = index is not None and index < len(result.data.get("items", []))
+    return private(
+        render(
             request,
-            (
-                "Choose a review decision and a comment of at most 4,000 characters. "
-                "Sources must remain available."
-            ),
+            "analysis/review.html",
+            _context(request, case)
+            | {
+                "form": form,
+                "run": run,
+                "finding_number": index + 1 if valid_index else None,
+                "return_url": (
+                    finding_url(case.pk, run.pk, index)
+                    if valid_index
+                    else _url(case, run)
+                ),
+            },
+            status=400,
         )
-    else:
-        messages.success(
-            request,
-            "Review recorded. Original evidence and earlier reviews are retained.",
-        )
-    return redirect(_url(case, run))
+    )
 
 
 @product_login_required
@@ -531,19 +569,27 @@ def artifact(request, case_id, run_id, artifact_id):
     run = _run(case, run_id)
     try:
         resolve_inputs(run, case, require_current_review=False)
-        preview = AnalysisArtifact.objects.get(
+        retained = AnalysisArtifact.objects.get(
             pk=artifact_id, case=case, result__case=case, result__run=run
         )
-        with preview.file.open("rb") as original:
-            content = original.read(2 * 1024 * 1024 + 1)
+        with retained.file.open("rb") as original:
+            content = original.read(MAX_ARTIFACT_BYTES + 1)
         if (
-            str(preview.source_id) not in {x["id"] for x in run.inputs}
-            or len(content) > 2 * 1024 * 1024
-            or hashlib.sha256(content).hexdigest() != preview.sha256
+            str(retained.source_id) not in {x["id"] for x in run.inputs}
+            or len(content) > MAX_ARTIFACT_BYTES
+            or hashlib.sha256(content).hexdigest() != retained.sha256
+            or retained.kind not in AnalysisArtifact.Kind.values
         ):
-            raise Http404("Preview unavailable.")
+            raise Http404("Artifact unavailable.")
     except AnalysisArtifact.DoesNotExist, AnalysisError, OSError:
-        raise Http404("Preview unavailable.") from None
-    response = HttpResponse(content, content_type="image/jpeg")
-    response["Content-Disposition"] = f'inline; filename="preview-{preview.pk}.jpg"'
+        raise Http404("Artifact unavailable.") from None
+    reference = retained.kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
+    response = HttpResponse(
+        content, content_type="application/json" if reference else "image/jpeg"
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="reference-{retained.pk}.json"'
+        if reference
+        else f'inline; filename="preview-{retained.pk}.jpg"'
+    )
     return private(response)

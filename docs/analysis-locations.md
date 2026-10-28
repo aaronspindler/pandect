@@ -35,8 +35,9 @@ state from zero reported speed.
 Coordinates have decimal precision but no retained measured accuracy. A reviewed
 geocode may represent a venue, street or broad area. Candidate proximity and
 boundary classifications therefore remain uncertain even when the arithmetic is
-precise. Geographic context is coordinate-based; adding a reference layer later
-requires its source, date, license and limitations to remain visible.
+precise. Offline grouping uses coordinates alone. The separate
+[automatic geographic-context operation](analysis-geographic-context.md) adds
+retained map references with source, date, attribution and visible coverage limits.
 
 ## Parameters and bounds
 

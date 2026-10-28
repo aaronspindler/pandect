@@ -53,6 +53,27 @@ ERROR_MESSAGES = {
     "geocoder_unavailable": (
         "The geographic lookup service is unavailable. Try another run later."
     ),
+    "map_context_not_configured": (
+        "Map context is not configured. Ask the operator to configure its "
+        "reference service and attribution. Local grouping remains available."
+    ),
+    "map_context_history_unavailable": (
+        "The configured map source does not support the requested historical "
+        "snapshot. Choose a supported date; current data was not substituted."
+    ),
+    "map_context_invalid_reference_time": (
+        "Choose a valid map snapshot with a timezone, no later than now."
+    ),
+    "map_context_unavailable": (
+        "The map reference service is unavailable. Completed reference lookups "
+        "remain retained; start another run later for the unavailable areas."
+    ),
+    "map_context_rate_limited": (
+        "The map reference service is busy. Wait before starting another run."
+    ),
+    "map_context_authentication": (
+        "Map reference authorization failed. Ask the operator to check its service."
+    ),
     "source_changed": (
         "A selected source differs from the retained processing input. Review "
         "the source and start a new selection."

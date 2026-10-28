@@ -19,7 +19,7 @@ from people.models import Person
 from .communication_models import CommunicationContext
 from .sources import output
 
-PARSER_VERSION = "imessage-html-v1"
+PARSER_VERSION = "imessage-html-v2"
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 500
 
@@ -53,9 +53,11 @@ class _ExportParser(HTMLParser):
     def __init__(self, text):
         super().__init__(convert_charrefs=True)
         self.original = text
-        self.offsets = [0]
-        for line in text.splitlines(keepends=True):
-            self.offsets.append(self.offsets[-1] + len(line))
+        # HTMLParser increments its line number only at LF, not every Unicode
+        # line separator recognized by str.splitlines().
+        self.offsets = [0] + [
+            index + 1 for index, char in enumerate(text) if char == "\n"
+        ]
         self.root = _Node("root", {}, 0, len(text))
         self.stack = [self.root]
         self.nodes = 0
@@ -97,7 +99,7 @@ class _ExportParser(HTMLParser):
 
     def handle_endtag(self, tag):
         if len(self.stack) > 1 and self.stack[-1].tag == tag:
-            self.stack.pop().end = self._offset() + len(tag) + 3
+            self.stack.pop().end = self.original.index(">", self._offset()) + 1
         elif tag not in {"br", "img", "hr", "meta", "input", "link"}:
             raise ValidationError(
                 "The supported export profile requires balanced message markup."

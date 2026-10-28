@@ -9,10 +9,12 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
 from analysis.forms import AnalysisForm, ReportForm, source_choices
+from analysis.models import AnalysisResult, AnalysisReview, AnalysisRun
 from analysis.services import process_run, start_run
 from analysis.sources import source_id
 from evidence.models import (
     DocumentEvidence,
+    LocationEvidence,
     PersonLocationEvidence,
     TextMessageEvidence,
 )
@@ -37,7 +39,7 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         extraction_queries = [
             query for query in queries if '"analysis_analysisresult"' in query["sql"]
         ]
-        self.assertEqual(len(extraction_queries), 2)
+        self.assertEqual(extraction_queries, [])
         self.assertFalse(any('"body"' in query["sql"] for query in queries))
 
     def test_picker_keeps_exact_extraction_versions_before_the_bound(self):
@@ -63,6 +65,72 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(choices[1][0], f"document:{document.pk}")
         self.assertEqual(choices[2][0], f"document:{document.pk}:-:{run.result.pk}")
 
+    def test_picker_reads_geocode_candidates_and_latest_reviews_once_per_result(self):
+        originals = [
+            LocationEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title=f"Address {index}",
+                address=f"{index} Synthetic Street",
+            )
+            for index in (1, 2)
+        ]
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "geocode_locations",
+            [{"kind": "location", "id": str(item.pk)} for item in originals],
+            external_processing=True,
+        )
+        AnalysisRun.objects.filter(pk=run.pk).update(status="complete")
+        result = AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={
+                "items": [
+                    {
+                        "label": f"Candidate {index}",
+                        "source_ids": [run.inputs[index // 2]["id"]],
+                        "values": {"latitude": 1, "longitude": 2},
+                    }
+                    for index in range(4)
+                ]
+            },
+        )
+        for index, decision in (
+            (0, "accepted"),
+            (1, "accepted"),
+            (2, "accepted"),
+            (1, "rejected"),
+            (3, "unresolved"),
+        ):
+            AnalysisReview.objects.create(
+                case=self.case,
+                result=result,
+                reviewed_by=self.users["owner"],
+                item_index=index,
+                decision=decision,
+            )
+        with CaptureQueriesContext(connection) as queries:
+            choices = source_choices(self.case, "location_quality")
+        derived = [value for value, _ in choices if str(result.pk) in value]
+        self.assertCountEqual(
+            derived,
+            [
+                f"location:{item.pk}:-:{result.pk}:{index}"
+                for item, index in zip(originals, (0, 2), strict=True)
+            ],
+        )
+        self.assertEqual(
+            sum('"analysis_analysisreview"' in query["sql"] for query in queries), 1
+        )
+        self.assertEqual(
+            sum(
+                '"analysis_analysisresult"."data"' in query["sql"] for query in queries
+            ),
+            1,
+        )
+
     def setUp(self):
         super().setUp()
         self.point = PersonLocationEvidence.objects.create(
@@ -84,6 +152,34 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
 
     def form(self, data):
         return AnalysisForm(data, case=self.case, operation=data["operation"])
+
+    def test_inactive_fields_do_not_validate_or_enter_retained_parameters(self):
+        note = self.text()
+        form = self.form(
+            self.data(
+                "entities",
+                sources=[f"text:{note.pk}"],
+                period_a_start="not a date",
+                polygon="not a polygon",
+                semantic_links=True,
+                reverse=True,
+            )
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.parameters(), {})
+        self.assertNotIn("period_a_start", form.fields)
+        self.assertNotIn("me", form.fields)
+        self.assertEqual(len(form.fields), 4)
+
+    def test_polygon_is_parsed_once_and_retains_coordinate_zero(self):
+        form = self.form(self.data("proximity", polygon="0, 0\n0, 1\n1, 1"))
+        self.assertTrue(form.is_valid(), form.errors)
+        expected = [[0, 0], [0, 1], [1, 1]]
+        self.assertEqual(form.cleaned_data["polygon"], expected)
+        self.assertEqual(form.parameters()["polygon"], expected)
+        invalid = self.form(self.data("proximity", polygon="0, 0\n1, 1"))
+        self.assertFalse(invalid.is_valid())
+        self.assertIn("polygon", invalid.errors)
 
     def test_visible_location_bounds_reject_unsupported_values_before_queueing(self):
         for operation, key, value in (

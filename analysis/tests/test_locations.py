@@ -145,6 +145,33 @@ class LocationOperationTests(SimpleTestCase):
         )
         self.assertIn("Event time is missing", result["items"][2]["text"])
 
+    def test_travel_chronology_uses_original_subject_and_export_boundaries(self):
+        batch = uuid4()
+        observations = [
+            source(1, minute=10, point=None, import_batch_id=batch, source_row=1),
+            source(2, minute=5, point=None, import_batch_id=batch, source_row=2),
+            source(3, minute=0, point=None, import_batch_id=uuid4(), source_row=3),
+            source(
+                4,
+                minute=0,
+                point=None,
+                import_batch_id=batch,
+                source_row=4,
+                person_id=uuid4(),
+            ),
+        ]
+        quality = location_quality(observations, {})
+        travel = travel_discrepancies(observations, {})
+        expected = [
+            item
+            for item in quality["items"]
+            if item["label"] == "Source-row ordering discrepancy"
+        ]
+        self.assertEqual(len(expected), 1)
+        self.assertEqual(travel["items"], expected)
+        self.assertEqual(expected[0]["source_ids"], [s.id for s in observations[:2]])
+        self.assertEqual(travel["outcome"], "insufficient")
+
     def test_reported_position_and_reviewed_address_position_remain_competing(self):
         original = source(1, point=(0, 0))
         interpreted = Source(

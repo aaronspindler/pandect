@@ -34,7 +34,7 @@ def retained_content_condition(queryset, *, case, kind, query):
     return queryset, Q(pk__in=[])
 
 
-def _excerpt(field, query):
+def content_excerpt(field, query):
     # PostgreSQL's UPPER matches the case-insensitive lookup used by Django.
     # Keep extraction in SQL: originals can be up to the captured-text limit.
     start = Greatest(StrIndex(Upper(field), Upper(Value(query))) - 60, Value(1))
@@ -57,7 +57,7 @@ def retained_text_matches(*, case, rows, query):
         if not ids:
             continue
         items = scoped_evidence(case, kind).filter(pk__in=ids, body__icontains=query)
-        for item in items.annotate(excerpt=_excerpt("body", query)).values(
+        for item in items.annotate(excerpt=content_excerpt("body", query)).values(
             "pk", "excerpt"
         ):
             matches[(kind, item["pk"])] = {
@@ -76,7 +76,7 @@ def retained_text_matches(*, case, rows, query):
                 **{f"{parent}_id": OuterRef("pk"), f"{parent}__case": case},
             )
             .order_by("created_at", "pk")
-            .annotate(excerpt=_excerpt("transcript", query))
+            .annotate(excerpt=content_excerpt("transcript", query))
         )
         calls = (
             scoped_evidence(case, kind)

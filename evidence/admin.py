@@ -13,13 +13,13 @@ from cases.models import Case, CaseMembership
 from .forms import (
     CALL_KINDS,
     COMMON_FIELDS,
-    COMMUNICATION_KINDS,
     FILE_KINDS,
     KINDS,
     ORIGINAL_FIELDS,
     TYPE_FIELDS,
 )
 from .models import CallEvidenceAttachment
+from .queries import same_case_evidence
 
 
 class CallAttachmentInline(admin.StackedInline):
@@ -175,15 +175,7 @@ class EvidenceAdmin(admin.ModelAdmin):
             )
             .distinct()
         )
-        if self.kind in COMMUNICATION_KINDS:
-            queryset = queryset.filter(
-                sender__case_id=F("case_id"), recipient__case_id=F("case_id")
-            )
-        elif self.kind == "person-location":
-            queryset = queryset.filter(person__case_id=F("case_id"))
-        elif self.kind == "vehicle-location":
-            queryset = queryset.filter(vehicle__case_id=F("case_id"))
-        return queryset
+        return same_case_evidence(queryset)
 
     def get_editable_cases(self, request):
         return Case.objects.filter(

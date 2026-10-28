@@ -986,14 +986,14 @@ def copied_text(sources, parameters):
         raise ValidationError(
             "Passage comparison supports at most 100,000 selected characters."
         )
-    items = []
-    for left, right in combinations(sources, 2):
-        left_words = list(WORD.finditer(left.text))
-        right_words = list(WORD.finditer(right.text))
-        if max(len(left_words), len(right_words)) > 5000:
+    prepared = []
+    for source in sources:
+        words = list(WORD.finditer(source.text))
+        if len(words) > 5000:
             raise ValidationError("Select sources with no more than 5,000 words each.")
-        a = [m.group().casefold() for m in left_words]
-        b = [m.group().casefold() for m in right_words]
+        prepared.append((source, words, [match.group().casefold() for match in words]))
+    items = []
+    for (left, left_words, a), (right, right_words, b) in combinations(prepared, 2):
         matcher = SequenceMatcher(None, a, b, autojunk=True)
         blocks = [
             block for block in matcher.get_matching_blocks() if block.size >= minimum

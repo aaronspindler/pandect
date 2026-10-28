@@ -65,17 +65,6 @@ def _error(request, code, message, status=400, errors=None):
     )
 
 
-def _model(kind):
-    try:
-        return KINDS[kind]
-    except KeyError:
-        raise Http404("Evidence not found.") from None
-
-
-def _record(case, kind, evidence_id, *, lock=False):
-    return get_evidence(case, kind, evidence_id, lock=lock)
-
-
 def _detail_url(case, kind, item):
     return reverse(
         "evidence:detail",
@@ -153,7 +142,7 @@ def _list_context(request, case):
         queries.append(
             queryset.order_by()
             .annotate(kind=Value(kind, output_field=CharField()))
-            .values("id", "title", "created_at", "is_archived", "kind")
+            .values("id", "title", "created_at", "is_archived", "kind", "sha256")
         )
     combined = (
         queries[0].union(*queries[1:], all=True).order_by("-created_at", "kind", "id")
@@ -222,7 +211,7 @@ def evidence_list(request, case_id):
 @require_safe
 def detail(request, case_id, kind, evidence_id):
     case = get_case(request.user, case_id)
-    item = _record(case, kind, evidence_id)
+    item = get_evidence(case, kind, evidence_id)
     context = case_context(case, request.user) | _list_context(request, case)
     section = "details" if request.GET.get("section") == "details" else "original"
     technical = [
@@ -463,7 +452,7 @@ def create(request, case_id):
 def edit(request, case_id, kind, evidence_id):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=True)
-        item = _record(case, kind, evidence_id, lock=True)
+        item = get_evidence(case, kind, evidence_id, lock=True)
         saved_timestamp = item.edited_at
         latest_details = [
             (item._meta.get_field(name).verbose_name.capitalize(), getattr(item, name))
@@ -511,7 +500,7 @@ def edit(request, case_id, kind, evidence_id):
 @require_safe
 def download(request, case_id, kind, evidence_id):
     case = get_case(request.user, case_id)
-    item = _record(case, kind, evidence_id)
+    item = get_evidence(case, kind, evidence_id)
     # Linux WebKit can render typed attachments inline; use a download MIME type.
     if kind == "text":
         response = HttpResponse(
@@ -568,7 +557,7 @@ def restore(request, case_id, kind, evidence_id):
 def _set_archive(request, case_id, kind, evidence_id, archived):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=True)
-        item = _record(case, kind, evidence_id, lock=True)
+        item = get_evidence(case, kind, evidence_id, lock=True)
         if item.is_archived != archived:
             item.is_archived = archived
             item.archive_changed_at = timezone.now()
@@ -597,7 +586,7 @@ def add_attachment(request, case_id, kind, evidence_id):
     status = 200
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")
-        item = _record(case, kind, evidence_id, lock=request.method == "POST")
+        item = get_evidence(case, kind, evidence_id, lock=request.method == "POST")
         form = CallAttachmentForm(request.POST or None, request.FILES or None)
         if request.method == "POST":
             if getattr(request, "evidence_upload_too_large", False):
@@ -702,7 +691,7 @@ def attachment_download(request, case_id, kind, evidence_id, attachment_id, comp
     if kind not in CALL_KINDS:
         raise Http404("Attachment not found.")
     case = get_case(request.user, case_id)
-    item = _record(case, kind, evidence_id)
+    item = get_evidence(case, kind, evidence_id)
     try:
         attachment = item.attachments.get(pk=attachment_id, case=case)
     except CallEvidenceAttachment.DoesNotExist:

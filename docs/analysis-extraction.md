@@ -12,7 +12,7 @@ decode or transcribe. Supplied transcripts remain independent retained material.
 | Native text | UTF-8, with optional BOM; unencrypted native-text PDF | Exact derived text with line/page anchors. UTF-8 BOM removal is recorded. No native text on a PDF page means visual review is needed; it does not establish a blank page. Mixed text/scanned pages produce partial coverage. Office formats are unsupported. |
 | Image metadata | Single-frame JPEG and PNG | Decoded dimensions, raw EXIF/XMP, orientation, device/software claims, capture-time and GPS candidates. An absent timezone is left absent. Raw values stay available alongside interpretations. |
 | Audio metadata | Uncompressed signed 16-bit little-endian PCM WAV, mono/stereo, 8–48 kHz | Decoded duration, sample rate, channels and codec; numerical RMS and one-second digital-zero/full-scale sample observations. Supplied values remain separate, with discrepancies disclosed. |
-| Printed OCR | JPEG/PNG source or separately retained page image, printed English profile | Candidate text with normalized rectangles, reading order, uncertainty and alternative readings. Handwriting, other scripts, PDF rendering and complex layouts are outside the supported profile. |
+| OCR | JPEG/PNG source or separately retained page image; printed English by default, with experimental English handwriting and mixed profiles | Candidate text with normalized rectangles, reading order, writing-type suggestions, uncertainty and alternative readings. Handprint and cursive are experimental. Other languages/scripts, direct PDF rendering and complex layouts are outside the supported profiles. |
 | Transcription | The supported WAV profile, English input | Candidate text with source recording intervals and original-timeline chunk offsets. No speaker identity or diarization. Non-English input profiles are unsupported. |
 
 The fixture suite checks decoding, supported/unsupported states, boundaries and
@@ -20,6 +20,38 @@ inference-response handling using synthetic material and mocked Gateway replies.
 It does not establish a real provider's recognition accuracy. OCR and transcription
 remain model suggestions that investigators must inspect against the originals;
 names, accents, overlap, blur and difficult layout can produce errors.
+
+### Experimental handwriting profiles
+
+Choose **Printed English**, **English handwriting (experimental)**, or
+**Mixed printed/handwritten English (experimental)** when starting OCR. The
+handwriting profile attempts handprint and cursive, while mixed attempts both
+printed and handwritten regions. The selected profile is retained with every
+finding. Printed regions are excluded from the handwriting-only profile, and
+handwritten regions are excluded from the printed-only profile. A region marked
+mixed is excluded from either single-writing-type profile; use mixed for a page
+containing both.
+
+Handwriting support has not undergone representative live recognition evaluation.
+Synthetic fixtures and mocked Gateway responses validate the processing and
+review workflow only. Issue #73 remains open for that evaluation, including
+different writers, handprint/cursive, mixed pages, ambiguity, blur and rotation.
+No accuracy claim or authorship/signature comparison follows from this feature.
+
+The model reports a region's writing type as printed, handwritten, mixed or
+unknown. These are visual suggestions, not verified classifications. Each region
+keeps its language candidate and any uncertainty/alternative readings. Unknown
+writing type or language, unreadable regions and reported omissions make coverage
+partial; a candidate reading can remain available for review. Unsupported
+language/script or profile-excluded wording is withheld from searchable text,
+while its source region and exclusion reason remain visible. A returned complete
+status cannot override those coverage limitations. Unreadable, unsupported and
+empty outcomes remain distinct; empty output does not prove that no text exists.
+
+OCR method version 2 retains these profiles separately from earlier results.
+Existing version-1 results remain readable; queued work for an unavailable method
+version must be started again using the current method, retaining the old run's
+history.
 
 ## Source anchors and interpretation
 
@@ -36,7 +68,7 @@ refer to the original image's
 applying EXIF orientation or cropping. The original dimensions and preparation
 version remain in the finding. A model-reported rotation is a candidate about
 text direction, not a rewritten original. Unreadable/empty/unsupported findings
-are distinct from successfully extracted printed text.
+are distinct from extracted candidate text.
 
 Region inspection reuses that exact prepared JPEG as a private derived preview,
 so the normalized rectangles align with the submitted pixels. A run retains at

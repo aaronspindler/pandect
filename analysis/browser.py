@@ -15,8 +15,8 @@ from django.core.files.base import ContentFile
 from django.test import override_settings
 from playwright.sync_api import expect
 
-from analysis.models import AnalysisReview, AnalysisRun
-from analysis.services import process_run
+from analysis.models import AnalysisResult, AnalysisReview, AnalysisRun
+from analysis.services import process_run, start_run
 from cases.models import Case, CaseMembership
 from config.tests import browser as core_browser
 from evidence.models import (
@@ -127,6 +127,82 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
             page.evaluate("document.documentElement.scrollWidth"),
             page.evaluate("document.documentElement.clientWidth") + 1,
         )
+
+    def _review_findings(self):
+        run, _ = start_run(
+            self.owner,
+            self.case.pk,
+            "entities",
+            [{"kind": "text", "id": str(self.text.pk)}],
+        )
+        AnalysisRun.objects.filter(pk=run.pk).update(status="complete", progress=100)
+        AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={
+                "summary": "Synthetic findings for review recovery",
+                "items": [
+                    {
+                        "label": f"Synthetic finding {index + 1}",
+                        "text": "A reported statement requiring investigator review.",
+                        "source_ids": [run.inputs[0]["id"]],
+                    }
+                    for index in range(60)
+                ],
+            },
+        )
+        return run.pk
+
+    def test_review_errors_preserve_text_focus_and_later_finding_page(self):
+        for engine in self.engines:
+            run_id = self._review_findings()
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(self.url("analysis:create", case_id=self.case.pk))
+                page.get_by_role("button", name="Queue analysis", exact=True).click()
+                expect(page.locator("[data-error-summary]")).to_be_focused()
+                page.goto(
+                    self.url("analysis:detail", case_id=self.case.pk, run_id=run_id)
+                    + "?page=2"
+                )
+                finding = page.locator("#finding-51")
+                finding.locator("summary").filter(
+                    has_text=re.compile(r"^Review this finding$")
+                ).click()
+                reason = finding.get_by_label("Reason", exact=True)
+                # Exercise server validation even when a client omits its UI bound.
+                reason.evaluate("node => node.removeAttribute('maxlength')")
+                entered = "Synthetic review " + "x" * 4000
+                reason.fill(entered)
+                finding.get_by_role(
+                    "button", name="Record finding review", exact=True
+                ).click()
+                expect(
+                    page.get_by_role("heading", name="Review not saved", exact=True)
+                ).to_be_visible()
+                expect(page.locator("[data-error-summary]")).to_be_focused()
+                expect(page.get_by_label("Reason", exact=True)).to_have_value(entered)
+                expect(
+                    page.get_by_role("link", name="Back to finding 51", exact=True)
+                ).to_have_attribute("href", re.compile(r"\?page=2#finding-51$"))
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (390, 844, "mobile"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"analysis-review-error-{label}")
+                page.get_by_label("Reason", exact=True).fill(
+                    "Synthetic corrected assessment."
+                )
+                page.get_by_label("Decision", exact=True).select_option("accepted")
+                page.get_by_role("button", name="Record review", exact=True).click()
+                expect(page).to_have_url(re.compile(r"\?page=2#finding-51$"))
+                expect(
+                    page.locator("#finding-51").get_by_text(
+                        "Finding review: Accepted", exact=False
+                    )
+                ).to_be_visible()
 
     def test_native_extraction_review_source_anchors_and_responsive_layout(self):
         for engine in self.engines:

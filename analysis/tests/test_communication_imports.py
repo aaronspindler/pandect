@@ -6,9 +6,10 @@ from django.db import transaction
 from django.http import Http404
 from django.test import TestCase
 
-from analysis.communication_imports import apply_import, prepare_import
+from analysis.communication_imports import PARSER_VERSION, apply_import, prepare_import
 from analysis.communication_models import CommunicationContext
 from analysis.models import AnalysisResult, AnalysisRun
+from analysis.services import process_run, start_run
 from analysis.sources import Source
 from cases.models import CaseMembership
 from evidence.models import DocumentEvidence, TextMessageEvidence
@@ -125,6 +126,58 @@ class CommunicationImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(source.item.sha256, before)
         with source.item.file.open("rb") as original:
             self.assertEqual(original.read(), html.encode())
+
+    def test_source_spans_follow_html_line_positions_and_exact_closing_markup(self):
+        for separator in ("\n", "\r\n", "\r", "\u0085", "\u2028", "\v"):
+            with self.subTest(separator=repr(separator)):
+                row = self.row(body="First<br/>second").replace("</div>", "</DIV \n>")
+                html = f"<html>{separator}<p>Prefix</p>\n{row}</html>"
+                source = self.document(html)
+                data = prepare_import([source], self.parameters())
+                values = data["items"][0]["values"]
+                self.assertEqual(data["items"][0]["text"], "First\nsecond")
+                self.assertEqual(values["parser_version"], PARSER_VERSION)
+                self.assertEqual(
+                    html[values["source_start"] : values["source_end"]], row
+                )
+                run, result = self.run_result(source, data)
+                with transaction.atomic():
+                    apply_import(run, result.data, [source])
+                context = CommunicationContext.objects.get(source_document=source.item)
+                self.assertEqual(html[context.source_start : context.source_end], row)
+
+    def test_old_queued_import_version_requires_a_new_run_without_importing(self):
+        source = self.document(self.row())
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "conversation_import",
+            [{"kind": "document", "id": str(source.item.pk)}],
+            parameters=self.parameters(),
+        )
+        self.assertEqual(run.method_version, "2")
+        AnalysisRun.objects.filter(pk=run.pk).update(method_version="1")
+        process_run(str(run.pk))
+        run.refresh_from_db()
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(run.error_code, "processing_version_unavailable")
+        self.assertFalse(TextMessageEvidence.objects.exists())
+        self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
+
+    def test_new_parser_runs_preserve_previously_imported_context(self):
+        source = self.document(self.row())
+        data = prepare_import([source], self.parameters())
+        data["items"][0]["values"]["parser_version"] = "imessage-html-v1"
+        run, result = self.run_result(source, data)
+        with transaction.atomic():
+            self.assertEqual(apply_import(run, result.data, [source]), 1)
+        revised = prepare_import([source], self.parameters())
+        next_run, next_result = self.run_result(source, revised)
+        with transaction.atomic():
+            self.assertEqual(apply_import(next_run, next_result.data, [source]), 0)
+        context = CommunicationContext.objects.get(source_document=source.item)
+        self.assertEqual(context.parser_version, "imessage-html-v1")
+        self.assertEqual(TextMessageEvidence.objects.count(), 1)
 
     def test_retries_do_not_duplicate_and_conflicting_mapping_is_rejected(self):
         source = self.document(self.row())

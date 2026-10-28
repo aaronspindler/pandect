@@ -211,7 +211,11 @@ from .communication_models import CommunicationContext  # noqa: E402, F401
 
 
 class AnalysisArtifact(models.Model):
-    """Private sanitized previews generated alongside a retained result."""
+    """Private previews and geographic reference responses retained with results."""
+
+    class Kind(models.TextChoices):
+        IMAGE_PREVIEW = "image_preview", "Image preview"
+        GEOGRAPHIC_REFERENCE = "geographic_reference", "Geographic reference"
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
@@ -219,24 +223,60 @@ class AnalysisArtifact(models.Model):
         AnalysisResult, on_delete=models.CASCADE, related_name="artifacts"
     )
     source_id = models.UUIDField()
+    kind = models.CharField(
+        max_length=32, choices=Kind.choices, default=Kind.IMAGE_PREVIEW
+    )
     file = models.FileField(upload_to=original_upload_path)
     sha256 = models.CharField(max_length=64)
-    width = models.PositiveIntegerField()
-    height = models.PositiveIntegerField()
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    metadata = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        kind="image_preview",
+                        width__isnull=False,
+                        height__isnull=False,
+                        width__gte=1,
+                        width__lte=4096,
+                        height__gte=1,
+                        height__lte=4096,
+                    )
+                    | models.Q(
+                        kind="geographic_reference",
+                        width__isnull=True,
+                        height__isnull=True,
+                    )
+                ),
+                name="analysis_artifact_dimensions",
+            )
+        ]
 
     def __str__(self):
-        return f"Analysis preview {self.pk}"
+        return f"Analysis artifact {self.pk}"
 
     def save(self, *args, **kwargs):
         if not self._state.adding:
-            raise ValidationError("Derived previews are retained with their result.")
+            raise ValidationError("Derived artifacts are retained with their result.")
         if self.result.case_id != self.case_id or str(self.source_id) not in {
             x["id"] for x in self.result.run.inputs
         }:
             raise ValidationError(
-                "The preview must refer to its result's case and source."
+                "The artifact must refer to its result's case and source."
             )
-        if not 1 <= self.width <= 4096 or not 1 <= self.height <= 4096:
-            raise ValidationError("Preview dimensions exceed the supported range.")
+        if self.kind == self.Kind.IMAGE_PREVIEW:
+            if not all(
+                type(value) is int and 1 <= value <= 4096
+                for value in (self.width, self.height)
+            ):
+                raise ValidationError("Preview dimensions exceed the supported range.")
+        elif self.kind == self.Kind.GEOGRAPHIC_REFERENCE:
+            if self.width is not None or self.height is not None:
+                raise ValidationError("Geographic references have no image dimensions.")
+        else:
+            raise ValidationError("Choose a supported artifact kind.")
         kwargs["force_insert"] = True
         return super().save(*args, **kwargs)

@@ -21,6 +21,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from config.access import product_login_required
+from evidence.queries import scoped_evidence
+from evidence.types import KIND_LABELS, KINDS
 
 from .forms import (
     CaseForm,
@@ -46,39 +48,24 @@ def _render_case(request, template, case, *, status=200, **context):
     )
 
 
-def _evidence_models():
-    from evidence.models import (
-        AudioEvidence,
-        DocumentEvidence,
-        FaceTimeEvidence,
-        ImageEvidence,
-        LocationEvidence,
-        PersonLocationEvidence,
-        PhoneCallEvidence,
-        TextEvidence,
-        TextMessageEvidence,
-        VehicleLocationEvidence,
-    )
-
-    return (
-        ("image", ImageEvidence),
-        ("audio", AudioEvidence),
-        ("document", DocumentEvidence),
-        ("text", TextEvidence),
-        ("location", LocationEvidence),
-        ("person-location", PersonLocationEvidence),
-        ("vehicle-location", VehicleLocationEvidence),
-        ("text-message", TextMessageEvidence),
-        ("phone-call", PhoneCallEvidence),
-        ("facetime", FaceTimeEvidence),
-    )
+def _case_record_counts(case):
+    return {
+        "people_count": case.people.count(),
+        "vehicles_count": case.vehicles.count(),
+        "collaborator_count": case.memberships.count(),
+        "pending_invitation_count": case.invitations.filter(
+            accepted_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        ).count(),
+    }
 
 
 def _case_summary(case):
     active_count = archived_count = 0
     recent = []
-    for kind, model in _evidence_models():
-        queryset = model.objects.filter(case=case)
+    for kind in KINDS:
+        queryset = scoped_evidence(case, kind)
         active_count += queryset.filter(is_archived=False).count()
         archived_count += queryset.filter(is_archived=True).count()
         for item in queryset.order_by("-created_at", "-pk").values(
@@ -88,24 +75,15 @@ def _case_summary(case):
                 {
                     "title": item["title"],
                     "created_at": item["created_at"],
-                    "kind": "FaceTime"
-                    if kind == "facetime"
-                    else kind.replace("-", " ").title(),
+                    "kind": KIND_LABELS[kind],
                     "url": reverse("evidence:detail", args=(case.pk, kind, item["pk"])),
                 }
             )
     recent.sort(key=lambda item: (item["created_at"], item["url"]), reverse=True)
     return {
+        **_case_record_counts(case),
         "active_evidence_count": active_count,
         "archived_evidence_count": archived_count,
-        "people_count": case.people.count(),
-        "vehicles_count": case.vehicles.count(),
-        "collaborator_count": case.memberships.count(),
-        "pending_invitation_count": case.invitations.filter(
-            accepted_at__isnull=True,
-            revoked_at__isnull=True,
-            expires_at__gt=timezone.now(),
-        ).count(),
         "recent_evidence": recent[:5],
     }
 
@@ -223,9 +201,20 @@ def case_delete(request, case_id):
                 return redirect("cases:case_list")
     else:
         case = get_case(request.user, case_id, owner=True)
-    return _render_case(
-        request, "cases/delete.html", case, form=form, **_case_summary(case)
-    )
+    # Deletion removes every case record, including inconsistent relationships
+    # hidden from readers. Count those records without retrieving their details.
+    counts = {
+        **_case_record_counts(case),
+        "active_evidence_count": sum(
+            model.objects.filter(case=case, is_archived=False).count()
+            for model in KINDS.values()
+        ),
+        "archived_evidence_count": sum(
+            model.objects.filter(case=case, is_archived=True).count()
+            for model in KINDS.values()
+        ),
+    }
+    return _render_case(request, "cases/delete.html", case, form=form, **counts)
 
 
 def _issue_token(invitation):

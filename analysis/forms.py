@@ -1,19 +1,52 @@
 """Investigator-facing bounded selections and visible analysis assumptions."""
 
+from datetime import UTC
 from uuid import uuid4
 
 from django import forms
+from django.utils import timezone
 
 from evidence.queries import scoped_evidence
 from evidence.types import CALL_KINDS, KIND_LABELS
 from people.models import Person
 
 from .locations import LIMITS, comparison_periods
-from .models import AnalysisResult
+from .models import AnalysisResult, AnalysisReview
 from .operations import OPERATIONS, get_operation
 from .sources import source_id
 
 SOURCE_CHOICE_LIMIT = 500
+EXTRACTIONS_BY_KIND = {
+    "document": ("native_text", "ocr"),
+    "image": ("ocr",),
+    "audio": ("transcription",),
+    "phone-call": ("transcription",),
+    "facetime": ("transcription",),
+    "location": ("geocode_locations",),
+    "person-location": ("geocode_locations",),
+    "vehicle-location": ("geocode_locations",),
+}
+
+
+class ReviewForm(forms.Form):
+    decision = forms.ChoiceField(choices=AnalysisReview.Decision.choices)
+    comment = forms.CharField(
+        required=False,
+        max_length=4000,
+        strip=False,
+        label="Reason",
+        widget=forms.Textarea,
+    )
+    item_index = forms.IntegerField(
+        required=False, min_value=0, max_value=99_999_999, widget=forms.HiddenInput
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "item_index" in self.data:
+            self.fields["item_index"].required = True
+        else:
+            del self.fields["item_index"]
 
 
 class ReportForm(forms.Form):
@@ -74,6 +107,7 @@ class ReportForm(forms.Form):
 def source_choices(case, operation, query=""):
     """Bounded source picker; every submitted ID is resolved again by the service."""
     choices = []
+    geocode_candidates = {}
     specification = get_operation(operation)
     for kind in specification.kinds:
         queryset = (
@@ -119,18 +153,16 @@ def source_choices(case, operation, query=""):
                     )
             if len(choices) >= SOURCE_CHOICE_LIMIT:
                 return choices
+            extractions = EXTRACTIONS_BY_KIND.get(kind)
+            if not extractions:
+                continue
             # Exact completed extraction versions are explicit source choices.
             results = (
                 AnalysisResult.objects.filter(
                     case=case,
                     run__case=case,
                     run__status__in=("complete", "partial"),
-                    run__operation__in=(
-                        "native_text",
-                        "ocr",
-                        "transcription",
-                        "geocode_locations",
-                    ),
+                    run__operation__in=extractions,
                     run__inputs__contains=[{"kind": kind, "evidence_id": str(item.pk)}],
                 )
                 .select_related("run")
@@ -150,24 +182,39 @@ def source_choices(case, operation, query=""):
                         f"{result.created_at:%d %b %Y %H:%M} UTC"
                     )
                     if result.run.operation == "geocode_locations":
+                        if result.pk not in geocode_candidates:
+                            # A multi-source lookup appears under several originals.
+                            # Load its candidate data and latest reviews only once.
+                            latest = dict(
+                                result.reviews.filter(case=case)
+                                .order_by("item_index", "-created_at", "id")
+                                .distinct("item_index")
+                                .values_list("item_index", "decision")
+                            )
+                            geocode_candidates[result.pk] = [
+                                (index, candidate)
+                                for index, candidate in enumerate(
+                                    result.data.get("items", [])
+                                )
+                                if latest.get(index) == "accepted"
+                                and candidate.get("values", {}).get("latitude")
+                                is not None
+                            ]
                         candidates = [
                             (index, x)
-                            for index, x in enumerate(result.data.get("items", []))
+                            for index, x in geocode_candidates[result.pk]
                             if selected["id"] in x.get("source_ids", [])
-                            and x.get("values", {}).get("latitude") is not None
                         ]
                         for index, candidate in candidates:
-                            review = result.reviews.filter(item_index=index).first()
-                            if review and review.decision == "accepted":
-                                choices.append(
-                                    (
-                                        f"{prefix}:{index}",
-                                        f"{label} · {candidate['label']} · "
-                                        f"{candidate['values'].get('address', '')}",
-                                    )
+                            choices.append(
+                                (
+                                    f"{prefix}:{index}",
+                                    f"{label} · {candidate['label']} · "
+                                    f"{candidate['values'].get('address', '')}",
                                 )
-                                if len(choices) >= SOURCE_CHOICE_LIMIT:
-                                    return choices
+                            )
+                            if len(choices) >= SOURCE_CHOICE_LIMIT:
+                                return choices
                     else:
                         choices.append((prefix, label))
                         if len(choices) >= SOURCE_CHOICE_LIMIT:
@@ -188,6 +235,38 @@ def selection(value):
 
 
 class AnalysisForm(forms.Form):
+    mode = forms.ChoiceField(
+        required=False,
+        choices=(
+            ("printed", "Printed English"),
+            ("handwriting", "English handwriting · Experimental"),
+            ("mixed", "Mixed English print and handwriting · Experimental"),
+        ),
+        initial="printed",
+        label="Text profile",
+        help_text=(
+            "Handprint and cursive recognition have not been evaluated with a live "
+            "model. Inspect every suggestion against the source image."
+        ),
+    )
+    context_radius_m = forms.FloatField(
+        required=False,
+        min_value=1,
+        max_value=5000,
+        initial=500,
+        label="Map context search radius (metres)",
+        help_text="The lookup area also includes the selected group members.",
+    )
+    context_as_of = forms.DateTimeField(
+        required=False,
+        label="Historical map snapshot (UTC, optional)",
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local", "step": "1"}),
+        help_text=(
+            "Leave blank for the current map snapshot. A historical lookup requires "
+            "the configured service to retain that date; current data is never "
+            "substituted for an unavailable historical snapshot."
+        ),
+    )
     compare_split_at = forms.DateTimeField(
         required=False,
         label="Compare communications before and after (UTC)",
@@ -403,18 +482,16 @@ class AnalysisForm(forms.Form):
 
     def __init__(self, *args, case, operation, query="", **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["operation"].initial = operation
-        self.fields["sources"].choices = source_choices(case, operation, query)
-        for name in ("group_a", "group_b", "break_before", "join_before"):
-            self.fields[name].choices = self.fields["sources"].choices
-        people = Person.objects.filter(case=case)
-        self.fields["me"].queryset = people
-        self.fields["them"].queryset = people
-        assumption_names = []
         location_fields = {
             "normalize_addresses": [],
             "location_quality": ["gap_minutes"],
             "spatial_groups": ["distance_m"],
+            "geographic_context": [
+                "distance_m",
+                "context_radius_m",
+                "boundary_m",
+                "context_as_of",
+            ],
             "proximity": [
                 "reference_latitude",
                 "reference_longitude",
@@ -440,6 +517,16 @@ class AnalysisForm(forms.Form):
         assumption_names = location_fields.get(operation, [])
         if operation == "geocode_locations":
             assumption_names = ["reverse"]
+        if operation == "ocr":
+            assumption_names = ["mode"]
+        if operation == "geographic_context":
+            self.fields["boundary_m"] = forms.FloatField(
+                required=False,
+                min_value=0,
+                max_value=100,
+                initial=10,
+                label="Boundary ambiguity distance (metres)",
+            )
         if operation in {"sessions", "session_summaries", "comm_patterns"}:
             assumption_names = ["gap_minutes", "break_before", "join_before"]
             if operation == "comm_patterns":
@@ -468,10 +555,33 @@ class AnalysisForm(forms.Form):
             assumption_names = ["include_summary"]
         if operation == "conversation_link":
             assumption_names = ["time_window_minutes", "semantic_links"]
+        active_fields = {
+            "operation",
+            "submission_id",
+            "sources",
+            "external_processing",
+            *assumption_names,
+        }
+        if operation == "conversation_import":
+            active_fields.update(("me_label", "them_label", "me", "them", "timezone"))
+        self.fields = {
+            name: field for name, field in self.fields.items() if name in active_fields
+        }
+        self.fields["operation"].initial = operation
+        self.fields["sources"].choices = source_choices(case, operation, query)
+        for name in ("group_a", "group_b", "break_before", "join_before"):
+            if name in self.fields:
+                self.fields[name].choices = self.fields["sources"].choices
+        if operation == "conversation_import":
+            people = Person.objects.filter(case=case)
+            self.fields["me"].queryset = people
+            self.fields["them"].queryset = people
         self.assumptions = [self[name] for name in assumption_names]
 
     def parameters(self):
         names = (
+            "mode",
+            "context_radius_m",
             "distance_m",
             "boundary_m",
             "gap_minutes",
@@ -494,6 +604,7 @@ class AnalysisForm(forms.Form):
             if self.cleaned_data.get(key) not in (None, "")
         }
         for key in (
+            "context_as_of",
             "compare_split_at",
             "period_a_start",
             "period_a_end",
@@ -519,11 +630,7 @@ class AnalysisForm(forms.Form):
                     source_id(selection(x)) for x in self.cleaned_data[key]
                 ]
         if self.cleaned_data.get("polygon"):
-            parameters["polygon"] = [
-                [float(x.strip()) for x in line.split(",")]
-                for line in self.cleaned_data["polygon"].splitlines()
-                if line.strip()
-            ]
+            parameters["polygon"] = self.cleaned_data["polygon"]
         if self.cleaned_data.get("operation") in {"style_profiles", "style_change"}:
             contexts = {}
             for choice in self.cleaned_data.get("sources", []):
@@ -541,6 +648,37 @@ class AnalysisForm(forms.Form):
                 }
             parameters["contexts"] = contexts
         return parameters
+
+    def clean_polygon(self):
+        value = self.cleaned_data["polygon"]
+        if not value:
+            return []
+        try:
+            polygon = [
+                [float(x.strip()) for x in line.split(",")]
+                for line in value.splitlines()
+                if line.strip()
+            ]
+            if not 3 <= len(polygon) <= 100 or any(
+                len(pair) != 2 or not -90 <= pair[0] <= 90 or not -180 <= pair[1] <= 180
+                for pair in polygon
+            ):
+                raise ValueError
+        except ValueError:
+            raise forms.ValidationError(
+                "Use 3 to 100 valid latitude, longitude pairs."
+            ) from None
+        return polygon
+
+    def clean_context_as_of(self):
+        value = self.cleaned_data["context_as_of"]
+        if value is not None and value > timezone.now():
+            raise forms.ValidationError("Choose a map snapshot no later than now.")
+        if value is not None and value.microsecond:
+            raise forms.ValidationError(
+                "Use whole-second precision for the map snapshot."
+            )
+        return value.astimezone(UTC) if value is not None else None
 
     def clean(self):
         data = super().clean()
@@ -577,24 +715,6 @@ class AnalysisForm(forms.Form):
                 "reference_latitude",
                 "Choose both centre coordinates or an area boundary.",
             )
-        if data.get("polygon"):
-            try:
-                polygon = [
-                    [float(x.strip()) for x in line.split(",")]
-                    for line in data["polygon"].splitlines()
-                    if line.strip()
-                ]
-                if not 3 <= len(polygon) <= 100 or any(
-                    len(pair) != 2
-                    or not -90 <= pair[0] <= 90
-                    or not -180 <= pair[1] <= 180
-                    for pair in polygon
-                ):
-                    raise ValueError
-            except ValueError:
-                self.add_error(
-                    "polygon", "Use 3 to 100 valid latitude, longitude pairs."
-                )
         for key in ("group_a", "group_b", "break_before", "join_before"):
             if set(data.get(key, [])) - chosen:
                 self.add_error(key, "Choose sources included in this analysis.")

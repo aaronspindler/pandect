@@ -402,7 +402,10 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
                     "comment": f"Individual finding {index + 1}",
                 },
             )
-            self.assertEqual(response.status_code, 302)
+            self.assertRedirects(
+                response,
+                self.detail_url(run) + f"?page={index // 50 + 1}#finding-{index + 1}",
+            )
         self.assertEqual(
             set(result.reviews.values_list("item_index", "decision")),
             {(50, "accepted"), (0, "rejected")},
@@ -420,16 +423,34 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         endpoint = reverse(
             "analysis:review", kwargs={"case_id": self.case.pk, "run_id": run.pk}
         )
-        for invalid in ("-1", "not-an-index", "2"):
+        for invalid in ("-1", "not-an-index", "2", "", "999999999"):
             with self.subTest(invalid=invalid):
                 before = AnalysisReview.objects.filter(result=result).count()
                 response = self.client.post(
                     endpoint, {"item_index": invalid, "decision": "accepted"}
                 )
-                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response.status_code, 400)
                 self.assertEqual(
                     AnalysisReview.objects.filter(result=result).count(), before
                 )
+
+    def test_invalid_finding_review_keeps_its_index_and_exact_return_link(self):
+        run, result = self.findings_fixture()
+        self.login("editor")
+        endpoint = reverse(
+            "analysis:review", kwargs={"case_id": self.case.pk, "run_id": run.pk}
+        )
+        comment = "An investigator's unsubmitted assessment."
+        response = self.client.post(
+            endpoint, {"item_index": "50", "decision": "invalid", "comment": comment}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.context["form"]["comment"].value(), comment)
+        self.assertEqual(response.context["form"]["item_index"].value(), "50")
+        self.assertEqual(
+            response.context["return_url"], self.detail_url(run) + "?page=2#finding-51"
+        )
+        self.assertFalse(result.reviews.exists())
 
     def export(self, *, case=None):
         case = case or self.case

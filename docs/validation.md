@@ -145,6 +145,7 @@ conversation, and location calculations:
 ```sh
 uv run --locked --env-file .env make check
 uv run --locked --env-file .env python manage.py test analysis.browser --noinput
+uv run --locked --env-file .env python manage.py test analysis.context_browser --noinput
 make compose-smoke
 make security-check
 ```
@@ -156,12 +157,28 @@ Captures default to ignored `data/validation/analysis-browser`. Run it separatel
 from other PostgreSQL suites; `PANDECT_BROWSER_ENGINES` and
 `PANDECT_BROWSER_ARTIFACTS` have the same meaning as in the core suite.
 
+The separate context browser suite exercises experimental handwriting profile
+selection, approval, searchable OCR regions/private previews and original
+downloads, plus historical geographic context, exact retained reference JSON,
+viewer access and revocation. It uses mocked Gateway/map responses with real
+bounded parsing and processing. Chromium/WebKit captures cover the five design
+viewports, keyboard controls, no-JavaScript operation, dark and forced colours,
+and reduced motion; output defaults to ignored `data/validation/context-browser`.
+These checks do not establish live handwriting accuracy or map-service coverage.
+
 Processing tests include real same-database worker dispatch and concurrent
 idempotent submissions. Inference/geocoding tests mock HTTP; parser tests decode
 synthetic files in real bounded child processes. These establish handling and
 provenance, not live model recognition accuracy. The isolated Compose smoke
 also queues native extraction while its worker is stopped, restarts the stack,
 then verifies retained extraction/search output after worker recovery.
+
+Regression coverage includes bounded extraction-search queries, shared source
+validation, stale and misattributed passages, operation-specific form settings,
+review correction and finding navigation, HTML source offsets, and signed-zero
+checksum stability after PostgreSQL reload. Admin and case-summary tests reject
+inconsistent related-case associations while deletion counts describe all retained
+records that will be removed.
 
 ## GitHub Actions
 

@@ -39,9 +39,15 @@ INPUT_GUIDANCE = {
         "retained as separate evidence."
     ),
     "ocr": (
-        "JPEG or PNG page images with printed English text. Handwriting and "
-        "direct PDF rendering are unsupported. Extracted wording and regions "
-        "remain model suggestions."
+        "English JPEG or PNG page images. Choose printed text or experimental "
+        "handwriting/mixed text. Direct PDF rendering is unsupported. "
+        "Extracted wording and regions remain model suggestions."
+    ),
+    "geographic_context": (
+        "Observed coordinates or explicitly accepted geographic estimates. "
+        "Address-only miTrail observations need reviewed geocoding first. "
+        "Lookup sends bounded coordinate areas and the chosen map reference "
+        "date to the configured service. Map features are contextual candidates."
     ),
     "transcription": (
         "English, uncompressed 16-bit mono/stereo PCM WAV. Supplied "
@@ -68,7 +74,7 @@ OPERATIONS = {
         ("audio", "phone-call", "facetime"),
     ),
     "ocr": Operation(
-        "Read printed text in images", "analysis.media.ocr", ("image", "document"), True
+        "Read text in images", "analysis.media.ocr", ("image", "document"), True, "2"
     ),
     "transcription": Operation(
         "Transcribe recordings",
@@ -126,6 +132,7 @@ OPERATIONS = {
         "Import an iMessage export",
         "analysis.communication_imports.prepare_import",
         ("document",),
+        version="2",
     ),
     "normalize_addresses": Operation(
         "Compare recorded addresses",
@@ -137,6 +144,12 @@ OPERATIONS = {
     ),
     "spatial_groups": Operation(
         "Group nearby observations", "analysis.locations.spatial_groups", LOCATIONS
+    ),
+    "geographic_context": Operation(
+        "Look up geographic context",
+        "analysis.geographic_context.geographic_context",
+        LOCATIONS,
+        True,
     ),
     "proximity": Operation(
         "Find observations in an area", "analysis.locations.proximity", LOCATIONS

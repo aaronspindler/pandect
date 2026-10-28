@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import runpy
 import struct
 import subprocess
 import sys
@@ -70,7 +71,14 @@ def run_parser(operation, content, *, options=None):
     """Keep risky decoding outside the worker and bound wall time and output."""
     from .errors import AnalysisError
 
-    if operation not in {"document", "image", "ocr_image", "audio", "audio_chunk"}:
+    if operation not in {
+        "document",
+        "image",
+        "ocr_image",
+        "audio",
+        "audio_chunk",
+        "geographic_context",
+    }:
         raise AnalysisError("unsupported_parser")
     if not isinstance(content, bytes) or len(content) > MAX_BYTES:
         raise AnalysisError("input_limit")
@@ -87,9 +95,15 @@ def run_parser(operation, content, *, options=None):
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             env={
-                key: value
-                for key, value in os.environ.items()
-                if key in {"PATH", "SYSTEMROOT", "TMPDIR", "TEMP", "TMP"}
+                **{
+                    key: value
+                    for key, value in os.environ.items()
+                    if key in {"PATH", "SYSTEMROOT", "TMPDIR", "TEMP", "TMP"}
+                },
+                # Native geometry dependencies must not create an unbounded
+                # numerical-library thread pool inside the bounded child.
+                "OPENBLAS_NUM_THREADS": "1",
+                "OMP_NUM_THREADS": "1",
             },
         )
     except OSError:
@@ -507,6 +521,18 @@ def _child():
             value = _audio(content)
         elif operation == "audio_chunk":
             value = _audio_chunk(content, json.loads(sys.argv[2]))
+        elif operation == "geographic_context":
+            # Load only this fixed sibling module; isolated mode supplies no
+            # application/Django configuration to the geometry converter.
+            convert = runpy.run_path(
+                str(Path(__file__).with_name("geographic_geometry.py"))
+            )["extract_context"]
+            try:
+                value = convert(content, json.loads(sys.argv[2]))
+            except ValueError as error:
+                if str(error).startswith("map_context_"):
+                    raise ParserFailure(str(error)) from None
+                raise
         else:
             raise ParserFailure("unsupported_parser")
         result = json.dumps(value, ensure_ascii=False, allow_nan=False).encode()

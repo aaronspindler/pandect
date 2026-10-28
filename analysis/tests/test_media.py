@@ -191,13 +191,13 @@ class MediaExtractionTests(SimpleTestCase):
             self.assertFalse(prepared.getexif())
         self.assertEqual(authorize.call_count, 2)
 
-    def test_ocr_unsupported_handwriting_pdf_and_empty_partial_outcomes(self):
+    def test_ocr_unsupported_profile_pdf_and_empty_partial_outcomes(self):
         gateway, authorize = Mock(), Mock()
         source = file_source(image_bytes(), "image")
         self.assertEqual(
-            ocr(
-                [source], {"mode": "handwriting"}, gateway=gateway, authorize=authorize
-            )["outcome"],
+            ocr([source], {"mode": "unknown"}, gateway=gateway, authorize=authorize)[
+                "outcome"
+            ],
             "unsupported",
         )
         self.assertEqual(
