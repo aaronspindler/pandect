@@ -198,7 +198,68 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
         ).to_be_visible()
 
     def capture(self, page, engine, name):
-        page.screenshot(path=str(self.artifacts / f"{engine}-{name}.png"))
+        page.screenshot(
+            path=str(self.artifacts / f"{engine}-{name}.png"), animations="disabled"
+        )
+
+    def test_page_layouts_and_evidence_type_selection_without_javascript(self):
+        person = Person.objects.create(case=self.case, first_name="Synthetic contact")
+        vehicle = Vehicle.objects.create(case=self.case, make="Synthetic vehicle")
+        screens = (
+            ("cases:case_list", {}, "cases"),
+            ("cases:case_detail", {"case_id": self.case.pk}, "overview"),
+            ("cases:case_settings", {"case_id": self.case.pk}, "settings"),
+            ("people:list", {"case_id": self.case.pk}, "people"),
+            (
+                "people:detail",
+                {"case_id": self.case.pk, "person_id": person.pk},
+                "person",
+            ),
+            ("vehicles:list", {"case_id": self.case.pk}, "vehicles"),
+            (
+                "vehicles:detail",
+                {"case_id": self.case.pk, "vehicle_id": vehicle.pk},
+                "vehicle",
+            ),
+            ("account_email", {}, "account"),
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                for route, kwargs, name in screens:
+                    page.goto(self.url(route, **kwargs))
+                    for width, height in (
+                        (1440, 900),
+                        (1440, 1024),
+                        (768, 1024),
+                        (390, 844),
+                        (320, 844),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                            f"{engine}: {name} overflow at {width}px",
+                        )
+                        self.capture(page, engine, f"refined-{name}-{width}x{height}")
+
+                page.goto(self.url("evidence:create", case_id=self.case.pk))
+                for kind, label in (
+                    ("text", "Original text"),
+                    ("location", "Address"),
+                    ("phone-call", "Sender"),
+                ):
+                    page.get_by_label("Evidence type", exact=True).select_option(kind)
+                    page.get_by_role("button", name="Choose type", exact=True).click()
+                    expect(page.get_by_label(label, exact=True)).to_be_visible()
+                    self.assertIn(f"kind={kind}", page.url)
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), 321
+                    )
+                    self.capture(page, engine, f"refined-create-{kind}-320x844")
 
     def test_communication_evidence_and_retained_attachments(self):
         sender = Person.objects.create(case=self.case, first_name="Alex Sender")

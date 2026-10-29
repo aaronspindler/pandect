@@ -8,7 +8,7 @@
 <p class="muted">Manage details and access. You are the case owner.</p>
 </div>
 </div>
-<section aria-labelledby="case-details-heading">
+<section class="content-section" aria-labelledby="case-details-heading">
 <h2 id="case-details-heading">Case details</h2>
 {% if latest_details %}
 <section class="notice" aria-labelledby="latest-details-heading">
@@ -30,11 +30,11 @@
 </div>
 </form>
 </section>
-<section aria-labelledby="collaborators-heading">
+<section class="content-section" aria-labelledby="collaborators-heading">
 <div class="section-header">
 <div>
 <h2 id="collaborators-heading">Collaborators</h2>
-<p class="muted">Viewers inspect material. Editors can also add and edit people, vehicles, and evidence, and archive or restore evidence.</p>
+<p class="muted prose">Viewers inspect material. Editors can also add and edit people, vehicles, and evidence, and archive or restore evidence.</p>
 </div>
 <a class="button" href="{% url 'cases:invitation_create' case.pk %}">Invite collaborator</a>
 </div>
@@ -62,7 +62,7 @@
 {% endfor %}
 </div>
 </section>
-<section aria-labelledby="invitations-heading">
+<section class="content-section" aria-labelledby="invitations-heading">
 <h2 id="invitations-heading">Invitations</h2>
 {% if invitations %}
 <div class="record-list">
@@ -92,7 +92,7 @@
 </section>
 <section class="danger-section" aria-labelledby="delete-heading">
 <h2 id="delete-heading">Delete this case</h2>
-<p>Permanently remove this case, its people, vehicles, and all retained evidence, including archived originals. There is no in-app undo.</p>
+<p class="prose">Permanently remove this case, its people, vehicles, and all retained evidence, including archived originals. There is no in-app undo.</p>
 <a class="button button-danger" href="{% url 'cases:case_delete' case.pk %}">Delete case…</a>
 </section>
 {% endblock %}

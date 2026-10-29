@@ -3,15 +3,14 @@
 {% block content %}
 <div class="page-header">
   <div><p class="eyebrow">{{ case }}</p><h1>Vehicles</h1><p class="secondary">Investigator-maintained vehicle details and notes.</p></div>
-  {% if can_edit %}<a class="button button-primary" href="{% url 'vehicles:create' case_id=case.pk %}">Add vehicle</a>{% endif %}
+  {% if can_edit %}<div class="actions"><a class="button button-primary" href="{% url 'vehicles:create' case_id=case.pk %}">Add vehicle</a><a class="button button-secondary" href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
 </div>
-{% if can_edit %}<p><a href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a> from an Asset Location CSV.</p>{% endif %}
 <form class="search-form" method="get" role="search" aria-label="Search vehicles">
   <label for="vehicles-search">Search vehicles</label>
   <div class="actions"><input id="vehicles-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Make, model, year, plate, VIN, color, or notes"><button class="button button-secondary" type="submit">Search</button>{% if query %}<a class="button button-secondary" href="{% url 'vehicles:list' case_id=case.pk %}">Clear filters</a>{% endif %}</div>
 </form>
 {% if page_obj.object_list %}
-<p class="secondary">{{ page_obj.paginator.count }} vehicle record{{ page_obj.paginator.count|pluralize }}</p>
+<p class="result-count secondary">{{ page_obj.paginator.count }} vehicle record{{ page_obj.paginator.count|pluralize }}</p>
 <div class="table-wrap"><table class="record-table vehicle-table">
   <caption class="visually-hidden">Vehicles in {{ case }}</caption>
   <thead><tr><th scope="col">Vehicle</th><th scope="col">License plate</th><th scope="col">Color</th><th scope="col">Updated</th></tr></thead>

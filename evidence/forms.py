@@ -203,6 +203,10 @@ class EvidenceForm(forms.ModelForm):
                     "Choose a vehicle in this case. This reports an association, "
                     "not verified identity, ownership, or presence."
                 )
+        # Start with the material being captured, then its optional context.
+        self.order_fields(
+            ("title", *ORIGINAL_FIELDS[kind], "transcript", "file", *COMMON_FIELDS)
+        )
 
     def clean_file(self):
         return validate_file(self.cleaned_data["file"])

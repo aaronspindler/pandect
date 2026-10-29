@@ -228,10 +228,12 @@ class ContextBrowserTests(StaticLiveServerTestCase):
         page.get_by_role("button", name="Queue analysis", exact=True).click()
         expect(page.locator("[data-error-summary]")).to_be_visible()
         expect(
-            page.get_by_text("Approve external processing for the selected operation.")
+            page.get_by_text(
+                "Approve external processing for the selected operation.", exact=True
+            )
         ).to_be_visible()
         approval = page.get_by_role(
-            "checkbox", name="I approve external processing of the selected evidence:"
+            "checkbox", name="I approve external processing of the selected evidence"
         )
         approval.focus()
         approval.press("Space")
@@ -282,7 +284,7 @@ class ContextBrowserTests(StaticLiveServerTestCase):
             ):
                 self.sign_in(page)
                 self._choose(page, "ocr")
-                profile = page.get_by_label("Text profile:", exact=True)
+                profile = page.get_by_label("Text profile", exact=True)
                 expect(profile).to_have_value("printed")
                 profile.focus()
                 expect(profile).to_be_focused()
@@ -376,17 +378,17 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                 self._choose(page, "geographic_context")
                 for record in self.locations:
                     page.get_by_label(f"Location · {record.title}", exact=True).check()
-                page.get_by_label("Place grouping distance (metres):", exact=True).fill(
+                page.get_by_label("Place grouping distance (metres)", exact=True).fill(
                     "100"
                 )
                 page.get_by_label(
-                    "Map context search radius (metres):", exact=True
+                    "Map context search radius (metres)", exact=True
                 ).fill("500")
                 page.get_by_label(
-                    "Boundary ambiguity distance (metres):", exact=True
+                    "Boundary ambiguity distance (metres)", exact=True
                 ).fill("10")
                 page.get_by_label(
-                    "Historical map snapshot (UTC, optional):", exact=True
+                    "Historical map snapshot (UTC, optional)", exact=True
                 ).fill("2020-01-02T12:00")
                 self._capture_layouts(page, engine, "geographic-context-form")
                 run_id, parameters = self._approve_and_finish(

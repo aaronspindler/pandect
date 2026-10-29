@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ vehicle }} · {{ case }}{% endblock %}
 {% block content %}
+<div class="detail-layout">
 <p class="breadcrumb"><a href="{% url 'vehicles:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to vehicles</a></p>
 <div class="page-header"><div><p class="eyebrow">Vehicle in {{ case }}</p><h1>{{ vehicle }}</h1></div>{% if can_edit %}<a class="button button-primary" href="{% url 'vehicles:edit' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit vehicle</a>{% endif %}</div>
-{% if not can_edit %}<p class="secondary">You have viewer access to this vehicle record.</p>{% endif %}
+{% if not can_edit %}<p class="notice">You have viewer access to this vehicle record.</p>{% endif %}
 <section class="panel" aria-labelledby="vehicle-heading"><h2 id="vehicle-heading">Vehicle details</h2>
   <dl class="metadata-grid">
     <div><dt>Make</dt><dd>{{ vehicle.make|default:"Not recorded" }}</dd></div>
@@ -14,11 +15,12 @@
     <div><dt>VIN</dt><dd>{{ vehicle.vin|default:"Not recorded" }}</dd></div>
   </dl>
 </section>
-<section class="panel" aria-labelledby="notes-heading"><h2 id="notes-heading">Investigator notes</h2><div class="prose">{{ vehicle.notes|default:"No notes recorded."|linebreaksbr }}</div><p class="secondary">A vehicle record captures investigative work; matching details do not verify identity, ownership, or a person's association with a vehicle.</p></section>
-<section class="panel" aria-labelledby="locations-heading"><h2 id="locations-heading">Reported locations</h2>
-{% if can_edit %}<p><a href="{% url 'evidence:create' case_id=case.pk %}?kind=vehicle-location">Add a location</a> · <a href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></p>{% endif %}
-{% if locations %}<p class="muted">Up to 25 recent observations, including archived evidence.</p><ul class="import-results">{% for location in locations %}<li><a href="{% url 'evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=location.pk %}">{{ location.title }}</a>{% if location.is_archived %} · Archived{% endif %}</li>{% endfor %}</ul>{% else %}<p>No locations have been recorded for this vehicle.</p>{% endif %}
+<section class="panel" aria-labelledby="notes-heading"><h2 id="notes-heading">Investigator notes</h2><div class="prose">{{ vehicle.notes|default:"No notes recorded."|linebreaks }}</div><p class="help-text">A vehicle record captures investigative work; matching details do not verify identity, ownership, or a person's association with a vehicle.</p></section>
+<section class="panel" aria-labelledby="locations-heading"><div class="section-header"><h2 id="locations-heading">Reported locations</h2>
+{% if can_edit %}<div class="actions"><a class="button button-secondary" href="{% url 'evidence:create' case_id=case.pk %}?kind=vehicle-location">Add a location</a><a class="button button-secondary" href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}</div>
+{% if locations %}<p class="muted">Up to 25 recent observations, including archived evidence.</p><ul class="record-list">{% for location in locations %}<li class="record-row"><a class="record-link" href="{% url 'evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=location.pk %}">{{ location.title }}</a>{% if location.is_archived %}<span class="status">Archived</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">No locations have been recorded for this vehicle.</p>{% endif %}
 </section>
 <dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ vehicle.created_at|date:'c' }}">{{ vehicle.created_at|date:"j M Y, H:i" }} UTC</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ vehicle.updated_at|date:'c' }}">{{ vehicle.updated_at|date:"j M Y, H:i" }} UTC</time></dd></div></dl>
-{% if is_owner %}<div class="danger-zone"><a class="button button-danger" href="{% url 'vehicles:delete' case_id=case.pk vehicle_id=vehicle.pk %}">Delete vehicle</a></div>{% endif %}
+{% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'vehicles:delete' case_id=case.pk vehicle_id=vehicle.pk %}">Delete vehicle</a></div>{% endif %}
+</div>
 {% endblock %}

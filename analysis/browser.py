@@ -275,10 +275,12 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 self.capture(page, engine, "analysis-result-forced-colors")
                 page.emulate_media(forced_colors="none")
                 page.set_viewport_size({"width": 1440, "height": 900})
-                page.get_by_label("Decision", exact=True).select_option("accepted")
                 global_review = page.get_by_role(
                     "heading", name="Investigator review", exact=True
                 ).locator("..")
+                global_review.get_by_label("Decision", exact=True).select_option(
+                    "accepted"
+                )
                 global_review.get_by_label("Reason", exact=True).fill(
                     "Synthetic investigator review; source inspected."
                 )
@@ -324,7 +326,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 ).to_have_count(0)
                 page.get_by_role("link", name="Call patterns", exact=True).click()
                 expect(
-                    page.get_by_role("heading", name="Recorded activity", exact=True)
+                    page.get_by_role("heading", name="Call patterns", exact=True)
                 ).to_be_visible()
                 expect(
                     page.get_by_role(
@@ -534,13 +536,13 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     page.get_by_label(
                         f"Person location · {record.title}", exact=True
                     ).check()
-                page.get_by_label("Place grouping distance (metres):", exact=True).fill(
+                page.get_by_label("Place grouping distance (metres)", exact=True).fill(
                     "100"
                 )
-                page.get_by_label(
-                    "Observation/session gap (minutes):", exact=True
-                ).fill("60")
-                page.get_by_label("Minimum observed stop (minutes):", exact=True).fill(
+                page.get_by_label("Observation/session gap (minutes)", exact=True).fill(
+                    "60"
+                )
+                page.get_by_label("Minimum observed stop (minutes)", exact=True).fill(
                     "5"
                 )
                 visits = self._queue_and_finish(page, "candidate_visits")
@@ -559,9 +561,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 first.locator("summary").filter(
                     has_text=re.compile(r"^Review this finding$")
                 ).click()
-                first.get_by_label("Review this finding", exact=True).select_option(
-                    "accepted"
-                )
+                first.get_by_label("Decision", exact=True).select_option("accepted")
                 first.get_by_label("Reason", exact=True).fill(
                     "Synthetic candidate reviewed against both observed samples."
                 )
@@ -591,29 +591,29 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     page.get_by_label(
                         f"Text message · {record.title}", exact=True
                     ).check()
-                page.get_by_label("First writing sample:", exact=True).select_option(
+                page.get_by_label("First writing sample", exact=True).select_option(
                     [f"text-message:{record.pk}" for record in writing[0]]
                 )
-                page.get_by_label("Second writing sample:", exact=True).select_option(
+                page.get_by_label("Second writing sample", exact=True).select_option(
                     [f"text-message:{record.pk}" for record in writing[1]]
                 )
                 page.get_by_label(
-                    "Quoted or copied wording to exclude:", exact=True
+                    "Quoted or copied wording to exclude", exact=True
                 ).fill(excluded)
-                page.get_by_label("Writing sample context:", exact=True).select_option(
+                page.get_by_label("Writing sample context", exact=True).select_option(
                     "original"
                 )
-                page.get_by_label("Reported language or languages:", exact=True).fill(
+                page.get_by_label("Reported language or languages", exact=True).fill(
                     "en"
                 )
-                page.get_by_label("Writing channel:", exact=True).fill(
+                page.get_by_label("Writing channel", exact=True).fill(
                     "Synthetic message export"
                 )
-                page.get_by_label("Writing topic:", exact=True).fill("Logistics")
-                page.get_by_label("Second sample channel:", exact=True).fill(
+                page.get_by_label("Writing topic", exact=True).fill("Logistics")
+                page.get_by_label("Second sample channel", exact=True).fill(
                     "Synthetic message export"
                 )
-                page.get_by_label("Second sample topic:", exact=True).fill(
+                page.get_by_label("Second sample topic", exact=True).fill(
                     "Formal logistics"
                 )
                 style = self._queue_and_finish(page, "style_change")
@@ -656,17 +656,17 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     page.get_by_label(
                         f"Text message · {record.title}", exact=True
                     ).check()
+                page.get_by_label("Observation/session gap (minutes)", exact=True).fill(
+                    "120"
+                )
                 page.get_by_label(
-                    "Observation/session gap (minutes):", exact=True
-                ).fill("120")
-                page.get_by_label(
-                    "Start an inferred session before:", exact=True
+                    "Start an inferred session before", exact=True
                 ).select_option(f"text-message:{exchanges[1].pk}")
                 page.get_by_label(
-                    "Continue an inferred session before:", exact=True
+                    "Continue an inferred session before", exact=True
                 ).select_option(f"text-message:{exchanges[2].pk}")
                 page.get_by_label(
-                    "Compare communications before and after (UTC):", exact=True
+                    "Compare communications before and after (UTC)", exact=True
                 ).fill("2026-10-11T12:01")
                 timing = self._queue_and_finish(page, "comm_patterns")
                 self.db(self._assert_phase3_run, timing, "comm_patterns", exchanges)

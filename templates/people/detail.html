@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ person }} · {{ case }} · Pandect{% endblock %}
 {% block content %}
+<div class="detail-layout">
 <p class="breadcrumb"><a href="{% url 'people:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to people</a></p>
 <div class="page-header"><div><p class="eyebrow">Person in {{ case }}</p><h1>{{ person }}</h1></div>{% if can_edit %}<a class="button button-primary" href="{% url 'people:edit' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit person</a>{% endif %}</div>
-{% if not can_edit %}<p class="secondary">You have viewer access to this person record.</p>{% endif %}
+{% if not can_edit %}<p class="notice">You have viewer access to this person record.</p>{% endif %}
 <section class="panel" aria-labelledby="contact-heading"><h2 id="contact-heading">Contact details</h2>
   <dl class="metadata-grid">
     <div><dt>First name</dt><dd>{{ person.first_name|default:"Not recorded" }}</dd></div>
@@ -13,7 +14,8 @@
     <div><dt>Address</dt><dd>{{ person.address|default:"Not recorded"|linebreaksbr }}</dd></div>
   </dl>
 </section>
-<section class="panel" aria-labelledby="notes-heading"><h2 id="notes-heading">Investigator notes</h2><div class="prose">{{ person.notes|default:"No notes recorded."|linebreaksbr }}</div><p class="secondary">A person record captures investigative work; matching details do not verify identity.</p></section>
+<section class="panel" aria-labelledby="notes-heading"><h2 id="notes-heading">Investigator notes</h2><div class="prose">{{ person.notes|default:"No notes recorded."|linebreaks }}</div><p class="help-text">A person record captures investigative work; matching details do not verify identity.</p></section>
 <dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ person.created_at|date:'c' }}">{{ person.created_at|date:"j M Y, H:i" }} UTC</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ person.updated_at|date:'c' }}">{{ person.updated_at|date:"j M Y, H:i" }} UTC</time></dd></div></dl>
-{% if is_owner %}<div class="danger-zone"><a class="button button-danger" href="{% url 'people:delete' case_id=case.pk person_id=person.pk %}">Delete person</a></div>{% endif %}
+{% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'people:delete' case_id=case.pk person_id=person.pk %}">Delete person</a></div>{% endif %}
+</div>
 {% endblock %}

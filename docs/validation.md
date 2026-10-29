@@ -122,6 +122,10 @@ upload/review/confirmation and source JSON, source fields in file
 batches, bulk mixed-file uploads with shared-field inheritance/overrides/reset,
 append limits, invalid-file removal, pause/retry, access removal between files,
 safe interrupted-confirmation retry, and dense desktop record visibility.
+The page-layout journey also captures cases, overview, settings, people, vehicles,
+details, and account settings at all five design viewport sizes. It checks page
+reflow and uses the evidence-type chooser without JavaScript to open text,
+location, and call forms.
 Vehicle journeys also capture forms, lists, and details at desktop/mobile sizes,
 check keyboard focus and conflict review, and exercise creation, read-only viewer
 access, and confirmed owner deletion without JavaScript.

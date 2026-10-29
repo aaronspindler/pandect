@@ -9,8 +9,9 @@ accessibility, and interaction requirements. See the
 
 ## Confirmed product decisions
 
-- Deliver complete core workflows: account access, cases, people, the four
-  implemented evidence types, invitations, and collaborator management.
+- Deliver core workflows: account access, cases, people, vehicles, the ten
+  retained evidence types, invitations, and collaborator management. Implemented
+  extraction, reports, and processing review are described in [case analysis](analysis.md).
 - Retain individual evidence records and their originals. Owners and editors can
   archive and restore them; current case members can still inspect/download them.
   Only deleting an entire case removes its retained evidence.
@@ -18,9 +19,32 @@ accessibility, and interaction requirements. See the
   individual retry. Do not require a queue service for bounded original storage.
 - Use the existing Django/allauth/PostgreSQL foundation, explicit UUID primary
   keys, and current case roles. No ordinary user needs staff access.
-- Graphs, maps, timelines, processing, extraction, AI, identity resolution,
-  ownership transfer, and self-service account deletion are later work. Do not
-  put unimplemented capabilities in navigation.
+- Broader graphs, unified timelines, identity resolution, ownership transfer,
+  and self-service account deletion remain later work. Only implemented
+  capabilities belong in navigation.
+
+## Shared interface refinements
+
+Management screens use consistent section dividers, readable detail and form
+widths, aligned actions, and explicit filter recovery. On small screens, case
+navigation uses a three-column grid; controls and actions wrap with the content.
+Account navigation identifies the current settings page.
+
+Add evidence uses a labelled type selector and an explicit **Choose type** button
+that works without JavaScript. All ten types remain available. The form starts
+with the original material and then its investigator description and source
+context. Bulk upload and CSV import remain adjacent alternatives.
+
+Analysis selection, assumptions, external-processing approval, and review fields
+use the same field rendering as other forms, including help and error links.
+Assumptions open after validation errors, and enhanced error links reveal any
+containing disclosure before focusing the field. Processing progress has a native
+progress indicator; findings retain their source links, individual reviews, and
+full provenance downloads. Reports identify their selected subject in the heading.
+
+These refinements preserve the three-pane evidence layout and its row-density
+targets. Validation commands and capture locations are in
+[browser checks](validation.md#browser-checks).
 
 ## Visual reference and density
 

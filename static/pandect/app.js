@@ -5,6 +5,16 @@
     if (region) region.textContent = message;
   };
   document.querySelector("[data-error-summary]")?.focus();
+  document.querySelectorAll("[data-error-summary] a").forEach((link) => {
+    link.addEventListener("click", () => {
+      const field = document.getElementById(link.hash.slice(1));
+      if (!field) return;
+      for (let parent = field.parentElement; parent; parent = parent.parentElement) {
+        if (parent.tagName === "DETAILS") parent.open = true;
+      }
+      field.focus();
+    });
+  });
   const dirtyForms = new Set();
   document.querySelectorAll("[data-unsaved-form]").forEach((form) => {
     form.addEventListener("input", () => dirtyForms.add(form));

@@ -24,7 +24,7 @@
 </div>
   <button class="button" type="submit">Search</button>
   {% if query or ownership != 'all' %}
-<a href="{% url 'cases:case_list' %}">Clear filters</a>
+<a class="button button-secondary" href="{% url 'cases:case_list' %}">Clear filters</a>
 {% endif %}
 </form>
 {% if page_obj %}
@@ -37,13 +37,13 @@
 {% if item.description %}
 <p class="muted">{{ item.description|truncatechars:150 }}</p>
 {% endif %}
-<span class="muted">Updated {{ item.updated_at|date:"j M Y" }}</span>
+<small class="muted">Updated <time datetime="{{ item.updated_at|date:'c' }}">{{ item.updated_at|date:"j M Y" }}</time></small>
 </div>
 <span class="status">{{ item.current_role|title }}</span>
 </a>
 {% endfor %}
 </div>
-<nav class="pagination" aria-label="Case pages">
+{% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Case pages">
 {% if page_obj.has_previous %}
 <a class="button" href="?q={{ query|urlencode }}&amp;ownership={{ ownership }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>
 {% endif %}
@@ -51,7 +51,7 @@
 {% if page_obj.has_next %}
 <a class="button" href="?q={{ query|urlencode }}&amp;ownership={{ ownership }}&amp;page={{ page_obj.next_page_number }}">Next</a>
 {% endif %}
-</nav>
+</nav>{% endif %}
 {% else %}
 <div class="empty-state">
 <h2>
@@ -62,6 +62,8 @@
 </p>
 {% if not query and ownership == 'all' %}
 <a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>
+{% else %}
+<a class="button button-secondary" href="{% url 'cases:case_list' %}">Clear filters</a>
 {% endif %}
 </div>
 {% endif %}

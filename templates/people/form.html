@@ -9,7 +9,7 @@
 <form method="post" class="form-layout" data-unsaved-form>
   {% csrf_token %}
   {% include "components/form_fields.html" with form=form %}
-  <div class="actions"><button class="button button-primary" type="submit">{% if creating %}Add person{% elif latest_person %}Save reviewed changes{% else %}Save changes{% endif %}</button>
+  <div class="form-actions"><button class="button button-primary" type="submit">{% if creating %}Add person{% elif latest_person %}Save reviewed changes{% else %}Save changes{% endif %}</button>
     {% if creating %}<a class="button button-secondary" href="{% url 'people:list' case_id=case.pk %}">Cancel</a>{% else %}<a class="button button-secondary" href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a>{% endif %}
   </div>
 </form>

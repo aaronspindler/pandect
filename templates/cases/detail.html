@@ -15,7 +15,7 @@
 <div class="actions"><a class="button button-primary" href="{% url 'evidence:create' case.pk %}">Add evidence</a><a class="button button-secondary" href="{% url 'evidence:bulk_create' case.pk %}">Bulk add files</a></div>
 {% endif %}
 </div>
-<dl class="metadata-grid">
+<dl class="metadata-grid case-summary">
 <div>
 <dt>Owner</dt>
 <dd>{{ case.owner.get_username }}</dd>
@@ -36,13 +36,13 @@
 {% if case_role == 'viewer' %}
 <p class="notice">You have Viewer access. You can inspect case material and download originals.</p>
 {% endif %}
-<section aria-labelledby="evidence-heading">
+<section class="content-section" aria-labelledby="evidence-heading">
 <div class="section-header">
 <div>
 <h2 id="evidence-heading">Evidence</h2>
 <p class="muted">{{ active_evidence_count }} active · {{ archived_evidence_count }} archived</p>
 </div>
-<a href="{% url 'evidence:list' case.pk %}">View all evidence</a>
+<a class="record-link" href="{% url 'evidence:list' case.pk %}">View all evidence</a>
 </div>
 {% if recent_evidence %}
 <div class="record-list">
@@ -54,7 +54,7 @@
 {% endfor %}
 </div>
 {% else %}
-<div class="empty-state">
+<div class="empty-state compact-empty">
 <h3>No evidence yet</h3>
 <p>
 {% if can_edit %}Add files or capture original text. Source details and originals stay with this case.{% else %}Evidence added by the owner or an editor will appear here.{% endif %}
@@ -62,24 +62,24 @@
 </div>
 {% endif %}
 </section>
-<section aria-labelledby="people-heading">
+<section class="content-section" aria-labelledby="people-heading">
 <div class="section-header">
 <div>
 <h2 id="people-heading">People</h2>
 <p class="muted">{{ people_count }} person record{{ people_count|pluralize }}</p>
 </div>
-<a href="{% url 'people:list' case.pk %}">View people</a>
+<a class="record-link" href="{% url 'people:list' case.pk %}">View people</a>
 </div>
-<p>Keep contact details and investigator notes separate from verified evidence or identity claims.</p>
+<p class="muted prose">Keep contact details and investigator notes separate from verified evidence or identity claims.</p>
 </section>
-<section aria-labelledby="vehicles-heading">
+<section class="content-section" aria-labelledby="vehicles-heading">
 <div class="section-header">
 <div>
 <h2 id="vehicles-heading">Vehicles</h2>
 <p class="muted">{{ vehicles_count }} vehicle record{{ vehicles_count|pluralize }}</p>
 </div>
-<a href="{% url 'vehicles:list' case.pk %}">View vehicles</a>
+<a class="record-link" href="{% url 'vehicles:list' case.pk %}">View vehicles</a>
 </div>
-<p>Record vehicle details and source context without treating matching identifiers as proof of ownership.</p>
+<p class="muted prose">Record vehicle details and source context without treating matching identifiers as proof of ownership.</p>
 </section>
 {% endblock %}
