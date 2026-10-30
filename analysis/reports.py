@@ -26,13 +26,9 @@ GAP_SECONDS = 30 * 60
 HEADINGS = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
 REPORT_NAMES = {
     "calls": "calls",
-    "call_stats": "calls",
     "vehicle-coverage": "vehicle",
-    "coverage": "vehicle",
     "vehicle-speed": "vehicle",
-    "speed_heading": "vehicle",
     "duplicates": "duplicates",
-    "exact_duplicates": "duplicates",
 }
 
 

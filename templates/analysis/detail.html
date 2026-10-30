@@ -148,7 +148,7 @@
   <ul class="source-list">
     {% for source in sources %}<li><a href="{{ source.url }}">{{ source.item.title }}</a>{% if source.derived_result_id %} · Exact extraction version · <a href="{{ source.original_url }}">Original evidence</a>{% endif %}{% if source.attachment %} · Retained call addition{% endif %}{% if source.coordinates %} · Coordinates {{ source.coordinates.0 }}, {{ source.coordinates.1 }}{% endif %}{% if source.item.is_archived %} · Archived{% endif %}</li>{% empty %}<li>No available inputs.</li>{% endfor %}
   </ul>
-  <details class="analysis-assumptions"><summary>Method and assumptions</summary><p>Method version: {{ run.method_version }}. External processing: {{ run.external_processing|yesno:'Approved,Not approved' }}.</p>{% include 'analysis/measurements.html' with measurements=assumptions only %}</details>
+  <details class="analysis-assumptions"><summary>Method and assumptions</summary><p>Method version: {{ run.method_version }}. {{ processing.label }}.{% if processing.legacy %} This run predates execution pinning; its original approval is retained.{% endif %}</p>{% if processing.model %}<p>Model: {{ processing.model }}{% if processing.runtime %} · Runtime: {{ processing.runtime }}{% endif %}</p>{% endif %}{% include 'analysis/measurements.html' with measurements=assumptions only %}</details>
 </section>
 {% if can_edit and can_retry %}
 <form method="post" action="{% url 'analysis:retry' case.pk run.pk %}">

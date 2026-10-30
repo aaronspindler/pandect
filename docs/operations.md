@@ -84,6 +84,15 @@ For an external storage backend, use its coordinated snapshot/restore procedure.
 Verify original bytes against stored checksums after restoration. See
 [evidence lifecycle and failed cleanup recovery](evidence.md#private-storage-and-deletion).
 
+## Local image text extraction
+
+Rebuild the application image after upgrading to local OCR. The web/worker image
+includes Tesseract and English language data. Host-based workers must install
+these system packages as described in [development](development.md#run-python-on-the-host).
+No AI credentials are required for image OCR. `PANDECT_AI_VISION_MODEL` is retired
+and ignored; there is no remote fallback. Old OCR results stay readable; queued
+older method versions need a new run. Do not reset or delete their history.
+
 ## Upgrades and hosted deployment
 
 Back up before upgrades. After reviewing dependency/runtime compatibility:
@@ -125,8 +134,12 @@ recordings use the same per-file limit and private storage as other originals.
 Backups must include call/attachment rows, transcript text, and the corresponding
 private audio files. Attachments follow the existing after-commit deletion
 cleanup and manual orphan-reconciliation procedures; rollback does not remove
-retained files. The worker foundation does not change cleanup or introduce
-external transcription.
+retained files. Transcription is separately selected case analysis, defaulting to
+a private runtime; the ordinary upload path does not submit recordings for AI.
+Optional inference services and model-file backup/recovery are described in
+[local analysis](local-analysis.md). They use an isolated internal network, pinned
+native engines and operator-provisioned read-only models. External AI remains
+separately selected and approved through Cloudflare.
 Django's upload memory threshold controls temporary storage, not maximum file size.
 Asset Location CSV imports have a separate hard cap of 1 MiB and 250 rows,
 respecting a smaller operator file limit. Their route streams with the smaller

@@ -40,15 +40,32 @@ services:
       PANDECT_AI_MAX_REQUEST_BYTES: ${PANDECT_AI_MAX_REQUEST_BYTES:-8388608}
       PANDECT_AI_MAX_RESPONSE_BYTES: ${PANDECT_AI_MAX_RESPONSE_BYTES:-2097152}
       PANDECT_AI_TEXT_MODEL: ${PANDECT_AI_TEXT_MODEL:-@cf/meta/llama-3.3-70b-instruct-fp8-fast}
-      PANDECT_AI_VISION_MODEL: ${PANDECT_AI_VISION_MODEL:-@cf/meta/llama-4-scout-17b-16e-instruct}
       PANDECT_AI_TRANSCRIPTION_MODEL: ${PANDECT_AI_TRANSCRIPTION_MODEL:-@cf/openai/whisper-large-v3-turbo}
+      PANDECT_LOCAL_TEXT_URL: ${PANDECT_LOCAL_TEXT_URL:-}
+      PANDECT_LOCAL_TEXT_MODEL: ${PANDECT_LOCAL_TEXT_MODEL:-Qwen3-8B-Q4_K_M}
+      PANDECT_LOCAL_TEXT_SHA256: ${PANDECT_LOCAL_TEXT_SHA256:-}
+      PANDECT_LOCAL_TEXT_RUNTIME: ${PANDECT_LOCAL_TEXT_RUNTIME:-llama.cpp@8642541b255bfb5dc39cd351a178be09013a55d6}
+      PANDECT_LOCAL_TEXT_CONTEXT_TOKENS: ${PANDECT_LOCAL_TEXT_CONTEXT_TOKENS:-32768}
+      PANDECT_LOCAL_TRANSCRIPTION_URL: ${PANDECT_LOCAL_TRANSCRIPTION_URL:-}
+      PANDECT_LOCAL_TRANSCRIPTION_MODEL: ${PANDECT_LOCAL_TRANSCRIPTION_MODEL:-whisper-large-v3-turbo}
+      PANDECT_LOCAL_TRANSCRIPTION_SHA256: ${PANDECT_LOCAL_TRANSCRIPTION_SHA256:-}
+      PANDECT_LOCAL_TRANSCRIPTION_RUNTIME: ${PANDECT_LOCAL_TRANSCRIPTION_RUNTIME:-whisper.cpp@d1be6fde11ac6e0407606b4e42fe72d34add8037}
+      PANDECT_LOCAL_AI_TOKEN: ${PANDECT_LOCAL_AI_TOKEN:-}
+      PANDECT_LOCAL_AI_TIMEOUT: ${PANDECT_LOCAL_AI_TIMEOUT:-600}
+      PANDECT_LOCAL_AI_MAX_REQUEST_BYTES: ${PANDECT_LOCAL_AI_MAX_REQUEST_BYTES:-8388608}
+      PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES: ${PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES:-2097152}
+      PANDECT_LOCAL_AI_MAX_OUTPUT_TOKENS: ${PANDECT_LOCAL_AI_MAX_OUTPUT_TOKENS:-4096}
       PANDECT_GEOCODER_URL: ${PANDECT_GEOCODER_URL:-}
+      PANDECT_GEOCODER_LOCAL: ${PANDECT_GEOCODER_LOCAL:-false}
       PANDECT_GEOCODER_NAME: ${PANDECT_GEOCODER_NAME:-}
       PANDECT_GEOCODER_VERSION: ${PANDECT_GEOCODER_VERSION:-}
       PANDECT_GEOCODER_ATTRIBUTION: ${PANDECT_GEOCODER_ATTRIBUTION:-}
       PANDECT_GEOCODER_USER_AGENT: ${PANDECT_GEOCODER_USER_AGENT:-Pandect/0.1}
       PANDECT_GEOCODER_TIMEOUT: ${PANDECT_GEOCODER_TIMEOUT:-10}
       PANDECT_MAP_CONTEXT_URL: ${PANDECT_MAP_CONTEXT_URL:-}
+      PANDECT_MAP_CONTEXT_LOCAL: ${PANDECT_MAP_CONTEXT_LOCAL:-false}
+      PANDECT_MAP_TILE_URL: ${PANDECT_MAP_TILE_URL:-}
+      PANDECT_MAP_TILE_ATTRIBUTION: ${PANDECT_MAP_TILE_ATTRIBUTION:-}
       PANDECT_MAP_CONTEXT_NAME: ${PANDECT_MAP_CONTEXT_NAME:-}
       PANDECT_MAP_CONTEXT_VERSION: ${PANDECT_MAP_CONTEXT_VERSION:-}
       PANDECT_MAP_CONTEXT_ATTRIBUTION: ${PANDECT_MAP_CONTEXT_ATTRIBUTION:-}
@@ -68,6 +85,7 @@ services:
       - "127.0.0.1:${PANDECT_WEB_PORT:-8000}:8000"
     volumes:
       - app_data:/app/data
+    networks: [default, inference]
     depends_on:
       db:
         condition: service_healthy
@@ -89,9 +107,84 @@ services:
     stop_grace_period: 30s
     volumes:
       - app_data:/app/data
+    networks: [default, inference]
     depends_on:
       web:
         condition: service_healthy
+
+  local-text:
+    profiles: [local-ai]
+    build: ./inference
+    image: ${COMPOSE_PROJECT_NAME:-pandect}-inference
+    environment:
+      PANDECT_RUNTIME_KIND: text
+      PANDECT_RUNTIME_MODEL: ${PANDECT_LOCAL_TEXT_MODEL:-Qwen3-8B-Q4_K_M}
+      PANDECT_RUNTIME_MODEL_SHA256: ${PANDECT_LOCAL_TEXT_SHA256:-}
+      PANDECT_RUNTIME_CONTEXT_TOKENS: ${PANDECT_LOCAL_TEXT_CONTEXT_TOKENS:-32768}
+      PANDECT_RUNTIME_THREADS: ${PANDECT_LOCAL_AI_THREADS:-4}
+      PANDECT_RUNTIME_TIMEOUT: ${PANDECT_LOCAL_AI_TIMEOUT:-600}
+      PANDECT_RUNTIME_MAX_REQUEST_BYTES: ${PANDECT_LOCAL_AI_MAX_REQUEST_BYTES:-8388608}
+      PANDECT_RUNTIME_MAX_RESPONSE_BYTES: ${PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES:-2097152}
+      PANDECT_LOCAL_AI_TOKEN: ${PANDECT_LOCAL_AI_TOKEN:-}
+    volumes:
+      - type: bind
+        source: ${PANDECT_LOCAL_TEXT_MODEL_FILE:-./data/models/text.gguf}
+        target: /models/model
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [inference]
+    read_only: true
+    tmpfs: ["/tmp:mode=0700,uid=1000,gid=1000,size=64m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: ${PANDECT_LOCAL_TEXT_MEMORY:-24g}
+    cpus: ${PANDECT_LOCAL_AI_CPUS:-4}
+    restart: unless-stopped
+    stop_grace_period: 15s
+    healthcheck: &inference_health
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 600s
+
+  local-transcription:
+    profiles: [local-ai]
+    image: ${COMPOSE_PROJECT_NAME:-pandect}-inference
+    build: ./inference
+    environment:
+      PANDECT_RUNTIME_KIND: transcription
+      PANDECT_RUNTIME_MODEL: ${PANDECT_LOCAL_TRANSCRIPTION_MODEL:-whisper-large-v3-turbo}
+      PANDECT_RUNTIME_MODEL_SHA256: ${PANDECT_LOCAL_TRANSCRIPTION_SHA256:-}
+      PANDECT_RUNTIME_THREADS: ${PANDECT_LOCAL_AI_THREADS:-4}
+      PANDECT_RUNTIME_TIMEOUT: ${PANDECT_LOCAL_AI_TIMEOUT:-600}
+      PANDECT_RUNTIME_MAX_REQUEST_BYTES: ${PANDECT_LOCAL_AI_MAX_REQUEST_BYTES:-8388608}
+      PANDECT_RUNTIME_MAX_RESPONSE_BYTES: ${PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES:-2097152}
+      PANDECT_LOCAL_AI_TOKEN: ${PANDECT_LOCAL_AI_TOKEN:-}
+    volumes:
+      - type: bind
+        source: ${PANDECT_LOCAL_TRANSCRIPTION_MODEL_FILE:-./data/models/transcription.bin}
+        target: /models/model
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [inference]
+    read_only: true
+    tmpfs: ["/tmp:mode=0700,uid=1000,gid=1000,size=64m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: ${PANDECT_LOCAL_TRANSCRIPTION_MEMORY:-4g}
+    cpus: ${PANDECT_LOCAL_AI_CPUS:-4}
+    restart: unless-stopped
+    stop_grace_period: 15s
+    healthcheck: *inference_health
+
+networks:
+  inference:
+    internal: true
 
 volumes:
   postgres_data:

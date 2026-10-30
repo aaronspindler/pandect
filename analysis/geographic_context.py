@@ -7,13 +7,13 @@ import math
 from datetime import UTC, date, datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import Request, build_opener
+from urllib.request import ProxyHandler, Request, build_opener
 
 from django.conf import settings
 from django.utils import timezone
 
 from .errors import AnalysisError
-from .geocoding import _NoRedirect
+from .http import NoRedirect
 from .locations import (
     EARTH_RADIUS_M,
     _clusters,
@@ -120,7 +120,7 @@ class ContextClient:
             )
         ):
             raise AnalysisError("map_context_not_configured")
-        self.opener = build_opener(_NoRedirect())
+        self.opener = build_opener(ProxyHandler({}), NoRedirect())
 
     def query(self, center, radius, as_of):
         if as_of is not None and as_of.microsecond:
@@ -164,14 +164,17 @@ class ContextClient:
             with self.opener.open(request, timeout=self.timeout) as response:
                 content = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as error:
-            code = (
-                "map_context_rate_limited"
-                if error.code == 429
-                else "map_context_authentication"
-                if error.code in {401, 403}
-                else "map_context_unavailable"
-            )
-            raise AnalysisError(code) from None
+            try:
+                code = (
+                    "map_context_rate_limited"
+                    if error.code == 429
+                    else "map_context_authentication"
+                    if error.code in {401, 403}
+                    else "map_context_unavailable"
+                )
+                raise AnalysisError(code) from None
+            finally:
+                error.close()
         except URLError, TimeoutError, OSError:
             raise AnalysisError("map_context_unavailable") from None
         if len(content) > MAX_RESPONSE_BYTES:
@@ -181,7 +184,10 @@ class ContextClient:
 
 def geographic_context(sources, parameters, *, client=None, authorize=None):
     sources = _selected(sources)
-    if parameters.get("external_processing") is not True:
+    if (
+        not getattr(settings, "PANDECT_MAP_CONTEXT_LOCAL", False)
+        and parameters.get("external_processing") is not True
+    ):
         raise AnalysisError("external_processing_confirmation_required")
     if authorize is None:
         raise AnalysisError("current_authorization_required")

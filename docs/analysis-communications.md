@@ -36,7 +36,7 @@ boilerplate, a repeated export, or source dependence and is not authorship proof
 Each result supplies candidate spans for investigator-reviewed style exclusions.
 
 `text_topics` supports observed keywords with `include_summary: false` and
-Gateway-backed source-cited topic suggestions and short summaries otherwise.
+model-based source-cited topic suggestions and short summaries otherwise.
 The keyword baseline uses English stop words, with a disclosed language limit.
 `content_events` uses the same model-content path to propose attributed claims,
 plans, commitments, cancellations, reported events, questions, and candidate
@@ -48,9 +48,13 @@ ambiguous repeated quotation is rejected. A valid quotation verifies the source
 anchor, not the model's interpretation. Negation, sarcasm, hearsay, quotations,
 relative dates, missing exchanges, conflicting statements, and proposed versus
 completed actions remain review concerns. Each request is limited to 64,000
-selected characters and 100 returned suggestions. Missing inference is an
-explicit unsupported outcome; missing text is insufficient evidence. Inference
-runs exclusively through the shared backend Cloudflare AI Gateway client.
+selected characters and 100 returned suggestions. A local runtime additionally
+checks its complete token budget without truncation. Unavailable inference is a
+recoverable limitation; missing text is insufficient evidence. Inference defaults
+to the configured private runtime through the shared backend. External inference
+uses Cloudflare AI Gateway only when separately selected and approved, with no
+automatic fallback. See [local analysis](local-analysis.md) for setup and
+per-method quality qualification.
 
 ## Descriptive writing profiles
 
@@ -143,7 +147,7 @@ sessions have unknown spans. Missing export periods are unknown coverage.
 and FaceTime using recorded participant/time context. `window_minutes` defaults
 to 180 and supports 0–10,080; zero compares only equal recorded times. Content wording overlap is labelled as a separate
 weak cue. Metadata-only calls supply ordering, not invented speech. Optional
-`semantic_links` uses Gateway-backed two-sided quotation citations to propose
+`semantic_links` uses model-based two-sided quotation citations to propose
 continued topics, events, and earlier references. A completed semantic candidate
 needs exact citations to at least two distinct selected sources. One-sided or repeated citations to one source retain an
 unresolved suggestion and a partial result rather than becoming a completed

@@ -202,6 +202,130 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             path=str(self.artifacts / f"{engine}-{name}.png"), animations="disabled"
         )
 
+    def test_image_evidence_preview_and_download(self):
+        import io
+
+        from PIL import Image, ImageDraw
+
+        buffer = io.BytesIO()
+        with Image.new("RGB", (1280, 720), "#dce9ef") as image:
+            drawing = ImageDraw.Draw(image)
+            drawing.rectangle((0, 390, 1280, 720), fill="#497d96")
+            drawing.rectangle((160, 220, 700, 390), fill="#caad8a")
+            drawing.polygon(((120, 220), (430, 80), (740, 220)), fill="#775c54")
+            drawing.rectangle((360, 270, 470, 390), fill="#584d4a")
+            drawing.rectangle((820, 440, 1180, 470), fill="#dcc8a6")
+            drawing.line((900, 390, 900, 580), fill="#655449", width=12)
+            drawing.line((1100, 390, 1100, 580), fill="#655449", width=12)
+            image.save(buffer, format="PNG")
+        original = buffer.getvalue()
+        retained = ImageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic harbour photograph",
+            source="Synthetic interface fixture",
+            description="Illustration used to validate the image evidence preview.",
+            file=SimpleUploadedFile("harbour.png", original, content_type="image/png"),
+        )
+        unavailable = ImageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Unsupported image",
+            file=SimpleUploadedFile("unsupported.svg", b"<svg/>", "image/svg+xml"),
+        )
+        url = self.url(
+            "evidence:detail",
+            case_id=self.case.pk,
+            kind="image",
+            evidence_id=retained.pk,
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine, javascript=False),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(url)
+                preview = page.get_by_role(
+                    "img", name="Image preview of Synthetic harbour photograph"
+                )
+                expect(preview).to_be_visible()
+                # Playwright can inspect DOM properties even with page scripts disabled.
+                self.assertTrue(
+                    preview.evaluate("img => img.complete && img.naturalWidth > 0")
+                )
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.assertLessEqual(preview.bounding_box()["width"], width)
+                    page.screenshot(
+                        path=str(
+                            self.artifacts
+                            / f"{engine}-image-preview-{width}x{height}.png"
+                        ),
+                        full_page=width < 1280,
+                        animations="disabled",
+                    )
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 1441
+                )
+                self.capture(page, engine, "image-preview-200-percent-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "image-preview-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(page, engine, "image-preview-forced-colors")
+                    page.emulate_media(forced_colors="none")
+                download = page.get_by_role(
+                    "link", name="Download original", exact=True
+                ).first
+                download.focus()
+                expect(download).to_be_focused()
+                self.assertNotEqual(
+                    download.evaluate("node => getComputedStyle(node).outlineStyle"),
+                    "none",
+                )
+                with page.expect_download() as saved:
+                    download.press("Enter")
+                self.assertEqual(Path(saved.value.path()).read_bytes(), original)
+
+            with (
+                self.subTest(engine=engine, javascript=True),
+                self.browser_page(engine) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(url)
+                expect(page.locator("#image-preview-caption")).to_have_text(
+                    "Resized preview. Download the original for full detail."
+                )
+                page.goto(
+                    self.url(
+                        "evidence:detail",
+                        case_id=self.case.pk,
+                        kind="image",
+                        evidence_id=unavailable.pk,
+                    )
+                )
+                expect(page.locator("#image-preview-caption")).to_have_text(
+                    "Image preview unavailable. Download the original to inspect it."
+                )
+                expect(page.locator("[data-image-preview] img")).to_be_hidden()
+                expect(
+                    page.get_by_role("link", name="Download original", exact=True).first
+                ).to_be_visible()
+                self.capture(page, engine, "image-preview-unavailable")
+
     def test_page_layouts_and_evidence_type_selection_without_javascript(self):
         person = Person.objects.create(case=self.case, first_name="Synthetic contact")
         vehicle = Vehicle.objects.create(case=self.case, make="Synthetic vehicle")
@@ -1020,17 +1144,23 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(page.locator(".evidence-row")).to_contain_text(title)
 
                 page.goto(self.url("evidence:create", case_id=case.pk))
-                page.locator("#id_file").set_input_files(
-                    [
-                        {
-                            "name": f"synthetic-{index}.txt",
-                            "mimeType": "text/plain",
-                            "buffer": f"Synthetic batch original {index}.".encode(),
-                        }
-                        for index in (1, 2)
-                    ]
-                )
+                files = [
+                    {
+                        "name": f"synthetic-{index}.txt",
+                        "mimeType": "text/plain",
+                        "buffer": f"Synthetic batch original {index}.".encode(),
+                    }
+                    for index in (1, 2)
+                ]
+                picker = page.locator("#id_file")
                 entries = page.locator(".upload-entry")
+                for _ in range(2):
+                    picker.set_input_files(files[0])
+                    expect(picker).to_have_value("")
+                    expect(entries).to_have_count(1)
+                    entries.get_by_role("button", name="Remove from queue").click()
+                    expect(entries).to_have_count(0)
+                picker.set_input_files(files)
                 expect(entries).to_have_count(2)
                 first_entry = entries.first
                 first_entry.get_by_text(
@@ -1161,7 +1291,10 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     "Keep this proposed title"
                 )
                 expect(page.get_by_role("heading", name="Add evidence")).to_be_visible()
-                content = b"Synthetic source file.\r\nPreserve these original bytes.\n"
+                content = (
+                    f"Synthetic source file {engine}.\r\n"
+                    "Preserve these original bytes.\n"
+                ).encode()
                 title = f"No-JavaScript document {engine}"
                 page.get_by_label("Title", exact=True).fill(title)
                 page.locator("#id_file").set_input_files(
@@ -1187,6 +1320,32 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.assertEqual(document.byte_size, len(content))
                 self.capture(page, engine, "no-javascript-document")
 
+                page.goto(self.url("evidence:create", case_id=self.case.pk))
+                page.get_by_label("Title", exact=True).fill(f"Separate copy {engine}")
+                duplicate_file = {
+                    "name": "renamed.txt",
+                    "mimeType": "text/plain",
+                    "buffer": content,
+                }
+                page.locator("#id_file").set_input_files(duplicate_file)
+                page.get_by_role("button", name="Upload file", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Matching evidence already exists")
+                ).to_be_visible()
+                expect(page.get_by_label("Title", exact=True)).to_have_value(
+                    f"Separate copy {engine}"
+                )
+                self.capture(page, engine, "duplicate-without-javascript")
+                page.locator("#id_file").set_input_files(duplicate_file)
+                confirm = page.get_by_role("button", name="Add duplicate anyway")
+                confirm.focus()
+                confirm.press("Enter")
+                expect(
+                    page.get_by_role(
+                        "heading", name=f"Separate copy {engine}", exact=True
+                    )
+                ).to_be_visible()
+
                 record = self.records[-1]
                 page.goto(self.evidence_url(record))
                 with page.expect_download() as text_original:
@@ -1199,9 +1358,121 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     record.body.encode("utf-8"),
                 )
 
-    def test_uncertain_commit_retry_and_proxy_size_limit_recovery(self):
-        original = b"Synthetic original with interrupted confirmation."
+    def test_duplicate_upload_review_and_keyboard_confirmation(self):
         for engine in self.engines:
+            original = f"Exact synthetic original {engine}".encode()
+            retained = ImageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title="Earlier <untrusted> source " + "with a long title " * 8,
+                file=SimpleUploadedFile("source.png", original),
+            )
+            retained.is_archived = True
+            retained.archive_changed_at = retained.created_at
+            retained.archive_changed_by = self.owner
+            retained.save()
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(self.url("evidence:bulk_create", case_id=self.case.pk))
+                page.locator("#id_file").set_input_files(
+                    [
+                        {
+                            "name": "renamed.txt",
+                            "mimeType": "text/plain",
+                            "buffer": original,
+                        },
+                        {
+                            "name": "different.txt",
+                            "mimeType": "text/plain",
+                            "buffer": original + b" changed",
+                        },
+                    ]
+                )
+                page.get_by_role("button", name="Upload files", exact=True).click()
+                duplicate = page.locator('.upload-entry[data-state="duplicate"]')
+                expect(duplicate).to_have_count(1)
+                expect(page.locator('.upload-entry[data-state="added"]')).to_have_count(
+                    1
+                )
+                expect(duplicate.locator(".notice")).to_contain_text("Archived")
+                expect(duplicate.locator(".notice a")).to_have_count(1)
+                self.assertEqual(
+                    self.db(
+                        DocumentEvidence.objects.filter(
+                            case=self.case, sha256=retained.sha256
+                        ).count
+                    ),
+                    0,
+                )
+                with page.expect_popup() as opened:
+                    duplicate.locator(".notice a").click()
+                match_page = opened.value
+                expect(
+                    match_page.get_by_role("heading", name=retained.title, exact=True)
+                ).to_be_visible()
+                match_page.close()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    page.screenshot(
+                        path=str(
+                            self.artifacts / f"{engine}-duplicate-review-{width}.png"
+                        ),
+                        full_page=True,
+                    )
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "duplicate-review-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(page, engine, "duplicate-review-forced-colors")
+                    page.emulate_media(forced_colors="none")
+                page.emulate_media(color_scheme="light")
+                duplicate.get_by_label("Title", exact=True).fill(
+                    f"Separate source {engine}"
+                )
+                confirm = duplicate.get_by_role("button", name="Add duplicate anyway")
+                confirm.focus()
+                confirm.press(
+                    "Alt+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Tab"
+                )
+                page.keyboard.press(
+                    "Alt+Shift+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Shift+Tab"
+                )
+                expect(confirm).to_be_focused()
+                self.assertNotEqual(
+                    confirm.evaluate("node => getComputedStyle(node).outlineStyle"),
+                    "none",
+                )
+                confirm.press("Enter")
+                expect(page.locator('.upload-entry[data-state="added"]')).to_have_count(
+                    2
+                )
+                saved = self.db(
+                    DocumentEvidence.objects.get,
+                    case=self.case,
+                    title=f"Separate source {engine}",
+                )
+                self.assertEqual(saved.sha256, retained.sha256)
+                self.assertEqual(Path(saved.file.path).read_bytes(), original)
+
+    def test_uncertain_commit_retry_and_proxy_size_limit_recovery(self):
+        for engine in self.engines:
+            original = (
+                f"Synthetic original with interrupted confirmation {engine}.".encode()
+            )
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 upload_url = self.url("evidence:create", case_id=self.case.pk)
@@ -1228,7 +1499,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.interrupted_statuses = []
                 self.interrupted_details = []
 
-                def commit_then_abort(route):
+                def commit_then_abort(route, *, original=original):
                     # Fetch reaches the real view and commits its transaction;
                     # only the browser's confirmation is deliberately lost.
                     body = route.request.post_data_buffer or b""
@@ -1275,8 +1546,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                                     route.request.post_data_buffer or b""
                                 ),
                                 "has_original": (
-                                    b"Synthetic original with interrupted confirmation."
-                                    in (route.request.post_data_buffer or b"")
+                                    original in (route.request.post_data_buffer or b"")
                                 ),
                             }
                         )
@@ -1351,7 +1621,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     {
                         "name": f"proxy-rejected-{engine}.txt",
                         "mimeType": "text/plain",
-                        "buffer": b"Synthetic original rejected before Django.",
+                        "buffer": (
+                            f"Synthetic original rejected before Django {engine}."
+                        ).encode(),
                     }
                 )
                 entry = page.locator(".upload-entry")
@@ -1408,7 +1680,12 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 files = [
-                    {**item, "name": f"{engine}-{item['name']}"} for item in originals
+                    {
+                        **item,
+                        "name": f"{engine}-{item['name']}",
+                        "buffer": engine.encode() + item["buffer"],
+                    }
+                    for item in originals
                 ]
                 page.goto(self.url("cases:case_detail", case_id=self.case.pk))
                 page.get_by_role("link", name="Bulk add files", exact=True).click()
@@ -1546,13 +1823,17 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("link", name="Start another batch")
                 ).to_be_visible()
-                # Another deliberate selection of the same filename is a new record.
+                # Another selection of the same original needs explicit review.
                 picker.set_input_files(files[0])
                 expect(entries).to_have_count(4)
                 expect(
                     page.get_by_role("link", name="Start another batch")
                 ).to_be_hidden()
                 page.get_by_role("button", name="Upload files", exact=True).click()
+                expect(entries.nth(3)).to_have_attribute("data-state", "duplicate")
+                entries.nth(3).get_by_role(
+                    "button", name="Add duplicate anyway"
+                ).click()
                 expect(entries.nth(3)).to_have_attribute("data-state", "added")
                 expect(page.locator("[data-upload-status]")).to_contain_text(
                     "4 of 4 files added"
@@ -1626,7 +1907,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                         {
                             "name": f"{engine}-{i}.txt",
                             "mimeType": "text/plain",
-                            "buffer": b"Synthetic bytes",
+                            "buffer": f"{engine}-{i}".encode(),
                         }
                         for i in range(3)
                     ]

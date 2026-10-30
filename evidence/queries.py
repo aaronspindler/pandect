@@ -1,6 +1,6 @@
 """One same-case evidence boundary for readers, search, reports and workers."""
 
-from django.db.models import F, Q
+from django.db.models import CharField, F, Q, Value
 from django.http import Http404
 
 from .models import (
@@ -8,7 +8,7 @@ from .models import (
     PersonLocationEvidence,
     VehicleLocationEvidence,
 )
-from .types import KINDS
+from .types import FILE_KINDS, KINDS
 
 
 def same_case_evidence(queryset):
@@ -37,6 +37,21 @@ def scoped_evidence(case, kind):
     except KeyError:
         raise Http404("Evidence not found.") from None
     return same_case_evidence(model.objects.filter(case=case))
+
+
+def duplicate_matches(case, sha256):
+    """Find exact file/captured-text originals, including archived records."""
+    queries = [
+        scoped_evidence(case, kind)
+        .filter(sha256=sha256)
+        .order_by()
+        .annotate(kind=Value(kind, output_field=CharField()))
+        .values("id", "title", "kind", "is_archived", "created_at")
+        for kind in (*FILE_KINDS, "text")
+    ]
+    return (
+        queries[0].union(*queries[1:], all=True).order_by("-created_at", "kind", "id")
+    )
 
 
 def get_evidence(case, kind, evidence_id, *, lock=False):

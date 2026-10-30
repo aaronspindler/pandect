@@ -19,6 +19,9 @@ and active/archived evidence and download originals. Editors can additionally
 add/edit people, vehicles, and evidence and archive/restore evidence; only the owner can
 change case metadata, manage access, delete people or vehicles, or delete the case.
 Ordinary product users do not need staff status or Django model permissions.
+Choose **Map** to explore recorded location coordinates against OpenStreetMap,
+with source links and a location list. See [maps](maps.md) for coverage, filters,
+background map configuration and evidence privacy.
 
 Case edits detect stale updates. A conflict shows the latest saved details beside
 the retained draft and offers **Save reviewed changes**; it does not silently

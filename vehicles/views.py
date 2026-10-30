@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
+from evidence.queries import same_case_evidence
 
 from .forms import VehicleDeleteForm, VehicleForm, vehicle_revision
 from .models import Vehicle
@@ -55,7 +56,6 @@ def vehicle_list(request, case_id):
             "query": query,
             "search_query": urlencode({"q": query}) if query else "",
             "list_query": list_query(request),
-            "active_nav": "vehicles",
         },
     )
 
@@ -72,11 +72,10 @@ def vehicle_detail(request, case_id, vehicle_id):
         {
             **case_context(case, request.user),
             "vehicle": vehicle,
-            "locations": vehicle.location_evidence.filter(case=case).order_by(
-                "-observed_at", "-created_at"
-            )[:25],
+            "locations": same_case_evidence(
+                vehicle.location_evidence.filter(case=case)
+            ).order_by("-observed_at", "-created_at")[:25],
             "list_query": list_query(request),
-            "active_nav": "vehicles",
         },
     )
 
@@ -105,7 +104,6 @@ def vehicle_create(request, case_id):
             "form": form,
             "creating": True,
             "list_query": list_query(request),
-            "active_nav": "vehicles",
         },
         status=400 if request.method == "POST" else 200,
     )
@@ -143,7 +141,6 @@ def vehicle_edit(request, case_id, vehicle_id):
             "latest_vehicle": latest_vehicle,
             "creating": False,
             "list_query": list_query(request),
-            "active_nav": "vehicles",
         },
         status=409 if form.stale else 400 if request.method == "POST" else 200,
     )
@@ -181,7 +178,6 @@ def vehicle_delete(request, case_id, vehicle_id):
             **case_context(case, request.user),
             "vehicle": vehicle,
             "form": form,
-            "active_nav": "vehicles",
         },
         status=400 if request.method == "POST" else 200,
     )

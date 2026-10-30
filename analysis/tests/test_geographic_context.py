@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import io
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -451,7 +452,16 @@ class MapClientTests(SimpleTestCase):
 
     def test_safe_network_errors_and_response_limit(self):
         errors = [
-            (HTTPError("https://secret", code, "private response", {}, None), expected)
+            (
+                HTTPError(
+                    "https://secret",
+                    code,
+                    "private response",
+                    {},
+                    io.BytesIO(b"private"),
+                ),
+                expected,
+            )
             for code, expected in (
                 (429, "map_context_rate_limited"),
                 (403, "map_context_authentication"),
@@ -466,6 +476,8 @@ class MapClientTests(SimpleTestCase):
                 client.opener.open.side_effect = error
                 with self.assertRaisesMessage(AnalysisError, expected):
                     client.lookup("fixed query")
+                if isinstance(error, HTTPError):
+                    self.assertTrue(error.fp.closed)
         client = ContextClient()
         client.opener = MagicMock()
         client.opener.open.return_value.__enter__.return_value.read.return_value = (

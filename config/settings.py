@@ -69,6 +69,26 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+# Browser basemap tiles are separate from retained Overpass/geocoding results.
+PANDECT_MAP_TILE_URL = os.environ.get("PANDECT_MAP_TILE_URL", "")
+_tile_url = urlsplit(PANDECT_MAP_TILE_URL)
+if PANDECT_MAP_TILE_URL and (
+    _tile_url.scheme != "https"
+    or not _tile_url.hostname
+    or _tile_url.username is not None
+    or _tile_url.password is not None
+    or _tile_url.query
+    or _tile_url.fragment
+    or any(character in _tile_url.netloc for character in " ;'\"<>{}\\\r\n\t")
+    or any(PANDECT_MAP_TILE_URL.count(token) != 1 for token in ("{z}", "{x}", "{y}"))
+):
+    raise ImproperlyConfigured(
+        "PANDECT_MAP_TILE_URL must be an HTTPS tile URL with {z}, {x}, and {y}, "
+        "without credentials, query, or fragment."
+    )
+PANDECT_MAP_TILE_ORIGIN = f"https://{_tile_url.netloc}" if PANDECT_MAP_TILE_URL else ""
+PANDECT_MAP_TILE_ATTRIBUTION = os.environ.get("PANDECT_MAP_TILE_ATTRIBUTION", "")
+
 # PostgreSQL is also used by Django's test runner. There is no SQLite fallback.
 DATABASES = {
     "default": {
@@ -234,9 +254,6 @@ PANDECT_AI_GATEWAY = {
         "text": os.environ.get(
             "PANDECT_AI_TEXT_MODEL", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
         ),
-        "vision": os.environ.get(
-            "PANDECT_AI_VISION_MODEL", "@cf/meta/llama-4-scout-17b-16e-instruct"
-        ),
         "transcription": os.environ.get(
             "PANDECT_AI_TRANSCRIPTION_MODEL", "@cf/openai/whisper-large-v3-turbo"
         ),
@@ -248,10 +265,47 @@ PANDECT_AI_GATEWAY = {
         "PANDECT_AI_MAX_RESPONSE_BYTES", 2 * 1024 * 1024
     ),
 }
+# Only explicitly configured, operator-controlled runtimes are local. Their
+# mounted model digests and image revisions are checked before evidence is sent.
+PANDECT_LOCAL_AI = {
+    "text": {
+        "url": os.environ.get("PANDECT_LOCAL_TEXT_URL", ""),
+        "model": os.environ.get("PANDECT_LOCAL_TEXT_MODEL", "Qwen3-8B-Q4_K_M"),
+        "sha256": os.environ.get("PANDECT_LOCAL_TEXT_SHA256", ""),
+        "runtime": os.environ.get(
+            "PANDECT_LOCAL_TEXT_RUNTIME",
+            "llama.cpp@8642541b255bfb5dc39cd351a178be09013a55d6",
+        ),
+        "context_tokens": positive_env("PANDECT_LOCAL_TEXT_CONTEXT_TOKENS", 32768),
+    },
+    "transcription": {
+        "url": os.environ.get("PANDECT_LOCAL_TRANSCRIPTION_URL", ""),
+        "model": os.environ.get(
+            "PANDECT_LOCAL_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
+        ),
+        "sha256": os.environ.get("PANDECT_LOCAL_TRANSCRIPTION_SHA256", ""),
+        "runtime": os.environ.get(
+            "PANDECT_LOCAL_TRANSCRIPTION_RUNTIME",
+            "whisper.cpp@d1be6fde11ac6e0407606b4e42fe72d34add8037",
+        ),
+    },
+    "token": os.environ.get("PANDECT_LOCAL_AI_TOKEN", ""),
+    "timeout": min(1800, positive_env("PANDECT_LOCAL_AI_TIMEOUT", 600)),
+    "max_request_bytes": positive_env(
+        "PANDECT_LOCAL_AI_MAX_REQUEST_BYTES", 8 * 1024 * 1024
+    ),
+    "max_response_bytes": positive_env(
+        "PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES", 2 * 1024 * 1024
+    ),
+    "max_output_tokens": positive_env("PANDECT_LOCAL_AI_MAX_OUTPUT_TOKENS", 4096),
+}
 PANDECT_ANALYSIS_MAX_SOURCES = 500
 PANDECT_ANALYSIS_MAX_BYTES = 16 * 1024 * 1024
 PANDECT_ANALYSIS_MAX_TEXT = 2 * 1024 * 1024
 PANDECT_GEOCODER_URL = os.environ.get("PANDECT_GEOCODER_URL", "")
+PANDECT_GEOCODER_LOCAL = (
+    os.environ.get("PANDECT_GEOCODER_LOCAL", "false").lower() == "true"
+)
 PANDECT_GEOCODER_NAME = os.environ.get("PANDECT_GEOCODER_NAME", "")
 PANDECT_GEOCODER_VERSION = os.environ.get("PANDECT_GEOCODER_VERSION", "")
 PANDECT_GEOCODER_ATTRIBUTION = os.environ.get("PANDECT_GEOCODER_ATTRIBUTION", "")
@@ -263,6 +317,9 @@ PANDECT_GEOCODER_TIMEOUT = min(30, positive_env("PANDECT_GEOCODER_TIMEOUT", 10))
 
 # Reference context is a separate configured lookup, not an inference endpoint.
 PANDECT_MAP_CONTEXT_URL = os.environ.get("PANDECT_MAP_CONTEXT_URL", "")
+PANDECT_MAP_CONTEXT_LOCAL = (
+    os.environ.get("PANDECT_MAP_CONTEXT_LOCAL", "false").lower() == "true"
+)
 PANDECT_MAP_CONTEXT_NAME = os.environ.get("PANDECT_MAP_CONTEXT_NAME", "")
 PANDECT_MAP_CONTEXT_VERSION = os.environ.get("PANDECT_MAP_CONTEXT_VERSION", "")
 PANDECT_MAP_CONTEXT_ATTRIBUTION = os.environ.get("PANDECT_MAP_CONTEXT_ATTRIBUTION", "")

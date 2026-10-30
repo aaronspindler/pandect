@@ -3,6 +3,7 @@
 import logging
 import re
 
+from django.conf import settings
 from django.utils.cache import add_never_cache_headers
 from gunicorn.glogging import Logger
 
@@ -26,10 +27,19 @@ class PrivatePageMiddleware:
             # makes browsers send Origin: null for ordinary form POSTs.
             response["Referrer-Policy"] = "same-origin"
         response.setdefault("X-Content-Type-Options", "nosniff")
+        tile_source = ""
+        match = request.resolver_match
+        if (
+            response.status_code == 200
+            and match
+            and match.view_name == "cases:case_map"
+            and settings.PANDECT_MAP_TILE_ORIGIN
+        ):
+            tile_source = f" {settings.PANDECT_MAP_TILE_ORIGIN}"
         response.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; font-src 'self'; object-src 'none'; "
+            f"img-src 'self' data:{tile_source}; font-src 'self'; object-src 'none'; "
             "base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
         )
         return response

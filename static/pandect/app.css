@@ -1264,6 +1264,27 @@ textarea {
   overflow-wrap:anywhere
 }
 
+.evidence-image-preview {
+  margin:1rem 0
+}
+
+.evidence-image-preview img {
+  display:block;
+  width:auto;
+  max-width:100%;
+  height:auto;
+  max-height:32rem;
+  margin:0 auto;
+  object-fit:contain;
+  background:var(--background)
+}
+
+.evidence-image-preview figcaption {
+  margin-top:.75rem;
+  color:var(--secondary);
+  font-size:.875rem
+}
+
 .reader-empty {
   display:flex;
   flex-direction:column;

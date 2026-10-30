@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from tempfile import TemporaryDirectory
 from threading import Barrier
@@ -390,6 +391,49 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             parser_version="unsupported"
         )
         self.assertEqual(self.client.get(self.review_url(batch)).status_code, 503)
+
+    def test_uncertain_upload_commit_retains_potentially_referenced_original(self):
+        self.login("owner")
+        real_atomic = transaction.atomic
+        outer = True
+
+        @contextmanager
+        def uncertain_commit(*args, **kwargs):
+            with real_atomic(*args, **kwargs):
+                yield
+            raise OSError("Uncertain commit outcome")
+
+        def atomic_context(*args, **kwargs):
+            nonlocal outer
+            if outer:
+                outer = False
+                return uncertain_commit(*args, **kwargs)
+            return real_atomic(*args, **kwargs)
+
+        with patch(
+            "evidence.import_views.transaction.atomic", side_effect=atomic_context
+        ):
+            response = self.upload()
+        self.assertEqual(response.status_code, 503)
+        batch = VehicleLocationImport.objects.get()
+        self.assertTrue(batch.document.file.storage.exists(batch.document.file.name))
+        self.assertNotContains(response, "Uncertain commit outcome", status_code=503)
+
+    def test_vehicle_detail_excludes_inconsistent_import_source_links(self):
+        batch = self.new_batch()
+        self.assertEqual(self.complete(batch).status_code, 302)
+        item = VehicleLocationEvidence.objects.get(import_batch=batch)
+        detail_url = reverse(
+            "vehicles:detail",
+            kwargs={"case_id": self.case.pk, "vehicle_id": self.vehicle.pk},
+        )
+        self.assertContains(self.client.get(detail_url), item.title)
+        # Trusted maintenance writes can bypass model validation. Readers must
+        # still apply the same source boundary as private evidence downloads.
+        DocumentEvidence.objects.filter(pk=batch.document_id).update(
+            case=self.other_case
+        )
+        self.assertNotContains(self.client.get(detail_url), item.title)
 
     def test_smaller_operator_limits_are_displayed_and_enforced(self):
         self.login("owner")

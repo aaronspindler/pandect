@@ -1,14 +1,13 @@
 """Case-scoped operator access without replacing or deleting originals."""
 
-from django import forms
-from django.conf import settings
 from django.contrib import admin
 from django.db.models import F, Q
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from cases.models import Case, CaseMembership
+from cases.admin_access import CaseScopedAdmin
+from cases.permissions import accessible_cases
 
 from .forms import (
     CALL_KINDS,
@@ -17,6 +16,7 @@ from .forms import (
     KINDS,
     ORIGINAL_FIELDS,
     TYPE_FIELDS,
+    BaseEvidenceForm,
 )
 from .models import CallEvidenceAttachment
 from .queries import same_case_evidence
@@ -65,13 +65,10 @@ class CallAttachmentInline(admin.StackedInline):
         return (
             super()
             .get_queryset(request)
-            .filter(
-                Q(case__owner=request.user) | Q(case__memberships__user=request.user)
-            )
+            .filter(case__in=accessible_cases(request.user))
             .filter(
                 Q(phone_call__case_id=F("case_id")) | Q(facetime__case_id=F("case_id"))
             )
-            .distinct()
         )
 
     @admin.display(description="Original audio")
@@ -103,36 +100,9 @@ class FaceTimeAttachmentInline(CallAttachmentInline):
     fk_name = "facetime"
 
 
-class EvidenceAdminForm(forms.ModelForm):
-    def clean_file(self):
-        original = self.cleaned_data["file"]
-        if original.size > settings.PANDECT_MAX_FILE_BYTES:
-            raise forms.ValidationError(
-                "This file exceeds the configured upload limit."
-            )
-        if len(getattr(original, "content_type", "") or "") > 255:
-            raise forms.ValidationError("The declared content type is too long.")
-        return original
-
-    def clean_body(self):
-        body = self.cleaned_data["body"]
-        if len(body.encode("utf-8")) > settings.PANDECT_MAX_TEXT_BYTES:
-            raise forms.ValidationError(
-                "This text exceeds the configured capture limit."
-            )
-        return body
-
-    def clean(self):
-        cleaned = super().clean()
-        for name in ("description", "source_description"):
-            if len(cleaned.get(name, "")) > 20000:
-                self.add_error(name, "Keep this description within 20,000 characters.")
-        return cleaned
-
-
 @admin.register(*KINDS.values())
-class EvidenceAdmin(admin.ModelAdmin):
-    form = EvidenceAdminForm
+class EvidenceAdmin(CaseScopedAdmin):
+    form = BaseEvidenceForm
     list_display = ("title", "case", "uploaded_by", "is_archived", "created_at")
     list_select_related = ("case", "uploaded_by")
     list_filter = ("is_archived",)
@@ -154,7 +124,6 @@ class EvidenceAdmin(admin.ModelAdmin):
         "archive_changed_by",
         "original_file",
     )
-    actions = None
 
     class Media:
         css = {"all": ("evidence/admin.css",)}
@@ -170,26 +139,11 @@ class EvidenceAdmin(admin.ModelAdmin):
             super()
             .get_queryset(request)
             .select_related("case", "uploaded_by", "archive_changed_by")
-            .filter(
-                Q(case__owner=request.user) | Q(case__memberships__user=request.user)
-            )
-            .distinct()
         )
         return same_case_evidence(queryset)
 
-    def get_editable_cases(self, request):
-        return Case.objects.filter(
-            Q(owner=request.user)
-            | Q(
-                memberships__user=request.user,
-                memberships__role=CaseMembership.Role.EDITOR,
-            )
-        ).distinct()
-
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "case":
-            kwargs["queryset"] = self.get_editable_cases(request)
-        elif db_field.name in ("person", "vehicle", "sender", "recipient"):
+        if db_field.name in ("person", "vehicle", "sender", "recipient"):
             kwargs["queryset"] = db_field.related_model.objects.filter(
                 case__in=self.get_editable_cases(request)
             )
@@ -216,7 +170,7 @@ class EvidenceAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         fields = super().get_readonly_fields(request, obj)
         if obj is not None:
-            fields += ("case", *ORIGINAL_FIELDS[self.kind])
+            fields += ORIGINAL_FIELDS[self.kind]
             if self.kind in FILE_KINDS:
                 fields += ("original_filename", "byte_size", "declared_content_type")
             if self.kind == "vehicle-location":
@@ -314,28 +268,6 @@ class EvidenceAdmin(admin.ModelAdmin):
         return reverse(
             "evidence:detail",
             kwargs={"case_id": obj.case_id, "kind": self.kind, "evidence_id": obj.pk},
-        )
-
-    def has_view_permission(self, request, obj=None):
-        return super().has_view_permission(request, obj) and (
-            obj is None
-            or obj.case.owner_id == request.user.pk
-            or obj.case.memberships.filter(user=request.user).exists()
-        )
-
-    def has_add_permission(self, request):
-        return (
-            super().has_add_permission(request)
-            and self.get_editable_cases(request).exists()
-        )
-
-    def has_change_permission(self, request, obj=None):
-        return super().has_change_permission(request, obj) and (
-            obj is None
-            or obj.case.owner_id == request.user.pk
-            or obj.case.memberships.filter(
-                user=request.user, role=CaseMembership.Role.EDITOR
-            ).exists()
         )
 
     def has_delete_permission(self, request, obj=None):

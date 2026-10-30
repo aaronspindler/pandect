@@ -64,7 +64,22 @@ def validate_text(text):
     return text
 
 
-class EvidenceForm(forms.ModelForm):
+class BaseEvidenceForm(forms.ModelForm):
+    def clean_file(self):
+        return validate_file(self.cleaned_data["file"])
+
+    def clean_body(self):
+        return validate_text(self.cleaned_data["body"])
+
+    def clean(self):
+        cleaned = super().clean()
+        for name in ("description", "source_description"):
+            if len(cleaned.get(name, "")) > 20000:
+                self.add_error(name, "Keep this description within 20,000 characters.")
+        return cleaned
+
+
+class EvidenceForm(BaseEvidenceForm):
     kind = forms.ChoiceField(
         choices=tuple(KIND_LABELS.items()), widget=forms.HiddenInput
     )
@@ -111,9 +126,10 @@ class EvidenceForm(forms.ModelForm):
             self.fields["submission_id"].required = True
         if "file" in self.fields:
             self.fields["file"].label = "Original file"
-            self.fields[
-                "file"
-            ].help_text = "The original is retained and cannot be replaced."
+            self.fields["file"].help_text = (
+                "The original is retained and cannot be replaced. "
+                "Exact duplicates in this case are checked before saving."
+            )
         if "body" in self.fields:
             self.fields["body"].strip = False
             self.fields["body"].label = "Original text"
@@ -121,6 +137,12 @@ class EvidenceForm(forms.ModelForm):
                 "We preserve the text submitted by your browser. Upload a text file "
                 "as a Document when its exact original bytes matter."
             )
+            if kind == "text":
+                self.fields[
+                    "body"
+                ].help_text += (
+                    " Exact duplicates in this case are checked before saving."
+                )
             self.fields["body"].widget.attrs.update(
                 {
                     "wrap": "soft",
@@ -207,19 +229,6 @@ class EvidenceForm(forms.ModelForm):
         self.order_fields(
             ("title", *ORIGINAL_FIELDS[kind], "transcript", "file", *COMMON_FIELDS)
         )
-
-    def clean_file(self):
-        return validate_file(self.cleaned_data["file"])
-
-    def clean_body(self):
-        return validate_text(self.cleaned_data["body"])
-
-    def clean(self):
-        cleaned = super().clean()
-        for name in ("description", "source_description"):
-            if len(cleaned.get(name, "")) > 20000:
-                self.add_error(name, "Keep this description within 20,000 characters.")
-        return cleaned
 
 
 class CallContentForm(forms.Form):

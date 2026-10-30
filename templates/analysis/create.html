@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
 {% block body_class %}analysis-page{% endblock %}
-{% block title %}Start analysis · {{ case.name }}{% endblock %}
+{% block title %}{% if evidence %}Additional analysis{% else %}Start analysis{% endif %} · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{% url 'analysis:index' case.pk %}">Back to analysis</a>
+{% if evidence %}<a class="back-link" href="{{ evidence_url }}">Back to evidence</a>{% else %}<a class="back-link" href="{% url 'analysis:index' case.pk %}">Back to analysis</a>{% endif %}
 <header class="page-header">
-  <div><h1>Start analysis</h1><p>Select retained sources and review the assumptions before processing.</p></div>
+  <div>{% if evidence %}<h1>Additional analysis</h1><p>{{ evidence.title }}</p><p>Review the retained source, processing location, and assumptions.</p>{% else %}<h1>Start analysis</h1><p>Select retained sources and review the assumptions before processing.</p>{% endif %}</div>
 </header>
 
 <form method="get" class="panel analysis-picker" aria-label="Choose analysis and sources">
@@ -14,10 +14,10 @@
       {% for key,spec in operations %}<option value="{{ key }}"{% if operation == key %} selected{% endif %}>{{ spec.label }}</option>{% endfor %}
     </select>
   </div>
-  <div class="field">
+  {% if not evidence %}<div class="field">
     <label for="analysis-query">Find source titles</label>
     <input type="search" id="analysis-query" name="q" maxlength="200" value="{{ query }}">
-  </div>
+  </div>{% endif %}
   <div class="form-actions">
     <button class="button button-secondary" type="submit">Choose analysis and sources</button>
     {% if query %}<a class="button button-secondary" href="?operation={{ operation }}">Clear title filter</a>{% endif %}
@@ -40,15 +40,15 @@
 
   <fieldset class="analysis-sources{% if form.sources.errors %} field-error{% endif %}" id="{{ form.sources.auto_id }}" aria-describedby="analysis-source-guidance" tabindex="-1">
     <legend>{{ form.sources.label }}</legend>
-    <p class="help-text" id="analysis-source-guidance">Choose from up to 500 sources. Search a title above to narrow the selection. Archived sources are labelled. When using extracted text, choose its explicit extraction version.</p>
+    <p class="help-text" id="analysis-source-guidance">{% if evidence %}Only sources from this evidence are available, including retained call additions and extraction versions. Choose the version to process. Archived sources are labelled.{% else %}Choose from up to 500 sources. Search a title above to narrow the selection. Archived sources are labelled. When using extracted text, choose its explicit extraction version.{% endif %}</p>
     {% if form.sources.field.choices %}
       {% for source in form.sources %}<label class="analysis-source-choice" for="{{ source.id_for_label }}">{{ source.tag }}<span>{{ source.choice_label }}</span></label>{% endfor %}
       {{ form.sources.errors }}
     {% else %}
       <div class="empty-state compact-empty">
         <h3>No suitable sources</h3>
-        <p>Add supported evidence to this case, choose another analysis, or clear the title filter.</p>
-        <div class="actions"><a class="button button-secondary" href="{% url 'evidence:create' case.pk %}">Add evidence</a>{% if query %}<a class="button button-secondary" href="?operation={{ operation }}">Clear title filter</a>{% endif %}</div>
+        {% if evidence %}<p>This evidence has no suitable source for this analysis. Choose another analysis above or return to the evidence to review its retained content.</p><a class="button button-secondary" href="{{ evidence_url }}">Back to evidence</a>{% else %}<p>Add supported evidence to this case, choose another analysis, or clear the title filter.</p>
+        <div class="actions"><a class="button button-secondary" href="{% url 'evidence:create' case.pk %}">Add evidence</a>{% if query %}<a class="button button-secondary" href="?operation={{ operation }}">Clear title filter</a>{% endif %}</div>{% endif %}
       </div>
     {% endif %}
   </fieldset>
@@ -77,11 +77,12 @@
   </details>
 
   <div class="form-layout">
-    {% include 'components/form_field.html' with field=form.external_processing only %}
+    {% if form.backend %}{% include 'components/form_field.html' with field=form.backend only %}{% endif %}
+    {% if form.external_processing.is_hidden %}{{ form.external_processing }}{% else %}{% include 'components/form_field.html' with field=form.external_processing only %}{% endif %}
     <p class="muted">Originals stay retained. Suggestions and similarities require investigator review.</p>
     <div class="form-actions">
       <button class="button button-primary" type="submit"{% if not form.sources.field.choices %} disabled{% endif %}>Queue analysis</button>
-      <a class="button button-secondary" href="{% url 'analysis:index' case.pk %}">Cancel</a>
+      <a class="button button-secondary" href="{% if evidence %}{{ evidence_url }}{% else %}{% url 'analysis:index' case.pk %}{% endif %}">Cancel</a>
     </div>
   </div>
 </form>

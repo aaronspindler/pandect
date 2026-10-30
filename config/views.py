@@ -4,17 +4,18 @@ from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_safe
 
-from .access import product_login_required
+from .access import wants_json
 
 
 @require_safe
-@product_login_required
 def home(request):
-    return redirect("cases:case_list")
+    if request.user.is_authenticated:
+        return redirect("cases:case_list")
+    return render(request, "marketing/home.html")
 
 
 def permission_denied(request, exception=None):
-    if "application/json" in request.headers.get("Accept", ""):
+    if wants_json(request):
         return JsonResponse(
             {"code": "permission_denied", "message": "Your case role cannot do this."},
             status=403,
@@ -23,7 +24,7 @@ def permission_denied(request, exception=None):
 
 
 def not_found(request, exception=None):
-    if "application/json" in request.headers.get("Accept", ""):
+    if wants_json(request):
         return JsonResponse(
             {"code": "not_found", "message": "This material is not available to you."},
             status=404,

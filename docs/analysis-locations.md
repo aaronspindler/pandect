@@ -44,12 +44,18 @@ retained map references with source, date, attribution and visible coverage limi
 | Parameter | Default | Supported range |
 | --- | --- | --- |
 | Nearby/stop distance | 100 m | 1–100,000 m |
+| Coordinate discrepancy threshold (location quality and equal-time travel checks) | 100 m | 1–100,000 m |
 | Maximum gap for movement segmentation | 60 min | 1–10,080 min |
 | Minimum observed span for candidate visits | 5 min | 0–1,440 min; at least two samples still required |
 | Co-location time tolerance | 10 min | 0–1,440 min |
 | Rapid-transition screening threshold | 300 km/h | 1–3,000 km/h |
 | Proximity query radius | 1,000 m | 1–500,000 m |
 | Near-boundary ambiguity band | 10 m | 0–10,000 m |
+
+Each form exposes only the assumptions its method uses. Location quality compares
+reported and reviewed coordinates against the discrepancy threshold; travel checks
+also use it for equal-time positions. Same-event comparison presents the selected
+claims directly and has no distance or time tolerance setting.
 
 Distances use a spherical Earth approximation, including observations near the
 poles and dateline. Polygon inside/outside classification uses latitude/longitude
@@ -117,14 +123,16 @@ Configuration is supplied to Django through these settings/environment mappings:
 | Name | Meaning |
 | --- | --- |
 | `PANDECT_GEOCODER_URL` | Operator's Nominatim-compatible base endpoint. Empty disables lookups. |
+| `PANDECT_GEOCODER_LOCAL` | Default `false`. Set `true` only for an operator-controlled endpoint; private-looking hostnames do not establish trust. |
 | `PANDECT_GEOCODER_NAME` | Human-readable lookup source. |
 | `PANDECT_GEOCODER_VERSION` | Operator-supplied reference dataset/version identifier. |
 | `PANDECT_GEOCODER_ATTRIBUTION` | Required dataset attribution/license notice. |
 | `PANDECT_GEOCODER_USER_AGENT` | Application/operator identification accepted by that service. |
 | `PANDECT_GEOCODER_TIMEOUT` | Per-request timeout, default 10 seconds, bounded to 1–30 seconds. |
 
-A lookup requires explicit external-processing confirmation and current edit
-permission. Authorization is rechecked immediately before each request and before
+A lookup requires current edit permission and explicit external-processing
+confirmation unless its endpoint is designated local. Authorization is rechecked
+immediately before each request and before
 publication by the processing service. The lookup sends only the selected
 address or coordinate query, rather than case names, people, vehicle identifiers
 or the evidence record. Already submitted requests cannot be recalled.
@@ -149,6 +157,12 @@ later reruns retain their history. No-match, unsupported, quota/authentication,
 invalid response and unavailable-service outcomes remain distinguishable. A
 partly failed batch retains completed candidates with a partial outcome instead
 of claiming every lookup succeeded.
+
+The [investigation map](maps.md#local-address-lookup) can queue local forward
+lookups and display unreviewed candidates as distinct square estimate markers.
+This is candidate inspection, not acceptance for location analysis. Every
+unrejected alternative remains visible, accepted candidates are labelled, and
+the original observation is preserved. The map never invokes an external geocoder.
 
 These choices follow the distinction between observed samples and inferred
 trajectory interpretations discussed in Microsoft's

@@ -10,6 +10,7 @@ from evidence.queries import scoped_evidence
 from evidence.types import CALL_KINDS, KIND_LABELS
 from people.models import Person
 
+from .execution import processing_external, requires_inference
 from .locations import LIMITS, comparison_periods
 from .models import AnalysisResult, AnalysisReview
 from .operations import OPERATIONS, get_operation
@@ -74,26 +75,29 @@ class ReportForm(forms.Form):
         required=False, label="Other participant in the pair"
     )
 
-    def __init__(self, *args, case, report_name=None, **kwargs):
+    def __init__(self, *args, case, report_name, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["vehicle_id"].choices = [
-            ("", "All vehicles"),
-            *((str(x.pk), str(x)) for x in case.vehicles.all()),
-        ]
-        self.fields["participant_id"].choices = [
-            ("", "All participants"),
-            *((str(x.pk), str(x)) for x in Person.objects.filter(case=case)),
-        ]
-        self.fields["other_participant_id"].choices = self.fields[
-            "participant_id"
-        ].choices
         if report_name == "calls":
             del self.fields["vehicle_id"]
-        elif report_name is not None:
+            choices = [
+                ("", "All participants"),
+                *((str(person.pk), str(person)) for person in case.people.all()),
+            ]
+            self.fields["participant_id"].choices = choices
+            self.fields["other_participant_id"].choices = choices
+        else:
             del self.fields["participant_id"]
             del self.fields["other_participant_id"]
             if report_name == "duplicates":
                 del self.fields["vehicle_id"]
+            else:
+                self.fields["vehicle_id"].choices = [
+                    ("", "All vehicles"),
+                    *(
+                        (str(vehicle.pk), str(vehicle))
+                        for vehicle in case.vehicles.all()
+                    ),
+                ]
 
     def clean(self):
         data = super().clean()
@@ -104,17 +108,21 @@ class ReportForm(forms.Form):
         return data
 
 
-def source_choices(case, operation, query=""):
+def source_choices(case, operation, query="", *, evidence=None):
     """Bounded source picker; every submitted ID is resolved again by the service."""
     choices = []
     geocode_candidates = {}
     specification = get_operation(operation)
     for kind in specification.kinds:
+        if evidence is not None and kind != evidence[0]:
+            continue
         queryset = (
             scoped_evidence(case, kind)
             .only("id", "title", "is_archived", "created_at")
             .order_by("-created_at", "pk")
         )
+        if evidence is not None:
+            queryset = queryset.filter(pk=evidence[1].pk)
         if query:
             queryset = queryset.filter(title__icontains=query)
         for item in queryset[:SOURCE_CHOICE_LIMIT].iterator(chunk_size=50):
@@ -234,19 +242,19 @@ def selection(value):
     return data
 
 
+class EvidenceAnalysisForm(forms.Form):
+    submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
+
+
 class AnalysisForm(forms.Form):
     mode = forms.ChoiceField(
         required=False,
-        choices=(
-            ("printed", "Printed English"),
-            ("handwriting", "English handwriting · Experimental"),
-            ("mixed", "Mixed English print and handwriting · Experimental"),
-        ),
+        choices=(("printed", "Printed English"),),
         initial="printed",
         label="Text profile",
         help_text=(
-            "Handprint and cursive recognition have not been evaluated with a live "
-            "model. Inspect every suggestion against the source image."
+            "Processed locally. Handwriting and mixed text are unsupported. "
+            "Inspect extracted text against the source image."
         ),
     )
     context_radius_m = forms.FloatField(
@@ -382,12 +390,25 @@ class AnalysisForm(forms.Form):
     include_summary = forms.BooleanField(
         required=False,
         label="Include a source-cited topic summary",
-        help_text="Requires approval for external AI processing.",
+        help_text="Uses the selected processing location and requires review.",
     )
     semantic_links = forms.BooleanField(
         required=False,
         label="Suggest topic continuation across channels",
-        help_text="Requires approval for external AI processing.",
+        help_text="Uses the selected processing location and requires review.",
+    )
+    backend = forms.ChoiceField(
+        required=False,
+        initial="local",
+        label="Processing location",
+        choices=(
+            ("local", "This server or private network"),
+            ("gateway", "External AI service"),
+        ),
+        help_text=(
+            "Local processing keeps evidence on the operator's own hardware. "
+            "An unavailable local service never falls back to external processing."
+        ),
     )
     operation = forms.ChoiceField(
         choices=[(key, value.label) for key, value in OPERATIONS.items()],
@@ -401,7 +422,8 @@ class AnalysisForm(forms.Form):
         required=False,
         label="I approve external processing of the selected evidence",
         help_text=(
-            "AI operations send selected content through the operator's "
+            "Required only when using an external service. External AI sends "
+            "selected content through the operator's "
             "Cloudflare AI Gateway. Geographic lookup sends selected "
             "addresses or coordinates to the configured lookup service. "
             "Previously sent requests cannot be recalled. Operator "
@@ -480,11 +502,11 @@ class AnalysisForm(forms.Form):
         label="Export account labelled Them",
     )
 
-    def __init__(self, *args, case, operation, query="", **kwargs):
+    def __init__(self, *args, case, operation, query="", evidence=None, **kwargs):
         super().__init__(*args, **kwargs)
         location_fields = {
             "normalize_addresses": [],
-            "location_quality": ["gap_minutes"],
+            "location_quality": ["distance_m"],
             "spatial_groups": ["distance_m"],
             "geographic_context": [
                 "distance_m",
@@ -511,10 +533,14 @@ class AnalysisForm(forms.Form):
                 "period_b_end",
             ],
             "colocation": ["distance_m", "time_window_minutes"],
-            "travel_discrepancies": ["gap_minutes", "speed_limit_kmh"],
-            "location_conflicts": ["distance_m", "time_window_minutes", "event_label"],
+            "travel_discrepancies": ["distance_m", "gap_minutes", "speed_limit_kmh"],
+            "location_conflicts": ["event_label"],
         }
         assumption_names = location_fields.get(operation, [])
+        if operation in {"location_quality", "travel_discrepancies"}:
+            self.fields[
+                "distance_m"
+            ].label = "Coordinate discrepancy threshold (metres)"
         if operation == "geocode_locations":
             assumption_names = ["reverse"]
         if operation == "ocr":
@@ -555,6 +581,9 @@ class AnalysisForm(forms.Form):
             assumption_names = ["include_summary"]
         if operation == "conversation_link":
             assumption_names = ["time_window_minutes", "semantic_links"]
+        uses_model = requires_inference(
+            operation, {"include_summary": True, "semantic_links": True}
+        )
         active_fields = {
             "operation",
             "submission_id",
@@ -562,13 +591,21 @@ class AnalysisForm(forms.Form):
             "external_processing",
             *assumption_names,
         }
+        if uses_model:
+            active_fields.add("backend")
         if operation == "conversation_import":
             active_fields.update(("me_label", "them_label", "me", "them", "timezone"))
         self.fields = {
             name: field for name, field in self.fields.items() if name in active_fields
         }
+        if not uses_model and not processing_external(operation, {}):
+            self.fields["external_processing"].widget = forms.HiddenInput()
+            self.fields["external_processing"].disabled = True
         self.fields["operation"].initial = operation
-        self.fields["sources"].choices = source_choices(case, operation, query)
+        choices = source_choices(case, operation, query, evidence=evidence)
+        self.fields["sources"].choices = choices
+        if evidence is not None and choices:
+            self.initial["sources"] = [choices[0][0]]
         for name in ("group_a", "group_b", "break_before", "join_before"):
             if name in self.fields:
                 self.fields[name].choices = self.fields["sources"].choices
@@ -603,6 +640,8 @@ class AnalysisForm(forms.Form):
             for key in names
             if self.cleaned_data.get(key) not in (None, "")
         }
+        if requires_inference(self.cleaned_data.get("operation"), parameters):
+            parameters["backend"] = self.cleaned_data.get("backend") or "local"
         for key in (
             "context_as_of",
             "compare_split_at",
@@ -724,13 +763,16 @@ class AnalysisForm(forms.Form):
             or set(data.get("group_a", [])) & set(data.get("group_b", []))
         ):
             self.add_error("group_b", "Choose two nonempty, separate writing samples.")
-        if (
-            data.get("include_summary")
-            or data.get("semantic_links")
-            or get_operation(data.get("operation", "native_text")).external
-        ) and not data.get("external_processing"):
+        external = processing_external(
+            data.get("operation", "native_text"),
+            data,
+            backend=data.get("backend") or "local",
+        )
+        if external and not data.get("external_processing"):
             self.add_error(
                 "external_processing",
                 "Approve external processing for the selected operation.",
             )
+        if not external:
+            data["external_processing"] = False
         return data

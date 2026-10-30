@@ -18,7 +18,7 @@
   {% if not can_edit %}<p class="role-note">Your Viewer role lets you inspect authorized sources and results.</p>{% endif %}
   {% for run in page_obj %}
     <a class="record-row analysis-history-row" href="{% url 'analysis:detail' case.pk run.pk %}">
-      <div><strong>{{ run.label }}</strong><p class="muted">{{ run.created_at|date:'d M Y, H:i:s' }} UTC · {{ run.requested_by }}</p></div>
+      <div><strong>{{ run.label }}</strong><p class="muted">{{ run.created_at|date:'d M Y, H:i:s' }} UTC · {{ run.requested_by }} · {{ run.processing_label }}</p></div>
       <span class="badge">{{ run.get_status_display }}</span>
     </a>
   {% empty %}

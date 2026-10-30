@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.contrib import messages
+from django.core import signing
 from django.core.exceptions import PermissionDenied, SuspiciousFileOperation
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
@@ -19,9 +20,11 @@ from django.views.decorators.http import (
     require_safe,
 )
 
+from analysis.errors import AnalysisError
+from analysis.forms import EvidenceAnalysisForm
 from analysis.search import derived_content_condition, derived_text_matches
 from cases.permissions import case_context, get_case
-from config.access import product_login_required
+from config.access import product_login_required, wants_json
 
 from .forms import (
     CALL_KINDS,
@@ -37,12 +40,9 @@ from .forms import (
     save_call_content,
 )
 from .models import CallEvidenceAttachment, VehicleLocationImport
-from .queries import get_evidence, scoped_evidence
+from .previews import image_preview
+from .queries import duplicate_matches, get_evidence, scoped_evidence
 from .search import retained_content_condition, retained_text_matches
-
-
-def _wants_json(request):
-    return "application/json" in request.headers.get("Accept", "")
 
 
 def _private(response):
@@ -51,7 +51,7 @@ def _private(response):
 
 
 def _error(request, code, message, status=400, errors=None):
-    if _wants_json(request):
+    if wants_json(request):
         return _private(
             JsonResponse(
                 {"code": code, "message": message, "errors": errors or {}},
@@ -72,14 +72,18 @@ def _detail_url(case, kind, item):
     )
 
 
-def _query_suffix(request):
+def _list_params(request):
     params = request.GET.copy()
     for key in list(params):
         if key not in {"q", "type", "state", "page"}:
             del params[key]
     if "q" in params:
         params["q"] = params["q"][:200]
-    value = params.urlencode()
+    return params
+
+
+def _query_suffix(request):
+    value = _list_params(request).urlencode()
     return f"?{value}" if value else ""
 
 
@@ -148,10 +152,7 @@ def _list_context(request, case):
         queries[0].union(*queries[1:], all=True).order_by("-created_at", "kind", "id")
     )
     page = Paginator(combined, 25).get_page(request.GET.get("page"))
-    params = request.GET.copy()
-    for key in list(params):
-        if key not in {"q", "type", "state", "page"}:
-            del params[key]
+    params = _list_params(request)
     suffix = _query_suffix(request)
     rows = []
     for row in page.object_list:
@@ -230,6 +231,7 @@ def detail(request, case_id, kind, evidence_id):
             "is_location": kind in LOCATION_KINDS,
             "is_communication": kind in COMMUNICATION_KINDS,
             "is_call": kind in CALL_KINDS,
+            "analysis_form": EvidenceAnalysisForm(),
         }
     )
     if kind in CALL_KINDS:
@@ -274,7 +276,7 @@ def detail(request, case_id, kind, evidence_id):
 
 def _created_response(request, case, kind, item, *, created):
     url = _detail_url(case, kind, item)
-    if _wants_json(request):
+    if wants_json(request):
         return _private(
             JsonResponse(
                 {"type": kind, "id": str(item.pk), "detail_url": url},
@@ -285,6 +287,37 @@ def _created_response(request, case, kind, item, *, created):
         request, "Evidence added." if created else "This evidence was already saved."
     )
     return redirect(url)
+
+
+def _duplicate_review(request, case, kind, item):
+    if kind not in (*FILE_KINDS, "text"):
+        return None
+    identity = [str(case.pk), str(request.user.pk), kind, item.sha256]
+    confirmation = request.POST.get("duplicate_confirmation", "")
+    try:
+        if signing.loads(confirmation, salt="evidence.duplicate") == identity:
+            return None
+    except signing.BadSignature:
+        pass
+    matches = list(duplicate_matches(case, item.sha256)[:11])
+    if not matches:
+        return None
+    for match in matches[:10]:
+        match["id"] = str(match["id"])
+        match["label"] = KIND_LABELS[match["kind"]]
+        match["url"] = reverse(
+            "evidence:detail",
+            kwargs={
+                "case_id": case.pk,
+                "kind": match["kind"],
+                "evidence_id": match["id"],
+            },
+        )
+    return {
+        "matches": matches[:10],
+        "has_more": len(matches) > 10,
+        "confirmation": signing.dumps(identity, salt="evidence.duplicate"),
+    }
 
 
 @product_login_required
@@ -311,7 +344,7 @@ def create(request, case_id):
     try:
         case = get_case(request.user, case_id, edit=True)
     except PermissionDenied:
-        if _wants_json(request):
+        if wants_json(request):
             return _error(
                 request,
                 "permission_denied",
@@ -320,7 +353,7 @@ def create(request, case_id):
             )
         raise
     except Http404:
-        if _wants_json(request):
+        if wants_json(request):
             return _error(request, "not_found", "This case is unavailable.", 404)
         raise
     kind = (
@@ -335,6 +368,7 @@ def create(request, case_id):
         kind=kind, instance=KINDS[kind](case=case, uploaded_by=request.user)
     )
     status = 200
+    duplicates = None
     if request.method == "POST":
         if getattr(request, "evidence_upload_too_large", False):
             return _error(
@@ -377,15 +411,29 @@ def create(request, case_id):
                     request.POST, request.FILES, kind=kind, instance=instance
                 )
                 if form.is_valid():
-                    item = form.save()
-                    if kind in CALL_KINDS:
-                        save_call_content(
-                            item, request.user, form.cleaned_data, submission_id
+                    duplicates = _duplicate_review(request, case, kind, form.instance)
+                    if duplicates:
+                        if wants_json(request):
+                            return _private(
+                                JsonResponse(
+                                    {"code": "duplicate_evidence", **duplicates},
+                                    status=409,
+                                )
+                            )
+                        status = 409
+                    else:
+                        item = form.save()
+                        if kind in CALL_KINDS:
+                            save_call_content(
+                                item, request.user, form.cleaned_data, submission_id
+                            )
+                        return _created_response(
+                            request, case, kind, item, created=True
                         )
-                    return _created_response(request, case, kind, item, created=True)
-                status = 400
+                else:
+                    status = 400
         except PermissionDenied:
-            if not _wants_json(request):
+            if not wants_json(request):
                 raise
             return _error(
                 request,
@@ -394,12 +442,12 @@ def create(request, case_id):
                 403,
             )
         except Http404:
-            if not _wants_json(request):
+            if not wants_json(request):
                 raise
             return _error(request, "not_found", "This case is unavailable.", 404)
         except OSError:
             message = "The original could not be saved. Keep your file and try again."
-            if _wants_json(request):
+            if wants_json(request):
                 return _error(request, "storage_unavailable", message, 503)
             form.add_error(None, message)
             status = 503
@@ -411,7 +459,7 @@ def create(request, case_id):
                 "Retry with the same submission ID.",
                 409,
             )
-        if _wants_json(request):
+        if wants_json(request):
             status = (
                 413
                 if "file" in form.errors
@@ -429,6 +477,7 @@ def create(request, case_id):
             )
     context = case_context(case, request.user) | {
         "form": form,
+        "duplicates": duplicates,
         "kind": kind,
         "kind_label": KIND_LABELS[kind],
         "kind_choices": KIND_LABELS.items(),
@@ -498,6 +547,52 @@ def edit(request, case_id, kind, evidence_id):
 
 @product_login_required
 @require_safe
+def preview(request, case_id, kind, evidence_id):
+    case = get_case(request.user, case_id)
+    if kind != "image":
+        raise Http404
+    item = get_evidence(case, kind, evidence_id)
+    try:
+        content = image_preview(item)
+    except AnalysisError, OSError, ValueError:
+        response = HttpResponse(
+            "Image preview unavailable. Download the original to inspect it.",
+            status=422,
+            content_type="text/plain",
+        )
+    else:
+        response = HttpResponse(content, content_type="image/jpeg")
+        response["Content-Disposition"] = f'inline; filename="preview-{item.pk}.jpg"'
+    response["X-Content-Type-Options"] = "nosniff"
+    return _private(response)
+
+
+def _file_download(request, case, kind, item, *, attachment=None):
+    source = attachment if attachment is not None else item
+    try:
+        original = source.file.open("rb")
+    except OSError, ValueError:
+        return render(
+            request,
+            "evidence/unavailable.html",
+            case_context(case, request.user) | {"item": item, "kind": kind},
+            status=503,
+        )
+    try:
+        filename = get_valid_filename(source.original_filename)
+    except SuspiciousFileOperation:
+        prefix = "audio" if attachment is not None else "evidence"
+        filename = f"{prefix}-{source.pk}"
+    return FileResponse(
+        original,
+        as_attachment=True,
+        filename=filename,
+        content_type="application/octet-stream",
+    )
+
+
+@product_login_required
+@require_safe
 def download(request, case_id, kind, evidence_id):
     case = get_case(request.user, case_id)
     item = get_evidence(case, kind, evidence_id)
@@ -517,27 +612,7 @@ def download(request, case_id, kind, evidence_id):
             f'attachment; filename="evidence-{item.pk}.json"'
         )
     else:
-        try:
-            original = item.file.open("rb")
-        except OSError, ValueError:
-            return _private(
-                render(
-                    request,
-                    "evidence/unavailable.html",
-                    case_context(case, request.user) | {"item": item, "kind": kind},
-                    status=503,
-                )
-            )
-        try:
-            filename = get_valid_filename(item.original_filename)
-        except SuspiciousFileOperation:
-            filename = f"evidence-{item.pk}"
-        response = FileResponse(
-            original,
-            as_attachment=True,
-            filename=filename,
-            content_type="application/octet-stream",
-        )
+        response = _file_download(request, case, kind, item)
     response["X-Content-Type-Options"] = "nosniff"
     return _private(response)
 
@@ -587,7 +662,10 @@ def add_attachment(request, case_id, kind, evidence_id):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")
         item = get_evidence(case, kind, evidence_id, lock=request.method == "POST")
-        form = CallAttachmentForm(request.POST or None, request.FILES or None)
+        form = CallAttachmentForm(
+            request.POST if request.method == "POST" else None,
+            request.FILES if request.method == "POST" else None,
+        )
         if request.method == "POST":
             if getattr(request, "evidence_upload_too_large", False):
                 return _error(
@@ -643,7 +721,7 @@ def add_attachment(request, case_id, kind, evidence_id):
                     )
                 else:
                     url = _detail_url(case, kind, item) + f"#attachment-{attachment.pk}"
-                    if _wants_json(request):
+                    if wants_json(request):
                         return _private(
                             JsonResponse(
                                 {"id": str(attachment.pk), "detail_url": url},
@@ -659,7 +737,7 @@ def add_attachment(request, case_id, kind, evidence_id):
                     return redirect(url)
             else:
                 status = 400
-            if _wants_json(request):
+            if wants_json(request):
                 return _error(
                     request,
                     "storage_unavailable" if status == 503 else "validation_error",
@@ -712,27 +790,7 @@ def attachment_download(request, case_id, kind, evidence_id, attachment_id, comp
             f'attachment; filename="transcript-{attachment.pk}.txt"'
         )
     elif component == "audio" and attachment.file:
-        try:
-            original = attachment.file.open("rb")
-        except OSError, ValueError:
-            return _private(
-                render(
-                    request,
-                    "evidence/unavailable.html",
-                    case_context(case, request.user) | {"item": item, "kind": kind},
-                    status=503,
-                )
-            )
-        try:
-            filename = get_valid_filename(attachment.original_filename)
-        except SuspiciousFileOperation:
-            filename = f"audio-{attachment.pk}"
-        response = FileResponse(
-            original,
-            as_attachment=True,
-            filename=filename,
-            content_type="application/octet-stream",
-        )
+        response = _file_download(request, case, kind, item, attachment=attachment)
     else:
         raise Http404("Attachment not found.")
     response["X-Content-Type-Options"] = "nosniff"

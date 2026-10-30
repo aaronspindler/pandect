@@ -280,6 +280,15 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertNotContains(detail, "<script>source</script>")
                 self.assertContains(detail, "&lt;script&gt;source&lt;/script&gt;")
 
+    def test_empty_attachment_post_is_bound_and_reports_required_fields(self):
+        item = self.create_call()
+        response = self.client.post(
+            self.attachment_url(item), {}, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("submission_id", response.json()["errors"])
+        self.assertFalse(item.attachments.exists())
+
     def test_initial_retry_and_storage_failure_are_atomic(self):
         self.login("owner")
         payload = self.payload("phone-call", transcript="Initial transcript")

@@ -5,14 +5,17 @@
 - [Local development, configuration, and uv](development.md)
 - [Architecture and implemented scope](architecture.md)
 - [Background-worker setup, diagnostics, and recovery](background-tasks.md)
-- [Case analysis, reports, processing, and external AI configuration](analysis.md)
+- [Case analysis, reports, processing, and AI configuration](analysis.md)
+- [Local inference setup, model qualification, and private map services](local-analysis.md)
 - [Automatic geographic context and retained map references](analysis-geographic-context.md)
 - [Case workflows, invitations, collaboration, and Django admin](cases.md)
+- [Investigation map, OpenStreetMap tiles, and location coverage](maps.md)
 - [People, contact details, and case-scoped administration](people.md)
 - [Vehicles, identifying details, and case-scoped administration](vehicles.md)
 - [Evidence, communications, retained call material, and private downloads](evidence.md)
 - [Vehicle locations and Asset Location CSV imports](vehicle-location-imports.md)
 - [Validation, CI, and Dependabot](validation.md)
+- [October 2026 code review catalogue and validation](code-review-2026-10.md)
 - [Compose operation, backup, and recovery](operations.md)
 
 The Django project was generated from the repository root using
@@ -42,6 +45,7 @@ CSV imports. Bounded extraction and investigation workflows are documented in
 ## Interface design and delivery
 
 - [Project design standard](../DESIGN.md)
+- [Public marketing pages and hosted-service messaging](marketing.md)
 - [Investigator screens, workflows, and density specification](interface-design.md)
 - [Interface implementation plan and acceptance criteria](interface-plan.md)
 - [Browser validation and local captures](validation.md#browser-checks)

@@ -1,9 +1,9 @@
 from django.apps import apps
 from django.contrib import admin
-from django.db.models import Q
 from django.forms.models import BaseInlineFormSet
 
 from .models import Case, CaseMembership
+from .permissions import accessible_cases
 
 
 class CaseMembershipFormSet(BaseInlineFormSet):
@@ -56,10 +56,7 @@ class CaseAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return (
-            super()
-            .get_queryset(request)
-            .filter(Q(owner=request.user) | Q(memberships__user=request.user))
-            .distinct()
+            super().get_queryset(request).filter(pk__in=accessible_cases(request.user))
         )
 
     def has_view_permission(self, request, obj=None):

@@ -1,0 +1,40 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}A clearer view of your investigation{% endblock %} · Pandect</title>
+  <meta name="description" content="{% block description %}Bring evidence, people, and analysis together in Pandect, an open-source investigation workspace. Hosted Pandect is coming to openpandect.com.{% endblock %}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'pandect/brand/favicon.png' %}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{% static 'pandect/brand/apple-touch-icon.png' %}">
+  <link rel="stylesheet" href="{% static 'pandect/app.css' %}">
+  <link rel="stylesheet" href="{% static 'pandect/marketing.css' %}">
+</head>
+<body class="marketing">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="marketing-header wrap">
+    <a class="wordmark" href="{% url 'home' %}" aria-label="Pandect">{% include 'components/brand.html' %}</a>
+    <nav class="marketing-nav" aria-label="Main navigation">
+      <a href="{% url 'product' %}" {% if request.resolver_match.url_name == 'product' %}aria-current="page"{% endif %}>Product</a>
+      <a href="{% url 'trust' %}" {% if request.resolver_match.url_name == 'trust' %}aria-current="page"{% endif %}>Trust</a>
+      <a href="{% url 'hosting' %}" {% if request.resolver_match.url_name == 'hosting' %}aria-current="page"{% endif %}>Hosting</a>
+      {% if user.is_authenticated %}<a class="marketing-button secondary" href="{% url 'cases:case_list' %}">Open workspace <span aria-hidden="true">↗</span></a>{% else %}<a class="marketing-button secondary" href="{% url 'account_login' %}">Sign in <span aria-hidden="true">↗</span></a>{% endif %}
+    </nav>
+  </header>
+  <main id="main-content" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="marketing-footer wrap">
+    <div><a class="wordmark" href="{% url 'home' %}" aria-label="Pandect">{% include 'components/brand.html' %}</a><p>A clearer view of the evidence.</p></div>
+    <nav aria-label="Footer navigation">
+      <a href="{% url 'product' %}">Product</a>
+      <a href="{% url 'trust' %}">Trust</a>
+      <a href="{% url 'hosting' %}">Hosting</a>
+      <a href="https://github.com/aaronspindler/pandect">Source on GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+    <p class="footer-note">Open-source investigation software.<br>Hosted Pandect is coming to openpandect.com.</p>
+  </footer>
+</body>
+</html>

@@ -52,7 +52,6 @@ def person_list(request, case_id):
             "query": query,
             "search_query": urlencode({"q": query}) if query else "",
             "list_query": list_query(request),
-            "active_nav": "people",
         },
     )
 
@@ -70,7 +69,6 @@ def person_detail(request, case_id, person_id):
             **case_context(case, request.user),
             "person": person,
             "list_query": list_query(request),
-            "active_nav": "people",
         },
     )
 
@@ -99,7 +97,6 @@ def person_create(request, case_id):
             "form": form,
             "creating": True,
             "list_query": list_query(request),
-            "active_nav": "people",
         },
         status=400 if request.method == "POST" else 200,
     )
@@ -137,7 +134,6 @@ def person_edit(request, case_id, person_id):
             "latest_person": latest_person,
             "creating": False,
             "list_query": list_query(request),
-            "active_nav": "people",
         },
         status=409 if form.stale else 400 if request.method == "POST" else 200,
     )
@@ -176,7 +172,6 @@ def person_delete(request, case_id, person_id):
             **case_context(case, request.user),
             "person": person,
             "form": form,
-            "active_nav": "people",
         },
         status=400 if request.method == "POST" else 200,
     )

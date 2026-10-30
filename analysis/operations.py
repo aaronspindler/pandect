@@ -1,28 +1,35 @@
 """Explicit supported operations; implementations live with their domain."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from importlib import import_module
 
 from django.core.exceptions import ValidationError
+
+from evidence.types import COMMUNICATION_KINDS as COMMUNICATIONS
+from evidence.types import LOCATION_KINDS as LOCATIONS
+
+from . import (
+    communication_imports,
+    conversations,
+    documents,
+    geocoding,
+    geographic_context,
+    locations,
+    media,
+    text,
+)
 
 
 @dataclass(frozen=True)
 class Operation:
     label: str
-    path: str
+    function: Callable
     kinds: tuple
     external: bool = False
     version: str = "1"
 
-    @property
-    def function(self):
-        module, name = self.path.rsplit(".", 1)
-        return getattr(import_module(module), name)
-
 
 TEXT = ("text", "text-message", "document", "image", "audio", "phone-call", "facetime")
-LOCATIONS = ("location", "person-location", "vehicle-location")
-COMMUNICATIONS = ("text-message", "phone-call", "facetime")
 INPUT_GUIDANCE = {
     "native_text": (
         "UTF-8 text or unencrypted native-text PDF, up to 16 MiB. Scanned PDF "
@@ -39,9 +46,10 @@ INPUT_GUIDANCE = {
         "retained as separate evidence."
     ),
     "ocr": (
-        "English JPEG or PNG page images. Choose printed text or experimental "
-        "handwriting/mixed text. Direct PDF rendering is unsupported. "
-        "Extracted wording and regions remain model suggestions."
+        "Printed English in JPEG or PNG page images, processed locally. "
+        "Images stay on this server. Handwriting, mixed text, other languages "
+        "and direct PDF rendering are unsupported. Inspect extracted text "
+        "against the original."
     ),
     "geographic_context": (
         "Observed coordinates or explicitly accepted geographic estimates. "
@@ -63,128 +71,125 @@ INPUT_GUIDANCE = {
 
 OPERATIONS = {
     "native_text": Operation(
-        "Extract document text", "analysis.documents.native_text", ("document",)
+        "Extract document text", documents.native_text, ("document",)
     ),
     "image_metadata": Operation(
-        "Inspect image metadata", "analysis.media.image_metadata", ("image",)
+        "Inspect image metadata", media.image_metadata, ("image",)
     ),
     "audio_metadata": Operation(
         "Inspect audio metadata",
-        "analysis.media.audio_metadata",
+        media.audio_metadata,
         ("audio", "phone-call", "facetime"),
     ),
     "ocr": Operation(
-        "Read text in images", "analysis.media.ocr", ("image", "document"), True, "2"
+        "Read text in images", media.ocr, ("image", "document"), version="3"
     ),
     "transcription": Operation(
         "Transcribe recordings",
-        "analysis.media.transcription",
+        media.transcription,
         ("audio", "phone-call", "facetime"),
         True,
     ),
-    "entities": Operation(
-        "Extract identifiers and dates", "analysis.text.entities", TEXT
-    ),
+    "entities": Operation("Extract identifiers and dates", text.extract_entities, TEXT),
     "style_profiles": Operation(
         "Describe writing style",
-        "analysis.text.style_profiles",
+        text.style_profile,
         ("text", "text-message"),
     ),
     "style_change": Operation(
         "Compare writing over time",
-        "analysis.text.style_change",
+        text.style_changes,
         ("text", "text-message"),
     ),
-    "copied_text": Operation(
-        "Find repeated wording", "analysis.text.copied_text", TEXT
-    ),
+    "copied_text": Operation("Find repeated wording", text.copied_text, TEXT),
     "text_topics": Operation(
-        "Inspect keywords and topics", "analysis.text.text_topics", TEXT
+        "Inspect keywords and topics", text.text_topics, TEXT, version="2"
     ),
     "content_events": Operation(
         "Suggest claims and commitments",
-        "analysis.conversations.content_events",
+        text.content_events,
         TEXT,
         True,
     ),
     "session_summaries": Operation(
         "Summarize selected conversations",
-        "analysis.conversations.session_summaries",
+        conversations.session_summaries,
         COMMUNICATIONS,
         True,
+        version="2",
     ),
     "sessions": Operation(
         "Read inferred conversation sessions",
-        "analysis.conversations.sessions",
+        conversations.conversation_sessions,
         COMMUNICATIONS,
     ),
     "comm_patterns": Operation(
         "Inspect communication timing",
-        "analysis.conversations.comm_patterns",
+        conversations.interaction_patterns,
         COMMUNICATIONS,
     ),
     "conversation_link": Operation(
         "Compare exchanges across channels",
-        "analysis.conversations.conversation_link",
+        conversations.cross_channel_links,
         COMMUNICATIONS,
     ),
     "conversation_import": Operation(
         "Import an iMessage export",
-        "analysis.communication_imports.prepare_import",
+        communication_imports.prepare_import,
         ("document",),
         version="2",
     ),
     "normalize_addresses": Operation(
         "Compare recorded addresses",
-        "analysis.locations.normalize_addresses",
+        locations.normalize_addresses,
         LOCATIONS,
     ),
     "location_quality": Operation(
-        "Review observation quality", "analysis.locations.location_quality", LOCATIONS
+        "Review observation quality", locations.location_quality, LOCATIONS
     ),
     "spatial_groups": Operation(
-        "Group nearby observations", "analysis.locations.spatial_groups", LOCATIONS
+        "Group nearby observations", locations.spatial_groups, LOCATIONS
     ),
     "geographic_context": Operation(
         "Look up geographic context",
-        "analysis.geographic_context.geographic_context",
+        geographic_context.geographic_context,
         LOCATIONS,
         True,
     ),
     "proximity": Operation(
-        "Find observations in an area", "analysis.locations.proximity", LOCATIONS
+        "Find observations in an area", locations.proximity, LOCATIONS
     ),
     "candidate_visits": Operation(
         "Inspect candidate visits and frequent places",
-        "analysis.locations.candidate_visits",
+        locations.candidate_visits,
         LOCATIONS,
     ),
     "candidate_trips": Operation(
         "Inspect candidate journeys and drives",
-        "analysis.locations.candidate_trips",
+        locations.candidate_trips,
         LOCATIONS,
     ),
     "movement_routines": Operation(
         "Compare recurring movement patterns",
-        "analysis.locations.movement_routines",
+        locations.movement_routines,
         LOCATIONS,
     ),
     "colocation": Operation(
-        "Compare possible co-location", "analysis.locations.colocation", LOCATIONS
+        "Compare possible co-location", locations.colocation, LOCATIONS
     ),
     "travel_discrepancies": Operation(
         "Review unusual location transitions",
-        "analysis.locations.travel_discrepancies",
+        locations.travel_discrepancies,
         LOCATIONS,
     ),
     "location_conflicts": Operation(
         "Compare reported location conflicts",
-        "analysis.locations.location_conflicts",
+        locations.location_conflicts,
         LOCATIONS,
     ),
     "geocode_locations": Operation(
         "Look up geographic coordinates or addresses",
-        "analysis.geocoding.geocode_locations",
+        geocoding.geocode_locations,
         LOCATIONS,
         True,
     ),

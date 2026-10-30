@@ -77,6 +77,13 @@ use the standalone arch on an ivory background.
 
 ## Layout and information density
 
+Public marketing pages use the same system fonts, brand, semantic colors, and
+accessibility requirements in a centered, responsive editorial layout. Their
+introductory headings may scale from `2rem` to `4rem` to establish hierarchy;
+investigator screens retain the compact type scale defined above. Marketing workspace
+illustrations must be labelled as fictional and must not imply interactive
+controls or capabilities that are not implemented.
+
 The selected direction is a three-pane investigation workspace: case navigation,
 a compact record list, and a substantial reading/detail pane. Dense means more
 useful material in view while retaining readable text and generous hit targets.

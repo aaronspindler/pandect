@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-content">
   <a class="back-link" href="{% url 'evidence:list' case_id=case.pk %}">Back to evidence</a>
-  <header class="page-header"><div><p class="eyebrow">{{ case.name }}</p><h1>Bulk add files</h1><p>Add documents, images, and audio together. Review each file before uploading.</p></div></header>
+  <header class="page-header"><div><p class="eyebrow">{{ case.name }}</p><h1>Bulk add files</h1><p>Add documents, images, and audio together. Exact duplicates in this case pause for your review before being added.</p></div></header>
   <p data-bulk-fallback class="notice">Bulk uploads need browser support and JavaScript. You can always <a href="{% url 'evidence:create' case_id=case.pk %}">add one file at a time</a>.</p>
   <form method="post" action="{% url 'evidence:create' case_id=case.pk %}" enctype="multipart/form-data" class="form-layout bulk-upload-form" data-evidence-upload data-bulk-upload data-upload-url="{% url 'evidence:create' case_id=case.pk %}" data-max-file-bytes="{{ max_file_bytes }}" data-max-batch-files="{{ max_batch_files }}" data-kind="document" hidden>
     {% csrf_token %}

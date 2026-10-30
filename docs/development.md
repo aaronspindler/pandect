@@ -67,7 +67,12 @@ docker compose exec web python manage.py createsuperuser
 
 ## Run Python on the host
 
-To use your editor and Django's autoreloader while keeping PostgreSQL in Docker:
+To use your editor and Django's autoreloader while keeping PostgreSQL in Docker,
+install Tesseract and its English data on the host first. On macOS use
+`brew install tesseract`; on Debian/Ubuntu use
+`sudo apt-get install tesseract-ocr tesseract-ocr-eng`. Verify with
+`tesseract --version` and `tesseract --list-langs` (which must include `eng`).
+The Docker image already includes both packages. Then run:
 
 ```sh
 docker compose stop web worker
@@ -85,6 +90,11 @@ in another terminal to process tasks while using the host web server. See
 Existing invitation and import workflows do not enqueue tasks yet.
 
 ## Configuration
+
+Optional private text/transcription runtimes use the `local-ai` Compose profile.
+They require reviewed local model files, hashes and a runtime token; ordinary
+startup does not download models. Follow [local analysis](local-analysis.md) for
+setup, explicit cloud selection, capacity measurement and model qualification.
 
 | Variable | Behavior |
 | --- | --- |

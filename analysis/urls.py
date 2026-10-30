@@ -6,6 +6,16 @@ app_name = "analysis"
 urlpatterns = [
     path("", views.index, name="index"),
     path("new/", views.create, name="create"),
+    path(
+        "evidence/<str:kind>/<uuid:evidence_id>/",
+        views.process_evidence,
+        name="process_evidence",
+    ),
+    path(
+        "evidence/<str:kind>/<uuid:evidence_id>/external/",
+        views.create,
+        name="external_evidence",
+    ),
     path("reports/<str:name>/", views.current_report, name="report"),
     path("<uuid:run_id>/", views.detail, name="detail"),
     path("<uuid:run_id>/cancel/", views.cancel, name="cancel"),

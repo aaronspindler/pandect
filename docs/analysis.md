@@ -34,13 +34,46 @@ inactivity; repeated addresses do not establish visits.
 
 ## Retained processing
 
+Keyword/topic and session-summary methods use version 2 to preserve stage warnings
+and combined outcomes: retained keywords remain useful if topic inference finds
+nothing, while missing session content remains insufficient or partial. Pending
+version 1 runs of `text_topics` and `session_summaries` fail with
+`processing_version_unavailable`; start another run to use the current method.
+Earlier results and reviews remain unchanged.
+
+On an evidence detail page, owners and editors choose **Analyze evidence** once
+to queue all applicable local analysis for that item's type and retained content.
+The evidence analysis page lists its processing runs and links to progress and
+results. Uploading evidence alone does not start analysis. Originals and earlier
+runs remain retained, and archived evidence can also be analyzed.
+
+Local processing inspects supported file metadata, reads printed English in
+JPEG/PNG images using Tesseract, extracts native document text,
+and analyzes available original or supplied text without sending evidence to
+external services. After image or native document extraction finishes, text analysis uses
+that exact retained extraction version. Unsupported formats and insufficient
+content remain explicit outcomes rather than claims that every method succeeded.
+
+Additional model processing is a deliberate choice. Select the operation and
+retained source, review its settings, and choose **Local** (the default) or
+**Cloudflare AI Gateway**. Cloud processing requires explicit submission approval;
+local failure never triggers cloud fallback. Geographic services require external
+approval unless the operator explicitly designates the endpoint as local.
+Local keyword analysis does not enable an AI summary automatically.
+Context-dependent comparisons, area queries and conversation
+imports still require deliberate source selection and assumptions through the
+manual analysis workflow.
+
 Choose **Start analysis**, select an operation and retained sources, and queue it.
 The picker shows at most 500 choices; use its title search to narrow larger cases.
 Select an exact extraction version to analyze derived text. Review grouping/time
 assumptions before starting an investigation workflow.
-Only the selected operation's settings are validated and saved. Finding reviews
+Only the selected operation's settings are validated and saved. Report forms load
+only the people or vehicle choices applicable to that report. Finding reviews
 return to the reviewed finding, including its results page; invalid reviews retain
-the entered decision and comment for correction.
+the entered decision and comment for correction. PostgreSQL selects the latest
+review for each visible finding; the full review history remains retained and
+available on the run page.
 
 The PostgreSQL worker described in [background tasks](background-tasks.md) executes
 queued work. Queued, running, complete, partial, no findings, insufficient evidence,
@@ -83,16 +116,29 @@ visible warning.
   describes road, venue, building and neighbourhood candidates, historical map
   snapshots, private reference downloads and operator configuration.
 
-Image OCR offers printed English and experimental English handwriting/mixed
-profiles. Handwriting suggestions require source inspection; representative live
-recognition evaluation remains outstanding. Map context uses a separate configured
+Image OCR runs locally with Tesseract and English language data. It requires no
+AI credentials or external approval and never falls back to a remote service.
+Handwriting and mixed-text profiles are unsupported by the local replacement;
+older results remain readable. Map context uses a separate configured
 reference service and does not require AI credentials. Address-only miTrail
 observations first need an explicitly reviewed geocode. Local spatial grouping
 continues to work without an external map service.
 
+## Local inference configuration
+
+Recording transcription and the four model-based text methods use the configured
+private runtime by default. Models and native engines have pinned identities;
+each new run retains its routing/settings snapshot and results preserve model
+provenance. Existing runs retain their historical routing and approval. A queued
+configuration/model mismatch fails recoverably rather than switching endpoints.
+Text tokenization checks the full rendered prompt plus output allowance; content
+is never silently truncated. See [local analysis](local-analysis.md) for optional
+Compose runtimes, configuration, GPU qualification and failure recovery.
+
 ## External AI configuration
 
-All ML/LLM inference uses the centralized backend Cloudflare AI Gateway client.
+Explicitly selected external ML/LLM inference uses the centralized backend
+Cloudflare AI Gateway client.
 No credentials or direct-provider inference run in the browser. The supported
 transport is the provider-native Workers AI endpoint at
 `gateway.ai.cloudflare.com/v1/ACCOUNT/GATEWAY/workers-ai/MODEL`. Authenticated Gateway
@@ -108,7 +154,6 @@ references; the provider-native endpoint continues to be supported.
 | `PANDECT_AI_GATEWAY_TOKEN` | Authenticated Gateway token, sent as `cf-aig-authorization`. |
 | `PANDECT_AI_WORKERS_TOKEN` | Workers AI token, sent as `Authorization`; separate upstream credential. |
 | `PANDECT_AI_TEXT_MODEL` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
-| `PANDECT_AI_VISION_MODEL` | `@cf/meta/llama-4-scout-17b-16e-instruct` |
 | `PANDECT_AI_TRANSCRIPTION_MODEL` | `@cf/openai/whisper-large-v3-turbo` |
 | `PANDECT_AI_TIMEOUT` | Request timeout in seconds, default 60, maximum 120. |
 | `PANDECT_AI_DAILY_CASE_REQUESTS` | Daily per-case request count ceiling, default 100. |
@@ -141,6 +186,8 @@ advertising broader supported conditions.
 same-case relationships. `analysis.reports` computes current-field reports.
 Concrete document/media/text/conversation/location modules perform bounded work;
 `analysis.services` owns authorization, input snapshots, publication, and reviews.
+`analysis.operations` lists concrete callables; the worker passes authorization
+and inference dependencies explicitly for the operations that use them.
 `analysis.tasks` is a thin UUID-only queue entrypoint. Durable runs/results/reviews
 and extraction search passages survive operational queue housekeeping.
 

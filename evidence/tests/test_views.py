@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from allauth.account.models import EmailAddress
@@ -99,7 +100,7 @@ class EvidenceViewTestMixin:
         else:
             data["file"] = SimpleUploadedFile(
                 "original.bin",
-                b"Original\x00\r\n",
+                f"Original {kind}\x00\r\n".encode(),
                 content_type="application/octet-stream",
             )
         return data | overrides
@@ -161,6 +162,12 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             for kind, model in KINDS.items():
                 with self.subTest(role=role, kind=kind):
                     data = self.payload(kind)
+                    if kind in FILE_KINDS:
+                        data["file"] = SimpleUploadedFile(
+                            "original.bin", f"{role}-{kind} original\x00\r\n".encode()
+                        )
+                    elif kind == "text":
+                        data["body"] += role
                     original = (
                         data["body"].encode()
                         if kind == "text"
@@ -288,15 +295,30 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         item.refresh_from_db()
         self.assertTrue(item.is_archived)
 
-    def test_different_submission_of_identical_original_is_not_deduplicated(self):
+    def test_identical_original_requires_review_then_retains_a_separate_record(self):
         self.login("owner")
-        for _ in range(2):
-            self.assertEqual(
-                self.client.post(
-                    self.url("create"), self.payload(), HTTP_ACCEPT="application/json"
-                ).status_code,
-                201,
-            )
+        first = self.client.post(
+            self.url("create"), self.payload(), HTTP_ACCEPT="application/json"
+        )
+        data = self.payload()
+        warning = self.client.post(
+            self.url("create"), data, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(warning.status_code, 409)
+        self.assertEqual(warning.json()["code"], "duplicate_evidence")
+        self.assertEqual(TextEvidence.objects.count(), 1)
+        data["duplicate_confirmation"] = warning.json()["confirmation"]
+        confirmed = self.client.post(
+            self.url("create"), data, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(confirmed.status_code, 201)
+        self.assertNotEqual(first.json()["id"], confirmed.json()["id"])
+        self.assertEqual(TextEvidence.objects.count(), 2)
+        retry = self.client.post(
+            self.url("create"), data, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(retry.json()["id"], confirmed.json()["id"])
         self.assertEqual(TextEvidence.objects.count(), 2)
 
     def test_cross_actor_submission_token_is_a_generic_conflict(self):
@@ -531,6 +553,27 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         second = self.client.get(self.url("list"), {"page": 2})
         self.assertEqual(len(second.context["rows"]), 3)
 
+    def test_pagination_and_detail_links_share_bounded_search_parameters(self):
+        for number in range(26):
+            TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title=f"Source {number}",
+                body="x" * 250,
+            )
+        self.login("viewer")
+        response = self.client.get(
+            self.url("list"), {"q": "x" * 250, "unexpected": "discard"}
+        )
+        urls = [
+            response.context["pagination"]["next"],
+            response.context["rows"][0]["url"],
+        ]
+        for url in urls:
+            parameters = parse_qs(urlsplit(url).query)
+            self.assertEqual(parameters["q"], ["x" * 200])
+            self.assertNotIn("unexpected", parameters)
+
     def test_invalid_uuid_kind_and_missing_parent_cannot_leak_records(self):
         self.login("owner")
         item = self.text()
@@ -583,6 +626,12 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
 
 class ConcurrentSubmissionTests(TransactionTestCase):
     def test_concurrent_retries_create_one_retained_original(self):
+        self.check_concurrent_submissions(same_submission=True)
+
+    def test_concurrent_new_copies_require_duplicate_review(self):
+        self.check_concurrent_submissions(same_submission=False)
+
+    def check_concurrent_submissions(self, *, same_submission):
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         owner = get_user_model().objects.create_user(
@@ -607,12 +656,14 @@ class ConcurrentSubmissionTests(TransactionTestCase):
                     {
                         "kind": "document",
                         "title": "One source",
-                        "submission_id": submission,
+                        "submission_id": submission
+                        if same_submission
+                        else str(uuid4()),
                         "file": SimpleUploadedFile("original.txt", b"one original"),
                     },
                     HTTP_ACCEPT="application/json",
                 )
-                return response.status_code, response.json()["id"]
+                return response.status_code, response.json()
             finally:
                 connection.close()
 
@@ -621,8 +672,17 @@ class ConcurrentSubmissionTests(TransactionTestCase):
             ThreadPoolExecutor(max_workers=2) as pool,
         ):
             results = list(pool.map(lambda _: submit(), range(2)))
-        self.assertEqual(sorted(status for status, _ in results), [200, 201])
-        self.assertEqual(len({item_id for _, item_id in results}), 1)
+        self.assertEqual(
+            sorted(status for status, _ in results),
+            [200, 201] if same_submission else [201, 409],
+        )
+        saved_id = str(DocumentEvidence.objects.get().pk)
+        for status, result in results:
+            if status == 409:
+                self.assertEqual(result["code"], "duplicate_evidence")
+                self.assertEqual(result["matches"][0]["id"], saved_id)
+            else:
+                self.assertEqual(result["id"], saved_id)
         self.assertEqual(DocumentEvidence.objects.count(), 1)
         self.assertEqual(
             len([path for path in Path(directory.name).rglob("*") if path.is_file()]), 1

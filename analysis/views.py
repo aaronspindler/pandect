@@ -19,10 +19,13 @@ from django.views.decorators.http import (
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
+from evidence.queries import get_evidence
 
 from .artifacts import MAX_ARTIFACT_BYTES
+from .automatic import start_evidence_analysis
 from .errors import AnalysisError, error_message
-from .forms import AnalysisForm, ReportForm, ReviewForm, selection
+from .execution import requires_inference
+from .forms import AnalysisForm, EvidenceAnalysisForm, ReportForm, ReviewForm, selection
 from .models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
 from .navigation import FINDINGS_PER_PAGE, finding_url
 from .operations import INPUT_GUIDANCE, OPERATIONS, get_operation
@@ -62,6 +65,42 @@ def _url(case, run):
     return reverse("analysis:detail", kwargs={"case_id": case.pk, "run_id": run.pk})
 
 
+def _processing_details(run):
+    execution = run.parameters.get("_execution", {})
+    if not isinstance(execution, dict):
+        execution = {}
+    if execution:
+        label = (
+            "External processing"
+            if execution.get("location") == "external"
+            else "Local processing"
+        )
+    else:
+        label = (
+            "External processing approved"
+            if run.external_processing
+            else "Local processing"
+        )
+    return {
+        "label": label,
+        "recorded": bool(execution),
+        "legacy": not execution
+        and bool(
+            run.external_processing or requires_inference(run.operation, run.parameters)
+        ),
+        "model": execution.get("model", ""),
+        "runtime": execution.get("runtime", ""),
+    }
+
+
+def _additional_operations(kind):
+    return {
+        key: spec
+        for key, spec in OPERATIONS.items()
+        if kind in spec.kinds and (spec.external or key == "text_topics")
+    }
+
+
 @product_login_required
 @require_safe
 def index(request, case_id):
@@ -71,6 +110,7 @@ def index(request, case_id):
     ).get_page(request.GET.get("page"))
     for run in page:
         run.label = get_operation(run.operation).label
+        run.processing_label = _processing_details(run)["label"]
     return private(
         render(
             request,
@@ -121,22 +161,109 @@ def current_report(request, case_id, name):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-def create(request, case_id):
+def process_evidence(request, case_id, kind, evidence_id):
+    case = get_case(request.user, case_id, edit=request.method == "POST")
+    item = get_evidence(case, kind, evidence_id)
+    form = EvidenceAnalysisForm(request.POST if request.method == "POST" else None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            runs, created = start_evidence_analysis(
+                request.user,
+                case.pk,
+                kind,
+                item.pk,
+                submission_id=form.cleaned_data["submission_id"],
+            )
+        except (ValidationError, AnalysisError) as error:
+            form.add_error(
+                None,
+                error
+                if isinstance(error, ValidationError)
+                else (
+                    "A retained source is unavailable or changed. "
+                    "Review the original and try again."
+                ),
+            )
+        else:
+            if not runs:
+                messages.info(
+                    request,
+                    "No local analysis is available for this evidence’s "
+                    "retained content.",
+                )
+            else:
+                messages.success(
+                    request,
+                    "Local analysis queued. Refresh this page to follow its progress."
+                    if created
+                    else "This analysis was already queued.",
+                )
+            return redirect(
+                "analysis:process_evidence",
+                case_id=case.pk,
+                kind=kind,
+                evidence_id=item.pk,
+            )
+    page = Paginator(
+        AnalysisRun.objects.filter(
+            case=case,
+            inputs__contains=[{"kind": kind, "evidence_id": str(item.pk)}],
+        ).select_related("requested_by"),
+        25,
+    ).get_page(request.GET.get("page"))
+    for run in page:
+        run.label = get_operation(run.operation).label
+        run.processing_label = _processing_details(run)["label"]
+    return private(
+        render(
+            request,
+            "analysis/evidence.html",
+            _context(request, case)
+            | {
+                "evidence": item,
+                "kind": kind,
+                "form": form,
+                "page_obj": page,
+                "additional_operations": _additional_operations(kind).items(),
+            },
+            status=400 if form.errors else 200,
+        )
+    )
+
+
+@product_login_required
+@require_http_methods(["GET", "POST"])
+def create(request, case_id, kind=None, evidence_id=None):
     case = get_case(request.user, case_id, edit=True)
+    evidence = None
+    evidence_url = ""
+    operations = OPERATIONS
+    if evidence_id is not None:
+        item = get_evidence(case, kind, evidence_id)
+        evidence = (kind, item)
+        evidence_url = reverse(
+            "evidence:detail",
+            kwargs={"case_id": case.pk, "kind": kind, "evidence_id": item.pk},
+        )
+        operations = _additional_operations(kind)
     operation = (
         request.POST.get("operation")
         if request.method == "POST"
         else request.GET.get("operation", "native_text")
     )
-    if operation not in OPERATIONS:
-        operation = "native_text"
-    query = request.GET.get("q", "")[:200]
+    if operation not in operations:
+        operation = next(iter(operations))
+    query = request.GET.get("q", "")[:200] if evidence is None else ""
     form = AnalysisForm(
         request.POST if request.method == "POST" else None,
         case=case,
         operation=operation,
         query=query,
+        evidence=evidence,
     )
+    form.fields["operation"].choices = [
+        (key, spec.label) for key, spec in operations.items()
+    ]
     if request.method == "POST" and form.is_valid():
         try:
             run, created = start_run(
@@ -153,10 +280,7 @@ def create(request, case_id):
                 None,
                 error
                 if isinstance(error, ValidationError)
-                else (
-                    "The selected source is unavailable or changed. "
-                    "Review it and try again."
-                ),
+                else error_message(error.code),
             )
         else:
             messages.success(
@@ -171,11 +295,13 @@ def create(request, case_id):
             _context(request, case)
             | {
                 "form": form,
-                "operations": OPERATIONS.items(),
+                "operations": operations.items(),
                 "operation": operation,
                 "operation_label": OPERATIONS[operation].label,
                 "input_guidance": INPUT_GUIDANCE.get(operation, ""),
                 "query": query,
+                "evidence": evidence[1] if evidence else None,
+                "evidence_url": evidence_url,
             },
         )
     )
@@ -198,15 +324,19 @@ def _items(data, sources, case, run, *, offset=0):
         if x.kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
     }
     items = []
-    latest_reviews = {}
-    for reviewed in AnalysisReview.objects.filter(
-        case=case,
-        result__case=case,
-        result__run=run,
-        item_index__gte=offset,
-        item_index__lt=offset + len(data.get("items", [])),
-    ).select_related("reviewed_by"):
-        latest_reviews.setdefault(reviewed.item_index, reviewed)
+    latest_reviews = {
+        reviewed.item_index: reviewed
+        for reviewed in AnalysisReview.objects.filter(
+            case=case,
+            result__case=case,
+            result__run=run,
+            item_index__gte=offset,
+            item_index__lt=offset + len(data.get("items", [])),
+        )
+        .order_by("item_index", "-created_at", "id")
+        .distinct("item_index")
+        .select_related("reviewed_by")
+    }
     for index, finding in enumerate(data.get("items", [])):
         item = dict(finding)
         item["measurements"] = formatter(
@@ -320,6 +450,7 @@ def detail(request, case_id, run_id):
         "operation_label": get_operation(run.operation).label,
         "retry_submission_id": uuid4(),
         "error_message": error_message(run.error_code),
+        "processing": _processing_details(run),
     }
     try:
         sources = resolve_inputs(run, case, require_current_review=False)
@@ -334,9 +465,12 @@ def detail(request, case_id, run_id):
         context["source_unavailable"] = True
         sources = []
     context["sources"] = sources
+    assumptions = {
+        key: value for key, value in run.parameters.items() if key != "_execution"
+    }
     context["assumptions"] = measurement_formatter(
-        run.parameters, case=case, sources=sources
-    )(run.parameters)
+        assumptions, case=case, sources=sources
+    )(assumptions)
     context["map_points"] = _map_points(sources)
     if not context.get("source_unavailable"):
         result = AnalysisResult.objects.filter(
@@ -419,13 +553,20 @@ def retry(request, case_id, run_id):
         }
         for x in prior.inputs
     ]
+    parameters = dict(prior.parameters)
+    if (
+        requires_inference(prior.operation, parameters)
+        and "backend" not in parameters
+        and prior.external_processing
+    ):
+        parameters["backend"] = "gateway"
     try:
         run, _ = start_run(
             request.user,
             case.pk,
             prior.operation,
             choices,
-            parameters=prior.parameters,
+            parameters=parameters,
             external_processing=prior.external_processing,
             previous_run=prior,
             submission_id=request.POST.get("submission_id") or uuid4(),

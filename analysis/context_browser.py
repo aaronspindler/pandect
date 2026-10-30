@@ -16,7 +16,7 @@ from uuid import UUID
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.core.files.base import ContentFile
 from django.test import override_settings
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from playwright.sync_api import expect
 
 from analysis.models import AnalysisRun
@@ -29,7 +29,10 @@ from evidence.models import ImageEvidence, LocationEvidence
 def synthetic_page():
     image = Image.new("RGB", (640, 240), "white")
     ImageDraw.Draw(image).text(
-        (30, 60), "Synthetic handwriting pickup 07:30", fill="black"
+        (30, 60),
+        "Synthetic printed pickup 07:30",
+        font=ImageFont.load_default(size=32),
+        fill="black",
     )
     content = io.BytesIO()
     image.save(content, format="PNG")
@@ -175,32 +178,7 @@ class ContextBrowserTests(StaticLiveServerTestCase):
             )
         )
         self.gateway_request = self.enterContext(
-            patch(
-                "analysis.gateway.GatewayClient.request",
-                return_value={
-                    "response": json.dumps(
-                        {
-                            "status": "complete",
-                            "language": "en",
-                            "rotation_degrees": 0,
-                            "omitted_regions": 0,
-                            "regions": [
-                                {
-                                    "text": "Synthetic handwriting pickup 07:30",
-                                    "bbox": [0.04, 0.2, 0.75, 0.4],
-                                    "order": 0,
-                                    "confidence": "uncertain",
-                                    "alternatives": [
-                                        "Synthetic handwriting pickup 07:38"
-                                    ],
-                                    "writing_type": "handwritten",
-                                    "language": "en",
-                                }
-                            ],
-                        }
-                    )
-                },
-            )
+            patch("analysis.gateway.GatewayClient.request")
         )
 
     def _complete(self, run_id, operation):
@@ -208,7 +186,7 @@ class ContextBrowserTests(StaticLiveServerTestCase):
         run = AnalysisRun.objects.get(pk=run_id)
         self.assertEqual(run.operation, operation)
         self.assertEqual(run.status, "complete", run.error_code)
-        self.assertTrue(run.external_processing)
+        self.assertEqual(run.external_processing, operation != "ocr")
         return run.parameters
 
     def _choose(self, page, operation):
@@ -225,19 +203,29 @@ class ContextBrowserTests(StaticLiveServerTestCase):
         summary.press("Space")
 
     def _approve_and_finish(self, page, operation):
-        page.get_by_role("button", name="Queue analysis", exact=True).click()
-        expect(page.locator("[data-error-summary]")).to_be_visible()
-        expect(
-            page.get_by_text(
-                "Approve external processing for the selected operation.", exact=True
+        if operation != "ocr":
+            page.get_by_role("button", name="Queue analysis", exact=True).click()
+            expect(page.locator("[data-error-summary]")).to_be_visible()
+            expect(
+                page.get_by_text(
+                    "Approve external processing for the selected operation.",
+                    exact=True,
+                )
+            ).to_be_visible()
+            approval = page.get_by_role(
+                "checkbox",
+                name="I approve external processing of the selected evidence",
             )
-        ).to_be_visible()
-        approval = page.get_by_role(
-            "checkbox", name="I approve external processing of the selected evidence"
-        )
-        approval.focus()
-        approval.press("Space")
-        expect(approval).to_be_checked()
+            approval.focus()
+            approval.press("Space")
+            expect(approval).to_be_checked()
+        else:
+            expect(
+                page.get_by_role(
+                    "checkbox",
+                    name="I approve external processing of the selected evidence",
+                )
+            ).to_have_count(0)
         page.get_by_role("button", name="Queue analysis", exact=True).click()
         expect(
             page.get_by_role("status").filter(has_text=re.compile(r"^Queued$"))
@@ -274,7 +262,7 @@ class ContextBrowserTests(StaticLiveServerTestCase):
         page.emulate_media(forced_colors="none", reduced_motion="no-preference")
         page.set_viewport_size({"width": 1440, "height": 900})
 
-    def test_experimental_handwriting_selection_regions_search_and_private_original(
+    def test_local_printed_ocr_regions_search_and_private_original(
         self,
     ):
         for engine in self.engines:
@@ -292,28 +280,26 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                     profile.evaluate("node => getComputedStyle(node).outlineStyle"),
                     "none",
                 )
-                profile.press("e")
-                expect(profile).to_have_value("handwriting")
                 expect(
                     page.get_by_text(
-                        "Handprint and cursive recognition have not been evaluated",
+                        "Processed locally. Handwriting and mixed text "
+                        "are unsupported.",
                         exact=False,
                     )
                 ).to_be_visible()
                 page.get_by_label("Image · Synthetic OCR page", exact=True).check()
-                self._capture_layouts(page, engine, "handwriting-form")
+                self._capture_layouts(page, engine, "local-ocr-form")
                 run_id, parameters = self._approve_and_finish(page, "ocr")
-                self.assertEqual(parameters["mode"], "handwriting")
+                self.assertEqual(parameters["mode"], "printed")
                 finding = page.locator("#finding-1")
                 expect(
-                    finding.get_by_text(
-                        "Synthetic handwriting pickup 07:30", exact=True
-                    )
+                    finding.get_by_text("Synthetic printed pickup 07:30", exact=True)
                 ).to_be_visible()
-                expect(finding.get_by_text("handwritten", exact=True)).to_be_visible()
                 expect(
                     page.get_by_text(
-                        "Handwriting and mixed OCR are experimental.", exact=False
+                        "Printed English OCR runs locally; no image is sent "
+                        "to an external service.",
+                        exact=False,
                     )
                 ).to_be_visible()
                 preview = finding.locator("svg image")
@@ -323,17 +309,15 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                 self.assertEqual(response.status, 200)
                 self.assertIn("private", response.headers["cache-control"])
                 self.assertEqual(response.headers["content-type"], "image/jpeg")
-                self._capture_layouts(page, engine, "handwriting-result")
+                self._capture_layouts(page, engine, "local-ocr-result")
                 page.goto(self.url("evidence:list", case_id=self.case.pk))
-                page.get_by_label("Search evidence", exact=True).fill(
-                    "handwriting pickup"
-                )
+                page.get_by_label("Search evidence", exact=True).fill("printed pickup")
                 page.get_by_role("button", name="Search", exact=True).click()
                 row = page.locator(".evidence-row").filter(
                     has_text="Synthetic OCR page"
                 )
                 expect(row).to_have_count(1)
-                expect(row).to_contain_text("handwriting pickup")
+                expect(row).to_contain_text("printed pickup")
                 row.click()
                 expect(
                     page.get_by_role("heading", name="Read text in images", exact=True)
@@ -357,9 +341,9 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                             AnalysisRun.objects.get(pk=identifier).method_version
                         )
                     ),
-                    "2",
+                    "3",
                 )
-        self.assertEqual(self.gateway_request.call_count, len(self.engines))
+        self.gateway_request.assert_not_called()
         self.map_lookup.assert_not_called()
 
     def _revoke_viewer(self):

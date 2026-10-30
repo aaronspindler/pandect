@@ -11,12 +11,13 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from itertools import combinations, pairwise
 
+from evidence.types import LOCATION_KINDS
+
 from .sources import output
 
 VERSION = "location-observations.v2"
 MAX_SOURCES = 500
 EARTH_RADIUS_M = 6_371_008.8
-LOCATION_KINDS = {"location", "person-location", "vehicle-location"}
 LIMITS = {
     "distance_m": (100, 1, 100_000),
     "gap_minutes": (60, 1, 10_080),

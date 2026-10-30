@@ -53,9 +53,21 @@ original filenames, location addresses, and linked person names/contact details,
 with type and Active/Archived/All filters. It uses 25 records per page. Wide
 screens keep the record list beside the selected original/details; smaller
 screens use the same canonical detail pages and browser navigation. Text
-originals are shown as escaped read-only text. Files are downloaded through
-currently authorized attachment routes; this release does not embed documents,
-render image previews, or play audio.
+originals are shown as escaped read-only text. Image evidence shows a resized
+preview in the Original tab, including for archived images. Previews support
+single-frame JPEG and PNG files up to 16 MiB and 25 million pixels. They are
+decoded in the existing resource-bounded child process, respect EXIF orientation,
+flatten transparency onto white, and are re-encoded as JPEGs up to 2048 pixels per
+side with embedded source metadata removed. The retained file and checksum are
+unchanged. Unsupported, corrupt, oversized, changed, or unavailable files keep the
+original-download action.
+Previews also display without JavaScript; JavaScript adds loading/failure messages.
+Preview requests recheck current case access, verify the retained bytes against
+their checksum, and use private/no-store caching and `nosniff`. They use local
+processing without AI credentials, external services, or publicly exposed storage
+URLs. No preview files or analysis results are stored. Files are downloaded through
+currently authorized attachment routes; this release does not embed documents
+or play audio.
 
 Owners/editors can **Edit details** without replacing the original. Conflicting
 metadata edits display newer saved values alongside the retained draft for an
@@ -63,6 +75,44 @@ explicit **Save reviewed changes**. **Archive** and **Restore** organize retaine
 material; current case members can still inspect/download archived evidence.
 There is no individual evidence delete or purge route. Only owner-confirmed
 whole-case deletion removes retained evidence through the product interface.
+
+Owners/editors can choose **Analyze evidence** to run all applicable local analysis
+for that evidence and its retained content together. The **Analysis** tab shows
+its progress and results to current case members. External processing remains a
+separate choice requiring explicit approval; custom comparisons and imports still
+require source selection and assumptions. See
+[analysis](analysis.md#retained-processing) for supported operations and recovery.
+
+### Duplicate checks
+
+Adding a Document, Image, Audio, or captured Text automatically checks its SHA-256
+against file and captured-text originals already in the same case, including
+archived records. Identical bytes match across file categories, filenames, and
+editable source details. Captured text matches its exact server-received UTF-8
+bytes, including whitespace and line endings; browser normalization still applies.
+This detects exact copies, not similar images, re-encoded recordings, revised
+documents, or matching meaning. It does not establish source identity or truth.
+
+A match pauses that entry before saving a record or permanent original and shows
+up to 10 existing records, with category, archive state, and private detail links.
+Review links open in a new tab to preserve the queue. Remove the file from the
+queue or choose **Add duplicate anyway** when separate provenance warrants another
+retained record. Other queued files can continue; later copies in the same batch
+are checked against earlier saved entries. Source details remain editable during
+review. There is no automatic merging or deletion.
+
+Single-record forms also support review without JavaScript. Entered details remain
+in the form, but a file must be selected again to confirm. The server binds the
+confirmation to the original checksum, category, case, and current uploader;
+changing the original requires another review if it matches existing evidence.
+Current edit permission is rechecked on confirmation. Retrying an already-saved
+submission resolves that record before checking duplicates, including after an
+interrupted confirmation.
+
+This check applies to the product's Add evidence and Bulk add files workflows.
+Location/communication records, call attachments, CSV imports, Django admin, and
+trusted model callers retain their existing behavior. No original storage or
+schema changes are required, and existing checksums are used without a backfill.
 
 ## Models and metadata
 
@@ -245,8 +295,9 @@ Removing or downgrading membership affects subsequent requests in existing sessi
 Choose a type, select an editable case, and supply its original and source details.
 The uploader is assigned to the signed-in operator. Person-location choices
 include people from editable cases; the selected person must belong to the
-selected case, with mismatches rejected on the server. File/text limits also apply
-in admin, and original text and addresses are preserved without trimming.
+selected case, with mismatches rejected on the server. Product and admin forms
+share file/text limit validation, and original text and addresses are preserved
+without trimming.
 
 Existing originals, case, uploader, checksum, submission ID, and generated
 timestamps are read-only. Declared technical metadata remains editable. Change
@@ -306,8 +357,9 @@ Normal creation calculates integrity metadata, ignoring supplied checksum, size,
 and original-filename values. Files must be nonempty, named Django file objects;
 existing storage paths and another record's `FieldFile` cannot be reused. Hashing
 reads in 64 KiB chunks and restores the input position. Text is not stripped,
-normalized, or rewritten. Repeated copies remain separate records without
-deduplication. Use `full_clean()` for field validation before saving; as with
+normalized, or rewritten. Model callers may retain repeated copies as separate
+records; product uploads require the duplicate review described above. Use
+`full_clean()` for field validation before saving; as with
 ordinary Django models, `save()` does not perform blanket model validation.
 PostgreSQL constraints enforce required content, relationships, checksums, and
 numeric bounds.
@@ -372,9 +424,15 @@ default_storage.delete(
 )
 ```
 
-Database and storage writes are not atomic. Failed or rolled-back creation can
-leave an orphaned file; a process crash after deletion commits can also interrupt
-cleanup. Retain restricted operational logs for manual recovery and reconcile
+Database and storage writes are not atomic. When a new file-evidence or call-audio
+model save fails, its database save is rolled back before the newly written file
+is removed. Existing originals are never removed by failed metadata saves, and a
+cleanup failure preserves the original save error while logging the generated key.
+A later rollback of a caller's outer transaction remains that caller's
+responsibility; the CSV importer handles its own batch rollback. Uncertain commit
+outcomes retain the file, since the row may have committed. Those cases and a
+process crash can still leave an orphaned file or interrupt deletion cleanup.
+Retain restricted operational logs for manual recovery and reconcile
 storage against database references before removing suspected orphans. Do not
 delete files merely because an upload or transaction reported an error.
 

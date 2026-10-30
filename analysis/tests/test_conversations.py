@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import Mock
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
@@ -283,8 +284,26 @@ class ConversationAnalysisTests(SimpleTestCase):
         self.assertEqual(result["metrics"]["summary_chunks"], 1)
         self.assertEqual(result["items"][0]["values"]["chunk_source_ids"], [a.id, b.id])
         self.assertEqual(result["items"][0]["values"]["inferred_session"], 1)
+        self.assertIn("misinterpret sarcasm", " ".join(result["warnings"]))
         self.assertEqual(
             session_summaries([a], {}, infer=None)["outcome"], "unsupported"
         )
         with self.assertRaises(ValidationError):
             session_summaries([self.message("x" * 16001)], {}, infer=infer)
+
+    def test_session_summary_aggregation_preserves_missing_chunk_content(self):
+        blank = self.message(" ")
+        infer = Mock(return_value={"items": []})
+        result = session_summaries([blank], {}, infer=infer)
+        self.assertEqual(result["outcome"], "insufficient")
+        infer.assert_not_called()
+        self.assertIn("Session 1: No retained content", " ".join(result["warnings"]))
+
+        usable = self.message("A retained message.", 200)
+        result = session_summaries([blank, usable], {}, infer=infer)
+        self.assertEqual(result["outcome"], "partial")
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["metrics"]["summary_chunks"], 2)
+        infer.assert_called_once()
+        complete = session_summaries([usable], {}, infer=infer)
+        self.assertEqual(complete["outcome"], "empty")

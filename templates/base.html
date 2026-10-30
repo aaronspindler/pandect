@@ -23,9 +23,10 @@
       <a class="nav-link" href="{% url 'cases:case_detail' case.pk %}" {% if request.resolver_match.url_name == 'case_detail' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='file-text' %} Overview</a>
       <a class="nav-link" href="{% url 'evidence:list' case.pk %}" {% if request.resolver_match.namespace == 'evidence' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='files' %} Evidence</a>
       <a class="nav-link" href="{% url 'analysis:index' case.pk %}" {% if request.resolver_match.namespace == 'analysis' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='file-text' %} Analysis</a>
+      <a class="nav-link" href="{% url 'cases:case_map' case.pk %}" {% if request.resolver_match.url_name == 'case_map' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='map' %} Map</a>
       <a class="nav-link" href="{% url 'people:list' case.pk %}" {% if request.resolver_match.namespace == 'people' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='users' %} People</a>
       <a class="nav-link" href="{% url 'vehicles:list' case.pk %}" {% if request.resolver_match.namespace == 'vehicles' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='car' %} Vehicles</a>
-      {% if is_owner %}<a class="nav-link" href="{% url 'cases:case_settings' case.pk %}" {% if request.resolver_match.namespace == 'cases' and request.resolver_match.url_name != 'case_detail' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='settings' %} Settings</a>{% endif %}
+      {% if is_owner %}<a class="nav-link" href="{% url 'cases:case_settings' case.pk %}" {% if request.resolver_match.namespace == 'cases' and request.resolver_match.url_name != 'case_detail' and request.resolver_match.url_name != 'case_map' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='settings' %} Settings</a>{% endif %}
     </nav>
     <div class="sidebar-account"><a class="account-link" href="{% url 'account_email' %}"><span class="avatar" aria-hidden="true">{{ user.username|slice:':2'|upper }}</span><span>{{ user.get_full_name|default:user.username }}<small>{{ case_role|capfirst }}</small></span>{% include 'components/icon.html' with name='chevron-down' %}</a></div>
   </aside>

@@ -1,4 +1,4 @@
-"""Harmless diagnostics; product workflows do not enqueue background work yet."""
+"""Harmless worker diagnostics, independent of case analysis tasks."""
 
 from django.tasks import task
 

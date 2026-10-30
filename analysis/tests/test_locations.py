@@ -1,9 +1,11 @@
 """Synthetic boundary checks for deterministic location operations and lookups."""
 
+import io
 import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
+from urllib.error import HTTPError
 from uuid import UUID, uuid4
 
 from django.test import SimpleTestCase, override_settings
@@ -180,6 +182,20 @@ class LocationOperationTests(SimpleTestCase):
         result = location_quality([interpreted], {})
         self.assertIn("differ by", result["items"][0]["text"])
         self.assertEqual(interpreted.coordinates, (0.0, 0.0))
+
+    def test_selected_distance_controls_quality_and_equal_time_discrepancies(self):
+        original = source(1, point=(0, 0))
+        interpreted = Source(
+            original.id, original.kind, original.item, derived_coordinates=(0, 0.001)
+        )
+        second = source(2, point=(0, 0.001))
+        for threshold, expected in ((100, True), (250, False)):
+            with self.subTest(threshold=threshold):
+                parameters = {"distance_m": threshold}
+                quality = location_quality([interpreted], parameters)
+                self.assertEqual("differ by" in quality["items"][0]["text"], expected)
+                travel = travel_discrepancies([original, second], parameters)
+                self.assertEqual(bool(travel["items"]), expected)
 
     def test_radius_and_polygon_show_boundary_ambiguity_and_missing_positions(self):
         result = proximity(
@@ -576,6 +592,7 @@ class LocationOperationTests(SimpleTestCase):
 
 
 GEOCODER_SETTINGS = {
+    "PANDECT_GEOCODER_LOCAL": False,
     "PANDECT_GEOCODER_URL": "https://geocoder.example.test",
     "PANDECT_GEOCODER_NAME": "Synthetic reference",
     "PANDECT_GEOCODER_VERSION": "2026-10-01",
@@ -586,6 +603,27 @@ GEOCODER_SETTINGS = {
 
 @override_settings(**GEOCODER_SETTINGS)
 class GeocoderTests(SimpleTestCase):
+    def test_http_error_bodies_close_including_reverse_lookup_no_match(self):
+        for status, code in (
+            (401, "geocoder_authentication_failed"),
+            (429, "geocoder_rate_limited"),
+            (500, "geocoder_unavailable"),
+            (404, None),
+        ):
+            with self.subTest(status=status):
+                body = io.BytesIO(b"Private upstream body")
+                client = Geocoder()
+                client.opener = Mock()
+                client.opener.open.side_effect = HTTPError(
+                    "https://geocoder.example.test/reverse", status, "failure", {}, body
+                )
+                if code is None:
+                    self.assertEqual(client.lookup(coordinates=(0, 0)), [])
+                else:
+                    with self.assertRaisesMessage(GeocodingError, code):
+                        client.lookup(coordinates=(0, 0))
+                self.assertTrue(body.closed)
+
     def client_with_response(self, value):
         client = Geocoder()
         response = Mock()
@@ -681,7 +719,7 @@ class GeocoderTests(SimpleTestCase):
         )
         self.assertEqual(result["metrics"]["Unique lookups"], 1)
         self.assertEqual(client.lookup.call_count, 1)
-        self.assertEqual(authorize.call_count, 1)
+        self.assertEqual(authorize.call_count, 2)
         self.assertEqual(len(result["items"][0]["source_ids"]), 2)
         self.assertEqual(result["items"][0]["values"]["Review"], "Unresolved")
 

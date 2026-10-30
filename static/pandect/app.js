@@ -20,9 +20,9 @@
     form.addEventListener("input", () => dirtyForms.add(form));
     form.addEventListener("submit", () => dirtyForms.delete(form));
   });
-  let queueUnfinished = false;
+  let entries = [];
   window.addEventListener("beforeunload", (event) => {
-    if (dirtyForms.size || queueUnfinished) {
+    if (dirtyForms.size || entries.some((entry) => entry.state !== "added")) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -38,6 +38,20 @@
         announce("Copy is unavailable. Select the checksum text to copy it.");
       }
     });
+  });
+  document.querySelectorAll("[data-image-preview]").forEach((figure) => {
+    const image = figure.querySelector("img");
+    const caption = figure.querySelector("figcaption");
+    const update = () => {
+      image.hidden = !image.naturalWidth;
+      caption.textContent = image.naturalWidth
+        ? "Resized preview. Download the original for full detail."
+        : "Image preview unavailable. Download the original to inspect it.";
+    };
+    image.addEventListener("load", update);
+    image.addEventListener("error", update);
+    if (image.complete) update();
+    else caption.textContent = "Loading image preview…";
   });
   const records = document.querySelector(".evidence-records");
   if (records) {
@@ -71,7 +85,7 @@
   const sharedDetails = form.querySelector("[data-shared-details]");
   const sharedInputs = Array.from(sharedDetails?.querySelectorAll("input, textarea") || []);
   const newBatch = form.querySelector("[data-new-batch]");
-  let entries = [], running = false, stopRequested = false, blocked = false;
+  let running = false, stopRequested = false, blocked = false;
   fileInput.multiple = true;
   fileInput.setAttribute("aria-describedby", `${fileInput.id}_helptext`);
   const fileHelp = document.getElementById(`${fileInput.id}_helptext`);
@@ -83,16 +97,16 @@
 
   const refreshControls = () => {
     const unknown = entries.some((entry) => entry.state === "unknown");
-    queueUnfinished = entries.some((entry) => entry.state !== "added");
+    const unfinished = entries.some((entry) => entry.state !== "added");
     submit.disabled = running || blocked || !entries.some((entry) => !entry.invalidFile && ["ready", "failed", "unknown"].includes(entry.state));
     fileInput.disabled = running || blocked || unknown;
     if (sharedDetails) sharedDetails.disabled = running || blocked;
-    if (newBatch) newBatch.hidden = running || blocked || queueUnfinished || !entries.length;
+    if (newBatch) newBatch.hidden = running || blocked || unfinished || !entries.length;
     const label = form.querySelector("[data-file-label]");
     if (label) label.textContent = entries.length ? "Add more files" : "Select files";
   };
   const inheritShared = (entry) => {
-    if (blocked || entry.frozen || !["ready", "failed"].includes(entry.state)) return;
+    if (blocked || entry.frozen || !["ready", "failed", "duplicate"].includes(entry.state)) return;
     sharedInputs.forEach((shared) => {
       if (entry.overrides.has(shared.name)) return;
       entry.values[shared.name] = shared.value;
@@ -126,7 +140,6 @@
       entry.values[name] = input.value;
       entry.overrides.add(name);
       dirtyForms.delete(form);
-      queueUnfinished = true;
     });
     wrapper.append(input);
     parent.append(wrapper);
@@ -137,12 +150,13 @@
     entry.state = state;
     entry.status.textContent = message;
     entry.node.dataset.state = state;
-    entry.retry.hidden = entry.invalidFile || !["failed", "unknown"].includes(state) || blocked;
+    entry.retry.hidden = entry.invalidFile || !["failed", "unknown", "duplicate"].includes(state) || blocked;
+    entry.retry.textContent = state === "duplicate" ? "Add duplicate anyway" : "Retry this file";
+    entry.matches.hidden = state !== "duplicate";
     entry.remove.hidden = ["uploading", "saving", "added", "unknown"].includes(state) || running;
     entry.inputs.forEach((input) => input.disabled = Boolean(entry.frozen) || state === "added" || blocked);
     if (entry.resetShared) entry.resetShared.disabled = Boolean(entry.frozen) || state === "added" || blocked || running;
     entry.progress.hidden = !["uploading", "saving"].includes(state);
-    queueUnfinished = entries.some((item) => !["added", "removed"].includes(item.state));
   };
   const renderEntry = (file, defaults) => {
     const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : bulk ? "document" : form.dataset.kind;
@@ -155,7 +169,6 @@
       if (entry.state === "unknown") {announce("Retry this interrupted submission unchanged before removing it from the queue."); return;}
       entry.state = "removed"; entry.node.remove();
       entries = entries.filter((item) => item !== entry);
-      queueUnfinished = entries.some((item) => item.state !== "added");
       refreshControls();
       overall.textContent = `${entries.filter((item) => item.state === "added").length} of ${entries.length} files added. ${maxFiles - entries.length} places available in this batch.`;
       announce(`${file.name} removed from the queue.`);
@@ -191,6 +204,7 @@
     }
     entry.node.append(details);
     entry.status = element("p", null, {class:"upload-status", id:`status-${entry.id}`});
+    entry.matches = element("div", null, {class:"notice", "aria-label":"Matching evidence"});
     entry.progress = element("progress", null, {max:"100", value:"0", "aria-label":`Upload progress for ${file.name}`});
     entry.retry = element("button", "Retry this file", {class:"button button-secondary", type:"button"});
     entry.retry.addEventListener("click", () => {
@@ -198,7 +212,7 @@
       setStatus(entry, "ready", "Ready to retry.");
       run([entry]);
     });
-    entry.node.append(entry.status, entry.progress, entry.retry);
+    entry.node.append(entry.status, entry.matches, entry.progress, entry.retry);
     container.append(entry.node);
     setStatus(entry, "ready", `${(file.size / 1024 / 1024).toFixed(2)} MiB · Ready`);
     if (!file.size || file.size > limit) {
@@ -223,7 +237,7 @@
       refreshControls();
       return;
     }
-    if (!bulk && entries.some((entry) => ["ready", "failed"].includes(entry.state)) && !window.confirm("Replace the pending selection? Unsaved descriptions in this queue will be discarded. Previously added evidence stays saved.")) return;
+    if (!bulk && entries.some((entry) => ["ready", "failed", "duplicate"].includes(entry.state)) && !window.confirm("Replace the pending selection? Unsaved descriptions in this queue will be discarded. Previously added evidence stays saved.")) return;
     const defaults = Object.fromEntries(new FormData(form).entries());
     delete defaults.file; delete defaults.csrfmiddlewaretoken; delete defaults.submission_id;
     defaults.title = !bulk && selected.length === 1 ? (defaults.title || "") : "";
@@ -235,11 +249,10 @@
     submit.textContent = entries.length > 1 ? "Upload files" : "Upload file";
     overall.textContent = `${entries.length} file${entries.length === 1 ? "" : "s"} in this batch; ${entries.filter((entry) => entry.state === "added").length} added. Review titles and suggested categories before uploading.`;
     dirtyForms.delete(form);
-    queueUnfinished = entries.length > 0;
     blocked = false;
     refreshControls();
   };
-  fileInput.addEventListener("change", () => {loadFiles(fileInput.files); if (bulk) fileInput.value = "";});
+  fileInput.addEventListener("change", () => {loadFiles(fileInput.files); fileInput.value = "";});
   form.addEventListener("dragover", (event) => {if (event.dataTransfer.types.includes("Files")) {event.preventDefault(); if (!fileInput.disabled) form.classList.add("drop-active");}});
   form.addEventListener("dragleave", () => form.classList.remove("drop-active"));
   form.addEventListener("drop", (event) => {if (event.dataTransfer.files.length) {event.preventDefault(); form.classList.remove("drop-active"); loadFiles(event.dataTransfer.files);}});
@@ -270,6 +283,20 @@
       } else if ([401,403,404].includes(xhr.status)) {
         blocked = true;
         setStatus(entry, "blocked", result?.message || "Access is unavailable. Sign in again or ask the case owner for access before continuing.");
+      } else if (xhr.status === 409 && result?.code === "duplicate_evidence") {
+        entry.frozen = null;
+        entry.values.duplicate_confirmation = result.confirmation;
+        entry.matches.replaceChildren(element("p", "Matching evidence already exists. Review matches in a new tab, remove this file from the queue, or add a separate copy for its source."));
+        const list = element("ul", null);
+        result.matches.forEach((match) => {
+          const row = element("li", null);
+          row.append(element("a", `${match.title} · ${match.label}${match.is_archived ? " · Archived" : ""} (opens in a new tab)`, {href:match.url, target:"_blank", rel:"noopener", class:"record-link"}));
+          list.append(row);
+        });
+        entry.matches.append(list);
+        if (result.has_more) entry.matches.append(element("p", "Showing the first 10 matches."));
+        setStatus(entry, "duplicate", "Exact duplicate found in this case. This file has not been added.");
+        announce(`${entry.file.name}: exact duplicate found. Review matching evidence before adding another copy.`);
       } else if (xhr.status === 413 || (xhr.status === 400 && result)) {
         entry.frozen = null;
         entry.id = crypto.randomUUID();
@@ -310,7 +337,8 @@
     entries.forEach((entry) => {entry.retry.disabled = blocked; setStatus(entry, entry.state, entry.status.textContent);});
     refreshControls();
     const count = entries.filter((entry) => entry.state === "added").length;
-    overall.textContent = blocked ? "Uploads stopped because case access is unavailable. No remaining queue entries will be sent. Check your case access before continuing." : `${count} of ${entries.length} files added.${stopRequested ? " Pending uploads are paused." : " Review individual results below."}`;
+    const duplicates = entries.filter((entry) => entry.state === "duplicate").length;
+    overall.textContent = blocked ? "Uploads stopped because case access is unavailable. No remaining queue entries will be sent. Check your case access before continuing." : `${count} of ${entries.length} files added.${duplicates ? ` ${duplicates} exact duplicate${duplicates === 1 ? " needs" : "s need"} review.` : ""}${stopRequested ? " Pending uploads are paused." : " Review individual results below."}`;
     announce(overall.textContent); dirtyForms.delete(form);
   };
   stopButton.disabled = true;

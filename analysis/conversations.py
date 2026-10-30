@@ -8,11 +8,12 @@ from datetime import UTC, datetime
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.utils.dateparse import parse_datetime
 
+from evidence.types import COMMUNICATION_KINDS
+
 from .sources import output
 from .text import STOPWORDS, WORD, bounded_sources, cited_model_analysis
 
 VERSION = "conversation-rules-v1"
-COMMUNICATION_KINDS = {"text-message", "phone-call", "facetime"}
 
 
 def _number(parameters, key, default, minimum, maximum):
@@ -510,7 +511,8 @@ def session_summaries(sources, parameters, *, infer=None):
         )
     if infer is None:
         return output(
-            "Session summaries need the configured AI Gateway.", outcome="unsupported"
+            "Session summaries need a configured local or external AI runtime.",
+            outcome="unsupported",
         )
     chunks = []
     for index, group in enumerate(groups, 1):
@@ -533,6 +535,12 @@ def session_summaries(sources, parameters, *, infer=None):
             "Select at most 20 conversation-aware summary chunks per run."
         )
     items = []
+    outcomes = []
+    warnings = [
+        "Each summary covers its disclosed message chunk. "
+        "Session boundaries are inferred, missing exchanges "
+        "remain unknown, and model interpretations require review."
+    ]
     for session, selected in chunks:
         result = cited_model_analysis(
             selected,
@@ -550,6 +558,16 @@ def session_summaries(sources, parameters, *, infer=None):
             item["values"]["inferred_session"] = session
             item["values"]["chunk_source_ids"] = [str(s.id) for s in selected]
         items.extend(result["items"])
+        outcomes.append(result["outcome"])
+        warnings.extend(result["warnings"])
+        if result["outcome"] not in {"complete", "empty"}:
+            warnings.append(f"Session {session}: {result['summary']}")
+    if all(outcome in {"complete", "empty"} for outcome in outcomes):
+        outcome = "complete" if items else "empty"
+    elif len(set(outcomes)) == 1:
+        outcome = outcomes[0]
+    else:
+        outcome = "partial"
     return output(
         "Source-cited summaries of selected inferred sessions.",
         items=items,
@@ -560,25 +578,6 @@ def session_summaries(sources, parameters, *, infer=None):
             "gap_minutes": gap,
             "method": VERSION,
         },
-        warnings=[
-            (
-                "Each summary covers its disclosed message chunk. "
-                "Session boundaries are inferred, missing exchanges "
-                "remain unknown, and model interpretations require "
-                "review."
-            )
-        ],
-        outcome="complete" if items else "empty",
+        warnings=list(dict.fromkeys(warnings)),
+        outcome=outcome,
     )
-
-
-# Public operation names match the explicit application registry.
-sessions = conversation_sessions
-comm_patterns = interaction_patterns
-conversation_link = cross_channel_links
-
-
-def content_events(sources, parameters, *, infer=None):
-    from .text import content_events as extract_content_events
-
-    return extract_content_events(sources, parameters, infer=infer)

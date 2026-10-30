@@ -1108,7 +1108,7 @@ def keywords(sources, parameters):
 
 
 def cited_model_analysis(sources, parameters, *, infer, purpose):
-    "One Gateway-backed path for attributed content suggestions and summaries."
+    "One validated path for attributed model suggestions and summaries."
     sources = bounded_sources(sources)
     usable = [s for s in sources if s.text.strip()]
     if not usable:
@@ -1118,7 +1118,8 @@ def cited_model_analysis(sources, parameters, *, infer, purpose):
         )
     if infer is None:
         return output(
-            "Model analysis needs the configured AI Gateway.", outcome="unsupported"
+            "Model analysis needs a configured local or external AI runtime.",
+            outcome="unsupported",
         )
     if sum(len(s.text) for s in usable) > 64_000:
         raise ValidationError(
@@ -1135,7 +1136,18 @@ def cited_model_analysis(sources, parameters, *, infer, purpose):
                     "properties": {
                         "kind": {"type": "string"},
                         "text": {"type": "string"},
-                        "citations": {"type": "array"},
+                        "citations": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "source_id": {"type": "string"},
+                                    "quote": {"type": "string"},
+                                    "start": {"type": "integer", "minimum": 0},
+                                },
+                                "required": ["source_id", "quote"],
+                            },
+                        },
                         "status": {"type": "string"},
                     },
                     "required": ["kind", "text", "citations"],
@@ -1285,7 +1297,16 @@ def text_topics(sources, parameters, *, infer=None):
             "mixed topics, conflicting statements and unknowns."
         ),
     )
-    result["items"] = keywords(sources, parameters)["items"] + result["items"]
+    observed = keywords(sources, parameters)
+    result["items"] = observed["items"] + result["items"]
+    result["warnings"] = observed["warnings"] + result["warnings"]
+    if observed["items"]:
+        if result["outcome"] == "empty":
+            result["outcome"] = "complete"
+        elif result["outcome"] not in {"complete", "partial"}:
+            result["warnings"].append(result["summary"])
+            result["outcome"] = "partial"
+    result["summary"] = "Keyword and topic analysis of selected text."
     return result
 
 
@@ -1303,9 +1324,3 @@ def content_events(sources, parameters, *, infer=None):
             "observed event."
         ),
     )
-
-
-# Explicit registry names; shared calculation functions above remain reusable.
-entities = extract_entities
-style_profiles = style_profile
-style_change = style_changes

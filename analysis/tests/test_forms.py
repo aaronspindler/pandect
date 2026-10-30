@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from django.core.files.base import ContentFile
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from analysis.forms import AnalysisForm, ReportForm, source_choices
@@ -196,6 +196,30 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(valid.is_valid(), valid.errors)
         self.assertEqual(valid.parameters()["dwell_minutes"], 0)
 
+    def test_location_assumptions_match_the_operation_parameters(self):
+        for operation in ("location_quality", "travel_discrepancies"):
+            with self.subTest(operation=operation):
+                form = self.form(self.data(operation, distance_m=250))
+                self.assertTrue(form.is_valid(), form.errors)
+                self.assertEqual(form.parameters()["distance_m"], 250)
+                self.assertEqual(
+                    form.fields["distance_m"].label,
+                    "Coordinate discrepancy threshold (metres)",
+                )
+        quality = self.form(self.data("location_quality", gap_minutes="unused"))
+        self.assertTrue(quality.is_valid(), quality.errors)
+        self.assertNotIn("gap_minutes", quality.fields)
+        conflict = self.form(
+            self.data(
+                "location_conflicts",
+                event_label="Reported delivery",
+                distance_m="unused",
+                time_window_minutes="unused",
+            )
+        )
+        self.assertTrue(conflict.is_valid(), conflict.errors)
+        self.assertEqual(conflict.parameters(), {"event_label": "Reported delivery"})
+
     def test_movement_periods_are_explicit_disjoint_and_retained_as_aware_timestamps(
         self,
     ):
@@ -252,6 +276,7 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
             valid.parameters()["compare_split_at"], "2026-10-01T12:00:00+00:00"
         )
 
+    @override_settings(PANDECT_GEOCODER_LOCAL=False)
     def test_geographic_lookup_requires_explicit_external_approval(self):
         form = self.form(self.data("geocode_locations"))
         self.assertFalse(form.is_valid())
@@ -274,3 +299,17 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertFalse(invalid.is_valid())
         self.assertIn("participant_id", invalid.errors)
+
+    def test_reports_only_load_choices_for_applicable_filters(self):
+        for report_name, count, filters in (
+            ("calls", 1, {"participant_id", "other_participant_id"}),
+            ("vehicle-coverage", 1, {"vehicle_id"}),
+            ("vehicle-speed", 1, {"vehicle_id"}),
+            ("duplicates", 0, set()),
+        ):
+            with self.subTest(report=report_name), self.assertNumQueries(count):
+                form = ReportForm(
+                    {"state": "active"}, case=self.case, report_name=report_name
+                )
+                self.assertTrue(form.is_valid(), form.errors)
+                self.assertEqual(set(form.fields), {"state", "start", "end"} | filters)

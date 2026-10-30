@@ -11,7 +11,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import Case, CaseInvitation, CaseMembership
+from cases.views import _case_summary
 from evidence.models import PersonLocationEvidence, PhoneCallEvidence, TextEvidence
+from evidence.types import KINDS
 from people.models import Person
 
 
@@ -70,6 +72,61 @@ class CaseInterfaceTests(TestCase):
         )
         self.viewer_membership.delete()
         self.assertEqual(self.client.get(self.url("case_detail")).status_code, 404)
+
+    def test_case_list_roles_are_read_with_the_paginated_cases(self):
+        expected = {self.case.pk: "viewer"}
+        for index in range(30):
+            case = Case.objects.create(owner=self.owner, name=f"Shared {index}")
+            role = "editor" if index % 2 else "viewer"
+            CaseMembership.objects.create(case=case, user=self.viewer, role=role)
+            expected[case.pk] = role
+        owned = Case.objects.create(owner=self.viewer, name="Owned case")
+        expected[owned.pk] = "owner"
+        self.login(self.viewer)
+        for page_number in (1, 2):
+            # Session, user, verification, count and page; roles need no extra
+            # query or an unbounded dictionary of every membership.
+            with self.assertNumQueries(5):
+                response = self.client.get(
+                    reverse("cases:case_list"), {"page": page_number}
+                )
+            for case in response.context["page_obj"]:
+                self.assertEqual(case.current_role, expected.pop(case.pk))
+        self.assertFalse(expected)
+
+    def test_case_summary_counts_both_archive_states_in_one_query_per_kind(self):
+        with self.assertNumQueries(2 * len(KINDS) + 4):
+            summary = _case_summary(self.case)
+        self.assertEqual(summary["active_evidence_count"], 0)
+        self.assertEqual(summary["archived_evidence_count"], 0)
+        self.assertEqual(summary["recent_evidence"], [])
+
+    def test_empty_posts_show_required_errors_without_mutating_records(self):
+        invitation, _ = self.invite()
+        urls = (
+            (reverse("cases:case_create"), "name"),
+            (self.url("case_delete"), "confirm"),
+            (
+                self.url("membership_edit", self.case.pk, self.viewer_membership.pk),
+                "role",
+            ),
+            (
+                self.url("membership_remove", self.case.pk, self.viewer_membership.pk),
+                "confirm",
+            ),
+            (self.url("invitation_revoke", self.case.pk, invitation.pk), "confirm"),
+        )
+        for url, field in urls:
+            with self.subTest(url=url):
+                response = self.client.post(url, {})
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(field, response.context["form"].errors)
+                self.assertContains(response, "Review the highlighted details")
+        invitation.refresh_from_db()
+        self.assertTrue(invitation.is_pending)
+        self.viewer_membership.refresh_from_db()
+        self.assertEqual(self.viewer_membership.role, "viewer")
+        self.assertEqual(Case.objects.count(), 2)
 
     def test_overview_scopes_details_but_deletion_counts_all_case_evidence(self):
         person = Person.objects.create(case=self.case, first_name="Reported person")

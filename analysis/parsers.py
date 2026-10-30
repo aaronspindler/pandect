@@ -6,6 +6,7 @@ an operating-system security sandbox; deployed workers still need confinement.
 """
 
 import base64
+import csv
 import hashlib
 import io
 import json
@@ -13,9 +14,11 @@ import logging
 import math
 import os
 import runpy
+import signal
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import warnings
 import wave
@@ -74,7 +77,8 @@ def run_parser(operation, content, *, options=None):
     if operation not in {
         "document",
         "image",
-        "ocr_image",
+        "ocr",
+        "image_preview",
         "audio",
         "audio_chunk",
         "geographic_context",
@@ -91,6 +95,7 @@ def run_parser(operation, content, *, options=None):
                 operation,
                 json.dumps(options or {}),
             ],
+            start_new_session=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -121,7 +126,7 @@ def run_parser(operation, content, *, options=None):
                     raise AnalysisError("parser_timeout") from None
                 if sys.platform == "darwin":
                     usage = subprocess.run(
-                        ["/bin/ps", "-o", "rss=", "-p", str(process.pid)],
+                        ["/bin/ps", "-axo", "pgid=,rss="],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.DEVNULL,
                         timeout=1,
@@ -129,12 +134,20 @@ def run_parser(operation, content, *, options=None):
                     )
                     if (
                         usage.returncode == 0
-                        and int(usage.stdout.strip() or b"0") > 1024**2
+                        and sum(
+                            int(row.split()[1])
+                            for row in usage.stdout.splitlines()
+                            if row.split()[0] == str(process.pid).encode()
+                        )
+                        > 1024**2
                     ):
                         raise AnalysisError("parser_resource_limit") from None
     finally:
-        if process.poll() is None:
-            process.kill()
+        # Reap native OCR children too, including after a parser crash.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         process.communicate()
     if process.returncode != 0 or len(stdout) > MAX_OUTPUT:
         raise AnalysisError("parser_resource_limit")
@@ -288,9 +301,9 @@ def _gps(gps):
         return None
 
 
-def _image(content, *, prepare=False):
+def _image(content, *, prepare=False, orient=False):
     import PIL
-    from PIL import ExifTags, Image
+    from PIL import ExifTags, Image, ImageOps
 
     if not (
         content.startswith(b"\xff\xd8\xff") or content.startswith(b"\x89PNG\r\n\x1a\n")
@@ -313,6 +326,8 @@ def _image(content, *, prepare=False):
             "mode": image.mode,
         }
         if prepare:
+            if orient:
+                image = ImageOps.exif_transpose(image)
             if "A" in image.getbands() or "transparency" in image.info:
                 rgba = image.convert("RGBA")
                 background = Image.new("RGBA", image.size, "white")
@@ -496,6 +511,103 @@ def _audio_chunk(content, options):
         }
 
 
+def _tesseract(arguments, content=None):
+    """Run only the installed local engine, with bounded private output."""
+    with tempfile.TemporaryFile() as stream:
+        try:
+            completed = subprocess.run(
+                ["tesseract", *arguments],
+                input=content,
+                stdout=stream,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+                check=False,
+                env={**os.environ, "OMP_THREAD_LIMIT": "1"},
+            )
+        except FileNotFoundError:
+            raise ParserFailure("ocr_not_installed") from None
+        except subprocess.TimeoutExpired:
+            raise ParserFailure("parser_timeout") from None
+        if completed.returncode:
+            raise ParserFailure("ocr_failed")
+        stream.seek(0)
+        raw = stream.read(MAX_TEXT + 1)
+    if len(raw) > MAX_TEXT:
+        raise ParserFailure("extracted_text_limit")
+    return raw.decode("utf-8")
+
+
+def _ocr(content):
+    # Pillow decodes and re-encodes first: Tesseract never receives an arbitrary
+    # file path, document, image list, or the original's embedded metadata.
+    prepared = _image(content, prepare=True)
+    if prepared["status"] == "unsupported":
+        return prepared
+    version = _tesseract(["--version"]).splitlines()[0][:100]
+    raw = _tesseract(
+        ["stdin", "stdout", "-l", "eng", "--psm", "3", "tsv"],
+        base64.b64decode(prepared["image"]),
+    )
+    width, height = prepared["prepared_width"], prepared["prepared_height"]
+    lines = {}
+    try:
+        rows = csv.DictReader(io.StringIO(raw), delimiter="\t", quoting=csv.QUOTE_NONE)
+        expected = (
+            "level page_num block_num par_num line_num word_num "
+            "left top width height conf text"
+        ).split()
+        if rows.fieldnames != expected:
+            raise ValueError
+        for row in rows:
+            if row["level"] != "5" or not row["text"].strip():
+                continue
+            left, top, w, h = (
+                int(row[key]) for key in ("left", "top", "width", "height")
+            )
+            confidence = float(row["conf"])
+            if not (
+                0 <= left < left + w <= width
+                and 0 <= top < top + h <= height
+                and math.isfinite(confidence)
+                and 0 <= confidence <= 100
+            ):
+                raise ValueError
+            key = tuple(
+                row[name] for name in ("page_num", "block_num", "par_num", "line_num")
+            )
+            line = lines.setdefault(key, {"words": [], "boxes": [], "confidence": []})
+            line["words"].append(row["text"])
+            line["boxes"].append((left, top, left + w, top + h))
+            line["confidence"].append(confidence)
+            if len(lines) > 2000:
+                raise ParserFailure("result_limit")
+    except KeyError, TypeError, ValueError, csv.Error:
+        raise ParserFailure("ocr_invalid_output") from None
+    regions = []
+    for line in lines.values():
+        boxes = line["boxes"]
+        regions.append(
+            {
+                "text": " ".join(line["words"]),
+                "bbox": [
+                    min(b[0] for b in boxes) / width,
+                    min(b[1] for b in boxes) / height,
+                    max(b[2] for b in boxes) / width,
+                    max(b[3] for b in boxes) / height,
+                ],
+                "order": len(regions),
+                "confidence": min(line["confidence"]),
+            }
+        )
+    return prepared | {
+        "engine": version,
+        "regions": regions,
+        "status": "partial"
+        if not regions or any(r["confidence"] < 80 for r in regions)
+        else "complete",
+    }
+
+
 def _child():
     import resource
 
@@ -515,8 +627,10 @@ def _child():
             value = _document(content)
         elif operation == "image":
             value = _image(content)
-        elif operation == "ocr_image":
-            value = _image(content, prepare=True)
+        elif operation == "ocr":
+            value = _ocr(content)
+        elif operation == "image_preview":
+            value = _image(content, prepare=True, orient=True)
         elif operation == "audio":
             value = _audio(content)
         elif operation == "audio_chunk":

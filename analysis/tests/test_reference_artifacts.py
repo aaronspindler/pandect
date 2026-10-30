@@ -3,17 +3,20 @@
 import base64
 import hashlib
 import io
+from contextlib import contextmanager
 from copy import deepcopy
-from unittest.mock import patch
+from dataclasses import replace
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from PIL import Image
 
 from analysis.models import AnalysisArtifact, AnalysisResult
+from analysis.operations import OPERATIONS
 from analysis.services import process_run, start_run
 from analysis.sources import output
 from cases.models import Case, CaseMembership
@@ -21,7 +24,7 @@ from evidence.models import LocationEvidence
 from evidence.tests.test_views import EvidenceViewTestMixin
 
 
-class GeographicReferenceArtifactTests(EvidenceViewTestMixin, TestCase):
+class GeographicReferenceFixtures(EvidenceViewTestMixin):
     raw_response = b' { "version": 0.6, "elements": [] }\r\n'
 
     def start(self, *, role="owner"):
@@ -81,12 +84,17 @@ class GeographicReferenceArtifactTests(EvidenceViewTestMixin, TestCase):
         data["artifacts"] = artifacts
         return data
 
+
+class GeographicReferenceArtifactTests(GeographicReferenceFixtures, TestCase):
     def publish(self, run, artifacts=None):
         payload = self.result_payload(
             run, artifacts if artifacts is not None else [self.reference(run)]
         )
-        with patch(
-            "analysis.geographic_context.geographic_context", return_value=payload
+        with patch.dict(
+            OPERATIONS,
+            geographic_context=replace(
+                OPERATIONS["geographic_context"], function=Mock(return_value=payload)
+            ),
         ):
             process_run(str(run.pk))
         run.refresh_from_db()
@@ -197,8 +205,11 @@ class GeographicReferenceArtifactTests(EvidenceViewTestMixin, TestCase):
         }
         payload = self.result_payload(run, [preview, self.reference(run)])
         payload["items"][0]["anchors"][0]["region"] = [0.1, 0.1, 0.8, 0.8]
-        with patch(
-            "analysis.geographic_context.geographic_context", return_value=payload
+        with patch.dict(
+            OPERATIONS,
+            geographic_context=replace(
+                OPERATIONS["geographic_context"], function=Mock(return_value=payload)
+            ),
         ):
             process_run(str(run.pk))
         run.refresh_from_db()
@@ -260,9 +271,12 @@ class GeographicReferenceArtifactTests(EvidenceViewTestMixin, TestCase):
             with self.subTest(size=len(raw)):
                 _, run = self.start()
                 payload = self.result_payload(run, [self.reference(run, raw=raw)])
-                with patch(
-                    "analysis.geographic_context.geographic_context",
-                    return_value=payload,
+                with patch.dict(
+                    OPERATIONS,
+                    geographic_context=replace(
+                        OPERATIONS["geographic_context"],
+                        function=Mock(return_value=payload),
+                    ),
                 ):
                     process_run(str(run.pk))
                 run.refresh_from_db()
@@ -281,9 +295,12 @@ class GeographicReferenceArtifactTests(EvidenceViewTestMixin, TestCase):
             self.reference(run, raw=raw, key=f"context-{index}")
             for index in range(1, 6)
         ]
-        with patch(
-            "analysis.geographic_context.geographic_context",
-            return_value=self.result_payload(run, artifacts),
+        with patch.dict(
+            OPERATIONS,
+            geographic_context=replace(
+                OPERATIONS["geographic_context"],
+                function=Mock(return_value=self.result_payload(run, artifacts)),
+            ),
         ):
             process_run(str(run.pk))
         run.refresh_from_db()
@@ -305,9 +322,12 @@ class GeographicReferenceArtifactTests(EvidenceViewTestMixin, TestCase):
             saved.append(instance.pk)
 
         with (
-            patch(
-                "analysis.geographic_context.geographic_context",
-                return_value=self.result_payload(run, artifacts),
+            patch.dict(
+                OPERATIONS,
+                geographic_context=replace(
+                    OPERATIONS["geographic_context"],
+                    function=Mock(return_value=self.result_payload(run, artifacts)),
+                ),
             ),
             patch(
                 "analysis.services.AnalysisArtifact.save",
@@ -333,8 +353,11 @@ class GeographicReferenceArtifactTests(EvidenceViewTestMixin, TestCase):
             ).delete()
             return deepcopy(payload)
 
-        with patch(
-            "analysis.geographic_context.geographic_context", side_effect=revoke
+        with patch.dict(
+            OPERATIONS,
+            geographic_context=replace(
+                OPERATIONS["geographic_context"], function=Mock(side_effect=revoke)
+            ),
         ):
             self.assertEqual(process_run(str(run.pk)), "access_removed")
         self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
@@ -358,3 +381,62 @@ class GeographicReferenceArtifactTests(EvidenceViewTestMixin, TestCase):
             self.case.delete()
         self.assertFalse(storage.exists(name))
         self.assertFalse(AnalysisArtifact.objects.filter(pk=artifact.pk).exists())
+
+
+class ArtifactCommitTests(GeographicReferenceFixtures, TransactionTestCase):
+    def setUp(self):
+        super().setUp()
+        self.setUpTestData()
+
+    def test_publication_exit_failures_preserve_committed_artifacts(self):
+        real_atomic = transaction.atomic
+        for failure in ("acknowledgement", "callback"):
+            with self.subTest(failure=failure):
+                _, run = self.start()
+                contexts = 0
+
+                def fail():
+                    raise OSError("Synthetic private commit failure")
+
+                @contextmanager
+                def failing_publication(*args, failure=failure, **kwargs):
+                    with real_atomic(*args, **kwargs):
+                        yield
+                        if failure == "callback":
+                            transaction.on_commit(fail)
+                    fail()
+
+                def atomic_context(*args, **kwargs):
+                    nonlocal contexts
+                    contexts += 1
+                    # The first transaction claims the queued run; the second
+                    # publishes its complete result and files.
+                    if contexts == 2:
+                        return failing_publication(*args, **kwargs)
+                    return real_atomic(*args, **kwargs)
+
+                with (
+                    patch.dict(
+                        OPERATIONS,
+                        geographic_context=replace(
+                            OPERATIONS["geographic_context"],
+                            function=Mock(
+                                return_value=self.result_payload(
+                                    run, [self.reference(run)]
+                                )
+                            ),
+                        ),
+                    ),
+                    patch(
+                        "analysis.services.transaction.atomic",
+                        side_effect=atomic_context,
+                    ),
+                ):
+                    self.assertEqual(process_run(str(run.pk)), "processing_failed")
+                run.refresh_from_db()
+                self.assertEqual(run.status, "complete")
+                self.assertEqual(run.error_code, "")
+                artifact = AnalysisArtifact.objects.get(result=run.result)
+                with artifact.file.open("rb") as retained:
+                    self.assertEqual(retained.read(), self.raw_response)
+                self.assertEqual(process_run(str(run.pk)), "complete")

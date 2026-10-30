@@ -4,11 +4,12 @@ import json
 import math
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import ProxyHandler, Request, build_opener
 
 from django.conf import settings
 from django.utils import timezone
 
+from .http import NoRedirect
 from .locations import _item, _selected, coordinate
 from .sources import output
 
@@ -22,11 +23,6 @@ class GeocodingError(ValueError):
     def __init__(self, code):
         self.code = code
         super().__init__(code)
-
-
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
 
 
 class Geocoder:
@@ -54,7 +50,7 @@ class Geocoder:
         # The public service is not an appropriate default batch evidence processor.
         if parsed.hostname.lower().rstrip(".") == "nominatim.openstreetmap.org":
             raise GeocodingError("public_geocoder_not_supported")
-        self.opener = build_opener(_NoRedirect())
+        self.opener = build_opener(ProxyHandler({}), NoRedirect())
 
     def lookup(self, *, address=None, coordinates=None):
         if (address is None) == (coordinates is None):
@@ -81,15 +77,18 @@ class Geocoder:
             with self.opener.open(request, timeout=self.timeout) as response:
                 body = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as exc:
-            if exc.code == 429:
-                code = "geocoder_rate_limited"
-            elif exc.code in {401, 403}:
-                code = "geocoder_authentication_failed"
-            elif exc.code == 404 and coordinates is not None:
-                return []
-            else:
-                code = "geocoder_unavailable"
-            raise GeocodingError(code) from None
+            try:
+                if exc.code == 429:
+                    code = "geocoder_rate_limited"
+                elif exc.code in {401, 403}:
+                    code = "geocoder_authentication_failed"
+                elif exc.code == 404 and coordinates is not None:
+                    return []
+                else:
+                    code = "geocoder_unavailable"
+                raise GeocodingError(code) from None
+            finally:
+                exc.close()
         except URLError, TimeoutError, OSError:
             raise GeocodingError("geocoder_unavailable") from None
         if len(body) > MAX_RESPONSE_BYTES:
@@ -157,7 +156,10 @@ class Geocoder:
 
 def geocode_locations(sources, parameters, *, client=None, authorize=None):
     sources = _selected(sources)
-    if parameters.get("external_processing") is not True:
+    if (
+        not getattr(settings, "PANDECT_GEOCODER_LOCAL", False)
+        and parameters.get("external_processing") is not True
+    ):
         raise GeocodingError("external_processing_confirmation_required")
     if authorize is None:
         raise GeocodingError("current_authorization_required")
@@ -207,6 +209,7 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
                 )
             )
             continue
+        authorize()
         if not candidates:
             items.append(
                 _item(
@@ -257,7 +260,7 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
             )
         )
     return output(
-        "Review external geocode candidates while retaining original observations.",
+        "Review geocode candidates while retaining original observations.",
         items=items,
         metrics={
             "Selected observations": len(sources),

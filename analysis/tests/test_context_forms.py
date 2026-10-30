@@ -52,32 +52,23 @@ class ContextAndOCRFormTests(EvidenceViewTestMixin, TestCase):
             operation=operation,
         )
 
-    def test_ocr_default_and_experimental_profiles_are_visible_and_retained(self):
+    def test_local_ocr_needs_no_external_approval_and_only_offers_printed_text(self):
         unbound = AnalysisForm(case=self.case, operation="ocr")
-        self.assertEqual(unbound["mode"].value(), "printed")
-        self.assertEqual([field.name for field in unbound.assumptions], ["mode"])
-        labels = dict(unbound.fields["mode"].choices)
-        self.assertNotIn("Experimental", labels["printed"])
-        self.assertIn("Experimental", labels["handwriting"])
-        self.assertIn("Experimental", labels["mixed"])
-        default = self.form("ocr")
-        self.assertTrue(default.is_valid(), default.errors)
-        self.assertEqual(default.parameters().get("mode", "printed"), "printed")
-        for mode in ("printed", "handwriting", "mixed"):
-            with self.subTest(mode=mode):
-                form = self.form("ocr", mode=mode)
-                self.assertTrue(form.is_valid(), form.errors)
-                self.assertEqual(form.parameters(), {"mode": mode})
-        invalid = self.form("ocr", mode="author-identification")
-        self.assertFalse(invalid.is_valid())
-        self.assertIn("mode", invalid.errors)
-
-    def test_ocr_and_map_context_both_require_external_processing_approval(self):
-        for operation in ("ocr", "geographic_context"):
-            with self.subTest(operation=operation):
-                form = self.form(operation, external_processing=False)
-                self.assertFalse(form.is_valid())
-                self.assertIn("external_processing", form.errors)
+        self.assertEqual(
+            list(unbound.fields["mode"].choices), [("printed", "Printed English")]
+        )
+        self.assertTrue(unbound.fields["external_processing"].widget.is_hidden)
+        form = self.form("ocr", mode="printed", external_processing=True)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertFalse(form.cleaned_data["external_processing"])
+        self.assertEqual(form.parameters(), {"mode": "printed"})
+        form = self.form("ocr", external_processing=False)
+        self.assertTrue(form.is_valid(), form.errors)
+        for mode in ("handwriting", "mixed", "author-identification"):
+            self.assertFalse(self.form("ocr", mode=mode).is_valid())
+        context = self.form("geographic_context", external_processing=False)
+        self.assertFalse(context.is_valid())
+        self.assertIn("external_processing", context.errors)
 
     def test_map_context_defaults_bounds_and_retained_assumptions(self):
         unbound = AnalysisForm(case=self.case, operation="geographic_context")
@@ -131,10 +122,10 @@ class ContextAndOCRFormTests(EvidenceViewTestMixin, TestCase):
 
     def test_profile_and_context_parameters_are_isolated_to_their_operations(self):
         ocr = self.form(
-            "ocr", mode="mixed", context_as_of="not a date", context_radius_m="nan"
+            "ocr", mode="printed", context_as_of="not a date", context_radius_m="nan"
         )
         self.assertTrue(ocr.is_valid(), ocr.errors)
-        self.assertEqual(ocr.parameters(), {"mode": "mixed"})
+        self.assertEqual(ocr.parameters(), {"mode": "printed"})
         self.assertNotIn("context_as_of", ocr.fields)
         context = self.form("geographic_context", mode="invalid profile")
         self.assertTrue(context.is_valid(), context.errors)

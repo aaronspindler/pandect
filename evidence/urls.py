@@ -21,6 +21,7 @@ urlpatterns = [
     path("<str:kind>/<uuid:evidence_id>/", views.detail, name="detail"),
     path("<str:kind>/<uuid:evidence_id>/edit/", views.edit, name="edit"),
     path("<str:kind>/<uuid:evidence_id>/download/", views.download, name="download"),
+    path("<str:kind>/<uuid:evidence_id>/preview/", views.preview, name="preview"),
     path(
         "<str:kind>/<uuid:evidence_id>/attachments/new/",
         views.add_attachment,

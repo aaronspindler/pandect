@@ -13,7 +13,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.mail import EmailMessage
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case as CaseExpression
+from django.db.models import Count, OuterRef, Q, Subquery, Value, When
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -66,8 +67,9 @@ def _case_summary(case):
     recent = []
     for kind in KINDS:
         queryset = scoped_evidence(case, kind)
-        active_count += queryset.filter(is_archived=False).count()
-        archived_count += queryset.filter(is_archived=True).count()
+        counts = _archive_counts(queryset)
+        active_count += counts["active"]
+        archived_count += counts["archived"]
         for item in queryset.order_by("-created_at", "-pk").values(
             "pk", "title", "created_at"
         )[:5]:
@@ -88,12 +90,31 @@ def _case_summary(case):
     }
 
 
+def _archive_counts(queryset):
+    return queryset.aggregate(
+        active=Count("pk", filter=Q(is_archived=False)),
+        archived=Count("pk", filter=Q(is_archived=True)),
+    )
+
+
 @product_login_required
 @require_http_methods(["GET"])
 def case_list(request):
     query = request.GET.get("q", "")[:200].strip()
     ownership = request.GET.get("ownership", "all")
-    queryset = accessible_cases(request.user).select_related("owner")
+    membership_role = CaseMembership.objects.filter(
+        case_id=OuterRef("pk"), user=request.user
+    ).values("role")[:1]
+    queryset = (
+        accessible_cases(request.user)
+        .select_related("owner")
+        .annotate(
+            current_role=CaseExpression(
+                When(owner=request.user, then=Value("owner")),
+                default=Subquery(membership_role),
+            )
+        )
+    )
     if query:
         queryset = queryset.filter(
             Q(name__icontains=query) | Q(description__icontains=query)
@@ -107,13 +128,6 @@ def case_list(request):
     page = Paginator(
         queryset.order_by("-updated_at", "-created_at", "pk"), 25
     ).get_page(request.GET.get("page"))
-    roles = dict(
-        CaseMembership.objects.filter(user=request.user).values_list("case_id", "role")
-    )
-    for case in page:
-        case.current_role = (
-            "owner" if case.owner_id == request.user.pk else roles[case.pk]
-        )
     return render(
         request,
         "cases/list.html",
@@ -124,7 +138,7 @@ def case_list(request):
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def case_create(request):
-    form = CaseForm(request.POST or None)
+    form = CaseForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
         case = form.save(commit=False)
         case.owner = request.user
@@ -191,7 +205,7 @@ def case_settings(request, case_id):
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def case_delete(request, case_id):
-    form = ConfirmForm(request.POST or None)
+    form = ConfirmForm(request.POST if request.method == "POST" else None)
     if request.method == "POST":
         with transaction.atomic():
             case = get_case(request.user, case_id, owner=True, lock=True)
@@ -203,16 +217,13 @@ def case_delete(request, case_id):
         case = get_case(request.user, case_id, owner=True)
     # Deletion removes every case record, including inconsistent relationships
     # hidden from readers. Count those records without retrieving their details.
+    evidence_counts = [
+        _archive_counts(model.objects.filter(case=case)) for model in KINDS.values()
+    ]
     counts = {
         **_case_record_counts(case),
-        "active_evidence_count": sum(
-            model.objects.filter(case=case, is_archived=False).count()
-            for model in KINDS.values()
-        ),
-        "archived_evidence_count": sum(
-            model.objects.filter(case=case, is_archived=True).count()
-            for model in KINDS.values()
-        ),
+        "active_evidence_count": sum(item["active"] for item in evidence_counts),
+        "archived_evidence_count": sum(item["archived"] for item in evidence_counts),
     }
     return _render_case(request, "cases/delete.html", case, form=form, **counts)
 
@@ -363,7 +374,7 @@ def invitation_resend(request, case_id, invitation_id):
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def invitation_revoke(request, case_id, invitation_id):
-    form = ConfirmForm(request.POST or None)
+    form = ConfirmForm(request.POST if request.method == "POST" else None)
     with transaction.atomic():
         case = get_case(
             request.user, case_id, owner=True, lock=request.method == "POST"
@@ -396,7 +407,9 @@ def membership_edit(request, case_id, membership_id):
         membership = get_object_or_404(
             case.memberships.select_related("user"), pk=membership_id
         )
-        form = MembershipRoleForm(request.POST or None, instance=membership)
+        form = MembershipRoleForm(
+            request.POST if request.method == "POST" else None, instance=membership
+        )
         if request.method == "POST" and form.is_valid():
             form.save()
             messages.success(request, "Collaborator access updated.")
@@ -413,7 +426,7 @@ def membership_edit(request, case_id, membership_id):
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def membership_remove(request, case_id, membership_id):
-    form = ConfirmForm(request.POST or None)
+    form = ConfirmForm(request.POST if request.method == "POST" else None)
     with transaction.atomic():
         case = get_case(
             request.user, case_id, owner=True, lock=request.method == "POST"

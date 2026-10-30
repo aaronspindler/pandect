@@ -1,7 +1,6 @@
 """Current authorization, immutable input selection and duplicate-safe publication."""
 
 import hashlib
-import inspect
 import json
 import math
 from uuid import UUID, uuid4
@@ -27,6 +26,12 @@ from .artifacts import (
     decode_artifact,
 )
 from .errors import AnalysisError
+from .execution import (
+    processing_external,
+    requires_inference,
+    snapshot_execution,
+    validate_execution,
+)
 from .geocoding import GeocodingError
 from .models import (
     AnalysisArtifact,
@@ -263,6 +268,7 @@ def _authorize_run(run, *, lock=False, allow_finished=False):
 
 def authorize_run(run, *, lock=False, allow_finished=False):
     case = _authorize_run(run, lock=lock, allow_finished=allow_finished)
+    validate_execution(run)
     resolve_inputs(run, case)
     return case
 
@@ -291,8 +297,16 @@ def start_run(
         valid_parameters = False
     if not valid_parameters:
         raise ValidationError("Analysis settings exceed the supported limit.")
-    if specification.external and not external_processing:
+    # Execution settings are operator-owned, never accepted from a form or rerun.
+    parameters = {
+        key: value for key, value in parameters.items() if key != "_execution"
+    }
+    external = processing_external(
+        operation, parameters, parameters.get("backend", "local")
+    )
+    if external and not external_processing:
         raise ValidationError("Approve external processing for this operation.")
+    external_processing = external
     if not 1 <= len(selections) <= settings.PANDECT_ANALYSIS_MAX_SOURCES:
         raise ValidationError("Select between 1 and 500 retained sources.")
     submission_id = UUID(_uuid(submission_id or uuid4()))
@@ -371,7 +385,12 @@ def start_run(
             existing.case_id != case.pk
             or existing.requested_by_id != actor.pk
             or existing.operation != operation
-            or existing.parameters != parameters
+            or {
+                key: value
+                for key, value in existing.parameters.items()
+                if key != "_execution"
+            }
+            != parameters
             or comparable(existing.inputs) != comparable(snapshots)
             or existing.external_processing != external_processing
             or existing.previous_run_id != (previous_run.pk if previous_run else None)
@@ -382,6 +401,11 @@ def start_run(
         return existing, False
     if previous_run and previous_run.case_id != case.pk:
         raise Http404("Processing not found.")
+    execution = snapshot_execution(operation, parameters)
+    if execution is not None:
+        parameters = parameters | {"_execution": execution}
+    if len(json.dumps(parameters, allow_nan=False).encode()) > 32768:
+        raise ValidationError("Analysis settings exceed the supported limit.")
     run = AnalysisRun(
         case=case,
         requested_by=actor,
@@ -484,6 +508,7 @@ def process_run(run_id):
         run.progress = 10
         run.save(update_fields=["status", "attempts", "started_at", "progress"])
     stored_files = []
+    publication_finished = False
     try:
         case = _authorize_run(run)
         sources = resolve_inputs(run, case)
@@ -492,15 +517,32 @@ def process_run(run_id):
             raise AnalysisError("processing_version_unavailable")
         from .gateway import GatewayClient
 
-        gateway = GatewayClient(run, lambda **kw: authorize_run(run, **kw))
+        execution = validate_execution(run)
+
+        def authorize(**kw):
+            return authorize_run(run, **kw)
+
+        purpose = requires_inference(run.operation, run.parameters)
+        client = GatewayClient(run, authorize)
+        if purpose and execution is not None and execution["backend"] == "local":
+            from .local import LocalClient
+
+            client = LocalClient(authorize, execution)
         kwargs = {}
-        signature = inspect.signature(operation.function)
-        if "gateway" in signature.parameters:
-            kwargs["gateway"] = gateway
-        if "authorize" in signature.parameters:
-            kwargs["authorize"] = lambda: authorize_run(run)
-        if "infer" in signature.parameters and run.external_processing:
-            kwargs["infer"] = gateway.infer
+        if run.operation == "transcription":
+            kwargs["gateway"] = client
+        if run.operation in {
+            "transcription",
+            "ocr",
+            "geocode_locations",
+            "geographic_context",
+        }:
+            kwargs["authorize"] = authorize
+        if purpose == "text" and (
+            run.external_processing
+            or (execution is not None and execution["backend"] == "local")
+        ):
+            kwargs["infer"] = client.infer
         parameters = dict(run.parameters)
         if run.operation in {"geocode_locations", "geographic_context"}:
             parameters["external_processing"] = run.external_processing
@@ -527,6 +569,14 @@ def process_run(run_id):
                     "operation": run.operation,
                     "external_processing": run.external_processing,
                     "source_inputs": run.inputs,
+                    **({"execution": execution} if execution is not None else {}),
+                    **(
+                        {"local_usage": client.usage}
+                        if execution is not None
+                        and execution["backend"] == "local"
+                        and purpose
+                        else {}
+                    ),
                 },
             )
             totals = {kind: 0 for kind in AnalysisArtifact.Kind.values}
@@ -580,6 +630,11 @@ def process_run(run_id):
             current.progress = 100
             current.finished_at = timezone.now()
             current.save(update_fields=["status", "progress", "finished_at"])
+            if run.parameters.get("automatic_followup"):
+                from .automatic import follow_up_extraction
+
+                follow_up_extraction(run, result)
+            publication_finished = True
             return str(result.pk)
     except PermissionDenied, Http404:
         code = "access_removed"
@@ -588,10 +643,13 @@ def process_run(run_id):
     except Exception:
         # Parser/provider strings can contain private source contents.
         code = "processing_failed"
-    from evidence.signals import delete_original
+    from evidence.storage import delete_original
 
-    for storage, name in stored_files:
-        delete_original(storage, name)
+    # A failed COMMIT acknowledgement or on_commit callback can follow a durable
+    # publication. Only a failure inside its body proves these files are unused.
+    if not publication_finished:
+        for storage, name in stored_files:
+            delete_original(storage, name)
     AnalysisRun.objects.filter(pk=run_id, status="running").update(
         status="failed", error_code=code, finished_at=timezone.now()
     )

@@ -9,6 +9,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, router
 from django.utils import timezone
 
+from .storage import new_file_save
+
 
 def original_upload_path(instance, filename):
     """Keep user filenames out of private, case-scoped storage keys."""
@@ -224,6 +226,11 @@ class FileEvidence(Evidence):
                 name="%(app_label)s_%(class)s_file_not_empty",
             ),
         ]
+
+    def save(self, *, using=None, **kwargs):
+        using = using or router.db_for_write(type(self), instance=self)
+        with new_file_save(self.file, using=using):
+            return super().save(using=using, **kwargs)
 
     def _prepare_original(self):
         for name, value in file_integrity(
@@ -817,12 +824,13 @@ class CallEvidenceAttachment(models.Model):
     ):
         using = using or router.db_for_write(type(self), instance=self)
         self._validate_original(using)
-        return super().save(
-            force_insert=self._state.adding,
-            force_update=not self._state.adding,
-            using=using,
-            update_fields=update_fields,
-        )
+        with new_file_save(self.file, using=using):
+            return super().save(
+                force_insert=self._state.adding,
+                force_update=not self._state.adding,
+                using=using,
+                update_fields=update_fields,
+            )
 
     @property
     def call(self):

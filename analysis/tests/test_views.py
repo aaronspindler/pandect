@@ -162,6 +162,276 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertIn(f"text:{self.note.pk}", [value for value, label in choices])
         self.assertNotIn(f"text:{self.foreign.pk}", [value for value, label in choices])
 
+    def test_evidence_analysis_is_readable_but_only_editors_can_start_it(self):
+        url = self.analysis_url(
+            "process_evidence", kind="text", evidence_id=self.note.pk
+        )
+        self.assertEqual(self.client.get(url).status_code, 302)
+        for role, expected in (
+            ("owner", 200),
+            ("editor", 200),
+            ("viewer", 200),
+            ("outsider", 404),
+        ):
+            self.login(role)
+            with self.subTest(role=role):
+                detail = self.client.get(self.url("detail", self.note))
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, expected)
+                if expected == 200:
+                    self.assert_private(response)
+                    if role == "viewer":
+                        self.assertNotContains(response, "External analysis")
+                        self.assertNotContains(detail, ">Analyze evidence</button>")
+                        self.assertNotContains(detail, f'action="{url}"')
+                    else:
+                        self.assertContains(detail, f'action="{url}"', count=1)
+                        self.assertContains(detail, ">Analyze evidence</button>")
+                if role in {"viewer", "outsider"}:
+                    self.assertEqual(
+                        self.client.post(url, self.payload()).status_code,
+                        403 if role == "viewer" else 404,
+                    )
+        self.assertFalse(AnalysisRun.objects.exists())
+        self.login("editor")
+        CaseMembership.objects.filter(
+            case=self.case, user=self.users["editor"]
+        ).delete()
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.post(url, self.payload()).status_code, 404)
+
+    def test_evidence_analysis_uses_url_source_and_ignores_forged_operation_settings(
+        self,
+    ):
+        other = self.text()
+        self.login("owner")
+        url = self.analysis_url(
+            "process_evidence", kind="text", evidence_id=self.note.pk
+        )
+        response = self.client.get(url)
+        self.assertEqual(set(response.context["form"].fields), {"submission_id"})
+        self.assertNotContains(response, "Find source titles")
+        self.assertNotContains(response, self.foreign.title)
+        self.assertNotContains(response, other.title)
+        payload = self.payload(
+            operation="content_events",
+            sources=[f"text:{self.foreign.pk}", f"text:{other.pk}"],
+            external_processing="on",
+            include_summary="on",
+        )
+        self.assertRedirects(self.client.post(url, payload), url)
+        runs = list(AnalysisRun.objects.all())
+        self.assertEqual(
+            {run.operation for run in runs},
+            {"entities", "style_profiles", "text_topics"},
+        )
+        for run in runs:
+            self.assertFalse(run.external_processing)
+            self.assertEqual(
+                [selected["evidence_id"] for selected in run.inputs],
+                [str(self.note.pk)],
+            )
+            if run.operation == "text_topics":
+                self.assertFalse(run.parameters["include_summary"])
+        for kind, item in (("text", self.foreign), ("image", self.note)):
+            target = self.analysis_url(
+                "process_evidence", kind=kind, evidence_id=item.pk
+            )
+            self.assertEqual(self.client.get(target).status_code, 404)
+            self.assertEqual(self.client.post(target, self.payload()).status_code, 404)
+
+    def test_process_archived_evidence_queues_once_and_preserves_original(self):
+        self.login("editor")
+        self.assertEqual(
+            self.client.post(self.url("archive", self.note)).status_code, 302
+        )
+        self.note.refresh_from_db()
+        original = (self.note.body, self.note.sha256)
+        url = self.analysis_url(
+            "process_evidence", kind="text", evidence_id=self.note.pk
+        )
+        self.assertContains(self.client.get(url), "Archived")
+        payload = {"submission_id": str(uuid4())}
+        first = self.client.post(url, payload)
+        first_ids = set(AnalysisRun.objects.values_list("pk", flat=True))
+        repeated = self.client.post(url, payload)
+        self.assertRedirects(first, url)
+        self.assertEqual(first["Location"], repeated["Location"])
+        self.assertEqual(
+            set(AnalysisRun.objects.values_list("pk", flat=True)), first_ids
+        )
+        run = AnalysisRun.objects.get(operation="entities")
+        process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "complete", run.error_code)
+        self.note.refresh_from_db()
+        self.assertEqual((self.note.body, self.note.sha256), original)
+
+    def test_evidence_analysis_validation_csrf_and_history_are_scoped(self):
+        self.login("owner")
+        selected = self.analysis_run()
+        other = self.analysis_run(source=self.text(), complete=False)
+        url = self.analysis_url(
+            "process_evidence", kind="text", evidence_id=self.note.pk
+        )
+        response = self.client.get(url)
+        self.assertEqual(
+            [run.pk for run in response.context["page_obj"]], [selected.pk]
+        )
+        self.assertNotContains(response, self.analysis_url("detail", run=other))
+        invalid = self.client.post(url, {"submission_id": "invalid"})
+        self.assertContains(invalid, "Analysis could not start", status_code=400)
+        self.assertEqual(AnalysisRun.objects.count(), 2)
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.users["owner"])
+        self.assertEqual(csrf_client.post(url, self.payload()).status_code, 403)
+
+    def test_external_evidence_picker_preselects_target_beyond_case_choice_limit(self):
+        TextEvidence.objects.bulk_create(
+            [
+                TextEvidence(
+                    case=self.case,
+                    uploaded_by=self.users["owner"],
+                    title=f"Other retained note {index}",
+                    body="Synthetic other evidence.",
+                    sha256="a" * 64,
+                )
+                for index in range(501)
+            ]
+        )
+        self.login("owner")
+        response = self.client.get(
+            self.analysis_url(
+                "external_evidence", kind="text", evidence_id=self.note.pk
+            ),
+            {"q": "Does not match the target"},
+        )
+        form = response.context["form"]
+        self.assertEqual(form["sources"].value(), [f"text:{self.note.pk}"])
+        self.assertEqual(len(form.fields["sources"].choices), 1)
+        self.assertEqual(
+            dict(form.fields["operation"].choices),
+            {
+                "content_events": "Suggest claims and commitments",
+                "text_topics": "Inspect keywords and topics",
+            },
+        )
+        self.assertNotContains(response, "Other retained note")
+        self.assertNotContains(response, self.foreign.title)
+        self.assertNotContains(response, "Find source titles")
+
+    def test_external_evidence_requires_approval_current_edit_access_and_csrf(self):
+        url = self.analysis_url(
+            "external_evidence", kind="text", evidence_id=self.note.pk
+        )
+        payload = self.payload(operation="content_events", backend="gateway")
+        for role, expected in (("viewer", 403), ("outsider", 404)):
+            self.login(role)
+            self.assertEqual(self.client.get(url).status_code, expected)
+            self.assertEqual(self.client.post(url, payload).status_code, expected)
+        self.login("owner")
+        response = self.client.post(url, payload)
+        self.assertIn("external_processing", response.context["form"].errors)
+        self.assertFalse(AnalysisRun.objects.exists())
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.users["owner"])
+        self.assertEqual(csrf_client.post(url, payload).status_code, 403)
+        self.assertEqual(
+            self.client.post(url, payload | {"external_processing": "on"}).status_code,
+            302,
+        )
+        self.assertTrue(AnalysisRun.objects.get().external_processing)
+
+    def test_external_evidence_rejects_other_sources_and_local_operations(self):
+        other = self.text()
+        self.login("owner")
+        url = self.analysis_url(
+            "external_evidence", kind="text", evidence_id=self.note.pk
+        )
+        for values in (
+            {"sources": [f"text:{other.pk}"]},
+            {"sources": [f"text:{self.foreign.pk}"]},
+            {"sources": [f"text:{self.note.pk}", f"text:{other.pk}"]},
+            {"operation": "entities"},
+        ):
+            with self.subTest(values=values):
+                response = self.client.post(
+                    url,
+                    self.payload(operation="content_events", external_processing="on")
+                    | values,
+                )
+                self.assertTrue(response.context["form"].errors)
+                self.assertContains(response, "Review your selection")
+        self.assertFalse(AnalysisRun.objects.exists())
+
+    def test_external_evidence_retained_extraction_and_call_additions_stay_scoped(self):
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic extraction source",
+            file=ContentFile(b"Write to extracted@example.test", name="source.txt"),
+        )
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "native_text",
+            [{"kind": "document", "id": str(document.pk)}],
+        )
+        process_run(run.pk)
+        result = AnalysisResult.objects.get(run=run)
+        self.login("owner")
+        url = self.analysis_url(
+            "external_evidence", kind="document", evidence_id=document.pk
+        )
+        derived = f"document:{document.pk}:-:{result.pk}"
+        response = self.client.get(url, {"operation": "content_events"})
+        self.assertIn(derived, dict(response.context["form"].fields["sources"].choices))
+        call = PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic call",
+            sender=self.person,
+            recipient=self.person,
+        )
+        attachment = CallEvidenceAttachment.objects.create(
+            case=self.case,
+            phone_call=call,
+            uploaded_by=self.users["owner"],
+            file=ContentFile(wav_bytes(), name="call.wav"),
+        )
+        response = self.client.get(
+            self.analysis_url(
+                "external_evidence", kind="phone-call", evidence_id=call.pk
+            )
+        )
+        self.assertEqual(
+            response.context["form"]["sources"].value(),
+            [f"phone-call:{call.pk}:{attachment.pk}"],
+        )
+        empty_call = PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Metadata only",
+            sender=self.person,
+            recipient=self.person,
+        )
+        url = self.analysis_url(
+            "external_evidence", kind="phone-call", evidence_id=empty_call.pk
+        )
+        response = self.client.get(url)
+        self.assertContains(response, "No suitable sources")
+        self.assertContains(response, 'type="submit" disabled>Queue analysis')
+        self.assertNotContains(response, "call.wav")
+        response = self.client.post(
+            self.analysis_url(
+                "process_evidence", kind="phone-call", evidence_id=empty_call.pk
+            ),
+            {"submission_id": str(uuid4())},
+            follow=True,
+        )
+        self.assertContains(response, "No local analysis is available")
+        self.assertEqual(AnalysisRun.objects.count(), 1)
+
     def test_start_result_review_download_and_escaped_findings(self):
         self.login("editor")
         response = self.client.post(self.analysis_url("create"), self.payload())

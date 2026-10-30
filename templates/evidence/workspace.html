@@ -49,6 +49,7 @@
       <div><p class="eyebrow">{{ kind_label }} original</p><h1>{{ item.title }}</h1></div>
       <div class="actions">
         {% if item.is_archived %}<span class="badge">Archived</span>{% endif %}
+        {% if can_edit %}<form method="post" action="{% url 'analysis:process_evidence' case_id=case.pk kind=kind evidence_id=item.pk %}">{% csrf_token %}{{ analysis_form.submission_id }}<button class="button button-primary" type="submit">Analyze evidence</button></form>{% endif %}
         {% if can_edit %}<a class="button button-secondary" href="{% url 'evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">{% include 'components/icon.html' with name='pencil' %} Edit details</a>{% endif %}
         <a class="button button-secondary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">{% include 'components/icon.html' with name='download' %} {% if is_communication %}Download communication record{% elif kind == 'text' %}Download text{% else %}Download original{% endif %}</a>
         {% if can_edit %}<form method="post" action="{% if item.is_archived %}{% url 'evidence:restore' case_id=case.pk kind=kind evidence_id=item.pk %}{% else %}{% url 'evidence:archive' case_id=case.pk kind=kind evidence_id=item.pk %}{% endif %}{{ list_suffix }}">{% csrf_token %}<button class="button button-secondary" type="submit">{% include 'components/icon.html' with name='archive' %}{% if item.is_archived %}Restore{% else %}Archive{% endif %}</button></form>{% endif %}
@@ -56,7 +57,7 @@
     </header>
     {% if not can_edit %}<p class="role-note">You have Viewer access. You can inspect this evidence and download its original.</p>{% endif %}
     {% if item.is_archived %}<p class="notice">Archived evidence is retained and remains accessible to current case members.</p>{% endif %}
-    <nav class="section-tabs" aria-label="Evidence sections"><a href="?section=original{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'original' %} aria-current="page"{% endif %}>Original</a><a href="?section=details{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'details' %} aria-current="page"{% endif %}>Details</a></nav>
+    <nav class="section-tabs" aria-label="Evidence sections"><a href="?section=original{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'original' %} aria-current="page"{% endif %}>Original</a><a href="?section=details{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'details' %} aria-current="page"{% endif %}>Details</a><a href="{% url 'analysis:process_evidence' case.pk kind item.pk %}">Analysis</a></nav>
     <div class="evidence-provenance"><span>Source: {{ item.source|default:item.source_description|default:"Not recorded" }}</span><span>Added by {{ item.uploaded_by }}</span><time datetime="{{ item.created_at|date:'c' }}">{{ item.created_at|date:"d M Y, H:i" }} UTC</time></div>
     {% if section == 'original' %}
       {% if is_communication %}{% include 'evidence/communication_original.html' %}{% elif kind == 'text' %}<div class="original-text">{{ item.body }}</div>{% elif is_location %}
@@ -67,7 +68,14 @@
         <div><dt>Longitude</dt><dd>{{ item.longitude|default_if_none:"Not recorded" }}</dd></div>
         <div><dt>Observed at</dt><dd>{% if item.observed_at %}{{ item.observed_at|date:"d M Y, H:i:s" }} UTC{% else %}Not recorded{% endif %}</dd></div>
       </dl>{% if kind == 'person-location' %}<p>A reported association does not verify identity or presence. Person names reflect the current person record.</p>{% elif kind == 'vehicle-location' %}<p>A reported association does not verify identity, ownership, or presence. Vehicle details reflect the current vehicle record.</p>{% if item.import_batch_id %}<p><a href="{% url 'evidence:vehicle_import_review' case_id=case.pk import_id=item.import_batch_id %}">View import and observations</a></p><details><summary>Original CSV row and interpretation</summary><dl class="metadata-grid">{% for label,value in item.raw_row.items %}<div><dt>{{ label }}</dt><dd>{{ value|default:"Not supplied"|linebreaksbr }}</dd></div>{% endfor %}<div><dt>Parser version</dt><dd>{{ item.import_batch.parser_version }}</dd></div></dl><p>Time Summary is retained without inferring a duration or interval. Original serial numbers are source identifiers, not VINs.</p></details>{% endif %}{% endif %}</section>
-      {% else %}<div class="file-original panel"><h2>{{ item.original_filename }}</h2><p>{{ item.byte_size|filesizeformat }} · {{ item.declared_content_type|default:"Content type not supplied" }}</p><p>The original is retained without automatic format verification or processing. Download it to inspect the file.</p><a class="button button-primary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">Download original</a></div>{% endif %}
+      {% else %}<div class="file-original panel"><h2>{{ item.original_filename }}</h2><p>{{ item.byte_size|filesizeformat }} · {{ item.declared_content_type|default:"Content type not supplied" }}</p>
+        {% if kind == 'image' %}
+        <figure class="evidence-image-preview" data-image-preview>
+          <img src="{% url 'evidence:preview' case_id=case.pk kind=kind evidence_id=item.pk %}" alt="Image preview of {{ item.title }}" decoding="async" aria-describedby="image-preview-caption">
+          <figcaption id="image-preview-caption" role="status">Resized preview. Download the original for full detail. If the preview is unavailable, you can still download the original.</figcaption>
+        </figure>
+        {% else %}<p>The original is retained without automatic format verification or processing. Download it to inspect the file.</p>{% endif %}
+        <a class="button button-primary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">Download original</a></div>{% endif %}
       <section class="description-section"><h2>Investigator description</h2>{% if item.description %}<div class="prose">{{ item.description|linebreaksbr }}</div>{% else %}<p class="muted">No description recorded.</p>{% endif %}</section>
     {% else %}
       <h2>Source and provenance</h2>

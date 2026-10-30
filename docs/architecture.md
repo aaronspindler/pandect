@@ -34,7 +34,8 @@ architectures. uv's required version, mise version, Docker stage, and workflow
 version must also agree. Docker disables Python downloads: an incompatible base
 fails immediately rather than installing a second interpreter into the image.
 
-The Docker image installs only locked runtime dependencies, runs as an
+The Docker image installs locked Python dependencies plus distribution-packaged
+Tesseract and English OCR data, runs as an
 unprivileged user, and defaults to `gunicorn config.wsgi:application`. Its build
 context excludes local secrets and data. Shared templates/static assets are
 included explicitly; `collectstatic` runs during the image build and WhiteNoise
@@ -150,10 +151,15 @@ need matching treatment. See [operations](operations.md).
 Bounded Asset Location CSV parsing into retained vehicle-location observations is
 implemented; see [vehicle-location imports](vehicle-location-imports.md).
 Case-scoped analysis adds bounded extraction, direct reports, conversation/text/
-location workflows, durable processing history, and a centralized Gateway client;
+location workflows, durable processing history, and centralized local/Gateway
+inference adapters;
 see [implemented analysis and supported inputs](analysis.md). The same PostgreSQL
 queue executes UUID-only processing jobs. Cross-case/global search, graphs, unified
 timelines, and broader specialist analyses remain planned. Core management and
 deterministic analyses do not require an external AI service.
+Private text/transcription runtimes are optional, separately bounded Compose
+services with pinned native source revisions and operator-provisioned model
+files. Their network has no internet route. See [local analysis](local-analysis.md)
+for identity checks, explicit cloud selection and model qualification.
 Ownership transfer and self-service account deletion are not implemented.
 There is deliberately no public evidence/media route.

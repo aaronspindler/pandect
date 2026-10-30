@@ -59,6 +59,9 @@ jobs:
           version: "0.13.5"
           enable-cache: true
 
+      - name: Install local OCR
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+
       - name: Install locked dependencies
         run: uv sync --locked
 
@@ -107,6 +110,9 @@ jobs:
         with:
           version: "0.13.5"
           enable-cache: true
+      - name: Install local OCR
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+
       - name: Install locked dependencies
         run: uv sync --locked
       - name: Install browser engines and Linux dependencies

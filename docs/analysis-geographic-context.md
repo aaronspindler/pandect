@@ -17,7 +17,10 @@ Investigators do not need to prepare or upload GeoJSON files.
 
 Start an analysis, choose **Look up geographic context**, select observations or
 accepted geocodes, and inspect the grouping distance and context-search radius.
-Approve the disclosed external lookup before queuing it. The worker sends only
+Approve the disclosed lookup before queuing it when the endpoint is external.
+An operator-controlled endpoint can be explicitly designated local with
+`PANDECT_MAP_CONTEXT_LOCAL=true`; a private hostname alone does not establish
+trust. The worker sends only
 coordinate areas, fixed feature filters and the selected reference date. It sends
 no case names, person identifiers, vehicle identifiers, original addresses or
 observation timestamps. Authorization is rechecked immediately before and after
@@ -81,6 +84,7 @@ Configure the same values on web and worker:
 | Variable | Meaning |
 | --- | --- |
 | `PANDECT_MAP_CONTEXT_URL` | Full operator-provided Overpass interpreter endpoint, for example `https://maps.example.test/api/interpreter`. Empty disables lookup. |
+| `PANDECT_MAP_CONTEXT_LOCAL` | Default `false`. Set `true` only for an explicitly operator-controlled reference service. |
 | `PANDECT_MAP_CONTEXT_NAME` | Human-readable map source name. Required. |
 | `PANDECT_MAP_CONTEXT_VERSION` | Operator's reference dataset/version identifier. Required. |
 | `PANDECT_MAP_CONTEXT_ATTRIBUTION` | Required source attribution and licensing notice. |

@@ -1,6 +1,5 @@
 """Exact extraction versions, source ranges, review indices and native links."""
 
-import json
 from unittest.mock import patch
 from uuid import UUID
 
@@ -26,7 +25,7 @@ from people.models import Person
 
 from .test_documents import pdf_bytes
 from .test_media import wav_bytes
-from .test_result_integrations import image_bytes
+from .test_result_integrations import image_bytes, local_ocr_response
 
 
 class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
@@ -35,12 +34,15 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             "analysis:detail", kwargs={"case_id": self.case.pk, "run_id": run.pk}
         )
 
-    def start(self, operation, item, kind, *, extra=None, external=False):
+    def start(
+        self, operation, item, kind, *, extra=None, external=False, parameters=None
+    ):
         run, _ = start_run(
             self.users["owner"],
             self.case.pk,
             operation,
             [{"kind": kind, "id": str(item.pk), **(extra or {})}],
+            parameters=parameters,
             external_processing=external,
         )
         return run
@@ -132,32 +134,18 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             title="Two printed regions",
             file=SimpleUploadedFile("regions.png", image_bytes()),
         )
-        extraction = self.start("ocr", image, "image", external=True)
-        reply = {
-            "response": json.dumps(
-                {
-                    "status": "complete",
-                    "language": "en",
-                    "rotation_degrees": 0,
-                    "regions": [
-                        {
-                            "text": text,
-                            "bbox": box,
-                            "order": index,
-                            "confidence": "clear",
-                            "alternatives": [],
-                        }
-                        for index, (text, box) in enumerate(
-                            [
-                                ("first@example.test", [0.1, 0.1, 0.7, 0.3]),
-                                ("second@example.test", [0.1, 0.5, 0.8, 0.8]),
-                            ]
-                        )
-                    ],
-                }
+        extraction = self.start("ocr", image, "image")
+        reply = local_ocr_response()
+        reply["regions"] = [
+            {"text": text, "bbox": box, "order": index, "confidence": 95}
+            for index, (text, box) in enumerate(
+                [
+                    ("first@example.test", [0.1, 0.1, 0.7, 0.3]),
+                    ("second@example.test", [0.1, 0.5, 0.8, 0.8]),
+                ]
             )
-        }
-        with patch("analysis.gateway.GatewayClient.request", return_value=reply):
+        ]
+        with patch("analysis.media.run_parser", return_value=reply):
             result = self.process(extraction)
         derived = self.start(
             "entities", image, "image", extra={"result_id": str(result.pk)}
@@ -206,6 +194,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             call,
             "phone-call",
             extra={"attachment_id": str(addition.pk)},
+            parameters={"backend": "gateway"},
             external=True,
         )
         reply = {
@@ -433,6 +422,34 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(
                     AnalysisReview.objects.filter(result=result).count(), before
                 )
+
+    def test_latest_finding_review_preserves_history_and_page_boundaries(self):
+        run, result = self.findings_fixture()
+        reviews = []
+        for index, decision in (
+            (0, "accepted"),
+            (50, "accepted"),
+            (50, "rejected"),
+            (None, "unresolved"),
+        ):
+            reviews.append(
+                AnalysisReview.objects.create(
+                    case=self.case,
+                    result=result,
+                    reviewed_by=self.users["owner"],
+                    item_index=index,
+                    decision=decision,
+                )
+            )
+        self.login("viewer")
+        response = self.client.get(self.detail_url(run), {"page": 2})
+        items = response.context["items"]
+        self.assertEqual(items[0]["index"], 50)
+        self.assertEqual(items[0]["latest_review"], reviews[2])
+        self.assertTrue(all(item["latest_review"] is None for item in items[1:]))
+        self.assertCountEqual(response.context["reviews"], reviews)
+        first_page = self.client.get(self.detail_url(run))
+        self.assertEqual(first_page.context["items"][0]["latest_review"], reviews[0])
 
     def test_invalid_finding_review_keeps_its_index_and_exact_return_link(self):
         run, result = self.findings_fixture()

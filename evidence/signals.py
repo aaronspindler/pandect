@@ -1,4 +1,3 @@
-import logging
 from functools import partial
 
 from django.db import transaction
@@ -11,19 +10,7 @@ from .models import (
     DocumentEvidence,
     ImageEvidence,
 )
-
-logger = logging.getLogger(__name__)
-
-
-def delete_original(storage, name):
-    try:
-        storage.delete(name)
-    except Exception:
-        # Generated keys support manual retry without logging original filenames,
-        # file contents, or potentially sensitive storage exception messages.
-        logger.error(
-            "Evidence file cleanup failed; retry deleting storage key %s", name
-        )
+from .storage import delete_original
 
 
 @receiver(post_delete, sender=ImageEvidence)

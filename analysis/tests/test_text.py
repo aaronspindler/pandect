@@ -394,7 +394,22 @@ class TextAnalysisTests(SimpleTestCase):
         self.assertEqual(
             text_topics([original], {"include_summary": False})["outcome"], "complete"
         )
-        self.assertEqual(text_topics([original], {})["outcome"], "unsupported")
+        without_runtime = text_topics([original], {})
+        self.assertEqual(without_runtime["outcome"], "partial")
+        self.assertEqual(without_runtime["items"], result["items"])
+        self.assertIn("needs a configured", " ".join(without_runtime["warnings"]))
+
+    def test_topics_with_empty_model_output_keep_keywords_and_cautions(self):
+        original = source("Harbour harbour delivery.")
+        result = text_topics([original], {}, infer=lambda prompt, schema: {"items": []})
+        self.assertEqual(result["outcome"], "complete")
+        self.assertEqual(result["items"], keywords([original], {})["items"])
+        warnings = " ".join(result["warnings"])
+        self.assertIn("English stop-word", warnings)
+        self.assertIn("misinterpret sarcasm", warnings)
+        empty = text_topics([source(" ")], {}, infer=None)
+        self.assertEqual(empty["outcome"], "insufficient")
+        self.assertEqual(empty["items"], [])
 
     def test_model_suggestions_require_exact_quotes_and_selected_sources(self):
         original = source("I will meet you tomorrow. Actually, cancel that proposal.")

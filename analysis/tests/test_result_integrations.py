@@ -20,6 +20,7 @@ from analysis.models import (
     AnalysisResult,
     AnalysisRun,
     ExtractedPassage,
+    GatewayRequest,
 )
 from analysis.services import process_run, resolve_inputs, review_result, start_run
 from analysis.sources import output
@@ -37,24 +38,17 @@ def image_bytes():
     return stream.getvalue()
 
 
-def ocr_response(*, text="Synthetic extraction phrase", status="complete"):
-    return {
-        "response": json.dumps(
-            {
-                "status": status,
-                "language": "en",
-                "rotation_degrees": 0,
-                "regions": [
-                    {
-                        "text": text,
-                        "bbox": [0.1, 0.2, 0.8, 0.6],
-                        "order": 0,
-                        "confidence": "clear",
-                        "alternatives": [],
-                    }
-                ],
-            }
-        )
+def local_ocr_response(
+    *, text="Synthetic extraction phrase", status="complete", content=None
+):
+    from analysis.parsers import run_parser
+
+    return run_parser("image_preview", content or image_bytes()) | {
+        "engine": "tesseract synthetic-test",
+        "status": status,
+        "regions": [
+            {"text": text, "bbox": [0.1, 0.2, 0.8, 0.6], "order": 0, "confidence": 95}
+        ],
     }
 
 
@@ -79,15 +73,36 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             image.case_id,
             "ocr",
             [{"kind": "image", "id": str(image.pk)}],
-            external_processing=True,
         )
         with patch(
-            "analysis.gateway.GatewayClient.request", return_value=ocr_response(**reply)
+            "analysis.media.run_parser", return_value=local_ocr_response(**reply)
         ):
             process_run(str(run.pk))
         run.refresh_from_db()
         self.assertIn(run.status, {"complete", "partial"}, run.error_code)
+        self.assertFalse(run.external_processing)
+        self.assertFalse(GatewayRequest.objects.filter(run=run).exists())
         return image, run, run.result, AnalysisArtifact.objects.get(result__run=run)
+
+    def test_old_queued_ocr_cannot_dispatch_remotely_or_relabel_its_method(self):
+        image = self.image()
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "ocr",
+            [{"kind": "image", "id": str(image.pk)}],
+            external_processing=True,
+        )
+        self.assertFalse(run.external_processing)
+        AnalysisRun.objects.filter(pk=run.pk).update(
+            method_version="2", external_processing=True
+        )
+        with patch("analysis.gateway.GatewayClient.request") as gateway:
+            self.assertEqual(process_run(run.pk), "processing_version_unavailable")
+            gateway.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.method_version, "2")
+        self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
 
     def analysis_url(self, name, run, *, case=None, **extra):
         return reverse(
@@ -265,12 +280,9 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "ocr",
             [{"kind": "image", "id": str(image.pk)}],
-            external_processing=True,
         )
         with (
-            patch(
-                "analysis.gateway.GatewayClient.request", return_value=ocr_response()
-            ),
+            patch("analysis.media.run_parser", return_value=local_ocr_response()),
             patch(
                 "analysis.services.AnalysisArtifact.save",
                 side_effect=ValidationError("Synthetic publication failure"),

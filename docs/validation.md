@@ -50,7 +50,11 @@ retry IDs, upload/storage failures, access revocation, person-deletion protectio
 case cascade/rollback, and read-only admin attachments.
 Product-view tests additionally cover current role gates and cross-case UUID
 requests, private downloads, metadata conflicts, archive/restore, bounded uploads,
-and idempotent retries after uncertain confirmation. Case/invitation tests cover
+and idempotent retries after uncertain confirmation. Duplicate-upload coverage
+checks exact hashes across file categories and captured text, archived matches,
+case isolation, current edit access, bounded private match lists, explicit
+confirmation, unchanged storage after warnings, and the full-page fallback.
+Case/invitation tests cover
 verified recipients, token rotation/replay/expiry, mail failure, preserved member
 roles, confirmed deletion, and reviewed stale-edit resubmission.
 They use synthetic content and temporary storage, without external services.
@@ -83,6 +87,8 @@ in this controlled run. This does not claim exactly-once delivery after crashes.
 It also checks that the production image serves its collected application assets with
 debug disabled. Its exit trap removes only that project's containers and volumes. It never uses your `.env`
 or data.
+The smoke script clears inherited `PANDECT_` settings before applying its synthetic
+configuration, including private-runtime endpoints, credentials and upload limits.
 
 `make security-check` exports the hash-locked dependency graph, including developer
 tools, and runs pip-audit against it without re-resolving dependencies. It requires
@@ -101,7 +107,8 @@ uv run --locked --env-file .env make browser-check
 
 On Linux, install browser OS dependencies as required by Playwright (CI uses
 `playwright install --with-deps chromium webkit`). `make browser-check` runs
-`python manage.py test config.tests.browser`; it is separate from the ordinary
+`python manage.py test config.tests.browser config.marketing_browser analysis.browser analysis.context_browser cases.map_browser --noinput`; it is
+separate from the ordinary
 unit suite. Browser fixtures use synthetic accounts/material and temporary
 private file storage. Never run competing Django test processes against the same
 test database, or point the suite at an investigation database.
@@ -112,6 +119,11 @@ which defaults to ignored `data/validation/browser`. Browser artifacts are local
 validation output. Do not replace the synthetic fixtures with real investigation
 material.
 
+The public [marketing-page checks](marketing.md#validation) run alongside the core
+suite, with their own captures in `data/validation/marketing-browser`. They cover
+navigation and FAQ disclosures without JavaScript, responsive reflow, enlarged
+text, keyboard focus, and appearance preferences.
+
 The suite exercises account/case/people/vehicle/evidence/collaboration workflows,
 JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
 navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
@@ -121,7 +133,8 @@ later call attachments, private audio/record downloads, and read-only viewer acc
 upload/review/confirmation and source JSON, source fields in file
 batches, bulk mixed-file uploads with shared-field inheritance/overrides/reset,
 append limits, invalid-file removal, pause/retry, access removal between files,
-safe interrupted-confirmation retry, and dense desktop record visibility.
+safe interrupted-confirmation retry, duplicate review across categories and within
+a batch, keyboard confirmation, and dense desktop record visibility.
 The page-layout journey also captures cases, overview, settings, people, vehicles,
 details, and account settings at all five design viewport sizes. It checks page
 reflow and uses the evidence-type chooser without JavaScript to open text,
@@ -140,6 +153,23 @@ areas; screen-reader review and operator deployment checks remain separate human
 validation activities. A successful build or HTTP readiness response is not a
 substitute for these browser interactions and captures.
 
+## Image preview validation
+
+Image evidence preview checks cover current case roles and revoked access,
+private headers, unchanged original downloads, orientation, resizing, transparency,
+malformed/active content, byte/pixel bounds, and safe failures. Run the focused
+checks with:
+
+```sh
+uv run --locked --env-file .env python manage.py test evidence.tests.test_previews --noinput
+uv run --locked --env-file .env python manage.py test config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
+```
+
+The preview browser journey checks Chromium and WebKit with and without page
+JavaScript, keyboard downloads, all five design viewport sizes, dark appearance,
+reduced motion, and forced colors where supported. Captures use the core browser
+artifact directory. Screen-reader review remains a separate human check.
+
 ## Analysis validation
 
 Run the ordinary checks for retained-content search, current-field reports,
@@ -154,27 +184,31 @@ make compose-smoke
 make security-check
 ```
 
-The focused analysis browser suite uses Chromium and WebKit with synthetic
+The focused analysis browser suite is also included in `make browser-check` and
+uses Chromium and WebKit with synthetic
 material, no JavaScript, all five design viewport sizes, keyboard focus,
 light/dark/forced colors, extraction, reviews, downloads, and access revocation.
-Captures default to ignored `data/validation/analysis-browser`. Run it separately
-from other PostgreSQL suites; `PANDECT_BROWSER_ENGINES` and
+Captures default to ignored `data/validation/analysis-browser`. When running a
+focused suite, do not run another PostgreSQL test process at the same time;
+`PANDECT_BROWSER_ENGINES` and
 `PANDECT_BROWSER_ARTIFACTS` have the same meaning as in the core suite.
 
-The separate context browser suite exercises experimental handwriting profile
-selection, approval, searchable OCR regions/private previews and original
+The context browser suite, also included in `make browser-check`, exercises local printed-text profile
+selection, searchable OCR regions/private previews and original
 downloads, plus historical geographic context, exact retained reference JSON,
-viewer access and revocation. It uses mocked Gateway/map responses with real
-bounded parsing and processing. Chromium/WebKit captures cover the five design
+viewer access and revocation. It uses real local Tesseract OCR and mocked map
+responses with real bounded parsing and processing. Chromium/WebKit captures cover the five design
 viewports, keyboard controls, no-JavaScript operation, dark and forced colours,
 and reduced motion; output defaults to ignored `data/validation/context-browser`.
-These checks do not establish live handwriting accuracy or map-service coverage.
+These checks do not establish general OCR accuracy or map-service coverage.
 
 Processing tests include real same-database worker dispatch and concurrent
 idempotent submissions. Inference/geocoding tests mock HTTP; parser tests decode
-synthetic files in real bounded child processes. These establish handling and
-provenance, not live model recognition accuracy. The isolated Compose smoke
-also queues native extraction while its worker is stopped, restarts the stack,
+synthetic files in real bounded child processes, including real local printed OCR.
+Host validation requires Tesseract and English data; see
+[development](development.md#run-python-on-the-host). These establish handling and
+provenance, not general recognition accuracy. The isolated Compose smoke
+also queues native extraction and local printed-image OCR while its worker is stopped, restarts the stack,
 then verifies retained extraction/search output after worker recovery.
 
 Regression coverage includes bounded extraction-search queries, shared source
@@ -184,12 +218,36 @@ checksum stability after PostgreSQL reload. Admin and case-summary tests reject
 inconsistent related-case associations while deletion counts describe all retained
 records that will be removed.
 
+## Local inference validation
+
+Local inference boundary coverage is included in `make check`: routing and
+immutable execution snapshots, pinned-runtime identity, context/output budgets,
+authorization, cancellation, safe HTTP failures, and private native-runtime
+authentication/limits. The runtime tests use synthetic model bytes and temporary
+loopback listeners, including real process-group termination. They do not load
+Whisper or Qwen weights. Run their focused checks independently with:
+
+```sh
+uv run --locked python -m unittest inference.test_server
+uv run --locked --env-file .env python manage.py test analysis.tests.test_local_inference config.tests.test_settings --noinput
+```
+
+Optional runtime build validation is
+`docker compose --profile local-ai build local-text local-transcription`.
+Building the image does not provision models or prove inference quality. Use
+the executable qualification command and per-method evaluation procedure in
+[local analysis](local-analysis.md#qualification-and-recovery) after provisioning
+reviewed artifacts. Record actual output, latency and peak memory separately
+from mocked-test and container-build results; block third-party egress while
+permitting the private services. Do not use public map capacity in routine tests.
+
 ## GitHub Actions
 
 - **CI** runs the same checks, fresh PostgreSQL migrations, and Compose smoke on
   Linux amd64 and arm64. uv reads `.python-version` and installs from `uv.lock`.
 - A separate Linux amd64 browser job installs Chromium/WebKit and runs
-  `make browser-check` with synthetic configuration and PostgreSQL.
+  `make browser-check` for core, marketing, analysis, geographic context and map
+  journeys with synthetic configuration and PostgreSQL.
 - A separate CI job audits locked dependencies without database credentials.
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
 - **CodeQL** analyzes Python on pushes, pull requests, and a weekly schedule. The

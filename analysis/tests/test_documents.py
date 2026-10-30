@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import signal
 import zlib
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -141,12 +142,13 @@ class NativeDocumentTests(SimpleTestCase):
         process.poll.return_value = None
         with (
             patch("analysis.parsers.subprocess.Popen", return_value=process),
+            patch("analysis.parsers.os.killpg") as kill_group,
             patch("analysis.parsers.time.monotonic", side_effect=[0, 21]),
             self.assertRaises(AnalysisError) as timeout,
         ):
             run_parser("document", b"text")
         self.assertEqual(timeout.exception.code, "parser_timeout")
-        process.kill.assert_called_once()
+        kill_group.assert_called_once_with(process.pid, signal.SIGKILL)
         self.assertEqual(process.communicate.call_count, 2)
 
     def test_compressed_pdf_expansion_is_bounded_before_text_extraction(self):
@@ -170,6 +172,7 @@ class NativeDocumentTests(SimpleTestCase):
         process.poll.return_value = 0
         process.returncode = 0
         with (
+            patch("analysis.parsers.os.killpg"),
             patch.dict("os.environ", {"SYNTHETIC_PROVIDER_KEY": "private-test-value"}),
             patch("analysis.parsers.subprocess.Popen", return_value=process) as create,
         ):

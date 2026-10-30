@@ -37,6 +37,7 @@ from analysis.services import (
     validate_output,
 )
 from analysis.sources import Source, output
+from analysis.text import extract_entities
 from background.tests.test_tasks import drain_queue
 from cases.models import Case, CaseMembership
 from evidence.models import (
@@ -315,11 +316,10 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(process_run(str(run.pk)), "cancelled")
         self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
         second, _ = self.start()
-        actual = __import__("analysis.text", fromlist=["entities"]).entities
 
         def cancelled_operation(sources, parameters):
             cancel_run(self.users["editor"], self.case.pk, second.pk)
-            return actual(sources, parameters)
+            return extract_entities(sources, parameters)
 
         with patch(
             "analysis.services.get_operation",
@@ -334,13 +334,12 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
 
     def test_membership_removal_during_calculation_prevents_publication(self):
         run, _ = self.start("editor")
-        actual = __import__("analysis.text", fromlist=["entities"]).entities
 
         def revoke(sources, parameters):
             CaseMembership.objects.filter(
                 case=self.case, user=self.users["editor"]
             ).delete()
-            return actual(sources, parameters)
+            return extract_entities(sources, parameters)
 
         with patch(
             "analysis.services.get_operation",

@@ -157,15 +157,26 @@ model without an explicit change in product requirements.
 
 ## ML and LLM processing
 
-Route ML/LLM inference through a centralized backend integration with Cloudflare
-AI Gateway using API credentials. Do not bypass the gateway with direct provider
-calls or place credentials in browser code.
+Run printed-English image text extraction locally
+with Tesseract in the bounded worker parser. Never send images to an external
+service for OCR or fall back to remote inference. Keep handwriting and mixed-text
+profiles unsupported until a suitable local implementation is delivered.
+
+Default other supported ML/LLM inference to explicitly configured,
+operator-controlled local or private-LAN runtimes through the shared backend
+integration. Pin model artifacts and runtime identities, retain execution
+provenance and fail recoverably on drift. Never fall back to an external service
+automatically. Keep local inference separately bounded from file parsers.
+External AI remains an explicitly selected and approved Cloudflare AI Gateway
+route using API credentials. Do not bypass the gateway with direct provider calls
+or place credentials in browser code. Read `docs/local-analysis.md` before changing
+local routing, runtime operations, resource limits or model qualification.
 
 - Credentials belong to the deployment operator: self-hosters configure their own
   gateway access, and the hosted service operator supplies hosted access.
 - Keep credentials outside source control, using environment configuration or a
   suitable secret store. Document configuration with placeholders only.
-- Make gateway configuration and model selection configurable. Keep provider and
+- Make local/runtime and gateway configuration and model selection configurable. Keep provider and
   model details behind the integration boundary rather than scattering them
   through views and domain logic.
 - Follow the current Cloudflare authentication requirements for the endpoint in
@@ -184,7 +195,7 @@ calls or place credentials in browser code.
 - Keep ordinary case management and non-AI investigation work usable when AI
   credentials are absent or the gateway is unavailable. Communicate the resulting
   limitation within affected AI features.
-- Mock gateway calls in automated tests. Do not make routine tests depend on paid
+- Mock inference calls in routine automated tests. Do not make routine tests depend on paid
   inference, real credentials, or external availability.
 
 ## Documentation is part of delivery

@@ -10,9 +10,11 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase, override_settings
 
 from analysis.errors import AnalysisError
-from analysis.gateway import GatewayClient, NoRedirect
-from analysis.models import GatewayRequest
-from analysis.services import authorize_run, start_run
+from analysis.gateway import GatewayClient
+from analysis.http import NoRedirect
+from analysis.models import AnalysisRun, GatewayRequest
+from analysis.services import authorize_run
+from analysis.sources import source_id
 from evidence.models import TextEvidence
 from evidence.tests.test_views import EvidenceViewTestMixin
 
@@ -56,17 +58,37 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
             title="Synthetic source",
             body="Synthetic café source",
         )
-        self.run, _ = start_run(
-            self.users["owner"],
-            self.case.pk,
-            "content_events",
-            [{"kind": "text", "id": str(self.original.pk)}],
-            external_processing=True,
-        )
+        self.run = self.gateway_run(self.users["owner"], self.case, self.original)
         self.authorize = Mock(
             side_effect=lambda **kwargs: authorize_run(self.run, **kwargs)
         )
         self.client = GatewayClient(self.run, self.authorize)
+
+    def gateway_run(self, actor, case, original):
+        # Exercise transport settings independently of new-run route pinning.
+        # Older retained runs have no execution snapshot and keep their approved
+        # Gateway route; execution tests cover snapshots on newly queued work.
+        choice = {"kind": "text", "id": str(original.pk)}
+        return AnalysisRun.objects.create(
+            case=case,
+            requested_by=actor,
+            operation="content_events",
+            method_version="1",
+            parameters={"backend": "gateway"},
+            external_processing=True,
+            inputs=[
+                {
+                    "id": source_id(choice),
+                    "kind": "text",
+                    "evidence_id": str(original.pk),
+                    "attachment_id": None,
+                    "result_id": None,
+                    "geocode_candidate": None,
+                    "review_id": None,
+                    "sha256": original.sha256,
+                }
+            ],
+        )
 
     def test_only_configured_cloudflare_endpoint_and_two_distinct_auth_headers_are_used(
         self,
@@ -192,12 +214,8 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
                 title="Other source",
                 body="Other source",
             )
-            other, _ = start_run(
-                self.users["outsider"],
-                self.other_case.pk,
-                "content_events",
-                [{"kind": "text", "id": str(other_text.pk)}],
-                external_processing=True,
+            other = self.gateway_run(
+                self.users["outsider"], self.other_case, other_text
             )
             GatewayClient(
                 other, lambda **kwargs: authorize_run(other, **kwargs)
@@ -206,12 +224,13 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(GatewayRequest.objects.filter(case=self.other_case).count(), 1)
 
     def test_rate_limit_has_one_bounded_retry_with_authorization_between_attempts(self):
+        retry = error(429)
         with (
             patch("analysis.gateway.build_opener") as build,
             patch("analysis.gateway.time.sleep") as sleep,
         ):
             build.return_value.open.side_effect = [
-                error(429),
+                retry,
                 response({"result": {"response": "Recovered"}}),
             ]
             self.assertEqual(self.client.request("text", {})["response"], "Recovered")
@@ -226,6 +245,7 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(build.return_value.open.call_count, 2)
         sleep.assert_called_once_with(1)
         self.assertGreaterEqual(self.authorize.call_count, 6)
+        self.assertTrue(retry.closed)
 
     def test_authentication_quota_and_provider_failures_have_safe_distinct_codes(self):
         for status, expected in (
@@ -239,7 +259,8 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
                 self.subTest(status=status),
                 patch("analysis.gateway.build_opener") as build,
             ):
-                build.return_value.open.side_effect = error(status)
+                failure = error(status)
+                build.return_value.open.side_effect = failure
                 with self.assertRaisesMessage(
                     AnalysisError, "gateway_" + expected
                 ) as caught:
@@ -249,6 +270,7 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(
                     GatewayRequest.objects.latest("created_at").status, expected
                 )
+                self.assertTrue(failure.closed)
 
     def test_provider_retries_are_bounded_and_counted_separately(self):
         with (
@@ -286,6 +308,11 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
         for value, code in (
             (b"x" * 4097, "gateway_output_limit"),
             (b"not JSON", "gateway_invalid_response"),
+            (b'{"value":NaN}', "gateway_invalid_response"),
+            (b'{"value":Infinity}', "gateway_invalid_response"),
+            (b'{"value":-Infinity}', "gateway_invalid_response"),
+            (b'{"value":1e999}', "gateway_invalid_response"),
+            (b"[" * 1500 + b"]" * 1500, "gateway_invalid_response"),
             ([], "gateway_invalid_response"),
             ({"success": False, "errors": ["Private"]}, "gateway_invalid_response"),
             ({"result": []}, "gateway_invalid_response"),
@@ -358,7 +385,15 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(payload["messages"][0]["role"], "system")
         self.assertIn("untrusted data", payload["messages"][0]["content"])
         self.assertNotIn("Ignore safeguards", payload["messages"][0]["content"])
-        for result in ({"response": "not JSON"}, {"response": "3"}, {"response": 3}):
+        for result in (
+            {"response": "not JSON"},
+            {"response": "3"},
+            {"response": 3},
+            {"response": '{"value":NaN}'},
+            {"response": '{"value":Infinity}'},
+            {"response": '{"value":-Infinity}'},
+            {"response": '{"value":1e999}'},
+        ):
             with (
                 self.subTest(result=result),
                 patch.object(self.client, "request", return_value=result),
@@ -367,6 +402,27 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
                     AnalysisError, "gateway_invalid_response"
                 ):
                     self.client.infer("Synthetic", {})
+        with (
+            patch.object(self.client, "request", return_value={"response": "{}"}),
+            patch("analysis.gateway.decode_json", side_effect=RecursionError),
+            self.assertRaisesMessage(AnalysisError, "gateway_invalid_response"),
+        ):
+            self.client.infer("Synthetic", {})
+
+    def test_invalid_prompt_or_schema_does_not_dispatch_or_record_usage(self):
+        for prompt, schema in (
+            ({"value": float("nan")}, {}),
+            ("Source", {"value": float("inf")}),
+            (object(), {}),
+        ):
+            with (
+                self.subTest(prompt=type(prompt)),
+                patch("analysis.gateway.build_opener") as build,
+            ):
+                with self.assertRaisesMessage(AnalysisError, "gateway_invalid_input"):
+                    self.client.infer(prompt, schema)
+                build.assert_not_called()
+        self.assertFalse(GatewayRequest.objects.exists())
 
     def test_no_redirect_handler_does_not_forward_sensitive_headers(self):
         self.assertIsNone(

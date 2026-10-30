@@ -242,7 +242,7 @@ basic observation and relationship workflows are dependable.
    results, source anchors, background execution, and recovery it needs. Extend
    the search from increment 1 to those results.
 
-Then add Gateway-backed transcription and printed-text OCR, while starting the
+Then add Gateway-backed transcription and local printed-text OCR, while starting the
 conversation/location/style tracks as their dependencies become available.
 Build the shared support with these features rather than scheduling a separate
 open-ended platform project.

@@ -142,7 +142,12 @@ before further processing or publication. Bound time, input sizes, external
 requests, and concurrency; make effects idempotent and publish complete results
 atomically. Preserve originals and processing provenance. Sanitize errors and
 implement visible progress and a bounded recovery policy for that operation.
-Inference must use the centralized Cloudflare AI Gateway integration when built.
+Image OCR runs locally with Tesseract as documented in [extraction](analysis-extraction.md).
+Other inference defaults to pinned private runtimes through the shared backend
+integration. External inference uses Cloudflare AI Gateway only when explicitly
+selected and approved. Local failure never triggers cloud fallback. Inference
+runtime limits are separate from these parser limits; see
+[local analysis](local-analysis.md) for setup, identity checks and recovery.
 The queue itself supplies none of these domain safeguards.
 
 See [operations](operations.md) for coordinated backup and upgrades and

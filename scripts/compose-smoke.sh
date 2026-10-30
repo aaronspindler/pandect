@@ -28,14 +28,12 @@ PANDECT_WEB_PORT=0
 ENV
 # Prevent inherited development/CI environment values from overriding isolation.
 unset DJANGO_DEBUG DJANGO_SECRET_KEY DJANGO_ALLOWED_HOSTS POSTGRES_DB POSTGRES_USER
-unset POSTGRES_PASSWORD PANDECT_DB_PORT PANDECT_WEB_PORT
+unset POSTGRES_PASSWORD
 unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
-unset PANDECT_AI_ACCOUNT_ID PANDECT_AI_GATEWAY_ID PANDECT_AI_GATEWAY_TOKEN
-unset PANDECT_AI_WORKERS_TOKEN PANDECT_GEOCODER_URL PANDECT_GEOCODER_NAME
-unset PANDECT_GEOCODER_VERSION PANDECT_GEOCODER_ATTRIBUTION
-unset PANDECT_MAP_CONTEXT_URL PANDECT_MAP_CONTEXT_NAME PANDECT_MAP_CONTEXT_VERSION
-unset PANDECT_MAP_CONTEXT_ATTRIBUTION PANDECT_MAP_CONTEXT_USER_AGENT
-unset PANDECT_MAP_CONTEXT_TIMEOUT PANDECT_MAP_CONTEXT_HISTORY_START
+# Include future settings too; never carry operator endpoints or tokens into tests.
+for variable in $(python3 -c 'import os; print(" ".join(key for key in os.environ if key.startswith("PANDECT_")))'); do
+    unset "$variable"
+done
 # Verify every disposable volume is local to this unique synthetic project.
 compose config --format json | python3 -c '
 import json, sys
@@ -98,6 +96,24 @@ run, created = start_run(owner, case.pk, "native_text", [
     {"kind": "document", "id": str(native_document.pk)},
 ])
 assert created and run.status == "queued"
+# Real local OCR must run after restart without AI credentials.
+import io
+from PIL import Image, ImageDraw, ImageFont
+image = Image.new("RGB", (1000, 240), "white")
+ImageDraw.Draw(image).text(
+    (40, 60), "PANDECT LOCAL TEXT 12345",
+    font=ImageFont.load_default(size=48), fill="black",
+)
+image_bytes = io.BytesIO()
+image.save(image_bytes, format="PNG")
+local_image = ImageEvidence.objects.create(
+    case=case, uploaded_by=owner, title="Synthetic local OCR source",
+    file=ContentFile(image_bytes.getvalue(), name="local-ocr.png"),
+)
+ocr_run, created = start_run(owner, case.pk, "ocr", [
+    {"kind": "image", "id": str(local_image.pk)},
+])
+assert created and not ocr_run.external_processing
 TextEvidence.objects.create(
     case=case, uploaded_by=owner, title="Synthetic text", body="Original café\r\n",
     source="Synthetic smoke source",
@@ -242,6 +258,15 @@ assert result.return_value == "compose-worker-restart"
 assert len(result.worker_ids) == 1
 
 from analysis.models import AnalysisRun, ExtractedPassage
+ocr_run = AnalysisRun.objects.get(operation="ocr")
+assert ocr_run.status in {"complete", "partial"}, ocr_run.error_code
+assert not ocr_run.external_processing
+assert "PANDECT LOCAL TEXT 12345" in " ".join(
+    ExtractedPassage.objects.filter(result=ocr_run.result).values_list("text", flat=True)
+)
+assert ocr_run.result.artifacts.exists()
+from analysis.models import GatewayRequest
+assert not GatewayRequest.objects.filter(run=ocr_run).exists()
 run = AnalysisRun.objects.get(operation="native_text")
 assert run.status == "complete", run.error_code
 assert run.result.data["items"][0]["text"] == "Source-anchored native extraction.\n"

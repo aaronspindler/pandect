@@ -308,6 +308,136 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     )
                 ).to_be_visible()
 
+    def test_process_single_evidence_without_javascript_and_responsive_layout(self):
+        DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Another document outside this selection",
+            file=ContentFile(b"Synthetic other source.", name="other.txt"),
+        )
+        viewports = (
+            (1440, 900, "desktop"),
+            (1440, 1024, "tall-desktop"),
+            (768, 1024, "tablet"),
+            (390, 844, "mobile"),
+            (320, 844, "reflow"),
+        )
+        analysis_url = self.url(
+            "analysis:process_evidence",
+            case_id=self.case.pk,
+            kind="document",
+            evidence_id=self.document.pk,
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(
+                    self.url(
+                        "evidence:detail",
+                        case_id=self.case.pk,
+                        kind="document",
+                        evidence_id=self.document.pk,
+                    )
+                )
+                process = page.get_by_role(
+                    "button", name="Analyze evidence", exact=True
+                )
+                for width, height, label in viewports:
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    expect(process).to_be_visible()
+                    self.capture(page, engine, f"process-evidence-action-{label}")
+                process.focus()
+                expect(process).to_be_focused()
+                self.assertNotEqual(
+                    process.evaluate("node => getComputedStyle(node).outlineStyle"),
+                    "none",
+                )
+                process.press("Enter")
+                expect(page).to_have_url(analysis_url)
+                expect(
+                    page.get_by_role("heading", name="Evidence analysis", exact=True)
+                ).to_be_visible()
+                expect(page.get_by_label("Analysis", exact=True)).to_have_count(0)
+                expect(page.locator('input[name="sources"]')).to_have_count(0)
+                expect(
+                    page.get_by_text(
+                        "Another document outside this selection", exact=False
+                    )
+                ).to_have_count(0)
+                native = page.get_by_role(
+                    "link", name=re.compile("Extract document text")
+                ).first
+                expect(native).to_contain_text("Queued")
+                run_id = UUID(native.get_attribute("href").rstrip("/").split("/")[-1])
+                self.db(self._complete, run_id)
+                refresh = page.get_by_role("link", name="Refresh status", exact=True)
+                refresh.focus()
+                expect(refresh).to_be_focused()
+                refresh.press("Enter")
+                expect(native).to_contain_text("Complete")
+                expect(
+                    page.get_by_role(
+                        "link", name=re.compile("Extract identifiers and dates")
+                    ).first
+                ).to_be_visible()
+                for width, height, label in viewports:
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"process-evidence-results-{label}")
+                page.emulate_media(color_scheme="dark")
+                self.capture(page, engine, "process-evidence-results-dark")
+                page.emulate_media(
+                    color_scheme="light",
+                    forced_colors="active",
+                    reduced_motion="reduce",
+                )
+                self.capture(page, engine, "process-evidence-results-forced-colors")
+                external = page.locator("summary", has_text="Additional analysis")
+                external.focus()
+                expect(external).to_be_focused()
+                external.press("Enter")
+                page.get_by_role(
+                    "link", name="Suggest claims and commitments", exact=True
+                ).click()
+                expect(
+                    page.get_by_role("heading", name="Additional analysis", exact=True)
+                ).to_be_visible()
+                location = page.get_by_label("Processing location", exact=True)
+                expect(location).to_have_value("local")
+                location.focus()
+                expect(location).to_be_focused()
+                for width, height, label in viewports:
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"local-analysis-form-{label}")
+                location.select_option("gateway")
+                approval = page.get_by_label(
+                    "I approve external processing of the selected evidence", exact=True
+                )
+                expect(approval).not_to_be_checked()
+                page.get_by_role("button", name="Queue analysis", exact=True).click()
+                expect(page.locator(".error-summary")).to_be_visible()
+                expect(approval).not_to_be_checked()
+                self.assertFalse(
+                    self.db(AnalysisRun.objects.filter(external_processing=True).exists)
+                )
+                page.goto(analysis_url)
+                page.get_by_role(
+                    "link", name=re.compile("Extract document text")
+                ).first.click()
+                expect(
+                    page.get_by_role("heading", name="Native UTF-8 text", exact=True)
+                ).to_be_visible()
+                run = self.db(AnalysisRun.objects.get, pk=run_id)
+                self.assertEqual(
+                    [selected["evidence_id"] for selected in run.inputs],
+                    [str(self.document.pk)],
+                )
+
     def test_viewer_reports_sources_and_access_removal_without_javascript(self):
         for engine in self.engines:
             # Each browser engine receives fresh viewer membership after the prior
@@ -688,3 +818,61 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 ).to_be_visible()
                 self._capture_phase3(page, engine, "communications")
                 self.db(self._assert_originals_retained, originals)
+
+    def test_location_assumptions_have_relevant_keyboard_accessible_controls(self):
+        person = Person.objects.get(case=self.case)
+        PersonLocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic observation",
+            person=person,
+            latitude=0,
+            longitude=0,
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                for operation in (
+                    "location_quality",
+                    "travel_discrepancies",
+                    "location_conflicts",
+                ):
+                    self._choose_analysis(page, operation)
+                    label = (
+                        "Claimed event being compared"
+                        if operation == "location_conflicts"
+                        else "Coordinate discrepancy threshold (metres)"
+                    )
+                    field = page.get_by_label(label, exact=True)
+                    field.focus()
+                    expect(field).to_be_focused()
+                    self.assertNotEqual(
+                        field.evaluate("node => getComputedStyle(node).outlineStyle"),
+                        "none",
+                    )
+                    field.fill(
+                        "Synthetic delivery"
+                        if operation == "location_conflicts"
+                        else "250"
+                    )
+                    if operation != "travel_discrepancies":
+                        expect(page.locator('[name="gap_minutes"]')).to_have_count(0)
+                    if operation == "location_conflicts":
+                        expect(page.locator('[name="distance_m"]')).to_have_count(0)
+                        expect(
+                            page.locator('[name="time_window_minutes"]')
+                        ).to_have_count(0)
+                    for width, height, label in (
+                        (1440, 900, "desktop"),
+                        (1440, 1024, "tall-desktop"),
+                        (768, 1024, "tablet"),
+                        (390, 844, "mobile"),
+                        (320, 844, "reflow"),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self._assert_reflow(page)
+                        field.scroll_into_view_if_needed()
+                        self.capture(page, engine, f"assumptions-{operation}-{label}")

@@ -21,7 +21,7 @@ test:
 	$(RUN) python manage.py test
 
 browser-check:
-	$(RUN) python manage.py test config.tests.browser --noinput
+	$(RUN) python manage.py test config.tests.browser config.marketing_browser analysis.browser analysis.context_browser cases.map_browser --noinput
 
 validate:
 	$(UV) lock --check

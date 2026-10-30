@@ -12,46 +12,33 @@ decode or transcribe. Supplied transcripts remain independent retained material.
 | Native text | UTF-8, with optional BOM; unencrypted native-text PDF | Exact derived text with line/page anchors. UTF-8 BOM removal is recorded. No native text on a PDF page means visual review is needed; it does not establish a blank page. Mixed text/scanned pages produce partial coverage. Office formats are unsupported. |
 | Image metadata | Single-frame JPEG and PNG | Decoded dimensions, raw EXIF/XMP, orientation, device/software claims, capture-time and GPS candidates. An absent timezone is left absent. Raw values stay available alongside interpretations. |
 | Audio metadata | Uncompressed signed 16-bit little-endian PCM WAV, mono/stereo, 8–48 kHz | Decoded duration, sample rate, channels and codec; numerical RMS and one-second digital-zero/full-scale sample observations. Supplied values remain separate, with discrepancies disclosed. |
-| OCR | JPEG/PNG source or separately retained page image; printed English by default, with experimental English handwriting and mixed profiles | Candidate text with normalized rectangles, reading order, writing-type suggestions, uncertainty and alternative readings. Handprint and cursive are experimental. Other languages/scripts, direct PDF rendering and complex layouts are outside the supported profiles. |
+| Local OCR | JPEG/PNG source or separately retained page image, printed English | Tesseract candidate text grouped by line, normalized rectangles, reading order, minimum word confidence and engine version. Handwriting, mixed text, other languages, direct PDF rendering and complex layouts are unsupported. |
 | Transcription | The supported WAV profile, English input | Candidate text with source recording intervals and original-timeline chunk offsets. No speaker identity or diarization. Non-English input profiles are unsupported. |
 
-The fixture suite checks decoding, supported/unsupported states, boundaries and
-inference-response handling using synthetic material and mocked Gateway replies.
-It does not establish a real provider's recognition accuracy. OCR and transcription
-remain model suggestions that investigators must inspect against the originals;
-names, accents, overlap, blur and difficult layout can produce errors.
+OCR uses the installed Tesseract engine and English language data entirely on the
+worker host. It needs no AI credentials, makes no network request and never falls
+back to external processing. The ordinary image **Analyze evidence** action queues
+OCR and image metadata; successful OCR then queues identifier/date and keyword
+analysis against that exact retained extraction. JPEG/PNG page images stored as
+documents can use **Read text in images** in manual analysis.
 
-### Experimental handwriting profiles
+Only **Printed English** is offered. Handwriting and mixed-text recognition from
+the earlier remote implementation are no longer supported; earlier results remain
+readable. OCR method version 3 records the local engine version and language
+setting. Queued older OCR versions fail with a recoverable version message; start
+a new run rather than rewriting their retained parameters or history.
 
-Choose **Printed English**, **English handwriting (experimental)**, or
-**Mixed printed/handwritten English (experimental)** when starting OCR. The
-handwriting profile attempts handprint and cursive, while mixed attempts both
-printed and handwritten regions. The selected profile is retained with every
-finding. Printed regions are excluded from the handwriting-only profile, and
-handwritten regions are excluded from the printed-only profile. A region marked
-mixed is excluded from either single-writing-type profile; use mixed for a page
-containing both.
-
-Handwriting support has not undergone representative live recognition evaluation.
-Synthetic fixtures and mocked Gateway responses validate the processing and
-review workflow only. Issue #73 remains open for that evaluation, including
-different writers, handprint/cursive, mixed pages, ambiguity, blur and rotation.
-No accuracy claim or authorship/signature comparison follows from this feature.
-
-The model reports a region's writing type as printed, handwritten, mixed or
-unknown. These are visual suggestions, not verified classifications. Each region
-keeps its language candidate and any uncertainty/alternative readings. Unknown
-writing type or language, unreadable regions and reported omissions make coverage
-partial; a candidate reading can remain available for review. Unsupported
-language/script or profile-excluded wording is withheld from searchable text,
-while its source region and exclusion reason remain visible. A returned complete
-status cannot override those coverage limitations. Unreadable, unsupported and
-empty outcomes remain distinct; empty output does not prove that no text exists.
-
-OCR method version 2 retains these profiles separately from earlier results.
-Existing version-1 results remain readable; queued work for an unavailable method
-version must be started again using the current method, retaining the old run's
-history.
+Tesseract scores are engine scores, not calibrated probabilities. A line retains
+its minimum word score; scores below 80 mark coverage partial. The English setting
+is not language detection. Missing regions, handwriting and other scripts can go
+unrecognized even with high scores. No recognized text is partial/unresolved,
+never proof that the image is blank. Review candidate text against the original.
+Synthetic printed-image tests exercise real local recognition, while controlled
+engine fixtures cover failure and publication paths. They do not establish
+recognition accuracy on real investigation material. Transcription defaults to
+the configured private whisper.cpp runtime, with Cloudflare as a separately
+selected and approved option. Routine tests mock inference; see
+[local analysis](local-analysis.md) for real-model qualification.
 
 ## Source anchors and interpretation
 
@@ -62,16 +49,15 @@ does not render PDF pages or execute embedded content. Scanned pages need a
 separately retained JPEG/PNG page image for this OCR input profile.
 
 OCR prepares a JPEG of at most 2048 pixels on its longest side, with EXIF and XMP
-omitted from submission. Transparency is composited on white. Normalized regions
-refer to the original image's
+omitted from recognition input. Transparency is composited on white. Normalized
+regions refer to the original image's
 **unrotated pixel coordinate space**. The preparation resizes pixels without
 applying EXIF orientation or cropping. The original dimensions and preparation
-version remain in the finding. A model-reported rotation is a candidate about
-text direction, not a rewritten original. Unreadable/empty/unsupported findings
-are distinct from extracted candidate text.
+version remain in the finding. Rotation is not corrected automatically.
+Unrecognized and unsupported inputs remain distinct from extracted candidate text.
 
 Region inspection reuses that exact prepared JPEG as a private derived preview,
-so the normalized rectangles align with the submitted pixels. A run retains at
+so the normalized rectangles align with the recognized pixels. A run retains at
 most 2 MiB of decoded JPEG preview bytes. Further previews are omitted with an
 explicit warning; this display limit does not change the OCR text or its coverage
 outcome. The retained original remains available for inspecting those regions.
@@ -108,10 +94,11 @@ call record and attachment-manifest hashes describe other domains.
 Parsers run in fresh isolated-mode Python subprocesses. The child receives bytes
 through stdin and no case records, storage paths, Django configuration or provider
 credentials. stderr is discarded and safe error codes replace exception strings.
-The worker kills/reaps a child after 20 seconds; child CPU is limited to 15 seconds,
+The worker kills/reaps the parser process group, including native OCR children,
+after 20 seconds; child CPU is limited to 15 seconds,
 core dumps are disabled, and output and open descriptors are bounded. Linux
 workers enforce a 1 GiB address-space limit. macOS does not support the same
-address-space limit here; the development runner samples child RSS and terminates
+address-space limit here; the development runner samples process-group RSS and terminates
 it above 1 GiB. That sampled check is not a hard instantaneous memory limit.
 
 Additional format limits apply: at most 100 PDF pages, 4 MiB per decompressed
@@ -123,9 +110,17 @@ failures; they never replace originals or publish an incomplete run as complete.
 
 These subprocess limits provide resource isolation, not an OS security sandbox.
 Keep the deployed worker unprivileged and confined, with private storage and
-restricted network access. All ML/LLM inference uses the central authenticated
-Cloudflare AI Gateway path with current case access checks immediately before
-and after requests. No direct provider endpoint is called by these extractors.
+restricted network access. Local OCR invokes only the installed Tesseract
+executable, with a 15-second per-command timeout, one native thread, bounded private temporary stdout and
+discarded stderr. It receives a prepared JPEG through stdin, never an evidence
+path or arbitrary input list. The parser environment excludes operator secrets.
+A missing engine or English data produces a safe error with operator recovery
+instructions and no remote fallback. Other ML/LLM inference uses the shared
+backend boundary, defaulting to pinned private runtimes. External processing uses
+the authenticated Cloudflare AI Gateway only when separately selected and approved.
+Both routes check current case access immediately before and after requests.
+Local failure never triggers an external request. No direct public-provider
+endpoint is called by these extractors.
 The existing job/result workflow handles retries, revocation and atomic
 publication; each extraction retains its parser/model and source versions.
 
@@ -134,4 +129,5 @@ Primary references:
 - [pypdf text extraction and content-stream memory limits](https://pypdf.readthedocs.io/en/stable/user/extract-text.html).
 - [Pillow image metadata APIs](https://pillow.readthedocs.io/en/stable/reference/Image.html) and [parser security considerations](https://pillow.readthedocs.io/en/stable/handbook/security.html).
 - [Cloudflare Workers AI Whisper input/output profile](https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/).
-- [Cloudflare Workers AI Llama 4 Scout vision profile](https://developers.cloudflare.com/workers-ai/models/llama-4-scout-17b-16e-instruct/).
+- [Tesseract command line and TSV output](https://tesseract-ocr.github.io/tessdoc/Command-Line-Usage.html).
+- [Tesseract installation and language data](https://tesseract-ocr.github.io/tessdoc/Installation.html).

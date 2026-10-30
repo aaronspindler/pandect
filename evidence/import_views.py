@@ -17,7 +17,7 @@ from config.access import product_login_required
 
 from .import_forms import VehicleImportReviewForm, VehicleImportUploadForm
 from .models import DocumentEvidence, VehicleLocationEvidence, VehicleLocationImport
-from .signals import delete_original
+from .storage import delete_original
 from .vehicle_imports import MAX_BYTES, PARSER_VERSION, read_import, row_fingerprint
 
 
@@ -31,6 +31,7 @@ def vehicle_import_upload(request, case_id):
         request.FILES if request.method == "POST" else None,
     )
     document = None
+    save_finished = False
     status = 200
     if request.method == "POST":
         status = 400
@@ -87,15 +88,17 @@ def vehicle_import_upload(request, case_id):
                             parser_version=PARSER_VERSION,
                         )
                         batch.save()
-                        return redirect(
+                        response = redirect(
                             "evidence:vehicle_import_review",
                             case_id=case.pk,
                             import_id=batch.pk,
                         )
+                        save_finished = True
+                        return response
             except Exception as error:
                 # File storage is outside the database transaction. Remove only a
                 # new file whose database record was rolled back.
-                if document and document.file._committed:
+                if document and not save_finished and document.file._committed:
                     delete_original(document.file.storage, document.file.name)
                 if not isinstance(error, (OSError, ValidationError)):
                     raise

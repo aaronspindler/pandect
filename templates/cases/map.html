@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Map · {{ case.name }}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'vendor/leaflet/leaflet.css' %}">
+<link rel="stylesheet" href="{% static 'pandect/map.css' %}">
+<script src="{% static 'vendor/leaflet/leaflet.js' %}" defer></script>
+<script src="{% static 'pandect/map.js' %}" defer></script>
+{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><p class="eyebrow">{{ case.name }}</p><h1>Map</h1><p class="muted">Explore reported locations and open their source evidence.</p></div>
+  {% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case.pk %}?kind=location">Add location</a>{% endif %}
+</header>
+<form method="get" class="map-filters" aria-label="Filter locations">
+  <div><label for="map-query">Search locations</label><input type="search" id="map-query" name="q" value="{{ query }}" maxlength="200" placeholder="Title, address, or source"></div>
+  <div><label for="map-kind">Evidence type</label><select name="kind" id="map-kind"><option value="">All location types</option>{% for value,label in location_kinds %}<option value="{{ value }}" {% if kind == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div><label for="map-archive">Status</label><select name="archive" id="map-archive"><option value="active" {% if archive == 'active' %}selected{% endif %}>Active</option><option value="archived" {% if archive == 'archived' %}selected{% endif %}>Archived</option><option value="all" {% if archive == 'all' %}selected{% endif %}>Active and archived</option></select></div>
+  <button class="button button-secondary" type="submit">Apply filters</button>
+  {% if query or kind or archive != 'active' %}<a class="record-link" href="{% url 'cases:case_map' case.pk %}">Clear filters</a>{% endif %}
+</form>
+<section class="case-map-section" aria-labelledby="map-heading" data-case-map data-page-key="{{ page_key }}" data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}">
+  <div class="section-header"><div><h2 id="map-heading">Location map</h2><p class="muted map-summary"><span data-map-count>{{ mapped_count }} of {{ page_obj|length }} locations mapped</span>{% if page_obj.paginator.num_pages > 1 %} · Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}{% endif %}</p></div><div class="actions"><button type="button" class="button button-secondary" data-map-fit aria-label="Show all mapped locations" hidden>Show all</button><a class="record-link" href="#location-list">Location list</a></div></div>
+  <p role="status" data-map-status>Enable JavaScript to load the interactive map. All source locations are available in the list below.</p>
+  <p class="muted" data-map-estimate-key hidden>Square markers show address estimates.</p>
+  <div id="investigation-map" class="case-map" tabindex="0" role="region" aria-label="Interactive location map" aria-describedby="map-help" hidden></div>
+  {% if has_addresses %}
+  <div class="map-address-lookup">
+    <p class="muted" role="status" data-geocode-status>{% if pending %}Locating addresses locally…{% elif not local_geocoder_ready %}Address lookup needs a configured local geocoder.{% else %}Address matches appear as estimates, with links to review them.{% endif %}</p>
+    {% if can_edit and local_geocoder_ready %}<form method="post" action="{% url 'cases:map_locate' case.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" data-map-geocode {% if can_queue %}data-auto-locate{% endif %}>{% csrf_token %}<input type="hidden" name="page_key" value="{{ page_key }}"><button class="button button-secondary" type="submit" name="retry" value="1">Look up addresses locally</button></form>{% endif %}
+  </div>
+  {% endif %}
+  <details class="map-details"><summary>Map details</summary>
+    <p>Evidence files, titles, notes, and source details stay in Pandect. Address lookups send only the address to the configured local geocoder. The background tile service receives only tile requests.</p>
+    <p>Circles show recorded coordinates; squares show address estimates. Estimates may be broad or ambiguous, and all unrejected alternatives remain visible. Review them before using them for analysis. Numbers match the location list; a count groups positions at the same coordinates. Neither coordinates nor the background map verify presence, identity, routes, or historical conditions.</p>
+    <p id="map-help">Use the arrow keys to pan and + or − to zoom when the map has focus, or use the zoom buttons. Choose a numbered marker or “Show on map” in the list to inspect a source.</p>
+  </details>
+</section>
+<section class="content-section" aria-labelledby="location-list" tabindex="-1">
+  <div class="section-header"><h2 id="location-list">Locations</h2><span class="muted">{{ page_obj.paginator.count }} observation{{ page_obj.paginator.count|pluralize }}</span></div>
+  {% if page_obj %}
+  <ol class="map-location-list" start="{{ page_obj.start_index }}">
+    {% for item in page_obj %}
+    <li id="location-{{ item.number }}" data-location-row="{{ item.number }}">
+      <div class="map-location-heading"><a class="record-link" href="{{ item.url }}">{{ item.title }}</a><button type="button" class="button button-secondary" data-map-show="{{ item.number }}" aria-label="Show {{ item.title }} on map" hidden>Show on map</button></div>
+      <p class="muted">{{ item.kind_label }}{% if item.is_archived %} · Archived{% endif %} · {% if item.observed_at %}{{ item.observed_at|date:'j M Y, H:i:s' }} UTC{% else %}Observation time not recorded{% endif %}</p>
+      {% if item.address %}<p>{{ item.address }}</p>{% endif %}
+      <p>{% if item.latitude != None %}<span class="map-coordinates">{{ item.latitude }}, {{ item.longitude }}</span>{% if not item.plottable %} · Outside map display range{% endif %}{% else %}Address only · <span data-geocode-label>{{ item.geocode.label }}</span> <a href="{{ item.geocode.url }}" data-geocode-review {% if not item.geocode.url %}hidden{% endif %}>Review lookup</a>{% endif %}</p>
+      {% if item.source %}<p class="muted">Source: {{ item.source }}</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% if page_obj.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Location pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
+  {% else %}
+  <div class="empty-state compact-empty"><h3>{% if query or kind or archive != 'active' %}No matching locations{% else %}No locations yet{% endif %}</h3><p>{% if query or kind or archive != 'active' %}Clear or broaden the filters to see more observations.{% elif can_edit %}Add location evidence with an address or coordinates to begin exploring this case.{% else %}Location evidence added by the owner or an editor will appear here.{% endif %}</p></div>
+  {% endif %}
+</section>
+{{ points|json_script:'case-map-points' }}
+{% if pending %}<span data-map-pending hidden></span>{% endif %}
+{% endblock %}
