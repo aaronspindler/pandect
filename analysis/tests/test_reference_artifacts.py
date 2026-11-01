@@ -140,9 +140,10 @@ class GeographicReferenceArtifactTests(GeographicReferenceFixtures, TestCase):
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.content, self.raw_response)
-                self.assertEqual(response["Content-Type"], "application/json")
-                self.assertTrue(
-                    response["Content-Disposition"].startswith("attachment;")
+                self.assertEqual(response["Content-Type"], "application/octet-stream")
+                self.assertEqual(
+                    response["Content-Disposition"],
+                    f'attachment; filename="reference-{artifact.pk}.json"',
                 )
                 self.assertIn("private", response["Cache-Control"])
                 self.assertIn("no-store", response["Cache-Control"])

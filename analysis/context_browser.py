@@ -418,6 +418,10 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                 expect(reference).to_be_focused()
                 with page.expect_download() as waiting:
                     reference.press("Enter")
+                artifact_id = reference_url.rstrip("/").split("/")[-1]
+                self.assertEqual(
+                    waiting.value.suggested_filename, f"reference-{artifact_id}.json"
+                )
                 self.assertEqual(
                     Path(waiting.value.path()).read_bytes(), self.map_bytes
                 )

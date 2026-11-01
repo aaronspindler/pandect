@@ -474,7 +474,11 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(data["case_id"], str(self.case.pk))
         self.assertEqual(data["inputs"][0]["sha256"], self.note.sha256)
         self.assertEqual(data["result"]["items"][0]["text"], "source@example.test")
-        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertEqual(response["Content-Type"], "application/octet-stream")
+        self.assertEqual(
+            response["Content-Disposition"],
+            f'attachment; filename="analysis-{run.pk}.json"',
+        )
         self.assert_private(response)
         self.note.refresh_from_db()
         self.assertIn("<script>", self.note.body)

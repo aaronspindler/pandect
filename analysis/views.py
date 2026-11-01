@@ -664,8 +664,10 @@ def download(request, case_id, run_id):
         "result": result.data,
         "provenance": result.provenance,
     }
+    # Linux WebKit can render JSON attachments inline; use a download MIME type.
     response = HttpResponse(
-        json.dumps(data, ensure_ascii=False, indent=2), content_type="application/json"
+        json.dumps(data, ensure_ascii=False, indent=2),
+        content_type="application/octet-stream",
     )
     response["Content-Disposition"] = f'attachment; filename="analysis-{run.pk}.json"'
     return private(response)
@@ -726,7 +728,7 @@ def artifact(request, case_id, run_id, artifact_id):
         raise Http404("Artifact unavailable.") from None
     reference = retained.kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
     response = HttpResponse(
-        content, content_type="application/json" if reference else "image/jpeg"
+        content, content_type="application/octet-stream" if reference else "image/jpeg"
     )
     response["Content-Disposition"] = (
         f'attachment; filename="reference-{retained.pk}.json"'

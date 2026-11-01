@@ -452,5 +452,6 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "Spatial group 1")
         downloaded = self.client.get(self.analysis_url("download", finished))
         self.assertEqual(downloaded.status_code, 200)
-        self.assertEqual(downloaded.json()["inputs"][0]["review_id"], str(review.pk))
-        self.assertEqual(downloaded.json()["result"], finished.result.data)
+        data = json.loads(downloaded.content)
+        self.assertEqual(data["inputs"][0]["review_id"], str(review.pk))
+        self.assertEqual(data["result"], finished.result.data)

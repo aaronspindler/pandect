@@ -5,6 +5,11 @@ processing runs. Owners and editors can start/cancel processing and append revie
 viewers inspect authorized reports, originals, and results. The case boundary also
 applies to workers, search, result downloads, and inline recording playback.
 
+Result/provenance and retained geographic reference downloads keep their `.json`
+filenames and JSON content. They use `application/octet-stream` with attachment
+disposition so browsers, including Linux WebKit, save the files reliably. Downloads
+remain private and uncached; image previews remain inline JPEGs.
+
 The full product catalogue and recommended order remain in
 [evidence analysis](evidence-analysis.md) and the [roadmap](evidence-analysis-roadmap.md).
 Implementation and supported formats must be judged against this guide and the

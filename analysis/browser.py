@@ -293,6 +293,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         "link", name="Download result and provenance", exact=True
                     ).click()
                 download = waiting.value
+                self.assertEqual(download.suggested_filename, f"analysis-{run_id}.json")
                 data = json.loads(Path(download.path()).read_text())
                 self.assertEqual(data["operation"], "native_text")
                 self.assertEqual(data["inputs"][0]["sha256"], self.document.sha256)
