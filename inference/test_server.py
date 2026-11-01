@@ -229,7 +229,9 @@ class RuntimeHTTPTests(unittest.TestCase):
         status, value = self.request("POST", "/tokenize", b"{}")
         self.assertEqual(status, 503)
         self.assertEqual(value, {"error": "runtime_unavailable"})
-        self.assertFalse(self.runtime.lock.locked())
+        # The client can read the response before the handler's finally block runs.
+        self.assertTrue(self.runtime.lock.acquire(timeout=2))
+        self.runtime.lock.release()
 
 
 if __name__ == "__main__":
