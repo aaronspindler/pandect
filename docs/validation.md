@@ -41,8 +41,10 @@ stability, same-case person selection, retained person links, whole-case deletio
 and source creation/edit/search across every evidence type.
 Evidence admin coverage includes all ten evidence registrations, role/model-permission
 gates, scoped searches and direct/history URLs, forged originals and attribution,
-same-case person links, upload limits, archive attribution, disabled individual
-deletion, and permission-checked whole-case cleanup.
+same-case person links, upload limits, archive attribution, superuser-only confirmed
+individual deletion with original/call/derived-file cleanup, rollback, storage
+failures, downstream analysis, import-source protection, and permission-checked
+whole-case cleanup.
 Communication coverage includes same-case sender/recipient links, immutable
 message/time/duration originals, all initial call-content combinations, appended
 transcripts/recordings, independent hashes, parent-scoped private downloads,
@@ -50,7 +52,11 @@ retry IDs, upload/storage failures, access revocation, person-deletion protectio
 case cascade/rollback, and read-only admin attachments.
 Product-view tests additionally cover current role gates and cross-case UUID
 requests, private downloads, metadata conflicts, archive/restore, bounded uploads,
-and idempotent retries after uncertain confirmation. Duplicate-upload coverage
+and idempotent retries after uncertain confirmation. In-app superuser deletion
+covers current role/verification checks, all evidence types, retained call and
+generated files, explicit confirmation, private pages, preserved navigation, CSRF,
+case isolation, and recoverable import-source/corrupt-link blocks. Duplicate-upload
+coverage
 checks exact hashes across file categories and captured text, archived matches,
 case isolation, current edit access, bounded private match lists, explicit
 confirmation, unchanged storage after warnings, and the full-page fallback.
@@ -73,6 +79,12 @@ Vehicle-location CSV coverage includes source retention and checksum/provenance,
 explicit timezone conversion and DST rejection, format/resource bounds, same-case
 vehicle mappings, current roles and CSRF, exact retries, possible duplicate review,
 atomic rollback, corrupted/unavailable sources, and retained-link deletion rules.
+Background import coverage exercises a CSV larger than the former 1 MiB/250-row
+limits, paginated review/results, upload vehicle defaults and forged choices,
+queued processing and retries, current permissions, and atomic publication.
+Duplicate coverage includes optional retention, skipping within and between
+exports (including archived matches), new matches after review, all-skipped
+completion, unchanged retained sources, and duplicate-safe confirmation retries.
 
 `make compose-smoke` needs Docker only. It creates a unique project with temporary
 synthetic configuration, random loopback ports, and fresh volumes. It builds the
@@ -127,7 +139,10 @@ text, keyboard focus, and appearance preferences.
 The suite exercises account/case/people/vehicle/evidence/collaboration workflows,
 JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
 navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
-evidence admin creation/editing, archive controls and authorized downloads,
+evidence admin creation/editing, superuser deletion with keyboard/no-JavaScript
+confirmation and cancellation, in-app superuser deletion from Details with
+confirmation, cancellation, blocked imports and no-JavaScript submission, archive
+controls and authorized downloads,
 location/person-location forms and private JSON downloads, communication forms,
 later call attachments, private audio/record downloads, and read-only viewer access, vehicle-location CSV
 upload/review/confirmation and source JSON, source fields in file
@@ -144,8 +159,11 @@ check keyboard focus and conflict review, and exercise creation, read-only viewe
 access, and confirmed owner deletion without JavaScript.
 CSV journeys capture desktop, tablet, mobile, 320px reflow, dark, and forced-colors
 layouts in both engines; they exercise native disclosure and confirmation controls
-by keyboard, explicit timezone/vehicle selection, read-only viewer access, and
+by keyboard, the America/Toronto default and upload vehicle selection, queued
+progress and explicit refresh, read-only viewer access, and
 private JSON downloads without JavaScript.
+Duplicate journeys exercise both skipping and keeping matching rows, keyboard
+submission with the keep checkbox unchecked, and imported/skipped result counts.
 Bulk captures include desktop, tablet, mobile, 320px reflow, enlarged text, dark,
 reduced-motion, and forced-colors layouts. Visual targets are 12 complete ordinary
 rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible hit

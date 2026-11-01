@@ -1,6 +1,10 @@
-"""Case-scoped operator access without replacing or deleting originals."""
+"""Case-scoped operator access with confirmed superuser evidence deletion."""
+
+from collections import Counter
 
 from django.contrib import admin
+from django.contrib.admin.utils import get_deleted_objects
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import F, Q
 from django.urls import reverse
 from django.utils import timezone
@@ -9,6 +13,7 @@ from django.utils.html import format_html
 from cases.admin_access import CaseScopedAdmin
 from cases.permissions import accessible_cases
 
+from .deletion import delete_evidence, deletion_block_reason, related_analysis_runs
 from .forms import (
     CALL_KINDS,
     COMMON_FIELDS,
@@ -103,6 +108,7 @@ class FaceTimeAttachmentInline(CallAttachmentInline):
 @admin.register(*KINDS.values())
 class EvidenceAdmin(CaseScopedAdmin):
     form = BaseEvidenceForm
+    delete_confirmation_template = "admin/evidence/delete_confirmation.html"
     list_display = ("title", "case", "uploaded_by", "is_archived", "created_at")
     list_select_related = ("case", "uploaded_by")
     list_filter = ("is_archived",)
@@ -271,7 +277,35 @@ class EvidenceAdmin(CaseScopedAdmin):
         )
 
     def has_delete_permission(self, request, obj=None):
-        return False
+        return request.user.is_superuser and self.has_view_permission(request, obj)
+
+    def get_deleted_objects(self, objs, request):
+        related_runs = []
+        for obj in objs:
+            runs = list(related_analysis_runs(obj, self.kind))
+            reason = deletion_block_reason(obj, runs)
+            if reason:
+                return [], {}, set(), [reason]
+            related_runs.extend(runs)
+        deleted, counts, permissions, protected = super().get_deleted_objects(
+            objs, request
+        )
+        counts = Counter(counts)
+        if related_runs:
+            related, totals, missing, retained = get_deleted_objects(
+                related_runs, request, self.admin_site
+            )
+            deleted.extend(related)
+            counts.update(totals)
+            permissions.update(missing)
+            protected.extend(retained)
+        return deleted, counts, permissions, protected
+
+    def delete_model(self, request, obj):
+        try:
+            delete_evidence(request.user, obj.case_id, self.kind, obj.pk)
+        except ValidationError as error:
+            raise PermissionDenied from error
 
     def save_model(self, request, obj, form, change):
         if not change:

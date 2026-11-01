@@ -460,13 +460,57 @@ class VehicleLocationImport(models.Model):
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     document = models.OneToOneField(DocumentEvidence, on_delete=models.RESTRICT)
     timezone = models.CharField(max_length=100)
-    parser_version = models.CharField(max_length=50, default="asset-location.v1")
+    parser_version = models.CharField(max_length=50, default="asset-location.v2")
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     vehicle_mapping = models.JSONField(default=dict, blank=True)
+    selected_vehicle = models.ForeignKey(
+        "vehicles.Vehicle",
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        related_name="location_imports",
+    )
+    status = models.CharField(
+        max_length=20,
+        default="pending",
+        choices=[
+            ("pending", "Awaiting preparation"),
+            ("queued", "Queued"),
+            ("running", "Processing"),
+            ("review", "Ready to review"),
+            ("complete", "Complete"),
+            ("failed", "Needs attention"),
+        ],
+    )
+    phase = models.CharField(max_length=10, default="prepare")
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="requested_vehicle_imports",
+    )
+    job_token = models.UUIDField(default=uuid4, editable=False)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    row_count = models.PositiveIntegerField(default=0)
+    processed_rows = models.PositiveIntegerField(default=0)
+    invalid_count = models.PositiveIntegerField(default=0)
+    duplicate_count = models.PositiveIntegerField(default=0)
+    groups = models.JSONField(default=list, blank=True)
+    error_code = models.CharField(max_length=50, blank=True)
+    duplicates_confirmed = models.BooleanField(default=False)
 
     class Meta:
         ordering = ("-created_at", "-pk")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(attempts__lte=3),
+                name="evidence_vehicle_import_attempt_bound",
+            ),
+        ]
 
     def __str__(self):
         return f"Vehicle location import {self.pk}"
@@ -481,6 +525,15 @@ class VehicleLocationImport(models.Model):
 
     def clean(self):
         super().clean()
+        from vehicles.models import Vehicle
+
+        if (
+            self.selected_vehicle_id
+            and not Vehicle.objects.filter(
+                pk=self.selected_vehicle_id, case_id=self.case_id
+            ).exists()
+        ):
+            raise ValidationError("Choose a vehicle in this case.")
         if not DocumentEvidence.objects.filter(
             pk=self.document_id,
             case_id=self.case_id,
@@ -498,13 +551,66 @@ class VehicleLocationImport(models.Model):
                 "timezone",
                 "parser_version",
                 "created_at",
+                "selected_vehicle_id",
             )
             if original["completed_at"] is not None:
-                immutable += ("completed_at", "vehicle_mapping")
+                immutable += (
+                    "completed_at",
+                    "vehicle_mapping",
+                    "duplicates_confirmed",
+                    "duplicate_count",
+                )
             if any(getattr(self, name) != original[name] for name in immutable):
                 raise ValidationError(
                     "The retained import interpretation cannot change."
                 )
+
+
+class VehicleLocationImportRow(models.Model):
+    """Private, pageable interpretation of a retained import's original records."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    batch = models.ForeignKey(
+        VehicleLocationImport, on_delete=models.CASCADE, related_name="rows"
+    )
+    number = models.PositiveIntegerField()
+    group_index = models.PositiveSmallIntegerField()
+    raw = models.JSONField(default=dict)
+    observed_at = models.DateTimeField(null=True)
+    received_at = models.DateTimeField(null=True)
+    speed_kmh = models.DecimalField(max_digits=9, decimal_places=3, null=True)
+    errors = models.JSONField(default=list)
+    duplicate = models.BooleanField(default=False)
+    fingerprint = models.CharField(max_length=64)
+
+    class Meta:
+        ordering = ("number",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("batch", "number"), name="evidence_vehicle_stage_row"
+            ),
+        ]
+        indexes = [models.Index(fields=("batch", "fingerprint"))]
+
+    def __str__(self):
+        return f"Vehicle location import {self.batch_id}, row {self.number}"
+
+    @property
+    def asset(self):
+        return self.raw.get("Asset", "")
+
+    @property
+    def serial(self):
+        return self.raw.get("Serial Number", "")
+
+    @property
+    def values(self):
+        return {
+            "address": self.raw.get("Address", ""),
+            "observed_at": self.observed_at,
+            "received_at": self.received_at,
+            "speed_kmh": self.speed_kmh,
+        }
 
 
 class VehicleLocationEvidence(LocationContent):
@@ -522,6 +628,7 @@ class VehicleLocationEvidence(LocationContent):
     )
     source_row = models.PositiveIntegerField(null=True, blank=True)
     raw_row = models.JSONField(default=dict, blank=True)
+    raw_fingerprint = models.CharField(max_length=64, blank=True, editable=False)
     speed_kmh = models.DecimalField(
         max_digits=9,
         decimal_places=3,
@@ -537,11 +644,13 @@ class VehicleLocationEvidence(LocationContent):
         "import_batch_id",
         "source_row",
         "raw_row",
+        "raw_fingerprint",
         "speed_kmh",
         "received_at",
     )
 
     class Meta(LocationContent.Meta):
+        indexes = [models.Index(fields=("case", "raw_fingerprint"))]
         constraints = [
             *LocationContent.Meta.constraints,
             models.UniqueConstraint(
@@ -588,6 +697,11 @@ class VehicleLocationEvidence(LocationContent):
             raise ValidationError("Choose an import in this case.")
 
     def _prepare_original(self):
+        from .vehicle_imports import row_fingerprint
+
+        self.raw_fingerprint = (
+            row_fingerprint(self.raw_row) if self.import_batch_id else ""
+        )
         for name in ("speed_kmh", "received_at", "source_row", "raw_row"):
             field = self._meta.get_field(name)
             setattr(self, name, field.clean(getattr(self, name), self))

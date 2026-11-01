@@ -141,11 +141,12 @@ Optional inference services and model-file backup/recovery are described in
 native engines and operator-provisioned read-only models. External AI remains
 separately selected and approved through Cloudflare.
 Django's upload memory threshold controls temporary storage, not maximum file size.
-Asset Location CSV imports have a separate hard cap of 1 MiB and 250 rows,
+Asset Location CSV imports accept up to 100 MiB and 100,000 data rows,
 respecting a smaller operator file limit. Their route streams with the smaller
-byte limit. Imports run synchronously and atomically within these bounds; larger
-ingestion requires a background workflow first. Original CSV documents, import
-interpretations, and source-row provenance must be included in coordinated
+byte limit. Parsing and publication run in the existing worker with bounded
+chunks and a paginated review; publication commits all observations together.
+Original CSV documents, import interpretations, staged review rows, progress,
+and source-row provenance must be included in coordinated
 database/private-file backups. See [vehicle-location imports](vehicle-location-imports.md).
 
 Configure the serving proxy/CDN to limit the entire request body as well. With the

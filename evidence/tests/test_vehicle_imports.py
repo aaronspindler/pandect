@@ -18,6 +18,7 @@ from django.db import IntegrityError, close_old_connections, connection, transac
 from django.db.models.deletion import RestrictedError
 from django.test import Client, SimpleTestCase, TestCase, TransactionTestCase
 from django.urls import reverse
+from django_tasks_db.models import DBTaskResult
 
 from cases.models import Case
 from evidence.forms import evidence_form
@@ -27,7 +28,8 @@ from evidence.models import (
     VehicleLocationImport,
 )
 from evidence.tests.test_views import EvidenceViewTestMixin
-from evidence.vehicle_imports import HEADERS, MAX_ROWS, parse_csv
+from evidence.vehicle_import_jobs import enqueue_completion, process_import
+from evidence.vehicle_imports import HEADERS, iter_csv, parse_csv
 from vehicles.models import Vehicle
 
 
@@ -52,6 +54,30 @@ def csv_content(*rows, **changes):
 
 
 class VehicleCSVParserTests(SimpleTestCase):
+    def test_missing_speed_placeholder_preserves_raw_value_and_differs_from_zero(self):
+        for speed in ("-", " - ", "", "0 km/h", "12.5 km/h"):
+            with self.subTest(speed=speed):
+                row = parse_csv(csv_content(**{"Speed": speed}), "UTC")[0]
+                self.assertFalse(row.errors)
+                self.assertEqual(row.raw["Speed"], speed)
+                self.assertEqual(
+                    row.values["speed_kmh"],
+                    {"0 km/h": 0, "12.5 km/h": 12.5}.get(speed),
+                )
+
+    def test_v1_keeps_its_original_speed_interpretation(self):
+        for speed in ("-", "", "0 km/h"):
+            with self.subTest(speed=speed):
+                row = next(
+                    iter_csv(
+                        io.BytesIO(csv_content(**{"Speed": speed})),
+                        "UTC",
+                        parser_version="asset-location.v1",
+                    )
+                )
+                self.assertEqual(bool(row.errors), speed == "-")
+                self.assertEqual(row.raw["Speed"], speed)
+
     def test_quoted_csv_bom_and_original_values_survive_interpretation(self):
         row = parse_csv(b"\xef\xbb\xbf" + csv_content(), "America/Toronto")[0]
         self.assertFalse(row.errors)
@@ -82,17 +108,18 @@ class VehicleCSVParserTests(SimpleTestCase):
             with self.subTest(content=content[:30]), self.assertRaises(ValidationError):
                 parse_csv(content, "UTC")
         row = parse_csv(csv_content(), "UTC")[0].raw
-        with self.assertRaises(ValidationError):
-            parse_csv(csv_content(*([row] * (MAX_ROWS + 1))), "UTC")
-        self.assertEqual(
-            len(parse_csv(csv_content(*([row] * MAX_ROWS)), "UTC")), MAX_ROWS
-        )
+        with patch("evidence.vehicle_imports.MAX_ROWS", 2):
+            with self.assertRaises(ValidationError):
+                parse_csv(csv_content(row, row, row), "UTC")
+            self.assertEqual(len(parse_csv(csv_content(row, row), "UTC")), 2)
 
     def test_invalid_fields_and_dst_times_require_correction(self):
         for values in (
             {"Address": " \n"},
             {"Asset": "", "Serial Number": ""},
             {"Speed": "-1 km/h"},
+            {"Speed": "- km/h"},
+            {"Speed": "--"},
             {"Speed": "5 mph"},
             {"Heading": "up"},
             {"Created Time": "not a date"},
@@ -144,14 +171,25 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             | changes,
         )
 
-    def new_batch(self, content=None):
-        self.login("editor")
-        response = self.upload(content)
-        self.assertEqual(response.status_code, 302, response.content)
-        return VehicleLocationImport.objects.latest("created_at")
+    def run_job(self, batch):
+        batch.refresh_from_db()
+        result = process_import(str(batch.pk), str(batch.job_token))
+        batch.refresh_from_db()
+        return result
 
-    def complete(self, batch, **changes):
-        return self.client.post(
+    def new_batch(self, content=None, **changes):
+        self.login("editor")
+        response = self.upload(content, **changes)
+        self.assertEqual(response.status_code, 302, response.content)
+        batch = VehicleLocationImport.objects.latest("created_at")
+        self.assertEqual(batch.status, "queued")
+        self.assertFalse(batch.rows.exists())
+        self.run_job(batch)
+        self.assertEqual(batch.status, "review")
+        return batch
+
+    def complete(self, batch, *, process=True, **changes):
+        response = self.client.post(
             self.review_url(batch),
             {
                 "vehicle_0": str(self.vehicle.pk),
@@ -159,6 +197,9 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             }
             | changes,
         )
+        if process and response.status_code == 302:
+            self.run_job(batch)
+        return response
 
     def test_upload_preview_complete_and_repeat_preserve_source_and_provenance(self):
         batch = self.new_batch()
@@ -170,7 +211,11 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(preview, "16 Sep 2026, 18:57:22")
         self.assertContains(preview, "000000000000123")
         self.assertContains(preview, "51m")
-        self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(self.complete(batch, process=False).status_code, 302)
+        self.assertFalse(VehicleLocationEvidence.objects.exists())
+        self.run_job(batch)
+        token = str(batch.job_token)
+        self.assertEqual(process_import(str(batch.pk), token), "complete")
         self.assertEqual(self.complete(batch).status_code, 302)
         item = VehicleLocationEvidence.objects.get()
         self.assertEqual(item.vehicle, self.vehicle)
@@ -212,6 +257,37 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             )
         self.assertEqual(hashlib.sha256(item.original_bytes()).hexdigest(), item.sha256)
 
+    def test_missing_speeds_import_without_changing_originals_or_zero(self):
+        raw = parse_csv(csv_content(), "UTC")[0].raw
+        original = csv_content(
+            raw | {"Speed": "-"}, raw | {"Speed": ""}, raw | {"Speed": "0 km/h"}
+        )
+        batch = self.new_batch(original)
+        self.assertEqual(batch.parser_version, "asset-location.v2")
+        self.assertEqual(batch.invalid_count, 0)
+        self.assertEqual(batch.row_count, 3)
+        self.assertEqual(
+            list(batch.rows.values_list("speed_kmh", flat=True)), [None, None, 0]
+        )
+        self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(batch.status, "complete")
+        observations = list(batch.observations.order_by("source_row"))
+        self.assertEqual(len(observations), 3)
+        for item, speed, value in zip(
+            observations, ("-", "", "0 km/h"), (None, None, "0.000"), strict=True
+        ):
+            original_json = json.loads(item.original_bytes())
+            self.assertEqual(original_json["raw_row"]["Speed"], speed)
+            self.assertEqual(original_json["speed_kmh"], value)
+            self.assertEqual(
+                original_json["import"]["parser_version"], "asset-location.v2"
+            )
+            self.assertEqual(
+                hashlib.sha256(item.original_bytes()).hexdigest(), item.sha256
+            )
+        self.assertEqual(batch.document.file.read(), original)
+        self.assertEqual(batch.document.sha256, hashlib.sha256(original).hexdigest())
+
     def test_every_asset_group_requires_an_explicit_same_case_mapping(self):
         first = parse_csv(csv_content(), "UTC")[0].raw
         second = first | {"Asset": "Other asset", "Serial Number": "other"}
@@ -249,59 +325,137 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(DocumentEvidence.objects.filter(pk=batch.document_id).exists())
         with patch.object(
             VehicleLocationEvidence,
-            "save",
+            "_prepare_original",
             side_effect=ValidationError("synthetic failure"),
         ):
             valid = self.new_batch()
-            self.assertEqual(self.complete(valid).status_code, 400)
+            self.assertEqual(self.complete(valid).status_code, 302)
         valid.refresh_from_db()
         self.assertIsNone(valid.completed_at)
+        self.assertEqual(valid.status, "failed")
 
     def test_atomic_rollback_after_a_later_row_fails(self):
         first = parse_csv(csv_content(), "UTC")[0].raw
-        batch = self.new_batch(csv_content(first, first | {"Heading": "E"}))
-        save = VehicleLocationEvidence.save
+        batch = self.new_batch(csv_content(first, first, first | {"Heading": "E"}))
+        self.assertEqual(batch.duplicate_count, 1)
+        create = VehicleLocationEvidence.objects.bulk_create
         calls = []
 
-        def fail_second(item, *args, **kwargs):
-            calls.append(item)
+        def fail_second(items, **kwargs):
+            calls.append(items)
             if len(calls) == 2:
                 raise IntegrityError("synthetic failure")
-            return save(item, *args, **kwargs)
+            return create(items, **kwargs)
 
-        with patch.object(VehicleLocationEvidence, "save", fail_second):
-            self.assertEqual(self.complete(batch).status_code, 400)
+        with (
+            patch("evidence.vehicle_import_jobs.CHUNK_SIZE", 1),
+            patch.object(VehicleLocationEvidence.objects, "bulk_create", fail_second),
+        ):
+            self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(len(calls), 2)
         self.assertFalse(VehicleLocationEvidence.objects.exists())
         batch.refresh_from_db()
         self.assertIsNone(batch.completed_at)
-        self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(batch.status, "failed")
+        self.assertEqual(
+            self.client.post(self.review_url(batch), {"action": "retry"}).status_code,
+            302,
+        )
+        self.run_job(batch)
         self.assertEqual(VehicleLocationEvidence.objects.count(), 2)
 
-    def test_possible_duplicates_require_review_within_and_between_exports(self):
+    def test_possible_duplicates_can_be_kept_within_and_between_exports(self):
         row = parse_csv(csv_content(), "UTC")[0].raw
         batch = self.new_batch(csv_content(row, row))
         self.assertContains(
             self.client.get(self.review_url(batch)), "Possible duplicate"
         )
-        self.assertEqual(self.complete(batch).status_code, 400)
         self.assertEqual(self.complete(batch, confirm_duplicates="on").status_code, 302)
+        self.assertEqual(batch.observations.count(), 2)
         another = self.new_batch()
         self.assertContains(
             self.client.get(self.review_url(another)), "Possible duplicate"
         )
-        self.assertEqual(self.complete(another).status_code, 400)
         self.assertEqual(
             self.complete(another, confirm_duplicates="on").status_code, 302
         )
         self.assertEqual(VehicleLocationEvidence.objects.count(), 3)
 
-    def test_largest_supported_import_completes_atomically(self):
+    def test_unchecked_duplicates_skip_matches_and_retain_the_complete_source(self):
         row = parse_csv(csv_content(), "UTC")[0].raw
-        batch = self.new_batch(csv_content(*([row] * MAX_ROWS)))
+        original = csv_content(row, row, row | {"Heading": "E"}, row)
+        with patch("evidence.vehicle_import_jobs.CHUNK_SIZE", 1):
+            batch = self.new_batch(original)
+            review = self.client.get(self.review_url(batch))
+            self.assertContains(review, "2 observations can be imported without them")
+            self.assertFalse(
+                review.context["form"].fields["confirm_duplicates"].required
+            )
+            self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(batch.status, "complete")
+        self.assertFalse(batch.duplicates_confirmed)
+        self.assertEqual(
+            list(
+                batch.observations.order_by("source_row").values_list(
+                    "source_row", flat=True
+                )
+            ),
+            [2, 4],
+        )
+        self.assertEqual(batch.document.file.read(), original)
+        self.assertEqual(batch.document.sha256, hashlib.sha256(original).hexdigest())
+        self.assertEqual(batch.rows.count(), 4)
+        results = self.client.get(self.review_url(batch))
+        self.assertContains(results, "2 observations imported.")
+        self.assertContains(results, "2 possible duplicate rows skipped.")
         self.assertEqual(self.complete(batch, confirm_duplicates="on").status_code, 302)
-        self.assertEqual(batch.observations.count(), MAX_ROWS)
+        self.assertEqual(batch.observations.count(), 2)
+        for field, value in (("duplicates_confirmed", True), ("duplicate_count", 0)):
+            batch.refresh_from_db()
+            setattr(batch, field, value)
+            with self.assertRaises(ValidationError):
+                batch.save()
+
+    def test_all_duplicates_complete_with_no_new_observations_and_can_be_retried(self):
+        first = self.new_batch()
+        self.assertEqual(self.complete(first).status_code, 302)
+        VehicleLocationEvidence.objects.filter(import_batch=first).update(
+            is_archived=True,
+            archive_changed_at=datetime(2026, 10, 1, tzinfo=UTC),
+            archive_changed_by=self.users["editor"],
+        )
+        another = self.new_batch()
+        self.assertEqual(another.duplicate_count, 1)
+        self.assertEqual(self.complete(another).status_code, 302)
+        self.assertEqual(another.status, "complete")
+        self.assertIsNotNone(another.completed_at)
+        self.assertFalse(another.observations.exists())
+        self.assertEqual(another.rows.count(), 1)
+        result = self.client.get(self.review_url(another))
+        self.assertContains(result, "0 observations imported.")
+        self.assertContains(result, "1 possible duplicate row skipped.")
+        self.assertEqual(self.complete(another).status_code, 302)
+        self.assertEqual(VehicleLocationEvidence.objects.count(), 1)
+
+    def test_large_import_uses_background_jobs_and_paginated_review_and_results(self):
+        row = parse_csv(csv_content(), "UTC")[0].raw
+        row["Address"] = "Synthetic address " + "a" * 600
+        content = csv_content(*([row] * 2000))
+        self.assertGreater(len(content), 1024 * 1024)
+        batch = self.new_batch(content)
+        review = self.client.get(self.review_url(batch))
+        self.assertEqual(review.context["batch"].row_count, 2000)
+        self.assertEqual(len(review.context["rows"]), 50)
+        self.assertEqual(review.context["page_obj"].paginator.num_pages, 40)
+        last = self.client.get(self.review_url(batch), {"page": 40})
+        self.assertEqual(last.context["rows"][0].number, 1952)
+        self.assertEqual(self.complete(batch, confirm_duplicates="on").status_code, 302)
+        self.assertEqual(batch.observations.count(), 2000)
         batch.refresh_from_db()
         self.assertIsNotNone(batch.completed_at)
+        results = self.client.get(self.review_url(batch))
+        self.assertEqual(len(results.context["observations"]), 50)
+        self.assertEqual(results.context["page_obj"].paginator.count, 2000)
 
     def test_upload_retry_cannot_change_file_timezone_or_uploader(self):
         self.login("editor")
@@ -321,6 +475,173 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         )
         self.login("owner")
         self.assertEqual(self.upload(submission_id=submission).status_code, 409)
+
+    def test_upload_vehicle_is_case_scoped_and_initializes_review_mappings(self):
+        other_vehicle = Vehicle.objects.create(
+            case=self.other_case, model="Private van"
+        )
+        self.login("editor")
+        page = self.client.get(self.upload_url())
+        self.assertEqual(page.context["form"]["timezone"].value(), "America/Toronto")
+        self.assertNotContains(page, "Private van")
+        self.assertEqual(self.upload(vehicle=str(other_vehicle.pk)).status_code, 400)
+        self.assertFalse(DocumentEvidence.objects.exists())
+        submission = str(uuid4())
+        batch = self.new_batch(vehicle=str(self.vehicle.pk), submission_id=submission)
+        self.assertEqual(batch.selected_vehicle, self.vehicle)
+        review = self.client.get(self.review_url(batch))
+        self.assertEqual(
+            str(review.context["form"]["vehicle_0"].value()), str(self.vehicle.pk)
+        )
+        self.assertEqual(
+            self.upload(
+                submission_id=submission, vehicle=str(self.vehicle.pk)
+            ).status_code,
+            302,
+        )
+        self.assertEqual(
+            self.upload(submission_id=submission, vehicle="").status_code, 409
+        )
+        self.assertEqual(VehicleLocationImport.objects.count(), 1)
+        self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(batch.observations.get().vehicle, self.vehicle)
+
+    def test_worker_rechecks_access_and_retry_ignores_replaced_task_token(self):
+        self.login("editor")
+        self.assertEqual(self.upload().status_code, 302)
+        batch = VehicleLocationImport.objects.get()
+        old_token = str(batch.job_token)
+        self.case.memberships.filter(user=self.users["editor"]).update(role="viewer")
+        self.run_job(batch)
+        self.assertEqual(batch.status, "failed")
+        self.assertFalse(batch.rows.exists())
+        self.assertFalse(VehicleLocationEvidence.objects.exists())
+        self.assertEqual(
+            self.client.post(self.review_url(batch), {"action": "retry"}).status_code,
+            403,
+        )
+        self.login("owner")
+        self.assertEqual(
+            self.client.post(self.review_url(batch), {"action": "retry"}).status_code,
+            302,
+        )
+        batch.refresh_from_db()
+        replacement = str(batch.job_token)
+        self.assertNotEqual(old_token, replacement)
+        process_import(str(batch.pk), old_token)
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "queued")
+        self.run_job(batch)
+        self.assertEqual(batch.status, "review")
+        self.assertEqual(batch.rows.count(), 1)
+        self.assertEqual(self.complete(batch, process=False).status_code, 302)
+        self.assertFalse(VehicleLocationEvidence.objects.exists())
+        self.run_job(batch)
+        item = batch.observations.get()
+        self.assertEqual(item.uploaded_by, self.users["owner"])
+        self.assertEqual(batch.uploaded_by, self.users["editor"])
+        process_import(str(batch.pk), str(batch.job_token))
+        self.assertEqual(batch.observations.count(), 1)
+
+    def test_revoked_confirmation_actor_cannot_publish_queued_observations(self):
+        batch = self.new_batch()
+        self.assertEqual(self.complete(batch, process=False).status_code, 302)
+        self.case.memberships.filter(user=self.users["editor"]).delete()
+        self.run_job(batch)
+        self.assertEqual(batch.status, "failed")
+        self.assertIsNone(batch.completed_at)
+        self.assertFalse(VehicleLocationEvidence.objects.exists())
+
+    def test_failed_import_retries_are_bounded_and_running_recovery_is_explicit(self):
+        self.login("editor")
+        self.assertEqual(self.upload(b"invalid").status_code, 302)
+        batch = VehicleLocationImport.objects.get()
+        self.run_job(batch)
+        for attempt in (2, 3):
+            self.assertEqual(
+                self.client.post(
+                    self.review_url(batch), {"action": "retry"}
+                ).status_code,
+                302,
+            )
+            self.run_job(batch)
+            self.assertEqual(batch.attempts, attempt)
+            self.assertEqual(batch.status, "failed")
+        self.assertEqual(
+            self.client.post(self.review_url(batch), {"action": "retry"}).status_code,
+            400,
+        )
+        self.assertFalse(VehicleLocationEvidence.objects.exists())
+
+        self.assertEqual(self.upload().status_code, 302)
+        running = VehicleLocationImport.objects.latest("created_at")
+        old_token = str(running.job_token)
+        VehicleLocationImport.objects.filter(pk=running.pk).update(status="running")
+        self.assertEqual(
+            self.client.post(self.review_url(running), {"action": "retry"}).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.post(
+                self.review_url(running),
+                {"action": "retry", "worker_stopped": "on"},
+            ).status_code,
+            302,
+        )
+        process_import(str(running.pk), old_token)
+        self.run_job(running)
+        self.assertEqual(running.status, "review")
+        self.assertEqual(running.rows.count(), 1)
+
+    def test_legacy_pending_review_is_prepared_only_by_an_editor_post(self):
+        self.login("editor")
+        self.assertEqual(self.upload().status_code, 302)
+        batch = VehicleLocationImport.objects.get()
+        VehicleLocationImport.objects.filter(pk=batch.pk).update(status="pending")
+        self.login("viewer")
+        self.assertEqual(self.client.get(self.review_url(batch)).status_code, 200)
+        self.assertEqual(
+            self.client.post(self.review_url(batch), {"action": "prepare"}).status_code,
+            403,
+        )
+        self.login("editor")
+        self.assertContains(self.client.get(self.review_url(batch)), "Prepare review")
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "pending")
+        self.assertEqual(
+            self.client.post(self.review_url(batch), {"action": "prepare"}).status_code,
+            302,
+        )
+        self.run_job(batch)
+        self.assertEqual(batch.status, "review")
+
+    def test_queue_payloads_contain_only_uuids_and_rollback_with_the_batch(self):
+        batch = self.new_batch()
+        queued = DBTaskResult.objects.get(
+            task_path="evidence.tasks.process_vehicle_import"
+        )
+        self.assertEqual(
+            queued.args_kwargs,
+            {"args": [str(batch.pk), str(batch.job_token)], "kwargs": {}},
+        )
+        original_token = batch.job_token
+        with self.assertRaisesMessage(ValueError, "rollback"), transaction.atomic():
+            pending = enqueue_completion(
+                self.users["editor"],
+                self.case.pk,
+                batch.pk,
+                {"0": str(self.vehicle.pk)},
+            )
+            self.assertEqual(pending.status, "queued")
+            self.assertEqual(DBTaskResult.objects.count(), 2)
+            raise ValueError("rollback")
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "review")
+        self.assertEqual(batch.phase, "prepare")
+        self.assertEqual(batch.job_token, original_token)
+        self.assertEqual(batch.vehicle_mapping, {})
+        self.assertEqual(DBTaskResult.objects.count(), 1)
+        self.assertFalse(batch.observations.exists())
 
     def test_current_permissions_csrf_and_case_boundaries_on_both_steps(self):
         batch = self.new_batch()
@@ -356,8 +677,7 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
 
     def test_file_failures_are_recoverable_and_upload_rollback_removes_orphans(self):
         self.login("owner")
-        for content in (b"invalid", b"x" * (1024 * 1024 + 1)):
-            self.assertEqual(self.upload(content).status_code, 400)
+        self.assertEqual(self.upload(b"").status_code, 400)
         for changes in (
             {"timezone": ""},
             {"timezone": "Missing/Zone"},
@@ -375,9 +695,22 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual([p for p in self.media_root.rglob("*") if p.is_file()], [])
         batch = self.new_batch()
         batch.document.file.storage.delete(batch.document.file.name)
-        self.assertEqual(self.client.get(self.review_url(batch)).status_code, 503)
-        self.assertEqual(self.complete(batch).status_code, 503)
+        self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(batch.status, "failed")
+        self.assertContains(
+            self.client.get(self.review_url(batch)), "No partial import is published"
+        )
         self.assertFalse(VehicleLocationEvidence.objects.exists())
+
+    def test_malformed_upload_is_retained_and_fails_safely_in_worker(self):
+        self.login("editor")
+        self.assertEqual(self.upload(b"invalid").status_code, 302)
+        batch = VehicleLocationImport.objects.get()
+        self.assertEqual(batch.document.file.read(), b"invalid")
+        self.run_job(batch)
+        self.assertEqual(batch.status, "failed")
+        self.assertFalse(VehicleLocationEvidence.objects.exists())
+        self.assertNotContains(self.client.get(self.review_url(batch)), "Traceback")
 
     def test_source_integrity_and_parser_version_are_checked_before_completion(self):
         batch = self.new_batch()
@@ -385,12 +718,16 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             batch.document.file.name, "wb"
         ) as original:
             original.write(csv_content(**{"Heading": "E"}))
-        self.assertEqual(self.complete(batch).status_code, 503)
+        self.assertEqual(self.complete(batch).status_code, 302)
+        self.assertEqual(batch.status, "failed")
         self.assertFalse(VehicleLocationEvidence.objects.exists())
-        VehicleLocationImport.objects.filter(pk=batch.pk).update(
+        another = self.new_batch()
+        VehicleLocationImport.objects.filter(pk=another.pk).update(
             parser_version="unsupported"
         )
-        self.assertEqual(self.client.get(self.review_url(batch)).status_code, 503)
+        self.assertEqual(self.complete(another).status_code, 302)
+        self.assertEqual(another.status, "failed")
+        self.assertFalse(VehicleLocationEvidence.objects.exists())
 
     def test_uncertain_upload_commit_retains_potentially_referenced_original(self):
         self.login("owner")
@@ -600,9 +937,25 @@ class ConcurrentVehicleImportTests(TransactionTestCase):
             self.assertEqual(len({url for _, url in uploaded}), 1)
             self.assertEqual(VehicleLocationImport.objects.count(), 1)
             self.assertEqual(DocumentEvidence.objects.count(), 1)
+            batch = VehicleLocationImport.objects.get()
+            process_import(str(batch.pk), str(batch.job_token))
+            self.assertFalse(VehicleLocationEvidence.objects.exists())
             completed = parallel_post(
                 uploaded[0][1], lambda: {"vehicle_0": str(vehicle.pk), "confirm": "on"}
             )
             self.assertEqual([status for status, _ in completed], [302, 302])
+            self.assertFalse(VehicleLocationEvidence.objects.exists())
+            batch.refresh_from_db()
+            token = str(batch.job_token)
+
+            def process(_):
+                close_old_connections()
+                try:
+                    return process_import(str(batch.pk), token)
+                finally:
+                    connection.close()
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                list(pool.map(process, range(2)))
             self.assertEqual(VehicleLocationEvidence.objects.count(), 1)
             self.assertIsNotNone(VehicleLocationImport.objects.get().completed_at)

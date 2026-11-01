@@ -1,14 +1,14 @@
-"""Two-step, case-authorized CSV ingestion with atomic, repeatable completion."""
+"""Retain case CSVs, then review and publish them through background jobs."""
 
 import hashlib
 
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import F
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
@@ -16,9 +16,15 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 
 from .import_forms import VehicleImportReviewForm, VehicleImportUploadForm
-from .models import DocumentEvidence, VehicleLocationEvidence, VehicleLocationImport
+from .models import DocumentEvidence, VehicleLocationImport
 from .storage import delete_original
-from .vehicle_imports import MAX_BYTES, PARSER_VERSION, read_import, row_fingerprint
+from .vehicle_import_jobs import (
+    ERROR_MESSAGES,
+    enqueue_completion,
+    enqueue_preparation,
+    retry_import,
+)
+from .vehicle_imports import MAX_BYTES, MAX_GROUPS, MAX_ROWS, PARSER_VERSION
 
 
 @product_login_required
@@ -29,6 +35,7 @@ def vehicle_import_upload(request, case_id):
     form = VehicleImportUploadForm(
         request.POST if request.method == "POST" else None,
         request.FILES if request.method == "POST" else None,
+        case=case,
     )
     document = None
     save_finished = False
@@ -39,8 +46,11 @@ def vehicle_import_upload(request, case_id):
             form.add_error(None, "Choose a CSV within the displayed import size limit.")
         elif form.is_valid():
             original = form.cleaned_data["file"]
-            digest = hashlib.sha256(original.read()).hexdigest()
+            digest = hashlib.sha256()
+            for chunk in original.chunks():
+                digest.update(chunk)
             original.seek(0)
+            vehicle = form.cleaned_data["vehicle"]
             try:
                 with transaction.atomic():
                     case = get_case(request.user, case_id, edit=True, lock=True)
@@ -55,8 +65,9 @@ def vehicle_import_upload(request, case_id):
                         if (
                             batch.case_id != case.pk
                             or batch.uploaded_by_id != request.user.pk
-                            or batch.document.sha256 != digest
+                            or batch.document.sha256 != digest.hexdigest()
                             or batch.timezone != form.cleaned_data["timezone"]
+                            or batch.selected_vehicle_id != getattr(vehicle, "pk", None)
                         ):
                             form.add_error(
                                 None,
@@ -86,18 +97,26 @@ def vehicle_import_upload(request, case_id):
                             document=document,
                             timezone=form.cleaned_data["timezone"],
                             parser_version=PARSER_VERSION,
+                            selected_vehicle=vehicle,
                         )
                         batch.save()
-                        response = redirect(
-                            "evidence:vehicle_import_review",
-                            case_id=case.pk,
-                            import_id=batch.pk,
-                        )
+                        enqueue_preparation(request.user, case.pk, batch.pk)
+                        # Once the body finishes, a commit error may be
+                        # ambiguous. Keep potentially referenced source bytes.
                         save_finished = True
-                        return response
+                if document:
+                    messages.success(
+                        request,
+                        "CSV retained. Its review is being prepared in the background.",
+                    )
+                    return redirect(
+                        "evidence:vehicle_import_review",
+                        case_id=case.pk,
+                        import_id=batch.pk,
+                    )
             except Exception as error:
-                # File storage is outside the database transaction. Remove only a
-                # new file whose database record was rolled back.
+                # Storage is outside the database transaction. Remove only a new
+                # file whose record did not commit alongside its queued task.
                 if document and not save_finished and document.file._committed:
                     delete_original(document.file.storage, document.file.name)
                 if not isinstance(error, (OSError, ValidationError)):
@@ -116,6 +135,8 @@ def vehicle_import_upload(request, case_id):
             "form": form,
             "nav_section": "evidence",
             "max_csv_bytes": min(MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES),
+            "max_csv_rows": f"{MAX_ROWS:,}",
+            "max_csv_groups": MAX_GROUPS,
         },
         status=status,
     )
@@ -125,148 +146,133 @@ def vehicle_import_upload(request, case_id):
 @require_http_methods(["GET", "POST"])
 @never_cache
 def vehicle_import_review(request, case_id, import_id):
-    status = 200
-    rows = []
-    form = None
-    error_message = ""
-    with transaction.atomic():
-        case = get_case(
-            request.user,
-            case_id,
-            edit=request.method == "POST",
-            lock=request.method == "POST",
-        )
-        batches = VehicleLocationImport.objects.filter(
+    case = get_case(request.user, case_id, edit=request.method == "POST")
+    batch = get_object_or_404(
+        VehicleLocationImport.objects.filter(
             case=case, document__case=case
-        ).select_related("document", "uploaded_by")
+        ).select_related("document", "uploaded_by", "selected_vehicle"),
+        pk=import_id,
+    )
+    context = case_context(case, request.user)
+    form = None
+    status = 200
+    error_message = ""
+    review_url = "evidence:vehicle_import_review"
+    if batch.completed_at:
         if request.method == "POST":
-            batches = batches.select_for_update(of=("self",))
-        batch = get_object_or_404(batches, pk=import_id)
-        if batch.completed_at is not None:
-            if request.method == "POST":
+            messages.success(
+                request,
+                "This import was already completed. No observations were added again.",
+            )
+            return redirect(review_url, case_id=case.pk, import_id=batch.pk)
+    if batch.status == "review" and not batch.completed_at:
+        form = VehicleImportReviewForm(
+            request.POST if request.method == "POST" else None,
+            case=case,
+            groups=batch.groups,
+            duplicates=batch.duplicate_count > 0,
+            default_vehicle=batch.selected_vehicle_id,
+            vehicle_mapping=batch.vehicle_mapping,
+            initial={"confirm_duplicates": batch.duplicates_confirmed},
+        )
+    if request.method == "POST" and not batch.completed_at:
+        try:
+            if request.POST.get("action") == "prepare":
+                enqueue_preparation(request.user, case.pk, batch.pk)
+                messages.success(
+                    request, "The review is being prepared in the background."
+                )
+                return redirect(review_url, case_id=case.pk, import_id=batch.pk)
+            if request.POST.get("action") == "retry":
+                retry_import(
+                    request.user,
+                    case.pk,
+                    batch.pk,
+                    worker_stopped=request.POST.get("worker_stopped") == "on",
+                )
+                messages.success(
+                    request, "The import has been queued for another attempt."
+                )
+                return redirect(review_url, case_id=case.pk, import_id=batch.pk)
+            if batch.phase == "publish" and batch.status in {"queued", "running"}:
                 messages.success(
                     request,
-                    "This import was already completed. "
-                    "No observations were added again.",
+                    "This import is already queued. No observations were added again.",
                 )
-                return redirect(
-                    "evidence:vehicle_import_review",
-                    case_id=case.pk,
-                    import_id=batch.pk,
-                )
-        else:
-            try:
-                rows = read_import(batch)
-            except OSError, ValidationError:
-                error_message = (
-                    "The retained CSV could not be read or verified. "
-                    "No observations were imported. Restore the original file "
-                    "or upload a corrected CSV."
-                )
-                status = 503
-            if rows:
-                groups = list(dict.fromkeys(row.group for row in rows))
-                existing = {
-                    row_fingerprint(raw)
-                    for raw in VehicleLocationEvidence.objects.filter(
-                        case=case,
-                        vehicle__case=case,
-                        import_batch__case=case,
-                        import_batch__timezone=batch.timezone,
-                        raw_row__in=[row.raw for row in rows],
-                    )
-                    .values_list("raw_row", flat=True)
-                    .distinct()
+                return redirect(review_url, case_id=case.pk, import_id=batch.pk)
+            if form and form.is_valid() and not batch.invalid_count:
+                mapping = {
+                    str(index): str(form.cleaned_data[f"vehicle_{index}"].pk)
+                    for index in range(len(batch.groups))
                 }
-                for row in rows:
-                    row.duplicate |= row.fingerprint in existing
-                form = VehicleImportReviewForm(
-                    request.POST if request.method == "POST" else None,
-                    case=case,
-                    groups=groups,
-                    duplicates=any(row.duplicate for row in rows),
+                enqueue_completion(
+                    request.user,
+                    case.pk,
+                    batch.pk,
+                    mapping,
+                    confirm_duplicates=form.cleaned_data.get(
+                        "confirm_duplicates", False
+                    ),
                 )
-                if request.method == "POST":
-                    status = 400
-                    valid = form.is_valid()
-                    if any(row.errors for row in rows):
-                        form.add_error(
-                            None,
-                            "Correct the invalid rows and upload a new CSV. "
-                            "This source remains retained.",
-                        )
-                    elif valid:
-                        mapping = {
-                            group: form.cleaned_data[f"vehicle_{index}"]
-                            for index, group in enumerate(groups)
-                        }
-                        try:
-                            # The savepoint rolls back every observation on any
-                            # validation/database failure; the source stays retained.
-                            with transaction.atomic():
-                                for row in rows:
-                                    observed_label = row.values["observed_at"].strftime(
-                                        "%d %b %Y, %H:%M:%S UTC"
-                                    )
-                                    asset_label = (row.asset or row.serial)[:180]
-                                    item = VehicleLocationEvidence(
-                                        case=case,
-                                        uploaded_by=request.user,
-                                        title=f"{asset_label} · {observed_label}",
-                                        source=batch.document.source,
-                                        vehicle=mapping[row.group],
-                                        import_batch=batch,
-                                        source_row=row.number,
-                                        raw_row=row.raw,
-                                        **row.values,
-                                    )
-                                    item.full_clean()
-                                    item.save()
-                                batch.vehicle_mapping = {
-                                    str(index): str(mapping[group].pk)
-                                    for index, group in enumerate(groups)
-                                }
-                                batch.completed_at = timezone.now()
-                                batch.save(
-                                    update_fields=("vehicle_mapping", "completed_at")
-                                )
-                        except ValidationError, IntegrityError:
-                            batch.refresh_from_db()
-                            form.add_error(
-                                None,
-                                "The observations could not be validated. "
-                                "No observations were imported. "
-                                "Review the source and vehicle choices.",
-                            )
-                        else:
-                            noun = "observation" if len(rows) == 1 else "observations"
-                            messages.success(
-                                request,
-                                f"Imported {len(rows)} vehicle location {noun}.",
-                            )
-                            return redirect(
-                                "evidence:vehicle_import_review",
-                                case_id=case.pk,
-                                import_id=batch.pk,
-                            )
-    observations = (
-        batch.observations.filter(case=case, vehicle__case_id=F("case_id"))
-        .select_related("vehicle")
-        .order_by("source_row")
-        if batch.completed_at
-        else []
-    )
+                messages.success(
+                    request,
+                    "Vehicle locations queued for import. Refresh to follow progress.",
+                )
+                return redirect(review_url, case_id=case.pk, import_id=batch.pk)
+            status = 400
+            if not form:
+                error_message = (
+                    "This import is not ready to confirm. Refresh its status."
+                )
+            elif batch.invalid_count:
+                form.add_error(
+                    None,
+                    "Correct the invalid rows and upload a new CSV. "
+                    "This source remains retained.",
+                )
+        except ValidationError as error:
+            status = 400
+            error_message = " ".join(error.messages)
+            batch.refresh_from_db()
+    rows_page = None
+    observations_page = None
+    if batch.completed_at:
+        observations = (
+            batch.observations.filter(case=case, vehicle__case_id=F("case_id"))
+            .select_related("vehicle")
+            .order_by("source_row")
+        )
+        observations_page = Paginator(observations, 50).get_page(
+            request.GET.get("page")
+        )
+    elif batch.status == "review":
+        rows_page = Paginator(batch.rows.order_by("number"), 50).get_page(
+            request.GET.get("page")
+        )
+    skipped_count = batch.duplicate_count if not batch.duplicates_confirmed else 0
     return render(
         request,
         "evidence/import_review.html",
         {
-            **case_context(case, request.user),
+            **context,
             "batch": batch,
             "form": form,
-            "rows": rows,
-            "invalid": any(row.errors for row in rows),
-            "observations": observations,
+            "rows": rows_page,
+            "invalid": batch.invalid_count > 0,
+            "observations": observations_page,
+            "imported_count": batch.row_count - skipped_count,
+            "skipped_count": skipped_count,
+            "nonduplicate_count": batch.row_count - batch.duplicate_count,
+            "page_obj": observations_page or rows_page,
             "error_message": error_message,
+            "processing_error": ERROR_MESSAGES.get(
+                batch.error_code,
+                "The import could not finish. Review the source and try again.",
+            ),
+            "progress": min(100, batch.processed_rows * 100 // batch.row_count)
+            if batch.row_count and batch.phase != "publish"
+            else None,
+            "can_retry": context["can_edit"] and batch.attempts < 3,
             "nav_section": "evidence",
         },
         status=status,

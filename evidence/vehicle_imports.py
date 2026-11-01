@@ -24,9 +24,11 @@ HEADERS = (
     "Created Time",
     "Received Time",
 )
-MAX_ROWS = 250
-MAX_BYTES = 1024 * 1024
-PARSER_VERSION = "asset-location.v1"
+MAX_ROWS = 100_000
+MAX_BYTES = 100 * 1024 * 1024
+MAX_GROUPS = 100
+PARSER_VERSION = "asset-location.v2"
+SUPPORTED_PARSER_VERSIONS = {"asset-location.v1", PARSER_VERSION}
 
 
 @dataclass
@@ -55,7 +57,9 @@ class ImportRow:
 
 
 def row_fingerprint(raw):
-    return json.dumps(raw, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(
+        json.dumps(raw, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
 
 
 def parse_timestamp(value, timezone_name):
@@ -82,76 +86,165 @@ def parse_timestamp(value, timezone_name):
     return candidates.pop()
 
 
-def parse_csv(content, timezone_name):
-    if not content or len(content) > min(MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES):
-        raise ValidationError("Choose a nonempty CSV within the import size limit.")
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        raise ValidationError("Save the CSV as UTF-8 and select it again.") from None
-    if "\x00" in text:
-        raise ValidationError("The CSV contains unsupported null characters.")
-    reader = csv.reader(io.StringIO(text, newline=""), strict=True)
-    rows = []
-    try:
-        header = next(reader, [])
-        if len(header) != len(HEADERS) or set(header) != set(HEADERS):
-            raise ValidationError("Use the nine-column Asset Location CSV export.")
-        for number, cells in enumerate(reader, 2):
-            if not cells:
-                continue
-            if len(rows) >= MAX_ROWS:
-                raise ValidationError(
-                    "Import up to 250 rows at a time. Split this CSV."
-                )
-            row = ImportRow(number, dict(zip(header, cells, strict=False)))
-            rows.append(row)
-            if len(cells) != len(header):
-                row.errors.append("This row must contain exactly nine columns.")
-                continue
-            for name, value in row.raw.items():
-                limit = (
-                    20000 if name == "Address" else 2000 if name == "Trigger" else 255
-                )
-                if len(value) > limit:
-                    row.errors.append(f"{name} exceeds {limit:,} characters.")
-            if not row.asset.strip() and not row.serial.strip():
-                row.errors.append("An asset label or serial number is required.")
-            if not row.raw["Address"].strip():
-                row.errors.append("A reported address is required.")
-            row.values["address"] = row.raw["Address"]
-            for column, name in (
-                ("Created Time", "observed_at"),
-                ("Received Time", "received_at"),
-            ):
-                if column == "Received Time" and not row.raw[column].strip():
-                    row.values[name] = None
+class BoundedReader(io.RawIOBase):
+    """Adapt private storage to a streaming UTF-8 reader with a hard byte bound."""
+
+    def __init__(self, original):
+        super().__init__()
+        self.original = original
+        self.size = 0
+        self.digest = hashlib.sha256()
+        self.limit = min(MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES)
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        chunk = self.original.read(min(len(buffer), self.limit - self.size + 1))
+        self.size += len(chunk)
+        if self.size > self.limit:
+            raise ValidationError("Choose a CSV within the import size limit.")
+        self.digest.update(chunk)
+        buffer[: len(chunk)] = chunk
+        return len(chunk)
+
+
+class BoundedCSVLines:
+    """Bound physical lines and whole logical records before csv allocates cells."""
+
+    def __init__(self, text):
+        self.text = text
+        self.record_chars = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self.text.readline(64 * 1024 + 1)
+        if not line:
+            raise StopIteration
+        self.record_chars += len(line)
+        if self.record_chars > 64 * 1024:
+            raise ValidationError("The CSV contains an oversized record.")
+        return line
+
+
+def iter_csv(
+    original,
+    timezone_name,
+    *,
+    expected_sha256=None,
+    expected_size=None,
+    parser_version=PARSER_VERSION,
+):
+    """Yield one interpreted record at a time; verify retained bytes at EOF."""
+    if parser_version not in SUPPORTED_PARSER_VERSIONS:
+        raise ValidationError("This import uses an unsupported parser version.")
+    missing_speeds = ("", "-") if parser_version == "asset-location.v2" else ("",)
+    bounded = BoundedReader(original)
+    with io.TextIOWrapper(
+        io.BufferedReader(bounded), encoding="utf-8-sig", newline=""
+    ) as text:
+        lines = BoundedCSVLines(text)
+        reader = csv.reader(lines, strict=True)
+        count = 0
+        try:
+            header = next(reader, [])
+            lines.record_chars = 0
+            if len(header) != len(HEADERS) or set(header) != set(HEADERS):
+                raise ValidationError("Use the nine-column Asset Location CSV export.")
+            for number, cells in enumerate(reader, 2):
+                lines.record_chars = 0
+                if not cells:
                     continue
-                try:
-                    row.values[name] = parse_timestamp(row.raw[column], timezone_name)
-                except ValueError as error:
-                    row.errors.append(f"{column}: {error}")
-            speed = row.raw["Speed"].strip()
-            row.values["speed_kmh"] = None
-            if speed:
-                match = re.fullmatch(r"(\d{1,6}(?:\.\d{1,3})?)\s*km/h", speed)
-                if match:
-                    row.values["speed_kmh"] = Decimal(match[1])
-                else:
-                    row.errors.append(
-                        "Speed must be a nonnegative km/h value, or blank."
+                count += 1
+                if count > MAX_ROWS:
+                    raise ValidationError(
+                        "Import up to 100,000 observations in one CSV."
                     )
-            heading = row.raw["Heading"].strip().upper()
-            if heading and heading not in {"N", "NE", "E", "SE", "S", "SW", "W", "NW"}:
-                row.errors.append(
-                    "Heading must be N, NE, E, SE, S, SW, W, NW, or blank."
-                )
-    except csv.Error:
-        raise ValidationError(
-            "The CSV is malformed or contains an oversized field."
-        ) from None
-    if not rows:
+                if any("\x00" in value for value in cells):
+                    raise ValidationError(
+                        "The CSV contains unsupported null characters."
+                    )
+                row = ImportRow(number, dict(zip(header, cells, strict=False)))
+                if len(cells) != len(header):
+                    row.errors.append("This row must contain exactly nine columns.")
+                    yield row
+                    continue
+                for name, value in row.raw.items():
+                    limit = (
+                        20000
+                        if name == "Address"
+                        else 2000
+                        if name == "Trigger"
+                        else 255
+                    )
+                    if len(value) > limit:
+                        row.errors.append(f"{name} exceeds {limit:,} characters.")
+                if not row.asset.strip() and not row.serial.strip():
+                    row.errors.append("An asset label or serial number is required.")
+                if not row.raw["Address"].strip():
+                    row.errors.append("A reported address is required.")
+                row.values["address"] = row.raw["Address"]
+                for column, name in (
+                    ("Created Time", "observed_at"),
+                    ("Received Time", "received_at"),
+                ):
+                    if column == "Received Time" and not row.raw[column].strip():
+                        row.values[name] = None
+                        continue
+                    try:
+                        row.values[name] = parse_timestamp(
+                            row.raw[column], timezone_name
+                        )
+                    except ValueError as error:
+                        row.errors.append(f"{column}: {error}")
+                speed = row.raw["Speed"].strip()
+                row.values["speed_kmh"] = None
+                if speed not in missing_speeds:
+                    match = re.fullmatch(r"(\d{1,6}(?:\.\d{1,3})?)\s*km/h", speed)
+                    if match:
+                        row.values["speed_kmh"] = Decimal(match[1])
+                    else:
+                        row.errors.append(
+                            "Speed must be a nonnegative km/h value, or blank."
+                        )
+                heading = row.raw["Heading"].strip().upper()
+                if heading and heading not in {
+                    "N",
+                    "NE",
+                    "E",
+                    "SE",
+                    "S",
+                    "SW",
+                    "W",
+                    "NW",
+                }:
+                    row.errors.append(
+                        "Heading must be N, NE, E, SE, S, SW, W, NW, or blank."
+                    )
+                yield row
+        except UnicodeDecodeError:
+            raise ValidationError(
+                "Save the CSV as UTF-8 and select it again."
+            ) from None
+        except csv.Error:
+            raise ValidationError(
+                "The CSV is malformed or contains an oversized field."
+            ) from None
+    if not count:
         raise ValidationError("The CSV contains no observations.")
+    if expected_sha256 is not None and (
+        bounded.digest.hexdigest() != expected_sha256 or bounded.size != expected_size
+    ):
+        raise ValidationError(
+            "The source CSV failed its integrity check. Restore its original bytes."
+        )
+
+
+def parse_csv(content, timezone_name):
+    """Compatibility helper for small in-memory callers; jobs use iter_csv."""
+    rows = list(iter_csv(io.BytesIO(content), timezone_name))
     seen = set()
     for row in rows:
         row.duplicate = row.fingerprint in seen
@@ -159,14 +252,12 @@ def parse_csv(content, timezone_name):
     return rows
 
 
-def read_import(batch):
-    if batch.parser_version != PARSER_VERSION:
-        raise ValidationError("This import uses an unsupported parser version.")
+def iter_import(batch):
     with batch.document.file.open("rb") as original:
-        content = original.read(min(MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES) + 1)
-    # Detect corruption before interpreting a retained source again.
-    if hashlib.sha256(content).hexdigest() != batch.document.sha256:
-        raise ValidationError(
-            "The source CSV failed its integrity check. Restore its original bytes."
+        yield from iter_csv(
+            original,
+            batch.timezone,
+            expected_sha256=batch.document.sha256,
+            expected_size=batch.document.byte_size,
+            parser_version=batch.parser_version,
         )
-    return parse_csv(content, batch.timezone)

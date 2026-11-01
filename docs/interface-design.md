@@ -333,12 +333,17 @@ link must not create another membership or change a current member's role.
 | Archive/restore evidence | Yes | Yes | No |
 | Edit case metadata/manage access/delete case | Yes | No | No |
 | Delete a person or vehicle | Yes | No | No |
-| Permanently delete individual evidence | No | No | No |
+| Permanently delete individual evidence | Superusers only | Superusers only | Superusers only |
 
 Every operation requires current case access and an object belonging to that
 case. Resolve parents and children together; UUID knowledge is not authorization.
 Do not use staff/model permissions as the product access gate or allow a
-superuser to bypass case isolation.
+superuser to bypass case isolation. Superusers with current case access may
+choose **Delete evidence** from Details, then review original/derived-file
+consequences and explicitly confirm permanent deletion. Staff status and opening
+Django admin are not required. Preserve filters on cancellation and return to the
+collection on success; keep protected-source and inconsistent-case errors
+recoverable without deleting anything.
 
 Use named Django routes with these shapes; retain existing allauth and operator
 admin routes. All mutations use CSRF-protected POST, never GET.
@@ -353,7 +358,8 @@ admin routes. All mutations use CSRF-protected POST, never GET.
 | `.../evidence/<type>/<uuid:evidence_id>/` | Original/details view, with preserved list query and `section=original\|details`. |
 | `.../evidence/<type>/<uuid:evidence_id>/edit/` | Edit descriptive/provenance/type details. |
 | `.../evidence/<type>/<uuid:evidence_id>/download/` | Authorized attachment, including captured UTF-8 text. |
-| `.../evidence/<type>/<uuid:evidence_id>/archive/`, `.../restore/` | Idempotent lifecycle POSTs; no individual delete route. |
+| `.../evidence/<type>/<uuid:evidence_id>/archive/`, `.../restore/` | Idempotent lifecycle POSTs. |
+| `.../evidence/<type>/<uuid:evidence_id>/delete/` | Superuser-only confirmation GET and checkbox-confirmed deletion POST. |
 | `/cases/<uuid:case_id>/people/`, `.../new/` | Scoped list; create. |
 | `.../people/<uuid:person_id>/`, `.../edit/`, `.../delete/` | Scoped inspect, edit, owner delete confirmation and POST. |
 | `/cases/<uuid:case_id>/vehicles/`, `.../new/` | Scoped list; create. |

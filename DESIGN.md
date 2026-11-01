@@ -180,9 +180,12 @@ may supplement an accessible exact value.
   details in an accessible disclosure. A shortened visual checksum needs a way
   to inspect/copy the complete value.
 - Archive and restore are available to owners and editors. Archived evidence
-  remains viewable and downloadable by current case members. No individual
-  permanent-delete or purge control is part of this design. Only owner-confirmed
-  deletion of the whole case removes its retained evidence.
+  remains viewable and downloadable by current case members. Ordinary investigators
+  retain evidence until owner-confirmed whole-case deletion. Superusers with case
+  access can choose **Delete evidence** in Details and confirm individual deletion
+  in the product, with explicit original/derived-file consequences and safe
+  cancellation. The scoped Django admin also permits this for active staff
+  superusers. Preserve import-source protections in both workflows.
 - Uploads provide a normal file picker as well as optional drag and drop. Batch
   entries have visible states and individual recovery actions. Do not invent a
   processing stage when the server only stores an original.

@@ -2,10 +2,11 @@ from uuid import uuid4
 from zoneinfo import available_timezones
 
 from django import forms
+from django.conf import settings
 
 from vehicles.models import Vehicle
 
-from .vehicle_imports import parse_csv
+from .vehicle_imports import MAX_BYTES
 
 
 class VehicleImportUploadForm(forms.Form):
@@ -14,12 +15,24 @@ class VehicleImportUploadForm(forms.Form):
         label="Asset Location CSV",
         widget=forms.ClearableFileInput(attrs={"accept": ".csv,text/csv"}),
     )
+    vehicle = forms.ModelChoiceField(
+        queryset=Vehicle.objects.none(),
+        required=False,
+        label="Vehicle",
+        empty_label="Choose vehicles during review",
+        help_text=(
+            "Apply this case vehicle to all observations. "
+            "You can change individual asset associations during review."
+        ),
+    )
     timezone = forms.ChoiceField(
         label="Export timezone",
+        initial="America/Toronto",
         choices=[("", "Choose the export timezone")]
         + [(name, name.replace("_", " ")) for name in sorted(available_timezones())],
         help_text=(
-            "Use the timezone configured by the source export. "
+            "Defaults to America/Toronto (Eastern time). Match the timezone in "
+            "your miTrail profile preferences. "
             "An address does not establish its timezone."
         ),
     )
@@ -34,22 +47,32 @@ class VehicleImportUploadForm(forms.Form):
         ),
     )
 
-    def clean(self):
-        cleaned = super().clean()
-        original = cleaned.get("file")
-        if original and cleaned.get("timezone"):
-            # Only read one byte beyond the hard limit, regardless of declared size.
-            content = original.read(1024 * 1024 + 1)
-            original.seek(0)
-            try:
-                self.rows = parse_csv(content, cleaned["timezone"])
-            except forms.ValidationError as error:
-                self.add_error("file", error)
-        return cleaned
+    def __init__(self, *args, case, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["vehicle"].queryset = Vehicle.objects.filter(case=case)
+
+    def clean_file(self):
+        original = self.cleaned_data["file"]
+        if not original.size or original.size > min(
+            MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES
+        ):
+            raise forms.ValidationError(
+                "Choose a nonempty CSV within the displayed import size limit."
+            )
+        return original
 
 
 class VehicleImportReviewForm(forms.Form):
-    def __init__(self, *args, case, groups, duplicates=False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        case,
+        groups,
+        duplicates=False,
+        default_vehicle=None,
+        vehicle_mapping=None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         vehicles = Vehicle.objects.filter(case=case)
         for index, (asset, serial) in enumerate(groups):
@@ -59,6 +82,7 @@ class VehicleImportReviewForm(forms.Form):
             self.fields[f"vehicle_{index}"] = forms.ModelChoiceField(
                 queryset=vehicles,
                 label=label,
+                initial=(vehicle_mapping or {}).get(str(index), default_vehicle),
                 help_text=(
                     "Choose the case vehicle reported by this asset. "
                     "This association is not independently verified."
@@ -66,10 +90,11 @@ class VehicleImportReviewForm(forms.Form):
             )
         if duplicates:
             self.fields["confirm_duplicates"] = forms.BooleanField(
+                required=False,
                 label="Keep the possible duplicates as separate observations",
                 help_text=(
-                    "Matching rows already exist in this CSV or another import. "
-                    "Review them above before continuing."
+                    "Leave unchecked to skip matching rows in this CSV or another "
+                    "import. The complete original CSV remains retained."
                 ),
             )
         self.fields["confirm"] = forms.BooleanField(

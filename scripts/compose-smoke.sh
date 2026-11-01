@@ -66,8 +66,7 @@ from allauth.account.models import EmailAddress
 from analysis.services import start_run
 from cases.models import Case, CaseMembership
 from evidence.models import AudioEvidence, CallEvidenceAttachment, DocumentEvidence, FaceTimeEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, PhoneCallEvidence, TextEvidence, TextMessageEvidence, VehicleLocationEvidence, VehicleLocationImport
-from evidence.vehicle_imports import parse_csv
-from django.utils import timezone
+from evidence.vehicle_import_jobs import enqueue_preparation
 from people.models import Person
 from vehicles.models import Vehicle
 
@@ -145,17 +144,11 @@ document = DocumentEvidence.objects.create(
     file=ContentFile(csv_bytes, name="synthetic.csv"),
 )
 batch = VehicleLocationImport.objects.create(
-    case=case, uploaded_by=owner, document=document, timezone="UTC",
+    case=case, uploaded_by=owner, document=document, timezone="UTC", selected_vehicle=vehicle,
 )
-row = parse_csv(csv_bytes, "UTC")[0]
-VehicleLocationEvidence.objects.create(
-    case=case, uploaded_by=owner, title="Synthetic vehicle location",
-    vehicle=vehicle, import_batch=batch, source_row=row.number,
-    raw_row=row.raw, **row.values,
-)
-batch.completed_at = timezone.now()
-batch.vehicle_mapping = {"0": str(vehicle.pk)}
-batch.save()
+batch = enqueue_preparation(owner, case.pk, batch.pk)
+assert batch.status == "queued"
+assert not VehicleLocationEvidence.objects.exists()
 PY
 compose stop
 compose up --wait --wait-timeout 180 db web
@@ -224,15 +217,13 @@ for addition in CallEvidenceAttachment.objects.filter(case=case):
     assert addition.audio_sha256 == hashlib.sha256(b"Synthetic call audio\x00\r\n").hexdigest()
     assert addition.sha256 == hashlib.sha256(addition.original_bytes()).hexdigest()
 assert CallEvidenceAttachment.objects.filter(case=case).count() == 2
-location = VehicleLocationEvidence.objects.get(case=case)
-assert location.vehicle == vehicle
-assert location.speed_kmh == 0
-assert location.sha256 == hashlib.sha256(location.original_bytes()).hexdigest()
 batch = VehicleLocationImport.objects.get(case=case)
-assert batch.completed_at is not None
-assert batch.vehicle_mapping == {"0": str(vehicle.pk)}
+assert batch.status == "queued" and batch.phase == "prepare"
+assert batch.completed_at is None
+assert batch.selected_vehicle == vehicle
+assert not batch.rows.exists()
+assert not VehicleLocationEvidence.objects.filter(case=case).exists()
 assert batch.document.sha256 == hashlib.sha256(batch.document.file.read()).hexdigest()
-assert location.raw_row["Serial Number"] == "000001"
 PY
 compose exec -T web python manage.py shell <<'PY'
 from django.tasks import TaskResultStatus
@@ -275,6 +266,46 @@ assert ExtractedPassage.objects.get(result=run.result).text == run.result.data["
 assert run.inputs[0]["sha256"] == run.case.evidence_documentevidence_items.get(
     original_filename="analysis-native.txt",
 ).sha256
+
+# Prepare and publish through a separate worker after preserving the queued
+# source across a full stack restart. No in-process import processing is used.
+import hashlib
+import json
+import time
+from django.contrib.auth import get_user_model
+from evidence.models import VehicleLocationEvidence, VehicleLocationImport
+from evidence.vehicle_import_jobs import enqueue_completion, process_import
+
+batch = VehicleLocationImport.objects.get()
+deadline = time.monotonic() + 30
+while batch.status in {"queued", "running"} and time.monotonic() < deadline:
+    time.sleep(0.1)
+    batch.refresh_from_db()
+assert batch.status == "review", (batch.status, batch.error_code)
+assert batch.row_count == 1 and batch.rows.count() == 1
+assert not VehicleLocationEvidence.objects.exists()
+owner = get_user_model().objects.get(username="smoke")
+batch = enqueue_completion(
+    owner, batch.case_id, batch.pk, {"0": str(batch.selected_vehicle_id)},
+)
+deadline = time.monotonic() + 30
+while batch.status in {"queued", "running"} and time.monotonic() < deadline:
+    time.sleep(0.1)
+    batch.refresh_from_db()
+assert batch.status == "complete", (batch.status, batch.error_code)
+assert batch.completed_at is not None
+assert batch.vehicle_mapping == {"0": str(batch.selected_vehicle_id)}
+location = VehicleLocationEvidence.objects.get(import_batch=batch)
+assert location.vehicle_id == batch.selected_vehicle_id
+assert location.speed_kmh == 0
+assert location.raw_row["Serial Number"] == "000001"
+assert location.sha256 == hashlib.sha256(location.original_bytes()).hexdigest()
+provenance = json.loads(location.original_bytes())["import"]
+assert provenance["document_sha256"] == batch.document.sha256
+assert provenance["document_id"] == str(batch.document_id)
+assert provenance["row"] == 2 and provenance["timezone"] == "UTC"
+assert process_import(str(batch.pk), str(batch.job_token)) == "complete"
+assert VehicleLocationEvidence.objects.filter(import_batch=batch).count() == 1
 
 # Verify native geometry dependencies in the bounded Linux parser, without HTTP.
 import json

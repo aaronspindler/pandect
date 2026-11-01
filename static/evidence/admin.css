@@ -6,3 +6,19 @@
 .aligned .readonly pre {
     white-space: pre-wrap;
 }
+
+.delete-confirmation form input[type="submit"],
+.delete-confirmation form .evidence-delete-cancel {
+    min-height: 44px;
+    box-sizing: border-box;
+}
+
+.delete-confirmation form .evidence-delete-cancel {
+    display: inline-flex;
+    align-items: center;
+}
+
+.delete-confirmation form :focus-visible {
+    outline: 3px solid var(--link-fg);
+    outline-offset: 2px;
+}

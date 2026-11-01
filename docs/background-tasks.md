@@ -6,10 +6,11 @@ There is no Redis service, scheduler, or external queue. AI integration belongs
 to the case-scoped analysis application. The
 backend remains asynchronous when `DEBUG=true`.
 
-The synthetic diagnostic returns a nonce; [case analysis](analysis.md) also uses
-this queue with separate durable case-scoped runs, progress, and recovery.
-Invitations, bounded CSV imports, evidence retention, and file cleanup keep their
-existing synchronous behavior. Other lengthy ingestion must add its own
+The synthetic diagnostic returns a nonce; [case analysis](analysis.md) and
+[vehicle-location CSV imports](vehicle-location-imports.md) also use this queue
+with separate durable case-scoped records, progress, and recovery.
+Invitations, evidence retention, and file cleanup keep their existing synchronous
+behavior. Other lengthy ingestion must add its own
 authorization, idempotency, and recovery before using this foundation.
 
 ## Startup and diagnostics

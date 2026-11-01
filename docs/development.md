@@ -52,7 +52,9 @@ record locations and communications, **People → Add person** for contact detai
 [vehicles](vehicles.md) for workflow
 details and limits. Ordinary investigators do not need staff permissions.
 For Asset Location CSV exports, choose **Vehicles → Import vehicle locations**,
-then select the export timezone and review case-vehicle mappings before confirming.
+then choose a case vehicle and check the export timezone (initially
+`America/Toronto`). Preparation and confirmed imports run in the worker; refresh
+the review to see progress and review case-vehicle mappings before confirming.
 See [vehicle-location imports](vehicle-location-imports.md).
 
 The optional `createsuperuser` command creates an operator for `/admin/`. Staff

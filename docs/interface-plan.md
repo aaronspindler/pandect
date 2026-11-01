@@ -114,10 +114,13 @@ records, stale forms, direct-object requests, and cross-case attempts are covere
   attribution. Set the latter pair on a real archive or restore transition.
   Owners/editors can perform either action; repeat requests are idempotent.
   Current case members can still inspect and download archived records.
-- Do not create an individual evidence delete route, bulk purge, replacement
-  original control, or archive-history framework. Archive/restore must leave
-  original content, checksum, uploader, and creation timestamp unchanged. Whole
-  case deletion remains the only end-user removal of retained evidence.
+- Keep bulk purge, replacement originals, and an archive-history framework out
+  of scope. Archive/restore leave original content, checksum, uploader, and
+  creation time unchanged. Ordinary investigators retain evidence until whole-case
+  deletion. Superusers with case access may delete individual evidence from
+  Details after a named-target confirmation and explicit checkbox. Reuse the
+  authorized deletion service and preserve source protections, case isolation,
+  rollback-safe file cleanup, and no-JavaScript cancellation.
 
 **Complete when:** all four types can be created, inspected, edited, archived,
 restored, and downloaded; permission and integrity tests pass; the dense desktop

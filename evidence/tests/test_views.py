@@ -636,11 +636,12 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(item.uploaded_by, self.users["owner"])
         self.assertNotEqual(item.sha256, "f" * 64)
 
-    def test_no_end_user_route_can_delete_individual_evidence(self):
+    def test_ordinary_users_cannot_delete_individual_evidence(self):
         self.login("owner")
         item = self.text()
         self.assertEqual(
-            self.client.post(self.url("detail", item) + "delete/").status_code, 404
+            self.client.post(self.url("delete", item), {"confirm": "on"}).status_code,
+            403,
         )
         self.assertTrue(TextEvidence.objects.filter(pk=item.pk).exists())
 

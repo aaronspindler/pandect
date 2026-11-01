@@ -262,8 +262,9 @@ implemented; read `docs/analysis.md` for supported extraction profiles, source
 anchors, reports, background processing, Gateway configuration, and review
 semantics. Broader catalogue features, graphs, unified timelines, and specialist
 analysis remain planned.
-The Django Tasks/PostgreSQL worker supports diagnostics and case analysis. Other
-existing product workflows remain synchronous. Read
+The Django Tasks/PostgreSQL worker supports diagnostics, case analysis, and
+vehicle-location CSV preparation/publication. Other existing product workflows
+remain synchronous. Read
 `docs/background-tasks.md` before adding tasks or changing worker operations,
 atomic enqueueing, private task logging, or manual failure recovery. The queue
 does not supply case authorization, automatic retries, or stale-task reclamation.
@@ -277,8 +278,12 @@ plates and VINs do not establish identity, ownership, or a person's association.
 Read `docs/evidence.md` before extending evidence models, original storage, or
 deletion cleanup. Original preservation is enforced through model validation and
 saves; current product routes enforce case permissions and every future access
-path must do so too. Owners/editors archive or restore individual evidence; only
-owner-confirmed whole-case deletion removes retained evidence through the product.
+path must do so too. Owners/editors archive or restore individual evidence.
+Superusers with current case access may explicitly confirm individual deletion
+from evidence Details, including dependent analysis and retained files. The scoped
+Django admin also permits this for active staff superusers. Keep individual
+deletion disabled for ordinary investigators/staff and preserve import-source
+protections. Owners may still confirm whole-case deletion.
 Communication evidence requires same-case sender/recipient people. Its originals
 are immutable; owners/editors may append retained call transcripts/audio with
 independent attribution/checksums, never replace earlier content. Read
@@ -290,8 +295,8 @@ of that person, while whole-case deletion removes both together.
 Vehicle-location evidence retains a same-case vehicle link with equivalent
 deletion protection. Read `docs/vehicle-location-imports.md` before changing the
 bounded CSV parser, explicit timezone/vehicle interpretation, source-row provenance,
-atomic completion, or duplicate-safe retries. Keep larger ingestion out of request
-handlers until a background processing workflow is implemented.
+atomic completion, or duplicate-safe retries. Keep lengthy ingestion out of request
+handlers and preserve the worker's bounded parsing, progress, and recovery.
 Read `docs/operations.md` before changing upload limits, mail, static delivery,
 private logging, storage, or deployment behavior.
 

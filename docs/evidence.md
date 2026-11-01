@@ -75,8 +75,15 @@ metadata edits display newer saved values alongside the retained draft for an
 explicit **Save reviewed changes**. **Archive** and **Restore**, also in Details,
 organize retained
 material; current case members can still inspect/download archived evidence.
-There is no individual evidence delete or purge route. Only owner-confirmed
-whole-case deletion removes retained evidence through the product interface.
+Ordinary investigators have no individual evidence delete or purge route.
+Superusers with current case access can choose **Delete evidence** in the
+**Details** tab. The in-app confirmation names the record, explains original and
+derived-file removal, and requires an explicit checkbox before **Permanently
+delete evidence**. **Cancel** returns to Details with collection filters retained;
+success returns to the filtered collection. It works without JavaScript and does
+not require staff status or opening Django admin. Protected import sources and
+inconsistent case links show a recovery message instead of a delete form.
+The same deletion is also available in the scoped Django admin, as described below.
 
 Open **Analysis** from an evidence record; owners/editors can choose
 **Analyze evidence** to run all applicable local analysis
@@ -265,7 +272,8 @@ captured text and transcripts keep their `.txt` filenames and UTF-8 bytes.
 Retained person-location evidence restricts individual person deletion,
 including when archived. This protects the original association. Confirmed
 whole-case deletion still cascades to both the evidence and its person. There is
-no separate shared location table or individual evidence deletion route.
+no separate shared location table. Individual deletion is restricted to the
+superuser workflows described here.
 
 ## Django admin
 
@@ -289,6 +297,7 @@ all evidence belonging to the case, without displaying inconsistent source detai
 | List, search, inspect originals and history | Owner, viewer, or editor | `view_<model>` or `change_<model>` |
 | Add evidence | Owner or editor of the selected case | `add_<model>` |
 | Edit metadata, archive, restore | Owner or editor | `change_<model>` |
+| Permanently delete individual evidence | Current case access and active staff superuser | Superuser only |
 
 Permission names use the `evidence` app and lowercase model names, for example
 `evidence.add_documentevidence`. Case permissions alone do not grant evidence
@@ -311,8 +320,39 @@ private download workflow, which requires verified email as well as current case
 access. Admin adds and edits appear in Django admin history; this is not a
 versioned evidence journal.
 
-Individual deletion and bulk actions are disabled. Owner-confirmed whole-case
-deletion in admin requires `cases.delete_case`, the `delete_<model>` permission
+Active staff superusers with current case access can open an admin evidence
+record and choose **Delete**. The confirmation names the evidence and lists its
+dependent records.
+Confirming permanently removes the original, any retained call transcripts/audio,
+and all analysis runs that selected it (including attachment sources), their
+results, reviews, extracted search text, and generated preview/reference files.
+Multi-source analysis is removed in full; downstream analysis depending on its
+results is also removed. Other source originals, people, vehicles, and unrelated
+analysis remain. Both active and archived evidence can be deleted. GET only
+shows the confirmation; deletion requires a CSRF-protected POST. Both the
+product and admin workflows record the deletion in Django admin history and use
+the same authorized, case-locked deletion service. Staff model permissions alone
+never grant this ability.
+Superusers still cannot discover or delete material from cases they cannot access.
+Bulk actions remain disabled. The complete deletion cascade is checked before
+private names are displayed and again under the case lock. Inconsistent case links
+in attachments or analysis records block deletion without exposing foreign material.
+
+Source documents referenced by retained vehicle-location imports or imported
+communication context remain protected by the existing provenance relationships.
+The confirmation explains the block; use trusted operator maintenance to remove
+the dependent import records, or owner-confirmed whole-case deletion. It never
+silently detaches retained observations from their source. No migration is needed.
+
+Deletion serializes with analysis publication using the case lock. Queued jobs
+for removed runs become harmless no-ops, and a running job cannot publish a new
+result after deletion. Original and generated files use the existing post-commit
+storage cleanup: rollback preserves them, and storage failures log exact generated
+keys for manual retry (see below). This removes current application storage;
+operators must separately manage backups and external-provider retention.
+
+Owner-confirmed whole-case deletion in admin requires `cases.delete_case`, the
+`delete_<model>` permission
 for every contained evidence type, and any other permissions listed on Django's
 confirmation screen. It removes retained evidence, people, and original files
 through the existing cascade and committed cleanup. No schema migration is needed
@@ -321,7 +361,7 @@ for these admin registrations.
 The implementation uses Django's standard
 [ModelAdmin hooks](https://docs.djangoproject.com/en/6.1/ref/contrib/admin/),
 including the case deletion confirmation hook to preserve the whole-case cascade
-while denying individual evidence deletion.
+for owners who are not superusers.
 
 ## Creating and editing records
 
@@ -394,7 +434,7 @@ filename or extension. No code relies on a filesystem-only `.path` API. Hosted
 operators can configure Django's `STORAGES` with a private backend; no hosted
 storage dependency or credentials are installed by this change.
 
-Product upload/detail/download/archive routes check current case access and
+Product upload/detail/download/archive/delete routes check current case access and
 parent-case membership. File responses use attachment disposition,
 `application/octet-stream`, `nosniff`, and no-store caching; text attachments
 reproduce the saved UTF-8 body. Admin never exposes storage URLs; no public media
@@ -406,8 +446,9 @@ attribution and does not authorize an operation; the ORM remains a trusted
 backend interface rather than an end-user permission boundary.
 
 Trusted maintenance can delete evidence through the ORM, which removes its row;
-ordinary users have no individual deletion path. Deleting a case cascades to all
-its active and archived evidence. For file evidence, a `post_delete` receiver
+ordinary users have no individual deletion path. Superusers use the confirmed
+product or admin workflows above. Deleting a case cascades to all its active and
+archived evidence. For file evidence, a `post_delete` receiver
 removes the original through the storage API only after database commit,
 including queryset/cascading deletion. A rolled-back deletion preserves both the
 row and file. Text and location originals disappear with their database records.

@@ -46,6 +46,12 @@ TYPE_FIELDS = {
 }
 
 
+class EvidenceDeleteForm(forms.Form):
+    confirm = forms.BooleanField(
+        label="I understand this permanently deletes this evidence and its files."
+    )
+
+
 def validate_file(original):
     if not original:
         return original

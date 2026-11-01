@@ -4,8 +4,13 @@ from uuid import UUID
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.admin.models import DELETION, LogEntry
 from django.core import signing
-from django.core.exceptions import PermissionDenied, SuspiciousFileOperation
+from django.core.exceptions import (
+    PermissionDenied,
+    SuspiciousFileOperation,
+    ValidationError,
+)
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Q, Value
@@ -25,6 +30,7 @@ from analysis.search import derived_content_condition, derived_text_matches
 from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
 
+from .deletion import delete_evidence, deletion_block_reason, related_analysis_runs
 from .forms import (
     CALL_KINDS,
     COMMON_FIELDS,
@@ -35,6 +41,7 @@ from .forms import (
     LOCATION_KINDS,
     TYPE_FIELDS,
     CallAttachmentForm,
+    EvidenceDeleteForm,
     evidence_form,
     save_call_content,
 )
@@ -216,6 +223,7 @@ def detail(request, case_id, kind, evidence_id):
             "is_location": kind in LOCATION_KINDS,
             "is_communication": kind in COMMUNICATION_KINDS,
             "is_call": kind in CALL_KINDS,
+            "can_delete_evidence": request.user.is_superuser,
         }
     )
     if kind in CALL_KINDS:
@@ -639,6 +647,49 @@ def _set_archive(request, case_id, kind, evidence_id, archived):
         params["section"] = "details"
     suffix = "?" + params.urlencode() if params else ""
     return redirect(_detail_url(case, kind, item) + suffix)
+
+
+@product_login_required
+@require_http_methods(["GET", "POST"])
+def delete(request, case_id, kind, evidence_id):
+    with transaction.atomic():
+        case = get_case(request.user, case_id, lock=request.method == "POST")
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only superusers can permanently delete evidence.")
+        item = get_evidence(case, kind, evidence_id, lock=request.method == "POST")
+        runs = related_analysis_runs(item, kind)
+        reason = deletion_block_reason(item, runs)
+        form = EvidenceDeleteForm(request.POST if request.method == "POST" else None)
+        if request.method == "POST" and not reason and form.is_valid():
+            try:
+                delete_evidence(request.user, case.pk, kind, item.pk)
+            except ValidationError as error:
+                reason = " ".join(error.messages)
+            else:
+                LogEntry.objects.log_actions(request.user.pk, [item], DELETION)
+                messages.success(request, "Evidence deleted.")
+                return redirect(
+                    reverse("evidence:list", kwargs={"case_id": case.pk})
+                    + query_suffix(request)
+                )
+    params = list_params(request)
+    params["section"] = "details"
+    return _private(
+        render(
+            request,
+            "evidence/delete.html",
+            {
+                **case_context(case, request.user),
+                "item": item,
+                "form": form,
+                "deletion_blocker": reason,
+                "analysis_count": runs.count(),
+                "cancel_url": _detail_url(case, kind, item) + "?" + params.urlencode(),
+                "nav_section": "evidence",
+            },
+            status=(409 if reason else 400) if request.method == "POST" else 200,
+        )
+    )
 
 
 @product_login_required

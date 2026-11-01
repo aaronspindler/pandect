@@ -39,8 +39,11 @@ from evidence.models import (
     PersonLocationEvidence,
     TextEvidence,
     VehicleLocationEvidence,
+    VehicleLocationImport,
 )
 from evidence.tests.test_vehicle_imports import csv_content
+from evidence.vehicle_import_jobs import enqueue_preparation, process_import
+from evidence.vehicle_imports import parse_csv
 from people.models import Person
 from vehicles.models import Vehicle
 
@@ -626,9 +629,16 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                         "buffer": csv_content(),
                     }
                 )
-                page.get_by_label("Export timezone", exact=True).select_option(
+                expect(page.get_by_label("Export timezone", exact=True)).to_have_value(
                     "America/Toronto"
                 )
+                page.get_by_label("Vehicle", exact=True).select_option(str(vehicle.pk))
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.get_by_label("Vehicle", exact=True).evaluate(
+                    "element => element.scrollIntoView({block: 'center'})"
+                )
+                self.capture(page, engine, "vehicle-import-upload-controls-390")
+                page.set_viewport_size({"width": 1440, "height": 900})
                 page.get_by_label("Source name or citation").fill(
                     "Synthetic tracking export"
                 )
@@ -639,6 +649,37 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("heading", name="Review vehicle locations")
                 ).to_be_visible()
+                expect(
+                    page.get_by_role("heading", name="Preparing the review")
+                ).to_be_visible()
+                self.capture(page, engine, "vehicle-import-preparing")
+                for width in (390, 320):
+                    page.set_viewport_size({"width": width, "height": 844})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"vehicle-import-preparing-{width}")
+                    page.locator("#processing-heading").evaluate(
+                        "element => element.scrollIntoView({block: 'start'})"
+                    )
+                    self.capture(
+                        page, engine, f"vehicle-import-preparing-progress-{width}"
+                    )
+                    page.evaluate("window.scrollTo(0, 0)")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                import_id = page.url.rstrip("/").rsplit("/", 1)[-1]
+
+                def process_current_import(import_id=import_id):
+                    batch = VehicleLocationImport.objects.get(pk=import_id)
+                    return process_import(str(batch.pk), str(batch.job_token))
+
+                self.db(process_current_import)
+                refresh = page.get_by_role("link", name="Refresh status")
+                refresh.focus()
+                refresh.press("Enter")
+                expect(page.locator("select[name=vehicle_0]")).to_have_value(
+                    str(vehicle.pk)
+                )
                 page.locator(".import-observation summary").focus()
                 page.locator(".import-observation summary").press("Enter")
                 expect(
@@ -663,7 +704,6 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.emulate_media(color_scheme="light", forced_colors="active")
                 self.capture(page, engine, "vehicle-import-forced-colors")
                 page.emulate_media(forced_colors="none")
-                page.locator("select[name=vehicle_0]").select_option(str(vehicle.pk))
                 if page.locator("input[name=confirm_duplicates]").count():
                     page.get_by_label(
                         "Keep the possible duplicates as separate observations"
@@ -675,11 +715,20 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 confirmation.press("Space")
                 expect(confirmation).to_be_checked()
                 page.get_by_role(
-                    "button", name="Import 1 observation", exact=True
+                    "button", name="Import observations", exact=True
                 ).focus()
                 page.get_by_role(
-                    "button", name="Import 1 observation", exact=True
+                    "button", name="Import observations", exact=True
                 ).press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Importing observations")
+                ).to_be_visible()
+                self.capture(page, engine, "vehicle-import-publishing")
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.capture(page, engine, "vehicle-import-publishing-390")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                self.db(process_current_import)
+                page.get_by_role("link", name="Refresh status").click()
                 expect(
                     page.get_by_role("heading", name="Vehicle locations imported")
                 ).to_be_visible()
@@ -725,6 +774,131 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
         self.assertEqual(
             self.db(VehicleLocationEvidence.objects.count), len(self.engines)
         )
+
+    def test_vehicle_location_duplicates_can_be_skipped_or_kept(self):
+        vehicle = Vehicle.objects.create(
+            case=self.case, model="Synthetic duplicate van"
+        )
+
+        def prepare_duplicate_import(engine, keep):
+            row = parse_csv(
+                csv_content(**{"Asset": f"Synthetic {engine} {keep}"}), "UTC"
+            )[0].raw
+            original = csv_content(row, row)
+            document = DocumentEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title="Synthetic duplicate CSV",
+                file=SimpleUploadedFile("synthetic-duplicates.csv", original),
+            )
+            batch = VehicleLocationImport.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                document=document,
+                timezone="UTC",
+                selected_vehicle=vehicle,
+            )
+            enqueue_preparation(self.owner, self.case.pk, batch.pk)
+            batch.refresh_from_db()
+            process_import(str(batch.pk), str(batch.job_token))
+            return batch.pk
+
+        for engine in self.engines:
+            for keep in (False, True):
+                batch_id = self.db(prepare_duplicate_import, engine, keep)
+                with (
+                    self.subTest(engine=engine, keep=keep),
+                    self.browser_page(engine, java_script_enabled=keep) as (_, page),
+                ):
+                    self.sign_in(page)
+                    page.goto(
+                        self.url(
+                            "evidence:vehicle_import_review",
+                            case_id=self.case.pk,
+                            import_id=batch_id,
+                        )
+                    )
+                    choice = page.get_by_label(
+                        "Keep the possible duplicates as separate observations"
+                    )
+                    expect(choice).not_to_be_checked()
+                    self.assertFalse(choice.get_attribute("required"))
+                    choice.focus()
+                    expect(choice).to_be_focused()
+                    self.assertNotEqual(
+                        choice.evaluate("node => getComputedStyle(node).outlineStyle"),
+                        "none",
+                    )
+                    if keep:
+                        choice.press("Space")
+                        expect(choice).to_be_checked()
+                    for width, height in (
+                        (1440, 900),
+                        (1440, 1024),
+                        (768, 1024),
+                        (390, 844),
+                        (320, 844),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                        )
+                        choice.evaluate(
+                            "node => node.scrollIntoView({block: 'center'})"
+                        )
+                        self.capture(page, engine, f"vehicle-duplicates-{keep}-{width}")
+                    page.set_viewport_size({"width": 1440, "height": 900})
+                    for appearance in ("dark", "light"):
+                        page.emulate_media(
+                            color_scheme=appearance, reduced_motion="reduce"
+                        )
+                        self.capture(
+                            page, engine, f"vehicle-duplicates-{keep}-{appearance}"
+                        )
+                    page.emulate_media(forced_colors="active")
+                    self.capture(
+                        page, engine, f"vehicle-duplicates-{keep}-forced-colors"
+                    )
+                    page.emulate_media(forced_colors="none")
+                    confirmation = page.get_by_label(
+                        "Import these observations with the selected "
+                        "vehicle associations"
+                    )
+                    confirmation.focus()
+                    confirmation.press("Space")
+                    page.get_by_role(
+                        "button", name="Import observations", exact=True
+                    ).focus()
+                    page.get_by_role(
+                        "button", name="Import observations", exact=True
+                    ).press("Enter")
+                    expect(
+                        page.get_by_role("heading", name="Importing observations")
+                    ).to_be_visible()
+
+                    def publish(import_id=batch_id):
+                        current = VehicleLocationImport.objects.get(pk=import_id)
+                        return process_import(str(current.pk), str(current.job_token))
+
+                    self.assertEqual(self.db(publish), "complete")
+                    page.get_by_role("link", name="Refresh status").click()
+                    expected = 2 if keep else 1
+                    expect(page.locator(".import-results a")).to_have_count(expected)
+                    expect(
+                        page.get_by_text(f"{expected} observation", exact=False)
+                    ).to_be_visible()
+                    if not keep:
+                        expect(
+                            page.get_by_text(
+                                "1 possible duplicate row skipped.", exact=False
+                            )
+                        ).to_be_visible()
+                    self.capture(page, engine, f"vehicle-duplicates-{keep}-complete")
+                    page.set_viewport_size({"width": 390, "height": 844})
+                    self.capture(
+                        page, engine, f"vehicle-duplicates-{keep}-complete-390"
+                    )
 
     def evidence_url(self, record=None, *, case=None):
         return self.url(
@@ -2081,3 +2255,229 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     meta_box["y"], title_box["y"] + title_box["height"] - 1
                 )
                 self.capture(page, engine, "workspace-200-percent-text")
+
+    def test_superuser_evidence_deletion(self):
+        self.owner.is_staff = self.owner.is_superuser = True
+        self.owner.save(update_fields=["is_staff", "is_superuser"])
+        for engine in self.engines:
+            document = DocumentEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=f"Synthetic original {engine}",
+                file=SimpleUploadedFile("original.txt", b"Synthetic original"),
+            )
+            change_url = self.live_server_url + reverse(
+                "admin:evidence_documentevidence_change", args=[document.pk]
+            )
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(change_url)
+                page.get_by_role("button", name="Delete", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Delete", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("This permanently deletes", exact=False)
+                ).to_be_visible()
+                confirm = page.get_by_role("button", name="Permanently delete evidence")
+                confirm.focus()
+                expect(confirm).to_be_focused()
+                confirm.press(
+                    "Alt+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Tab"
+                )
+                expect(page.get_by_role("button", name="Cancel")).to_be_focused()
+                page.get_by_role("button", name="Cancel").press("Enter")
+                expect(page).to_have_url(change_url)
+                self.assertTrue(
+                    self.db(DocumentEvidence.objects.filter(pk=document.pk).exists)
+                )
+                page.get_by_role("button", name="Delete", exact=True).click()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    expect(confirm).to_be_visible()
+                    self.assertLessEqual(
+                        page.evaluate(
+                            "document.documentElement.scrollWidth - innerWidth"
+                        ),
+                        1,
+                    )
+                    self.capture(page, engine, f"evidence-delete-{width}-{height}")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "evidence-delete-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    confirm.focus()
+                    expect(confirm).to_be_focused()
+                    self.capture(page, engine, "evidence-delete-forced-colors")
+            with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                self.sign_in(page)
+                page.goto(change_url)
+                page.get_by_role("button", name="Delete", exact=True).click()
+                page.get_by_role("button", name="Cancel").click()
+                expect(page).to_have_url(change_url)
+                page.get_by_role("button", name="Delete", exact=True).click()
+                page.get_by_role("button", name="Permanently delete evidence").press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_role(
+                        "heading", name="Select document evidence to change"
+                    )
+                ).to_be_visible()
+                self.assertFalse(
+                    self.db(DocumentEvidence.objects.filter(pk=document.pk).exists)
+                )
+                self.assertFalse(document.file.storage.exists(document.file.name))
+
+    def test_in_app_superuser_evidence_deletion(self):
+        self.owner.is_superuser = True
+        self.owner.save(update_fields=["is_superuser"])
+        for engine in self.engines:
+            document = DocumentEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=f"Synthetic deletion {engine}",
+                file=SimpleUploadedFile("original.txt", b"Synthetic original"),
+            )
+            source = DocumentEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=f"Retained import {engine}",
+                file=SimpleUploadedFile("source.csv", b"Synthetic retained CSV"),
+            )
+            VehicleLocationImport.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                document=source,
+                timezone="UTC",
+            )
+            detail_url = self.url(
+                "evidence:detail",
+                case_id=self.case.pk,
+                kind="document",
+                evidence_id=document.pk,
+            )
+            suffix = "?q=Synthetic&type=document&state=all&page=1"
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(detail_url + suffix)
+                page.get_by_role("navigation", name="Evidence sections").get_by_role(
+                    "link", name="Details", exact=True
+                ).click()
+                delete_link = page.get_by_role(
+                    "link", name="Delete evidence", exact=True
+                )
+                delete_link.focus()
+                expect(delete_link).to_be_focused()
+                self.assertNotEqual(
+                    delete_link.evaluate("node => getComputedStyle(node).outlineStyle"),
+                    "none",
+                )
+                self.capture(page, engine, "product-evidence-delete-details-desktop")
+                delete_link.click()
+                expect(
+                    page.get_by_role("heading", name=f"Delete {document.title}?")
+                ).to_be_visible()
+                self.assertTrue(
+                    self.db(DocumentEvidence.objects.filter(pk=document.pk).exists)
+                )
+                check = page.get_by_role("checkbox")
+                check.focus()
+                check.press("Space")
+                expect(check).to_be_checked()
+                check.press(
+                    "Alt+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Tab"
+                )
+                expect(
+                    page.get_by_role("link", name="Cancel", exact=True)
+                ).to_be_focused()
+                page.get_by_role("link", name="Cancel", exact=True).press("Enter")
+                expect(page).to_have_url(detail_url + suffix + "&section=details")
+                delete_link.click()
+                confirm = page.get_by_role("button", name="Permanently delete evidence")
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    expect(confirm).to_be_visible()
+                    self.assertLessEqual(
+                        page.evaluate(
+                            "document.documentElement.scrollWidth - innerWidth"
+                        ),
+                        1,
+                    )
+                    self.assertGreaterEqual(confirm.bounding_box()["height"], 44)
+                    self.capture(
+                        page, engine, f"product-evidence-delete-{width}-{height}"
+                    )
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "product-evidence-delete-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    confirm.focus()
+                    expect(confirm).to_be_focused()
+                    self.capture(page, engine, "product-evidence-delete-forced-colors")
+                    page.emulate_media(forced_colors="none")
+                page.emulate_media(color_scheme="light")
+                page.goto(
+                    self.url(
+                        "evidence:detail",
+                        case_id=self.case.pk,
+                        kind="document",
+                        evidence_id=source.pk,
+                    )
+                    + "?section=details"
+                )
+                page.get_by_role("link", name="Delete evidence", exact=True).click()
+                expect(
+                    page.get_by_text(
+                        "This original supports retained imported evidence", exact=False
+                    )
+                ).to_be_visible()
+                expect(confirm).to_have_count(0)
+                self.capture(page, engine, "product-evidence-delete-protected")
+                page.get_by_role("link", name="Back to evidence details").click()
+                expect(
+                    page.get_by_role("heading", name=source.title, exact=True)
+                ).to_be_visible()
+            with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                self.sign_in(page)
+                page.goto(detail_url + suffix + "&section=details")
+                page.set_viewport_size({"width": 390, "height": 844})
+                delete_link = page.get_by_role(
+                    "link", name="Delete evidence", exact=True
+                )
+                delete_link.focus()
+                self.capture(page, engine, "product-evidence-delete-details-mobile")
+                delete_link.press("Enter")
+                page.get_by_role("link", name="Cancel", exact=True).click()
+                expect(page).to_have_url(detail_url + suffix + "&section=details")
+                delete_link.click()
+                page.get_by_role("checkbox").check()
+                page.get_by_role("button", name="Permanently delete evidence").press(
+                    "Enter"
+                )
+                expect(page).to_have_url(
+                    self.url("evidence:list", case_id=self.case.pk) + suffix
+                )
+                expect(
+                    page.get_by_text("Evidence deleted.", exact=True)
+                ).to_be_visible()
+                self.assertFalse(
+                    self.db(DocumentEvidence.objects.filter(pk=document.pk).exists)
+                )
+                self.assertFalse(document.file.storage.exists(document.file.name))
