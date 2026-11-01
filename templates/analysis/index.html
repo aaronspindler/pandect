@@ -3,26 +3,21 @@
 {% block title %}Analysis · {{ case.name }}{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><p class="eyebrow">{{ case.name }}</p><h1>Analysis</h1><p>Inspect recorded activity, extract content, and review possible patterns against their sources.</p></div>
-  {% if can_edit %}<a class="button button-primary" href="{% url 'analysis:create' case.pk %}">Start analysis</a>{% endif %}
+  <div><h1>Analysis</h1><p>Explore your evidence and review results against their sources.</p></div>
+  <div class="actions">{% if can_edit %}<a class="button button-primary" href="{% url 'analysis:create' case.pk %}">Start analysis</a>{% endif %}<a class="analysis-report-shortcut" href="#analysis-reports">View reports</a></div>
 </header>
 
-<section class="panel" aria-labelledby="analysis-reports-heading">
-  <h2 id="analysis-reports-heading">Reports from retained records</h2>
-  <p class="muted">Explore current records and choose the coverage for each report.</p>
-  <div class="actions">{% for name,label in reports %}<a class="button button-secondary" href="{% url 'analysis:report' case.pk name %}">{{ label }}</a>{% endfor %}</div>
-</section>
-
-<section class="panel" aria-labelledby="analysis-history-heading">
-  <div class="section-header"><h2 id="analysis-history-heading">Processing history</h2><span class="muted">{{ page_obj.paginator.count }} run{{ page_obj.paginator.count|pluralize }}</span></div>
+<div class="analysis-overview">
+<section class="analysis-section" aria-labelledby="analysis-history-heading">
+  <div class="section-header"><h2 id="analysis-history-heading">Recent analysis</h2><span class="muted">{{ page_obj.paginator.count }} run{{ page_obj.paginator.count|pluralize }}</span></div>
   {% if not can_edit %}<p class="role-note">Your Viewer role lets you inspect authorized sources and results.</p>{% endif %}
   {% for run in page_obj %}
     <a class="record-row analysis-history-row" href="{% url 'analysis:detail' case.pk run.pk %}">
-      <div><strong>{{ run.label }}</strong><p class="muted">{{ run.created_at|date:'d M Y, H:i:s' }} UTC · {{ run.requested_by }} · {{ run.processing_label }}</p></div>
+      <div><strong>{{ run.label }}</strong><p>{{ run.source_title }}{% if run.additional_sources %} · +{{ run.additional_sources }} source{{ run.additional_sources|pluralize }}{% endif %}</p><p class="muted">{{ run.created_at|date:'d M Y, H:i' }} UTC · {{ run.requested_by }} · {{ run.processing_label }}{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}</p></div>
       <span class="badge">{{ run.get_status_display }}</span>
     </a>
   {% empty %}
-    <div class="empty-state compact-empty"><h3>No processing history yet</h3><p>Reports above are available immediately.{% if can_edit %} Start analysis to extract content or investigate patterns in retained sources.{% endif %}</p></div>
+    <div class="empty-state compact-empty"><h3>No analysis yet</h3><p>{% if can_edit %}Open an evidence record to run its local checks, or choose Start analysis to work with selected sources.{% else %}An owner or editor can start analysis. You can explore current records using the reports.{% endif %}</p><a class="button button-secondary" href="{% url 'evidence:list' case.pk %}">Open evidence</a></div>
   {% endfor %}
   {% if page_obj.paginator.num_pages > 1 %}
   <nav class="pagination" aria-label="Analysis pages">
@@ -32,4 +27,10 @@
   </nav>
   {% endif %}
 </section>
+<section class="analysis-section analysis-reports" id="analysis-reports" tabindex="-1" aria-labelledby="analysis-reports-heading">
+  <h2 id="analysis-reports-heading">Reports</h2>
+  <p class="muted">Explore current records immediately. No processing needed.</p>
+  <div class="analysis-options">{% for name,label,description in reports %}<a href="{% url 'analysis:report' case.pk name %}" aria-labelledby="report-{{ name }}-label" aria-describedby="report-{{ name }}-description"><span><strong id="report-{{ name }}-label">{{ label }}</strong><small id="report-{{ name }}-description">{{ description }}</small></span>{% include 'components/icon.html' with name='chevron-right' %}</a>{% endfor %}</div>
+</section>
+</div>
 {% endblock %}

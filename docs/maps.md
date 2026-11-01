@@ -2,7 +2,51 @@
 
 Open a case and choose **Map**. Owners, editors and viewers can inspect the same
 case-scoped locations and follow links back to retained evidence. Owners and
-editors can choose **Add location**. No database migration is required.
+editors can choose **Add location** or **Add POI**.
+
+## Person points of interest
+
+Choose **Add POI** to link a place to a person in the current case. Choose
+**Home**, **Work**, or **Custom** and enter a custom label such as Gym. Enter
+WGS84 latitude/longitude, with an optional address, source/citation, and
+investigator notes. Alternatively, click or tap a spot on the map and choose
+**Add POI here** to prefill coordinates before choosing the person and label.
+The normal form works with a keyboard and without JavaScript or map tiles.
+If the case has no people, the form offers **Add person** first.
+
+POIs are editable investigator annotations, separate from retained location
+evidence. Labels do not verify residence, employment, ownership, or presence.
+They do not enter evidence analysis or change a person's contact address.
+An address is optional context: POIs require coordinates and do not start
+address lookups. No new external service or inference route is used.
+
+Diamond markers labelled **P1**, **P2**, and so on match the **Points of interest**
+list. Popups show the label and person and link to the POI details. Identical
+coordinates share a marker whose popup lists all POIs and observations there.
+**Show on map** provides the keyboard alternative to marker selection. Polar
+coordinates beyond the map display limit remain in the list without moving them.
+
+Search includes POI labels, types, addresses, citations, and person names or
+contacts. Evidence type/status filters affect only observations. The POI list
+has its own URL-backed `poi_page`, at most 100 records per page; only that page
+is plotted alongside the current observation page. Person detail pages also
+list their POIs, 25 per page, with an **Add POI** link that prefills the person.
+
+Current owners/editors can add, edit, and delete POIs; viewers can inspect them.
+Every request checks case access and person selection is restricted server-side.
+Concurrent edits preserve the draft and require review of newer saved details.
+Deletion requires a separate named confirmation and POST. Deleting a person or
+case also removes its POIs; retained evidence still enforces its existing person
+deletion restrictions. POIs record their creator and creation/update times, but
+do not provide a versioned annotation history. POIs have no Django admin editor.
+
+Apply the additive `people/0002_pointofinterest` migration using the
+[documented migration workflow](development.md#run-python-on-the-host).
+It creates a UUID table scoped through the required person relationship, with
+database constraints for labels and coordinate ranges. Existing evidence and
+person addresses are unchanged; no data conversion is required.
+
+## Location observations
 
 The map plots recorded WGS84 latitude/longitude from Location, Person location
 and Vehicle location evidence. Numbered markers match the accessible location
@@ -53,8 +97,8 @@ by the worker to that service, with fixed lookup options; files, titles, notes,
 case IDs and person/vehicle identifiers are excluded. Redirects and ambient HTTP
 proxies are disabled by the shared geocoder client.
 
-The map reuses the existing case-authorized analysis queue and retained results;
-no new tables, global address cache or in-request HTTP lookups are introduced.
+Local address lookup reuses the existing case-authorized analysis queue and retained
+results; it adds no geocoding tables, global address cache or in-request HTTP lookups.
 Every job rechecks current editor access, source case/relationships, immutable
 checksums and the pinned local endpoint before requests and publication. The
 same case lock and atomic enqueue prevent duplicate page submissions from
@@ -138,4 +182,4 @@ cover local-only dispatch, configuration drift, revoked/cross-case access,
 duplicate/bounded batches, review changes, and unchanged originals. No real
 addresses are sent in tests. Captures are saved under ignored
 `data/validation/maps`. These checks do not establish
-live tile-provider availability or replace human screen-reader review.
+live tile-provider availability or full accessibility compliance.

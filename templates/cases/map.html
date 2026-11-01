@@ -9,21 +9,22 @@
 {% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><p class="eyebrow">{{ case.name }}</p><h1>Map</h1><p class="muted">Explore reported locations and open their source evidence.</p></div>
-  {% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case.pk %}?kind=location">Add location</a>{% endif %}
+  <div><p class="eyebrow">{{ case.name }}</p><h1>Map</h1><p class="muted">Explore reported locations and person-linked points of interest.</p></div>
+  {% if can_edit %}<div class="actions"><a class="button button-secondary" href="{% url 'evidence:create' case.pk %}?kind=location">Add location</a><a class="button button-primary" href="{% url 'people:poi_create' case.pk %}">Add POI</a></div>{% endif %}
 </header>
 <form method="get" class="map-filters" aria-label="Filter locations">
-  <div><label for="map-query">Search locations</label><input type="search" id="map-query" name="q" value="{{ query }}" maxlength="200" placeholder="Title, address, or source"></div>
+  <div><label for="map-query">Search locations</label><input type="search" id="map-query" name="q" value="{{ query }}" maxlength="200" placeholder="Title, person, address, or source"></div>
   <div><label for="map-kind">Evidence type</label><select name="kind" id="map-kind"><option value="">All location types</option>{% for value,label in location_kinds %}<option value="{{ value }}" {% if kind == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
   <div><label for="map-archive">Status</label><select name="archive" id="map-archive"><option value="active" {% if archive == 'active' %}selected{% endif %}>Active</option><option value="archived" {% if archive == 'archived' %}selected{% endif %}>Archived</option><option value="all" {% if archive == 'all' %}selected{% endif %}>Active and archived</option></select></div>
   <button class="button button-secondary" type="submit">Apply filters</button>
   {% if query or kind or archive != 'active' %}<a class="record-link" href="{% url 'cases:case_map' case.pk %}">Clear filters</a>{% endif %}
 </form>
-<section class="case-map-section" aria-labelledby="map-heading" data-case-map data-page-key="{{ page_key }}" data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}">
-  <div class="section-header"><div><h2 id="map-heading">Location map</h2><p class="muted map-summary"><span data-map-count>{{ mapped_count }} of {{ page_obj|length }} locations mapped</span>{% if page_obj.paginator.num_pages > 1 %} · Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}{% endif %}</p></div><div class="actions"><button type="button" class="button button-secondary" data-map-fit aria-label="Show all mapped locations" hidden>Show all</button><a class="record-link" href="#location-list">Location list</a></div></div>
+<section class="case-map-section" aria-labelledby="map-heading" data-case-map data-page-key="{{ page_key }}" data-poi-key="{{ poi_key }}" {% if can_edit %}data-poi-create-url="{% url 'people:poi_create' case.pk %}"{% endif %} data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}">
+  <div class="section-header"><div><h2 id="map-heading">Location map</h2><p class="muted map-summary"><span data-map-count>{{ mapped_count }} of {{ page_obj|length }} locations mapped</span> · {{ poi_mapped_count }} of {{ poi_page|length }} POIs mapped{% if page_obj.paginator.num_pages > 1 %} · Location page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}{% endif %}</p></div><div class="actions"><button type="button" class="button button-secondary" data-map-fit aria-label="Show all mapped locations" hidden>Show all</button><a class="record-link" href="#location-list">Location list</a><a class="record-link" href="#poi-list">POI list</a></div></div>
   <p role="status" data-map-status>Enable JavaScript to load the interactive map. All source locations are available in the list below.</p>
   <p class="muted" data-map-estimate-key hidden>Square markers show address estimates.</p>
   <div id="investigation-map" class="case-map" tabindex="0" role="region" aria-label="Interactive location map" aria-describedby="map-help" hidden></div>
+  {% if can_edit %}<p class="help-text">Choose a spot on the map to add a POI there, or use Add POI to enter coordinates.</p>{% endif %}
   {% if has_addresses %}
   <div class="map-address-lookup">
     <p class="muted" role="status" data-geocode-status>{% if pending %}Locating addresses locally…{% elif not local_geocoder_ready %}Address lookup needs a configured local geocoder.{% else %}Address matches appear as estimates, with links to review them.{% endif %}</p>
@@ -32,9 +33,14 @@
   {% endif %}
   <details class="map-details"><summary>Map details</summary>
     <p>Evidence files, titles, notes, and source details stay in Pandect. Address lookups send only the address to the configured local geocoder. The background tile service receives only tile requests.</p>
-    <p>Circles show recorded coordinates; squares show address estimates. Estimates may be broad or ambiguous, and all unrejected alternatives remain visible. Review them before using them for analysis. Numbers match the location list; a count groups positions at the same coordinates. Neither coordinates nor the background map verify presence, identity, routes, or historical conditions.</p>
+    <p>Circles show recorded coordinates; squares show address estimates; diamond markers labelled P show person POIs. POIs are investigator annotations, not retained evidence. Estimates may be broad or ambiguous, and all unrejected alternatives remain visible. Review them before using them for analysis. Numbers match the lists; a count groups positions at the same coordinates. Neither coordinates nor labels verify residence, employment, presence, identity, routes, or historical conditions.</p>
     <p id="map-help">Use the arrow keys to pan and + or − to zoom when the map has focus, or use the zoom buttons. Choose a numbered marker or “Show on map” in the list to inspect a source.</p>
   </details>
+</section>
+<section class="content-section" aria-labelledby="poi-list">
+  <div class="section-header"><h2 id="poi-list">Points of interest</h2><span class="muted">{{ poi_page.paginator.count }} POI{{ poi_page.paginator.count|pluralize }}</span></div>
+  <p class="help-text">Home, Work, and custom places linked to people. Search includes POIs; evidence type and status filters apply to the location observations below. Only the current page of each list is mapped.</p>
+  {% include "people/poi_list.html" %}
 </section>
 <section class="content-section" aria-labelledby="location-list" tabindex="-1">
   <div class="section-header"><h2 id="location-list">Locations</h2><span class="muted">{{ page_obj.paginator.count }} observation{{ page_obj.paginator.count|pluralize }}</span></div>

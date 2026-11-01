@@ -68,6 +68,9 @@ def person_detail(request, case_id, person_id):
         {
             **case_context(case, request.user),
             "person": person,
+            "poi_page": Paginator(person.points_of_interest.all(), 25).get_page(
+                request.GET.get("poi_page")
+            ),
             "list_query": list_query(request),
         },
     )

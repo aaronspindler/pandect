@@ -21,7 +21,6 @@ from django.views.decorators.http import (
 )
 
 from analysis.errors import AnalysisError
-from analysis.forms import EvidenceAnalysisForm
 from analysis.search import derived_content_condition, derived_text_matches
 from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
@@ -40,6 +39,7 @@ from .forms import (
     save_call_content,
 )
 from .models import CallEvidenceAttachment, VehicleLocationImport
+from .navigation import list_params, query_suffix
 from .previews import image_preview
 from .queries import duplicate_matches, get_evidence, scoped_evidence
 from .search import retained_content_condition, retained_text_matches
@@ -70,21 +70,6 @@ def _detail_url(case, kind, item):
         "evidence:detail",
         kwargs={"case_id": case.pk, "kind": kind, "evidence_id": item.pk},
     )
-
-
-def _list_params(request):
-    params = request.GET.copy()
-    for key in list(params):
-        if key not in {"q", "type", "state", "page"}:
-            del params[key]
-    if "q" in params:
-        params["q"] = params["q"][:200]
-    return params
-
-
-def _query_suffix(request):
-    value = _list_params(request).urlencode()
-    return f"?{value}" if value else ""
 
 
 def _list_context(request, case):
@@ -152,8 +137,8 @@ def _list_context(request, case):
         queries[0].union(*queries[1:], all=True).order_by("-created_at", "kind", "id")
     )
     page = Paginator(combined, 25).get_page(request.GET.get("page"))
-    params = _list_params(request)
-    suffix = _query_suffix(request)
+    params = list_params(request)
+    suffix = query_suffix(request)
     rows = []
     for row in page.object_list:
         row["label"] = KIND_LABELS[row["kind"]]
@@ -231,7 +216,6 @@ def detail(request, case_id, kind, evidence_id):
             "is_location": kind in LOCATION_KINDS,
             "is_communication": kind in COMMUNICATION_KINDS,
             "is_call": kind in CALL_KINDS,
-            "analysis_form": EvidenceAnalysisForm(),
         }
     )
     if kind in CALL_KINDS:
@@ -528,7 +512,7 @@ def edit(request, case_id, kind, evidence_id):
                 messages.success(
                     request, "Evidence details saved. The original is unchanged."
                 )
-                return redirect(_detail_url(case, kind, item) + _query_suffix(request))
+                return redirect(_detail_url(case, kind, item) + query_suffix(request))
         elif request.method == "POST":
             status = 400
         context = case_context(case, request.user) | {
@@ -538,7 +522,7 @@ def edit(request, case_id, kind, evidence_id):
             "kind_label": KIND_LABELS[kind],
             "editing": True,
             "nav_section": "evidence",
-            "list_suffix": _query_suffix(request),
+            "list_suffix": query_suffix(request),
             "conflict": conflict,
             "latest_details": latest_details if conflict else [],
         }
@@ -650,7 +634,11 @@ def _set_archive(request, case_id, kind, evidence_id, archived):
         if archived
         else "Evidence restored to the active collection.",
     )
-    return redirect(_detail_url(case, kind, item) + _query_suffix(request))
+    params = list_params(request)
+    if request.GET.get("section") == "details":
+        params["section"] = "details"
+    suffix = "?" + params.urlencode() if params else ""
+    return redirect(_detail_url(case, kind, item) + suffix)
 
 
 @product_login_required

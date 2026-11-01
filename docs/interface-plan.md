@@ -192,8 +192,8 @@ single submission.
 - Maintain the reproducible Chromium/WebKit suite with synthetic fixtures.
   `make browser-check` runs `config.tests.browser`; install engines through
   `uv run --locked playwright install chromium webkit`. Exercise the principal create/upload/edit/archive/invite
-  journeys at desktop/mobile sizes, keyboard-only operation, screen-reader
-  semantics, light/dark appearances, reduced motion, forced colors, zoom, and
+  journeys at desktop/mobile sizes, keyboard-only operation, semantic labels,
+  light/dark appearances, reduced motion, forced colors, zoom, and
   no-JavaScript fallbacks. Capture relevant visual evidence.
 - Update setup, permissions, evidence handling, SMTP/public-origin/upload limits,
   static serving, and troubleshooting documentation to describe the implemented

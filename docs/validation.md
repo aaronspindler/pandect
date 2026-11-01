@@ -149,9 +149,27 @@ private JSON downloads without JavaScript.
 Bulk captures include desktop, tablet, mobile, 320px reflow, enlarged text, dark,
 reduced-motion, and forced-colors layouts. Visual targets are 12 complete ordinary
 rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible hit
-areas; screen-reader review and operator deployment checks remain separate human
-validation activities. A successful build or HTTP readiness response is not a
+areas. Manual screen-reader testing is optional during development and does not
+block delivery; operator deployment checks remain separate validation activities.
+A successful build or HTTP readiness response is not a
 substitute for these browser interactions and captures.
+
+## Person POI validation
+
+POI coverage in `make check` exercises Home/Work/custom creation, required labels,
+finite/ranged coordinates and database constraints, creator attribution, same-case
+person choices, current owner/editor/viewer roles, unrelated superusers, revoked
+access, CSRF, stale edits, confirmed deletion and person/case cascades. Map tests
+cover private HTML/JSON, escaped labels, bounded independent POI pagination,
+shared search, polar positions, and changed asynchronous snapshots.
+
+`cases.map_browser` (included in `make browser-check`) exercises pointer-prefilled
+creation, keyboard selection and saving, validation recovery, custom-label edits,
+and no-JavaScript person-linked creation/deletion in Chromium and WebKit.
+Synthetic captures in `data/validation/maps` include POI forms and maps at the
+five design viewports, mobile landscape, enlarged text, dark appearance,
+reduced motion, and Chromium forced colors. Tile requests are mocked. These
+checks do not establish physical location accuracy or full accessibility compliance.
 
 ## Image preview validation
 
@@ -168,7 +186,7 @@ uv run --locked --env-file .env python manage.py test config.tests.browser.CoreI
 The preview browser journey checks Chromium and WebKit with and without page
 JavaScript, keyboard downloads, all five design viewport sizes, dark appearance,
 reduced motion, and forced colors where supported. Captures use the core browser
-artifact directory. Screen-reader review remains a separate human check.
+artifact directory.
 
 ## Analysis validation
 

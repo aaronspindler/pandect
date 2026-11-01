@@ -234,6 +234,9 @@ durable project requirements change.
   Validate background retry and partial-failure behavior when changing processing.
 - For visible UI changes, inspect desktop and mobile layouts and verify keyboard
   interaction and accessibility behavior. Capture relevant visual evidence.
+  Manual screen-reader testing is optional during development and must not block
+  completion or handoff. Run it or change system accessibility settings only when
+  the user explicitly requests that check.
 - Use the repository's documented validation commands once established. Keep CI
   and local checks aligned; do not invent commands or report unrun checks as passed.
 - Report what changed, how it was verified, and any material limits. Distinguish

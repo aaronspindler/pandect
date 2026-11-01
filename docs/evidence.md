@@ -69,14 +69,17 @@ URLs. No preview files or analysis results are stored. Files are downloaded thro
 currently authorized attachment routes; this release does not embed documents
 or play audio.
 
-Owners/editors can **Edit details** without replacing the original. Conflicting
+In the **Details** tab, owners/editors can **Edit details** without replacing the
+original. Conflicting
 metadata edits display newer saved values alongside the retained draft for an
-explicit **Save reviewed changes**. **Archive** and **Restore** organize retained
+explicit **Save reviewed changes**. **Archive** and **Restore**, also in Details,
+organize retained
 material; current case members can still inspect/download archived evidence.
 There is no individual evidence delete or purge route. Only owner-confirmed
 whole-case deletion removes retained evidence through the product interface.
 
-Owners/editors can choose **Analyze evidence** to run all applicable local analysis
+Open **Analysis** from an evidence record; owners/editors can choose
+**Analyze evidence** to run all applicable local analysis
 for that evidence and its retained content together. The **Analysis** tab shows
 its progress and results to current case members. External processing remains a
 separate choice requiring explicit approval; custom comparisons and imports still

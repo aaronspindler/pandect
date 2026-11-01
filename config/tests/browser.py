@@ -1063,6 +1063,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                             width + 1,
                         )
                         self.capture(page, engine, f"{kind}-original-{width}x{height}")
+                    page.get_by_role(
+                        "navigation", name="Evidence sections"
+                    ).get_by_role("link", name="Details", exact=True).click()
                     page.get_by_role("link", name="Edit details", exact=True).click()
                     expect(page.locator("#id_address")).to_have_count(0)
                     page.get_by_label("Source", exact=True).fill(
@@ -1124,15 +1127,21 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(page.locator(".original-text")).to_have_text(original)
                 record = self.db(TextEvidence.objects.get, case=case, title=title)
                 checksum = record.sha256
+                page.get_by_role("navigation", name="Evidence sections").get_by_role(
+                    "link", name="Details", exact=True
+                ).click()
                 page.get_by_role("button", name="Archive", exact=True).click()
                 expect(
                     page.get_by_role("button", name="Restore", exact=True)
                 ).to_be_visible()
-                expect(page.locator(".original-text")).to_have_text(original)
                 page.get_by_role("button", name="Restore", exact=True).click()
                 expect(
                     page.get_by_role("button", name="Archive", exact=True)
                 ).to_be_visible()
+                page.get_by_role("navigation", name="Evidence sections").get_by_role(
+                    "link", name="Original", exact=True
+                ).click()
+                expect(page.locator(".original-text")).to_have_text(original)
                 self.db(record.refresh_from_db)
                 self.assertFalse(record.is_archived)
                 self.assertEqual(record.sha256, checksum)
@@ -2015,6 +2024,26 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     self.capture(page, engine, "workspace-forced-colors")
                     page.emulate_media(forced_colors="none")
                 page.emulate_media(color_scheme="light", reduced_motion="no-preference")
+
+                page.get_by_role("navigation", name="Evidence sections").get_by_role(
+                    "link", name="Details", exact=True
+                ).click()
+                edit = page.get_by_role("link", name="Edit details", exact=True)
+                edit.focus()
+                expect(edit).to_be_focused()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    expect(edit).to_be_visible()
+                    self.capture(page, engine, f"evidence-details-{width}x{height}")
 
                 for width, height in ((768, 1024), (390, 844), (320, 844)):
                     page.set_viewport_size({"width": width, "height": height})

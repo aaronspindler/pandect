@@ -359,6 +359,27 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             404,
         )
 
+    def test_details_actions_follow_case_roles_and_keep_collection_context(self):
+        item = self.text()
+        for role in ("owner", "editor", "viewer"):
+            self.login(role)
+            response = self.client.get(self.url("detail", item), {"section": "details"})
+            if role == "viewer":
+                self.assertNotContains(response, "Edit details")
+                self.assertNotContains(response, self.url("archive", item))
+            else:
+                self.assertContains(response, "Edit details")
+                self.assertContains(response, self.url("archive", item))
+        self.login("editor")
+        for action in ("archive", "restore"):
+            response = self.client.post(
+                self.url(action, item) + "?q=notes&state=all&section=details"
+            )
+            self.assertRedirects(
+                response,
+                self.url("detail", item) + "?q=notes&state=all&section=details",
+            )
+
     def test_archive_restore_is_idempotent_and_preserves_original(self):
         item = self.text()
         original = (item.body, item.sha256, item.created_at, item.uploaded_by_id)

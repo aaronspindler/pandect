@@ -15,6 +15,7 @@
   </dl>
 </section>
 <section class="panel" aria-labelledby="notes-heading"><h2 id="notes-heading">Investigator notes</h2><div class="prose">{{ person.notes|default:"No notes recorded."|linebreaks }}</div><p class="help-text">A person record captures investigative work; matching details do not verify identity.</p></section>
+<section class="content-section" aria-labelledby="poi-list"><div class="section-header"><h2 id="poi-list">Points of interest</h2>{% if can_edit %}<a class="button button-secondary" href="{% url 'people:poi_create' case.pk %}?person={{ person.pk }}">Add POI</a>{% endif %}</div><p class="help-text">Investigator-maintained places; labels do not verify residence, employment, or presence.</p>{% include "people/poi_list.html" %}</section>
 <dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ person.created_at|date:'c' }}">{{ person.created_at|date:"j M Y, H:i" }} UTC</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ person.updated_at|date:'c' }}">{{ person.updated_at|date:"j M Y, H:i" }} UTC</time></dd></div></dl>
 {% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'people:delete' case_id=case.pk person_id=person.pk %}">Delete person</a></div>{% endif %}
 </div>

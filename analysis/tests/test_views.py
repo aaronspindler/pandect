@@ -64,6 +64,24 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertContains(response, 'type="submit" disabled>Queue analysis')
 
+    def test_history_names_current_sources_without_exposing_foreign_case_titles(self):
+        own = self.analysis_run(complete=False)
+        foreign, _ = start_run(
+            self.users["outsider"],
+            self.other_case.pk,
+            "entities",
+            [{"kind": "text", "id": str(self.foreign.pk)}],
+        )
+        # Inconsistent historical references must not reveal another case's title.
+        AnalysisRun.objects.filter(pk=foreign.pk).update(case=self.case)
+        self.login("owner")
+        response = self.client.get(self.analysis_url("index"))
+        self.assertContains(response, "Selected &lt;script&gt;source&lt;/script&gt;")
+        self.assertNotContains(response, self.foreign.title)
+        labels = {run.pk: run.source_title for run in response.context["page_obj"]}
+        self.assertEqual(labels[own.pk], self.note.title)
+        self.assertEqual(labels[foreign.pk], "Source unavailable")
+
     def test_title_filter_empty_state_can_be_cleared_without_losing_operation(self):
         self.login("owner")
         response = self.client.get(
@@ -180,13 +198,13 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(response.status_code, expected)
                 if expected == 200:
                     self.assert_private(response)
+                    self.assertContains(detail, f'href="{url}"')
+                    self.assertContains(response, 'aria-current="page">Analysis</a>')
                     if role == "viewer":
                         self.assertNotContains(response, "External analysis")
-                        self.assertNotContains(detail, ">Analyze evidence</button>")
-                        self.assertNotContains(detail, f'action="{url}"')
+                        self.assertNotContains(response, ">Analyze evidence</button>")
                     else:
-                        self.assertContains(detail, f'action="{url}"', count=1)
-                        self.assertContains(detail, ">Analyze evidence</button>")
+                        self.assertContains(response, ">Analyze evidence</button>")
                 if role in {"viewer", "outsider"}:
                     self.assertEqual(
                         self.client.post(url, self.payload()).status_code,
@@ -199,6 +217,24 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         ).delete()
         self.assertEqual(self.client.get(url).status_code, 404)
         self.assertEqual(self.client.post(url, self.payload()).status_code, 404)
+
+    def test_evidence_analysis_retains_collection_filters_separately_from_results_page(
+        self,
+    ):
+        self.login("editor")
+        url = self.analysis_url(
+            "process_evidence", kind="text", evidence_id=self.note.pk
+        )
+        suffix = "?q=Selected&type=text&state=all&page=2"
+        response = self.client.get(url + suffix + "&results_page=99")
+        self.assertEqual(response.context["page_obj"].number, 1)
+        self.assertContains(response, f'href="{url}{suffix.replace("&", "&amp;")}"')
+        original = self.url("detail", self.note) + suffix
+        self.assertContains(response, f'href="{original.replace("&", "&amp;")}"')
+        self.assertRedirects(
+            self.client.post(url + suffix, {"submission_id": str(uuid4())}),
+            url + suffix,
+        )
 
     def test_evidence_analysis_uses_url_source_and_ignores_forged_operation_settings(
         self,

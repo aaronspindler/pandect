@@ -10,18 +10,18 @@
     <p>Inspect the records behind counts and comparisons. Gaps show unavailable observations.</p>
   </div>
 </header>
-<form method="get" class="panel form-layout" aria-label="Report selection">
+<form method="get" class="analysis-section form-layout" aria-label="Report selection">
   {% include 'components/form_fields.html' %}
   <div class="form-actions"><button class="button button-primary" type="submit">Update report</button><a class="button button-secondary" href="?">Reset selection</a></div>
 </form>
 {% if data %}
-<section class="panel">
+<section class="analysis-section">
   <h2>{{ data.summary }}</h2>
   {% for warning in data.warnings %}<p class="notice">{{ warning }}</p>{% endfor %}
   {% include 'analysis/measurements.html' with measurements=data.measurements only %}
 </section>
 {% for item in data.items %}
-<article class="panel analysis-finding">
+<article class="analysis-section analysis-finding">
   <h2>{% if item.url %}<a class="record-link" href="{{ item.url }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</h2>
   <p>{{ item.text }}</p>
   {% include 'analysis/measurements.html' with measurements=item.measurements only %}

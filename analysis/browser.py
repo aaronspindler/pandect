@@ -153,6 +153,80 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
         )
         return run.pk
 
+    def test_analysis_overview_reports_and_responsive_layout(self):
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.db(AnalysisRun.objects.filter(case=self.case).delete)
+                self.sign_in(page)
+                index_url = self.url("analysis:index", case_id=self.case.pk)
+                page.goto(index_url)
+                expect(
+                    page.get_by_role("heading", name="No analysis yet")
+                ).to_be_visible()
+                self.capture(page, engine, "analysis-empty")
+                self.db(self._review_findings)
+                page.goto(index_url)
+                expect(page.locator(".analysis-history-row")).to_contain_text(
+                    self.text.title
+                )
+                expect(page.locator(".analysis-options a")).to_have_count(4)
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (1440, 1024, "tall-desktop"),
+                    (768, 1024, "tablet"),
+                    (390, 844, "mobile"),
+                    (320, 844, "reflow"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"analysis-overview-{label}")
+                shortcut = page.get_by_role("link", name="View reports", exact=True)
+                shortcut.focus()
+                expect(shortcut).to_be_focused()
+                shortcut.press("Enter")
+                expect(page.locator("#analysis-reports-heading")).to_be_in_viewport()
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self._assert_reflow(page)
+                self.capture(page, engine, "analysis-overview-large-text")
+                page.goto(index_url)
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                page.reload()
+                self.capture(page, engine, "analysis-overview-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                page.reload()
+                self.capture(page, engine, "analysis-overview-forced-colors")
+                report_link = page.get_by_role(
+                    "link", name=re.compile(r"^Call patterns")
+                )
+                report_link.focus()
+                expect(report_link).to_be_focused()
+                report_link.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Call patterns", exact=True)
+                ).to_be_visible()
+                page.emulate_media(
+                    color_scheme="light",
+                    forced_colors="none",
+                    reduced_motion="no-preference",
+                )
+                page.goto(index_url)
+                page.get_by_role("link", name="Start analysis", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="1. Choose analysis")
+                ).to_be_visible()
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (390, 844, "mobile"),
+                    (320, 844, "reflow"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"analysis-selection-{label}")
+
     def test_review_errors_preserve_text_focus_and_later_finding_page(self):
         for engine in self.engines:
             run_id = self._review_findings()
@@ -343,14 +417,21 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         evidence_id=self.document.pk,
                     )
                 )
-                process = page.get_by_role(
-                    "button", name="Analyze evidence", exact=True
-                )
+                analysis_tab = page.get_by_role(
+                    "navigation", name="Evidence sections"
+                ).get_by_role("link", name="Analysis", exact=True)
                 for width, height, label in viewports:
                     page.set_viewport_size({"width": width, "height": height})
                     self._assert_reflow(page)
-                    expect(process).to_be_visible()
+                    expect(analysis_tab).to_be_visible()
                     self.capture(page, engine, f"process-evidence-action-{label}")
+                analysis_tab.focus()
+                expect(analysis_tab).to_be_focused()
+                analysis_tab.press("Enter")
+                process = page.get_by_role(
+                    "button",
+                    name=re.compile(r"^(Analyze evidence|Run local analysis again)$"),
+                )
                 process.focus()
                 expect(process).to_be_focused()
                 self.assertNotEqual(
@@ -360,7 +441,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 process.press("Enter")
                 expect(page).to_have_url(analysis_url)
                 expect(
-                    page.get_by_role("heading", name="Evidence analysis", exact=True)
+                    page.get_by_role("heading", name=self.document.title, exact=True)
                 ).to_be_visible()
                 expect(page.get_by_label("Analysis", exact=True)).to_have_count(0)
                 expect(page.locator('input[name="sources"]')).to_have_count(0)
@@ -560,9 +641,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
     def _choose_analysis(self, page, operation):
         page.goto(self.url("analysis:create", case_id=self.case.pk))
         page.get_by_label("Analysis", exact=True).select_option(operation)
-        page.get_by_role(
-            "button", name="Choose analysis and sources", exact=True
-        ).click()
+        page.get_by_role("button", name="Show sources", exact=True).click()
         page.locator("summary").filter(
             has_text=re.compile(r"^Analysis assumptions$")
         ).click()

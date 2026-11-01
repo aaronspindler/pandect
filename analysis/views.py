@@ -19,7 +19,9 @@ from django.views.decorators.http import (
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from evidence.queries import get_evidence
+from evidence.navigation import query_suffix
+from evidence.queries import get_evidence, scoped_evidence
+from evidence.types import KIND_LABELS, KINDS
 
 from .artifacts import MAX_ARTIFACT_BYTES
 from .automatic import start_evidence_analysis
@@ -108,9 +110,28 @@ def index(request, case_id):
     page = Paginator(
         AnalysisRun.objects.filter(case=case).select_related("requested_by"), 25
     ).get_page(request.GET.get("page"))
+    titles = {}
+    for kind in KINDS:
+        ids = {
+            run.inputs[0]["evidence_id"]
+            for run in page
+            if run.inputs and run.inputs[0]["kind"] == kind
+        }
+        if ids:
+            titles.update(
+                ((kind, str(pk)), title)
+                for pk, title in scoped_evidence(case, kind)
+                .filter(pk__in=ids)
+                .values_list("pk", "title")
+            )
     for run in page:
         run.label = get_operation(run.operation).label
         run.processing_label = _processing_details(run)["label"]
+        first = run.inputs[0] if run.inputs else {}
+        run.source_title = titles.get(
+            (first.get("kind"), first.get("evidence_id")), "Source unavailable"
+        )
+        run.additional_sources = max(0, len(run.inputs) - 1)
     return private(
         render(
             request,
@@ -119,10 +140,22 @@ def index(request, case_id):
             | {
                 "page_obj": page,
                 "reports": (
-                    ("calls", "Call patterns"),
-                    ("vehicle-coverage", "Vehicle observation coverage"),
-                    ("vehicle-speed", "Vehicle speed and heading"),
-                    ("duplicates", "Exact file duplicates"),
+                    ("calls", "Call patterns", "Counts, duration and timing"),
+                    (
+                        "vehicle-coverage",
+                        "Vehicle observation coverage",
+                        "Recorded locations and gaps",
+                    ),
+                    (
+                        "vehicle-speed",
+                        "Vehicle speed and heading",
+                        "Source-reported movement",
+                    ),
+                    (
+                        "duplicates",
+                        "Exact file duplicates",
+                        "Files with identical bytes",
+                    ),
                 ),
             },
         )
@@ -199,10 +232,11 @@ def process_evidence(request, case_id, kind, evidence_id):
                     else "This analysis was already queued.",
                 )
             return redirect(
-                "analysis:process_evidence",
-                case_id=case.pk,
-                kind=kind,
-                evidence_id=item.pk,
+                reverse(
+                    "analysis:process_evidence",
+                    kwargs={"case_id": case.pk, "kind": kind, "evidence_id": item.pk},
+                )
+                + query_suffix(request)
             )
     page = Paginator(
         AnalysisRun.objects.filter(
@@ -210,7 +244,7 @@ def process_evidence(request, case_id, kind, evidence_id):
             inputs__contains=[{"kind": kind, "evidence_id": str(item.pk)}],
         ).select_related("requested_by"),
         25,
-    ).get_page(request.GET.get("page"))
+    ).get_page(request.GET.get("results_page"))
     for run in page:
         run.label = get_operation(run.operation).label
         run.processing_label = _processing_details(run)["label"]
@@ -222,6 +256,9 @@ def process_evidence(request, case_id, kind, evidence_id):
             | {
                 "evidence": item,
                 "kind": kind,
+                "kind_label": KIND_LABELS[kind],
+                "nav_section": "evidence",
+                "list_suffix": query_suffix(request),
                 "form": form,
                 "page_obj": page,
                 "additional_operations": _additional_operations(kind).items(),

@@ -192,9 +192,7 @@ class ContextBrowserTests(StaticLiveServerTestCase):
     def _choose(self, page, operation):
         page.goto(self.url("analysis:create", case_id=self.case.pk))
         page.get_by_label("Analysis", exact=True).select_option(operation)
-        page.get_by_role(
-            "button", name="Choose analysis and sources", exact=True
-        ).click()
+        page.get_by_role("button", name="Show sources", exact=True).click()
         summary = page.locator("summary").filter(
             has_text=re.compile(r"^Analysis assumptions$")
         )

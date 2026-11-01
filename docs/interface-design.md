@@ -35,6 +35,24 @@ that works without JavaScript. All ten types remain available. The form starts
 with the original material and then its investigator description and source
 context. Bulk upload and CSV import remain adjacent alternatives.
 
+The evidence reader puts **Download original** beside the title. **Details** holds
+editing and archive/restore controls, with a retention explanation; **Analysis**
+opens the evidence's local checks and results. Original, Details, and Analysis
+use the same section navigation and evidence title. Collection filters survive
+this round trip; evidence analysis uses `results_page` separately from the
+collection's `page` parameter. The local-analysis explanation is concise, with
+supported-content guidance in a native disclosure. Additional processing and
+comparisons remain explicit, separate choices below the results.
+
+Case Analysis gives recent runs the main reading area. Four current-record
+reports sit in a secondary column on wide screens and follow the runs on smaller
+screens. Each run identifies its first source by its current evidence title and
+counts additional selected sources; these titles are case-scoped display labels,
+not replacements for retained input checksums. Stacked layouts offer a **View
+reports** jump link so reports remain accessible above long histories. Starting
+custom analysis uses two labelled sections: choose an analysis
+and show sources, then select sources and review settings before queueing.
+
 Analysis selection, assumptions, external-processing approval, and review fields
 use the same field rendering as other forms, including help and error links.
 Assumptions open after validation errors, and enhanced error links reveal any
@@ -90,7 +108,7 @@ Preserve safe local return destinations through sign-in and verification.
 | Create case | Required case name, optional description; **Create case**. |
 | Case overview | Name, description, owner, current role, evidence/people counts, recent evidence links; **Add evidence** for owners/editors. |
 | Evidence | Active collection by default, query/type/archive-state filters, pagination, selected record when wide; **Add evidence** for owners/editors. |
-| Evidence detail | Original, source summary, investigator description, declared details, integrity disclosure; **Download original** where applicable. |
+| Evidence detail | Original, source summary, investigator description, declared details, integrity disclosure; **Download original** where applicable. Editing and archive/restore are in Details; processing is in Analysis. |
 | Add evidence | Choose files or captured text, then clear input-specific fields; **Upload files** or **Save text**. |
 | Edit evidence details | Title, description, provenance, optional declared metadata; **Save changes**. |
 | People | Searchable case list; **Add person** for owners/editors. |
@@ -378,8 +396,8 @@ body limit rejects a request before Django can format it.
 - Test empty/new case, no search results, missing fields, unavailable storage,
   denied/revoked access, expired invitation, stale edits, partial batch success,
   and uncertain upload confirmation alongside ordinary success.
-- Verify light/dark, reduced motion, forced colors, keyboard-only use, a
-  representative screen-reader flow, and `320`-pixel reflow/zoom. Measure record
+- Verify light/dark, reduced motion, forced colors, keyboard-only use, and
+  `320`-pixel reflow/zoom. Measure record
   density from rendered screenshots, not the generated reference alone.
 
 References: [Django file uploads](https://docs.djangoproject.com/en/6.1/topics/http/file-uploads/),

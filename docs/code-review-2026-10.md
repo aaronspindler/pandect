@@ -93,7 +93,7 @@ recorded below; this catalogue is bounded to the reviewed working-tree snapshot.
   optional simplifications.
 
 No live deployment or real model/provider qualification is claimed. Screen-reader
-review remains a separate human check. Storage still requires reconciliation after
+behavior was not tested in that review. Storage still requires reconciliation after
 process crashes, later caller-owned rollback or uncertain commit outcomes; files
 are retained whenever deleting them could break a committed record.
 

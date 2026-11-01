@@ -1,0 +1,8 @@
+<dl class="metadata-grid">
+  <div><dt>Person</dt><dd><a href="{% url 'people:detail' case.pk poi.person_id %}">{{ poi.person }}</a></dd></div>
+  <div><dt>Label</dt><dd>{{ poi.label }}{% if poi.kind == 'custom' %} · Custom{% endif %}</dd></div>
+  <div><dt>Coordinates</dt><dd>{{ poi.latitude }}, {{ poi.longitude }}{% if not poi.plottable %} · Outside map display range{% endif %}</dd></div>
+  <div><dt>Address</dt><dd>{{ poi.address|default:"Not recorded"|linebreaksbr }}</dd></div>
+  <div><dt>Source / citation</dt><dd>{{ poi.source|default:"Not recorded" }}</dd></div>
+  <div><dt>Investigator notes</dt><dd>{{ poi.notes|default:"No notes recorded."|linebreaksbr }}</dd></div>
+</dl>

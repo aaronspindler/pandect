@@ -23,7 +23,9 @@
   map.attributionControl.setPrefix(false);
   const markerLayer = L.layerGroup().addTo(map);
   map.on("resize", () => markerLayer.eachLayer((marker) => {
-    if (marker.isPopupOpen()) marker.getPopup().update();
+    const popup = marker.getPopup();
+    popup.options.maxHeight = Math.min(224, canvas.clientHeight - 180);
+    if (marker.isPopupOpen()) popup.update();
   }));
   const attributions = new Set();
   const renderPoints = (updated) => {
@@ -35,7 +37,7 @@
       if (marker && !openPopup) {
         const hasFocus = marker.getPopup().getElement().contains(document.activeElement);
         openPopup = {
-          number: hasFocus && document.activeElement.dataset.mapNumber ? Number(document.activeElement.dataset.mapNumber) : number,
+          number: hasFocus && document.activeElement.dataset.mapNumber ? document.activeElement.dataset.mapNumber : number,
           position: marker.getLatLng(),
           hasFocus,
           href: hasFocus ? document.activeElement.getAttribute("href") : null,
@@ -61,10 +63,11 @@
     for (const group of groups.values()) {
       const point = group[0];
       const estimated = group.every((entry) => entry.derived);
-      const label = group.length > 1 ? `${group.length} ${estimated ? "address estimates" : "observations"} at this location` : `${point.number}. ${point.title}${point.derived ? ` · ${point.label}` : ""}`;
+      const poi = group.every((entry) => entry.poi);
+      const label = group.length > 1 ? `${group.length} ${estimated ? "address estimates" : poi ? "POIs" : group.some((entry) => entry.poi) ? "locations and POIs" : "observations"} at this location` : `${point.number}. ${point.title}${point.derived ? ` · ${point.label}` : ""}`;
       const content = document.createElement("div");
       const heading = document.createElement("strong");
-      heading.textContent = group.length > 1 ? label : (point.derived ? point.label : "Reported location");
+      heading.textContent = group.length > 1 ? label : (point.derived ? point.label : point.poi ? "Investigator POI · Person-linked place" : "Reported location");
       content.append(heading);
       const list = document.createElement("ul");
       for (const entry of group) {
@@ -87,23 +90,30 @@
       const marker = L.marker([point.latitude, point.longitude], {
         title: label,
         alt: label,
-        icon: L.divIcon({ className: `case-map-marker${estimated ? " case-map-estimate" : ""}`, html: `<span>${group.length > 1 ? `×${group.length}` : point.number}</span>`, iconSize: [44, 44], iconAnchor: [22, 22] }),
-      }).addTo(markerLayer).bindPopup(content, { maxWidth: 300, autoPanPadding: [16, 16], keepInView: true });
+        icon: L.divIcon({ className: `case-map-marker${estimated ? " case-map-estimate" : poi ? " case-map-poi" : ""}`, html: `<span><b>${group.length > 1 ? `×${group.length}` : point.number}</b></span>`, iconSize: [44, 44], iconAnchor: [22, 22] }),
+      }).addTo(markerLayer).bindPopup(content, {
+        maxWidth: 300,
+        maxHeight: Math.min(224, canvas.clientHeight - 180),
+        autoPanPaddingTopLeft: [16, 112],
+        autoPanPaddingBottomRight: [16, 16],
+        keepInView: true,
+      });
       marker.getElement().setAttribute("aria-label", label);
       for (const entry of group) {
-        if (!markers.has(entry.number)) markers.set(entry.number, []);
-        markers.get(entry.number).push(marker);
+        const number = String(entry.number);
+        if (!markers.has(number)) markers.set(number, []);
+        markers.get(number).push(marker);
       }
     }
     document.querySelectorAll("[data-map-show]").forEach((button) => {
-      button.hidden = !markers.has(Number(button.dataset.mapShow));
+      button.hidden = !markers.has(button.dataset.mapShow);
     });
     if (openPopup) {
       const selected = markers.get(openPopup.number) || [];
       const marker = selected.find((entry) => entry.getLatLng().equals(openPopup.position));
       marker?.openPopup();
       if (openPopup.hasFocus) {
-        const link = Array.from(marker?.getPopup().getElement().querySelectorAll("a[href]") || []).find((entry) => entry.getAttribute("href") === openPopup.href && (!entry.dataset.mapNumber || Number(entry.dataset.mapNumber) === openPopup.number));
+        const link = Array.from(marker?.getPopup().getElement().querySelectorAll("a[href]") || []).find((entry) => entry.getAttribute("href") === openPopup.href && (!entry.dataset.mapNumber || entry.dataset.mapNumber === openPopup.number));
         (link || marker?.getElement() || selected[0]?.getElement() || canvas).focus({ preventScroll: true });
       }
     }
@@ -145,7 +155,7 @@
   fitButton.hidden = false;
   document.querySelectorAll("[data-map-show]").forEach((button) => {
     button.addEventListener("click", () => {
-      const selected = markers.get(Number(button.dataset.mapShow));
+      const selected = markers.get(button.dataset.mapShow);
       if (!selected) return;
       map.fitBounds(selected.map((marker) => marker.getLatLng()), { padding: [32, 32], maxZoom: 16, animate: false });
       selected[0].openPopup();
@@ -154,6 +164,18 @@
     });
   });
   fitButton.addEventListener("click", fit);
+  if (section.dataset.poiCreateUrl) {
+    map.on("click", (event) => {
+      const position = event.latlng.wrap();
+      const link = document.createElement("a");
+      const url = new URL(section.dataset.poiCreateUrl, window.location.origin);
+      url.searchParams.set("latitude", position.lat.toFixed(6));
+      url.searchParams.set("longitude", position.lng.toFixed(6));
+      link.href = url.pathname + url.search;
+      link.textContent = "Add POI here";
+      L.popup({ maxWidth: 300 }).setLatLng(event.latlng).setContent(link).openOn(map);
+    });
+  }
 
   const form = document.querySelector("[data-map-geocode]");
   const lookupStatus = document.querySelector("[data-geocode-status]");
@@ -178,7 +200,7 @@
       const response = await fetch(window.location.href, { headers: { Accept: "application/json" }, cache: "no-store" });
       if (!response.ok) throw new Error("Map unavailable");
       const data = await response.json();
-      if (data.page_key !== section.dataset.pageKey) {
+      if (data.page_key !== section.dataset.pageKey || data.poi_key !== section.dataset.poiKey) {
         changed();
         return;
       }

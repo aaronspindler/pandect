@@ -257,3 +257,107 @@ class InvestigationMapTests(MapCaseFixtures, TestCase):
             response, 'data-tile-url="https://maps.example.test/{z}/{x}/{y}.png"'
         )
         self.assertNotContains(response, "data-map-load")
+
+
+class PersonPOIMapTests(MapCaseFixtures, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from people.models import PointOfInterest
+
+        cls.poi = PointOfInterest.objects.create(
+            person=cls.person,
+            created_by=cls.owner,
+            kind="custom",
+            custom_label='</script><img src=x onerror="alert(1)">',
+            latitude=0,
+            longitude=0,
+            address="POI address",
+            source="POI citation",
+        )
+        other_person = Person.objects.create(case=cls.other, first_name="Secret person")
+        PointOfInterest.objects.create(
+            person=other_person,
+            created_by=cls.outsider,
+            kind="work",
+            latitude=1,
+            longitude=1,
+        )
+
+    def test_points_lists_json_and_person_links_are_scoped_and_escaped(self):
+        for user in (self.owner, self.editor, self.viewer):
+            self.client.force_login(user)
+            response = self.client.get(self.url)
+            points = response.context["points"]
+            point = next(point for point in points if point.get("poi"))
+            self.assertEqual(point["number"], "P1")
+            self.assertEqual((point["latitude"], point["longitude"]), (0, 0))
+            self.assertEqual(
+                point["url"],
+                reverse("people:poi_detail", args=(self.case.pk, self.poi.pk)),
+            )
+            self.assertContains(response, "&lt;/script&gt;")
+            self.assertNotContains(response, self.poi.custom_label)
+            self.assertNotContains(response, "Secret person")
+            data = self.client.get(self.url, HTTP_ACCEPT="application/json").json()
+            self.assertEqual(data["points"], points)
+            self.assertEqual(data["poi_key"], response.context["poi_key"])
+            self.assertEqual(
+                "data-poi-create-url=" in response.content.decode(), user != self.viewer
+            )
+
+    def test_shared_search_and_independent_evidence_filters(self):
+        self.client.force_login(self.viewer)
+        for query in ("Synthetic person", "POI address", "POI citation"):
+            response = self.client.get(self.url, {"q": query})
+            self.assertEqual(response.context["poi_page"].paginator.count, 1)
+        response = self.client.get(
+            self.url, {"kind": "vehicle-location", "archive": "archived"}
+        )
+        self.assertEqual(response.context["poi_page"].paginator.count, 1)
+        self.assertEqual(response.context["page_obj"].paginator.count, 0)
+        response = self.client.get(self.url, {"q": "Secret person"})
+        self.assertEqual(response.context["poi_page"].paginator.count, 0)
+
+    def test_bounded_pagination_and_polar_coordinates(self):
+        from people.models import PointOfInterest
+
+        PointOfInterest.objects.bulk_create(
+            [
+                PointOfInterest(
+                    person=self.person,
+                    created_by=self.owner,
+                    kind="work",
+                    latitude=90,
+                    longitude=180,
+                )
+                for _ in range(102)
+            ]
+        )
+        self.client.force_login(self.owner)
+        response = self.client.get(self.url, {"q": "work"})
+        self.assertEqual(len(response.context["poi_page"]), 100)
+        self.assertEqual(response.context["poi_page"].paginator.count, 102)
+        self.assertFalse(any(point.get("poi") for point in response.context["points"]))
+        self.assertContains(response, "Outside map display range")
+        self.assertContains(response, "q=work&amp;poi_page=2")
+        second = self.client.get(self.url, {"q": "work", "poi_page": 2})
+        self.assertEqual(len(second.context["poi_page"]), 2)
+        self.assertEqual(second.context["poi_page"][0].number, "P101")
+
+    def test_updates_and_person_changes_invalidate_async_snapshot(self):
+        self.client.force_login(self.owner)
+
+        def key():
+            return self.client.get(self.url, HTTP_ACCEPT="application/json").json()[
+                "poi_key"
+            ]
+
+        old = key()
+        self.poi.notes = "Updated"
+        self.poi.save()
+        self.assertNotEqual(key(), old)
+        old = key()
+        self.person.first_name = "Changed person name"
+        self.person.save()
+        self.assertNotEqual(key(), old)

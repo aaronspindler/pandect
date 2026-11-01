@@ -23,6 +23,7 @@ from analysis.services import process_run
 from cases.models import Case
 from cases.tests.test_map_geocoding import LOCAL_GEOCODER
 from evidence.models import LocationEvidence
+from people.models import Person
 
 
 @override_settings(
@@ -42,6 +43,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
         self.case = Case.objects.create(
             owner=owner, name="Synthetic harbour investigation"
         )
+        self.person = Person.objects.create(case=self.case, first_name="Alex Example")
         self.locations = []
         for title, latitude, longitude in (
             ("Harbour entrance", "43.640", "-79.380"),
@@ -114,6 +116,166 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             return executor.submit(run).result()
+
+    def test_person_pois_from_map_and_without_javascript(self):
+        with sync_playwright() as playwright:
+            for engine in self.engines():
+                browser = getattr(playwright, engine).launch()
+                context = browser.new_context(
+                    viewport={"width": 1440, "height": 900}, reduced_motion="reduce"
+                )
+                self.authenticate(context)
+
+                def serve(route):
+                    if route.request.url.startswith(self.live_server_url + "/"):
+                        route.continue_()
+                    else:
+                        route.fulfill(
+                            status=200, content_type="image/png", body=self.tile
+                        )
+
+                context.route("**/*", serve)
+                page = context.new_page()
+                errors = []
+                page.on(
+                    "pageerror", lambda error, errors=errors: errors.append(str(error))
+                )
+                page.goto(self.map_url)
+                canvas = page.locator("#investigation-map")
+                canvas.click(position={"x": 100, "y": 100})
+                page.get_by_role("link", name="Add POI here", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Add POI", exact=True)
+                ).to_be_visible()
+                self.assertTrue(page.get_by_label("Latitude", exact=True).input_value())
+                self.assertTrue(
+                    page.get_by_label("Longitude", exact=True).input_value()
+                )
+                page.get_by_label("Person", exact=True).select_option(
+                    str(self.person.pk)
+                )
+                page.get_by_label("Latitude", exact=True).fill("43.642")
+                page.get_by_label("Longitude", exact=True).fill("-79.382")
+                page.get_by_label("Source / citation", exact=True).fill(
+                    "Synthetic POI source"
+                )
+                page.get_by_role("button", name="Add POI", exact=True).focus()
+                page.keyboard.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Home · Alex Example", exact=True)
+                ).to_be_visible()
+                expect(page.locator(".message[role=status]")).to_contain_text(
+                    "POI added"
+                )
+                page.get_by_role("link", name="Edit POI", exact=True).click()
+                page.get_by_label("POI type", exact=True).select_option("custom")
+                page.get_by_label("Custom label", exact=True).fill("")
+                page.get_by_role("button", name="Save changes", exact=True).click()
+                expect(page.locator("[data-error-summary]")).to_be_focused()
+                expect(
+                    page.get_by_label("Source / citation", exact=True)
+                ).to_have_value("Synthetic POI source")
+                page.get_by_label("Custom label", exact=True).fill(
+                    f"Meeting place {engine}"
+                )
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width
+                    )
+                    self.capture(page, engine, f"poi-form-{width}x{height}")
+                page.get_by_role("button", name="Save changes", exact=True).click()
+                label = f"Meeting place {engine} · Alex Example"
+                expect(
+                    page.get_by_role("heading", name=label, exact=True)
+                ).to_be_visible()
+                page.get_by_role("link", name="Back to map", exact=True).click()
+                show = page.get_by_role(
+                    "button", name=f"Show {label} on map", exact=True
+                )
+                show.focus()
+                page.keyboard.press("Enter")
+                expect(canvas).to_be_focused()
+                expect(page.locator(".leaflet-popup-content")).to_contain_text("POI")
+                expect(page.locator(".leaflet-popup-content")).to_contain_text(label)
+                self.assertGreaterEqual(page.locator(".case-map-poi").count(), 1)
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                    (844, 390),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width
+                    )
+                    page.wait_for_function("""() => {
+                        const popup = document.querySelector('.leaflet-popup')
+                          .getBoundingClientRect();
+                        const zoom = document.querySelector('.leaflet-control-zoom')
+                          .getBoundingClientRect();
+                        return popup.top >= zoom.bottom ||
+                          popup.left >= zoom.right || popup.right <= zoom.left;
+                    }""")
+                    self.capture(page, engine, f"poi-map-{width}x{height}")
+                page.emulate_media(color_scheme="dark")
+                self.capture(page, engine, "poi-map-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(page, engine, "poi-map-forced-colors")
+                    page.emulate_media(forced_colors="none")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 844
+                )
+                self.capture(page, engine, "poi-map-enlarged-text")
+                self.assertEqual(errors, [])
+                context.close()
+                # Add and delete also work without the map library or JavaScript.
+                context = browser.new_context(
+                    java_script_enabled=False, viewport={"width": 390, "height": 844}
+                )
+                self.authenticate(context)
+                page = context.new_page()
+                person_url = self.live_server_url + reverse(
+                    "people:detail", args=(self.case.pk, self.person.pk)
+                )
+                page.goto(person_url)
+                page.get_by_role("link", name="Add POI", exact=True).click()
+                expect(page.get_by_label("Person", exact=True)).to_have_value(
+                    str(self.person.pk)
+                )
+                page.get_by_label("POI type", exact=True).select_option("work")
+                page.get_by_label("Latitude", exact=True).fill("43.65")
+                page.get_by_label("Longitude", exact=True).fill("-79.39")
+                page.get_by_role("button", name="Add POI", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Work · Alex Example", exact=True)
+                ).to_be_visible()
+                self.capture(page, engine, "poi-detail-no-js")
+                page.get_by_role("link", name="Delete POI", exact=True).click()
+                page.get_by_label(
+                    "I understand this permanently deletes this POI.", exact=True
+                ).check()
+                page.get_by_role(
+                    "button", name="Permanently delete POI", exact=True
+                ).click()
+                expect(
+                    page.get_by_role("heading", name="Alex Example", exact=True)
+                ).to_be_visible()
+                expect(page.locator(".message[role=status]")).to_contain_text(
+                    "POI deleted"
+                )
+                context.close()
+                browser.close()
 
     @override_settings(**LOCAL_GEOCODER)
     def test_local_address_estimates_update_without_external_evidence_requests(self):
@@ -329,7 +491,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     )
                     expect(page.locator("[data-map-load]")).to_have_count(0)
                     expect(page.locator("#investigation-map")).not_to_be_focused()
-                    page.locator("[data-case-map] .actions a").focus()
+                    page.locator("[data-case-map] .actions a").first.focus()
                     page.keyboard.press("Enter")
                     expect(
                         page.get_by_role("heading", name="Locations", exact=True)

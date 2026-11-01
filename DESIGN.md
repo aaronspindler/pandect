@@ -115,8 +115,10 @@ useful material in view while retaining readable text and generous hit targets.
 
 ## Accessibility requirements
 
-Target [WCAG 2.2 Level AA](https://www.w3.org/TR/WCAG22/). Automated checks are
-useful evidence, not a substitute for keyboard and assistive-technology review.
+Target [WCAG 2.2 Level AA](https://www.w3.org/TR/WCAG22/). Verify keyboard behavior
+and use automated accessibility checks during development. Manual screen-reader
+testing is optional and is not a completion or handoff requirement. These checks
+do not establish full accessibility compliance.
 
 - Use semantic landmarks, a skip link, one page-level heading, logical section
   headings, native controls, and an explicit current-navigation state.
@@ -199,8 +201,7 @@ Before considering an interface complete:
 2. Inspect the actual interface at `1440 × 900`, `1440 × 1024`, `768 × 1024`,
    and `390 × 844`; also check `320` CSS-pixel reflow and zoom.
 3. Verify keyboard navigation, visible focus, labels, status announcements,
-   light/dark contrast, reduced motion, and forced colors. Review a representative
-   flow with a screen reader.
+   light/dark contrast, reduced motion, and forced colors.
 4. Capture relevant desktop/mobile screenshots and compare against the selected
    visual reference. Check information density as well as visual alignment.
 5. Verify current server-side access, cross-case isolation, retained originals,

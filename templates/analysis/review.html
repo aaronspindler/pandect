@@ -4,7 +4,7 @@
 {% block content %}
 <a class="back-link" href="{{ return_url }}">{% if finding_number %}Back to finding {{ finding_number }}{% else %}Back to analysis result{% endif %}</a>
 <header class="page-header"><div><h1>Review not saved</h1><p>Your entered review is preserved. Correct the highlighted details and try again.</p></div></header>
-<form method="post" action="{% url 'analysis:review' case.pk run.pk %}" class="panel form-layout" novalidate data-unsaved-form>
+<form method="post" action="{% url 'analysis:review' case.pk run.pk %}" class="analysis-section form-layout" novalidate data-unsaved-form>
   {% csrf_token %}
   {% include 'components/form_fields.html' %}
   <div class="form-actions"><button class="button button-primary" type="submit">Record review</button><a class="button button-secondary" href="{{ return_url }}">Cancel</a></div>

@@ -56,6 +56,5 @@ reduced-motion appearances, plus forced colors in Chromium. Screenshots go to
 ignored `data/validation/marketing-browser`; the existing
 `PANDECT_BROWSER_ENGINES` and `PANDECT_BROWSER_ARTIFACTS` overrides apply.
 
-Review the captures as part of delivery. Browser checks are not a substitute
-for a screen-reader review, a complete accessibility audit, or validation of a
-live hosted deployment.
+Review the captures as part of delivery. Browser checks do not establish full
+accessibility compliance or validate a live hosted deployment.

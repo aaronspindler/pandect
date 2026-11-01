@@ -1,4 +1,4 @@
-"""Read-only map of retained, same-case location observations."""
+"""Map of retained observations and investigator-maintained person POIs."""
 
 import hashlib
 
@@ -15,6 +15,7 @@ from django.views.decorators.http import require_GET, require_POST
 from config.access import product_login_required, wants_json
 from evidence.queries import scoped_evidence
 from evidence.types import KIND_LABELS, LOCATION_KINDS
+from people.models import PointOfInterest
 
 from .map_geocoding import (
     address_estimates,
@@ -136,12 +137,48 @@ def map_data(case, page):
     }
 
 
+def poi_map_data(request, case, query):
+    pois = PointOfInterest.objects.filter(person__case=case).select_related("person")
+    if query:
+        pois = pois.filter(
+            Q(kind__icontains=query)
+            | Q(custom_label__icontains=query)
+            | Q(address__icontains=query)
+            | Q(source__icontains=query)
+            | Q(person__first_name__icontains=query)
+            | Q(person__last_name__icontains=query)
+            | Q(person__email__icontains=query)
+            | Q(person__phone_number__icontains=query)
+        )
+    page = Paginator(pois, 100).get_page(request.GET.get("poi_page"))
+    points = []
+    for index, poi in enumerate(page, start=page.start_index()):
+        poi.number = f"P{index}"
+        if poi.plottable:
+            points.append(
+                {
+                    "number": poi.number,
+                    "latitude": float(poi.latitude),
+                    "longitude": float(poi.longitude),
+                    "title": str(poi),
+                    "poi": True,
+                    "url": reverse("people:poi_detail", args=(case.pk, poi.pk)),
+                }
+            )
+    identity = "\n".join(
+        f"{poi.pk}:{poi.updated_at.isoformat()}:{poi.person}" for poi in page
+    )
+    return page, points, hashlib.sha256(identity.encode()).hexdigest()
+
+
 @product_login_required
 @require_GET
 def case_map(request, case_id):
     case = get_case(request.user, case_id)
     page, kind, archive, query = map_page(request, case)
     data = map_data(case, page)
+    poi_page, poi_points, data["poi_key"] = poi_map_data(request, case, query)
+    data["points"].extend(poi_points)
     context = case_context(case, request.user)
     local_ready = local_geocoder_ready()
     data["can_queue"] = context["can_edit"] and local_ready and data["new_addresses"]
@@ -154,6 +191,8 @@ def case_map(request, case_id):
             **context,
             **data,
             "page_obj": page,
+            "poi_page": poi_page,
+            "poi_mapped_count": len(poi_points),
             "local_geocoder_ready": local_ready,
             "has_addresses": any(item["latitude"] is None for item in page),
             "kind": kind,

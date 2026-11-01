@@ -24,6 +24,7 @@ from django.views.decorators.http import require_http_methods
 from config.access import product_login_required
 from evidence.queries import scoped_evidence
 from evidence.types import KIND_LABELS, KINDS
+from people.models import PointOfInterest
 
 from .forms import (
     CaseForm,
@@ -222,6 +223,7 @@ def case_delete(request, case_id):
     ]
     counts = {
         **_case_record_counts(case),
+        "poi_count": PointOfInterest.objects.filter(person__case=case).count(),
         "active_evidence_count": sum(item["active"] for item in evidence_counts),
         "archived_evidence_count": sum(item["archived"] for item in evidence_counts),
     }

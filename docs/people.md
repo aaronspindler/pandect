@@ -29,6 +29,29 @@ archived. Whole-case deletion still removes both together; see [location
 observations](evidence.md#location-observations). Ordinary investigators do not
 need Django admin access.
 
+### Points of interest
+
+On a person detail page, choose **Add POI** to record a **Home**, **Work**, or
+custom-labelled place. The person is preselected; latitude/longitude are
+required, while address, source/citation, and investigator notes are optional.
+The case map also offers **Add POI** and pointer-based position selection.
+POIs remain separate from the person's contact address and retained location
+evidence. A label is an investigator assertion, not verified residence,
+employment, or presence.
+
+Owners and editors can inspect, edit, and confirm deletion of POIs. Viewers have
+read-only access. Edits detect newer saved changes and preserve the proposed
+values for explicit review. Each person has a paginated POI list (25 per page);
+the case map plots its current POI page with distinct diamond markers. POIs
+retain creator and creation/update times, but no versioned history. Deleting
+a person also deletes their POIs; the confirmation explains this consequence.
+They do not add another restriction on person deletion.
+
+The additive `people/0002_pointofinterest` migration is required. Apply it using
+the [documented migration workflow](development.md#run-python-on-the-host).
+Existing people and evidence are unchanged. See [the map workflow](maps.md#person-points-of-interest)
+for coordinate bounds, search, permissions, privacy, and fallbacks.
+
 ## Fields and validation
 
 | Field | Behavior |
@@ -104,8 +127,8 @@ dependency changes, or runtime upgrades are included.
 
 Authorization is enforced by both product and admin entry points, not
 automatically by ORM queries. Future exports, background jobs, and integrations
-must check current case permissions themselves. This interface delivery reuses
-the existing person schema; no person migration is required. Public APIs,
+must check current case permissions themselves. The original person interface reuses
+the existing person schema; POIs add the separate table described above. Public APIs,
 multiple contact records, and broader identity linkage remain planned.
 Person-location evidence provides a reported association, not verified identity
 or presence; its immutable person link is case-scoped.

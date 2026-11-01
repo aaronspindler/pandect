@@ -46,10 +46,12 @@ version 1 runs of `text_topics` and `session_summaries` fail with
 `processing_version_unavailable`; start another run to use the current method.
 Earlier results and reviews remain unchanged.
 
-On an evidence detail page, owners and editors choose **Analyze evidence** once
+On an evidence detail page, open **Analysis**. Owners and editors choose **Analyze evidence** once
 to queue all applicable local analysis for that item's type and retained content.
-The evidence analysis page lists its processing runs and links to progress and
-results. Uploading evidence alone does not start analysis. Originals and earlier
+The evidence analysis page keeps the evidence title and Original/Details/Analysis
+navigation, lists its processing runs, and links to progress and results.
+Collection filters remain in the return links; results paginate independently.
+Uploading evidence alone does not start analysis. Originals and earlier
 runs remain retained, and archived evidence can also be analyzed.
 
 Local processing inspects supported file metadata, reads printed English in
@@ -69,7 +71,9 @@ Context-dependent comparisons, area queries and conversation
 imports still require deliberate source selection and assumptions through the
 manual analysis workflow.
 
-Choose **Start analysis**, select an operation and retained sources, and queue it.
+Case Analysis shows recent runs first, with current-record reports alongside them
+on wide screens or below on smaller screens. Choose **Start analysis**, select an
+operation and choose **Show sources**, then select retained sources and queue it.
 The picker shows at most 500 choices; use its title search to narrow larger cases.
 Select an exact extraction version to analyze derived text. Review grouping/time
 assumptions before starting an investigation workflow.

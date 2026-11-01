@@ -9,7 +9,7 @@
 </header>
 
 {% if run.status == 'queued' or run.status == 'running' %}
-<section class="panel">
+<section class="analysis-section">
   <h2>Processing {{ run.progress }}%</h2>
   <progress class="analysis-progress" value="{{ run.progress }}" max="100" aria-label="Analysis progress">{{ run.progress }}%</progress>
   <p>Refresh to see progress. Queued work waits for the operator's worker.</p>
@@ -25,7 +25,7 @@
 {% if run.previous_run %}<p>Earlier run: <a href="{% url 'analysis:detail' case.pk run.previous_run_id %}">{{ run.previous_run.created_at|date:'d M Y, H:i:s' }} UTC</a></p>{% endif %}
 
 {% if result %}
-<section class="panel">
+<section class="analysis-section">
   <h2>{{ data.summary }}</h2>
   {% for warning in data.warnings %}<p class="notice">{{ warning }}</p>{% endfor %}
   {% include 'analysis/measurements.html' with measurements=metrics only %}
@@ -34,7 +34,7 @@
 {% endif %}
 
 {% if map_points %}
-<section class="panel">
+<section class="analysis-section">
   <h2>Selected observation positions</h2>
   <p>A schematic coordinate map with no inferred route. Circles are reported coordinates; squares are reviewed geographic estimates. Sources are also listed below.</p>
   <svg class="analysis-map" viewBox="0 0 600 300" role="img" aria-labelledby="coordinate-map-title">
@@ -46,7 +46,7 @@
 {% endif %}
 
 {% for item in items %}
-<article class="panel analysis-finding" id="finding-{{ item.number }}">
+<article class="analysis-section analysis-finding" id="finding-{{ item.number }}">
   <h2>{{ item.label }}</h2>
   <div class="original-text">{{ item.text }}</div>
   {% if item.preview %}
@@ -91,7 +91,7 @@
 {% endfor %}
 
 {% if reference_snapshots %}
-<section class="panel">
+<section class="analysis-section">
   <h2>Retained map references</h2>
   <p>These reference snapshots describe the map source, not verified conditions at the observation time. Each download preserves the exact service response.</p>
   {% for snapshot in reference_snapshots %}
@@ -120,7 +120,7 @@
 {% endif %}
 
 {% if result %}
-<section class="panel">
+<section class="analysis-section">
   <h2>Investigator review</h2>
   <p>Acceptance records an investigator's assessment; it does not verify identity or turn an estimate into an observation.</p>
   <div class="analysis-review-history">
@@ -143,7 +143,7 @@
 </section>
 {% endif %}
 
-<section class="panel">
+<section class="analysis-section">
   <h2>Selected sources</h2>
   <ul class="source-list">
     {% for source in sources %}<li><a href="{{ source.url }}">{{ source.item.title }}</a>{% if source.derived_result_id %} · Exact extraction version · <a href="{{ source.original_url }}">Original evidence</a>{% endif %}{% if source.attachment %} · Retained call addition{% endif %}{% if source.coordinates %} · Coordinates {{ source.coordinates.0 }}, {{ source.coordinates.1 }}{% endif %}{% if source.item.is_archived %} · Archived{% endif %}</li>{% empty %}<li>No available inputs.</li>{% endfor %}
