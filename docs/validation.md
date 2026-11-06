@@ -319,9 +319,11 @@ The weekly configuration uses the native `uv`, `docker`, and `github-actions`
 ecosystems. Each ecosystem groups version updates into one PR, retaining a limit
 of five open PRs per ecosystem. Native uv updates maintain both `pyproject.toml`
 and `uv.lock`, including the development group. Docker discovers the Dockerfile
-and Compose images. PostgreSQL major updates are excluded because they require
-a planned database upgrade. Security updates follow GitHub's separate settings;
-these groups do not opt into grouping security updates.
+and Compose images. Python image updates are excluded because the exact Python
+pin, compatibility range, lockfile, and image must be upgraded together. PostgreSQL
+major updates are excluded because they require a planned database upgrade.
+Security updates follow GitHub's separate settings; these groups do not opt into
+grouping security updates.
 
 Review runtime updates against the coordinated pins in
 [architecture](architecture.md); a Docker update alone does not update

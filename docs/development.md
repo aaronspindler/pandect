@@ -1,6 +1,6 @@
 # Local development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.5 and
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.6 and
 Docker with Compose v2. uv manages Python, the `.venv`, and Python dependencies;
 there is no requirements.txt or separate pip installation step. If you already
 use [mise](https://mise.jdx.dev/), `mise install` installs the tools in `mise.toml`.
