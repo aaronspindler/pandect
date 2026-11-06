@@ -3,11 +3,9 @@
 {% block content %}
 <div class="page-header">
   <div>
-<p class="eyebrow">Your investigations</p>
 <h1>All cases</h1>
-<p class="muted">Keep your evidence, people, and investigative work together.</p>
 </div>
-  <a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>
+  {% if page_obj.object_list or query or ownership != 'all' %}<a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>{% endif %}
 </div>
 <form method="get" class="filter-bar" role="search" aria-label="Search cases">
   <div class="field">
@@ -37,7 +35,6 @@
 {% if item.description %}
 <p class="muted">{{ item.description|truncatechars:150 }}</p>
 {% endif %}
-<small class="muted">Updated <time datetime="{{ item.updated_at|date:'c' }}">{{ item.updated_at|date:"j M Y" }}</time></small>
 </div>
 <span class="status">{{ item.current_role|title }}</span>
 </a>

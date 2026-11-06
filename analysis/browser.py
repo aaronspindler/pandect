@@ -218,6 +218,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("heading", name="1. Choose analysis")
                 ).to_be_visible()
+                expect(page.locator(".analysis-assumptions")).to_have_count(0)
                 for width, height, label in (
                     (1440, 900, "desktop"),
                     (390, 844, "mobile"),
@@ -225,7 +226,33 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 ):
                     page.set_viewport_size({"width": width, "height": height})
                     self._assert_reflow(page)
+                    self.assertGreaterEqual(
+                        page.get_by_label("Analysis", exact=True).bounding_box()[
+                            "height"
+                        ],
+                        44,
+                    )
                     self.capture(page, engine, f"analysis-selection-{label}")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self._assert_reflow(page)
+                self.assertGreaterEqual(
+                    page.get_by_label("Analysis", exact=True).bounding_box()["height"],
+                    88,
+                )
+                self.assertGreater(
+                    page.locator(".case-identity").bounding_box()["width"],
+                    page.viewport_size["width"] / 2,
+                )
+                self.assertGreaterEqual(
+                    page.locator(".wordmark img").bounding_box()["width"], 80
+                )
+                self.assertLessEqual(
+                    page.get_by_role("navigation", name="Investigation")
+                    .get_by_role("link", name="Overview", exact=True)
+                    .bounding_box()["height"],
+                    88,
+                )
+                self.capture(page, engine, "analysis-selection-large-text")
 
     def test_review_errors_preserve_text_focus_and_later_finding_page(self):
         for engine in self.engines:
@@ -329,6 +356,18 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         "link", name="Synthetic retained report", exact=True
                     )
                 ).to_have_attribute("href", re.compile(r"/evidence/document/"))
+                processing_summary = page.locator("summary").filter(
+                    has_text=re.compile(r"^Processing summary$")
+                )
+                expect(
+                    page.get_by_text("Selected documents", exact=True)
+                ).to_be_hidden()
+                processing_summary.focus()
+                processing_summary.press("Enter")
+                expect(
+                    page.get_by_text("Selected documents", exact=True)
+                ).to_be_visible()
+                processing_summary.press("Enter")
                 for width, height, label in (
                     (1440, 900, "desktop"),
                     (1440, 1024, "tall-desktop"),
@@ -352,6 +391,14 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 global_review = page.get_by_role(
                     "heading", name="Investigator review", exact=True
                 ).locator("..")
+                review_toggle = global_review.locator("summary").filter(
+                    has_text=re.compile(r"^Review this result$")
+                )
+                expect(
+                    global_review.get_by_label("Decision", exact=True)
+                ).to_be_hidden()
+                review_toggle.focus()
+                review_toggle.press("Enter")
                 global_review.get_by_label("Decision", exact=True).select_option(
                     "accepted"
                 )
@@ -360,11 +407,36 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 )
                 page.get_by_role("button", name="Record review", exact=True).click()
                 expect(
+                    page.get_by_text("Result review: Accepted", exact=False)
+                ).to_be_visible()
+                expect(
+                    page.get_by_text(
+                        "Synthetic investigator review; source inspected.", exact=True
+                    )
+                ).to_be_hidden()
+                page.locator("summary").filter(
+                    has_text=re.compile(r"^Review history")
+                ).click()
+                expect(
                     page.get_by_role("heading", name="Accepted", exact=True)
+                ).to_be_visible()
+                finding = page.locator("#finding-1")
+                finding.locator("summary").filter(
+                    has_text=re.compile(r"^Review this finding$")
+                ).click()
+                finding.get_by_label("Decision", exact=True).select_option("rejected")
+                finding.get_by_role(
+                    "button", name="Record finding review", exact=True
+                ).click()
+                expect(
+                    page.get_by_text("Result review: Accepted", exact=False)
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("Finding review: Rejected", exact=False)
                 ).to_be_visible()
                 with page.expect_download() as waiting:
                     page.get_by_role(
-                        "link", name="Download result and provenance", exact=True
+                        "link", name="Download results", exact=True
                     ).click()
                 download = waiting.value
                 self.assertEqual(download.suggested_filename, f"analysis-{run_id}.json")
@@ -547,6 +619,20 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         exact=True,
                     )
                 ).to_be_visible()
+                report_summary = page.locator("summary").filter(
+                    has_text=re.compile(r"^Report summary$")
+                )
+                expect(page.get_by_text("Selected records", exact=True)).to_be_hidden()
+                report_summary.focus()
+                report_summary.press("Enter")
+                expect(page.get_by_text("Selected records", exact=True)).to_be_visible()
+                report_summary.press("Enter")
+                expect(page.get_by_label("State", exact=True)).to_be_hidden()
+                self.capture(page, engine, "analysis-report-default")
+                report_filters = page.locator(".report-filters > summary")
+                report_filters.focus()
+                report_filters.press("Enter")
+                expect(page.get_by_label("State", exact=True)).to_be_visible()
                 page.get_by_label("State", exact=True).select_option("all")
                 page.get_by_role("button", name="Update report", exact=True).click()
                 expect(
@@ -556,7 +642,16 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         exact=True,
                     )
                 ).to_be_visible()
+                expect(page.locator(".report-filters")).to_have_attribute("open", "")
+                expect(report_filters).to_contain_text("Applied")
                 self.capture(page, engine, "analysis-viewer-call-report")
+                page.get_by_label("From (UTC)", exact=True).fill("2026-11-02T10:00")
+                page.get_by_label("Through (UTC)", exact=True).fill("2026-11-01T10:00")
+                page.get_by_role("button", name="Update report", exact=True).click()
+                expect(page.locator(".report-filters")).to_have_attribute("open", "")
+                expect(page.locator(".error-summary")).to_contain_text(
+                    "The end must follow the start."
+                )
                 self.db(self._revoke_viewer)
                 response = page.reload()
                 self.assertEqual(response.status, 404)
@@ -779,6 +874,12 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     "button", name="Record finding review", exact=True
                 ).click()
                 expect(
+                    page.get_by_text("Result review: Unresolved", exact=True)
+                ).to_be_visible()
+                page.locator("summary").filter(
+                    has_text=re.compile(r"^Review history")
+                ).click()
+                expect(
                     page.get_by_role("heading", name="Accepted · Finding 1", exact=True)
                 ).to_be_visible()
                 self.assertTrue(
@@ -788,6 +889,11 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         ).exists()
                     )
                 )
+                measurements = page.locator(
+                    "#finding-1 .finding-measurements > summary"
+                )
+                measurements.focus()
+                measurements.press("Enter")
                 expect(
                     page.locator("#finding-1").get_by_text(
                         "Synthetic writer", exact=True
@@ -839,6 +945,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     page.get_by_role("heading", name="Group A coverage", exact=True)
                 ).to_be_visible()
                 self._assert_readable_findings(page, style)
+                page.locator("#finding-1 .finding-measurements > summary").click()
                 examples = page.locator("#finding-1 .analysis-example")
                 quotes = examples.locator("blockquote").all_text_contents()
                 self.assertIn("hello", quotes)
@@ -890,6 +997,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 ).to_be_visible()
                 self._assert_readable_findings(page, timing)
                 first_exchange = page.locator("#finding-1")
+                first_exchange.locator(".finding-measurements > summary").click()
                 expect(
                     first_exchange.get_by_text("Synthetic writer", exact=True)
                 ).to_be_visible()

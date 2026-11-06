@@ -3,9 +3,11 @@
 {% block content %}
 <div class="page-content">
   <a class="back-link" href="{% url 'evidence:list' case_id=case.pk %}">Back to evidence</a>
-  <header class="page-header"><div><p class="eyebrow">{{ case.name }}</p><h1>{% if batch.completed_at %}Vehicle locations imported{% else %}Review vehicle locations{% endif %}</h1><p>{% if batch.completed_at %}The source and its imported observations remain retained.{% elif batch.status == 'review' %}Review the reported values and choose a case vehicle for each asset.{% else %}The source CSV stays retained while processing continues in the background.{% endif %}</p></div></header>
+  <header class="page-header"><div><h1>{% if batch.completed_at %}Vehicle locations imported{% else %}Review vehicle locations{% endif %}</h1><p>{% if batch.completed_at %}The source and imported observations remain retained.{% elif batch.status == 'review' %}Review the observations, then choose their vehicles.{% else %}The original CSV remains retained while processing continues.{% endif %}</p></div>{% if can_edit and form and not invalid and not batch.completed_at %}<a class="record-link" href="#mapping-heading">Choose vehicles</a>{% endif %}</header>
+  <details class="disclosure"><summary>Source and time interpretation</summary><div class="disclosure-body">
   <dl class="metadata-grid"><div><dt>Source CSV</dt><dd><a href="{% url 'evidence:detail' case_id=case.pk kind='document' evidence_id=batch.document_id %}">{{ batch.document.original_filename }}</a></dd></div><div><dt>Export timezone</dt><dd>{{ batch.timezone }}</dd></div><div><dt>Observation time</dt><dd>Created Time from the export, converted to UTC</dd></div></dl>
   <p class="muted">A reported association does not verify identity, ownership, or presence. Received Time is separate from observation and collection times. No coordinates or observation intervals are inferred.</p>
+  </div></details>
   {% if error_message %}<p class="notice" role="alert">{{ error_message }}</p>{% endif %}
   {% if batch.status == 'review' and batch.error_code %}<p class="notice" role="alert">{{ processing_error }}</p>{% endif %}
   {% if batch.status == 'pending' and not batch.completed_at %}
@@ -16,7 +18,7 @@
       <h2 id="processing-heading">{% if batch.phase == 'publish' %}Importing observations{% else %}Preparing the review{% endif %}</h2>
       <p role="status">{{ batch.get_status_display }}{% if batch.processed_rows %} · {{ batch.processed_rows }} rows processed{% endif %}</p>
       <progress class="analysis-progress"{% if progress != None %} value="{{ progress }}"{% endif %} max="100" aria-label="Vehicle location import progress">{% if progress != None %}{{ progress }}%{% else %}Processing{% endif %}</progress>
-      <p>Refresh to see progress. Queued work waits for the background worker. You can leave this page and return from the source CSV.</p>
+      <p>You can leave and return from the source CSV. Refresh for the latest progress.</p>
       <a class="button button-secondary" href="">Refresh status</a>
       {% if batch.status == 'running' and can_retry %}<details><summary>Recover interrupted processing</summary><p>If progress has stopped, ask the operator to stop the worker before retrying. Earlier observations will not be added twice.</p><form method="post" class="form-layout">{% csrf_token %}<input type="hidden" name="action" value="retry"><div class="field"><label for="worker-stopped"><input id="worker-stopped" type="checkbox" name="worker_stopped" required> The operator has stopped the worker for this interrupted attempt</label></div><button class="button button-secondary" type="submit">Retry interrupted import</button></form></details>{% endif %}
     </section>
@@ -25,11 +27,11 @@
     {% if can_retry %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="retry"><button class="button button-primary" type="submit">Retry import</button></form>{% elif can_edit %}<p>This import has reached its retry limit. Review the source and upload a corrected CSV, or ask the operator for help.</p>{% endif %}
   {% endif %}
   {% if batch.completed_at %}
-    <p role="status">{{ imported_count }} observation{{ imported_count|pluralize }} imported.{% if skipped_count %} {{ skipped_count }} possible duplicate row{{ skipped_count|pluralize }} skipped.{% endif %} The complete original CSV remains retained. Repeating the confirmation will not add them again.</p>
+    <p role="status">{{ imported_count }} observation{{ imported_count|pluralize }} imported.{% if skipped_count %} {{ skipped_count }} possible duplicate row{{ skipped_count|pluralize }} skipped.{% endif %} The complete original CSV remains retained.</p>
     <ul class="import-results">{% for observation in observations %}<li><a href="{% url 'evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=observation.pk %}">{{ observation.title }}</a> · {{ observation.vehicle }}{% if observation.is_archived %} · Archived{% endif %}</li>{% endfor %}</ul>
   {% else %}
     {% if invalid %}<p class="notice" role="alert">Some rows need correction. No observations can be imported from this review. Upload a corrected CSV; this original remains retained.</p>{% endif %}
-    {% if rows %}<section aria-labelledby="preview-heading"><h2 id="preview-heading">{{ batch.row_count }} reported observation{{ batch.row_count|pluralize }}</h2><p>Showing rows {{ rows.start_index }}–{{ rows.end_index }}. Expand a row to inspect all original values and their interpreted times. Possible duplicates are skipped unless you choose to keep them.</p>
+    {% if rows %}<section aria-labelledby="preview-heading"><h2 id="preview-heading">{{ batch.row_count }} reported observation{{ batch.row_count|pluralize }}</h2><p class="muted">Showing {{ rows.start_index }}–{{ rows.end_index }}. Open a row to inspect its original values.</p>
     {% if batch.duplicate_count %}<p class="notice">{{ batch.duplicate_count }} possible duplicate{{ batch.duplicate_count|pluralize }} in this import. {{ nonduplicate_count }} observation{{ nonduplicate_count|pluralize }} can be imported without them. Select “Keep the possible duplicates” below to import all {{ batch.row_count }} rows. Matches are checked again before importing.</p>{% endif %}
     {% for row in rows %}<details class="import-observation"{% if row.errors %} open{% endif %}>
       <summary>Row {{ row.number }} · {{ row.asset|default:row.serial }}{% if row.values.observed_at %} · {{ row.values.observed_at|date:"d M Y, H:i:s" }} UTC{% endif %}{% if row.errors %} · Needs correction{% endif %}{% if row.duplicate %} · Possible duplicate{% endif %}</summary>
@@ -38,7 +40,7 @@
       <dl class="metadata-grid">{% for label,value in row.raw.items %}<div><dt>{{ label }}</dt><dd>{{ value|default:"Not supplied"|linebreaksbr }}</dd></div>{% endfor %}<div><dt>Interpreted observation time</dt><dd>{% if row.values.observed_at %}{{ row.values.observed_at|date:"d M Y, H:i:s" }} UTC{% else %}Unavailable{% endif %}</dd></div><div><dt>Interpreted receipt time</dt><dd>{% if row.values.received_at %}{{ row.values.received_at|date:"d M Y, H:i:s" }} UTC{% else %}Not supplied or invalid{% endif %}</dd></div></dl>
     </details>{% endfor %}</section>{% endif %}
     {% if can_edit and form and not invalid %}
-    <section aria-labelledby="mapping-heading"><h2 id="mapping-heading">Choose the vehicles</h2><p>Asset labels and serial numbers are source claims. Select an existing vehicle in this case without changing its details. <a href="{% url 'vehicles:create' case_id=case.pk %}">Add a vehicle</a> if needed, then return to this review.</p>
+    <section aria-labelledby="mapping-heading"><h2 id="mapping-heading" tabindex="-1">Choose the vehicles</h2><p>Match each reported asset to a case vehicle. This association does not verify identity or ownership. <a href="{% url 'vehicles:create' case_id=case.pk %}">Add a vehicle</a> if needed.</p>
     <form method="post" class="form-layout" data-unsaved-form>
       {% csrf_token %}{% include 'components/form_fields.html' with form=form %}
       <div class="actions"><button class="button button-primary" type="submit">Import observations</button><a class="button button-secondary" href="{% url 'evidence:list' case_id=case.pk %}">Leave review</a></div>

@@ -12,6 +12,9 @@ screen specifications and delivery plans belong in `docs/`.
 
 - **Make the task obvious.** Give each screen a clear title and one primary
   action. Keep related controls beside the material they affect.
+- **Lead with evidence and analysis.** Make adding, reading, searching, and
+  analyzing material the everyday workflow. Put optional descriptions, source
+  metadata, and record history in Details or native disclosures.
 - **Make room for the investigation.** Use compact navigation, aligned rows,
   and progressive disclosure. Show useful records instead of decorative space.
 - **Keep familiar behavior.** Use ordinary links, buttons, forms, browser Back,
@@ -176,16 +179,18 @@ may supplement an accessible exact value.
   replace an original. A changed original is a new evidence record.
 - Label investigator-supplied descriptions and declared technical metadata.
   Do not imply automatic extraction, verified file format, or verified identity.
-- Show provenance near the original; keep a complete checksum and technical
-  details in an accessible disclosure. A shortened visual checksum needs a way
-  to inspect/copy the complete value.
+- Show a concise source line near the original when supplied; keep full source
+  metadata, checksums, and technical details in Details. A shortened visual checksum
+  needs a way to inspect/copy the complete value.
 - Archive and restore are available to owners and editors. Archived evidence
   remains viewable and downloadable by current case members. Ordinary investigators
   retain evidence until owner-confirmed whole-case deletion. Superusers with case
   access can choose **Delete evidence** in Details and confirm individual deletion
   in the product, with explicit original/derived-file consequences and safe
   cancellation. The scoped Django admin also permits this for active staff
-  superusers. Preserve import-source protections in both workflows.
+  superusers. Imported source deletion explicitly includes derived evidence and
+  retained files. List every removal, paginate large inventories without hiding
+  entries, and require another confirmation if that inventory changes.
 - Uploads provide a normal file picker as well as optional drag and drop. Batch
   entries have visible states and individual recovery actions. Do not invent a
   processing stage when the server only stores an original.

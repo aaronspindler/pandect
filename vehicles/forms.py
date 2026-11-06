@@ -33,7 +33,7 @@ class VehicleForm(forms.ModelForm):
             "vin": forms.TextInput(attrs={"autocomplete": "off"}),
             "notes": forms.Textarea(attrs={"rows": 5}),
         }
-        labels = {"notes": "Investigator notes"}
+        labels = {"notes": "Notes"}
         help_texts = {
             "year": "Leave blank if unknown.",
             "license_plate": (

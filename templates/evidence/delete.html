@@ -9,8 +9,8 @@
     <p>No evidence or files were deleted.</p>
     <a class="button button-secondary" href="{{ cancel_url }}">Back to evidence details</a>
   {% else %}
-    <p>Deletion includes the original, any retained call transcripts and audio, and related analysis results, reviews, extracted text, and generated files.</p>
-    {% if analysis_count %}<p><strong>{{ analysis_count }} analysis run{{ analysis_count|pluralize }} will be removed.</strong> Analysis using several sources is removed in full, including downstream analysis that depends on it. Other source originals remain.</p>{% endif %}
+    {% if analysis_count %}<p><strong>{{ analysis_count }} analysis run{{ analysis_count|pluralize }} will be removed.</strong></p>{% endif %}
+    {% include "evidence/deletion_inventory.html" %}
     <form method="post" class="form-layout">
       {% csrf_token %}{% include "components/form_fields.html" with form=form %}
       <div class="form-actions"><a class="button button-secondary" href="{{ cancel_url }}">Cancel</a><button class="button button-danger" type="submit">Permanently delete evidence</button></div>

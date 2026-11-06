@@ -4,8 +4,8 @@
 {% block content %}
 <a class="back-link" href="{% url 'analysis:index' case.pk %}">Back to analysis</a>
 <header class="page-header">
-  <div><p class="eyebrow">Retained processing history</p><h1>{{ operation_label }}</h1><p>{{ run.created_at|date:'d M Y, H:i:s' }} UTC · {{ run.requested_by }}</p></div>
-  <span class="badge" role="status">{{ run.get_status_display }}</span>
+  <div><h1>{{ operation_label }}</h1><p class="muted">{{ run.created_at|date:'d M Y, H:i' }} UTC</p></div>
+  <div class="actions"><span class="badge" role="status">{{ run.get_status_display }}</span>{% if result %}<a class="record-link" href="{% url 'analysis:download' case.pk run.pk %}">Download results</a>{% endif %}</div>
 </header>
 
 {% if run.status == 'queued' or run.status == 'running' %}
@@ -27,9 +27,8 @@
 {% if result %}
 <section class="analysis-section">
   <h2>{{ data.summary }}</h2>
-  {% for warning in data.warnings %}<p class="notice">{{ warning }}</p>{% endfor %}
-  {% include 'analysis/measurements.html' with measurements=metrics only %}
-  <a class="button button-secondary" href="{% url 'analysis:download' case.pk run.pk %}">Download result and provenance</a>
+  {% if data.warnings %}<ul class="notice analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
+  {% if metrics %}<details class="disclosure"><summary>Processing summary</summary>{% include 'analysis/measurements.html' with measurements=metrics only %}</details>{% endif %}
 </section>
 {% endif %}
 
@@ -59,7 +58,7 @@
   </figure>
   {% endif %}
   {% if item.audio_url %}<audio controls preload="none" src="{{ item.audio_url }}"><a href="{{ item.audio_url }}">Play source recording</a></audio>{% endif %}
-  {% include 'analysis/measurements.html' with measurements=item.measurements only %}
+  {% if item.measurements %}<details class="disclosure finding-measurements"><summary>Measurements and context</summary>{% include 'analysis/measurements.html' with measurements=item.measurements only %}</details>{% endif %}
   {% if item.reference_snapshot %}<p><a href="{% url 'analysis:artifact' case.pk run.pk item.reference_snapshot.pk %}">Download the reference response for this finding</a></p>{% endif %}
   <ul class="source-list">
     {% for source in item.sources %}
@@ -91,8 +90,8 @@
 {% endfor %}
 
 {% if reference_snapshots %}
-<section class="analysis-section">
-  <h2>Retained map references</h2>
+<details class="analysis-section disclosure">
+  <summary>Retained map references</summary>
   <p>These reference snapshots describe the map source, not verified conditions at the observation time. Each download preserves the exact service response.</p>
   {% for snapshot in reference_snapshots %}
   <article class="analysis-reference">
@@ -108,7 +107,7 @@
     <details class="integrity-details"><summary>Reference integrity and query</summary><p>SHA-256: <code>{{ snapshot.sha256 }}</code></p><pre class="original-text">{{ snapshot.metadata.query }}</pre></details>
   </article>
   {% endfor %}
-</section>
+</details>
 {% endif %}
 
 {% if finding_page %}
@@ -123,6 +122,9 @@
 <section class="analysis-section">
   <h2>Investigator review</h2>
   <p>Acceptance records an investigator's assessment; it does not verify identity or turn an estimate into an observation.</p>
+  <p>Result review: {% if latest_result_review %}{{ latest_result_review.get_decision_display }} <span class="muted">· {{ latest_result_review.reviewed_by }} · {{ latest_result_review.created_at|date:'d M Y, H:i:s' }} UTC</span>{% else %}Unresolved{% endif %}</p>
+  {% if reviews %}<details class="disclosure">
+    <summary>Review history · {{ reviews|length }} review{{ reviews|length|pluralize }}</summary>
   <div class="analysis-review-history">
     {% for review in reviews %}
     <article>
@@ -130,26 +132,31 @@
       <p class="muted">{{ review.reviewed_by }} · {{ review.created_at|date:'d M Y, H:i:s' }} UTC</p>
       <div class="original-text">{{ review.comment }}</div>
     </article>
-    {% empty %}<p class="muted">Unresolved. No review has been recorded.</p>{% endfor %}
+    {% endfor %}
   </div>
+  </details>{% endif %}
   {% if can_edit and run.operation != 'geocode_locations' %}
+  <details class="disclosure">
+    <summary>Review this result</summary>
   <form class="analysis-review-form form-layout" method="post" action="{% url 'analysis:review' case.pk run.pk %}" data-unsaved-form>
     {% csrf_token %}
     <div class="field"><label for="review-decision">Decision</label><select id="review-decision" name="decision"><option value="unresolved">Unresolved</option><option value="accepted">Accepted</option><option value="rejected">Rejected</option></select></div>
     <div class="field"><label for="review-comment">Reason</label><textarea name="comment" id="review-comment" maxlength="4000"></textarea></div>
     <div class="form-actions"><button class="button button-secondary" type="submit">Record review</button></div>
   </form>
+  </details>
   {% endif %}
 </section>
 {% endif %}
 
-<section class="analysis-section">
-  <h2>Selected sources</h2>
+<details class="analysis-section disclosure">
+  <summary>Selected sources and method</summary>
+  <p class="muted">Requested by {{ run.requested_by }} · {{ run.created_at|date:'d M Y, H:i:s' }} UTC</p>
   <ul class="source-list">
     {% for source in sources %}<li><a href="{{ source.url }}">{{ source.item.title }}</a>{% if source.derived_result_id %} · Exact extraction version · <a href="{{ source.original_url }}">Original evidence</a>{% endif %}{% if source.attachment %} · Retained call addition{% endif %}{% if source.coordinates %} · Coordinates {{ source.coordinates.0 }}, {{ source.coordinates.1 }}{% endif %}{% if source.item.is_archived %} · Archived{% endif %}</li>{% empty %}<li>No available inputs.</li>{% endfor %}
   </ul>
-  <details class="analysis-assumptions"><summary>Method and assumptions</summary><p>Method version: {{ run.method_version }}. {{ processing.label }}.{% if processing.legacy %} This run predates execution pinning; its original approval is retained.{% endif %}</p>{% if processing.model %}<p>Model: {{ processing.model }}{% if processing.runtime %} · Runtime: {{ processing.runtime }}{% endif %}</p>{% endif %}{% include 'analysis/measurements.html' with measurements=assumptions only %}</details>
-</section>
+  <h3>Method and assumptions</h3><p>Method version: {{ run.method_version }}. {{ processing.label }}.{% if processing.legacy %} This run predates execution pinning; its original approval is retained.{% endif %}</p>{% if processing.model %}<p>Model: {{ processing.model }}{% if processing.runtime %} · Runtime: {{ processing.runtime }}{% endif %}</p>{% endif %}{% include 'analysis/measurements.html' with measurements=assumptions only %}
+</details>
 {% if can_edit and can_retry %}
 <form method="post" action="{% url 'analysis:retry' case.pk run.pk %}">
   {% csrf_token %}<input type="hidden" name="submission_id" value="{{ retry_submission_id }}">

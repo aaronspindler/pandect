@@ -1,0 +1,9 @@
+<nav aria-label="Investigation">
+      <a class="nav-link" href="{% url 'cases:case_detail' case.pk %}" {% if request.resolver_match.url_name == 'case_detail' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='file-text' %} Overview</a>
+      <a class="nav-link" href="{% url 'evidence:list' case.pk %}" {% if nav_section == 'evidence' or request.resolver_match.namespace == 'evidence' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='files' %} Evidence</a>
+      <a class="nav-link" href="{% url 'analysis:index' case.pk %}" {% if request.resolver_match.namespace == 'analysis' and nav_section != 'evidence' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='file-text' %} Analysis</a>
+      <a class="nav-link" href="{% url 'cases:case_map' case.pk %}" {% if request.resolver_match.url_name == 'case_map' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='map' %} Map</a>
+      <a class="nav-link" href="{% url 'people:list' case.pk %}" {% if request.resolver_match.namespace == 'people' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='users' %} People</a>
+      <a class="nav-link" href="{% url 'vehicles:list' case.pk %}" {% if request.resolver_match.namespace == 'vehicles' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='car' %} Vehicles</a>
+      {% if is_owner %}<a class="nav-link" href="{% url 'cases:case_settings' case.pk %}" {% if request.resolver_match.namespace == 'cases' and request.resolver_match.url_name != 'case_detail' and request.resolver_match.url_name != 'case_map' %}aria-current="page"{% endif %}>{% include 'components/icon.html' with name='settings' %} Settings</a>{% endif %}
+    </nav>

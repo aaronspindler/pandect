@@ -380,11 +380,16 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                     parameters["context_as_of"], "2020-01-02T12:00:00+00:00"
                 )
                 self.assertEqual(parameters["context_radius_m"], 500)
+                references = page.locator("summary").filter(
+                    has_text=re.compile(r"^Retained map references$")
+                )
+                expect(references).to_be_visible()
                 expect(
-                    page.get_by_role(
-                        "heading", name="Retained map references", exact=True
-                    )
-                ).to_be_visible()
+                    page.get_by_role("link", name="Download reference JSON", exact=True)
+                ).to_be_hidden()
+                self._capture_layouts(page, engine, "geographic-context-result")
+                references.focus()
+                references.press("Enter")
                 for name in (
                     "Synthetic archive cafe",
                     "Synthetic lane",
@@ -396,6 +401,11 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                             "heading", name=re.compile(re.escape(name))
                         ).first
                     ).to_be_visible()
+                for summary in page.locator(".finding-measurements > summary").all():
+                    summary.click()
+                page.locator("summary").filter(
+                    has_text=re.compile(r"^Processing summary$")
+                ).click()
                 expect(
                     page.get_by_text("Inside retrieved polygon", exact=True).first
                 ).to_be_visible()
@@ -407,7 +417,7 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_text("Historical map snapshot", exact=True).first
                 ).to_be_visible()
-                self._capture_layouts(page, engine, "geographic-context-result")
+                self.capture(page, engine, "geographic-context-expanded-details")
                 reference = page.get_by_role(
                     "link", name="Download reference JSON", exact=True
                 )
@@ -431,8 +441,8 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                 self.sign_in(page, self.viewer)
                 page.goto(result_url)
                 expect(
-                    page.get_by_role(
-                        "heading", name="Retained map references", exact=True
+                    page.locator("summary").filter(
+                        has_text=re.compile(r"^Retained map references$")
                     )
                 ).to_be_visible()
                 expect(

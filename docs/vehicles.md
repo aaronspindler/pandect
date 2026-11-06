@@ -21,6 +21,14 @@ record, the form preserves the draft and displays all latest saved details.
 **Save reviewed changes** explicitly resubmits it. A deleted record is never
 recreated by a stale form. Case reassignment is not supported.
 
+The detail page keeps identifiers and reported locations visible. **Record
+details** reveals optional notes, the separate make/model/year values,
+timestamps, and the owner's **Delete vehicle** action. Empty notes and values
+already shown in the title do not occupy the main reading area. Only populated
+identifiers and color appear; one short message handles a record without those
+details. A concise caption keeps the unverified nature of identifiers and
+associations visible beside the title.
+
 Only the case owner can delete an individual vehicle after a separate named-target
 confirmation. This retains evidence, people, other vehicles, login accounts, and
 the case. Whole-case deletion also removes its vehicles, and its confirmation

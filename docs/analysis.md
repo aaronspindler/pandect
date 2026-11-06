@@ -46,9 +46,10 @@ version 1 runs of `text_topics` and `session_summaries` fail with
 `processing_version_unavailable`; start another run to use the current method.
 Earlier results and reviews remain unchanged.
 
-On an evidence detail page, open **Analysis**. Owners and editors choose **Analyze evidence** once
+On an evidence detail page, open **Analysis** or the **Analyze evidence** link beside
+the original. Owners and editors then choose the **Analyze evidence** button once
 to queue all applicable local analysis for that item's type and retained content.
-The evidence analysis page keeps the evidence title and Original/Details/Analysis
+The evidence analysis page keeps the evidence title and Original/Analysis/Details
 navigation, lists its processing runs, and links to progress and results.
 Collection filters remain in the return links; results paginate independently.
 Uploading evidence alone does not start analysis. Originals and earlier
@@ -77,12 +78,34 @@ operation and choose **Show sources**, then select retained sources and queue it
 The picker shows at most 500 choices; use its title search to narrow larger cases.
 Select an exact extraction version to analyze derived text. Review grouping/time
 assumptions before starting an investigation workflow.
-Only the selected operation's settings are validated and saved. Report forms load
-only the people or vehicle choices applicable to that report. Finding reviews
+Only the selected operation's settings are validated and saved. Operations without
+optional assumptions do not show an empty assumptions section. Report forms load
+only the people or vehicle choices applicable to that report. **Report filters**
+starts collapsed for the default selection, leaving results visible first; it opens
+when filters are applied or a submitted selection needs correction. Finding reviews
 return to the reviewed finding, including its results page; invalid reviews retain
 the entered decision and comment for correction. PostgreSQL selects the latest
 review for each visible finding; the full review history remains retained and
 available on the run page.
+
+Run pages keep the result summary, warnings, finding text, source links and latest
+finding and overall result reviews visible. A finding review does not replace an
+overall result review; without one the overall result stays unresolved. Supporting
+finding values are in **Measurements and context**; report rows use **Measurements**.
+Run totals and report metrics open under **Processing summary** and **Report
+summary**. The result summaries, selected counts and warnings remain visible.
+**Retained map references**,
+**Review history**, **Review this result**, and **Selected sources and method**
+open on request. The history count includes both overall and finding reviews.
+Requester attribution and the exact request time are in **Selected sources and
+method**; the result header keeps a compact date, status and download link.
+These native disclosures work with a keyboard and without
+JavaScript. Review decisions and provenance remain retained even while collapsed.
+The recent-run lists show a compact date and status; requester and processing
+details are available on the run page.
+
+**Download results** saves private JSON containing the result, selected sources,
+and processing provenance.
 
 The PostgreSQL worker described in [background tasks](background-tasks.md) executes
 queued work. Queued, running, complete, partial, no findings, insufficient evidence,
@@ -209,3 +232,21 @@ Apply additive analysis migrations with the normal upgrade workflow; existing
 originals are retained. Back up PostgreSQL and private storage together. Whole-case
 deletion removes its analysis/context alongside evidence. No global analysis admin
 or public result storage endpoint is registered.
+
+
+## Deleting an imported source
+
+A superuser with current case access can delete a retained source document from
+Evidence Details. The confirmation lists its imported messages/vehicle-location
+observations, source context and review rows, and all dependent analysis, reviews,
+extracted text, and generated files. Multi-source runs and downstream results are
+removed as a whole; unrelated originals, people, and vehicles remain. The same
+exact inventory is used in Django admin. It is paginated with a complete private
+JSON download, and a changed inventory requires another confirmation.
+
+Deletion locks the case against new import and analysis publication. Queued jobs
+for removed runs/imports become unavailable; running jobs cannot recreate deleted
+sources or publish new derivatives after deletion. Row deletion is atomic and
+stored-file cleanup waits for commit. Storage failures retain the existing
+private-key logging and manual retry policy in
+[evidence](evidence.md#private-storage-and-deletion).

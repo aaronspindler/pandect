@@ -1,8 +1,5 @@
-<div><dt>Vehicle</dt><dd><a href="{% url 'vehicles:detail' case_id=case.pk vehicle_id=item.vehicle_id %}">{{ item.vehicle }}</a></dd></div>
-{% if item.import_batch_id %}
 <div><dt>Reported asset</dt><dd>{{ item.raw_row.Asset|default:"Not supplied" }}</dd></div>
-<div><dt>Speed</dt><dd>{% if item.speed_kmh is not None %}{{ item.speed_kmh }} km/h{% else %}Not supplied{% endif %}</dd></div>
 <div><dt>Source receipt time</dt><dd>{% if item.received_at %}{{ item.received_at|date:"d M Y, H:i:s" }} UTC{% else %}Not supplied{% endif %}</dd></div>
 <div><dt>Source CSV</dt><dd><a href="{% url 'evidence:detail' case_id=case.pk kind='document' evidence_id=item.import_batch.document_id %}">{{ item.import_batch.document.original_filename }}</a> · row {{ item.source_row }}</dd></div>
 <div><dt>Export timezone</dt><dd>{{ item.import_batch.timezone }}</dd></div>
-{% endif %}
+<div><dt>Parser version</dt><dd>{{ item.import_batch.parser_version }}</dd></div>

@@ -43,6 +43,14 @@ An owner or editor can
 finish a review begun by another collaborator; each observation records the user
 who confirmed it, separately from the original file's uploader.
 
+The review keeps **Source and time interpretation** in a native disclosure.
+Source bytes, timezone and time semantics remain available without crowding the
+progress, row review or vehicle choices. A **Choose vehicles** link jumps directly
+to the required association form, including from long reviews. Individual imported observations show
+supplied location/time/speed; **Original CSV row and interpretation** reveals
+receipt time, asset labels, parser provenance and every original cell. Both
+sections support keyboard use without JavaScript.
+
 ## Supported columns and interpretation
 
 Exactly these nine headers are required, in any order. Duplicate, missing, or
@@ -109,9 +117,12 @@ changes the default for new imports only; existing versions and checksums are
 preserved. Apply it before restarting the updated web and worker processes.
 
 Archiving retains the observation and all links. Retained observations prevent
-individual vehicle deletion, and the import protects its source document. Only
-owner-confirmed whole-case deletion removes these through the product, with file
-cleanup after commit. The additive `evidence/0004_vehicle_locations` migration
+individual vehicle deletion. Superusers with current case access can confirm
+source-document deletion from Evidence Details; its exact inventory includes the
+CSV, import batch, every staged row and imported observation, and their dependent
+analysis/files. A changed inventory requires another review. People and vehicles
+are retained. Owner-confirmed whole-case deletion also remains available. Files
+are removed after database commit. The additive `evidence/0004_vehicle_locations` migration
 creates the new tables and constraints; no existing records are rewritten or
 runtime data reset. Apply it through the documented development/upgrade workflow.
 

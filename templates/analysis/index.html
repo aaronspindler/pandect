@@ -13,7 +13,7 @@
   {% if not can_edit %}<p class="role-note">Your Viewer role lets you inspect authorized sources and results.</p>{% endif %}
   {% for run in page_obj %}
     <a class="record-row analysis-history-row" href="{% url 'analysis:detail' case.pk run.pk %}">
-      <div><strong>{{ run.label }}</strong><p>{{ run.source_title }}{% if run.additional_sources %} · +{{ run.additional_sources }} source{{ run.additional_sources|pluralize }}{% endif %}</p><p class="muted">{{ run.created_at|date:'d M Y, H:i' }} UTC · {{ run.requested_by }} · {{ run.processing_label }}{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}</p></div>
+      <div><strong>{{ run.label }}</strong><p>{{ run.source_title }}{% if run.additional_sources %} · +{{ run.additional_sources }} source{{ run.additional_sources|pluralize }}{% endif %}</p><p class="muted">{{ run.created_at|date:'d M Y, H:i' }} UTC{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}</p></div>
       <span class="badge">{{ run.get_status_display }}</span>
     </a>
   {% empty %}

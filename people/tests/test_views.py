@@ -335,7 +335,8 @@ class PersonInterfaceTests(TestCase):
         response = self.client.get(self.url("detail", self.person))
         self.assertNotContains(response, '<script>alert("untrusted")</script>')
         self.assertContains(response, "&lt;script&gt;")
-        self.assertContains(response, "Not recorded")
+        self.assertNotContains(response, "Not recorded")
+        self.assertContains(response, self.person.email)
         self.assertContains(response, "Uncertain source")
 
     def test_unknown_uuid_and_non_uuid_paths_are_not_found(self):

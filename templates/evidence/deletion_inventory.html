@@ -1,0 +1,15 @@
+<section aria-labelledby="deletion-inventory-heading">
+  <h2 id="deletion-inventory-heading">Exactly what will be removed</h2>
+  {% if inventory_changed %}<p class="notice" role="alert">{{ inventory_changed }}</p>{% endif %}
+  <p><strong>{{ deletion_plan.counts.records }} record{{ deletion_plan.counts.records|pluralize }} and {{ deletion_plan.counts.files|default:0 }} stored file{{ deletion_plan.counts.files|pluralize }}.</strong>{% if deletion_plan.counts.updates %} {{ deletion_plan.counts.updates }} retained analysis reference{{ deletion_plan.counts.updates|pluralize }} will also be cleared, as listed below.{% endif %}</p>
+  <p>Includes imported observations and messages, import review rows, and all related analysis and generated files. People, vehicles, and other source originals stay retained. Analysis using several sources is removed in full.</p>
+  <p><a href="{{ deletion_download_url }}">Download the complete deletion inventory (JSON)</a></p>
+  <ol class="deletion-inventory" start="{{ deletion_page.start_index }}">
+    {% for entry in deletion_page %}<li><strong>{{ entry.action }} · {{ entry.type }}</strong><p>{{ entry.name }}</p><small>ID: {{ entry.id }}</small>{% if entry.sha256 %}<small>SHA-256: {{ entry.sha256 }}</small>{% endif %}</li>{% endfor %}
+  </ol>
+  <nav class="pagination" aria-label="Deletion inventory pages">
+    {% if deletion_links.previous %}<a class="button button-secondary" href="{{ deletion_links.previous }}">Previous inventory page</a>{% endif %}
+    <span>Items {{ deletion_page.start_index }}–{{ deletion_page.end_index }} of {{ deletion_page.paginator.count }} · Page {{ deletion_page.number }} of {{ deletion_page.paginator.num_pages }}</span>
+    {% if deletion_links.next %}<a class="button button-secondary" href="{{ deletion_links.next }}">Next inventory page</a>{% endif %}
+  </nav>
+</section>

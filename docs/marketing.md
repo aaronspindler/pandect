@@ -16,6 +16,9 @@ the shortcut to **All cases**; the other public pages show **Open workspace**.
 The existing sign-in and email-verification checks still protect case material.
 Public pages render static illustrative records and never query or display an
 investigator's cases or evidence. The example is explicitly labelled fictional.
+The introduction emphasizes collecting and analyzing evidence. The fictional
+reader pairs captured text with suggested keywords; source attribution stays
+concise, and preservation/access details are explained on Trust.
 
 The pages use `templates/marketing/` and `static/pandect/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links
@@ -43,8 +46,8 @@ Use the development PostgreSQL setup from [local development](development.md).
 Run the tests sequentially so they do not compete for the same test database:
 
 ```sh
-uv run --locked --env-file .env python manage.py test config.tests.test_marketing config.tests.test_product_access --noinput
-uv run --locked --env-file .env python manage.py test config.marketing_browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.test_marketing config.tests.test_product_access --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.marketing_browser --noinput
 ```
 
 The browser suite uses the installed Chromium and WebKit engines, with

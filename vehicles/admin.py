@@ -31,5 +31,8 @@ class VehicleAdmin(CaseScopedAdmin):
                 ),
             },
         ),
-        ("Record dates", {"fields": ("created_at", "updated_at")}),
+        (
+            "Record dates",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
     )

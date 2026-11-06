@@ -93,8 +93,8 @@ model catalog. These settings do not change an already-running conversation.
 
 ### Simplicity review
 
-The project agent
-[`simplicity_reviewer`](../.codex/agents/simplicity_reviewer.toml) checks the final
+The shared Agentics agent
+[`simplicity_reviewer`](https://github.com/aaronspindler/agentics) checks the final
 task changes for overengineering and unnecessary bloat before handoff. It
 inherits the parent model and reasoning settings and is instructed to inspect
 without making edits. Its permissions still come from the parent session.
@@ -106,11 +106,16 @@ back changes. The reviewer identifies concrete maintenance costs and simpler
 alternatives while preserving the project's correctness and integrity requirements.
 Substantive fixes require affected checks and another review.
 
-Open a new trusted Codex session to discover the custom agent. You can request it
-explicitly: "Have simplicity_reviewer review the final changes for this task."
+Install the reviewer globally with `agentics install --agent simplicity_reviewer`
+using the [Agentics toolkit](https://github.com/aaronspindler/agentics). Codex loads
+it from `${CODEX_HOME:-~/.codex}/agents/`. Open a new trusted Codex session after
+installation. You can request it explicitly: "Have simplicity_reviewer review
+the final changes for this task." Supply Pandect's Django conventions, case
+isolation, immutable originals and provenance, accessibility, resource bounds,
+recoverable failures, and meaningful tests from `AGENTS.md` with the review.
 The handoff requirement is an agent instruction, not a Git or CI hook. If the
-client cannot load custom agents, delegate the review using the instructions in
-the same TOML file and disclose that fallback.
+client cannot load custom agents, delegate the shared reviewer instructions and
+disclose that fallback.
 
 References: [OpenAI configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 [configuration layering and profiles](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles),
