@@ -302,7 +302,9 @@ permitting the private services. Do not use public map capacity in routine tests
   Linux amd64 and arm64. uv reads `.python-version` and installs from `uv.lock`.
 - A separate Linux amd64 browser job installs Chromium/WebKit and runs
   `make browser-check` for core, marketing, analysis, geographic context and map
-  journeys with synthetic configuration and PostgreSQL.
+  journeys with synthetic configuration and PostgreSQL. Package setup uses
+  Ubuntu's primary mirrors instead of the runner's Azure mirror to avoid stalled
+  OCR/browser dependency downloads.
 - A separate CI job audits locked dependencies without database credentials.
 - After those checks pass for a `main` push, CI publishes the Linux amd64 web and
   worker image targets to GHCR. CD resolves their successful-run/commit tags to
