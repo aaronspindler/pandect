@@ -135,6 +135,18 @@ class DeploymentCommandTests(TestCase):
             deploy.deploy("worker-id", IMAGE, SHA, "worker")
         request.assert_called_once()
 
+    def test_web_rollout_starts_the_new_immutable_release_first(self):
+        with (
+            patch.object(deploy, "dokploy", return_value=[]) as request,
+            patch.object(deploy, "wait_ready"),
+            redirect_stdout(io.StringIO()),
+        ):
+            deploy.deploy("web-id", ENVIRONMENT["WEB_IMAGE"], SHA, "web")
+        update = request.call_args_list[1].args[1]
+        self.assertEqual(update["replicas"], 1)
+        self.assertEqual(update["updateConfigSwarm"]["Order"], "start-first")
+        self.assertNotIn("healthCheckSwarm", update)
+
     def test_failed_provider_write_is_not_retried_or_activated(self):
         with (
             patch.object(
@@ -314,6 +326,31 @@ class ReleaseReadinessTests(TestCase):
             ],
         ):
             self.assertEqual(deploy.current_task({"appName": "app"}, IMAGE), "task")
+
+    def test_live_dokploy_mapped_task_fields_prove_the_expected_image(self):
+        task_id = "synthetic-native-task"
+        with patch.object(
+            deploy,
+            "dokploy",
+            side_effect=[
+                [
+                    {
+                        "containerId": task_id,
+                        "name": "synthetic-app.1",
+                        "state": "running",
+                        "currentState": "Running 11 minutes ago",
+                        "node": "synthetic-node",
+                        "error": "Error:",
+                    }
+                ],
+                {"Spec": {"ContainerSpec": {"Image": IMAGE}}},
+            ],
+        ) as request:
+            self.assertEqual(deploy.current_task({"appName": "app"}, IMAGE), task_id)
+        self.assertEqual(
+            request.call_args_list[-1],
+            call("docker.getConfig", containerId=task_id),
+        )
 
     def test_old_running_task_blocks_new_singleton_readiness(self):
         with patch.object(

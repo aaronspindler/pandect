@@ -142,6 +142,8 @@ The local `compose.yaml` remains a development tool; it is not used in Dokploy.
 2. Create native Docker Applications named `web` and `worker` on the same intended
    deployment server. Configure one replica each. Use the `web` and `worker`
    Dockerfile targets' respective GHCR images by digest, never `latest`.
+   Configure the web Application's native HTTP health check against
+   `http://127.0.0.1:8000/health/`; keep worker rollout stop-first and web start-first.
 3. Copy [`.env.dokploy.example`](../.env.dokploy.example) into both application
    environments, replacing blank secrets and the database hostname. Set
    `DJANGO_DEBUG=false`, `PANDECT_ALLOW_SIGNUPS=false`, and
@@ -242,8 +244,9 @@ CI artifacts. Its production concurrency group waits for the active rollout
 instead of cancelling it when a newer commit arrives.
 
 CD updates each native Application's Docker provider and triggers deployment,
-preserving runtime environment and mounts. Both Applications remain singleton
-with stop-first updates. The worker deploys first, applies migrations, and must
+preserving runtime environment and mounts. Both Applications remain singleton;
+the worker uses stop-first updates and web uses start-first updates. The worker
+deploys first, applies migrations, and must
 report the exact prepared marker while one running Swarm task uses the expected
 image for a 60-second stability window. Then web deploys and must report the
 expected commit over `https://openpandect.com/health/`, with a stable running task

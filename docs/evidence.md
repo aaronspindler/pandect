@@ -108,6 +108,8 @@ not require staff status or opening Django admin. The confirmation inventories
 the source, imported evidence and review records,
 analysis, and stored files, with record identifiers and filenames/checksums.
 Inventories show 50 entries per page and offer a complete private JSON download.
+The download uses `application/octet-stream` with its `.json` filename so browsers
+save the inventory consistently instead of displaying it inline.
 The signed confirmation is bound to the current user, case, target, and inventory;
 new imports, results, or files require reviewing the refreshed inventory and
 checking confirmation again. Inconsistent case links show a recovery message

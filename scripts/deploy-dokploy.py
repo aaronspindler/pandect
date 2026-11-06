@@ -66,6 +66,10 @@ def records(payload):
     return payload
 
 
+def task_field(task, raw_name, mapped_name):
+    return str(task.get(raw_name) or task.get(mapped_name) or "").strip()
+
+
 def current_task(application, image):
     query = {"appName": application["appName"]}
     server = (
@@ -73,19 +77,25 @@ def current_task(application, image):
     )
     tasks = records(dokploy("docker.getServiceContainersByAppName", **query, **server))
     active = [
-        task for task in tasks if str(task.get("DesiredState", "")).lower() == "running"
+        task
+        for task in tasks
+        if task_field(task, "DesiredState", "state").lower() == "running"
     ]
     if any(
-        str(task.get("DesiredState", "")).lower() != "running"
-        and str(task.get("CurrentState", "")).lower().startswith("running")
+        task_field(task, "DesiredState", "state").lower() != "running"
+        and task_field(task, "CurrentState", "currentState")
+        .lower()
+        .startswith("running")
         for task in tasks
     ):
         return None
-    if len(active) != 1 or not str(
-        active[0].get("CurrentState", "")
+    if len(active) != 1 or not task_field(
+        active[0], "CurrentState", "currentState"
     ).lower().startswith("running"):
         return None
-    task_id = active[0]["ID"]
+    task_id = task_field(active[0], "ID", "containerId")
+    if not task_id:
+        return None
     inspection = dokploy("docker.getConfig", containerId=task_id, **server)
     if inspection.get("Spec", {}).get("ContainerSpec", {}).get("Image") != image:
         return None
@@ -167,7 +177,10 @@ def deploy(application_id, image, sha, service):
         {
             "applicationId": application_id,
             "replicas": 1,
-            "updateConfigSwarm": {"Parallelism": 1, "Order": "stop-first"},
+            "updateConfigSwarm": {
+                "Parallelism": 1,
+                "Order": "stop-first" if service == "worker" else "start-first",
+            },
         },
     )
     dokploy(
