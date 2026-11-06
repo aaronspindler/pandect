@@ -3,7 +3,7 @@
 from collections import Counter
 
 from django.contrib import admin
-from django.contrib.admin.utils import get_deleted_objects
+from django.contrib.admin.widgets import AdminTextareaWidget
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import F, Q
 from django.urls import reverse
@@ -13,10 +13,15 @@ from django.utils.html import format_html
 from cases.admin_access import CaseScopedAdmin
 from cases.permissions import accessible_cases
 
-from .deletion import delete_evidence, deletion_block_reason, related_analysis_runs
+from .deletion import (
+    CHANGED,
+    delete_evidence,
+    deletion_manifest_response,
+    deletion_review_context,
+    plan_deletion,
+)
 from .forms import (
     CALL_KINDS,
-    COMMON_FIELDS,
     FILE_KINDS,
     KINDS,
     ORIGINAL_FIELDS,
@@ -162,6 +167,8 @@ class EvidenceAdmin(CaseScopedAdmin):
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         if db_field.name in ("body", "address"):
             kwargs["strip"] = False
+        if db_field.name in ("description", "source_description"):
+            kwargs["widget"] = AdminTextareaWidget(attrs={"rows": 3})
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
     def get_inlines(self, request, obj=None):
@@ -195,7 +202,7 @@ class EvidenceAdmin(CaseScopedAdmin):
             # A read-only FileField would render the storage backend's URL.
             originals = ("original_file", "byte_size", "declared_content_type")
         fieldsets = (
-            (None, {"fields": ("case", *COMMON_FIELDS)}),
+            (None, {"fields": ("case", "title", "description", "source")}),
             (
                 "Original evidence",
                 {
@@ -206,19 +213,27 @@ class EvidenceAdmin(CaseScopedAdmin):
                     ),
                 },
             ),
+            (
+                "Additional source details",
+                {
+                    "classes": ("collapse",),
+                    "fields": ("source_url", "source_description", "collected_at"),
+                },
+            ),
         )
         if obj is not None and self.kind == "vehicle-location":
             fieldsets += (
                 (
                     "Imported source values",
                     {
+                        "classes": ("collapse",),
                         "fields": (
                             "import_batch",
                             "source_row",
                             "raw_row",
                             "speed_kmh",
                             "received_at",
-                        )
+                        ),
                     },
                 ),
             )
@@ -227,6 +242,7 @@ class EvidenceAdmin(CaseScopedAdmin):
                 (
                     "Declared metadata",
                     {
+                        "classes": ("collapse",),
                         "fields": TYPE_FIELDS[self.kind],
                         "description": (
                             "Investigator-supplied information; "
@@ -253,6 +269,7 @@ class EvidenceAdmin(CaseScopedAdmin):
                 (
                     "Integrity and attribution",
                     {
+                        "classes": ("collapse",),
                         "fields": (
                             "id",
                             "uploaded_by",
@@ -260,7 +277,7 @@ class EvidenceAdmin(CaseScopedAdmin):
                             "edited_at",
                             "sha256",
                             "submission_id",
-                        )
+                        ),
                     },
                 ),
             )
@@ -280,30 +297,60 @@ class EvidenceAdmin(CaseScopedAdmin):
         return request.user.is_superuser and self.has_view_permission(request, obj)
 
     def get_deleted_objects(self, objs, request):
-        related_runs = []
-        for obj in objs:
-            runs = list(related_analysis_runs(obj, self.kind))
-            reason = deletion_block_reason(obj, runs)
-            if reason:
-                return [], {}, set(), [reason]
-            related_runs.extend(runs)
-        deleted, counts, permissions, protected = super().get_deleted_objects(
-            objs, request
+        # Bulk deletion is disabled; the same plan supplies review and mutation.
+        plan = plan_deletion(objs[0], self.kind)
+        request.evidence_deletion_plan = plan
+        if plan.blocker:
+            return [], {}, set(), [plan.blocker]
+        if request.method == "POST" and not plan.matches(
+            request.POST.get("revision", ""), request.user
+        ):
+            return [], {}, set(), [CHANGED]
+        counts = Counter(
+            row["type"] for row in plan.entries if row["action"] == "Delete record"
         )
-        counts = Counter(counts)
-        if related_runs:
-            related, totals, missing, retained = get_deleted_objects(
-                related_runs, request, self.admin_site
+        return [], counts, set(), []
+
+    def render_delete_form(self, request, context):
+        plan = request.evidence_deletion_plan
+        context.update(deletion_review_context(request, plan))
+        changed = (
+            context["protected"] == [CHANGED] or context["inventory_changed"]
+        ) and not plan.blocker
+        if changed:
+            context.update(
+                protected=[],
+                deletion_changed=CHANGED if request.method == "POST" else "",
+                title="Review deletion",
             )
-            deleted.extend(related)
-            counts.update(totals)
-            permissions.update(missing)
-            protected.extend(retained)
-        return deleted, counts, permissions, protected
+        response = super().render_delete_form(request, context)
+        if changed:
+            response.status_code = 409
+        return response
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if request.method == "GET" and request.GET.get("download") == "manifest":
+            obj = self.get_object(request, object_id)
+            if obj is None or not self.has_delete_permission(request, obj):
+                raise PermissionDenied
+            plan = plan_deletion(obj, self.kind)
+            if plan.blocker:
+                raise PermissionDenied
+            if not request.GET.get("review_revision") or plan.matches(
+                request.GET["review_revision"], request.user
+            ):
+                return deletion_manifest_response(plan)
+        return super().delete_view(request, object_id, extra_context)
 
     def delete_model(self, request, obj):
         try:
-            delete_evidence(request.user, obj.case_id, self.kind, obj.pk)
+            delete_evidence(
+                request.user,
+                obj.case_id,
+                self.kind,
+                obj.pk,
+                revision=request.POST.get("revision", ""),
+            )
         except ValidationError as error:
             raise PermissionDenied from error
 

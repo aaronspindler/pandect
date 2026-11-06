@@ -5,26 +5,27 @@
 <a class="back-link" href="{% url 'analysis:index' case.pk %}">Back to analysis</a>
 <header class="page-header">
   <div>
-    <p class="eyebrow">Recorded activity</p>
     <h1>{% if name == 'calls' %}Call patterns{% elif name == 'vehicle-coverage' %}Vehicle observation coverage{% elif name == 'vehicle-speed' %}Vehicle speed and heading{% else %}Exact file duplicates{% endif %}</h1>
-    <p>Inspect the records behind counts and comparisons. Gaps show unavailable observations.</p>
   </div>
 </header>
-<form method="get" class="analysis-section form-layout" aria-label="Report selection">
+<details class="disclosure report-filters"{% if filters_applied or form.errors %} open{% endif %}>
+  <summary>Report filters{% if filters_applied %} · Applied{% endif %}</summary>
+<form method="get" class="form-layout disclosure-body" aria-label="Report selection">
   {% include 'components/form_fields.html' %}
   <div class="form-actions"><button class="button button-primary" type="submit">Update report</button><a class="button button-secondary" href="?">Reset selection</a></div>
 </form>
+</details>
 {% if data %}
 <section class="analysis-section">
   <h2>{{ data.summary }}</h2>
-  {% for warning in data.warnings %}<p class="notice">{{ warning }}</p>{% endfor %}
-  {% include 'analysis/measurements.html' with measurements=data.measurements only %}
+  {% if data.warnings %}<ul class="notice analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
+  {% if data.measurements %}<details class="disclosure"><summary>Report summary</summary>{% include 'analysis/measurements.html' with measurements=data.measurements only %}</details>{% endif %}
 </section>
 {% for item in data.items %}
 <article class="analysis-section analysis-finding">
   <h2>{% if item.url %}<a class="record-link" href="{{ item.url }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</h2>
   <p>{{ item.text }}</p>
-  {% include 'analysis/measurements.html' with measurements=item.measurements only %}
+  {% if item.measurements %}<details class="disclosure"><summary>Measurements</summary>{% include 'analysis/measurements.html' with measurements=item.measurements only %}</details>{% endif %}
   {% if item.related %}<ul class="source-list">{% for source in item.related %}<li><a href="{{ source.url }}">{{ source.label }}</a></li>{% endfor %}</ul>{% endif %}
 </article>
 {% empty %}

@@ -108,6 +108,10 @@ The image's default Gunicorn entry point serves the application and public
 application assets through WhiteNoise. `collectstatic` runs at image build time;
 rebuild the image when templates/static assets change. A host-based production
 installation must run `python manage.py collectstatic --noinput` before serving.
+Non-debug pages reference content-hashed asset filenames so a browser cannot reuse
+an older stylesheet or script for a new release. Deploy the templates and their
+collected manifest together. Debug mode also uses WhiteNoise, with immediate
+cache revalidation for source assets.
 Private evidence remains separate from collected static files and must never be
 published by the proxy or a public storage bucket.
 

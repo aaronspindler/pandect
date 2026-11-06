@@ -14,7 +14,7 @@ accessibility, and interaction requirements. See the
   extraction, reports, and processing review are described in [case analysis](analysis.md).
 - Retain individual evidence records and their originals. Owners and editors can
   archive and restore them; current case members can still inspect/download them.
-  Only deleting an entire case removes its retained evidence.
+  Permanent deletion requires authorized, explicit confirmation.
 - Support everyday batches through sequential uploads, visible outcomes, and
   individual retry. Do not require a queue service for bounded original storage.
 - Use the existing Django/allauth/PostgreSQL foundation, explicit UUID primary
@@ -25,19 +25,51 @@ accessibility, and interaction requirements. See the
 
 ## Shared interface refinements
 
+Routine screens show the material and next action first. Native disclosures hold
+secondary record timestamps, import interpretation, analysis measurements and
+processing/review history. These sections work by keyboard and without JavaScript.
+Case and record details keep their source/uncertainty context visible; blank
+optional metadata and repeated list timestamps are omitted where they add no value.
+
+Evidence search stays visible; **Filters** opens type and archive-state selectors,
+with an explicit **Apply filters** submit. Non-default filters reopen on navigation
+and stay in record URLs. Repeated ingestion dates are omitted from collection
+rows; exact dates remain in record history. Bulk upload is available on file
+forms; CSV import is available on the vehicle-location form and in Vehicles
+instead of crowding unrelated screens.
+
+Location originals show the linked person/vehicle, supplied address or coordinates,
+observation time and available speed. **Original CSV row and interpretation** holds
+receipt time, asset labels, timezone, parser version and exact source cells, while
+**View import and observations** remains beside the observation. Attribution lives
+in **Details**, with a concise source line beside the original when supplied.
+Long source descriptions link to their full text in Details. Optional descriptions,
+source metadata, and declared technical fields on add forms open on request, on edit, and
+after validation errors; required original fields remain visible.
+
 Management screens use consistent section dividers, readable detail and form
-widths, aligned actions, and explicit filter recovery. On small screens, case
-navigation uses a three-column grid; controls and actions wrap with the content.
-Account navigation identifies the current settings page.
+widths, aligned actions, and explicit filter recovery. A single **Case navigation**
+menu serves every viewport; desktop and mobile never render duplicate links.
+On small screens it starts closed when JavaScript is available. Without JavaScript
+it starts open and can be collapsed; if resized while closed, its toggle remains
+available. Controls and actions wrap with the content.
+Account navigation identifies the current settings page. Email settings show
+address status and applicable actions, with removal behind a named confirmation.
+Operator forms disclose optional source metadata, permission pickers, and record
+dates while retaining core fields and access flags. Field errors reveal their
+containing group.
 
 Add evidence uses a labelled type selector and an explicit **Choose type** button
 that works without JavaScript. All ten types remain available. The form starts
-with the original material and then its investigator description and source
-context. Bulk upload and CSV import remain adjacent alternatives.
+with the title and original material. **Description and source details** holds
+optional context. File forms link to bulk upload; vehicle-location forms link to CSV import.
 
-The evidence reader puts **Download original** beside the title. **Details** holds
-editing and archive/restore controls, with a retention explanation; **Analysis**
-opens the evidence's local checks and results. Original, Details, and Analysis
+The evidence reader keeps its contents within `60rem`, with metadata within
+`42rem`, so wide monitors do not separate labels from related information.
+**Analyze evidence** and **Download original** stay beside the title for editors.
+**Details** holds optional descriptions,
+record history, integrity, editing and archive/restore controls, with a retention explanation; **Analysis**
+opens the evidence's local checks and results. Original, Analysis, and Details
 use the same section navigation and evidence title. Collection filters survive
 this round trip; evidence analysis uses `results_page` separately from the
 collection's `page` parameter. The local-analysis explanation is concise, with
@@ -79,10 +111,10 @@ over incidental mockup text or rendering details.
 | Region | Desktop specification |
 | --- | --- |
 | Case navigation | `13rem` wide; compact case name, All cases, Overview/Evidence/People, owner Settings, account menu. |
-| Evidence list | `20rem` wide; heading and Add evidence, search, then type/state filters. |
+| Evidence list | `20rem` wide; heading and Add evidence, search, then a Filters disclosure. |
 | List chrome | At most `164px` for heading/search/filters, with a `44px` pagination footer at default zoom. |
-| Evidence row | At least `56px` high: `16px` title and `14px` type/date line; one whole-row link. |
-| Reading pane | Flexible width, compact heading/actions, readable original, concise source strip, optional details. |
+| Evidence row | At least `56px` high: `16px` title and `14px` type line; one whole-row link. |
+| Reading pane | Flexible width, compact heading/actions, readable original, concise source line, optional details. |
 | Visible rows | At least 12 at `1440 × 900`, and 14 at `1440 × 1024`, for ordinary titles at default zoom. |
 
 The row target is a visual acceptance criterion, not a pagination size or fixed
@@ -104,15 +136,15 @@ Preserve safe local return destinations through sign-in and verification.
 
 | Screen | Content and primary action |
 | --- | --- |
-| All cases | Searchable owned/shared case list, role, creation/update dates; **Create case**. |
+| All cases | Searchable owned/shared case list and role; **Create case**. |
 | Create case | Required case name, optional description; **Create case**. |
-| Case overview | Name, description, owner, current role, evidence/people counts, recent evidence links; **Add evidence** for owners/editors. |
+| Case overview | Recent evidence and analysis entry points, with case metadata on request; **Add evidence** for owners/editors. |
 | Evidence | Active collection by default, query/type/archive-state filters, pagination, selected record when wide; **Add evidence** for owners/editors. |
-| Evidence detail | Original, source summary, investigator description, declared details, integrity disclosure; **Download original** where applicable. Editing and archive/restore are in Details; processing is in Analysis. |
+| Evidence detail | Original content and **Analyze evidence**, with downloads available. Optional source metadata, descriptions, editing, and archive/restore are in Details. |
 | Add evidence | Choose files or captured text, then clear input-specific fields; **Upload files** or **Save text**. |
-| Edit evidence details | Title, description, provenance, optional declared metadata; **Save changes**. |
+| Edit evidence details | Title and optional description, source, and declared metadata; **Save changes**. |
 | People | Searchable case list; **Add person** for owners/editors. |
-| Person detail/edit | Name/contact details and investigator notes, timestamps; **Edit person** for owners/editors. |
+| Person detail/edit | Contact details and POIs, with optional notes and history in Record details; **Edit person** for owners/editors. |
 | Case settings | Owner-only name/description editing, collaborator access, pending invitations, separate delete section. |
 | Invitation acceptance | Named invitation after authentication and recipient verification; **Accept invitation**. |
 | Account | Styled allauth email/password management and POST sign-out; account creation/recovery/verification use the same design language. |
@@ -165,21 +197,18 @@ different record. Moving to the next item follows normal record navigation.
 
 The reading pane contains:
 
-1. A compact breadcrumb/title and actions for Edit details, Download original,
-   and Archive/Restore, according to role. Avoid an always-open overflow menu.
-2. **Original** and **Details** links that are server-rendered views of the same
-   evidence. A query parameter chooses the section; ordinary links work without
-   JavaScript. Enhanced switching may preserve focus without creating custom tabs.
-3. A concise source/uploader/added-time summary. Source collection time is labeled
-   separately from upload time, with an explicit timezone when supplied.
-4. Escaped, read-only captured text on Original for text evidence. File evidence
-   shows its original filename, size, declared type, and an authorized download
-   action; this release does not render PDFs, SVG, HTML, image previews, or audio
-   players. Do not imply a parser verified a file's category or metadata.
-5. Investigator description and source context as read-only prose, edited through
-   Edit details. Details includes provenance and any supplied technical claims.
-   Integrity details discloses the full SHA-256 and a copy action with a selectable
-   text fallback.
+1. A compact title, **Analyze evidence** for owners/editors, and an authorized
+   download. Editing and archive/restore controls live in Details.
+2. **Original**, **Analysis**, and **Details** links with full-page navigation and
+   collection filters preserved. Ordinary links work without JavaScript.
+3. A concise source line when supplied. Full attribution, collection time, and
+   source metadata are in Details.
+4. Escaped read-only text or a supported image preview on Original. Files show
+   their name, size, and download action; document/audio content can be extracted
+   through Analysis when supported. File format declarations are in Details.
+5. Optional descriptions and source context as read-only prose in Details.
+   Record history, declared technical values, and full SHA-256 open on request.
+   Checksums have a copy action with a selectable text fallback.
 
 An unavailable stored original shows a useful error and retry/contact-owner
 guidance while preserving access to its metadata. It never discloses storage
@@ -342,8 +371,10 @@ superuser to bypass case isolation. Superusers with current case access may
 choose **Delete evidence** from Details, then review original/derived-file
 consequences and explicitly confirm permanent deletion. Staff status and opening
 Django admin are not required. Preserve filters on cancellation and return to the
-collection on success; keep protected-source and inconsistent-case errors
-recoverable without deleting anything.
+collection on success. Source-document deletion includes imported derivatives;
+show exact record/file inventories with pagination and a complete download. Bind
+the confirmation to this inventory and refresh it if the graph changes. Inconsistent
+case links block deletion without disclosing foreign material.
 
 Use named Django routes with these shapes; retain existing allauth and operator
 admin routes. All mutations use CSRF-protected POST, never GET.

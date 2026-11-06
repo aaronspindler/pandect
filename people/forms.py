@@ -32,7 +32,7 @@ class PersonForm(forms.ModelForm):
             "address": forms.Textarea(attrs={"rows": 3}),
             "notes": forms.Textarea(attrs={"rows": 5}),
         }
-        labels = {"notes": "Investigator notes"}
+        labels = {"notes": "Notes"}
         help_texts = {
             "phone_number": "Preserve the source's formatting and extensions.",
             "notes": (

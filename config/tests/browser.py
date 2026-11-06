@@ -201,6 +201,17 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
         ).to_be_visible()
 
     def capture(self, page, engine, name):
+        logo = page.locator(".wordmark picture img")
+        if logo.count() and logo.is_visible():
+            expected_source = logo.evaluate(
+                """img => new URL(
+                  matchMedia('(prefers-color-scheme: dark)').matches
+                    ? img.previousElementSibling.srcset : img.src,
+                  document.baseURI).href"""
+            )
+            expect(logo).to_have_js_property("currentSrc", expected_source)
+            expect(logo).to_have_js_property("complete", True)
+            expect(logo).not_to_have_js_property("naturalWidth", 0)
         page.screenshot(
             path=str(self.artifacts / f"{engine}-{name}.png"), animations="disabled"
         )
@@ -388,6 +399,105 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     )
                     self.capture(page, engine, f"refined-create-{kind}-320x844")
 
+    def test_evidence_disclosures_preserve_keyboard_and_error_recovery(self):
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("evidence:list", case_id=self.case.pk))
+                page.set_viewport_size({"width": 390, "height": 844})
+                mobile_navigation = page.locator(".case-navigation")
+                expect(page.locator('nav[aria-label="Investigation"]')).to_have_count(1)
+                # The single native menu is usable with no page JavaScript.
+                expect(mobile_navigation.get_by_role("navigation")).to_be_visible()
+                mobile_navigation.locator("summary").focus()
+                mobile_navigation.locator("summary").press("Enter")
+                expect(mobile_navigation.get_by_role("navigation")).to_be_hidden()
+                page.set_viewport_size({"width": 1440, "height": 900})
+                # A closed mobile menu must remain reopenable after resizing.
+                expect(mobile_navigation.locator("summary")).to_be_visible()
+                mobile_navigation.locator("summary").press("Enter")
+                expect(
+                    mobile_navigation.get_by_role("link", name="Evidence", exact=True)
+                ).to_be_visible()
+                expect(mobile_navigation.locator("summary")).to_be_hidden()
+                filters = page.locator(".evidence-filters")
+                expect(page.get_by_label("Evidence state", exact=True)).to_be_hidden()
+                filters.locator("summary").focus()
+                filters.locator("summary").press("Enter")
+                page.get_by_label("Evidence state", exact=True).select_option("all")
+                page.get_by_role("button", name="Apply filters", exact=True).click()
+                expect(page.locator(".evidence-filters")).to_have_attribute("open", "")
+                expect(page.get_by_label("Evidence state", exact=True)).to_have_value(
+                    "all"
+                )
+                page.locator(".evidence-row").first.click()
+                self.assertIn("state=all", page.url)
+
+                page.goto(
+                    self.url("evidence:create", case_id=self.case.pk) + "?kind=text"
+                )
+                extra = page.locator("[data-additional-evidence-details]")
+                expect(page.get_by_label("Description", exact=True)).to_be_hidden()
+                expect(page.get_by_label("Source", exact=True)).to_be_hidden()
+                expect(page.get_by_label("Source URL", exact=True)).to_be_hidden()
+                summary = extra.locator("summary")
+                summary.focus()
+                summary.press("Enter")
+                expect(page.get_by_label("Source URL", exact=True)).to_be_visible()
+                page.get_by_label("Description", exact=True).fill("Optional context")
+                page.get_by_label("Source", exact=True).fill("Synthetic archive")
+                page.get_by_label("Title", exact=True).fill(
+                    f"Disclosure source {engine}"
+                )
+                page.get_by_label("Original text", exact=True).fill(
+                    f"Synthetic original {engine}"
+                )
+                page.get_by_label("Source URL", exact=True).fill("invalid-url")
+                # Exercise server recovery even when browser URL validation is bypassed.
+                page.locator("#evidence-create-form").evaluate(
+                    "form => form.noValidate = true"
+                )
+                page.get_by_role("button", name="Save text", exact=True).click()
+                expect(page.locator(".error-summary")).to_be_visible()
+                expect(extra).to_have_attribute("open", "")
+                expect(page.get_by_label("Description", exact=True)).to_have_value(
+                    "Optional context"
+                )
+                expect(page.get_by_label("Source", exact=True)).to_have_value(
+                    "Synthetic archive"
+                )
+                expect(page.get_by_label("Source URL", exact=True)).to_have_value(
+                    "invalid-url"
+                )
+                page.get_by_label("Source URL", exact=True).fill(
+                    "https://example.com/source"
+                )
+                page.get_by_role("button", name="Save text", exact=True).click()
+                expect(page.locator(".original-text")).to_have_text(
+                    f"Synthetic original {engine}"
+                )
+                expect(page.get_by_text("Optional context", exact=True)).to_have_count(
+                    0
+                )
+                analyze = page.get_by_role("link", name="Analyze evidence", exact=True)
+                analyze.focus()
+                analyze.press("Enter")
+                expect(
+                    page.get_by_role("button", name="Analyze evidence")
+                ).to_be_visible()
+                page.get_by_role("navigation", name="Evidence sections").get_by_role(
+                    "link", name="Details", exact=True
+                ).click()
+                expect(page.get_by_text("Optional context", exact=True)).to_be_visible()
+                page.get_by_role("link", name="Edit details", exact=True).click()
+                expect(extra).to_have_attribute("open", "")
+                expect(page.get_by_label("Source URL", exact=True)).to_have_value(
+                    "https://example.com/source"
+                )
+
     def test_communication_evidence_and_retained_attachments(self):
         sender = Person.objects.create(case=self.case, first_name="Alex Sender")
         recipient = Person.objects.create(case=self.case, first_name="Jordan Recipient")
@@ -521,9 +631,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                             # Native forms submit textarea line endings as CRLF.
                             b"  Supplied synthetic transcript <source>\r\n  ",
                         )
-                        page.get_by_text(
-                            "Attachment integrity details", exact=True
-                        ).click()
+                        page.get_by_text("Attachment details", exact=True).click()
                         with page.expect_download() as manifest:
                             page.get_by_role(
                                 "link", name="Download attachment record", exact=True
@@ -738,12 +846,33 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     page.get_by_role("heading", name="Reported location")
                 ).to_be_visible()
                 expect(page.get_by_text("0.000 km/h", exact=True)).to_be_visible()
-                for width, height in ((1440, 900), (390, 844), (320, 844)):
+                receipt = page.get_by_text("Source receipt time", exact=True)
+                expect(receipt).to_be_hidden()
+                source_summary = page.get_by_text(
+                    "Original CSV row and interpretation", exact=True
+                )
+                source_summary.focus()
+                source_summary.press("Enter")
+                expect(receipt).to_be_visible()
+                source_summary.press("Enter")
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
                     page.set_viewport_size({"width": width, "height": height})
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
-                    self.capture(page, engine, f"vehicle-location-original-{width}")
+                    self.capture(
+                        page, engine, f"vehicle-location-original-{width}x{height}"
+                    )
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark")
+                self.capture(page, engine, "vehicle-location-original-dark")
+                page.emulate_media(color_scheme="light")
                 with page.expect_download() as event:
                     page.get_by_role(
                         "link", name="Download original", exact=True
@@ -914,7 +1043,11 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.sign_in(page)
                 page.goto(self.url("cases:case_detail", case_id=self.case.pk))
                 page.get_by_role("link", name="Vehicles", exact=True).click()
-                expect(page.locator('[aria-current="page"]')).to_have_text("Vehicles")
+                expect(
+                    page.get_by_role("navigation", name="Investigation").locator(
+                        '[aria-current="page"]'
+                    )
+                ).to_have_text("Vehicles")
                 if engine == self.engines[0]:
                     expect(
                         page.get_by_role(
@@ -923,14 +1056,12 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     ).to_be_visible()
                 page.get_by_role("link", name="Add vehicle").first.focus()
                 page.get_by_role("link", name="Add vehicle").first.press("Enter")
-                page.get_by_label("Investigator notes", exact=True).fill(
-                    "Synthetic observation"
-                )
+                page.get_by_label("Notes", exact=True).fill("Synthetic observation")
                 page.get_by_role("button", name="Add vehicle", exact=True).click()
                 expect(page.locator(".error-summary")).to_be_focused()
-                expect(
-                    page.get_by_label("Investigator notes", exact=True)
-                ).to_have_value("Synthetic observation")
+                expect(page.get_by_label("Notes", exact=True)).to_have_value(
+                    "Synthetic observation"
+                )
                 make = page.get_by_label("Make", exact=True)
                 make.fill("Synthetic Motors")
                 make.focus()
@@ -1016,9 +1147,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     self.capture(page, engine, f"vehicle-list-{width}-{height}")
                 page.get_by_role("link", name=title, exact=True).click()
                 page.get_by_role("link", name="Edit vehicle").click()
-                page.get_by_label("Investigator notes", exact=True).fill(
-                    "Reviewed proposal"
-                )
+                page.get_by_label("Notes", exact=True).fill("Reviewed proposal")
                 self.db(
                     Vehicle.objects.filter(
                         case=self.case, license_plate=f"SYN-{engine}"
@@ -1030,10 +1159,13 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("heading", name="Review the latest saved details")
                 ).to_be_visible()
-                expect(
-                    page.get_by_label("Investigator notes", exact=True)
-                ).to_have_value("Reviewed proposal")
+                expect(page.get_by_label("Notes", exact=True)).to_have_value(
+                    "Reviewed proposal"
+                )
                 page.get_by_role("button", name="Save reviewed changes").click()
+                page.locator("details > summary").filter(
+                    has_text="Record details"
+                ).click()
                 expect(
                     page.get_by_text("Reviewed proposal", exact=True)
                 ).to_be_visible()
@@ -1059,6 +1191,11 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.get_by_role("link", name="Add vehicle").first.click()
                 page.get_by_label("License plate", exact=True).fill(f"DELETE-{engine}")
                 page.get_by_role("button", name="Add vehicle", exact=True).click()
+                details = page.locator("details").filter(
+                    has=page.locator("summary", has_text="Record details")
+                )
+                details.locator("summary").focus()
+                details.locator("summary").press("Enter")
                 page.get_by_role("link", name="Delete vehicle").click()
                 expect(
                     page.get_by_role("heading", name=f"Delete DELETE-{engine}?")
@@ -1107,6 +1244,14 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.get_by_label("Title:", exact=True).focus()
                 page.get_by_label("Title:", exact=True).press("Tab")
                 expect(page.get_by_label("Description:", exact=True)).to_be_focused()
+                source_details = page.locator("summary").filter(
+                    has_text="Additional source details"
+                )
+                expect(page.get_by_label("Source url:", exact=True)).to_be_hidden()
+                source_details.focus()
+                source_details.press("Enter")
+                expect(page.get_by_label("Source url:", exact=True)).to_be_visible()
+                source_details.press("Enter")
                 page.get_by_label("Is archived", exact=True).check()
                 page.locator('input[name="_continue"]').click()
                 expect(page.get_by_label("Is archived", exact=True)).to_be_checked()
@@ -1162,6 +1307,10 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     page.goto(
                         self.url("evidence:create", case_id=self.case.pk)
                         + f"?kind={kind}"
+                    )
+                    page.locator("[data-additional-evidence-details] > summary").focus()
+                    page.locator("[data-additional-evidence-details] > summary").press(
+                        "Enter"
                     )
                     source = page.get_by_label("Source", exact=True)
                     source.focus()
@@ -1269,7 +1418,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.goto(self.url("people:create", case_id=case.pk))
                 page.get_by_label("First name", exact=True).fill("Alex")
                 page.get_by_label("Last name", exact=True).fill("Browser Example")
-                page.get_by_label("Investigator notes", exact=True).fill(
+                page.get_by_label("Notes", exact=True).fill(
                     "Unconfirmed synthetic contact."
                 )
                 page.get_by_role("button", name="Add person", exact=True).click()
@@ -1277,10 +1426,16 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     page.get_by_role("heading", name="Alex Browser Example", exact=True)
                 ).to_be_visible()
                 page.get_by_role("link", name="Edit person", exact=True).click()
-                page.get_by_label("Investigator notes", exact=True).fill(
+                page.get_by_label("Notes", exact=True).fill(
                     "Updated synthetic source context."
                 )
                 page.get_by_role("button", name="Save changes", exact=True).click()
+                expect(
+                    page.get_by_text("Updated synthetic source context.")
+                ).to_be_hidden()
+                page.locator("details > summary").filter(
+                    has_text="Record details"
+                ).click()
                 expect(
                     page.get_by_text("Updated synthetic source context.")
                 ).to_be_visible()
@@ -1871,6 +2026,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     for item in originals
                 ]
                 page.goto(self.url("cases:case_detail", case_id=self.case.pk))
+                page.get_by_role("link", name="Add evidence", exact=True).click()
                 page.get_by_role("link", name="Bulk add files", exact=True).click()
                 expect(page.locator("[data-bulk-fallback]")).to_be_hidden()
                 shared = page.locator("[data-shared-details]")
@@ -2127,6 +2283,19 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 page.goto(self.evidence_url())
+                navigation = page.locator(".case-navigation")
+                expect(page.locator('nav[aria-label="Investigation"]')).to_have_count(1)
+                for width in (390, 1440, 768, 2616):
+                    page.set_viewport_size({"width": width, "height": 900})
+                    if width < 1024:
+                        expect(navigation.get_by_role("navigation")).to_be_hidden()
+                        navigation.locator("summary").focus()
+                        navigation.locator("summary").press("Enter")
+                    expect(navigation.get_by_role("navigation")).to_be_visible()
+                    if width < 1024:
+                        navigation.locator("summary").press("Enter")
+                        expect(navigation.get_by_role("navigation")).to_be_hidden()
+                self.capture(page, engine, "workspace-ultrawide")
                 expect(page.locator(".evidence-row")).to_have_count(25)
                 for height, minimum in ((900, 12), (1024, 14)):
                     page.set_viewport_size({"width": 1440, "height": height})
@@ -2444,13 +2613,11 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 )
                 page.get_by_role("link", name="Delete evidence", exact=True).click()
                 expect(
-                    page.get_by_text(
-                        "This original supports retained imported evidence", exact=False
-                    )
+                    page.get_by_role("heading", name="Exactly what will be removed")
                 ).to_be_visible()
-                expect(confirm).to_have_count(0)
-                self.capture(page, engine, "product-evidence-delete-protected")
-                page.get_by_role("link", name="Back to evidence details").click()
+                expect(confirm).to_be_visible()
+                self.capture(page, engine, "product-evidence-delete-import-source")
+                page.get_by_role("link", name="Cancel", exact=True).click()
                 expect(
                     page.get_by_role("heading", name=source.title, exact=True)
                 ).to_be_visible()
@@ -2481,3 +2648,223 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     self.db(DocumentEvidence.objects.filter(pk=document.pk).exists)
                 )
                 self.assertFalse(document.file.storage.exists(document.file.name))
+
+    def test_imported_source_deletion_inventory(self):
+        from django.utils import timezone
+
+        from analysis.models import AnalysisArtifact, AnalysisResult, AnalysisRun
+        from evidence.models import VehicleLocationImportRow
+
+        self.owner.is_superuser = True
+        self.owner.save(update_fields=["is_superuser"])
+        for engine in self.engines:
+            vehicle = Vehicle.objects.create(
+                case=self.case, model=f"Retained van {engine}"
+            )
+            row = parse_csv(csv_content(), "UTC")[0]
+            source = DocumentEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=f"Imported source {engine}",
+                file=SimpleUploadedFile(
+                    "imported-source.csv", csv_content(*[row.raw for _ in range(55)])
+                ),
+            )
+            batch = VehicleLocationImport.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                document=source,
+                timezone="UTC",
+                status="complete",
+                completed_at=timezone.now(),
+                row_count=55,
+            )
+            observations = []
+            for index in range(55):
+                observations.append(
+                    VehicleLocationEvidence.objects.create(
+                        case=self.case,
+                        uploaded_by=self.owner,
+                        vehicle=vehicle,
+                        title=f"Imported position {index + 1}",
+                        import_batch=batch,
+                        source_row=index + 2,
+                        raw_row=row.raw,
+                        **row.values,
+                    )
+                )
+            VehicleLocationImportRow.objects.bulk_create(
+                [
+                    VehicleLocationImportRow(
+                        batch=batch,
+                        number=index + 2,
+                        group_index=0,
+                        raw=row.raw,
+                        fingerprint=row.fingerprint,
+                    )
+                    for index in range(55)
+                ]
+            )
+            source_id = str(observations[0].pk)
+            run = AnalysisRun.objects.create(
+                case=self.case,
+                requested_by=self.owner,
+                operation="location_quality",
+                method_version="1",
+                status="complete",
+                inputs=[
+                    {
+                        "id": source_id,
+                        "kind": "vehicle-location",
+                        "evidence_id": source_id,
+                    }
+                ],
+            )
+            result = AnalysisResult.objects.create(case=self.case, run=run)
+            artifact = AnalysisArtifact.objects.create(
+                case=self.case,
+                result=result,
+                source_id=source_id,
+                file=SimpleUploadedFile("preview.jpg", b"Synthetic derived image"),
+                sha256="a" * 64,
+                width=1,
+                height=1,
+            )
+            url = self.url(
+                "evidence:detail",
+                case_id=self.case.pk,
+                kind="document",
+                evidence_id=source.pk,
+            )
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(url + "?section=details")
+                page.get_by_role("link", name="Delete evidence", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Exactly what will be removed")
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("imported-source.csv", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("Generated image preview", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("115 records and 2 stored files.", exact=True)
+                ).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.evaluate("window.scrollTo(0, 0)")
+                    self.assertLessEqual(
+                        page.evaluate(
+                            "document.documentElement.scrollWidth - innerWidth"
+                        ),
+                        1,
+                    )
+                    self.capture(
+                        page, engine, f"source-deletion-inventory-{width}-{height}"
+                    )
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "source-deletion-inventory-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(
+                        page, engine, "source-deletion-inventory-forced-colors"
+                    )
+                    page.emulate_media(forced_colors="none")
+                page.emulate_media(color_scheme="light")
+                page.get_by_role("link", name="Next inventory page").click()
+                expect(page.get_by_text("Page 2 of 3", exact=False)).to_be_visible()
+                with page.expect_download() as event:
+                    page.get_by_role(
+                        "link", name="Download the complete deletion inventory (JSON)"
+                    ).click()
+                inventory = json.loads(Path(event.value.path()).read_bytes())
+                self.assertEqual(len(inventory["entries"]), 117)
+                self.assertTrue(
+                    {str(obs.pk) for obs in observations}
+                    <= {entry["id"] for entry in inventory["entries"]}
+                )
+                check = page.get_by_role("checkbox")
+                check.focus()
+                check.press("Space")
+                check.press(
+                    "Alt+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Tab"
+                )
+                expect(
+                    page.get_by_role("link", name="Cancel", exact=True)
+                ).to_be_focused()
+                page.get_by_role("link", name="Cancel", exact=True).press("Enter")
+                expect(page).to_have_url(url + "?section=details")
+                page.get_by_role("link", name="Delete evidence", exact=True).click()
+
+                def add_late_observation(vehicle=vehicle, batch=batch):
+                    return VehicleLocationEvidence.objects.create(
+                        case=self.case,
+                        uploaded_by=self.owner,
+                        vehicle=vehicle,
+                        title="Imported after review",
+                        import_batch=batch,
+                        source_row=100,
+                        address="Synthetic late observation",
+                    ).pk
+
+                late_id = self.db(add_late_observation)
+                page.get_by_role("checkbox").check()
+                page.get_by_role("button", name="Permanently delete evidence").click()
+                expect(
+                    page.get_by_text("What will be removed has changed", exact=False)
+                ).to_be_visible()
+                expect(page.get_by_role("checkbox")).not_to_be_checked()
+                self.assertTrue(
+                    self.db(DocumentEvidence.objects.filter(pk=source.pk).exists)
+                )
+                self.capture(page, engine, "source-deletion-inventory-refreshed")
+            with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                self.sign_in(page)
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.goto(url + "?section=details")
+                page.get_by_role("link", name="Delete evidence", exact=True).click()
+                page.get_by_role("link", name="Next inventory page").click()
+                page.get_by_role("checkbox").check()
+                page.get_by_role("button", name="Permanently delete evidence").press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_text("Evidence deleted.", exact=True)
+                ).to_be_visible()
+                for model, identifier in (
+                    (DocumentEvidence, source.pk),
+                    (VehicleLocationImport, batch.pk),
+                    (AnalysisRun, run.pk),
+                    (AnalysisArtifact, artifact.pk),
+                    (VehicleLocationEvidence, late_id),
+                ):
+                    self.assertFalse(
+                        self.db(model.objects.filter(pk=identifier).exists)
+                    )
+                self.assertFalse(
+                    self.db(
+                        VehicleLocationEvidence.objects.filter(
+                            import_batch_id=batch.pk
+                        ).exists
+                    )
+                )
+                self.assertFalse(
+                    self.db(
+                        VehicleLocationImportRow.objects.filter(
+                            batch_id=batch.pk
+                        ).exists
+                    )
+                )
+                self.assertTrue(self.db(Vehicle.objects.filter(pk=vehicle.pk).exists))
+                for original in (source.file, artifact.file):
+                    self.assertFalse(original.storage.exists(original.name))

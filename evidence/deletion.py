@@ -1,74 +1,377 @@
-"""Analysis history removed with an explicitly deleted original."""
+"""Exact, case-scoped deletion inventories shared by product and admin."""
 
-from django.contrib.admin.utils import NestedObjects
+import hashlib
+import json
+from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import PurePosixPath
+
+from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
+from django.db.models.deletion import Collector, ProtectedError
+from django.http import StreamingHttpResponse
 
-from analysis.models import AnalysisRun
+from analysis.models import AnalysisRun, CommunicationContext
+from analysis.operations import OPERATIONS
 from cases.permissions import get_case
 
-from .queries import get_evidence
+from .models import (
+    VehicleLocationEvidence,
+    VehicleLocationImport,
+    VehicleLocationImportRow,
+)
+from .queries import get_evidence, same_case_evidence
+from .types import KIND_LABELS, KINDS
+
+CASE_CONFLICT = (
+    "Related material has inconsistent case links. "
+    "Ask an operator to correct them before deleting this evidence."
+)
+CHANGED = (
+    "What will be removed has changed. Review the updated inventory and confirm again."
+)
+SALT = "evidence.deletion-inventory"
+MODEL_KINDS = {model: kind for kind, model in KINDS.items()}
+INVENTORY_LABELS = {
+    "analysisartifact": "Generated file record",
+    "extractedpassage": "Extracted text",
+    "gatewayrequest": "Processing usage",
+    "communicationcontext": "Imported message source context",
+    "callevidenceattachment": "Retained call material",
+}
 
 
-def related_analysis_runs(item, kind):
-    """Include entire multi-source runs and downstream results that depend on them."""
-    runs = AnalysisRun.objects.filter(case_id=item.case_id)
-    selected = runs.filter(
-        inputs__contains=[{"kind": kind, "evidence_id": str(item.pk)}]
+@dataclass
+class DeletionPlan:
+    item: object
+    kind: str
+    collector: Collector
+    entries: list = field(default_factory=list)
+    counts: Counter = field(default_factory=Counter)
+    fingerprint: str = ""
+    blocker: str = ""
+    analysis_count: int = 0
+
+    def revision(self, actor):
+        return signing.dumps(self._identity(actor), salt=SALT)
+
+    def _identity(self, actor):
+        return [
+            str(actor.pk),
+            str(self.item.case_id),
+            self.kind,
+            str(self.item.pk),
+            self.fingerprint,
+        ]
+
+    def matches(self, revision, actor):
+        try:
+            return signing.loads(revision, salt=SALT) == self._identity(actor)
+        except signing.BadSignature, TypeError, ValueError:
+            return False
+
+
+def _analysis_runs(case_id, selections):
+    # Scan retained selections once rather than issue one JSON query for every
+    # observation in a CSV (which can contain 100,000 rows).
+    runs = AnalysisRun.objects.filter(case_id=case_id)
+    snapshots = list(runs.values("pk", "inputs", "result__pk"))
+    ids = {
+        row["pk"]
+        for row in snapshots
+        if any(
+            (source.get("kind"), source.get("evidence_id")) in selections
+            for source in row["inputs"]
+        )
+    }
+    while True:
+        results = {
+            str(row["result__pk"])
+            for row in snapshots
+            if row["pk"] in ids and row["result__pk"]
+        }
+        downstream = {
+            row["pk"]
+            for row in snapshots
+            if any(source.get("result_id") in results for source in row["inputs"])
+        } - ids
+        if not downstream:
+            return runs.filter(pk__in=ids).only("id", "case_id", "operation", "status")
+        ids.update(downstream)
+
+
+def _outside_case(model, objects, case_id):
+    ids = [obj.pk for obj in objects]
+    if not ids:
+        return False
+    scope = "batch__case_id" if model is VehicleLocationImportRow else "case_id"
+    return model.objects.filter(pk__in=ids).exclude(**{scope: case_id}).exists()
+
+
+def _record_rows(model, objects):
+    """Fetch only inventory labels/identities, never original bodies or raw CSV JSON."""
+    fields = {f.name for f in model._meta.fields}
+    wanted = fields.intersection(
+        {
+            "title",
+            "is_archived",
+            "file",
+            "original_filename",
+            "sha256",
+            "audio_sha256",
+            "kind",
+            "operation",
+            "status",
+            "number",
+            "source_row",
+            "batch",
+            "run",
+            "result",
+            "message",
+            "evidence_id",
+        }
     )
-    ids = set(selected.values_list("pk", flat=True))
-    frontier = ids
-    while frontier:
-        result_ids = runs.filter(pk__in=frontier, result__isnull=False).values_list(
-            "result__pk", flat=True
+    return model.objects.filter(pk__in=[obj.pk for obj in objects]).values(
+        "id", *wanted
+    )
+
+
+def _record_name(model, row):
+    if model in MODEL_KINDS:
+        return row["title"] + (" · Archived" if row["is_archived"] else "")
+    if model is AnalysisRun:
+        operation = OPERATIONS.get(row["operation"])
+        return (
+            (operation.label if operation else "Analysis")
+            + " · "
+            + dict(AnalysisRun.Status.choices).get(row["status"], row["status"])
         )
-        condition = Q(pk__in=[])
-        for result_id in result_ids:
-            condition |= Q(inputs__contains=[{"result_id": str(result_id)}])
-        frontier = set(runs.filter(condition).values_list("pk", flat=True)) - ids
-        ids.update(frontier)
-    return runs.filter(pk__in=ids)
+    if model is VehicleLocationImportRow:
+        return f"CSV review row {row['number']} · import {row['batch']}"
+    if model is CommunicationContext:
+        return (
+            f"Imported message context · row {row['source_row']} · "
+            f"message {row['message']}"
+        )
+    if row.get("original_filename"):
+        return row["original_filename"]
+    if row.get("run"):
+        return f"{model._meta.verbose_name} · analysis {row['run']}"
+    if row.get("result"):
+        return f"{model._meta.verbose_name} · result {row['result']}"
+    return str(model._meta.verbose_name).capitalize()
 
 
-def deletion_block_reason(item, runs):
-    """Inspect the actual cascade before displaying potentially private names."""
-    collector = NestedObjects(using=item._state.db)
-    collector.collect([item])
-    if runs:
-        collector.collect(runs)
-    groups = [*collector.data.values(), collector.protected]
-    # SET_NULL updates (for example previous_run) must stay in this case too.
-    for updates in collector.field_updates.values():
-        groups.extend(updates)
-    if not all(
-        getattr(related, "case_id", item.case_id) == item.case_id
-        for group in groups
-        for related in group
+def _case_file(name, case_id):
+    path = PurePosixPath(name)
+    return (
+        "\\" not in name
+        and path.as_posix() == name
+        and ".." not in path.parts
+        and name.startswith(f"evidence/cases/{case_id}/")
+    )
+
+
+def plan_deletion(item, kind):
+    collector = Collector(using=item._state.db, origin=item, force_collection=True)
+    plan = DeletionPlan(item, kind, collector)
+    roots = [(kind, item)]
+    batches = []
+    if kind == "document":
+        batches = list(
+            VehicleLocationImport.objects.filter(document=item).only("id", "case_id")
+        )
+        observations = list(
+            VehicleLocationEvidence.objects.filter(import_batch__in=batches).only(
+                "id", "case_id"
+            )
+        )
+        messages = list(
+            KINDS["text-message"]
+            .objects.filter(communication_context__source_document=item)
+            .only("id", "case_id")
+        )
+        roots.extend(("vehicle-location", obj) for obj in observations)
+        roots.extend(("text-message", obj) for obj in messages)
+    # Check source-linked roots before querying or displaying any private labels.
+    if any(obj.case_id != item.case_id for _, obj in roots) or any(
+        batch.case_id != item.case_id for batch in batches
     ):
-        return (
-            "Related material has inconsistent case links. "
-            "Ask an operator to correct them before deleting this evidence."
+        plan.blocker = CASE_CONFLICT
+        return plan
+    for model in {type(obj) for _, obj in roots}:
+        ids = [obj.pk for _, obj in roots if type(obj) is model]
+        if same_case_evidence(model.objects.filter(pk__in=ids)).count() != len(ids):
+            plan.blocker = CASE_CONFLICT
+            return plan
+    runs = _analysis_runs(item.case_id, {(k, str(obj.pk)) for k, obj in roots})
+    plan.analysis_count = runs.count()
+    try:
+        for model in {type(obj) for _, obj in roots}:
+            collector.collect(
+                [obj for _, obj in roots if type(obj) is model],
+                fail_on_restricted=False,
+            )
+        if batches:
+            collector.collect(batches, fail_on_restricted=False)
+        collector.collect(runs, fail_on_restricted=False)
+    except ProtectedError:
+        plan.blocker = (
+            "Related material has a protected relationship. "
+            "Ask an operator to review it."
         )
-    if collector.protected:
-        return (
-            "This original supports retained imported evidence and cannot be "
-            "deleted individually. An operator must resolve its retained source "
-            "relationships first."
+        return plan
+    # RESTRICT is retained on models. The explicit, confirmed plan includes the
+    # dependent import records and evidence before resolving those restrictions.
+    for model, objects in collector.data.items():
+        collector.clear_restricted_objects_from_set(model, objects)
+    restricted = [
+        obj
+        for fields in collector.restricted_objects.values()
+        for objects in fields.values()
+        for obj in objects
+    ]
+    if restricted:
+        plan.blocker = (
+            "Related material could not be included safely. "
+            "Ask an operator to review its source links."
         )
-    return ""
+        return plan
+    for model, objects in collector.data.items():
+        if _outside_case(model, objects, item.case_id):
+            plan.blocker = CASE_CONFLICT
+            return plan
+    updates = []
+    for (db_field, value), groups in collector.field_updates.items():
+        for group in groups:
+            objects = list(group)
+            if _outside_case(db_field.model, objects, item.case_id):
+                plan.blocker = CASE_CONFLICT
+                return plan
+            removed = {obj.pk for obj in collector.data.get(db_field.model, [])}
+            updates.extend(
+                {
+                    "action": "Update",
+                    "type": str(db_field.model._meta.verbose_name),
+                    "name": f"Clear {db_field.verbose_name} reference",
+                    "id": str(obj.pk),
+                    "field": db_field.name,
+                    "value": value,
+                }
+                for obj in objects
+                if obj.pk not in removed
+            )
+    private_files = []
+    for model, objects in collector.data.items():
+        for row in _record_rows(model, objects):
+            name = _record_name(model, row)
+            label = (
+                KIND_LABELS[MODEL_KINDS[model]] + " evidence"
+                if model in MODEL_KINDS
+                else INVENTORY_LABELS.get(
+                    model._meta.model_name, str(model._meta.verbose_name).capitalize()
+                )
+            )
+            entry = {
+                "action": "Delete record",
+                "type": label,
+                "name": name,
+                "id": str(row["id"]),
+            }
+            plan.entries.append(entry)
+            plan.counts["records"] += 1
+            if row.get("file"):
+                if not _case_file(row["file"], item.case_id):
+                    plan.blocker = CASE_CONFLICT
+                    plan.entries.clear()
+                    return plan
+                private_files.append(row["file"])
+                file_name = row.get("original_filename") or (
+                    "Generated " + row.get("kind", "file").replace("_", " ")
+                )
+                plan.entries.append(
+                    {
+                        "action": "Delete file",
+                        "type": label,
+                        "name": file_name,
+                        "id": str(row["id"]),
+                        "sha256": row.get("audio_sha256") or row.get("sha256", ""),
+                    }
+                )
+                plan.counts["files"] += 1
+    plan.entries.extend(updates)
+    plan.counts["updates"] = len(updates)
+    plan.entries.sort(
+        key=lambda row: (row["action"], row["type"], row["id"], row["name"])
+    )
+    digest = hashlib.sha256()
+    for row in [*plan.entries, *sorted(private_files)]:
+        digest.update(json.dumps(row, sort_keys=True, default=str).encode())
+        digest.update(b"\n")
+    plan.fingerprint = digest.hexdigest()
+    return plan
+
+
+def deletion_review_context(request, plan):
+    reviewed = request.GET.get("review_revision")
+    changed = bool(reviewed and not plan.matches(reviewed, request.user))
+    page = Paginator(plan.entries, 50).get_page(
+        1 if changed else request.GET.get("review_page")
+    )
+    params = request.GET.copy()
+    params.pop("download", None)
+    params["review_revision"] = plan.revision(request.user)
+    links = {}
+    for label, number in (
+        ("previous", page.previous_page_number() if page.has_previous() else None),
+        ("next", page.next_page_number() if page.has_next() else None),
+    ):
+        if number is not None:
+            params["review_page"] = number
+            links[label] = "?" + params.urlencode()
+    params.pop("review_page", None)
+    params["download"] = "manifest"
+    return {
+        "deletion_plan": plan,
+        "deletion_page": page,
+        "deletion_links": links,
+        "deletion_download_url": "?" + params.urlencode(),
+        "deletion_revision": plan.revision(request.user),
+        "inventory_changed": CHANGED if changed and request.method == "GET" else "",
+    }
+
+
+def deletion_manifest_response(plan):
+    payload = {
+        "schema": "pandect.evidence-deletion.v1",
+        "case_id": str(plan.item.case_id),
+        "fingerprint": plan.fingerprint,
+        "evidence_id": str(plan.item.pk),
+        "counts": dict(plan.counts),
+        "entries": plan.entries,
+    }
+    response = StreamingHttpResponse(
+        json.JSONEncoder().iterencode(payload), content_type="application/json"
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="deletion-{plan.item.pk}.json"'
+    )
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @transaction.atomic
-def delete_evidence(actor, case_id, kind, evidence_id):
-    """Authorize and serialize the purge shared by product and admin workflows."""
+def delete_evidence(actor, case_id, kind, evidence_id, *, revision):
     case = get_case(actor, case_id, lock=True)
     if not actor.is_superuser:
         raise PermissionDenied("Only superusers can permanently delete evidence.")
     item = get_evidence(case, kind, evidence_id, lock=True)
-    runs = related_analysis_runs(item, kind)
-    reason = deletion_block_reason(item, runs)
-    if reason:
-        raise ValidationError(reason)
-    runs.delete()
-    item.delete()
+    plan = plan_deletion(item, kind)
+    if plan.blocker:
+        raise ValidationError(plan.blocker)
+    if not plan.matches(revision, actor):
+        raise ValidationError(CHANGED, code="deletion_changed")
+    plan.collector.delete()

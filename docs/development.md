@@ -43,6 +43,12 @@ verification and invitation emails appear in `docker compose logs web`; these
 messages contain private links, so keep development logs private. Production uses
 the configured SMTP mailer instead.
 
+Static assets use WhiteNoise in both the development server and production.
+Debug mode serves source files with immediate cache revalidation; non-debug
+builds use content-hashed filenames from `collectstatic`. Rebuild with `make run`
+after changing templates or static assets in the container workflow. Host-based
+debug development picks up source asset changes without collecting them.
+
 After verification, **All cases → Create case** creates a case owned by you.
 Inside it, use **Add evidence** to upload files, capture original text, or
 record locations and communications, **People → Add person** for contact details/notes,

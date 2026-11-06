@@ -1,5 +1,6 @@
 UV ?= uv
 RUN = $(UV) run --locked
+TEST_SETTINGS ?= config.test_settings
 
 .PHONY: sync run lint format test validate check security-check compose-smoke browser-check
 
@@ -18,10 +19,10 @@ format:
 	$(RUN) ruff format .
 
 test:
-	$(RUN) python manage.py test
+	$(RUN) python manage.py test --settings=$(TEST_SETTINGS)
 
 browser-check:
-	$(RUN) python manage.py test config.tests.browser config.marketing_browser analysis.browser analysis.context_browser cases.map_browser --noinput
+	$(RUN) python manage.py test config.tests.browser config.marketing_browser analysis.browser analysis.context_browser cases.map_browser --noinput --settings=$(TEST_SETTINGS)
 
 validate:
 	$(UV) lock --check

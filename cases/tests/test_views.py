@@ -101,6 +101,40 @@ class CaseInterfaceTests(TestCase):
         self.assertEqual(summary["archived_evidence_count"], 0)
         self.assertEqual(summary["recent_evidence"], [])
 
+    def test_settings_keeps_actionable_invitations_outside_history(self):
+        now = timezone.now()
+        invitations = {}
+        for state, values in (
+            ("pending", {}),
+            ("failed", {"delivery_failed": True}),
+            ("expired", {"expires_at": now - timedelta(days=1)}),
+            ("accepted", {"accepted_at": now, "accepted_by": self.invitee}),
+            ("revoked", {"revoked_at": now}),
+        ):
+            invitations[state] = CaseInvitation.objects.create(
+                case=self.case,
+                email=f"{state}@example.com",
+                invited_by=self.owner,
+                token_digest=hashlib.sha256(state.encode()).hexdigest(),
+                **{"expires_at": now + timedelta(days=1), **values},
+            )
+        self.login()
+        response = self.client.get(self.url("case_settings"))
+        self.assertCountEqual(
+            response.context["pending_invitations"],
+            [invitations[state] for state in ("pending", "failed", "expired")],
+        )
+        self.assertCountEqual(
+            response.context["invitation_history"],
+            [invitations[state] for state in ("accepted", "revoked")],
+        )
+        self.assertContains(response, "Invitation history (2)")
+        for state in ("pending", "failed", "expired"):
+            self.assertContains(
+                response,
+                self.url("invitation_resend", self.case.pk, invitations[state].pk),
+            )
+
     def test_empty_posts_show_required_errors_without_mutating_records(self):
         invitation, _ = self.invite()
         urls = (

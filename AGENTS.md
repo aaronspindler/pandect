@@ -16,6 +16,8 @@ and relationship analysis, timelines, maps, annotations, and reporting. These ar
 capabilities to build incrementally, not claims about what already exists.
 
 - Design around an investigator's task and next useful action.
+- Lead routine workflows with evidence and analysis. Keep optional source metadata,
+  descriptions, and notes available through progressive disclosure.
 - Use clear language, consistent navigation, thoughtful defaults, and progressive
   disclosure. Make advanced capabilities discoverable without overwhelming routine
   work.
@@ -56,9 +58,9 @@ best practices and standards in every change. Do not overengineer the project.
   substitute for clear behavior and sound engineering.
 
 Before handing changes back to the user, the implementing agent must invoke
-[`simplicity_reviewer`](.codex/agents/simplicity_reviewer.toml) after implementation
-and relevant validation. Give it the task requirements and final scoped diff,
-including new files, while excluding unrelated existing changes. Wait for its
+the shared Agentics [`simplicity_reviewer`](https://github.com/aaronspindler/agentics)
+after implementation and relevant validation. Give it the task requirements and
+final scoped diff, including new files, while excluding unrelated existing changes. Wait for its
 findings, resolve material issues within scope, and rerun affected checks and
 review after substantive fixes. Report any remaining findings or inability to run
 the review honestly. The reviewer returns findings directly and does not invoke
@@ -282,8 +284,11 @@ path must do so too. Owners/editors archive or restore individual evidence.
 Superusers with current case access may explicitly confirm individual deletion
 from evidence Details, including dependent analysis and retained files. The scoped
 Django admin also permits this for active staff superusers. Keep individual
-deletion disabled for ordinary investigators/staff and preserve import-source
-protections. Owners may still confirm whole-case deletion.
+deletion disabled for ordinary investigators/staff. Superuser deletion of a source
+document includes its imported observations/messages, import records, and dependent
+analysis/files. Show the complete inventory and bind confirmation to it; changes
+require another review. Preserve case isolation and post-commit file cleanup.
+Owners may still confirm whole-case deletion.
 Communication evidence requires same-case sender/recipient people. Its originals
 are immutable; owners/editors may append retained call transcripts/audio with
 independent attribution/checksums, never replace earlier content. Read

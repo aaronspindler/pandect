@@ -261,6 +261,8 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     page.get_by_role("heading", name="Work · Alex Example", exact=True)
                 ).to_be_visible()
                 self.capture(page, engine, "poi-detail-no-js")
+                page.locator("summary").filter(has_text="Record details").focus()
+                page.locator("summary").filter(has_text="Record details").press("Enter")
                 page.get_by_role("link", name="Delete POI", exact=True).click()
                 page.get_by_label(
                     "I understand this permanently deletes this POI.", exact=True
@@ -332,6 +334,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 ) as queued:
                     page.goto(self.map_url)
                 self.assertEqual(queued.value.status, 200)
+                page.locator(".map-search > summary").click()
                 page.get_by_label("Search locations").focus()
 
                 def work():
@@ -627,6 +630,33 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                                 )
                             ).to_be_visible()
                         self.capture(page, engine, f"map-fallback-js-{javascript}")
+                        expect(page.get_by_label("Search locations")).to_be_hidden()
+                        search_toggle = page.locator(".map-search > summary")
+                        search_toggle.focus()
+                        search_toggle.press("Enter")
+                        page.get_by_label("Search locations").fill("Harbour")
+                        page.get_by_label("Evidence type", exact=True).select_option(
+                            "location"
+                        )
+                        page.get_by_label("Status", exact=True).select_option("all")
+                        page.get_by_role("button", name="Apply filters").click()
+                        expect(page.locator(".map-search")).to_have_attribute(
+                            "open", ""
+                        )
+                        expect(search_toggle).to_contain_text("Applied")
+                        expect(page.get_by_label("Search locations")).to_have_value(
+                            "Harbour"
+                        )
+                        expect(
+                            page.get_by_label("Evidence type", exact=True)
+                        ).to_have_value("location")
+                        expect(page.get_by_label("Status", exact=True)).to_have_value(
+                            "all"
+                        )
+                        expect(page.locator(".map-location-list > li")).to_have_count(2)
+                        self.capture(page, engine, f"map-filters-js-{javascript}")
+                        page.get_by_role("link", name="Clear filters").click()
+                        expect(page.get_by_label("Search locations")).to_be_hidden()
                         page.get_by_role(
                             "link", name="Harbour entrance", exact=True
                         ).click()

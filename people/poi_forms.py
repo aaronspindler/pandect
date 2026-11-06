@@ -31,7 +31,7 @@ class PointOfInterestForm(forms.ModelForm):
             "kind": "POI type",
             "custom_label": "Custom label",
             "source": "Source / citation",
-            "notes": "Investigator notes",
+            "notes": "Notes",
         }
         widgets = {
             "latitude": forms.NumberInput(attrs={"step": "0.000001"}),

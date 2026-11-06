@@ -34,6 +34,44 @@ class AuthenticationTests(TestCase):
             self.client.get(reverse("account_email")).wsgi_request.user, self.user
         )
 
+    def test_primary_verified_email_has_no_redundant_management_actions(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("account_email"))
+        self.assertContains(response, self.user.email)
+        self.assertContains(response, 'name="action_add"')
+        for action in ("action_primary", "action_send", "action_remove"):
+            self.assertNotContains(response, f'name="{action}"')
+
+    def test_secondary_email_controls_preserve_allauth_verification_and_actions(self):
+        self.client.force_login(self.user)
+        secondary = EmailAddress.objects.create(
+            user=self.user, email="secondary@example.com"
+        )
+        url = reverse("account_email")
+        response = self.client.get(url)
+        for action in ("action_send", "action_remove"):
+            self.assertContains(response, f'name="{action}"', count=1)
+        self.assertNotContains(response, 'name="action_primary"')
+        self.assertContains(response, "Remove secondary@example.com from your account?")
+        self.client.post(url, {"email": secondary.email, "action_send": ""})
+        self.assertEqual(mail.outbox[-1].to, [secondary.email])
+        self.client.post(url, {"email": secondary.email, "action_primary": ""})
+        secondary.refresh_from_db()
+        self.assertFalse(secondary.primary)
+        secondary.verified = True
+        secondary.save(update_fields=["verified"])
+        response = self.client.get(url)
+        self.assertContains(response, 'name="action_primary"', count=1)
+        self.assertNotContains(response, 'name="action_send"')
+        self.client.post(url, {"email": secondary.email, "action_primary": ""})
+        secondary.refresh_from_db()
+        self.assertTrue(secondary.primary)
+        self.client.post(url, {"email": self.user.email, "action_remove": ""})
+        self.assertFalse(
+            EmailAddress.objects.filter(user=self.user, email=self.user.email).exists()
+        )
+        self.assertTrue(EmailAddress.objects.filter(pk=secondary.pk).exists())
+
     def test_incorrect_password_does_not_create_session(self):
         response = self.client.post(
             reverse("account_login"),

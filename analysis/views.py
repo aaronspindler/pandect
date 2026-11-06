@@ -169,6 +169,16 @@ def current_report(request, case_id, name):
     if name not in {"calls", "vehicle-coverage", "vehicle-speed", "duplicates"}:
         raise Http404("Report not found.")
     form = ReportForm(request.GET or None, case=case, report_name=name)
+    filters_applied = request.GET.get("state", "active") != "active" or any(
+        request.GET.get(field)
+        for field in (
+            "start",
+            "end",
+            "vehicle_id",
+            "participant_id",
+            "other_participant_id",
+        )
+    )
     data = None
     if not form.is_bound or form.is_valid():
         values = form.cleaned_data if form.is_bound else {"state": "active"}
@@ -187,7 +197,13 @@ def current_report(request, case_id, name):
         render(
             request,
             "analysis/report.html",
-            _context(request, case) | {"form": form, "data": data, "name": name},
+            _context(request, case)
+            | {
+                "form": form,
+                "data": data,
+                "name": name,
+                "filters_applied": filters_applied,
+            },
         )
     )
 
@@ -514,6 +530,9 @@ def detail(request, case_id, run_id):
             case=case, run=run, run__case=case
         ).first()
         if result is not None:
+            reviews = list(
+                result.reviews.filter(case=case).select_related("reviewed_by")
+            )
             finding_page = Paginator(
                 result.data.get("items", []), FINDINGS_PER_PAGE
             ).get_page(request.GET.get("page"))
@@ -531,8 +550,9 @@ def detail(request, case_id, run_id):
                     offset=(finding_page.number - 1) * FINDINGS_PER_PAGE,
                 ),
                 "finding_page": finding_page,
-                "reviews": result.reviews.filter(case=case).select_related(
-                    "reviewed_by"
+                "reviews": reviews,
+                "latest_result_review": next(
+                    (review for review in reviews if review.item_index is None), None
                 ),
                 "reference_snapshots": result.artifacts.filter(
                     case=case, kind=AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE

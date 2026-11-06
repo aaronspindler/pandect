@@ -20,6 +20,13 @@ shows newer saved values alongside the preserved draft and requires explicit
 form. Case reassignment, identity verification, and automatic merging are not
 supported.
 
+The detail page keeps contact details and POIs visible. **Record details** reveals
+optional notes, name components, timestamps, and the owner's
+**Delete person** action. Empty notes and repeated name fields do not occupy the
+main reading area. Contact details show only populated values; when none are
+recorded, a single message replaces the empty field labels. A concise caption
+keeps the record's unverified status visible beside its title.
+
 Only the owner can delete an individual person, after a separate named-target
 confirmation. Deleting an unlinked person retains evidence, login accounts, and
 other people with matching contacts. A person referenced by retained
@@ -43,7 +50,9 @@ Owners and editors can inspect, edit, and confirm deletion of POIs. Viewers have
 read-only access. Edits detect newer saved changes and preserve the proposed
 values for explicit review. Each person has a paginated POI list (25 per page);
 the case map plots its current POI page with distinct diamond markers. POIs
-retain creator and creation/update times, but no versioned history. Deleting
+retain creator and creation/update times, but no versioned history. On a POI
+detail page, **Record details** reveals those timestamps and the editor's
+**Delete POI** action. Deleting
 a person also deletes their POIs; the confirmation explains this consequence.
 They do not add another restriction on person deletion.
 
@@ -86,7 +95,8 @@ not a versioned evidence or identity-assertion history.
 
 After creating a case, open `/admin/` and choose **People → Add person**. Choose
 an owned case or one where you are an editor, enter at least one identifying
-field, and save. Existing records have read-only case and timestamp fields. Case
+field, and save. Existing records have read-only case and timestamp fields. **Record dates** is
+an expandable Django admin fieldset. Case
 reassignment is not supported in admin, including to another case you own.
 
 Active staff status and ordinary Django model permissions are required in addition

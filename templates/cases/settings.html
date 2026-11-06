@@ -1,11 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Case settings · {{ case.name }}{% endblock %}
 {% block content %}
+<div class="detail-layout">
 <div class="page-header">
 <div>
-<p class="eyebrow">{{ case.name }}</p>
 <h1>Case settings</h1>
-<p class="muted">Manage details and access. You are the case owner.</p>
 </div>
 </div>
 <section class="content-section" aria-labelledby="case-details-heading">
@@ -34,7 +33,6 @@
 <div class="section-header">
 <div>
 <h2 id="collaborators-heading">Collaborators</h2>
-<p class="muted prose">Viewers inspect material. Editors can also add and edit people, vehicles, and evidence, and archive or restore evidence.</p>
 </div>
 <a class="button" href="{% url 'cases:invitation_create' case.pk %}">Invite collaborator</a>
 </div>
@@ -62,11 +60,11 @@
 {% endfor %}
 </div>
 </section>
+{% if pending_invitations %}
 <section class="content-section" aria-labelledby="invitations-heading">
 <h2 id="invitations-heading">Invitations</h2>
-{% if invitations %}
 <div class="record-list">
-{% for invitation in invitations %}
+{% for invitation in pending_invitations %}
 <div class="record-row">
 <div>
 <strong>{{ invitation.email }}</strong>
@@ -86,13 +84,24 @@
 </div>
 {% endfor %}
 </div>
-{% else %}
-<p class="muted">No invitations have been sent.</p>
-{% endif %}
 </section>
-<section class="danger-section" aria-labelledby="delete-heading">
-<h2 id="delete-heading">Delete this case</h2>
+{% endif %}
+{% if invitation_history %}
+<details class="disclosure">
+<summary>Invitation history ({{ invitation_history|length }})</summary>
+<div class="disclosure-body record-list">
+{% for invitation in invitation_history %}
+<div class="record-row"><div><strong>{{ invitation.email }}</strong><p class="muted">{{ invitation.get_role_display }} · {{ invitation.status }}</p></div></div>
+{% endfor %}
+</div>
+</details>
+{% endif %}
+<details class="disclosure">
+<summary>Delete this case</summary>
+<div class="disclosure-body">
 <p class="prose">Permanently remove this case, its people, vehicles, and all retained evidence, including archived originals. There is no in-app undo.</p>
 <a class="button button-danger" href="{% url 'cases:case_delete' case.pk %}">Delete case…</a>
-</section>
+</div>
+</details>
+</div>
 {% endblock %}

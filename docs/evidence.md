@@ -6,6 +6,29 @@ many records of each type. There is no global evidence pool or concrete shared
 evidence table: `Evidence`, `FileEvidence`, `LocationContent`, `CommunicationEvidence`, and
 `CallEvidence` are abstract Django models.
 
+## Reading and editing evidence
+
+The Original tab keeps the retained content and, when supplied, a concise source
+line visible. Investigator descriptions, full uploader/time attribution, checksums,
+and editable source metadata are in Details. Record history and integrity open on
+request. Unrecorded optional fields do not fill the reader with placeholders.
+Location originals omit empty optional values and group coordinates together;
+imported vehicle observations keep exact CSV cells, receipt time, export timezone
+and parser version in **Original CSV row and interpretation**. The import link and
+source row remain visible beside the observation.
+
+On add forms, Title and original content remain visible. **Description and source
+details** holds the optional description, source, source URL, source description,
+collection time and any declared technical fields. It opens
+for edits and validation errors, preserving entered values. These native sections
+work without JavaScript. Collection **Filters** also opens automatically when
+a non-default type/state filter is applied.
+
+The reader orders its sections **Original**, **Analysis**, **Details**. Owners and
+editors can choose **Analyze evidence** beside the original to open its local
+analysis controls and results. Download stays available beside it. File content
+type declarations open under **File details** in Details.
+
 ## Investigator workflow
 
 Inside a case, owners and editors choose **Add evidence** and select Document,
@@ -18,14 +41,14 @@ to preserve a text file's exact bytes, upload the file as a Document instead.
 Browser textareas may normalize line endings, but the server does not trim or
 normalize received original text.
 
-Owners and editors can choose **Bulk add files** from the case overview,
-Evidence collection, or Add evidence form. Select or drop documents, images,
+Owners and editors can choose **Bulk add files** from the Add evidence form.
+Select or drop documents, images,
 and audio together, then review titles, suggested categories, and source details.
 **Add more files** appends to the queue without replacing entries or edits.
 Filenames supply initial titles; browser-declared image/audio types suggest a
 category, with Document as the fallback. These suggestions do not verify format.
 
-Expand **Shared source details** to enter a source name, URL, description, and
+The file picker comes first. Expand **Shared source details** to enter a source name, URL, description, and
 collection time once. Changes follow pending files unless that individual field
 has been edited, including cleared. **Use shared details** restores an entry's
 shared source fields without changing its investigator description. Saved and
@@ -81,8 +104,14 @@ Superusers with current case access can choose **Delete evidence** in the
 derived-file removal, and requires an explicit checkbox before **Permanently
 delete evidence**. **Cancel** returns to Details with collection filters retained;
 success returns to the filtered collection. It works without JavaScript and does
-not require staff status or opening Django admin. Protected import sources and
-inconsistent case links show a recovery message instead of a delete form.
+not require staff status or opening Django admin. The confirmation inventories
+the source, imported evidence and review records,
+analysis, and stored files, with record identifiers and filenames/checksums.
+Inventories show 50 entries per page and offer a complete private JSON download.
+The signed confirmation is bound to the current user, case, target, and inventory;
+new imports, results, or files require reviewing the refreshed inventory and
+checking confirmation again. Inconsistent case links show a recovery message
+instead of disclosing or deleting foreign material.
 The same deletion is also available in the scoped Django admin, as described below.
 
 Open **Analysis** from an evidence record; owners/editors can choose
@@ -311,6 +340,12 @@ selected case, with mismatches rejected on the server. Product and admin forms
 share file/text limit validation, and original text and addresses are preserved
 without trimming.
 
+The title, description, source name, and original are visible by default. Expand
+**Additional source details** for the source URL, source description, and
+collection date. Validation errors keep affected fields visible. Declared
+metadata, imported source values, and integrity attribution use separate native
+disclosures; retention controls remain visible.
+
 Existing originals, case, uploader, checksum, submission ID, and generated
 timestamps are read-only. Declared technical metadata remains editable. Change
 **Is archived** to archive or restore; the server records the operator and time of
@@ -330,19 +365,24 @@ Multi-source analysis is removed in full; downstream analysis depending on its
 results is also removed. Other source originals, people, vehicles, and unrelated
 analysis remain. Both active and archived evidence can be deleted. GET only
 shows the confirmation; deletion requires a CSRF-protected POST. Both the
-product and admin workflows record the deletion in Django admin history and use
-the same authorized, case-locked deletion service. Staff model permissions alone
+product and admin workflows use the same inventory, record the deletion in Django
+admin history, and use the same authorized, case-locked deletion service. Staff model permissions alone
 never grant this ability.
 Superusers still cannot discover or delete material from cases they cannot access.
 Bulk actions remain disabled. The complete deletion cascade is checked before
 private names are displayed and again under the case lock. Inconsistent case links
 in attachments or analysis records block deletion without exposing foreign material.
 
-Source documents referenced by retained vehicle-location imports or imported
-communication context remain protected by the existing provenance relationships.
-The confirmation explains the block; use trusted operator maintenance to remove
-the dependent import records, or owner-confirmed whole-case deletion. It never
-silently detaches retained observations from their source. No migration is needed.
+Superusers can also confirm deletion of source documents used by vehicle-location
+CSV imports or communication exports. The explicit deletion plan includes every
+imported observation/message, import batch, staged review row, communication
+context, and dependent analysis result/file. Archived derivatives are included.
+People, vehicles, and unrelated source originals are retained, even when they
+contributed to a multi-source analysis being removed. References from retained
+analysis to removed prior runs are cleared and listed as updates in the inventory.
+The source and all included dependents are deleted in one database transaction;
+existing model-level RESTRICT links still protect unplanned maintenance deletes.
+No schema migration is needed.
 
 Deletion serializes with analysis publication using the case lock. Queued jobs
 for removed runs become harmless no-ops, and a running job cannot publish a new

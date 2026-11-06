@@ -52,6 +52,15 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
             f"admin:evidence_{item._meta.model_name}_{action}", args=[item.pk]
         )
 
+    def confirmation(self, item):
+        response = self.client.get(self.url(item))
+        revision = (
+            response.context.get("deletion_revision", "")
+            if response.status_code == 200
+            else ""
+        )
+        return {"post": "yes", "revision": revision}
+
     def analysis(self, item, *, inputs=None):
         kind = next(k for k, model in KINDS.items() if isinstance(item, model))
         run = AnalysisRun.objects.create(
@@ -128,7 +137,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
                 self.assertContains(response, item.title)
                 self.assertTrue(model.objects.filter(pk=item.pk).exists())
                 with self.captureOnCommitCallbacks(execute=True):
-                    response = self.client.post(url, {"post": "yes"})
+                    response = self.client.post(url, self.confirmation(item))
                     for original in files:
                         self.assertTrue(original.storage.exists(original.name))
                 self.assertEqual(response.status_code, 302)
@@ -198,7 +207,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         self.assertNotContains(response, str(unrelated.pk))
         self.assertNotContains(response, str(other_case.pk))
         with self.captureOnCommitCallbacks(execute=True):
-            self.client.post(self.url(item), {"post": "yes"})
+            self.client.post(self.url(item), self.confirmation(item))
         self.assertFalse(
             AnalysisRun.objects.filter(
                 pk__in=[first.pk, downstream.pk, queued.pk]
@@ -236,7 +245,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         )
 
         def finish_after_delete(sources, parameters):
-            response = self.client.post(self.url(item), {"post": "yes"})
+            response = self.client.post(self.url(item), self.confirmation(item))
             self.assertEqual(response.status_code, 302)
             return {"summary": "Derived content", "items": []}
 
@@ -254,7 +263,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         self.assertEqual(self.client.get(self.url(item)).status_code, 200)
         self.membership.delete()
         self.assertEqual(
-            self.client.post(self.url(item), {"post": "yes"}).status_code, 302
+            self.client.post(self.url(item), self.confirmation(item)).status_code, 302
         )
         self.assertTrue(DocumentEvidence.objects.filter(pk=item.pk).exists())
         self.assertTrue(item.file.storage.exists(item.file.name))
@@ -270,14 +279,17 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
                 )
                 self.client.force_login(user)
                 self.assertEqual(
-                    self.client.post(self.url(item), {"post": "yes"}).status_code, 403
+                    self.client.post(
+                        self.url(item), self.confirmation(item)
+                    ).status_code,
+                    403,
                 )
         self.assertTrue(type(item).objects.filter(pk=item.pk).exists())
 
     def test_superuser_cannot_delete_cross_case_objects_or_use_bulk_delete(self):
         item = self.create_evidence(DocumentEvidence, case=self.other_case)
         self.assertEqual(self.client.get(self.url(item)).status_code, 302)
-        self.client.post(self.url(item), {"post": "yes"})
+        self.client.post(self.url(item), self.confirmation(item))
         own = self.create_evidence(DocumentEvidence)
         response = self.client.post(
             reverse("admin:evidence_documentevidence_changelist"),
@@ -298,19 +310,16 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         self.assertEqual(client.post(self.url(item), {"post": "yes"}).status_code, 403)
         self.assertTrue(DocumentEvidence.objects.filter(pk=item.pk).exists())
 
-    def test_protected_import_source_keeps_its_file_and_analysis(self):
+    def test_import_source_deletion_includes_its_import_and_analysis(self):
         item = self.create_evidence(DocumentEvidence)
         VehicleLocationImport.objects.create(
             case=self.case, uploaded_by=item.uploaded_by, document=item, timezone="UTC"
         )
         run, _, artifact = self.analysis(item)
-        response = self.client.post(self.url(item), {"post": "yes"})
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context["protected"])
-        self.assertTrue(DocumentEvidence.objects.filter(pk=item.pk).exists())
-        self.assertTrue(AnalysisRun.objects.filter(pk=run.pk).exists())
-        self.assertTrue(artifact.storage.exists(artifact.name))
-        self.assertTrue(item.file.storage.exists(item.file.name))
+        response = self.client.post(self.url(item), self.confirmation(item))
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(DocumentEvidence.objects.filter(pk=item.pk).exists())
+        self.assertFalse(AnalysisRun.objects.filter(pk=run.pk).exists())
 
     def test_foreign_case_call_attachment_is_never_disclosed_or_deleted(self):
         item = self.create_evidence(KINDS["phone-call"])
@@ -362,7 +371,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
             with self.subTest(model=type(child).__name__):
                 type(child).objects.filter(pk=child.pk).update(case=self.other_case)
                 with self.captureOnCommitCallbacks(execute=True) as callbacks:
-                    response = self.client.post(self.url(item), {"post": "yes"})
+                    response = self.client.post(self.url(item), self.confirmation(item))
                 self.assertContains(response, "inconsistent case links")
                 self.assertEqual(callbacks, [])
                 self.assertTrue(type(child).objects.filter(pk=child.pk).exists())
@@ -383,7 +392,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         with patch(
             "evidence.deletion.get_case", side_effect=corrupt_after_confirmation
         ):
-            response = self.client.post(self.url(item), {"post": "yes"})
+            response = self.client.post(self.url(item), self.confirmation(item))
         self.assertEqual(response.status_code, 403)
         self.assertTrue(DocumentEvidence.objects.filter(pk=item.pk).exists())
         self.assertTrue(AnalysisRun.objects.filter(pk=run.pk).exists())
@@ -394,7 +403,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         run, _, artifact = self.analysis(item)
         with self.captureOnCommitCallbacks(execute=True) as callbacks:
             with transaction.atomic():
-                self.client.post(self.url(item), {"post": "yes"})
+                self.client.post(self.url(item), self.confirmation(item))
                 transaction.set_rollback(True)
         self.assertEqual(callbacks, [])
         self.assertTrue(DocumentEvidence.objects.filter(pk=item.pk).exists())
@@ -418,7 +427,7 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
             self.assertLogs("evidence.signals", level="ERROR") as logs,
         ):
             with self.captureOnCommitCallbacks(execute=True):
-                self.client.post(self.url(item), {"post": "yes"})
+                self.client.post(self.url(item), self.confirmation(item))
         self.assertFalse(DocumentEvidence.objects.filter(pk=item.pk).exists())
         self.assertFalse(artifact.storage.exists(artifact.name))
         self.assertIn(item.file.name, logs.output[0])

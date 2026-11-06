@@ -8,15 +8,12 @@
 
 {% block delete_confirm %}
   <p>This permanently deletes the evidence, its original files, retained call material, and related analysis, reviews, and generated files. Analysis using several sources is removed in full, including downstream analysis that depends on it. This cannot be undone.</p>
-  <p>Are you sure you want to delete “{{ escaped_object }}”? The following records will be deleted:</p>
-  {% include "admin/includes/object_delete_summary.html" %}
-  {% if delete_confirmation_max_display is None or delete_confirmation_max_display > 0 %}
-    <h2>Objects</h2>
-    <ul id="deleted-objects">{{ deleted_objects|truncated_unordered_list:delete_confirmation_max_display }}</ul>
-  {% endif %}
+  {% if deletion_changed %}<p role="alert">{{ deletion_changed }}</p>{% endif %}
+  {% include "evidence/deletion_inventory.html" %}
   <form method="post">
     {% csrf_token %}
     <input type="hidden" name="post" value="yes">
+    <input type="hidden" name="revision" value="{{ deletion_revision }}">
     {% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
     {% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
     <input type="submit" value="Permanently delete evidence">
@@ -26,6 +23,6 @@
 {% endblock %}
 
 {% block delete_protected %}
-  <p>Resolve the protected source relationships before trying again. An operator may need to correct inconsistent case links or remove dependent import records.</p>
+  <p>Ask an operator to correct inconsistent case links before trying again.</p>
   {{ block.super }}
 {% endblock %}
