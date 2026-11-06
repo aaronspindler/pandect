@@ -1,11 +1,15 @@
-"""Resume a case invitation after allauth sign-in or email verification."""
+"""Control registration and resume case invitations after authentication."""
 
 import re
 
 from allauth.account.adapter import DefaultAccountAdapter
+from django.conf import settings
 
 
 class PandectAccountAdapter(DefaultAccountAdapter):
+    def is_open_for_signup(self, request):
+        return settings.PANDECT_ALLOW_SIGNUPS
+
     def pending_invitation(self, request):
         path = request.session.get("pending_invitation_path", "")
         if isinstance(path, str) and re.fullmatch(

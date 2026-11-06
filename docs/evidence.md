@@ -108,6 +108,8 @@ not require staff status or opening Django admin. The confirmation inventories
 the source, imported evidence and review records,
 analysis, and stored files, with record identifiers and filenames/checksums.
 Inventories show 50 entries per page and offer a complete private JSON download.
+The download uses `application/octet-stream` with its `.json` filename so browsers
+save the inventory consistently instead of displaying it inline.
 The signed confirmation is bound to the current user, case, target, and inventory;
 new imports, results, or files require reviewing the refreshed inventory and
 checking confirmation again. Inconsistent case links show a recovery message
@@ -297,8 +299,6 @@ Original downloads use `application/octet-stream` with an attachment filename so
 browsers save them consistently, including Linux WebKit. Location, communication,
 and call-attachment records keep their `.json` filenames and canonical bytes;
 captured text and transcripts keep their `.txt` filenames and UTF-8 bytes.
-Deletion-inventory exports use the same attachment type and keep their `.json`
-filenames and JSON contents.
 
 Retained person-location evidence restricts individual person deletion,
 including when archived. This protects the original association. Confirmed

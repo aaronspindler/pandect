@@ -14,6 +14,7 @@
   status.textContent = "Loading map…";
   const map = L.map(canvas, { center: [20, 0], zoom: 2, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false, worldCopyJump: true });
   const fit = () => {
+    map.invalidateSize({ pan: false });
     if (points.length) {
       map.fitBounds(points.map((point) => [point.latitude, point.longitude]), { padding: [32, 32], maxZoom: 16, animate: false });
     } else {
@@ -164,6 +165,7 @@
     button.addEventListener("click", () => {
       const selected = markers.get(button.dataset.mapShow);
       if (!selected) return;
+      map.invalidateSize({ pan: false });
       map.fitBounds(selected.map((marker) => marker.getLatLng()), { padding: [32, 32], maxZoom: 16, animate: false });
       selected[0].openPopup();
       canvas.scrollIntoView({ block: "center" });

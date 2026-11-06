@@ -403,9 +403,12 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 expect(show).to_be_visible()
                 page.unroute(queue_url)
                 page.unroute(self.map_url)
-                # Reserve space as a scrollbar or containing layout can.
+                # Change the container before Leaflet receives a window resize.
                 page.locator("#investigation-map").evaluate(
-                    "node => node.style.width = 'calc(100% - 32px)'"
+                    """node => {
+                        node.style.width = "calc(100% - 32px)";
+                        node.style.height = "22rem";
+                    }"""
                 )
                 show.click()
                 for width, height in (
