@@ -353,7 +353,7 @@ def deletion_manifest_response(plan):
         "entries": plan.entries,
     }
     response = StreamingHttpResponse(
-        json.JSONEncoder().iterencode(payload), content_type="application/json"
+        json.JSONEncoder().iterencode(payload), content_type="application/octet-stream"
     )
     response["Content-Disposition"] = (
         f'attachment; filename="deletion-{plan.item.pk}.json"'
