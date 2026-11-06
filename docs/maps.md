@@ -61,8 +61,15 @@ citations, filter by evidence type or include archived material. Filters and pag
 are in the URL; each page contains at most 100 observations, newest additions
 first. Only the current page is plotted. The map and its configured background
 tiles load automatically when the page opens. Zoom/pan last for the current page.
+**Search and filters** keeps search, type and archive controls together in one
+native disclosure. It starts closed so the map is prominent, and opens when a
+query or nondefault filter is active. **Apply filters** submits the current
+selection with or without JavaScript. The map toolbar shows
+mapped coverage and links to available lists. An empty POI list is omitted unless
+a search is active; **Add POI** remains available in the page header.
 The compact **Map details** disclosure contains keyboard help, source limitations
-and the evidence privacy explanation.
+and the evidence privacy explanation, along with POI placement and list-filter
+guidance.
 
 Address-only observations use the configured **local** geocoder. When an owner
 or editor opens a map page, JavaScript queues missing address lookups and updates
@@ -167,8 +174,8 @@ capacity.
 Use the documented local PostgreSQL test setup:
 
 ```sh
-uv run --locked --env-file .env python manage.py test cases.tests.test_map cases.tests.test_map_geocoding config.tests.test_product_access --noinput
-uv run --locked --env-file .env python manage.py test cases.map_browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings cases.tests.test_map cases.tests.test_map_geocoding config.tests.test_product_access --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings cases.map_browser --noinput
 ```
 
 The browser journey uses synthetic locations and mocked tile responses in

@@ -1,5 +1,12 @@
 (() => {
   "use strict";
+  const caseNavigation = document.querySelector(".case-navigation");
+  if (caseNavigation) {
+    const compactNavigation = window.matchMedia("(max-width: 63.999rem)");
+    const resizeNavigation = () => { caseNavigation.open = !compactNavigation.matches; };
+    resizeNavigation();
+    compactNavigation.addEventListener("change", resizeNavigation);
+  }
   const announce = (message) => {
     const region = document.querySelector("[data-global-status]");
     if (region) region.textContent = message;
@@ -80,6 +87,7 @@
   const maxFiles = Number(form.dataset.maxBatchFiles);
   const fields = Array.from(form.querySelectorAll(".field"));
   const fileField = fileInput.closest(".field");
+  const additionalDetails = form.querySelector("[data-additional-evidence-details]");
   const csrf = form.querySelector('[name="csrfmiddlewaretoken"]').value;
   const bulk = form.hasAttribute("data-bulk-upload");
   const sharedDetails = form.querySelector("[data-shared-details]");
@@ -187,7 +195,7 @@
     entry.inputs.push(select); category.append(select); basic.append(category); entry.node.append(basic);
     const details = element("details", null);
     details.append(element("summary", "Description and source details"));
-    inputField(details, entry, "description", "Investigator description", "textarea", defaults.description);
+    inputField(details, entry, "description", "Description", "textarea", defaults.description);
     inputField(details, entry, "source", "Source", "text", defaults.source);
     inputField(details, entry, "source_description", "Source description", "textarea", defaults.source_description);
     inputField(details, entry, "source_url", "Source URL", "url", defaults.source_url);
@@ -244,7 +252,10 @@
     if (!bulk) {container.replaceChildren(); entries = [];}
     entries.push(...selected.map((file) => renderEntry(file, defaults)));
     section.hidden = !entries.length;
-    if (!bulk) fields.filter((field) => field !== fileField).forEach((field) => {field.hidden = Boolean(entries.length);});
+    if (!bulk) {
+      fields.filter((field) => field !== fileField).forEach((field) => {field.hidden = Boolean(entries.length);});
+      if (additionalDetails) additionalDetails.hidden = Boolean(entries.length);
+    }
     form.noValidate = Boolean(entries.length);
     submit.textContent = entries.length > 1 ? "Upload files" : "Upload file";
     overall.textContent = `${entries.length} file${entries.length === 1 ? "" : "s"} in this batch; ${entries.filter((entry) => entry.state === "added").length} added. Review titles and suggested categories before uploading.`;

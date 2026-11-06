@@ -30,7 +30,13 @@ from analysis.search import derived_content_condition, derived_text_matches
 from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
 
-from .deletion import delete_evidence, deletion_block_reason, related_analysis_runs
+from .deletion import (
+    CHANGED,
+    delete_evidence,
+    deletion_manifest_response,
+    deletion_review_context,
+    plan_deletion,
+)
 from .forms import (
     CALL_KINDS,
     COMMON_FIELDS,
@@ -652,19 +658,45 @@ def _set_archive(request, case_id, kind, evidence_id, archived):
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def delete(request, case_id, kind, evidence_id):
+    status = 200 if request.method == "GET" else 400
     with transaction.atomic():
         case = get_case(request.user, case_id, lock=request.method == "POST")
         if not request.user.is_superuser:
             raise PermissionDenied("Only superusers can permanently delete evidence.")
         item = get_evidence(case, kind, evidence_id, lock=request.method == "POST")
-        runs = related_analysis_runs(item, kind)
-        reason = deletion_block_reason(item, runs)
-        form = EvidenceDeleteForm(request.POST if request.method == "POST" else None)
-        if request.method == "POST" and not reason and form.is_valid():
+        plan = plan_deletion(item, kind)
+        if (
+            request.method == "GET"
+            and request.GET.get("download") == "manifest"
+            and not plan.blocker
+            and (
+                not request.GET.get("review_revision")
+                or plan.matches(request.GET["review_revision"], request.user)
+            )
+        ):
+            return deletion_manifest_response(plan)
+        form = EvidenceDeleteForm(
+            request.POST if request.method == "POST" else None,
+            initial={"revision": plan.revision(request.user)},
+        )
+        if request.method == "POST" and not plan.blocker and form.is_valid():
             try:
-                delete_evidence(request.user, case.pk, kind, item.pk)
+                if not plan.matches(form.cleaned_data["revision"], request.user):
+                    raise ValidationError(CHANGED, code="deletion_changed")
+                delete_evidence(
+                    request.user,
+                    case.pk,
+                    kind,
+                    item.pk,
+                    revision=form.cleaned_data["revision"],
+                )
             except ValidationError as error:
-                reason = " ".join(error.messages)
+                plan = plan_deletion(item, kind)
+                if error.code == "deletion_changed":
+                    form.add_error(None, error)
+                else:
+                    plan.blocker = " ".join(error.messages)
+                status = 409
             else:
                 LogEntry.objects.log_actions(request.user.pk, [item], DELETION)
                 messages.success(request, "Evidence deleted.")
@@ -672,8 +704,18 @@ def delete(request, case_id, kind, evidence_id):
                     reverse("evidence:list", kwargs={"case_id": case.pk})
                     + query_suffix(request)
                 )
+        if request.method == "POST":
+            # A refreshed inventory always requires another deliberate check.
+            form.data = form.data.copy()
+            form.data["revision"] = plan.revision(request.user)
+            form.data.pop("confirm", None)
+            if plan.blocker:
+                status = 409
     params = list_params(request)
     params["section"] = "details"
+    review_context = deletion_review_context(request, plan)
+    if review_context["inventory_changed"]:
+        status = 409
     return _private(
         render(
             request,
@@ -682,12 +724,13 @@ def delete(request, case_id, kind, evidence_id):
                 **case_context(case, request.user),
                 "item": item,
                 "form": form,
-                "deletion_blocker": reason,
-                "analysis_count": runs.count(),
+                "deletion_blocker": plan.blocker,
+                "analysis_count": plan.analysis_count,
+                **review_context,
                 "cancel_url": _detail_url(case, kind, item) + "?" + params.urlencode(),
                 "nav_section": "evidence",
             },
-            status=(409 if reason else 400) if request.method == "POST" else 200,
+            status=status,
         )
     )
 

@@ -47,8 +47,14 @@ TYPE_FIELDS = {
 
 
 class EvidenceDeleteForm(forms.Form):
+    revision = forms.CharField(
+        widget=forms.HiddenInput,
+        error_messages={
+            "required": "Review this confirmation page before deleting evidence."
+        },
+    )
     confirm = forms.BooleanField(
-        label="I understand this permanently deletes this evidence and its files."
+        label="I understand this permanently deletes every record and file listed here."
     )
 
 
@@ -99,13 +105,11 @@ class EvidenceForm(BaseEvidenceForm):
         self.fields["kind"].initial = kind
         self.fields["title"].label = "Title"
         self.fields["source_url"].label = "Source URL"
-        self.fields["description"].label = "Investigator description"
+        self.fields["description"].label = "Description"
         self.fields[
             "source"
         ].help_text = "Name the source, such as a witness, publication, or record."
-        self.fields[
-            "description"
-        ].help_text = "Your description does not change the original."
+        self.fields["description"].help_text = "Optional context for this evidence."
         self.fields["collected_at"].label = "Source collected at (UTC)"
         self.fields["collected_at"].widget = forms.DateTimeInput(
             attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
@@ -132,10 +136,7 @@ class EvidenceForm(BaseEvidenceForm):
             self.fields["submission_id"].required = True
         if "file" in self.fields:
             self.fields["file"].label = "Original file"
-            self.fields["file"].help_text = (
-                "The original is retained and cannot be replaced. "
-                "Exact duplicates in this case are checked before saving."
-            )
+            self.fields["file"].help_text = "You can analyze the file after uploading."
         if "body" in self.fields:
             self.fields["body"].strip = False
             self.fields["body"].label = "Original text"
@@ -235,6 +236,20 @@ class EvidenceForm(BaseEvidenceForm):
         self.order_fields(
             ("title", *ORIGINAL_FIELDS[kind], "transcript", "file", *COMMON_FIELDS)
         )
+        additional_names = (
+            "description",
+            "source",
+            "source_url",
+            "source_description",
+            "collected_at",
+            *TYPE_FIELDS[kind],
+        )
+        self.additional_fields = [self[name] for name in additional_names]
+        self.primary_fields = [
+            field
+            for field in self.visible_fields()
+            if field.name not in additional_names
+        ]
 
 
 class CallContentForm(forms.Form):

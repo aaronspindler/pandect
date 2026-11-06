@@ -121,7 +121,10 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(response.status_code, status)
                 collection = self.client.get(self.url("list"))
                 if status == 200:
-                    self.assertContains(collection, self.url("bulk_create"))
+                    self.assertContains(collection, self.url("create"))
+                    self.assertContains(
+                        self.client.get(self.url("create")), self.url("bulk_create")
+                    )
                     self.assertContains(response, "Shared source details")
                     self.assertContains(response, self.url("create"))
                     directives = response["Cache-Control"].split(", ")

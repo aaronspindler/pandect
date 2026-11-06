@@ -11,7 +11,9 @@ Sign in with a verified account and open **All cases**. Choose **Create case**,
 enter a name and optional description, then add evidence, people, or vehicles from the case
 navigation. The signed-in user becomes the owner. All cases supports scoped name/
 description search and owned/shared filtering; its results never include unrelated
-cases, even for superusers.
+cases, even for superusers. The overview prioritizes recent evidence, analysis
+entry points, and compact people and vehicle count links; **Case details** reveals
+the owner, access role, and creation/update times.
 
 Owners can edit the name/description under **Settings**, invite collaborators,
 change their Viewer/Editor roles, and remove access. Viewers can inspect people, vehicles,
@@ -25,10 +27,21 @@ background map configuration and evidence privacy.
 
 Case edits detect stale updates. A conflict shows the latest saved details beside
 the retained draft and offers **Save reviewed changes**; it does not silently
-replace another investigator's changes. **Delete case** opens a separate named
+replace another investigator's changes. In Settings, expand **Delete this case**
+to find **Delete case**, which opens a separate named
 confirmation showing affected records, including archived evidence. There is no
 in-app undo. User accounts remain; storage cleanup/backups have the limits
 described in [operations](operations.md) and [evidence](evidence.md).
+
+## Account settings
+
+Choose your account in the sidebar to manage email addresses or your password.
+A verified primary email is displayed without redundant actions. Verified secondary
+addresses offer **Make primary**. Secondary addresses have a named **Remove address** confirmation;
+unverified addresses also offer **Resend verification**. Adding or changing
+addresses continues through django-allauth's verification and authorization rules.
+Operator user administration keeps account identity and access flags visible;
+**Advanced permissions** and **Important dates** expand when needed.
 
 ## Invitations
 
@@ -41,7 +54,8 @@ resumed after sign-in/email verification.
 Invitations expire after `PANDECT_INVITATION_DAYS` (default seven days). Owners can
 resend, revoke, or change a pending role. Resending/changing the role invalidates
 the old token. Email delivery failure leaves an actionable pending invitation;
-check SMTP configuration before resending. `PANDECT_PUBLIC_ORIGIN` supplies the
+check SMTP configuration before resending. Settings keeps pending or failed invitations
+visible; accepted and revoked invitations are available under **Invitation history**. `PANDECT_PUBLIC_ORIGIN` supplies the
 email link's deployment origin.
 
 Invitation records store a token digest rather than the raw link token. Private

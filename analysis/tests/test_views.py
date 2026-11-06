@@ -837,4 +837,4 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "Queued")
         self.assertContains(response, "Refresh status")
         self.assertContains(response, "Cancel processing")
-        self.assertNotContains(response, "Download result and provenance")
+        self.assertNotContains(response, "Download results")

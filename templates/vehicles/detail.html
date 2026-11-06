@@ -3,24 +3,35 @@
 {% block content %}
 <div class="detail-layout">
 <p class="breadcrumb"><a href="{% url 'vehicles:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to vehicles</a></p>
-<div class="page-header"><div><p class="eyebrow">Vehicle in {{ case }}</p><h1>{{ vehicle }}</h1></div>{% if can_edit %}<a class="button button-primary" href="{% url 'vehicles:edit' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit vehicle</a>{% endif %}</div>
+<div class="page-header"><div><p class="eyebrow">Vehicle</p><h1>{{ vehicle }}</h1><p class="help-text">Identifiers and associations unverified</p></div>{% if can_edit %}<a class="button button-primary" href="{% url 'vehicles:edit' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit vehicle</a>{% endif %}</div>
 {% if not can_edit %}<p class="notice">You have viewer access to this vehicle record.</p>{% endif %}
-<section class="panel" aria-labelledby="vehicle-heading"><h2 id="vehicle-heading">Vehicle details</h2>
+{% if vehicle.color or vehicle.license_plate or vehicle.vin %}
+<section class="content-section" aria-labelledby="vehicle-heading"><h2 id="vehicle-heading">Vehicle details</h2>
   <dl class="metadata-grid">
-    <div><dt>Make</dt><dd>{{ vehicle.make|default:"Not recorded" }}</dd></div>
-    <div><dt>Model</dt><dd>{{ vehicle.model|default:"Not recorded" }}</dd></div>
-    <div><dt>Year</dt><dd>{{ vehicle.year|default:"Not recorded" }}</dd></div>
-    <div><dt>Color</dt><dd>{{ vehicle.color|default:"Not recorded" }}</dd></div>
-    <div><dt>License plate</dt><dd>{{ vehicle.license_plate|default:"Not recorded" }}</dd></div>
-    <div><dt>VIN</dt><dd>{{ vehicle.vin|default:"Not recorded" }}</dd></div>
+    {% if vehicle.color %}<div><dt>Color</dt><dd>{{ vehicle.color }}</dd></div>{% endif %}
+    {% if vehicle.license_plate %}<div><dt>License plate</dt><dd>{{ vehicle.license_plate }}</dd></div>{% endif %}
+    {% if vehicle.vin %}<div><dt>VIN</dt><dd>{{ vehicle.vin }}</dd></div>{% endif %}
   </dl>
 </section>
-<section class="panel" aria-labelledby="notes-heading"><h2 id="notes-heading">Investigator notes</h2><div class="prose">{{ vehicle.notes|default:"No notes recorded."|linebreaks }}</div><p class="help-text">A vehicle record captures investigative work; matching details do not verify identity, ownership, or a person's association with a vehicle.</p></section>
-<section class="panel" aria-labelledby="locations-heading"><div class="section-header"><h2 id="locations-heading">Reported locations</h2>
-{% if can_edit %}<div class="actions"><a class="button button-secondary" href="{% url 'evidence:create' case_id=case.pk %}?kind=vehicle-location">Add a location</a><a class="button button-secondary" href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}</div>
+{% else %}<p class="muted">No identifiers or color recorded.</p>{% endif %}
+
+
+<section class="content-section" aria-labelledby="locations-heading"><div class="section-header"><h2 id="locations-heading">Reported locations</h2>
+{% if can_edit %}<div class="actions"><a class="button button-secondary" href="{% url 'evidence:create' case_id=case.pk %}?kind=vehicle-location">Add a location</a><a class="record-link" href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}</div>
 {% if locations %}<p class="muted">Up to 25 recent observations, including archived evidence.</p><ul class="record-list">{% for location in locations %}<li class="record-row"><a class="record-link" href="{% url 'evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=location.pk %}">{{ location.title }}</a>{% if location.is_archived %}<span class="status">Archived</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">No locations have been recorded for this vehicle.</p>{% endif %}
 </section>
+<details class="disclosure">
+<summary>Record details</summary>
+<div class="disclosure-body">
+{% if vehicle.notes %}<h2>Notes</h2><div class="prose">{{ vehicle.notes|linebreaks }}</div>{% endif %}
+{% if vehicle.make or vehicle.model or vehicle.year %}<dl class="metadata-grid">
+{% if vehicle.make %}<div><dt>Make</dt><dd>{{ vehicle.make }}</dd></div>{% endif %}
+{% if vehicle.model %}<div><dt>Model</dt><dd>{{ vehicle.model }}</dd></div>{% endif %}
+{% if vehicle.year %}<div><dt>Year</dt><dd>{{ vehicle.year }}</dd></div>{% endif %}
+</dl>{% endif %}
 <dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ vehicle.created_at|date:'c' }}">{{ vehicle.created_at|date:"j M Y, H:i" }} UTC</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ vehicle.updated_at|date:'c' }}">{{ vehicle.updated_at|date:"j M Y, H:i" }} UTC</time></dd></div></dl>
 {% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'vehicles:delete' case_id=case.pk vehicle_id=vehicle.pk %}">Delete vehicle</a></div>{% endif %}
+</div>
+</details>
 </div>
 {% endblock %}

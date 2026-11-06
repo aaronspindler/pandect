@@ -1,0 +1,42 @@
+{% extends "account/base_manage_email.html" %}
+{% block head_title %}Email addresses{% endblock %}
+{% block content %}
+<h1>Email addresses</h1>
+{% if emailaddresses %}
+<div class="record-list">
+{% for address in emailaddresses %}
+<div class="record-row">
+<div><strong>{{ address.email }}</strong><p class="muted">{% if address.primary %}Primary · {% endif %}{% if address.verified %}Verified{% else %}Verification needed{% endif %}</p>
+{% if not address.primary or not address.verified %}
+<form method="post" action="{% url 'account_email' %}" aria-label="Manage {{ address.email }}">
+{% csrf_token %}<input type="hidden" name="email" value="{{ address.email }}">
+<div class="actions">
+{% if not address.verified %}<button class="button" type="submit" name="action_send">Resend verification</button>{% endif %}
+{% if not address.primary and address.verified %}<button class="button" type="submit" name="action_primary">Make primary</button>{% endif %}
+</div>
+{% if not address.primary %}
+<details>
+<summary>Remove address</summary>
+<p>Remove {{ address.email }} from your account? You will no longer be able to use it to sign in.</p>
+<button class="button button-danger" type="submit" name="action_remove">Remove email address</button>
+</details>
+{% endif %}
+</form>
+{% endif %}
+</div>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<p class="notice">Add an email address to receive notifications and recover your account.</p>
+{% endif %}
+{% if can_add_email %}
+<section aria-labelledby="add-email-heading">
+<h2 id="add-email-heading">Add email address</h2>
+<form method="post" action="{% url 'account_email' %}" class="form-panel">
+{% csrf_token %}{% include "components/form_fields.html" %}
+<div class="form-actions"><button class="button button-primary" type="submit" name="action_add">Add email</button></div>
+</form>
+</section>
+{% endif %}
+{% endblock %}

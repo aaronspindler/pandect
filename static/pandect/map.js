@@ -140,13 +140,18 @@
     tiles.on("loading", () => {
       tileFailed = false;
       status.textContent = "Loading map tiles…";
+      status.classList.remove("sr-only");
     });
     tiles.on("tileerror", () => {
       tileFailed = true;
       status.textContent = "Some map tiles could not load. Source markers and the location list are still available. Pan or zoom to retry, or reload the page.";
+      status.classList.remove("sr-only");
     });
     tiles.on("load", () => {
-      if (!tileFailed) status.textContent = "Map loaded.";
+      if (!tileFailed) {
+        status.textContent = "Map loaded.";
+        status.classList.add("sr-only");
+      }
     });
     tiles.addTo(map);
   } else {

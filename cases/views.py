@@ -191,6 +191,7 @@ def case_settings(request, case_id):
     else:
         case = get_case(request.user, case_id, owner=True)
         form = CaseForm(instance=case)
+    invitations = list(case.invitations.all())
     return _render_case(
         request,
         "cases/settings.html",
@@ -199,7 +200,8 @@ def case_settings(request, case_id):
         form=form,
         latest_details=latest_details,
         memberships=case.memberships.select_related("user").order_by("user__username"),
-        invitations=case.invitations.select_related("invited_by"),
+        pending_invitations=[item for item in invitations if item.is_pending],
+        invitation_history=[item for item in invitations if not item.is_pending],
     )
 
 

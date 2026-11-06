@@ -1,5 +1,7 @@
 """In-app superuser deletion retains the existing case and file boundaries."""
 
+import json
+from unittest.mock import patch
 from uuid import uuid4
 
 from allauth.account.models import EmailAddress
@@ -7,19 +9,30 @@ from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import transaction
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from analysis.models import AnalysisArtifact, AnalysisResult, AnalysisRun
+from analysis.models import (
+    AnalysisArtifact,
+    AnalysisResult,
+    AnalysisRun,
+    CommunicationContext,
+)
 from cases.models import CaseMembership
 from evidence.models import (
     CallEvidenceAttachment,
     DocumentEvidence,
+    VehicleLocationEvidence,
     VehicleLocationImport,
+    VehicleLocationImportRow,
 )
 from evidence.tests.test_models import ALL_MODELS, EvidenceTestMixin
+from evidence.tests.test_vehicle_imports import csv_content
 from evidence.types import CALL_KINDS, KINDS
+from evidence.vehicle_import_jobs import process_import
+from evidence.vehicle_imports import parse_csv
 
 
 class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
@@ -55,6 +68,10 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
             },
         )
 
+    def confirmation(self, item, url=None):
+        response = self.client.get(url or self.url(item))
+        return {"confirm": "on", "revision": response.context["deletion_revision"]}
+
     def test_superuser_can_delete_every_type_and_retained_call_files(self):
         for model in ALL_MODELS:
             with self.subTest(model=model.__name__):
@@ -80,7 +97,7 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
                 self.assertIn("no-store", response["Cache-Control"])
                 self.assertTrue(model.objects.filter(pk=item.pk).exists())
                 with self.captureOnCommitCallbacks(execute=True):
-                    response = self.client.post(self.url(item), {"confirm": "on"})
+                    response = self.client.post(self.url(item), self.confirmation(item))
                     for original in files:
                         self.assertTrue(original.storage.exists(original.name))
                 self.assertRedirects(
@@ -110,7 +127,7 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         )
         self.assertTrue(item.file.storage.exists(item.file.name))
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(url, {"confirm": "on"})
+            response = self.client.post(url, self.confirmation(item, url))
         self.assertRedirects(
             response,
             reverse("evidence:list", kwargs={"case_id": self.case.pk}) + suffix,
@@ -146,7 +163,7 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         )
         self.assertContains(self.client.get(self.url(item)), "1 analysis run")
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(self.url(item), {"confirm": "on"})
+            response = self.client.post(self.url(item), self.confirmation(item))
         self.assertEqual(response.status_code, 302)
         self.assertFalse(AnalysisRun.objects.filter(pk=run.pk).exists())
         for original in (item.file, artifact.file):
@@ -223,21 +240,20 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         self.assertEqual(self.client.put(self.url(item)).status_code, 405)
         self.assertTrue(type(item).objects.filter(pk=item.pk).exists())
 
-    def test_protected_import_source_shows_recovery_without_deleting(self):
+    def test_import_source_confirmation_includes_and_deletes_the_import(self):
         item = self.create_evidence(DocumentEvidence)
-        VehicleLocationImport.objects.create(
+        batch = VehicleLocationImport.objects.create(
             case=self.case,
             uploaded_by=item.uploaded_by,
             document=item,
             timezone="UTC",
         )
         response = self.client.get(self.url(item))
-        self.assertContains(response, "supports retained imported evidence")
-        self.assertNotContains(response, "Permanently delete evidence")
-        response = self.client.post(self.url(item), {"confirm": "on"})
-        self.assertEqual(response.status_code, 409)
-        self.assertTrue(DocumentEvidence.objects.filter(pk=item.pk).exists())
-        self.assertTrue(item.file.storage.exists(item.file.name))
+        self.assertContains(response, str(batch.pk))
+        self.assertContains(response, "Permanently delete evidence")
+        response = self.client.post(self.url(item), self.confirmation(item))
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(DocumentEvidence.objects.filter(pk=item.pk).exists())
 
     def test_wrong_case_attachment_is_not_disclosed_or_deleted(self):
         item = self.create_evidence(KINDS["phone-call"])
@@ -260,3 +276,426 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
             CallEvidenceAttachment.objects.filter(pk=attachment.pk).exists()
         )
         self.assertTrue(attachment.file.storage.exists(attachment.file.name))
+
+    def import_tree(self, count=2):
+        original = self.create_evidence(
+            DocumentEvidence,
+            title="Retained imported source",
+            file=SimpleUploadedFile("retained-export.csv", csv_content()),
+        )
+        batch = VehicleLocationImport.objects.create(
+            case=self.case,
+            uploaded_by=original.uploaded_by,
+            document=original,
+            timezone="UTC",
+            row_count=count,
+        )
+        parsed = parse_csv(csv_content(), "UTC")[0]
+        observations, staged = [], []
+        for number in range(2, count + 2):
+            observations.append(
+                self.create_evidence(
+                    VehicleLocationEvidence,
+                    title=f"Imported observation {number}",
+                    import_batch=batch,
+                    source_row=number,
+                    raw_row=parsed.raw,
+                    **parsed.values,
+                )
+            )
+            staged.append(
+                VehicleLocationImportRow.objects.create(
+                    batch=batch,
+                    number=number,
+                    group_index=0,
+                    raw=parsed.raw,
+                    fingerprint=parsed.fingerprint,
+                )
+            )
+        message = self.create_evidence(KINDS["text-message"], title="Imported message")
+        context = CommunicationContext.objects.create(
+            case=self.case,
+            message=message,
+            source_document=original,
+            source_sha256=original.sha256,
+            source_row=1,
+            source_start=0,
+            source_end=1,
+            parser_version="synthetic.v1",
+            timezone="UTC",
+            raw_sender="Synthetic account",
+        )
+        return original, batch, observations, staged, message, context
+
+    def derived_analysis(self, item, kind, *, extra=None, prior=None, previous=None):
+        selected = [
+            {
+                "id": str(uuid4()),
+                "kind": kind,
+                "evidence_id": str(item.pk),
+                "sha256": item.sha256,
+                "result_id": str(prior.pk) if prior else None,
+            }
+        ]
+        if extra:
+            selected.append(
+                {
+                    "id": str(uuid4()),
+                    "kind": "location",
+                    "evidence_id": str(extra.pk),
+                    "sha256": extra.sha256,
+                }
+            )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.operator,
+            operation="location_quality" if "location" in kind else "entities",
+            method_version="1",
+            status="complete",
+            inputs=selected,
+            previous_run=previous,
+        )
+        result = AnalysisResult.objects.create(case=self.case, run=run)
+        artifact = AnalysisArtifact.objects.create(
+            case=self.case,
+            result=result,
+            source_id=selected[0]["id"],
+            file=SimpleUploadedFile("derived.jpg", b"Synthetic derived image"),
+            width=1,
+            height=1,
+            sha256="c" * 64,
+        )
+        return run, result, artifact
+
+    def test_source_inventory_and_purge_cover_all_imported_evidence_and_files(self):
+        source, batch, observations, staged, message, context = self.import_tree()
+        retained_location = self.create_evidence(KINDS["location"])
+        retained_file = self.create_evidence(
+            DocumentEvidence,
+            file=SimpleUploadedFile("retained-export.csv", csv_content()),
+        )
+        first = self.derived_analysis(
+            observations[0], "vehicle-location", extra=retained_location
+        )
+        second = self.derived_analysis(message, "text-message")
+        downstream = self.derived_analysis(
+            retained_location, "location", prior=first[1]
+        )
+        retained_run, retained_result, retained_artifact = self.derived_analysis(
+            retained_location, "location", previous=first[0]
+        )
+        response = self.client.get(self.url(source) + "?download=manifest")
+        self.assertEqual(response.status_code, 200)
+        inventory = json.loads(b"".join(response.streaming_content))
+        expected = [
+            source,
+            batch,
+            *observations,
+            *staged,
+            message,
+            context,
+            *first,
+            *second,
+            *downstream,
+        ]
+        deleted_ids = {
+            row["id"]
+            for row in inventory["entries"]
+            if row["action"] == "Delete record"
+        }
+        self.assertEqual(deleted_ids, {str(obj.pk) for obj in expected})
+        file_ids = {
+            row["id"] for row in inventory["entries"] if row["action"] == "Delete file"
+        }
+        self.assertEqual(
+            file_ids,
+            {str(obj.pk) for obj in (source, first[2], second[2], downstream[2])},
+        )
+        self.assertEqual(
+            inventory["counts"], {"records": len(expected), "files": 4, "updates": 1}
+        )
+        self.assertTrue(
+            any(
+                row["action"] == "Update" and row["id"] == str(retained_run.pk)
+                for row in inventory["entries"]
+            )
+        )
+        self.assertNotIn(source.file.name, json.dumps(inventory))
+        self.assertNotIn("Original message.", json.dumps(inventory))
+        files = [source.file, first[2].file, second[2].file, downstream[2].file]
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.url(source), self.confirmation(source))
+            for original in files:
+                self.assertTrue(original.storage.exists(original.name))
+        self.assertEqual(response.status_code, 302)
+        for obj in expected:
+            self.assertFalse(type(obj).objects.filter(pk=obj.pk).exists())
+        for original in files:
+            self.assertFalse(original.storage.exists(original.name))
+        for obj in (
+            self.person,
+            self.vehicle,
+            retained_file,
+            retained_location,
+            retained_run,
+            retained_result,
+            retained_artifact,
+        ):
+            self.assertTrue(type(obj).objects.filter(pk=obj.pk).exists())
+        retained_run.refresh_from_db()
+        self.assertIsNone(retained_run.previous_run_id)
+        self.assertTrue(retained_file.file.storage.exists(retained_file.file.name))
+
+    def test_changed_import_inventory_requires_a_fresh_confirmation(self):
+        source, batch, _, _, _, _ = self.import_tree()
+        old = self.confirmation(source)
+        added = self.create_evidence(
+            VehicleLocationEvidence,
+            title="New imported observation",
+            import_batch=batch,
+            source_row=10,
+        )
+        response = self.client.post(self.url(source), old)
+        self.assertContains(
+            response, "What will be removed has changed", status_code=409
+        )
+        self.assertContains(response, added.title, status_code=409)
+        self.assertFalse(response.context["form"]["confirm"].value())
+        self.assertTrue(DocumentEvidence.objects.filter(pk=source.pk).exists())
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self.url(source),
+                {
+                    "confirm": "on",
+                    "revision": response.context["form"]["revision"].value(),
+                },
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(VehicleLocationEvidence.objects.filter(pk=added.pk).exists())
+
+    def test_confirmation_cannot_be_omitted_tampered_or_reused_for_another_target(self):
+        first = self.create_evidence(DocumentEvidence)
+        second = self.create_evidence(DocumentEvidence)
+        for data, status in (
+            ({"confirm": "on"}, 400),
+            ({"confirm": "on", "revision": "tampered"}, 409),
+            (self.confirmation(first), 409),
+        ):
+            response = self.client.post(self.url(second), data)
+            self.assertEqual(response.status_code, status)
+            self.assertTrue(DocumentEvidence.objects.filter(pk=second.pk).exists())
+        self.assertTrue(second.file.storage.exists(second.file.name))
+
+    def test_complete_inventory_is_paginated_without_hiding_rows(self):
+        source, _, observations, staged, _, _ = self.import_tree(count=60)
+        first = self.client.get(self.url(source) + "?q=retained&state=all&page=2")
+        self.assertEqual(len(first.context["deletion_page"]), 50)
+        self.assertIn("q=retained", first.context["deletion_links"]["next"])
+        self.assertIn("page=2", first.context["deletion_links"]["next"])
+        self.assertEqual(first.context["deletion_page"].paginator.count, 125)
+        second = self.client.get(
+            self.url(source) + first.context["deletion_links"]["next"]
+        )
+        self.assertEqual(second.context["deletion_page"].number, 2)
+        export = self.client.get(self.url(source) + "?download=manifest")
+        inventory = json.loads(b"".join(export.streaming_content))
+        self.assertEqual(len(inventory["entries"]), 125)
+        ids = {row["id"] for row in inventory["entries"]}
+        self.assertTrue({str(obj.pk) for obj in [*observations, *staged]} <= ids)
+        self.assertIn("no-store", export["Cache-Control"])
+
+    def test_foreign_case_import_links_block_inventory_and_all_deletion(self):
+        for part in ("batch", "observation", "context", "message"):
+            with self.subTest(part=part):
+                source, batch, observations, _, message, context = self.import_tree(
+                    count=1
+                )
+                target = {
+                    "batch": batch,
+                    "observation": observations[0],
+                    "context": context,
+                    "message": message,
+                }[part]
+                type(target).objects.filter(pk=target.pk).update(case=self.other_case)
+                response = self.client.get(self.url(source))
+                self.assertContains(response, "inconsistent case links")
+                self.assertNotContains(response, str(target.pk))
+                self.assertNotContains(
+                    response, "Download the complete deletion inventory"
+                )
+                response = self.client.post(
+                    self.url(source), {"confirm": "on", "revision": "invalid"}
+                )
+                self.assertEqual(response.status_code, 409)
+                self.assertTrue(DocumentEvidence.objects.filter(pk=source.pk).exists())
+                self.assertTrue(type(target).objects.filter(pk=target.pk).exists())
+                self.assertTrue(source.file.storage.exists(source.file.name))
+
+    def test_import_purge_rollback_preserves_every_record_and_file(self):
+        source, batch, observations, staged, message, context = self.import_tree()
+        run, result, artifact = self.derived_analysis(message, "text-message")
+        data = self.confirmation(source)
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with transaction.atomic():
+                self.assertEqual(
+                    self.client.post(self.url(source), data).status_code, 302
+                )
+                transaction.set_rollback(True)
+        self.assertEqual(callbacks, [])
+        for obj in [
+            source,
+            batch,
+            *observations,
+            *staged,
+            message,
+            context,
+            run,
+            result,
+            artifact,
+        ]:
+            self.assertTrue(type(obj).objects.filter(pk=obj.pk).exists())
+        for original in (source.file, artifact.file):
+            self.assertTrue(original.storage.exists(original.name))
+
+    def test_import_workers_cannot_recreate_deleted_source_derivatives(self):
+        for phase in ("prepare", "publish"):
+            with self.subTest(phase=phase):
+                source, batch, observations, _, _, _ = self.import_tree(count=1)
+                VehicleLocationImport.objects.filter(pk=batch.pk).update(
+                    status="queued", phase=phase, requested_by=self.editor
+                )
+                row = parse_csv(csv_content(), "UTC")[0]
+
+                def remove_source_during_parsing(
+                    *args, source=source, row=row, **kwargs
+                ):
+                    self.assertEqual(
+                        self.client.post(
+                            self.url(source), self.confirmation(source)
+                        ).status_code,
+                        302,
+                    )
+                    yield row
+
+                with (
+                    self.captureOnCommitCallbacks(execute=True),
+                    patch(
+                        "evidence.vehicle_import_jobs.iter_import",
+                        side_effect=remove_source_during_parsing,
+                    ),
+                ):
+                    process_import(str(batch.pk), str(batch.job_token))
+                self.assertFalse(DocumentEvidence.objects.filter(pk=source.pk).exists())
+                self.assertFalse(
+                    VehicleLocationImport.objects.filter(pk=batch.pk).exists()
+                )
+                self.assertFalse(
+                    VehicleLocationEvidence.objects.filter(
+                        import_batch_id=batch.pk
+                    ).exists()
+                )
+                self.assertFalse(source.file.storage.exists(source.file.name))
+                self.assertEqual(
+                    process_import(str(batch.pk), str(batch.job_token)), "unavailable"
+                )
+
+    def test_admin_also_reviews_and_removes_imported_evidence(self):
+        source, batch, observations, staged, message, context = self.import_tree()
+        self.operator.is_staff = True
+        self.operator.save(update_fields=["is_staff"])
+        url = reverse("admin:evidence_documentevidence_delete", args=[source.pk])
+        response = self.client.get(url)
+        self.assertContains(response, message.title)
+        self.assertContains(response, observations[0].title)
+        self.assertContains(response, str(staged[0].pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                url, {"post": "yes", "revision": response.context["deletion_revision"]}
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(DocumentEvidence.objects.filter(pk=source.pk).exists())
+        self.assertFalse(VehicleLocationImport.objects.filter(pk=batch.pk).exists())
+        self.assertFalse(type(message).objects.filter(pk=message.pk).exists())
+        self.assertFalse(source.file.storage.exists(source.file.name))
+
+    def test_new_analysis_files_require_another_inventory_review(self):
+        source, _, _, _, message, _ = self.import_tree()
+        old = self.confirmation(source)
+        run, result, artifact = self.derived_analysis(message, "text-message")
+        response = self.client.post(self.url(source), old)
+        self.assertContains(
+            response, "What will be removed has changed", status_code=409
+        )
+        self.assertContains(response, str(artifact.pk), status_code=409)
+        self.assertEqual(response.context["deletion_plan"].counts["files"], 2)
+        self.assertTrue(AnalysisRun.objects.filter(pk=run.pk).exists())
+        self.assertTrue(artifact.file.storage.exists(artifact.file.name))
+
+    def test_reviewed_inventory_is_bound_to_the_current_superuser(self):
+        source = self.create_evidence(DocumentEvidence)
+        other_actor_data = self.confirmation(source)
+        self.viewer.is_superuser = True
+        self.viewer.save(update_fields=["is_superuser"])
+        self.client.force_login(self.viewer)
+        response = self.client.post(self.url(source), other_actor_data)
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(DocumentEvidence.objects.filter(pk=source.pk).exists())
+        self.assertTrue(source.file.storage.exists(source.file.name))
+
+    def test_inventory_changes_during_pagination_or_download_restart_review(self):
+        source, batch, _, _, _, _ = self.import_tree(count=60)
+        first = self.client.get(self.url(source))
+        next_url = self.url(source) + first.context["deletion_links"]["next"]
+        old_download = self.url(source) + first.context["deletion_download_url"]
+        self.create_evidence(
+            VehicleLocationEvidence, import_batch=batch, source_row=100
+        )
+        for url in (next_url, old_download):
+            response = self.client.get(url)
+            self.assertContains(
+                response, "What will be removed has changed", status_code=409
+            )
+            self.assertFalse(response.streaming)
+            self.assertEqual(response.context["deletion_page"].number, 1)
+            self.assertFalse(response.context["form"]["confirm"].value())
+            self.assertTrue(DocumentEvidence.objects.filter(pk=source.pk).exists())
+        response = self.client.get(
+            self.url(source) + response.context["deletion_download_url"]
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            len(json.loads(b"".join(response.streaming_content))["entries"]), 126
+        )
+
+    def test_noncanonical_file_keys_never_expose_or_remove_foreign_files(self):
+        source = self.create_evidence(DocumentEvidence)
+        foreign = self.create_evidence(
+            DocumentEvidence,
+            case=self.other_case,
+            file=SimpleUploadedFile(
+                "foreign-private.txt", b"Synthetic foreign original"
+            ),
+        )
+        legitimate_name = source.file.name
+        foreign_suffix = foreign.file.name.removeprefix("evidence/cases/")
+        unsafe = [
+            f"evidence/cases/{self.case.pk}/../{foreign_suffix}",
+            legitimate_name.replace("/documentevidence/", "/./documentevidence/"),
+            legitimate_name.replace("/documentevidence/", "//documentevidence/"),
+            legitimate_name.replace("/", "\\"),
+        ]
+        for name in unsafe:
+            with self.subTest(name=name):
+                DocumentEvidence.objects.filter(pk=source.pk).update(file=name)
+                with patch.object(source.file.storage, "delete") as storage_delete:
+                    response = self.client.get(self.url(source))
+                    self.assertContains(response, "inconsistent case links")
+                    self.assertNotContains(response, foreign.original_filename)
+                    response = self.client.post(
+                        self.url(source), {"confirm": "on", "revision": "invalid"}
+                    )
+                    self.assertEqual(response.status_code, 409)
+                    storage_delete.assert_not_called()
+                self.assertTrue(DocumentEvidence.objects.filter(pk=source.pk).exists())
+                self.assertTrue(source.file.storage.exists(legitimate_name))
+                self.assertTrue(foreign.file.storage.exists(foreign.file.name))

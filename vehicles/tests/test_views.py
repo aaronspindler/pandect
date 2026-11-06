@@ -336,7 +336,8 @@ class VehicleInterfaceTests(TestCase):
         response = self.client.get(self.url("detail", self.vehicle))
         self.assertNotContains(response, '<script>alert("untrusted")</script>')
         self.assertContains(response, "&lt;script&gt;")
-        self.assertContains(response, "Not recorded")
+        self.assertNotContains(response, "Not recorded")
+        self.assertContains(response, self.vehicle.license_plate)
         self.assertContains(response, "Uncertain source")
 
     def test_search_includes_vehicle_details_and_bounds_numeric_queries(self):

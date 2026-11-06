@@ -7,6 +7,12 @@
     white-space: pre-wrap;
 }
 
+.deletion-inventory { padding-left: 1.5rem; }
+.deletion-inventory li { padding-block: .75rem; border-bottom: 1px solid var(--hairline-color); overflow-wrap: anywhere; }
+.deletion-inventory li p { margin-block: .25rem; }
+.deletion-inventory small { display: block; overflow-wrap: anywhere; }
+.delete-confirmation .pagination { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-block: 1rem; }
+
 .delete-confirmation form input[type="submit"],
 .delete-confirmation form .evidence-delete-cancel {
     min-height: 44px;

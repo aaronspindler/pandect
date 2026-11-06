@@ -23,6 +23,14 @@ investigation or shared hosted database.
 checks need environment variables; use the `uv run --env-file .env` wrapper when
 calling them locally. `make format` applies Ruff fixes and formatting.
 
+`make test` and `make browser-check` select `config.test_settings`, which keeps
+PostgreSQL and application settings while serving source static assets without a
+release manifest. Direct `python manage.py test` commands also need
+`--settings=config.test_settings`, as shown below. Use `TEST_SETTINGS=<module>` with Make
+when a separate test database configuration is needed. Static regression tests
+exercise real manifest collection and cache headers independently; the Compose
+smoke also checks the non-debug build.
+
 Tests cover the custom user, password hashing, sign-in failure, email verification,
 registration, CSRF, sign-out semantics, staff access, and database readiness and
 failure. Case tests cover required ownership, stable creation timestamps,
@@ -55,7 +63,9 @@ requests, private downloads, metadata conflicts, archive/restore, bounded upload
 and idempotent retries after uncertain confirmation. In-app superuser deletion
 covers current role/verification checks, all evidence types, retained call and
 generated files, explicit confirmation, private pages, preserved navigation, CSRF,
-case isolation, and recoverable import-source/corrupt-link blocks. Duplicate-upload
+case isolation, complete imported-source cascades, corrupt-link blocks, paginated
+inventories/private downloads, stale or tampered confirmations, worker publication
+after deletion, and rollback of every derived row and file. Duplicate-upload
 coverage
 checks exact hashes across file categories and captured text, archived matches,
 case isolation, current edit access, bounded private match lists, explicit
@@ -119,7 +129,7 @@ uv run --locked --env-file .env make browser-check
 
 On Linux, install browser OS dependencies as required by Playwright (CI uses
 `playwright install --with-deps chromium webkit`). `make browser-check` runs
-`python manage.py test config.tests.browser config.marketing_browser analysis.browser analysis.context_browser cases.map_browser --noinput`; it is
+`python manage.py test --settings=config.test_settings config.tests.browser config.marketing_browser analysis.browser analysis.context_browser cases.map_browser --noinput`; it is
 separate from the ordinary
 unit suite. Browser fixtures use synthetic accounts/material and temporary
 private file storage. Never run competing Django test processes against the same
@@ -141,8 +151,8 @@ JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
 navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
 evidence admin creation/editing, superuser deletion with keyboard/no-JavaScript
 confirmation and cancellation, in-app superuser deletion from Details with
-confirmation, cancellation, blocked imports and no-JavaScript submission, archive
-controls and authorized downloads,
+confirmation, cancellation, imported-source inventories and no-JavaScript
+submission, archive controls and authorized downloads,
 location/person-location forms and private JSON downloads, communication forms,
 later call attachments, private audio/record downloads, and read-only viewer access, vehicle-location CSV
 upload/review/confirmation and source JSON, source fields in file
@@ -151,7 +161,12 @@ append limits, invalid-file removal, pause/retry, access removal between files,
 safe interrupted-confirmation retry, duplicate review across categories and within
 a batch, keyboard confirmation, and dense desktop record visibility.
 The page-layout journey also captures cases, overview, settings, people, vehicles,
-details, and account settings at all five design viewport sizes. It checks page
+details, and account settings at all five design viewport sizes. The disclosure journey
+checks collapsed evidence filters, retained filter URLs, keyboard/no-JavaScript
+access to optional descriptions and source fields, and automatic opening with preserved values
+after a server validation error. It also opens analysis from the evidence reader
+and confirms notes remain accessible in record details. CSV original captures show the compact location
+and keyboard access to its retained receipt/source interpretation. It checks page
 reflow and uses the evidence-type chooser without JavaScript to open text,
 location, and call forms.
 Vehicle journeys also capture forms, lists, and details at desktop/mobile sizes,
@@ -197,8 +212,8 @@ malformed/active content, byte/pixel bounds, and safe failures. Run the focused
 checks with:
 
 ```sh
-uv run --locked --env-file .env python manage.py test evidence.tests.test_previews --noinput
-uv run --locked --env-file .env python manage.py test config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings evidence.tests.test_previews --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
 ```
 
 The preview browser journey checks Chromium and WebKit with and without page
@@ -214,8 +229,8 @@ conversation, and location calculations:
 
 ```sh
 uv run --locked --env-file .env make check
-uv run --locked --env-file .env python manage.py test analysis.browser --noinput
-uv run --locked --env-file .env python manage.py test analysis.context_browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings analysis.browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings analysis.context_browser --noinput
 make compose-smoke
 make security-check
 ```
@@ -265,7 +280,7 @@ Whisper or Qwen weights. Run their focused checks independently with:
 
 ```sh
 uv run --locked python -m unittest inference.test_server
-uv run --locked --env-file .env python manage.py test analysis.tests.test_local_inference config.tests.test_settings --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings analysis.tests.test_local_inference config.tests.test_settings --noinput
 ```
 
 Optional runtime build validation is

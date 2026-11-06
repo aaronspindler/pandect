@@ -2,8 +2,8 @@
 {% block title %}Vehicles · {{ case }}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div><p class="eyebrow">{{ case }}</p><h1>Vehicles</h1><p class="secondary">Investigator-maintained vehicle details and notes.</p></div>
-  {% if can_edit %}<div class="actions"><a class="button button-primary" href="{% url 'vehicles:create' case_id=case.pk %}">Add vehicle</a><a class="button button-secondary" href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
+  <div><h1>Vehicles</h1></div>
+  {% if can_edit and page_obj.object_list or can_edit and query %}<div class="actions"><a class="button button-primary" href="{% url 'vehicles:create' case_id=case.pk %}">Add vehicle</a><a class="record-link" href="{% url 'evidence:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
 </div>
 <form class="search-form" method="get" role="search" aria-label="Search vehicles">
   <label for="vehicles-search">Search vehicles</label>
@@ -13,11 +13,10 @@
 <p class="result-count secondary">{{ page_obj.paginator.count }} vehicle record{{ page_obj.paginator.count|pluralize }}</p>
 <div class="table-wrap"><table class="record-table vehicle-table">
   <caption class="visually-hidden">Vehicles in {{ case }}</caption>
-  <thead><tr><th scope="col">Vehicle</th><th scope="col">License plate</th><th scope="col">Color</th><th scope="col">Updated</th></tr></thead>
+  <thead><tr><th scope="col">Vehicle</th><th scope="col">License plate</th><th scope="col">Color</th></tr></thead>
   <tbody>{% for vehicle in page_obj %}<tr>
     <td><a class="record-link" href="{% url 'vehicles:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ vehicle }}</a></td>
-    <td>{{ vehicle.license_plate|default:"Not recorded" }}</td><td>{{ vehicle.color|default:"Not recorded" }}</td>
-    <td><time datetime="{{ vehicle.updated_at|date:'c' }}">{{ vehicle.updated_at|date:"j M Y" }}</time></td>
+    <td{% if not vehicle.license_plate %} class="empty-metadata"{% endif %}>{{ vehicle.license_plate|default:"—" }}</td><td{% if not vehicle.color %} class="empty-metadata"{% endif %}>{{ vehicle.color|default:"—" }}</td>
   </tr>{% endfor %}</tbody>
 </table></div>
 {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Vehicles pages">
