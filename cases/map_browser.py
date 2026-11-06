@@ -403,6 +403,10 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 expect(show).to_be_visible()
                 page.unroute(queue_url)
                 page.unroute(self.map_url)
+                # Reserve space as a scrollbar or containing layout can.
+                page.locator("#investigation-map").evaluate(
+                    "node => node.style.width = 'calc(100% - 32px)'"
+                )
                 show.click()
                 for width, height in (
                     (1440, 900),

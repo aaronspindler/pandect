@@ -24,6 +24,8 @@
   const markerLayer = L.layerGroup().addTo(map);
   map.on("resize", () => markerLayer.eachLayer((marker) => {
     const popup = marker.getPopup();
+    // Allow for Leaflet's content margins and the map's pan padding.
+    popup.options.maxWidth = Math.min(300, canvas.clientWidth - 80);
     popup.options.maxHeight = Math.min(224, canvas.clientHeight - 180);
     if (marker.isPopupOpen()) popup.update();
   }));
@@ -92,7 +94,7 @@
         alt: label,
         icon: L.divIcon({ className: `case-map-marker${estimated ? " case-map-estimate" : poi ? " case-map-poi" : ""}`, html: `<span><b>${group.length > 1 ? `×${group.length}` : point.number}</b></span>`, iconSize: [44, 44], iconAnchor: [22, 22] }),
       }).addTo(markerLayer).bindPopup(content, {
-        maxWidth: 300,
+        maxWidth: Math.min(300, canvas.clientWidth - 80),
         maxHeight: Math.min(224, canvas.clientHeight - 180),
         autoPanPaddingTopLeft: [16, 112],
         autoPanPaddingBottomRight: [16, 16],
