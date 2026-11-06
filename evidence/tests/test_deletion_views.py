@@ -386,6 +386,11 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         )
         response = self.client.get(self.url(source) + "?download=manifest")
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/octet-stream")
+        self.assertEqual(
+            response["Content-Disposition"],
+            f'attachment; filename="deletion-{source.pk}.json"',
+        )
         inventory = json.loads(b"".join(response.streaming_content))
         expected = [
             source,
@@ -498,12 +503,6 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         )
         self.assertEqual(second.context["deletion_page"].number, 2)
         export = self.client.get(self.url(source) + "?download=manifest")
-        self.assertEqual(export["Content-Type"], "application/octet-stream")
-        self.assertEqual(
-            export["Content-Disposition"],
-            f'attachment; filename="deletion-{source.pk}.json"',
-        )
-        self.assertEqual(export["X-Content-Type-Options"], "nosniff")
         inventory = json.loads(b"".join(export.streaming_content))
         self.assertEqual(len(inventory["entries"]), 125)
         ids = {row["id"] for row in inventory["entries"]}

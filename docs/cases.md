@@ -46,8 +46,11 @@ Operator user administration keeps account identity and access flags visible;
 ## Invitations
 
 Under **Settings → Invite collaborator**, enter an email and choose Viewer
-(default) or Editor. The recipient may register or use an existing account, but
-must verify the invited email address before accepting. Invitation acceptance is
+(default) or Editor. The recipient may use an existing account or register when
+`PANDECT_ALLOW_SIGNUPS=true` (the default). With registration closed, new
+recipients need an operator-provisioned account; invitations do not bypass the
+restriction. Recipients must verify the invited email address before accepting.
+Invitation acceptance is
 an explicit POST; merely opening a link does not grant access. Pending links are
 resumed after sign-in/email verification.
 

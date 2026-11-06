@@ -23,6 +23,10 @@ investigation or shared hosted database.
 checks need environment variables; use the `uv run --env-file .env` wrapper when
 calling them locally. `make format` applies Ruff fixes and formatting.
 
+Native Dokploy image deployment and the separate live web/database/worker checks
+are documented in [the Dokploy deployment procedure](operations.md#first-dokploy-deployment).
+The development Compose smoke does not validate public DNS, TLS, or a remote rollout.
+
 `make test` and `make browser-check` select `config.test_settings`, which keeps
 PostgreSQL and application settings while serving source static assets without a
 release manifest. Direct `python manage.py test` commands also need
@@ -300,15 +304,31 @@ permitting the private services. Do not use public map capacity in routine tests
   `make browser-check` for core, marketing, analysis, geographic context and map
   journeys with synthetic configuration and PostgreSQL.
 - A separate CI job audits locked dependencies without database credentials.
+- After those checks pass for a `main` push, CI publishes the Linux amd64 web and
+  worker image targets to GHCR. CD resolves their successful-run/commit tags to
+  matching digests and deploys the native Dokploy Applications, verifying worker
+  startup before the web release. See [continuous deployment](operations.md#continuous-deployment).
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
 - **CodeQL** analyzes Python on pushes, pull requests, and a weekly schedule. The
   existing public-repository guard remains: private repositories skip this job
   unless the project deliberately configures an eligible code-scanning plan.
 
-Workflows use read-only contents permissions and pinned action commits. The
-rebuild's previous secret/image audit scripts no longer exist; these workflows
-make no claim to perform those scans. Container and secret scanning can be added
-as separately maintained checks.
+Workflows use pinned action commits and read-only contents permissions. Only CI's
+production image jobs receive package-write permission; CD receives package-read
+permission and the production environment's deployment secrets. These workflows
+do not perform container or secret scanning.
+
+The deployment helper has mocked API and failure-path tests that run without
+credentials, network access, or a database:
+
+```sh
+uv run --locked python -m unittest config.tests.test_dokploy_deploy
+```
+
+They cover stale CI skips, immutable image validation, worker-before-web ordering,
+native provider updates, active/failed deployments, sanitized transport failures,
+exact running task digests, release markers, and readiness stability. They do not
+establish that GitHub secrets, GHCR access, or Dokploy resources are configured.
 
 Local checks do not prove hosted workflow execution or deployed behavior. Hosted
 checks run only after changes reach GitHub.
