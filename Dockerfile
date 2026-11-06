@@ -1,5 +1,5 @@
 FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
-FROM python:3.14.9-slim-trixie
+FROM python:3.14.9-slim-trixie AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -30,9 +30,18 @@ COPY people/ people/
 COPY vehicles/ vehicles/
 COPY templates/ templates/
 COPY static/ static/
+COPY scripts/docker-entrypoint-worker.sh scripts/docker-entrypoint-worker.sh
 # A synthetic build-only setting is sufficient; collectstatic never needs a DB.
 RUN DJANGO_SECRET_KEY=static-collection-build-only python manage.py collectstatic --noinput \
     && chown -R pandect:pandect /app/staticfiles
+ARG APP_COMMIT_SHA=unknown
+ENV APP_COMMIT_SHA=${APP_COMMIT_SHA}
+LABEL org.opencontainers.image.revision=${APP_COMMIT_SHA}
 USER pandect
 EXPOSE 8000
+
+FROM runtime AS worker
+CMD ["sh", "/app/scripts/docker-entrypoint-worker.sh"]
+
+FROM runtime AS web
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "180", "--access-logfile", "-", "--logger-class", "config.privacy.PrivateAccessLogger"]

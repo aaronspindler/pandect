@@ -386,6 +386,11 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         )
         response = self.client.get(self.url(source) + "?download=manifest")
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/octet-stream")
+        self.assertEqual(
+            response["Content-Disposition"],
+            f'attachment; filename="deletion-{source.pk}.json"',
+        )
         inventory = json.loads(b"".join(response.streaming_content))
         expected = [
             source,

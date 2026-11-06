@@ -320,7 +320,7 @@ context = run_parser("geographic_context", json.dumps({"elements": [{
 assert context["matches"][0]["feature_id"] == "node/1"
 PY
 compose exec -T web python -c \
-    'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok"}'
+    'import json, os, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok", "commit": os.environ["APP_COMMIT_SHA"]}'
 compose exec -T web python <<'PY'
 import os
 import subprocess
@@ -340,7 +340,7 @@ try:
             with urlopen("http://127.0.0.1:8001/health/", timeout=2) as response:
                 assert response.status == 200
             break
-        except URLError:
+        except (URLError, TimeoutError):
             if process.poll() is not None:
                 raise RuntimeError("The production WSGI server exited.")
             time.sleep(0.1)

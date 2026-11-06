@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.dokploy.example
 .codex/config.toml
 .pandect-maintenance.lock/
 data/

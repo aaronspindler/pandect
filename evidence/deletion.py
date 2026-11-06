@@ -352,8 +352,9 @@ def deletion_manifest_response(plan):
         "counts": dict(plan.counts),
         "entries": plan.entries,
     }
+    # Linux WebKit can render JSON attachments inline; use a download MIME type.
     response = StreamingHttpResponse(
-        json.JSONEncoder().iterencode(payload), content_type="application/json"
+        json.JSONEncoder().iterencode(payload), content_type="application/octet-stream"
     )
     response["Content-Disposition"] = (
         f'attachment; filename="deletion-{plan.item.pk}.json"'

@@ -1,8 +1,14 @@
+import hashlib
+from datetime import timedelta
+
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core import mail
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
+
+from cases.models import Case, CaseInvitation, CaseMembership
 
 
 class AuthenticationTests(TestCase):
@@ -23,7 +29,8 @@ class AuthenticationTests(TestCase):
         self.assertNotEqual(self.user.password, self.password)
         self.assertTrue(self.user.check_password(self.password))
 
-    def test_verified_user_can_sign_in_with_email(self):
+    @override_settings(PANDECT_ALLOW_SIGNUPS=False)
+    def test_verified_user_can_sign_in_with_email_when_signups_are_closed(self):
         response = self.client.post(
             reverse("account_login"),
             {"login": self.user.email, "password": self.password},
@@ -90,7 +97,10 @@ class AuthenticationTests(TestCase):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertEqual(mail.outbox[0].to, [self.user.email])
 
+    @override_settings(PANDECT_ALLOW_SIGNUPS=True)
     def test_signup_creates_custom_user_and_requires_email_verification(self):
+        login = self.client.get(reverse("account_login"))
+        self.assertContains(login, f'href="{reverse("account_signup")}"')
         response = self.client.post(
             reverse("account_signup"),
             {
@@ -107,6 +117,71 @@ class AuthenticationTests(TestCase):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(EmailAddress.objects.get(user=user).verified)
         self.assertEqual(mail.outbox[0].to, ["new@example.com"])
+
+    @override_settings(PANDECT_ALLOW_SIGNUPS=False)
+    def test_closed_registration_blocks_get_and_post_even_with_pending_invitation(self):
+        session = self.client.session
+        session["pending_invitation_path"] = "/invitations/synthetic-token/"
+        session.save()
+        before = get_user_model().objects.count()
+        for method in ("get", "post"):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(
+                    reverse("account_signup"),
+                    {
+                        "username": "closed-investigator",
+                        "email": "closed@example.com",
+                        "password1": self.password,
+                        "password2": self.password,
+                    },
+                )
+                self.assertContains(response, "Registration is closed")
+                self.assertNotContains(response, "<form")
+                self.assertNotContains(response, f'href="{reverse("account_signup")}"')
+                self.assertEqual(get_user_model().objects.count(), before)
+                self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertEqual(mail.outbox, [])
+
+    @override_settings(PANDECT_ALLOW_SIGNUPS=False)
+    def test_closed_registration_login_explains_availability_without_signup_links(self):
+        response = self.client.get(reverse("account_login"))
+        self.assertContains(response, "Account registration is currently closed")
+        self.assertNotContains(response, f'href="{reverse("account_signup")}"')
+        self.assertContains(response, 'name="login"')
+        self.assertContains(response, 'type="submit"')
+
+    @override_settings(PANDECT_ALLOW_SIGNUPS=False)
+    def test_existing_invitee_can_sign_in_and_accept_when_signups_are_closed(self):
+        owner = get_user_model().objects.create_user(
+            username="case-owner", email="case-owner@example.com"
+        )
+        case = Case.objects.create(owner=owner, name="Synthetic invited case")
+        token = "synthetic-invitation-token"
+        invitation = CaseInvitation.objects.create(
+            case=case,
+            email=self.user.email,
+            invited_by=owner,
+            token_digest=hashlib.sha256(token.encode()).hexdigest(),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        invitation_url = reverse("invitation_accept", args=(token,))
+        response = self.client.get(invitation_url)
+        self.assertEqual(response.status_code, 302)
+        response = self.client.post(
+            reverse("account_login"),
+            {"login": self.user.email, "password": self.password},
+        )
+        self.assertRedirects(response, invitation_url)
+        self.assertFalse(
+            CaseMembership.objects.filter(case=case, user=self.user).exists()
+        )
+        response = self.client.post(invitation_url)
+        self.assertRedirects(response, reverse("cases:case_detail", args=(case.pk,)))
+        self.assertTrue(
+            CaseMembership.objects.filter(case=case, user=self.user).exists()
+        )
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.accepted_by, self.user)
 
     def test_login_requires_csrf_token(self):
         client = Client(enforce_csrf_checks=True)
