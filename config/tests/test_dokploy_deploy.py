@@ -41,6 +41,12 @@ class DeploymentCommandTests(TestCase):
     def test_helper_parses_on_the_cd_runners_python_312(self):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 12))
 
+    def test_native_deploy_accepts_an_empty_success_response(self):
+        with patch.object(deploy, "urlopen", return_value=io.BytesIO(b"")):
+            self.assertIsNone(
+                deploy.api("https://deploy.example.test/api/application.deploy")
+            )
+
     def test_stale_ci_cannot_mutate_dokploy(self):
         with (
             patch.object(deploy, "api", return_value={"object": {"sha": "c" * 40}}),

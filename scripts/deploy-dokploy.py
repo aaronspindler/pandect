@@ -37,7 +37,7 @@ def api(url, headers=None, data=None):
             body = response.read(2 * 1024 * 1024 + 1)
         if len(body) > 2 * 1024 * 1024:
             raise DeploymentError("Deployment API response exceeded its size limit.")
-        return json.loads(body)
+        return json.loads(body) if body else None
     except HTTPError as error:
         status = error.code
         error.close()
