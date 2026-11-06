@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import DatabaseError, connection
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
@@ -45,4 +46,4 @@ def health(request):
             cursor.execute("SELECT 1")
     except DatabaseError:
         return JsonResponse({"status": "unavailable"}, status=503)
-    return JsonResponse({"status": "ok"})
+    return JsonResponse({"status": "ok", "commit": settings.APP_COMMIT_SHA})

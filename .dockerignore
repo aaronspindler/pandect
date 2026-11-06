@@ -23,5 +23,7 @@
 !templates/**
 !static/
 !static/**
+!scripts/
+!scripts/docker-entrypoint-worker.sh
 **/__pycache__/
 **/*.py[cod]

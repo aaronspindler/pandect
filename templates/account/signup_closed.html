@@ -1,0 +1,7 @@
+{% extends 'allauth/layouts/base.html' %}
+{% block head_title %}Registration closed{% endblock %}
+{% block content %}
+<h1>Registration is closed</h1>
+<p class="intro">Pandect is not accepting new accounts at this time.</p>
+<p>Already have an account? <a href="{% url 'account_login' %}">Sign in</a> to continue your work.</p>
+{% endblock %}

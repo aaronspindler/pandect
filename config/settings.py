@@ -13,6 +13,7 @@ if not SECRET_KEY:
     raise ImproperlyConfigured("Set DJANGO_SECRET_KEY before starting Pandect.")
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
+APP_COMMIT_SHA = os.environ.get("APP_COMMIT_SHA", "unknown")
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
@@ -63,6 +64,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "accounts.context_processors.registration",
             ],
         },
     },
@@ -128,6 +130,9 @@ ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_ADAPTER = "accounts.adapter.PandectAccountAdapter"
+PANDECT_ALLOW_SIGNUPS = (
+    os.environ.get("PANDECT_ALLOW_SIGNUPS", "true").lower() == "true"
+)
 LOGIN_URL = "account_login"
 LOGIN_REDIRECT_URL = "cases:case_list"
 LOGOUT_REDIRECT_URL = "account_login"
@@ -157,6 +162,25 @@ MEDIA_ROOT = Path(
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 X_FRAME_OPTIONS = "DENY"
+# Enable only when a controlled proxy overwrites X-Forwarded-Proto and the
+# application port cannot be reached directly by untrusted clients.
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https")
+    if os.environ.get("DJANGO_TRUST_PROXY_HEADERS", "false").lower() == "true"
+    else None
+)
+SECURE_SSL_REDIRECT = (
+    os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "false").lower() == "true"
+)
+SECURE_REDIRECT_EXEMPT = [r"^health/$"]
+SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "0"))
+if SECURE_HSTS_SECONDS < 0:
+    raise ImproperlyConfigured("DJANGO_SECURE_HSTS_SECONDS must not be negative.")
+CSRF_TRUSTED_ORIGINS = [
+    value.strip()
+    for value in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if value.strip()
+]
 
 
 def positive_env(name, default):

@@ -17,6 +17,7 @@
 - [Validation, CI, and Dependabot](validation.md)
 - [October 2026 code review catalogue and validation](code-review-2026-10.md)
 - [Compose operation, backup, and recovery](operations.md)
+- [First Dokploy deployment on openpandect.com](operations.md#first-dokploy-deployment)
 
 The Django project was generated from the repository root using
 `python -m django startproject config .`. Its configuration lives in `config/`:
