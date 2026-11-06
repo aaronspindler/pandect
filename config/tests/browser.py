@@ -2785,6 +2785,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     page.get_by_role(
                         "link", name="Download the complete deletion inventory (JSON)"
                     ).click()
+                self.assertEqual(
+                    event.value.suggested_filename, f"deletion-{source.pk}.json"
+                )
                 inventory = json.loads(Path(event.value.path()).read_bytes())
                 self.assertEqual(len(inventory["entries"]), 117)
                 self.assertTrue(

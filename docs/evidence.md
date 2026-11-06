@@ -297,6 +297,8 @@ Original downloads use `application/octet-stream` with an attachment filename so
 browsers save them consistently, including Linux WebKit. Location, communication,
 and call-attachment records keep their `.json` filenames and canonical bytes;
 captured text and transcripts keep their `.txt` filenames and UTF-8 bytes.
+Deletion-inventory exports use the same attachment type and keep their `.json`
+filenames and JSON contents.
 
 Retained person-location evidence restricts individual person deletion,
 including when archived. This protects the original association. Confirmed
