@@ -1,24 +1,29 @@
 {% extends 'marketing/base.html' %}
 {% block content %}
-<section class="marketing-hero wrap">
-  <p class="section-label"><span class="brand-rule" aria-hidden="true"></span> The open-source investigation workspace</p>
-  <div class="hero-columns">
-    <h1>Bring the whole investigation into <em>focus.</em></h1>
-    <div class="hero-intro"><p>Collect evidence. Explore it. Find what matters.</p><p class="supporting-copy">Search documents and messages, read text from images, and analyze conversations and locations in one case.</p><div class="marketing-actions"><a class="marketing-button" href="{% url 'product' %}">Explore Pandect <span aria-hidden="true">→</span></a><a class="text-link" href="{% url 'hosting' %}">Get started <span aria-hidden="true">↗</span></a></div></div>
-  </div>
-  {% include 'marketing/workspace.html' %}
+<section class="marketing-hero home-intro wrap">
+  <p class="section-label">Investigation workspace</p>
+  <h1>A clearer view of <em>the evidence.</em></h1>
+  <p class="lead">Collect, search, and analyze evidence in one private case. Share access with the people working on it.</p>
+  <a class="marketing-button" href="{% url 'product' %}">Explore the workspace <span aria-hidden="true">→</span></a>
 </section>
+<div class="wrap">
+  {% include 'marketing/workspace.html' %}
+</div>
 <section class="marketing-section wrap" aria-labelledby="workflow-heading">
-  <div class="section-heading"><p class="section-label">Evidence and analysis</p><h2 id="workflow-heading">Turn case material<br>into useful leads.</h2><p>Bring the material together, explore its content, and check what you find.</p></div>
+  <h2 id="workflow-heading">Follow the evidence</h2>
   <div class="principles">
-    <article><span class="step-number">01 / COLLECT</span><h3>Bring in your evidence.</h3><p>Add documents, images, audio, text, locations, and communications to a case. Browse and search them together.</p></article>
-    <article><span class="step-number">02 / ANALYZE</span><h3>Find useful details.</h3><p>Extract supported text, explore call patterns, compare writing, and analyze recorded locations. Open the evidence behind each result.</p></article>
-    <article><span class="step-number">03 / COLLABORATE</span><h3>Bring in the right people.</h3><p>Invite collaborators to a specific case. Give viewers room to review and editors the tools to contribute, with ownership kept clear.</p></article>
+    <article><h3>Collect</h3><p>Bring documents, images, messages, and locations together in a case.</p></article>
+    <article><h3>Analyze</h3><p>Search for details and explore patterns. Follow results back to their sources.</p></article>
+    <article><h3>Share</h3><p>Invite teammates to review the case or contribute evidence.</p></article>
   </div>
-  <a class="text-link" href="{% url 'product' %}">See the workspace in detail <span aria-hidden="true">→</span></a>
 </section>
 <section class="trust-strip">
-  <div class="wrap split-section"><div><p class="section-label">Private by default</p><h2>Keep your work<br>under your control.</h2></div><div><p>Run Pandect yourself and choose who can access each case. Supported analysis runs locally by default; sending evidence to an external service requires explicit approval.</p><a class="text-link" href="{% url 'trust' %}">How Pandect treats your evidence <span aria-hidden="true">→</span></a></div></div>
+  <div class="wrap split-section">
+    <h2>Keep control of your work</h2>
+    <div>
+      <p>Choose who can access each case. Run Pandect on your own infrastructure and use supported local analysis tools.</p>
+      <a class="text-link" href="{% url 'hosting' %}">See hosting options <span aria-hidden="true">→</span></a>
+    </div>
+  </div>
 </section>
-<section class="marketing-section wrap closing-section"><div><p class="section-label">Your workspace. Your choice.</p><h2>Run it yourself.<br>Or look ahead to hosted Pandect.</h2><p>Self-host the open-source application today. A hosted service is planned for openpandect.com.</p></div><a class="marketing-button" href="{% url 'hosting' %}">Explore hosting <span aria-hidden="true">→</span></a></section>
 {% endblock %}
