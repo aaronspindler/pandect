@@ -14,6 +14,7 @@
   status.textContent = "Loading map…";
   const map = L.map(canvas, { center: [20, 0], zoom: 2, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false, worldCopyJump: true });
   const fit = () => {
+    map.invalidateSize({ pan: false });
     if (points.length) {
       map.fitBounds(points.map((point) => [point.latitude, point.longitude]), { padding: [32, 32], maxZoom: 16, animate: false });
     } else {
@@ -24,6 +25,8 @@
   const markerLayer = L.layerGroup().addTo(map);
   map.on("resize", () => markerLayer.eachLayer((marker) => {
     const popup = marker.getPopup();
+    // Allow for Leaflet's content margins and the map's pan padding.
+    popup.options.maxWidth = Math.min(300, canvas.clientWidth - 80);
     popup.options.maxHeight = Math.min(224, canvas.clientHeight - 180);
     if (marker.isPopupOpen()) popup.update();
   }));
@@ -92,7 +95,7 @@
         alt: label,
         icon: L.divIcon({ className: `case-map-marker${estimated ? " case-map-estimate" : poi ? " case-map-poi" : ""}`, html: `<span><b>${group.length > 1 ? `×${group.length}` : point.number}</b></span>`, iconSize: [44, 44], iconAnchor: [22, 22] }),
       }).addTo(markerLayer).bindPopup(content, {
-        maxWidth: 300,
+        maxWidth: Math.min(300, canvas.clientWidth - 80),
         maxHeight: Math.min(224, canvas.clientHeight - 180),
         autoPanPaddingTopLeft: [16, 112],
         autoPanPaddingBottomRight: [16, 16],
@@ -162,6 +165,7 @@
     button.addEventListener("click", () => {
       const selected = markers.get(button.dataset.mapShow);
       if (!selected) return;
+      map.invalidateSize({ pan: false });
       map.fitBounds(selected.map((marker) => marker.getLatLng()), { padding: [32, 32], maxZoom: 16, animate: false });
       selected[0].openPopup();
       canvas.scrollIntoView({ block: "center" });

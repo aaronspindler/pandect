@@ -83,6 +83,7 @@ an ambiguous address is never silently assigned its first match. **Show on map**
 fits all candidates for that observation. Each estimate links its source and
 the retained lookup/review, with dataset attribution. Accepted estimates are
 labelled reviewed; later rejection removes that candidate on the next read.
+Open marker popups resize to fit the map's available width and height.
 Inspecting an unreviewed candidate on this map does not accept it for downstream
 distance, movement or context analysis; those still require candidate review.
 Original addresses, reported coordinates and checksums remain unchanged.

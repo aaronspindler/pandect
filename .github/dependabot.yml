@@ -17,6 +17,8 @@ updates:
     open-pull-requests-limit: 5
     # PostgreSQL major upgrades need an explicit data migration plan.
     ignore:
+      # Every Python image update must match the exact host/runtime pins.
+      - dependency-name: python
       - dependency-name: postgres
         update-types: ["version-update:semver-major"]
     groups:

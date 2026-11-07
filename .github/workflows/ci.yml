@@ -56,7 +56,7 @@ jobs:
       - name: Install uv and the pinned Python runtime
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.5"
+          version: "0.13.6"
           enable-cache: true
 
       - name: Install local OCR
@@ -108,8 +108,10 @@ jobs:
       - name: Install uv and the pinned Python runtime
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.5"
+          version: "0.13.6"
           enable-cache: true
+      - name: Prefer Ubuntu's primary package mirrors
+        run: sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
       - name: Install local OCR
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
 
@@ -133,7 +135,7 @@ jobs:
       - name: Install uv and the pinned Python runtime
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.5"
+          version: "0.13.6"
           enable-cache: true
 
       - name: Audit locked dependencies

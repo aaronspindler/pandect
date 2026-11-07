@@ -302,7 +302,9 @@ permitting the private services. Do not use public map capacity in routine tests
   Linux amd64 and arm64. uv reads `.python-version` and installs from `uv.lock`.
 - A separate Linux amd64 browser job installs Chromium/WebKit and runs
   `make browser-check` for core, marketing, analysis, geographic context and map
-  journeys with synthetic configuration and PostgreSQL.
+  journeys with synthetic configuration and PostgreSQL. Package setup uses
+  Ubuntu's primary mirrors instead of the runner's Azure mirror to avoid stalled
+  OCR/browser dependency downloads.
 - A separate CI job audits locked dependencies without database credentials.
 - After those checks pass for a `main` push, CI publishes the Linux amd64 web and
   worker image targets to GHCR. CD resolves their successful-run/commit tags to
@@ -339,9 +341,11 @@ The weekly configuration uses the native `uv`, `docker`, and `github-actions`
 ecosystems. Each ecosystem groups version updates into one PR, retaining a limit
 of five open PRs per ecosystem. Native uv updates maintain both `pyproject.toml`
 and `uv.lock`, including the development group. Docker discovers the Dockerfile
-and Compose images. PostgreSQL major updates are excluded because they require
-a planned database upgrade. Security updates follow GitHub's separate settings;
-these groups do not opt into grouping security updates.
+and Compose images. Python image updates are excluded because the exact Python
+pin, compatibility range, lockfile, and image must be upgraded together. PostgreSQL
+major updates are excluded because they require a planned database upgrade.
+Security updates follow GitHub's separate settings; these groups do not opt into
+grouping security updates.
 
 Review runtime updates against the coordinated pins in
 [architecture](architecture.md); a Docker update alone does not update
