@@ -9,16 +9,16 @@ application, with no separate frontend build or marketing service.
 | `/` | Product introduction and illustrative investigation workspace. |
 | `/product/` | Evidence, case collaboration, and supported analysis workflows. |
 | `/trust/` | Case access, original preservation, and responsible analysis. |
+| `/roadmap/` | Available capabilities, next priorities, and exploratory ideas. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
 
 Anonymous visitors can read every page. Signed-in visitors opening `/` retain
 the shortcut to **All cases**; the other public pages show **Open workspace**.
 The existing sign-in and email-verification checks still protect case material.
-Public pages render static illustrative records and never query or display an
-investigator's cases or evidence. The example is explicitly labelled fictional.
-The introduction emphasizes collecting and analyzing evidence. The fictional
-reader pairs captured text with suggested keywords; source attribution stays
-concise, and preservation/access details are explained on Trust.
+Public pages never query or display an investigator's cases or evidence. The home
+page includes a fictional case preview that pairs captured text with suggested
+keywords. Narrow layouts show the evidence reader first. Product describes the
+implemented workflows, and Trust explains preservation and access.
 
 The pages use `templates/marketing/` and `static/pandect/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links
@@ -28,17 +28,20 @@ standard](../DESIGN.md).
 
 ## Content boundaries
 
-The hosted service is described as coming soon. These pages do not establish a
+The hosted service is described as planned. These pages do not establish a
 launch date, pricing, a signup waitlist, payment handling, support commitments,
 security certification, or availability guarantees. Existing account routes
 belong to the running installation; they are not a hosted-service purchase flow.
 Publishing these source changes does not configure DNS or deploy openpandect.com.
 
 Keep product claims aligned with implemented behavior documented in
-[cases](cases.md), [evidence](evidence.md), and [analysis](analysis.md). Do not
-present the broader roadmap as available features. Original preservation and
-checksums do not prove truth, and analysis suggestions require review. Hosting
-copy does not replace operator configuration or legal policies for a live service.
+[cases](cases.md), [evidence](evidence.md), and [analysis](analysis.md). The public
+roadmap summarizes the [proposed analysis priorities](evidence-analysis-roadmap.md)
+and separates them from what is available. Keep future items provisional and
+review the roadmap when capabilities ship or priorities change. Original
+preservation and checksums do not prove truth, and analysis suggestions require
+review. Hosting copy does not replace operator configuration or legal policies for
+a live service.
 
 ## Validation
 

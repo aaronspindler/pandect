@@ -8,7 +8,7 @@ from evidence.models import TextEvidence
 
 
 class MarketingPageTests(TestCase):
-    pages = ("home", "product", "trust", "hosting")
+    pages = ("home", "product", "trust", "roadmap", "hosting")
 
     @classmethod
     def setUpTestData(cls):

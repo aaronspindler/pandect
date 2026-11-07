@@ -34,7 +34,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
             )
         ).resolve()
         artifacts.mkdir(parents=True, exist_ok=True)
-        pages = ("home", "product", "trust", "hosting")
+        pages = ("home", "product", "trust", "roadmap", "hosting")
         viewports = ((1440, 900), (1440, 1024), (768, 1024), (390, 844), (320, 844))
         with sync_playwright() as playwright:
             for engine in engines:
@@ -117,6 +117,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                     for name, route in (
                         ("Product", "product"),
                         ("Trust", "trust"),
+                        ("Roadmap", "roadmap"),
                         ("Hosting", "hosting"),
                         ("Sign in", "account_login"),
                     ):

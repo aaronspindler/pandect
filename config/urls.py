@@ -16,6 +16,11 @@ urlpatterns = [
         name="product",
     ),
     path(
+        "roadmap/",
+        TemplateView.as_view(template_name="marketing/roadmap.html"),
+        name="roadmap",
+    ),
+    path(
         "trust/",
         TemplateView.as_view(template_name="marketing/trust.html"),
         name="trust",
