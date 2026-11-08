@@ -187,7 +187,9 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                     item = model.objects.get(pk=response.json()["id"])
                     self.assertEqual(item.uploaded_by, self.users[role])
                     self.assertEqual(item.case, self.case)
+                    self.assertEqual(item.description, "")
                     self.assertEqual(item.source, "Synthetic witness")
+                    self.assertEqual(item.source_description, "Synthetic source")
                     if original is not None:
                         self.assertEqual(
                             item.sha256, hashlib.sha256(original).hexdigest()
@@ -407,36 +409,53 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             (item.body, item.sha256, item.created_at, item.uploaded_by_id), original
         )
 
-    def test_edit_descriptions_rejects_stale_data_and_ignores_original_changes(self):
-        item = self.text()
+    def test_edit_source_details_rejects_stale_data_and_preserves_original(self):
+        item = self.text(description="Earlier investigator context")
         self.login("editor")
         stale = item.edited_at.isoformat()
-        item.description = "A collaborator's latest description"
-        item.save(update_fields=["description"])
+        item.source_description = "A collaborator's latest source details"
+        item.save(update_fields=["source_description"])
         data = {
             "kind": "text",
             "title": item.title,
             "body": "Replacement attempt",
-            "description": "My proposed correction",
+            "description": "Forged description",
+            "source_description": "My proposed source correction",
             "expected_edited_at": stale,
         }
         conflict = self.client.post(self.url("edit", item), data)
         self.assertEqual(conflict.status_code, 409)
-        self.assertContains(conflict, "My proposed correction", status_code=409)
+        self.assertContains(conflict, "My proposed source correction", status_code=409)
         self.assertContains(
-            conflict, "A collaborator&#x27;s latest description", status_code=409
+            conflict, "A collaborator&#x27;s latest source details", status_code=409
         )
         self.assertContains(conflict, "Save reviewed changes", status_code=409)
         item.refresh_from_db()
-        self.assertEqual(item.description, "A collaborator's latest description")
+        self.assertEqual(
+            item.source_description, "A collaborator's latest source details"
+        )
+        self.assertNotIn("description", conflict.context["form"].fields)
         data["expected_edited_at"] = conflict.context["form"][
             "expected_edited_at"
         ].value()
         response = self.client.post(self.url("edit", item), data)
         self.assertEqual(response.status_code, 302)
         item.refresh_from_db()
-        self.assertEqual(item.description, "My proposed correction")
+        self.assertEqual(item.source_description, "My proposed source correction")
+        self.assertEqual(item.description, "Earlier investigator context")
         self.assertNotEqual(item.body, "Replacement attempt")
+
+        self.login("viewer")
+        details_url = self.url("detail", item) + "?section=details"
+        self.assertContains(
+            self.client.get(details_url), "Earlier investigator context"
+        )
+        self.assertContains(
+            self.client.get(self.url("list"), {"q": "Earlier investigator context"}),
+            item.title,
+        )
+        self.login("outsider")
+        self.assertEqual(self.client.get(details_url).status_code, 404)
 
     def test_metadata_and_empty_original_validation_keeps_entered_values(self):
         self.login("owner")

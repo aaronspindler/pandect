@@ -228,7 +228,7 @@ class InvestigationMapTests(MapCaseFixtures, TestCase):
         self.assertContains(response, "https://maps.example.test/{z}/{x}/{y}.png")
         self.assertContains(response, "Synthetic provider")
         self.assertIn("https://maps.example.test", response["Content-Security-Policy"])
-        response = self.client.get(reverse("cases:case_detail", args=(self.case.pk,)))
+        response = self.client.get(reverse("evidence:list", args=(self.case.pk,)))
         self.assertNotIn(
             "https://maps.example.test", response["Content-Security-Policy"]
         )

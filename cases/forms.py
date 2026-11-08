@@ -10,9 +10,8 @@ class CaseForm(forms.ModelForm):
 
     class Meta:
         model = Case
-        fields = ("name", "description")
+        fields = ("name",)
         labels = {"name": "Case name"}
-        widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

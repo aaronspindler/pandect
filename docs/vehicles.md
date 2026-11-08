@@ -9,20 +9,20 @@ link reported location evidence to a same-case vehicle.
 
 ## Investigator workflow
 
-Open a case and choose **Vehicles**. Owners and editors can **Add vehicle**, enter
-known details, and save. At least one make, model, license plate, or VIN is
+Open a case and choose **Case tools → Vehicles**. Owners and editors can choose
+**Add vehicle**, enter known details, and save. At least one make, model, license plate, or VIN is
 required; partial details are allowed. Viewers can search and inspect records.
-The list searches make, model, exact numeric year, color, plate, VIN, and notes,
+The list searches make, model, exact numeric year, color, plate, VIN, and saved notes,
 with 25 records per page. Returning from a detail/edit screen preserves the list
 query and page.
 
-Choose **Edit vehicle** to correct details or notes. If another save changed the
+Choose **Edit vehicle** to correct reported details. If another save changed the
 record, the form preserves the draft and displays all latest saved details.
 **Save reviewed changes** explicitly resubmits it. A deleted record is never
 recreated by a stale form. Case reassignment is not supported.
 
 The detail page keeps identifiers and reported locations visible. **Record
-details** reveals optional notes, the separate make/model/year values,
+details** reveals saved read-only notes, the separate make/model/year values,
 timestamps, and the owner's **Delete vehicle** action. Empty notes and values
 already shown in the title do not occupy the main reading area. Only populated
 identifiers and color appear; one short message handles a record without those
@@ -53,7 +53,7 @@ imports](vehicle-location-imports.md) for formats, retention, limits, and recove
 | `year` | Optional integer from 1 through 9999; unknown years use `NULL`. |
 | `color` | Optional text, up to 100 characters. |
 | `license_plate`, `vin` | Optional text, up to 64 characters each. Partial or historical identifiers are accepted. |
-| `notes` | Optional multiline investigator notes for sources, uncertainty, jurisdictions, and conflicting observations. |
+| `notes` | Previously saved investigator notes, now read-only in the product and admin. |
 | `created_at` | Automatically set on creation. |
 | `updated_at` | Automatically updated on model saves; queryset updates must set it explicitly. |
 

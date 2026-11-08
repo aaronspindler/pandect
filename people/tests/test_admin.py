@@ -197,13 +197,19 @@ class PersonAdminTests(TestCase):
                 person = Person.objects.latest("created_at")
                 self.assertEqual(person.case, self.case)
                 self.assertEqual(person.email, "new@example.com")
+                person.notes = "Earlier observation"
+                person.save()
+                form_page = self.client.get(self.url("change", person))
+                self.assertContains(form_page, "Earlier observation")
+                self.assertNotContains(form_page, 'name="notes"')
                 response = self.client.post(
                     self.url("change", person),
-                    self.data(notes="Unconfirmed observation"),
+                    self.data(address="Updated value", notes="Forged notes"),
                 )
                 self.assertRedirects(response, self.url())
                 person.refresh_from_db()
-                self.assertEqual(person.notes, "Unconfirmed observation")
+                self.assertEqual(person.address, "Updated value")
+                self.assertEqual(person.notes, "Earlier observation")
                 self.assertCountEqual(
                     LogEntry.objects.filter(
                         object_id=str(person.pk), user=user

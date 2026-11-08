@@ -12,7 +12,7 @@ from django.core.exceptions import (
     ValidationError,
 )
 from django.core.paginator import Paginator
-from django.db import IntegrityError, transaction
+from django.db import DatabaseError, IntegrityError, transaction
 from django.db.models import CharField, Q, Value
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -25,6 +25,7 @@ from django.views.decorators.http import (
     require_safe,
 )
 
+from analysis.automatic import evidence_runs, start_added_evidence_analysis
 from analysis.errors import AnalysisError
 from analysis.search import derived_content_condition, derived_text_matches
 from cases.permissions import case_context, get_case
@@ -45,6 +46,7 @@ from .forms import (
     KIND_LABELS,
     KINDS,
     LOCATION_KINDS,
+    SOURCE_FIELDS,
     TYPE_FIELDS,
     CallAttachmentForm,
     EvidenceDeleteForm,
@@ -56,6 +58,11 @@ from .navigation import list_params, query_suffix
 from .previews import image_preview
 from .queries import duplicate_matches, get_evidence, scoped_evidence
 from .search import retained_content_condition, retained_text_matches
+from .storage import retain_uploaded_originals
+
+SAVE_UNCONFIRMED = (
+    "The save could not be confirmed. Keep your original and retry this submission."
+)
 
 
 def _private(response):
@@ -232,6 +239,12 @@ def detail(request, case_id, kind, evidence_id):
             "can_delete_evidence": request.user.is_superuser,
         }
     )
+    if section == "original":
+        runs = evidence_runs(case, kind, item.pk)
+        context["analysis_pending"] = runs.filter(
+            status__in=("queued", "running")
+        ).exists()
+        context["has_analysis"] = context["analysis_pending"] or runs.exists()
     if kind in CALL_KINDS:
         context["attachments"] = item.attachments.filter(case=case).select_related(
             "uploaded_by"
@@ -326,10 +339,7 @@ def bulk_create(request, case_id):
         kind="document", instance=KINDS["document"](case=case, uploaded_by=request.user)
     )
     context = case_context(case, request.user) | {
-        "shared_fields": [
-            form[name]
-            for name in ("source", "source_url", "source_description", "collected_at")
-        ],
+        "shared_fields": [form[name] for name in SOURCE_FIELDS],
         "max_batch_files": settings.PANDECT_MAX_BATCH_FILES,
         "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
     }
@@ -381,8 +391,9 @@ def create(request, case_id):
             submission_id = UUID(request.POST.get("submission_id", ""))
         except ValueError, AttributeError:
             submission_id = None
+        item = None
         try:
-            with transaction.atomic():
+            with retain_uploaded_originals() as originals:
                 case = get_case(request.user, case_id, edit=True, lock=True)
                 if submission_id:
                     previous = (
@@ -421,13 +432,24 @@ def create(request, case_id):
                         status = 409
                     else:
                         item = form.save()
+                        original = getattr(item, "file", None)
+                        if original:
+                            originals.append(original)
+                        attachment = None
                         if kind in CALL_KINDS:
-                            save_call_content(
+                            attachment = save_call_content(
                                 item, request.user, form.cleaned_data, submission_id
                             )
-                        return _created_response(
-                            request, case, kind, item, created=True
-                        )
+                            if attachment and attachment.file:
+                                originals.append(attachment.file)
+                        if kind not in CALL_KINDS or attachment:
+                            start_added_evidence_analysis(
+                                request.user,
+                                case.pk,
+                                kind,
+                                item.pk,
+                                attachment_id=attachment.pk if attachment else None,
+                            )
                 else:
                     status = 400
         except PermissionDenied:
@@ -457,6 +479,14 @@ def create(request, case_id):
                 "Retry with the same submission ID.",
                 409,
             )
+        except AnalysisError, ValidationError, DatabaseError:
+            if wants_json(request) or not form.is_bound:
+                return _error(request, "save_unconfirmed", SAVE_UNCONFIRMED, 503)
+            form.add_error(None, SAVE_UNCONFIRMED)
+            status = 503
+        else:
+            if item is not None:
+                return _created_response(request, case, kind, item, created=True)
         if wants_json(request):
             status = (
                 413
@@ -741,92 +771,105 @@ def add_attachment(request, case_id, kind, evidence_id):
     if kind not in CALL_KINDS:
         raise Http404("Call not found.")
     status = 200
-    with transaction.atomic():
-        case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")
-        item = get_evidence(case, kind, evidence_id, lock=request.method == "POST")
-        form = CallAttachmentForm(
-            request.POST if request.method == "POST" else None,
-            request.FILES if request.method == "POST" else None,
-        )
-        if request.method == "POST":
-            if getattr(request, "evidence_upload_too_large", False):
-                return _error(
-                    request,
-                    "file_too_large",
-                    "The file exceeds the configured upload limit.",
-                    413,
-                )
-            if sum(len(request.FILES.getlist(key)) for key in request.FILES) > 1:
-                return _error(request, "too_many_files", "Send one file at a time.")
-            if form.is_valid():
-                submission_id = form.cleaned_data["submission_id"]
-                previous = CallEvidenceAttachment.objects.filter(
-                    submission_id=submission_id
-                ).first()
-                if previous and (
-                    previous.case_id != case.pk
-                    or previous.uploaded_by_id != request.user.pk
-                    or previous.phone_call_id
-                    != (item.pk if kind == "phone-call" else None)
-                    or previous.facetime_id != (item.pk if kind == "facetime" else None)
-                ):
+    form = attachment = None
+    is_post = request.method == "POST"
+    try:
+        with retain_uploaded_originals() as originals:
+            case = get_case(request.user, case_id, edit=True, lock=is_post)
+            item = get_evidence(case, kind, evidence_id, lock=is_post)
+            form = CallAttachmentForm(
+                request.POST if is_post else None, request.FILES if is_post else None
+            )
+            if is_post:
+                if getattr(request, "evidence_upload_too_large", False):
                     return _error(
                         request,
-                        "submission_conflict",
-                        "This submission cannot be reused.",
-                        409,
+                        "file_too_large",
+                        "The file exceeds the configured upload limit.",
+                        413,
                     )
-                try:
-                    # Preserve the case lock transaction after integrity errors.
-                    with transaction.atomic():
-                        attachment = previous or save_call_content(
+                if sum(len(request.FILES.getlist(key)) for key in request.FILES) > 1:
+                    return _error(request, "too_many_files", "Send one file at a time.")
+                if form.is_valid():
+                    submission_id = form.cleaned_data["submission_id"]
+                    previous = CallEvidenceAttachment.objects.filter(
+                        submission_id=submission_id
+                    ).first()
+                    if previous and (
+                        previous.case_id != case.pk
+                        or previous.uploaded_by_id != request.user.pk
+                        or previous.phone_call_id
+                        != (item.pk if kind == "phone-call" else None)
+                        or previous.facetime_id
+                        != (item.pk if kind == "facetime" else None)
+                    ):
+                        return _error(
+                            request,
+                            "submission_conflict",
+                            "This submission cannot be reused.",
+                            409,
+                        )
+                    attachment = previous
+                    if attachment is None:
+                        attachment = save_call_content(
                             item, request.user, form.cleaned_data, submission_id
                         )
-                except OSError:
-                    form.add_error(
-                        None,
-                        (
-                            "The original could not be saved. "
-                            "Keep your file and try again."
-                        ),
-                    )
-                    status = 503
-                except IntegrityError:
-                    return _error(
-                        request,
-                        "submission_conflict",
-                        (
-                            "This submission could not be confirmed. "
-                            "Retry with the same submission ID."
-                        ),
-                        409,
-                    )
-                else:
-                    url = _detail_url(case, kind, item) + f"#attachment-{attachment.pk}"
-                    if wants_json(request):
-                        return _private(
-                            JsonResponse(
-                                {"id": str(attachment.pk), "detail_url": url},
-                                status=200 if previous else 201,
-                            )
+                        if attachment.file:
+                            originals.append(attachment.file)
+                        start_added_evidence_analysis(
+                            request.user,
+                            case.pk,
+                            kind,
+                            item.pk,
+                            attachment_id=attachment.pk,
                         )
-                    messages.success(
-                        request,
-                        "This attachment was already saved."
-                        if previous
-                        else "Transcript or audio added. Earlier material is retained.",
-                    )
-                    return redirect(url)
-            else:
-                status = 400
+                else:
+                    status = 400
+    except OSError:
+        if form is None or not form.is_bound:
+            raise
+        form.add_error(
+            None, "The original could not be saved. Keep your file and try again."
+        )
+        status = 503
+    except IntegrityError:
+        return _error(
+            request,
+            "submission_conflict",
+            "This submission could not be confirmed. "
+            "Retry with the same submission ID.",
+            409,
+        )
+    except AnalysisError, ValidationError, DatabaseError:
+        if wants_json(request) or form is None or not form.is_bound:
+            return _error(request, "save_unconfirmed", SAVE_UNCONFIRMED, 503)
+        form.add_error(None, SAVE_UNCONFIRMED)
+        status = 503
+    else:
+        if attachment is not None:
+            url = _detail_url(case, kind, item) + f"#attachment-{attachment.pk}"
             if wants_json(request):
-                return _error(
-                    request,
-                    "storage_unavailable" if status == 503 else "validation_error",
-                    "Review the highlighted fields.",
-                    status,
-                    form.errors.get_json_data(),
+                return _private(
+                    JsonResponse(
+                        {"id": str(attachment.pk), "detail_url": url},
+                        status=200 if previous else 201,
+                    )
                 )
+            messages.success(
+                request,
+                "This attachment was already saved."
+                if previous
+                else "Transcript or audio added. Earlier material is retained.",
+            )
+            return redirect(url)
+    if is_post and wants_json(request):
+        return _error(
+            request,
+            "storage_unavailable" if status == 503 else "validation_error",
+            "Review the highlighted fields.",
+            status,
+            form.errors.get_json_data(),
+        )
     return _private(
         render(
             request,

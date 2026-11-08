@@ -50,14 +50,14 @@ after changing templates or static assets in the container workflow. Host-based
 debug development picks up source asset changes without collecting them.
 
 After verification, **All cases → Create case** creates a case owned by you.
-Inside it, use **Add evidence** to upload files, capture original text, or
-record locations and communications, **People → Add person** for contact details/notes,
-**Vehicles → Add vehicle** for vehicle details/notes, and
-**Settings → Invite collaborator** to grant Viewer or Editor access. See
+The case opens to **Evidence**. Use **Add evidence** to upload files, capture
+original text, or record locations and communications. **Case tools** groups
+People, Vehicles, and owner-only Settings. Choose **Settings → Invite collaborator**
+to grant Viewer or Editor access. See
 [cases](cases.md), [evidence](evidence.md), [people](people.md), and
 [vehicles](vehicles.md) for workflow
 details and limits. Ordinary investigators do not need staff permissions.
-For Asset Location CSV exports, choose **Vehicles → Import vehicle locations**,
+For Asset Location CSV exports, choose **Case tools → Vehicles → Import vehicle locations**,
 then choose a case vehicle and check the export timezone (initially
 `America/Toronto`). Preparation and confirmed imports run in the worker; refresh
 the review to see progress and review case-vehicle mappings before confirming.

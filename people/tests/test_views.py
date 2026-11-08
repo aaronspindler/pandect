@@ -60,7 +60,6 @@ class PersonInterfaceTests(TestCase):
             "phone_number": person.phone_number,
             "email": person.email,
             "address": person.address,
-            "notes": person.notes,
             "revision": response.context["form"]["revision"].value(),
             **changes,
         }
@@ -131,10 +130,16 @@ class PersonInterfaceTests(TestCase):
             with self.subTest(user=user.username):
                 self.client.force_login(user)
                 response = self.client.post(
-                    self.url("create"), {**identity, "case": str(self.other_case.pk)}
+                    self.url("create"),
+                    {
+                        **identity,
+                        "case": str(self.other_case.pk),
+                        "notes": "Forged notes",
+                    },
                 )
                 self.assertEqual(response.status_code, 302)
                 person = Person.objects.get(case=self.case, **identity)
+                self.assertEqual(person.notes, "")
                 self.assertRedirects(
                     response,
                     self.url("detail", person=person),
@@ -144,18 +149,17 @@ class PersonInterfaceTests(TestCase):
 
     def test_blank_identity_and_invalid_email_preserve_entered_values(self):
         self.client.force_login(self.editor)
-        response = self.client.post(
-            self.url("create"), {"address": "Synthetic Street", "notes": "Unknown"}
-        )
+        response = self.client.post(self.url("create"), {"address": "Synthetic Street"})
         self.assertEqual(response.status_code, 400)
         self.assertContains(response, "Synthetic Street", status_code=400)
         self.assertContains(response, "Enter at least", status_code=400)
         response = self.client.post(
             self.url("create"),
-            {"first_name": "Proposed name", "email": "invalid", "notes": "Keep this"},
+            {"first_name": "Proposed name", "email": "invalid"},
         )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.context["form"].data["notes"], "Keep this")
+        self.assertContains(response, "Proposed name", status_code=400)
+        self.assertNotIn("notes", response.context["form"].fields)
         self.assertIn("email", response.context["form"].errors)
         self.assertEqual(Person.objects.filter(case=self.case).count(), 1)
 
@@ -183,14 +187,18 @@ class PersonInterfaceTests(TestCase):
                 response = self.client.post(
                     self.url("edit", person=self.person),
                     self.edit_data(
-                        notes=f"Updated by {user.username}",
+                        address=f"Updated by {user.username}",
+                        notes="Forged notes",
                         case=str(self.other_case.pk),
                     ),
                 )
                 self.assertEqual(response.status_code, 302)
                 self.person.refresh_from_db()
                 self.assertEqual(self.person.case_id, self.case.pk)
-                self.assertEqual(self.person.notes, f"Updated by {user.username}")
+                self.assertEqual(self.person.address, f"Updated by {user.username}")
+                self.assertEqual(
+                    self.person.notes, "Unconfirmed public source contact."
+                )
 
     def test_viewer_is_read_only_and_mutations_remain_denied_directly(self):
         self.client.force_login(self.viewer)
@@ -219,25 +227,26 @@ class PersonInterfaceTests(TestCase):
 
     def test_stale_edit_shows_saved_details_and_preserves_proposal_for_review(self):
         self.client.force_login(self.editor)
-        proposal = self.edit_data(notes="My proposed notes")
-        self.person.notes = "Newer saved notes"
+        proposal = self.edit_data(address="My proposed value")
+        self.person.address = "Newer saved value"
         self.person.save()
         response = self.client.post(self.url("edit", self.person), proposal)
         self.assertEqual(response.status_code, 409)
-        self.assertContains(response, "Newer saved notes", status_code=409)
-        self.assertContains(response, "My proposed notes", status_code=409)
+        self.assertContains(response, "Newer saved value", status_code=409)
+        self.assertContains(response, "My proposed value", status_code=409)
         self.assertContains(response, "Save reviewed changes", status_code=409)
         self.person.refresh_from_db()
-        self.assertEqual(self.person.notes, "Newer saved notes")
+        self.assertEqual(self.person.address, "Newer saved value")
         proposal["revision"] = response.context["form"]["revision"].value()
         reviewed = self.client.post(self.url("edit", self.person), proposal)
         self.assertEqual(reviewed.status_code, 302)
         self.person.refresh_from_db()
-        self.assertEqual(self.person.notes, "My proposed notes")
+        self.assertEqual(self.person.address, "My proposed value")
 
     def test_revision_cannot_be_missing_tampered_or_reused_for_another_person(self):
+        original = self.person.address
         self.client.force_login(self.owner)
-        data = self.edit_data(notes="Forged notes")
+        data = self.edit_data(address="Forged change")
         for token in ("", "tampered", f"{data['revision']}tampered"):
             with self.subTest(token=token):
                 response = self.client.post(
@@ -248,11 +257,12 @@ class PersonInterfaceTests(TestCase):
         response = self.client.post(self.url("edit", another), data)
         self.assertEqual(response.status_code, 400)
         self.person.refresh_from_db()
-        self.assertEqual(self.person.notes, "Unconfirmed public source contact.")
+        self.assertEqual(self.person.address, original)
 
     def test_revocation_and_role_downgrade_apply_to_an_already_open_form(self):
+        original = self.person.address
         self.client.force_login(self.editor)
-        data = self.edit_data(notes="No longer allowed")
+        data = self.edit_data(address="No longer allowed")
         membership = CaseMembership.objects.get(case=self.case, user=self.editor)
         membership.role = CaseMembership.Role.VIEWER
         membership.save()
@@ -265,11 +275,11 @@ class PersonInterfaceTests(TestCase):
             self.client.post(self.url("edit", self.person), data).status_code, 404
         )
         self.person.refresh_from_db()
-        self.assertEqual(self.person.notes, "Unconfirmed public source contact.")
+        self.assertEqual(self.person.address, original)
 
     def test_deleted_person_is_not_recreated_by_a_stale_form(self):
         self.client.force_login(self.editor)
-        data = self.edit_data(notes="Stale changes")
+        data = self.edit_data(address="Stale changes")
         url = self.url("edit", self.person)
         person_id = self.person.pk
         self.person.delete()

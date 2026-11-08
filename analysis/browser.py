@@ -248,7 +248,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 )
                 self.assertLessEqual(
                     page.get_by_role("navigation", name="Investigation")
-                    .get_by_role("link", name="Overview", exact=True)
+                    .get_by_role("link", name="Evidence", exact=True)
                     .bounding_box()["height"],
                     88,
                 )
@@ -480,6 +480,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 self.subTest(engine=engine),
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
+                self.db(AnalysisRun.objects.filter(case=self.case).delete)
                 self.sign_in(page)
                 page.goto(
                     self.url(

@@ -24,27 +24,19 @@ class VehicleForm(forms.ModelForm):
             "color",
             "license_plate",
             "vin",
-            "notes",
         )
         widgets = {
             "make": forms.TextInput(attrs={"autocomplete": "off"}),
             "model": forms.TextInput(attrs={"autocomplete": "off"}),
             "license_plate": forms.TextInput(attrs={"autocomplete": "off"}),
             "vin": forms.TextInput(attrs={"autocomplete": "off"}),
-            "notes": forms.Textarea(attrs={"rows": 5}),
         }
-        labels = {"notes": "Notes"}
         help_texts = {
             "year": "Leave blank if unknown.",
-            "license_plate": (
-                "Preserve the reported formatting; note the jurisdiction in notes."
-            ),
+            "license_plate": "Preserve the reported formatting.",
             "vin": (
                 "Partial or historical identifiers are allowed; "
                 "no VIN verification is performed."
-            ),
-            "notes": (
-                "Record source context, uncertainty, and conflicting observations."
             ),
         }
 

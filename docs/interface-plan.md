@@ -2,7 +2,9 @@
 
 **Status: core interface implementation present; validation results are separate.**
 This document records the delivery sequence, architecture, and acceptance gates
-for the implemented product screens. It does not assert that a particular local,
+for the original product screens. The current workflow, including the Evidence
+landing page and read-only saved notes, is in the screen specifications below.
+This plan does not assert that a particular local,
 CI, browser, or deployed check has passed.
 Follow the [design standard](../DESIGN.md) and
 [screen specifications](interface-design.md). The selected direction is the

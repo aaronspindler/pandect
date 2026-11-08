@@ -29,13 +29,8 @@
 <p class="result-count muted">{{ page_obj.paginator.count }} case{{ page_obj.paginator.count|pluralize }}</p>
 <div class="record-list">
 {% for item in page_obj %}
-<a class="record-row" href="{% url 'cases:case_detail' item.pk %}">
-<div>
+<a class="record-row" href="{% url 'evidence:list' item.pk %}">
 <strong>{{ item.name }}</strong>
-{% if item.description %}
-<p class="muted">{{ item.description|truncatechars:150 }}</p>
-{% endif %}
-</div>
 <span class="status">{{ item.current_role|title }}</span>
 </a>
 {% endfor %}

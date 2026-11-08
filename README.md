@@ -6,9 +6,9 @@
 </picture>
 
 Pandect is an open-source investigation and intelligence platform designed to
-make open-source intelligence (OSINT) approachable. Its goal is to bring
-evidence, people, connections, and analysis into one clear investigation
-workflow, with the care and usability expected of an everyday application.
+make open-source intelligence (OSINT) approachable. Investigators can collect
+original evidence, run analysis, and inspect the source behind each finding
+in one case workspace.
 
 Investigators should be able to understand where information came from, preserve
 uncertainty, and collaborate without losing control of their case material.
@@ -25,10 +25,10 @@ Analysis and visualization capabilities are being built incrementally.
   access permissions. Search your cases and filter owned or shared work.
 - **Collaboration:** Invite people by email, grant viewer or editor access, and
   manage collaborators from case settings. Each case has one owner.
-- **People records:** Capture names, contact details, and investigator notes
+- **People records:** Capture names and contact details
   within a case, including partial or uncertain identities.
-- **Vehicle records:** Capture make, model, year, color, plate, VIN, and investigator
-  notes within a case, including partial or uncertain identifiers.
+- **Vehicle records:** Capture make, model, year, color, plate, and VIN within a
+  case, including partial or uncertain identifiers.
 - **Evidence collection:** Upload images, audio, and documents, or capture original
   text. Queue multiple files and record source details and collection times.
 - **Communication evidence:** Capture individual text messages, phone calls, and
@@ -46,8 +46,8 @@ Analysis and visualization capabilities are being built incrementally.
   confirms deletion of the whole case.
 - **Investigator workspace:** Search and filter evidence in a responsive interface
   with a three-pane desktop layout, mobile views, and keyboard navigation.
-- **Case analysis:** Inspect call/vehicle/duplicate reports, search retained and
-  extracted text, and run supported document/image/audio extraction. Review
+- **Case analysis:** Adding evidence queues applicable local checks. Inspect
+  call, vehicle, and duplicate reports, search retained and extracted text, and review
   source-linked conversation, writing-style, visit and journey candidates with
   retained processing history. See [supported inputs and configuration](docs/analysis.md).
 - **Self-hosting:** Run locally with Docker Compose. Ordinary case management
@@ -105,10 +105,9 @@ Keep these logs private because they contain account and invitation links. After
 verification:
 
 1. Choose **All cases → Create case**.
-2. Use **Add evidence** to upload files or capture text and location observations.
-3. Open **People → Add person** to record people involved in the investigation.
-4. Open **Vehicles → Add vehicle** to record vehicles encountered in the investigation.
-5. Use **Settings → Invite collaborator** to share the case.
+2. In **Evidence**, choose **Add evidence** to upload files or capture text and locations.
+3. Open **Analysis** to see progress and source-linked results.
+4. Use **Case tools** for Map, People, Vehicles, or **Settings → Invite collaborator**.
 
 Ordinary investigators do not need staff or administrator permissions.
 

@@ -143,7 +143,7 @@
     if (name === "title") {input.maxLength = 255; input.required = true;}
     if (name === "source") input.maxLength = 255;
     if (name === "source_url") input.maxLength = 2048;
-    if (["description", "source_description"].includes(name)) input.maxLength = 20000;
+    if (name === "source_description") input.maxLength = 20000;
     input.addEventListener("input", () => {
       entry.values[name] = input.value;
       entry.overrides.add(name);
@@ -194,8 +194,7 @@
     select.addEventListener("change", () => {entry.values.kind = select.value;});
     entry.inputs.push(select); category.append(select); basic.append(category); entry.node.append(basic);
     const details = element("details", null);
-    details.append(element("summary", "Description and source details"));
-    inputField(details, entry, "description", "Description", "textarea", defaults.description);
+    details.append(element("summary", "Source details"));
     inputField(details, entry, "source", "Source", "text", defaults.source);
     inputField(details, entry, "source_description", "Source description", "textarea", defaults.source_description);
     inputField(details, entry, "source_url", "Source URL", "url", defaults.source_url);
@@ -245,7 +244,7 @@
       refreshControls();
       return;
     }
-    if (!bulk && entries.some((entry) => ["ready", "failed", "duplicate"].includes(entry.state)) && !window.confirm("Replace the pending selection? Unsaved descriptions in this queue will be discarded. Previously added evidence stays saved.")) return;
+    if (!bulk && entries.some((entry) => ["ready", "failed", "duplicate"].includes(entry.state)) && !window.confirm("Replace the pending selection? Unsaved changes in this queue will be discarded. Previously added evidence stays saved.")) return;
     const defaults = Object.fromEntries(new FormData(form).entries());
     delete defaults.file; delete defaults.csrfmiddlewaretoken; delete defaults.submission_id;
     defaults.title = !bulk && selected.length === 1 ? (defaults.title || "") : "";

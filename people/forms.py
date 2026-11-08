@@ -23,21 +23,15 @@ class PersonForm(forms.ModelForm):
             "phone_number",
             "email",
             "address",
-            "notes",
         )
         widgets = {
             "first_name": forms.TextInput(attrs={"autocomplete": "off"}),
             "last_name": forms.TextInput(attrs={"autocomplete": "off"}),
             "phone_number": forms.TextInput(attrs={"inputmode": "tel"}),
             "address": forms.Textarea(attrs={"rows": 3}),
-            "notes": forms.Textarea(attrs={"rows": 5}),
         }
-        labels = {"notes": "Notes"}
         help_texts = {
             "phone_number": "Preserve the source's formatting and extensions.",
-            "notes": (
-                "Record source context, uncertainty, and conflicting observations."
-            ),
         }
 
     def __init__(self, *args, **kwargs):

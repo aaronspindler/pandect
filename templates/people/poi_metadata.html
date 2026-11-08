@@ -4,5 +4,4 @@
   <div><dt>Coordinates</dt><dd>{{ poi.latitude }}, {{ poi.longitude }}{% if not poi.plottable %} · Outside map display range{% endif %}</dd></div>
   {% if poi.address or show_empty %}<div><dt>Address</dt><dd>{{ poi.address|default:"Not recorded"|linebreaksbr }}</dd></div>{% endif %}
   {% if poi.source or show_empty %}<div><dt>Source / citation</dt><dd>{{ poi.source|default:"Not recorded" }}</dd></div>{% endif %}
-  {% if poi.notes or show_empty %}<div><dt>Notes</dt><dd>{{ poi.notes|default:"No notes recorded."|linebreaksbr }}</dd></div>{% endif %}
 </dl>

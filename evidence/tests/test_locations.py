@@ -297,10 +297,10 @@ class LocationViewTests(EvidenceViewTestMixin, TestCase):
         self.login("owner")
         for kind in LOCATION_KINDS:
             self.client.post(self.url("create"), self.payload(kind))
-        summary = self.client.get(
-            reverse("cases:case_detail", kwargs={"case_id": self.case.pk})
+        results = self.client.get(self.url("list"))
+        self.assertEqual(
+            results.context["page_obj"].paginator.count, len(LOCATION_KINDS)
         )
-        self.assertEqual(summary.context["active_evidence_count"], len(LOCATION_KINDS))
         response = self.client.post(
             reverse(
                 "people:delete",

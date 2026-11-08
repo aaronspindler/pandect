@@ -25,19 +25,16 @@ class PointOfInterestForm(forms.ModelForm):
             "longitude",
             "address",
             "source",
-            "notes",
         )
         labels = {
             "kind": "POI type",
             "custom_label": "Custom label",
             "source": "Source / citation",
-            "notes": "Notes",
         }
         widgets = {
             "latitude": forms.NumberInput(attrs={"step": "0.000001"}),
             "longitude": forms.NumberInput(attrs={"step": "0.000001"}),
             "address": forms.Textarea(attrs={"rows": 3}),
-            "notes": forms.Textarea(attrs={"rows": 4}),
         }
         help_texts = {
             "custom_label": "Required for Custom, for example Gym or Meeting place.",
@@ -46,10 +43,6 @@ class PointOfInterestForm(forms.ModelForm):
             "address": (
                 "Optional context. Enter coordinates to place the pin; "
                 "this address is not looked up automatically."
-            ),
-            "notes": (
-                "Record why this place is associated with the person, "
-                "including uncertainty."
             ),
         }
 

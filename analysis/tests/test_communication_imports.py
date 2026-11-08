@@ -110,6 +110,14 @@ class CommunicationImportTests(EvidenceViewTestMixin, TestCase):
         with transaction.atomic():
             self.assertEqual(apply_import(run, retained.data, [source]), 1)
         message = TextMessageEvidence.objects.get()
+        self.assertFalse(
+            AnalysisRun.objects.filter(
+                case=self.case,
+                inputs__contains=[
+                    {"kind": "text-message", "evidence_id": str(message.pk)},
+                ],
+            ).exists()
+        )
         self.assertEqual(message.body, "Hello & goodbye")
         context = message.communication_context
         self.assertEqual(context.source_document, source.item)

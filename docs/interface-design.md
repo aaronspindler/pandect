@@ -43,13 +43,15 @@ observation time and available speed. **Original CSV row and interpretation** ho
 receipt time, asset labels, timezone, parser version and exact source cells, while
 **View import and observations** remains beside the observation. Attribution lives
 in **Details**, with a concise source line beside the original when supplied.
-Long source descriptions link to their full text in Details. Optional descriptions,
-source metadata, and declared technical fields on add forms open on request, on edit, and
-after validation errors; required original fields remain visible.
+Long source descriptions link to their full text in Details. Source metadata and
+declared technical fields on add forms open on request, on edit, and after
+validation errors. Required original fields remain visible.
 
 Management screens use consistent section dividers, readable detail and form
 widths, aligned actions, and explicit filter recovery. A single **Case navigation**
-menu serves every viewport; desktop and mobile never render duplicate links.
+menu serves every viewport. Evidence and Analysis are its primary destinations.
+Map, People, Vehicles, owner-only Settings, and **Case details** belong under
+**Case tools**.
 On small screens it starts closed when JavaScript is available. Without JavaScript
 it starts open and can be collapsed; if resized while closed, its toggle remains
 available. Controls and actions wrap with the content.
@@ -61,13 +63,16 @@ containing group.
 
 Add evidence uses a labelled type selector and an explicit **Choose type** button
 that works without JavaScript. All ten types remain available. The form starts
-with the title and original material. **Description and source details** holds
-optional context. File forms link to bulk upload; vehicle-location forms link to CSV import.
+with the title and original material. **Source details** holds optional source
+metadata. File forms link to bulk upload and vehicle-location forms link to CSV import.
+Adding eligible evidence queues bounded local checks, with status and results in
+the evidence's Analysis tab.
 
 The evidence reader keeps its contents within `60rem`, with metadata within
 `42rem`, so wide monitors do not separate labels from related information.
-**Analyze evidence** and **Download original** stay beside the title for editors.
-**Details** holds optional descriptions,
+**View analysis** is available beside the title when runs exist. Owners and
+editors see **Analyze evidence** for records without runs. Keep download there
+for every case role. **Details** holds saved read-only descriptions,
 record history, integrity, editing and archive/restore controls, with a retention explanation; **Analysis**
 opens the evidence's local checks and results. Original, Analysis, and Details
 use the same section navigation and evidence title. Collection filters survive
@@ -110,7 +115,7 @@ over incidental mockup text or rendering details.
 
 | Region | Desktop specification |
 | --- | --- |
-| Case navigation | `13rem` wide; compact case name, All cases, Overview/Evidence/People, owner Settings, account menu. |
+| Case navigation | `13rem` wide, with the case name, All cases, Evidence, Analysis, Case tools, and account link. |
 | Evidence list | `20rem` wide; heading and Add evidence, search, then a Filters disclosure. |
 | List chrome | At most `164px` for heading/search/filters, with a `44px` pagination footer at default zoom. |
 | Evidence row | At least `56px` high: `16px` title and `14px` type line; one whole-row link. |
@@ -137,26 +142,27 @@ Preserve safe local return destinations through sign-in and verification.
 | Screen | Content and primary action |
 | --- | --- |
 | All cases | Searchable owned/shared case list and role; **Create case**. |
-| Create case | Required case name, optional description; **Create case**. |
-| Case overview | Recent evidence and analysis entry points, with case metadata on request; **Add evidence** for owners/editors. |
-| Evidence | Active collection by default, query/type/archive-state filters, pagination, selected record when wide; **Add evidence** for owners/editors. |
-| Evidence detail | Original content and **Analyze evidence**, with downloads available. Optional source metadata, descriptions, editing, and archive/restore are in Details. |
+| Create case | Required case name and **Create case**. Opens Evidence. |
+| Evidence | Case landing page with active records by default, query/type/archive-state filters, pagination, and **Add evidence** for owners/editors. |
+| Evidence detail | Original content, analysis, and downloads. Source metadata, saved read-only descriptions, editing, and archive/restore are in Details. |
 | Add evidence | Choose files or captured text, then clear input-specific fields; **Upload files** or **Save text**. |
-| Edit evidence details | Title and optional description, source, and declared metadata; **Save changes**. |
+| Edit evidence details | Title, optional source details, declared metadata, and **Save changes**. |
 | People | Searchable case list; **Add person** for owners/editors. |
-| Person detail/edit | Contact details and POIs, with optional notes and history in Record details; **Edit person** for owners/editors. |
-| Case settings | Owner-only name/description editing, collaborator access, pending invitations, separate delete section. |
+| Person detail/edit | Contact details, social accounts, and POIs, with saved read-only notes and history in Record details. Owners and editors can **Edit person** and manage accounts. |
+| Case settings | Owner-only name editing, collaborator access, pending invitations, and separate delete section. |
 | Invitation acceptance | Named invitation after authentication and recipient verification; **Accept invitation**. |
 | Account | Styled allauth email/password management and POST sign-out; account creation/recovery/verification use the same design language. |
 
-Use **Settings** only for case owners. Other members see case metadata on Overview
-and their role in context. On read-only screens show a concise Viewer explanation
-where it helps. Do not show disabled edit actions throughout the interface.
+Use **Settings** only for case owners. Every member can read the owner,
+timestamps, and saved description under **Case tools → Case details** and see
+their role in context. On read-only
+screens show a concise Viewer explanation where it helps. Do not show disabled
+edit actions throughout the interface.
 
 ### Cases
 
-Case names are required, up to 255 characters; descriptions are optional. Assign
-the current user as owner on the server. Ownership is not a form field. Existing
+Case names are required, up to 255 characters. Assign the current user as owner
+on the server. Ownership is not a form field. Existing
 cases receive a name based on their current `Case #<UUID>` representation through
 an additive migration; the interface can prompt owners to choose a clearer name.
 Updating a case records an update timestamp; initialize that timestamp from the
@@ -197,8 +203,8 @@ different record. Moving to the next item follows normal record navigation.
 
 The reading pane contains:
 
-1. A compact title, **Analyze evidence** for owners/editors, and an authorized
-   download. Editing and archive/restore controls live in Details.
+1. A compact title, a link to analysis, and an authorized download. Editing and
+   archive/restore controls live in Details.
 2. **Original**, **Analysis**, and **Details** links with full-page navigation and
    collection filters preserved. Ordinary links work without JavaScript.
 3. A concise source line when supplied. Full attribution, collection time, and
@@ -206,7 +212,7 @@ The reading pane contains:
 4. Escaped read-only text or a supported image preview on Original. Files show
    their name, size, and download action; document/audio content can be extracted
    through Analysis when supported. File format declarations are in Details.
-5. Optional descriptions and source context as read-only prose in Details.
+5. Saved descriptions and source context as read-only prose in Details.
    Record history, declared technical values, and full SHA-256 open on request.
    Checksums have a copy action with a selectable text fallback.
 
@@ -226,14 +232,13 @@ A normal single-item HTML form is the complete fallback. JavaScript enhances
 file selection into a local batch;
 it is not required to add any supported evidence type.
 
-**Bulk add files** is a dedicated page linked beside Add evidence on the case
-overview and Evidence collection, and from the ordinary creation form. Its picker
-and drag/drop append files without replacing pending edits. Shared source name,
+**Bulk add files** is a dedicated page linked from the ordinary creation form.
+Its picker and drag/drop append files without replacing pending edits. Shared source name,
 URL, description, and collection time live in an optional disclosure. They follow
 pending entries per field until individually overridden, including by a blank
-value; **Use shared details** resets an entry's source overrides. Investigator
-descriptions remain individual. Frozen and saved entries never inherit later
-changes. Disable shared controls while uploading, and block file additions while
+value. **Use shared details** resets an entry's source overrides. Frozen and
+saved entries keep their submitted values. Disable shared controls while uploading,
+and block file additions while
 running or any confirmation is unresolved. Saved entries count toward the page's
 queue limit. Once every entry is added or removed, **Start another batch** opens
 a fresh page. If enhanced upload support is unavailable, explain the limitation
@@ -250,8 +255,8 @@ The batch screen uses a compact list with filename, editable title, evidence
 category, and status. Filename provides the initial title. Browser
 MIME/extension hints may suggest Image or Audio; otherwise default to Document.
 The user can correct the category; this suggestion is not verification. A
-Details disclosure on each pending entry contains description, source name,
-source URL/source description, and collection time. Optional type-specific
+Details disclosure on each pending entry contains source name, source URL,
+source description, and collection time. Optional type-specific
 technical claims can be entered on the ordinary create/detail form and remain
 editable after upload.
 
@@ -292,8 +297,8 @@ its exact original bytes. Render saved text as escaped text with wrapping.
 
 ### Editing details
 
-Owners and editors can edit evidence title, description, source URL/source
-description, collection time, and optional type metadata. Group provenance and
+Owners and editors can edit evidence title, source name, URL and description,
+collection time, and optional type metadata. Group provenance and
 technical claims under clear headings/disclosures. Original content, case,
 uploader, upload timestamp, original filename, byte size, declared content type,
 and checksum are read-only. There is no Replace original action.
@@ -305,10 +310,9 @@ overwrite another investigator's changes or automatically merge their assertions
 
 ### People
 
-Use the current fields: first/last name, phone number, email, address, and notes.
-Explain that at least one name, phone, or email is required; partial identities
-are valid. Display missing details as Not recorded. Keep uncertain notes in the
-investigator's own words. Matching contacts do not merge or verify identities.
+Offer first and last name, phone number, email, and address. Explain that at
+least one name, phone, or email is required. Display saved notes as read-only.
+Matching contacts do not merge or verify identities.
 
 Owners and editors can create/edit people. Only owners can delete a person,
 through a separate named-target confirmation. This deletes the person record,
@@ -316,11 +320,17 @@ not evidence or another person with matching contact details. Case membership
 and user accounts are separate from these investigative records. Case cannot
 be changed through the person form.
 
+Show reported social accounts on the person detail page. Each account has a
+platform, username, and optional source citation. Owners and editors can add,
+edit, and confirm removal of accounts. Viewers can read them. Include platform
+and username in case People search, and disclose the account cascade before
+person or case deletion.
+
 ### Vehicles
 
 The implemented vehicle workflow follows People with make, model, year, color,
-license plate, VIN, and investigator notes. Require at least a make, model, plate,
-or VIN, allow partial identifiers, and display missing details as Not recorded.
+license plate, and VIN. Require at least a make, model, plate, or VIN and allow
+partial identifiers. Display saved notes as read-only.
 Owners/editors create and edit; viewers inspect; only owners delete after a
 named-target confirmation. Case is fixed after creation. Matching identifiers
 do not establish ownership or link vehicles to people. Lists preserve search and
@@ -382,17 +392,18 @@ admin routes. All mutations use CSRF-protected POST, never GET.
 | Route shape | Purpose |
 | --- | --- |
 | `/cases/`, `/cases/new/` | Authorized list; create. |
-| `/cases/<uuid:case_id>/` | Overview. |
+| `/cases/<uuid:case_id>/` | Authorized redirect to Evidence. |
 | `/cases/<uuid:case_id>/settings/`, `.../delete/` | Owner metadata/access settings; delete confirmation and POST. |
 | `/cases/<uuid:case_id>/evidence/`, `.../new/` | Filtered collection; create one typed record per request. |
 | `.../evidence/bulk/` | Owner/editor bulk-file review page; uploads use the existing creation endpoint. |
 | `.../evidence/<type>/<uuid:evidence_id>/` | Original/details view, with preserved list query and `section=original\|details`. |
-| `.../evidence/<type>/<uuid:evidence_id>/edit/` | Edit descriptive/provenance/type details. |
+| `.../evidence/<type>/<uuid:evidence_id>/edit/` | Edit title, source details, and type metadata. |
 | `.../evidence/<type>/<uuid:evidence_id>/download/` | Authorized attachment, including captured UTF-8 text. |
 | `.../evidence/<type>/<uuid:evidence_id>/archive/`, `.../restore/` | Idempotent lifecycle POSTs. |
 | `.../evidence/<type>/<uuid:evidence_id>/delete/` | Superuser-only confirmation GET and checkbox-confirmed deletion POST. |
 | `/cases/<uuid:case_id>/people/`, `.../new/` | Scoped list; create. |
 | `.../people/<uuid:person_id>/`, `.../edit/`, `.../delete/` | Scoped inspect, edit, owner delete confirmation and POST. |
+| `.../people/<uuid:person_id>/social-accounts/new/`, `.../social-accounts/<uuid:account_id>/edit/`, `.../social-accounts/<uuid:account_id>/delete/` | Scoped owner/editor account creation, edit, and removal confirmation. |
 | `/cases/<uuid:case_id>/vehicles/`, `.../new/` | Scoped list; create. |
 | `.../vehicles/<uuid:vehicle_id>/`, `.../edit/`, `.../delete/` | Scoped inspect, edit, owner delete confirmation and POST. |
 | `.../invitations/new/`, `.../invitations/<uuid:invitation_id>/resend/`, `.../revoke/`, `.../edit/` | Owner invitation creation/delivery/role management. |

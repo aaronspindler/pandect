@@ -20,9 +20,10 @@ page includes a fictional case preview that pairs captured text with observed
 keywords. Narrow layouts show the evidence reader first. Home links to fictional
 examples of printed-English OCR, a call report, and a candidate visit on Product.
 The examples show how to trace a result to its sources and
-interpret its limits. Product distinguishes local checks and comparisons that
-investigators start, case reports, and analysis that needs a configured service.
-Trust explains preservation, access, and processing approval.
+interpret its limits. Product distinguishes automatic local checks on eligible
+new evidence, investigator-started comparisons, case reports, and analysis that
+needs a configured service. Trust explains preservation, access, and processing
+approval.
 
 The pages use `templates/marketing/` and `static/pandect/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links

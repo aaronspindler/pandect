@@ -38,3 +38,20 @@ def new_file_save(original, *, using):
         if not save_finished and original._committed:
             delete_original(original.storage, original.name)
         raise
+
+
+@contextmanager
+def retain_uploaded_originals():
+    """Remove new upload files when a later write rolls back their transaction."""
+    originals = []
+    save_finished = False
+    try:
+        with transaction.atomic():
+            yield originals
+            # Once the body finishes, a failed commit acknowledgement may be ambiguous.
+            save_finished = True
+    except Exception:
+        if not save_finished:
+            for original in originals:
+                delete_original(original.storage, original.name)
+        raise

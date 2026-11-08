@@ -337,8 +337,17 @@ class EvidenceAdminTests(TestCase):
         for kind, item in self.items.items():
             with self.subTest(kind=kind):
                 expected = {name: getattr(item, name) for name in item.immutable_fields}
+                item.description = "Earlier investigator context"
+                item.save(update_fields=["description"])
                 response = self.client.get(self.url(kind, "change", item))
-                for name in ("case", "uploaded_by", "sha256", *ORIGINAL_FIELDS[kind]):
+                self.assertContains(response, "Earlier investigator context")
+                for name in (
+                    "case",
+                    "uploaded_by",
+                    "sha256",
+                    "description",
+                    *ORIGINAL_FIELDS[kind],
+                ):
                     self.assertNotContains(response, f'name="{name}"')
                 if kind in FILE_KINDS:
                     self.assertNotContains(response, item.file.name)
@@ -361,7 +370,7 @@ class EvidenceAdminTests(TestCase):
                 )
                 self.assertRedirects(response, self.url(kind))
                 item.refresh_from_db()
-                self.assertEqual(item.description, "Analyst correction")
+                self.assertEqual(item.description, "Earlier investigator context")
                 self.assertEqual(item.source, "Synthetic witness")
                 for name, value in expected.items():
                     self.assertEqual(getattr(item, name), value)

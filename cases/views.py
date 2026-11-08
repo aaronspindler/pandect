@@ -22,9 +22,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from config.access import product_login_required
-from evidence.queries import scoped_evidence
-from evidence.types import KIND_LABELS, KINDS
-from people.models import PointOfInterest
+from evidence.types import KINDS
+from people.models import PointOfInterest, SocialAccount
 
 from .forms import (
     CaseForm,
@@ -60,34 +59,6 @@ def _case_record_counts(case):
             revoked_at__isnull=True,
             expires_at__gt=timezone.now(),
         ).count(),
-    }
-
-
-def _case_summary(case):
-    active_count = archived_count = 0
-    recent = []
-    for kind in KINDS:
-        queryset = scoped_evidence(case, kind)
-        counts = _archive_counts(queryset)
-        active_count += counts["active"]
-        archived_count += counts["archived"]
-        for item in queryset.order_by("-created_at", "-pk").values(
-            "pk", "title", "created_at"
-        )[:5]:
-            recent.append(
-                {
-                    "title": item["title"],
-                    "created_at": item["created_at"],
-                    "kind": KIND_LABELS[kind],
-                    "url": reverse("evidence:detail", args=(case.pk, kind, item["pk"])),
-                }
-            )
-    recent.sort(key=lambda item: (item["created_at"], item["url"]), reverse=True)
-    return {
-        **_case_record_counts(case),
-        "active_evidence_count": active_count,
-        "archived_evidence_count": archived_count,
-        "recent_evidence": recent[:5],
     }
 
 
@@ -147,7 +118,7 @@ def case_create(request):
         messages.success(
             request, "Case created. Add evidence to begin your investigation."
         )
-        return redirect("cases:case_detail", case_id=case.pk)
+        return redirect("evidence:list", case_id=case.pk)
     return render(request, "cases/form.html", {"form": form, "creating": True})
 
 
@@ -155,7 +126,7 @@ def case_create(request):
 @require_http_methods(["GET"])
 def case_detail(request, case_id):
     case = get_case(request.user, case_id)
-    return _render_case(request, "cases/detail.html", case, **_case_summary(case))
+    return redirect("evidence:list", case_id=case.pk)
 
 
 @product_login_required
@@ -167,7 +138,7 @@ def case_settings(request, case_id):
         with transaction.atomic():
             case = get_case(request.user, case_id, owner=True, lock=True)
             saved_updated_at = case.updated_at.isoformat()
-            saved_details = {"name": case.name, "description": case.description}
+            saved_details = {"name": case.name}
             form = CaseForm(request.POST, instance=case)
             if form.is_valid():
                 if form.cleaned_data["expected_updated_at"] != saved_updated_at:
@@ -225,6 +196,7 @@ def case_delete(request, case_id):
     ]
     counts = {
         **_case_record_counts(case),
+        "social_account_count": SocialAccount.objects.filter(person__case=case).count(),
         "poi_count": PointOfInterest.objects.filter(person__case=case).count(),
         "active_evidence_count": sum(item["active"] for item in evidence_counts),
         "archived_evidence_count": sum(item["archived"] for item in evidence_counts),
@@ -511,7 +483,7 @@ def invitation_accept(request, token):
         existing = CaseMembership.objects.filter(case=case, user=request.user).first()
         if invitation.accepted_at:
             if invitation.accepted_by_id == request.user.pk and existing:
-                return redirect("cases:case_detail", case_id=case.pk)
+                return redirect("evidence:list", case_id=case.pk)
             return _invitation_unavailable(
                 request,
                 "This invitation was already used. "
@@ -539,7 +511,7 @@ def invitation_accept(request, token):
             invitation.accepted_by = request.user
             invitation.save(update_fields=["accepted_at", "accepted_by"])
             messages.success(request, "Invitation accepted. You can now open the case.")
-            return redirect("cases:case_detail", case_id=case.pk)
+            return redirect("evidence:list", case_id=case.pk)
     response = render(
         request, "cases/invitation_accept.html", {"invitation": invitation}
     )

@@ -7,21 +7,22 @@ investigation model or unscoped collection of evidence.
 
 ## Investigator workflow
 
-Sign in with a verified account and open **All cases**. Choose **Create case**,
-enter a name and optional description, then add evidence, people, or vehicles from the case
-navigation. The signed-in user becomes the owner. All cases supports scoped name/
-description search and owned/shared filtering; its results never include unrelated
-cases, even for superusers. The overview prioritizes recent evidence, analysis
-entry points, and compact people and vehicle count links; **Case details** reveals
-the owner, access role, and creation/update times.
+Sign in with a verified account and open **All cases**. Choose **Create case** and
+enter a name. The signed-in user becomes the owner. Opening, creating, or joining
+a case takes you to **Evidence**, with **Analysis** beside it in case navigation.
+Saved case URLs still open Evidence after checking access. **Case tools** groups
+Map, People, Vehicles, and owner-only Settings. Open **Case details** there for
+the owner, timestamps, and any saved read-only description. All cases searches
+names and saved descriptions in accessible cases and supports owned/shared
+filtering.
 
-Owners can edit the name/description under **Settings**, invite collaborators,
-change their Viewer/Editor roles, and remove access. Viewers can inspect people, vehicles,
-and active/archived evidence and download originals. Editors can additionally
-add/edit people, vehicles, and evidence and archive/restore evidence; only the owner can
-change case metadata, manage access, delete people or vehicles, or delete the case.
+Owners can rename a case under **Case tools → Settings**, invite collaborators,
+change their Viewer/Editor roles, and remove access. Viewers can inspect people,
+vehicles, and active or archived evidence and download originals. Editors can also
+add or edit people, vehicles, and evidence, and archive or restore evidence. The
+owner manages case access and can delete people, vehicles, or the whole case.
 Ordinary product users do not need staff status or Django model permissions.
-Choose **Map** to explore recorded location coordinates against OpenStreetMap,
+Choose **Case tools → Map** to explore recorded location coordinates,
 with source links and a location list. See [maps](maps.md) for coverage, filters,
 background map configuration and evidence privacy.
 
@@ -45,8 +46,8 @@ Operator user administration keeps account identity and access flags visible;
 
 ## Invitations
 
-Under **Settings → Invite collaborator**, enter an email and choose Viewer
-(default) or Editor. The recipient may use an existing account or register when
+Under **Case tools → Settings → Invite collaborator**, enter an email and choose
+Viewer (default) or Editor. The recipient may use an existing account or register when
 `PANDECT_ALLOW_SIGNUPS=true` (the default). With registration closed, new
 recipients need an operator-provisioned account; invitations do not bypass the
 restriction. Recipients must verify the invited email address before accepting.
@@ -76,8 +77,8 @@ never an invitation role or transferred by membership changes.
 A case has an automatically generated UUIDv4 primary key, a required `owner` pointing
 to `settings.AUTH_USER_MODEL`, and an automatically recorded `created_at` timestamp
 that remains unchanged on later saves. It also has a required `name` (up to 255
-characters), optional `description`, and automatic `updated_at`. Product creation
-requires an explicit name; trusted ORM/admin callers that omit it receive the
+characters), a retained `description` field, and automatic `updated_at`. Product
+creation requires an explicit name. Trusted ORM/admin callers that omit it receive the
 fallback `Case #<UUID>`. Case names do not establish a separate ownership boundary.
 There is no case status or ownership-transfer feature.
 

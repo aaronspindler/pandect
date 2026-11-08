@@ -1,4 +1,4 @@
-"""Explicit forms keep editable descriptions separate from retained originals."""
+"""Explicit forms keep editable source details separate from retained originals."""
 
 from uuid import uuid4
 
@@ -26,14 +26,13 @@ ORIGINAL_FIELDS = {
     "text-message": (*COMMUNICATION_FIELDS, "body"),
     **dict.fromkeys(CALL_KINDS, (*COMMUNICATION_FIELDS, "duration")),
 }
-COMMON_FIELDS = (
-    "title",
-    "description",
+SOURCE_FIELDS = (
     "source",
     "source_url",
     "source_description",
     "collected_at",
 )
+COMMON_FIELDS = ("title", *SOURCE_FIELDS)
 TYPE_FIELDS = {
     "image": ("width", "height"),
     "audio": ("duration", "sample_rate", "channel_count"),
@@ -83,12 +82,13 @@ class BaseEvidenceForm(forms.ModelForm):
     def clean_body(self):
         return validate_text(self.cleaned_data["body"])
 
-    def clean(self):
-        cleaned = super().clean()
-        for name in ("description", "source_description"):
-            if len(cleaned.get(name, "")) > 20000:
-                self.add_error(name, "Keep this description within 20,000 characters.")
-        return cleaned
+    def clean_source_description(self):
+        description = self.cleaned_data["source_description"]
+        if len(description) > 20000:
+            raise forms.ValidationError(
+                "Keep this description within 20,000 characters."
+            )
+        return description
 
 
 class EvidenceForm(BaseEvidenceForm):
@@ -105,11 +105,9 @@ class EvidenceForm(BaseEvidenceForm):
         self.fields["kind"].initial = kind
         self.fields["title"].label = "Title"
         self.fields["source_url"].label = "Source URL"
-        self.fields["description"].label = "Description"
         self.fields[
             "source"
         ].help_text = "Name the source, such as a witness, publication, or record."
-        self.fields["description"].help_text = "Optional context for this evidence."
         self.fields["collected_at"].label = "Source collected at (UTC)"
         self.fields["collected_at"].widget = forms.DateTimeInput(
             attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
@@ -236,14 +234,7 @@ class EvidenceForm(BaseEvidenceForm):
         self.order_fields(
             ("title", *ORIGINAL_FIELDS[kind], "transcript", "file", *COMMON_FIELDS)
         )
-        additional_names = (
-            "description",
-            "source",
-            "source_url",
-            "source_description",
-            "collected_at",
-            *TYPE_FIELDS[kind],
-        )
+        additional_names = (*SOURCE_FIELDS, *TYPE_FIELDS[kind])
         self.additional_fields = [self[name] for name in additional_names]
         self.primary_fields = [
             field

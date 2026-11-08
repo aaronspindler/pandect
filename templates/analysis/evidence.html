@@ -7,12 +7,14 @@
   <div><p class="eyebrow">{{ kind_label }} evidence{% if evidence.is_archived %} · Archived{% endif %}</p><h1>{{ evidence.title }}</h1></div>
 </header>
 {% include 'evidence/sections.html' with item=evidence section='analysis' %}
-{% if can_edit %}
+{% if local_analysis_pending and not form.errors %}
+<p class="notice">Local analysis is in progress. Refresh to see its latest status.</p>
+{% elif can_edit %}
 <form method="post" class="analysis-start" novalidate>
   {% csrf_token %}{{ form.submission_id }}
   {% if form.errors %}<div class="error-summary" role="alert" tabindex="-1" data-error-summary><h2>Analysis could not start</h2>{{ form.non_field_errors }}{{ form.submission_id.errors }}</div>{% endif %}
-  <div><h2>Analyze this evidence</h2><p>Extract supported content and find useful details. Processing runs locally.</p><details class="analysis-coverage"><summary>What will be analyzed?</summary><p>All applicable local checks run on this evidence and its retained text or recordings. After image or document text extraction, text checks use that exact version. Unsupported formats and insufficient content are recorded with each result. Model-based and geographic analysis are separate choices below.</p></details></div>
-  <button class="button button-primary" type="submit">{% if page_obj.paginator.count %}Run local analysis again{% else %}Analyze evidence{% endif %}</button>
+  <div><h2>Analyze this evidence</h2><p>Run the local checks for this type of evidence.</p><details class="analysis-coverage"><summary>What will be analyzed?</summary><p>Local checks can extract supported text, find identifiers and keywords, inspect media metadata, or check a recorded location. After image or document text extraction, text checks use that exact version. Unsupported formats and insufficient content are recorded with each result.</p></details></div>
+  <button class="button button-primary" type="submit">{% if has_local_analysis %}Run local analysis again{% else %}Analyze evidence{% endif %}</button>
 </form>
 {% else %}<p class="role-note">Your Viewer role lets you inspect analysis and its sources.</p>{% endif %}
 

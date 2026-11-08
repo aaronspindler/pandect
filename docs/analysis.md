@@ -46,21 +46,25 @@ version 1 runs of `text_topics` and `session_summaries` fail with
 `processing_version_unavailable`; start another run to use the current method.
 Earlier results and reviews remain unchanged.
 
-On an evidence detail page, open **Analysis** or the **Analyze evidence** link beside
-the original. Owners and editors then choose the **Analyze evidence** button once
-to queue all applicable local analysis for that item's type and retained content.
-The evidence analysis page keeps the evidence title and Original/Analysis/Details
-navigation, lists its processing runs, and links to progress and results.
-Collection filters remain in the return links; results paginate independently.
-Uploading evidence alone does not start analysis. Originals and earlier
-runs remain retained, and archived evidence can also be analyzed.
+Adding evidence through the investigator's single-item or bulk upload queues
+applicable local checks in the background. These checks cover native document
+text extraction, image metadata and printed-English OCR, audio metadata,
+identifiers, dates and keywords in available text, and location quality with
+string normalization when a recorded address is present. A new call transcript
+or recording is processed independently of earlier additions. Text checks after
+extraction use that exact retained extraction version. Unsupported formats and
+insufficient content appear as analysis outcomes.
 
-Local processing inspects supported file metadata, reads printed English in
-JPEG/PNG images using Tesseract, extracts native document text,
-and analyzes available original or supplied text without sending evidence to
-external services. After image or native document extraction finishes, text analysis uses
-that exact retained extraction version. Unsupported formats and insufficient
-content remain explicit outcomes rather than claims that every method succeeded.
+Open **Analysis** or **View analysis** on an evidence record to see its runs,
+progress, and results. Owners and editors can **Analyze evidence** for a
+record without runs or **Run local analysis again** once the current
+checks finish. The Original/Analysis/Details navigation
+keeps collection filters, and results paginate independently. Original bytes
+and earlier runs remain retained. Archived evidence can still be analyzed.
+Vehicle CSV and conversation imports use their dedicated review and processing
+flows without launching automatic checks for each imported row.
+If a save cannot be confirmed, retry the same upload submission so the original
+and its checks can be recovered together.
 
 Additional model processing is a deliberate choice. Select the operation and
 retained source, review its settings, and choose **Local** (the default) or
@@ -68,9 +72,10 @@ retained source, review its settings, and choose **Local** (the default) or
 local failure never triggers cloud fallback. Geographic services require external
 approval unless the operator explicitly designates the endpoint as local.
 Local keyword analysis does not enable an AI summary automatically.
-Context-dependent comparisons, area queries and conversation
-imports still require deliberate source selection and assumptions through the
-manual analysis workflow.
+Use **Start analysis** for context-dependent comparisons, geographic lookup or
+context, and conversation imports. Choose sources and review assumptions before
+queueing. The separate Map workflow also supports local address lookups. See
+[Map address lookup](maps.md#local-address-lookup).
 
 Case Analysis shows recent runs first, with current-record reports alongside them
 on wide screens or below on smaller screens. Choose **Start analysis**, select an

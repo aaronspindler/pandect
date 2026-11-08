@@ -178,13 +178,19 @@ class VehicleAdminTests(TestCase):
                 vehicle = Vehicle.objects.latest("created_at")
                 self.assertEqual(vehicle.case, self.case)
                 self.assertEqual(vehicle.license_plate, "SYN-NEW")
+                vehicle.notes = "Earlier observation"
+                vehicle.save()
+                form_page = self.client.get(self.url("change", vehicle))
+                self.assertContains(form_page, "Earlier observation")
+                self.assertNotContains(form_page, 'name="notes"')
                 response = self.client.post(
                     self.url("change", vehicle),
-                    self.data(notes="Unconfirmed observation"),
+                    self.data(color="Updated value", notes="Forged notes"),
                 )
                 self.assertRedirects(response, self.url())
                 vehicle.refresh_from_db()
-                self.assertEqual(vehicle.notes, "Unconfirmed observation")
+                self.assertEqual(vehicle.color, "Updated value")
+                self.assertEqual(vehicle.notes, "Earlier observation")
                 self.assertCountEqual(
                     LogEntry.objects.filter(
                         object_id=str(vehicle.pk), user=user

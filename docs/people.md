@@ -8,20 +8,20 @@ These records capture investigative work, not verified evidence or model output.
 
 ## Investigator workflow
 
-Open a case and choose **People**. Owners and editors can **Add person**, enter
-any known name/contact details, and save. A partial identity is valid; at least
+Open a case and choose **Case tools → People**. Owners and editors can choose
+**Add person**, enter known name or contact details, and save. At least
 one name, phone number, or email is required. Viewers can inspect records without
 mutation controls. The searchable list and all detail/edit/delete routes remain
 scoped to the current case.
 
-Choose **Edit person** to correct details or investigator notes. A stale form
+Choose **Edit person** to correct contact and name details. A stale form
 shows newer saved values alongside the preserved draft and requires explicit
 **Save reviewed changes**. A removed/deleted record is not recreated by a stale
 form. Case reassignment, identity verification, and automatic merging are not
 supported.
 
-The detail page keeps contact details and POIs visible. **Record details** reveals
-optional notes, name components, timestamps, and the owner's
+The detail page keeps contact details, social accounts, and POIs visible.
+**Record details** reveals saved read-only notes, name components, timestamps, and the owner's
 **Delete person** action. Empty notes and repeated name fields do not occupy the
 main reading area. Contact details show only populated values; when none are
 recorded, a single message replaces the empty field labels. A concise caption
@@ -36,11 +36,32 @@ archived. Whole-case deletion still removes both together; see [location
 observations](evidence.md#location-observations). Ordinary investigators do not
 need Django admin access.
 
+### Social accounts
+
+Open a person and choose **Add social account** to record a platform and a
+reported username. Enter the platform by name and preserve the username's
+spelling and punctuation. An optional **Source / citation** records where the
+association was reported. A username is an investigator-recorded association
+whose ownership remains unverified.
+
+A person can have several accounts, including multiple usernames on the same
+platform. An exact platform and username pair can appear once per person.
+The People list searches platform names and usernames within the current case.
+Viewers can inspect and search accounts. Owners and editors can also edit or
+confirm removal. Concurrent edits show the latest saved values alongside the
+preserved draft. If the details change before removal, review them and confirm
+again. Accounts are managed in the investigator interface and are removed with
+their person record or case.
+
+The additive `people/0003_socialaccount` migration creates the account table.
+Apply it using the [documented migration workflow](development.md#run-python-on-the-host).
+
 ### Points of interest
 
 On a person detail page, choose **Add POI** to record a **Home**, **Work**, or
 custom-labelled place. The person is preselected; latitude/longitude are
-required, while address, source/citation, and investigator notes are optional.
+required, while address and source/citation are optional. Existing POI notes
+remain readable on the POI detail page.
 The case map also offers **Add POI** and pointer-based position selection.
 POIs remain separate from the person's contact address and retained location
 evidence. A label is an investigator assertion, not verified residence,
@@ -71,7 +92,7 @@ for coordinate bounds, search, permissions, privacy, and fallbacks.
 | `phone_number` | Optional text, up to 64 characters; preserves international formatting and extensions. |
 | `email` | Optional Django-validated email address, up to 254 characters. |
 | `address` | Optional multiline address, without country-specific structure. |
-| `notes` | Optional multiline investigator notes; preserve uncertainty and conflicting observations. |
+| `notes` | Previously saved investigator notes, now read-only in the product and admin. |
 | `created_at` | Set automatically on creation. |
 | `updated_at` | Set automatically on model saves. Queryset updates do not update it automatically. |
 
@@ -137,8 +158,8 @@ dependency changes, or runtime upgrades are included.
 
 Authorization is enforced by both product and admin entry points, not
 automatically by ORM queries. Future exports, background jobs, and integrations
-must check current case permissions themselves. The original person interface reuses
-the existing person schema; POIs add the separate table described above. Public APIs,
-multiple contact records, and broader identity linkage remain planned.
+must check current case permissions themselves. Social accounts and POIs are stored
+in separate tables linked to each person. Public APIs and broader identity linkage
+remain planned.
 Person-location evidence provides a reported association, not verified identity
 or presence; its immutable person link is case-scoped.

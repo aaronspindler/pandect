@@ -345,7 +345,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
         vehicle = Vehicle.objects.create(case=self.case, make="Synthetic vehicle")
         screens = (
             ("cases:case_list", {}, "cases"),
-            ("cases:case_detail", {"case_id": self.case.pk}, "overview"),
+            ("evidence:list", {"case_id": self.case.pk}, "evidence-landing"),
             ("cases:case_settings", {"case_id": self.case.pk}, "settings"),
             ("people:list", {"case_id": self.case.pk}, "people"),
             (
@@ -400,6 +400,8 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     self.capture(page, engine, f"refined-create-{kind}-320x844")
 
     def test_evidence_disclosures_preserve_keyboard_and_error_recovery(self):
+        self.case.description += " Historical case context." * 8
+        self.case.save(update_fields=["description"])
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -412,17 +414,41 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(page.locator('nav[aria-label="Investigation"]')).to_have_count(1)
                 # The single native menu is usable with no page JavaScript.
                 expect(mobile_navigation.get_by_role("navigation")).to_be_visible()
-                mobile_navigation.locator("summary").focus()
-                mobile_navigation.locator("summary").press("Enter")
+                case_tools = mobile_navigation.locator(".case-tools")
+                tools_summary = case_tools.locator(":scope > summary")
+                map_link = case_tools.get_by_role("link", name="Map", exact=True)
+                expect(map_link).to_be_hidden()
+                tools_summary.focus()
+                tools_summary.press("Enter")
+                expect(map_link).to_be_visible()
+                case_details = case_tools.locator(".case-details")
+                saved_description = case_details.get_by_text(
+                    self.case.description, exact=True
+                )
+                expect(saved_description).to_be_hidden()
+                details_summary = case_details.locator(":scope > summary")
+                details_summary.focus()
+                details_summary.press("Enter")
+                expect(saved_description).to_be_visible()
+                expect(
+                    case_details.get_by_text(self.owner.username, exact=True)
+                ).to_be_visible()
+                expect(case_details.locator("time")).to_have_count(2)
+                expect(case_details.locator("input, textarea")).to_have_count(0)
+                self.capture(page, engine, "case-tools-390x844")
+                tools_summary.press("Enter")
+                navigation_summary = mobile_navigation.locator(":scope > summary")
+                navigation_summary.focus()
+                navigation_summary.press("Enter")
                 expect(mobile_navigation.get_by_role("navigation")).to_be_hidden()
                 page.set_viewport_size({"width": 1440, "height": 900})
                 # A closed mobile menu must remain reopenable after resizing.
-                expect(mobile_navigation.locator("summary")).to_be_visible()
-                mobile_navigation.locator("summary").press("Enter")
+                expect(navigation_summary).to_be_visible()
+                navigation_summary.press("Enter")
                 expect(
                     mobile_navigation.get_by_role("link", name="Evidence", exact=True)
-                ).to_be_visible()
-                expect(mobile_navigation.locator("summary")).to_be_hidden()
+                ).to_have_attribute("aria-current", "page")
+                expect(navigation_summary).to_be_hidden()
                 filters = page.locator(".evidence-filters")
                 expect(page.get_by_label("Evidence state", exact=True)).to_be_hidden()
                 filters.locator("summary").focus()
@@ -440,14 +466,16 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     self.url("evidence:create", case_id=self.case.pk) + "?kind=text"
                 )
                 extra = page.locator("[data-additional-evidence-details]")
-                expect(page.get_by_label("Description", exact=True)).to_be_hidden()
+                expect(page.get_by_label("Description", exact=True)).to_have_count(0)
                 expect(page.get_by_label("Source", exact=True)).to_be_hidden()
                 expect(page.get_by_label("Source URL", exact=True)).to_be_hidden()
                 summary = extra.locator("summary")
                 summary.focus()
                 summary.press("Enter")
                 expect(page.get_by_label("Source URL", exact=True)).to_be_visible()
-                page.get_by_label("Description", exact=True).fill("Optional context")
+                page.get_by_label("Source description", exact=True).fill(
+                    "Synthetic source context"
+                )
                 page.get_by_label("Source", exact=True).fill("Synthetic archive")
                 page.get_by_label("Title", exact=True).fill(
                     f"Disclosure source {engine}"
@@ -463,9 +491,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.get_by_role("button", name="Save text", exact=True).click()
                 expect(page.locator(".error-summary")).to_be_visible()
                 expect(extra).to_have_attribute("open", "")
-                expect(page.get_by_label("Description", exact=True)).to_have_value(
-                    "Optional context"
-                )
+                expect(
+                    page.get_by_label("Source description", exact=True)
+                ).to_have_value("Synthetic source context")
                 expect(page.get_by_label("Source", exact=True)).to_have_value(
                     "Synthetic archive"
                 )
@@ -479,19 +507,32 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(page.locator(".original-text")).to_have_text(
                     f"Synthetic original {engine}"
                 )
-                expect(page.get_by_text("Optional context", exact=True)).to_have_count(
-                    0
-                )
-                analyze = page.get_by_role("link", name="Analyze evidence", exact=True)
+                expect(page.get_by_text("Record history", exact=True)).to_have_count(0)
+                expect(
+                    page.get_by_text("Analysis is in progress.", exact=True)
+                ).to_be_visible()
+                analyze = page.get_by_role("link", name="View analysis", exact=True)
                 analyze.focus()
                 analyze.press("Enter")
                 expect(
-                    page.get_by_role("button", name="Analyze evidence")
+                    page.get_by_role(
+                        "link",
+                        name=re.compile(r"Extract identifiers and dates.*Queued"),
+                    )
                 ).to_be_visible()
+                self.capture(page, engine, "automatic-analysis-1440x900")
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 391
+                )
+                self.capture(page, engine, "automatic-analysis-390x844")
+                page.set_viewport_size({"width": 1440, "height": 900})
                 page.get_by_role("navigation", name="Evidence sections").get_by_role(
                     "link", name="Details", exact=True
                 ).click()
-                expect(page.get_by_text("Optional context", exact=True)).to_be_visible()
+                expect(
+                    page.get_by_text("Synthetic source context", exact=True)
+                ).to_be_visible()
                 page.get_by_role("link", name="Edit details", exact=True).click()
                 expect(extra).to_have_attribute("open", "")
                 expect(page.get_by_label("Source URL", exact=True)).to_have_value(
@@ -1042,7 +1083,20 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 page.goto(self.url("cases:case_detail", case_id=self.case.pk))
-                page.get_by_role("link", name="Vehicles", exact=True).click()
+                expect(page).to_have_url(
+                    self.url("evidence:list", case_id=self.case.pk)
+                )
+                case_tools = page.locator(".case-tools")
+                vehicles_link = case_tools.get_by_role(
+                    "link", name="Vehicles", exact=True
+                )
+                expect(vehicles_link).to_be_hidden()
+                case_tools.locator(":scope > summary").click()
+                vehicles_link.click()
+                expect(case_tools).to_have_attribute("open", "")
+                expect(case_tools.locator(".case-details")).not_to_have_attribute(
+                    "open", ""
+                )
                 expect(
                     page.get_by_role("navigation", name="Investigation").locator(
                         '[aria-current="page"]'
@@ -1056,11 +1110,12 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     ).to_be_visible()
                 page.get_by_role("link", name="Add vehicle").first.focus()
                 page.get_by_role("link", name="Add vehicle").first.press("Enter")
-                page.get_by_label("Notes", exact=True).fill("Synthetic observation")
+                expect(page.get_by_label("Notes", exact=True)).to_have_count(0)
+                page.get_by_label("Color", exact=True).fill("Slate blue")
                 page.get_by_role("button", name="Add vehicle", exact=True).click()
                 expect(page.locator(".error-summary")).to_be_focused()
-                expect(page.get_by_label("Notes", exact=True)).to_have_value(
-                    "Synthetic observation"
+                expect(page.get_by_label("Color", exact=True)).to_have_value(
+                    "Slate blue"
                 )
                 make = page.get_by_label("Make", exact=True)
                 make.fill("Synthetic Motors")
@@ -1147,28 +1202,23 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     self.capture(page, engine, f"vehicle-list-{width}-{height}")
                 page.get_by_role("link", name=title, exact=True).click()
                 page.get_by_role("link", name="Edit vehicle").click()
-                page.get_by_label("Notes", exact=True).fill("Reviewed proposal")
+                page.get_by_label("Color", exact=True).fill("Slate blue")
                 self.db(
                     Vehicle.objects.filter(
                         case=self.case, license_plate=f"SYN-{engine}"
                     ).update,
-                    notes="A newer observation",
+                    color="A newer color",
                     updated_at=self.case.updated_at,
                 )
                 page.get_by_role("button", name="Save changes", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Review the latest saved details")
                 ).to_be_visible()
-                expect(page.get_by_label("Notes", exact=True)).to_have_value(
-                    "Reviewed proposal"
+                expect(page.get_by_label("Color", exact=True)).to_have_value(
+                    "Slate blue"
                 )
                 page.get_by_role("button", name="Save reviewed changes").click()
-                page.locator("details > summary").filter(
-                    has_text="Record details"
-                ).click()
-                expect(
-                    page.get_by_text("Reviewed proposal", exact=True)
-                ).to_be_visible()
+                expect(page.get_by_text("Slate blue", exact=True)).to_be_visible()
 
             viewer = self.make_user(f"vehicle-viewer-{engine}")
             CaseMembership.objects.create(case=self.case, user=viewer)
@@ -1243,7 +1293,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 ).to_have_count(0)
                 page.get_by_label("Title:", exact=True).focus()
                 page.get_by_label("Title:", exact=True).press("Tab")
-                expect(page.get_by_label("Description:", exact=True)).to_be_focused()
+                expect(page.get_by_label("Source:", exact=True)).to_be_focused()
                 source_details = page.locator("summary").filter(
                     has_text="Additional source details"
                 )
@@ -1399,6 +1449,111 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     self.assertEqual(record.source, "Updated synthetic source")
                     self.assertEqual(hashlib.sha256(content).hexdigest(), record.sha256)
 
+    def test_person_social_accounts_journey(self):
+        person = Person.objects.create(case=self.case, first_name="Alex Browser")
+        long_name_person = Person.objects.create(
+            case=self.case, first_name="SyntheticName" * 10
+        )
+        detail_url = self.url(
+            "people:detail", case_id=self.case.pk, person_id=person.pk
+        )
+        username = f"@Alex_Example@{'synthetic' * 10}.example.test"
+        source = "Synthetic profile citation"
+
+        def capture_layouts(page, engine, screen):
+            for width, height in ((1440, 900), (320, 844)):
+                page.set_viewport_size({"width": width, "height": height})
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"),
+                    width + 1,
+                    f"{engine}: {screen} overflow at {width}px",
+                )
+                if width == 320:
+                    heading = (
+                        page.get_by_role("heading", name="Social accounts", exact=True)
+                        if screen == "detail"
+                        else page.get_by_role("heading", level=1)
+                    )
+                    heading.evaluate("element => element.scrollIntoView()")
+                self.capture(page, engine, f"person-social-{screen}-{width}x{height}")
+
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(detail_url)
+                accounts = page.get_by_role("region", name="Social accounts")
+                add_link = accounts.get_by_role("link", name="Add social account")
+                add_link.focus()
+                expect(add_link).to_be_focused()
+                add_link.press("Enter")
+
+                platform_field = page.get_by_label("Platform", exact=True)
+                platform_field.fill("Mastodon")
+                platform_field.focus()
+                platform_field.press("Tab")
+                username_field = page.get_by_label("Username", exact=True)
+                expect(username_field).to_be_focused()
+                self.assertNotEqual(
+                    username_field.evaluate(
+                        "node => getComputedStyle(node).outlineStyle"
+                    ),
+                    "none",
+                )
+                username_field.fill(username)
+                username_field.press("Tab")
+                source_field = page.get_by_label("Source / citation", exact=True)
+                expect(source_field).to_be_focused()
+                source_field.fill(source)
+                capture_layouts(page, engine, "add")
+                page.get_by_role("button", name="Add social account").press("Enter")
+
+                expect(page).to_have_url(detail_url + "#social-accounts")
+                expect(accounts.get_by_text(username, exact=True)).to_be_visible()
+                expect(accounts.get_by_text(source, exact=True)).to_be_visible()
+                capture_layouts(page, engine, "detail")
+                accounts.get_by_role(
+                    "link", name=f"Edit social account for Mastodon {username}"
+                ).press("Enter")
+                expect(username_field).to_have_value(username)
+                updated_source = "Updated synthetic profile citation"
+                source_field.fill(updated_source)
+                page.get_by_role("button", name="Save changes", exact=True).press(
+                    "Enter"
+                )
+                expect(accounts.get_by_text(updated_source, exact=True)).to_be_visible()
+
+                accounts.get_by_role(
+                    "link", name=f"Edit social account for Mastodon {username}"
+                ).press("Enter")
+                page.get_by_role("link", name="Remove social account").press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Remove social account?")
+                ).to_be_visible()
+                capture_layouts(page, engine, "remove")
+                confirm = page.get_by_role("checkbox")
+                confirm.focus()
+                confirm.press("Space")
+                expect(confirm).to_be_checked()
+                page.get_by_role("button", name="Remove social account").press("Enter")
+                expect(page).to_have_url(detail_url + "#social-accounts")
+                expect(
+                    accounts.get_by_text("No social accounts recorded.")
+                ).to_be_visible()
+
+                page.goto(
+                    self.url(
+                        "people:social_account_create",
+                        case_id=self.case.pk,
+                        person_id=long_name_person.pk,
+                    )
+                )
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 321
+                )
+
     def test_management_and_collaboration_journey(self):
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
@@ -1406,42 +1561,39 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.get_by_role("link", name="Create case", exact=True).first.click()
                 name = f"Synthetic browser case {engine}"
                 page.get_by_label("Case name", exact=True).fill(name)
-                page.get_by_label("Description", exact=True).fill(
-                    "Synthetic material for a browser regression journey."
-                )
+                expect(page.get_by_label("Description", exact=True)).to_have_count(0)
                 page.get_by_role("button", name="Create case", exact=True).click()
-                expect(
-                    page.get_by_role("heading", name=name, exact=True)
-                ).to_be_visible()
                 case = self.db(Case.objects.get, name=name, owner=self.owner)
+                expect(page).to_have_url(self.url("evidence:list", case_id=case.pk))
+                expect(
+                    page.get_by_role("heading", name="Evidence", exact=True)
+                ).to_be_visible()
+                expect(page.locator(".case-identity").get_by_text(name)).to_be_visible()
 
                 page.goto(self.url("people:create", case_id=case.pk))
                 page.get_by_label("First name", exact=True).fill("Alex")
                 page.get_by_label("Last name", exact=True).fill("Browser Example")
-                page.get_by_label("Notes", exact=True).fill(
-                    "Unconfirmed synthetic contact."
-                )
+                expect(page.get_by_label("Notes", exact=True)).to_have_count(0)
                 page.get_by_role("button", name="Add person", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Alex Browser Example", exact=True)
                 ).to_be_visible()
-                page.get_by_role("link", name="Edit person", exact=True).click()
-                page.get_by_label("Notes", exact=True).fill(
-                    "Updated synthetic source context."
+                self.db(
+                    Person.objects.filter(case=case).update,
+                    notes="Earlier synthetic context.",
                 )
+                page.get_by_role("link", name="Edit person", exact=True).click()
+                expect(page.get_by_label("Notes", exact=True)).to_have_count(0)
+                page.get_by_label("Email", exact=True).fill("alex@example.test")
                 page.get_by_role("button", name="Save changes", exact=True).click()
-                expect(
-                    page.get_by_text("Updated synthetic source context.")
-                ).to_be_hidden()
+                expect(page.get_by_text("Earlier synthetic context.")).to_be_hidden()
                 page.locator("details > summary").filter(
                     has_text="Record details"
                 ).click()
-                expect(
-                    page.get_by_text("Updated synthetic source context.")
-                ).to_be_visible()
+                expect(page.get_by_text("Earlier synthetic context.")).to_be_visible()
                 self.assertEqual(
-                    self.db(Person.objects.get, case=case).notes,
-                    "Updated synthetic source context.",
+                    self.db(Person.objects.get, case=case).email,
+                    "alex@example.test",
                 )
 
                 page.goto(self.url("evidence:create", case_id=case.pk) + "?kind=text")
@@ -1501,9 +1653,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 picker.set_input_files(files)
                 expect(entries).to_have_count(2)
                 first_entry = entries.first
-                first_entry.get_by_text(
-                    "Description and source details", exact=True
-                ).click()
+                first_entry.get_by_text("Source details", exact=True).click()
                 first_entry.get_by_label("Source", exact=True).fill(
                     "Synthetic batch source"
                 )
@@ -1569,8 +1719,14 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     guest_page.get_by_role(
                         "button", name="Accept invitation", exact=True
                     ).click()
+                    expect(guest_page).to_have_url(
+                        self.url("evidence:list", case_id=case.pk)
+                    )
                     expect(
-                        guest_page.get_by_role("heading", name=name, exact=True)
+                        guest_page.get_by_role("heading", name="Evidence", exact=True)
+                    ).to_be_visible()
+                    expect(
+                        guest_page.locator(".case-identity").get_by_text(name)
                     ).to_be_visible()
                     self.assertEqual(
                         self.db(CaseMembership.objects.get, case=case, user=guest).role,
@@ -2025,8 +2181,10 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     }
                     for item in originals
                 ]
-                page.goto(self.url("cases:case_detail", case_id=self.case.pk))
-                page.get_by_role("link", name="Add evidence", exact=True).click()
+                page.goto(self.url("evidence:list", case_id=self.case.pk))
+                page.locator(".evidence-list-heading").get_by_role(
+                    "link", name="Add evidence", exact=True
+                ).click()
                 page.get_by_role("link", name="Bulk add files", exact=True).click()
                 expect(page.locator("[data-bulk-fallback]")).to_be_hidden()
                 shared = page.locator("[data-shared-details]")
@@ -2046,15 +2204,15 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 entries = page.locator(".upload-entry")
                 expect(entries).to_have_count(2)
                 first, second = entries.nth(0), entries.nth(1)
-                first.get_by_text("Description and source details", exact=True).click()
+                first.get_by_text("Source details", exact=True).click()
                 first.get_by_label("Source", exact=True).fill("Individual witness")
-                second.get_by_text("Description and source details", exact=True).click()
+                second.get_by_text("Source details", exact=True).click()
                 second.get_by_label("Source", exact=True).fill("")
                 second.get_by_label("Source URL", exact=True).fill("invalid-url")
                 picker.set_input_files(files[2])
                 expect(entries).to_have_count(3)
                 third = entries.nth(2)
-                third.get_by_text("Description and source details", exact=True).click()
+                third.get_by_text("Source details", exact=True).click()
                 third.get_by_label("Source", exact=True).fill("Temporary override")
                 third.get_by_role("button", name="Use shared details").click()
                 shared.get_by_label("Source", exact=True).fill("Reviewed batch source")
@@ -2153,7 +2311,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.get_by_role("button", name="Upload files", exact=True).click()
                 expect(second).to_have_attribute("data-state", "failed")
                 expect(third).to_have_attribute("data-state", "added")
-                second.get_by_text("Description and source details", exact=True).click()
+                second.get_by_text("Source details", exact=True).click()
                 second.get_by_label("Source URL", exact=True).fill(
                     "https://example.com/corrected"
                 )
@@ -2284,16 +2442,17 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.sign_in(page)
                 page.goto(self.evidence_url())
                 navigation = page.locator(".case-navigation")
+                navigation_summary = navigation.locator(":scope > summary")
                 expect(page.locator('nav[aria-label="Investigation"]')).to_have_count(1)
                 for width in (390, 1440, 768, 2616):
                     page.set_viewport_size({"width": width, "height": 900})
                     if width < 1024:
                         expect(navigation.get_by_role("navigation")).to_be_hidden()
-                        navigation.locator("summary").focus()
-                        navigation.locator("summary").press("Enter")
+                        navigation_summary.focus()
+                        navigation_summary.press("Enter")
                     expect(navigation.get_by_role("navigation")).to_be_visible()
                     if width < 1024:
-                        navigation.locator("summary").press("Enter")
+                        navigation_summary.press("Enter")
                         expect(navigation.get_by_role("navigation")).to_be_hidden()
                 self.capture(page, engine, "workspace-ultrawide")
                 expect(page.locator(".evidence-row")).to_have_count(25)

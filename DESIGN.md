@@ -12,9 +12,9 @@ screen specifications and delivery plans belong in `docs/`.
 
 - **Make the task obvious.** Give each screen a clear title and one primary
   action. Keep related controls beside the material they affect.
-- **Lead with evidence and analysis.** Make adding, reading, searching, and
-  analyzing material the everyday workflow. Put optional descriptions, source
-  metadata, and record history in Details or native disclosures.
+- **Lead with evidence and analysis.** Open cases to Evidence and keep Analysis
+  beside it. Group supporting destinations under **Case tools**. Put source
+  metadata, saved notes, and record history in Details or native disclosures.
 - **Make room for the investigation.** Use compact navigation, aligned rows,
   and progressive disclosure. Show useful records instead of decorative space.
 - **Keep familiar behavior.** Use ordinary links, buttons, forms, browser Back,
@@ -23,7 +23,7 @@ screen specifications and delivery plans belong in `docs/`.
   consistency, and care for accessibility. Use web conventions appropriate to
   Pandect rather than reproducing operating-system chrome.
 - **Keep evidence understandable.** Separate original content, source details,
-  investigator descriptions, and any future derived suggestions. A checksum
+  saved investigator descriptions, and derived suggestions. A checksum
   describes integrity, not truth or verified identity.
 - **Respect the user's work.** Preserve entered values after validation errors,
   make save results explicit, and explain recoverable failures.
@@ -177,7 +177,8 @@ may supplement an accessible exact value.
 
 - Original files and captured text are read-only. Editing details must never
   replace an original. A changed original is a new evidence record.
-- Label investigator-supplied descriptions and declared technical metadata.
+- Label saved investigator descriptions as read-only and distinguish declared
+  technical metadata from extracted values.
   Do not imply automatic extraction, verified file format, or verified identity.
 - Show a concise source line near the original when supplied; keep full source
   metadata, checksums, and technical details in Details. A shortened visual checksum

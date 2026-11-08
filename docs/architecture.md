@@ -86,7 +86,7 @@ adds domain-level authorization, immutable results, progress, and recovery. See
   linked to one case, with scoped Django administration. Owners and editors can
   create and edit people; only owners can delete them. See [people](people.md).
 - `vehicles/` contains `Vehicle`, a case-scoped record of reported vehicle details
-  and investigator notes, with the same roles and scoped administration as people.
+  and any saved legacy notes, with the same roles and scoped administration as people.
   See [vehicles](vehicles.md).
 - `analysis/` contains durable case-scoped runs, results, reviews and private
   previews/reference snapshots. Concrete extraction/investigation modules share input resolution and

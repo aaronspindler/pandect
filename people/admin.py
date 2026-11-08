@@ -10,7 +10,7 @@ class PersonAdmin(CaseScopedAdmin):
     list_display = ("__str__", "case", "email", "phone_number", "updated_at")
     list_select_related = ("case",)
     search_fields = ("first_name", "last_name", "email", "phone_number")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "updated_at", "notes")
     fieldsets = (
         (
             None,
@@ -22,11 +22,9 @@ class PersonAdmin(CaseScopedAdmin):
                     "phone_number",
                     "email",
                     "address",
-                    "notes",
                 ),
                 "description": (
-                    "Enter at least a first name, last name, phone number, or email. "
-                    "Record uncertainty and source context in notes."
+                    "Enter at least a first name, last name, phone number, or email."
                 ),
             },
         ),
@@ -35,3 +33,12 @@ class PersonAdmin(CaseScopedAdmin):
             {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
         ),
     )
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is not None and obj.notes:
+            return (
+                *fieldsets,
+                ("Saved notes", {"fields": ("notes",), "classes": ("collapse",)}),
+            )
+        return fieldsets

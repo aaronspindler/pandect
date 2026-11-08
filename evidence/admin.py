@@ -125,6 +125,7 @@ class EvidenceAdmin(CaseScopedAdmin):
         "source_description",
     )
     readonly_fields = (
+        "description",
         "id",
         "uploaded_by",
         "created_at",
@@ -167,7 +168,7 @@ class EvidenceAdmin(CaseScopedAdmin):
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         if db_field.name in ("body", "address"):
             kwargs["strip"] = False
-        if db_field.name in ("description", "source_description"):
+        if db_field.name == "source_description":
             kwargs["widget"] = AdminTextareaWidget(attrs={"rows": 3})
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
@@ -202,7 +203,7 @@ class EvidenceAdmin(CaseScopedAdmin):
             # A read-only FileField would render the storage backend's URL.
             originals = ("original_file", "byte_size", "declared_content_type")
         fieldsets = (
-            (None, {"fields": ("case", "title", "description", "source")}),
+            (None, {"fields": ("case", "title", "source")}),
             (
                 "Original evidence",
                 {
@@ -221,6 +222,13 @@ class EvidenceAdmin(CaseScopedAdmin):
                 },
             ),
         )
+        if obj is not None and obj.description:
+            fieldsets += (
+                (
+                    "Saved description",
+                    {"classes": ("collapse",), "fields": ("description",)},
+                ),
+            )
         if obj is not None and self.kind == "vehicle-location":
             fieldsets += (
                 (

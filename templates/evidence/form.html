@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-content">
   <a class="back-link" href="{% if editing %}{% url 'evidence:detail' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}{% else %}{% url 'evidence:list' case_id=case.pk %}{% endif %}">Back to evidence</a>
-  <header class="page-header"><div><h1>{% if editing %}Edit evidence details{% else %}Add evidence{% endif %}</h1><p>{% if editing %}Update the title and optional details.{% else %}Add material to explore and analyze in this case.{% endif %}</p></div></header>
+  <header class="page-header"><div><h1>{% if editing %}Edit evidence details{% else %}Add evidence{% endif %}</h1><p>{% if editing %}Update the title and optional details.{% else %}Supported checks run locally after you save evidence.{% endif %}</p></div></header>
   {% if conflict %}<section class="notice" aria-labelledby="latest-saved-details"><h2 id="latest-saved-details">Review newer saved details</h2><p>Your proposed changes are preserved in the form below. Compare them with the current saved values, then explicitly save your reviewed changes.</p><dl class="metadata-grid">{% for label,value in latest_details %}<div><dt>{{ label }}</dt><dd>{{ value|default_if_none:"Not recorded"|default:"Not recorded"|linebreaksbr }}</dd></div>{% endfor %}</dl></section>{% endif %}
   {% if not editing %}
   <form method="get" class="type-picker form-layout" aria-label="Choose evidence type">
@@ -28,7 +28,7 @@
     {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
     {% for field in form.primary_fields %}{% include 'components/form_field.html' with field=field only %}{% endfor %}
     <details class="disclosure" data-additional-evidence-details{% if editing or form.errors %} open{% endif %}>
-      <summary>Description and source details <span class="optional">Optional</span></summary>
+      <summary>Source details <span class="optional">Optional</span></summary>
       <div class="disclosure-body">{% for field in form.additional_fields %}{% include 'components/form_field.html' with field=field only %}{% endfor %}</div>
     </details>
     {% if not editing and is_file or not editing and is_call %}<p class="muted">Your browser may require you to select the file again after a validation error. Other entered details are retained.</p>{% endif %}

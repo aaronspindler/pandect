@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
@@ -13,7 +13,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 
 from .forms import PersonDeleteForm, PersonForm, person_revision
-from .models import Person
+from .models import Person, SocialAccount
 
 
 def list_query(request):
@@ -34,6 +34,9 @@ def person_list(request, case_id):
     query = request.GET.get("q", "").strip()[:200]
     people = Person.objects.filter(case=case)
     if query:
+        matching_accounts = SocialAccount.objects.filter(
+            person_id=OuterRef("pk")
+        ).filter(Q(platform__icontains=query) | Q(username__icontains=query))
         people = people.filter(
             Q(first_name__icontains=query)
             | Q(last_name__icontains=query)
@@ -41,6 +44,7 @@ def person_list(request, case_id):
             | Q(email__icontains=query)
             | Q(address__icontains=query)
             | Q(notes__icontains=query)
+            | Exists(matching_accounts)
         )
     page = Paginator(people, 25).get_page(request.GET.get("page"))
     return render(
@@ -68,6 +72,7 @@ def person_detail(request, case_id, person_id):
         {
             **case_context(case, request.user),
             "person": person,
+            "social_accounts": person.social_accounts.all(),
             "poi_page": Paginator(person.points_of_interest.all(), 25).get_page(
                 request.GET.get("poi_page")
             ),

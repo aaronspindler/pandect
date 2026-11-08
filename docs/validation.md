@@ -106,6 +106,8 @@ runtime image, checks initial migrations and HTTP readiness, creates a synthetic
 owner, collaborator, case, membership, person, vehicle, and evidence of all ten types,
 including a retained vehicle-location import and its source and call transcripts/audio, stops and
 restarts the stack, and verifies records and original file bytes persist. It also
+uploads a synthetic document through **Add evidence** and checks that the worker
+completes its automatically queued native text extraction. It
 verifies worker execution through the diagnostic, queues a probe with the worker
 stopped, restarts the database/web while keeping the worker stopped, checks the
 probe is still queued, and starts the worker to verify completion exactly once
@@ -164,10 +166,10 @@ batches, bulk mixed-file uploads with shared-field inheritance/overrides/reset,
 append limits, invalid-file removal, pause/retry, access removal between files,
 safe interrupted-confirmation retry, duplicate review across categories and within
 a batch, keyboard confirmation, and dense desktop record visibility.
-The page-layout journey also captures cases, overview, settings, people, vehicles,
+The page-layout journey also captures cases, evidence, settings, people, vehicles,
 details, and account settings at all five design viewport sizes. The disclosure journey
 checks collapsed evidence filters, retained filter URLs, keyboard/no-JavaScript
-access to optional descriptions and source fields, and automatic opening with preserved values
+access to optional source fields, and automatic opening with preserved values
 after a server validation error. It also opens analysis from the evidence reader
 and confirms notes remain accessible in record details. CSV original captures show the compact location
 and keyboard access to its retained receipt/source interpretation. It checks page

@@ -1,143 +1,107 @@
-"""One deliberate request runs the applicable local analyses of one evidence item."""
+"""Queue the applicable local checks for a newly retained or selected original."""
 
-from uuid import UUID, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 
 from cases.permissions import get_case
 from evidence.queries import get_evidence
-from evidence.types import CALL_KINDS
+from evidence.types import CALL_KINDS, LOCATION_KINDS
 
-from .errors import AnalysisError
-from .models import AnalysisResult, AnalysisRun
-from .operations import LOCATIONS, OPERATIONS
-from .services import resolve_inputs, start_run
-
-# These operations need an investigator's comparison, boundary, or account mapping.
-MANUAL_OPERATIONS = {
-    "style_change",
-    "proximity",
-    "location_conflicts",
-    "conversation_import",
-}
-TEXT_OPERATIONS = {"entities", "copied_text", "text_topics", "style_profiles"}
-EXTRACTIONS = {"native_text", "ocr", "transcription"}
+from .models import AnalysisRun
+from .services import start_run
 
 
-def _extracted_sources(case, kind, item, supplied):
-    """Use the latest usable retained extraction per original/recording source."""
-    choices = []
-    seen = {choice.get("attachment_id") for choice in supplied}
-    results = (
-        AnalysisResult.objects.filter(
-            case=case,
-            run__case=case,
-            run__status__in=("complete", "partial"),
-            run__operation__in=EXTRACTIONS,
-            run__inputs__contains=[{"kind": kind, "evidence_id": str(item.pk)}],
-        )
-        .select_related("run")
-        .order_by("-created_at", "pk")
+def evidence_runs(case, kind, evidence_id):
+    return AnalysisRun.objects.filter(
+        case=case, inputs__contains=[{"kind": kind, "evidence_id": str(evidence_id)}]
     )
-    if kind == "document":
-        results = results.exclude(run__operation="native_text")
-    for result in results[:50]:
-        try:
-            sources = resolve_inputs(result.run, case)
-        except AnalysisError:
-            continue
-        for source in sources:
-            attachment_id = str(source.attachment.pk) if source.attachment else None
-            if (
-                source.kind != kind
-                or source.item.pk != item.pk
-                or attachment_id in seen
-                or not any(
-                    finding.get("text", "").strip()
-                    and source.id in finding.get("source_ids", [])
-                    for finding in result.data.get("items", [])
-                )
-            ):
-                continue
-            choices.append(
-                {
-                    "kind": kind,
-                    "id": str(item.pk),
-                    "attachment_id": attachment_id,
-                    "result_id": str(result.pk),
-                }
-            )
-            seen.add(attachment_id)
-    return choices
 
 
-def _plan(case, kind, item):
-    original = {"kind": kind, "id": str(item.pk)}
-    text = [original] if kind in {"text", "text-message"} else []
-    recordings = []
-    if kind in CALL_KINDS:
+def _text_checks(selections):
+    return [
+        ("entities", selections, {}),
+        ("text_topics", selections, {"include_summary": False}),
+    ]
+
+
+def _call_checks(case, item, original, attachment_id):
+    attachments = item.attachments.filter(case=case)
+    if attachment_id is not None:
+        additions = [get_object_or_404(attachments, pk=attachment_id)]
+    else:
         limit = min(50, settings.PANDECT_ANALYSIS_MAX_SOURCES)
-        additions = list(
-            item.attachments.filter(case=case).order_by("created_at", "pk")[: limit + 1]
-        )
+        additions = list(attachments[: limit + 1])
         if len(additions) > limit:
             raise ValidationError(
-                f"Automatic analysis supports up to {limit} retained call additions. "
+                f"Local analysis supports up to {limit} retained call additions. "
                 "Use advanced analysis to select a smaller set."
             )
-        for addition in additions:
-            selected = original | {"attachment_id": str(addition.pk)}
-            if addition.transcript:
-                text.append(selected)
-            if addition.file:
-                recordings.append(selected)
-    # Documents get a fresh native extraction, with exact-version follow-up below.
-    if kind in {"document", "audio", *CALL_KINDS}:
-        text.extend(_extracted_sources(case, kind, item, text))
+    text = []
+    recordings = []
+    for addition in additions:
+        selection = original | {"attachment_id": str(addition.pk)}
+        if addition.transcript:
+            text.append(selection)
+        if addition.file:
+            recordings.append(selection)
     plan = []
-    for name, specification in OPERATIONS.items():
-        if (
-            specification.external
-            or name in MANUAL_OPERATIONS
-            or kind not in specification.kinds
-        ):
-            continue
-        parameters = {}
-        if name in TEXT_OPERATIONS:
-            selections = text
-            if not selections or (name == "copied_text" and len(selections) < 2):
-                continue
-            if name == "text_topics":
-                parameters["include_summary"] = False
-        elif name == "ocr":
-            if kind != "image":
-                continue
-            selections = [original]
-        elif name == "audio_metadata":
-            selections = recordings if kind in CALL_KINDS else [original]
-            if not selections:
-                continue
-        elif name in {"sessions", "comm_patterns"}:
-            if kind != "text-message":
-                continue
-            selections = [original]
-        elif name == "conversation_link":
-            # A single communication has no other exchange to compare.
-            continue
-        elif name in {"native_text", "image_metadata"} or kind in LOCATIONS:
-            selections = [original]
-        else:
-            continue
-        if name in {"native_text", "ocr"}:
-            parameters["automatic_followup"] = True
-        plan.append((name, selections, parameters))
+    if recordings:
+        plan.append(("audio_metadata", recordings, {}))
+    if text:
+        plan.extend(_text_checks(text))
     return plan
 
 
+def _plan(case, kind, item, attachment_id):
+    original = {"kind": kind, "id": str(item.pk)}
+    selections = [original]
+    if kind in CALL_KINDS:
+        return _call_checks(case, item, original, attachment_id)
+    if kind in {"text", "text-message"}:
+        return _text_checks(selections)
+    if kind == "document":
+        return [("native_text", selections, {"automatic_followup": True})]
+    if kind == "image":
+        return [
+            ("image_metadata", selections, {}),
+            ("ocr", selections, {"automatic_followup": True}),
+        ]
+    if kind == "audio":
+        return [("audio_metadata", selections, {})]
+    if kind in LOCATION_KINDS:
+        plan = [("location_quality", selections, {})]
+        if item.address:
+            plan.append(("normalize_addresses", selections, {}))
+        return plan
+    return []
+
+
+def start_added_evidence_analysis(
+    actor, case_id, kind, evidence_id, *, attachment_id=None
+):
+    """Give newly added evidence an analysis identity independent of HTTP retries."""
+    submission_id = uuid5(
+        NAMESPACE_URL,
+        f"pandect:analysis-on-add:{case_id}:{kind}:{evidence_id}:{attachment_id}",
+    )
+    return start_evidence_analysis(
+        actor,
+        case_id,
+        kind,
+        evidence_id,
+        submission_id=submission_id,
+        attachment_id=attachment_id,
+    )
+
+
 @transaction.atomic
-def start_evidence_analysis(actor, case_id, kind, evidence_id, *, submission_id):
+def start_evidence_analysis(
+    actor, case_id, kind, evidence_id, *, submission_id, attachment_id=None
+):
     """Atomically enqueue a local batch, or return the original batch on retry."""
     case = get_case(actor, case_id, edit=True, lock=True)
     item = get_evidence(case, kind, evidence_id)
@@ -155,6 +119,10 @@ def start_evidence_analysis(actor, case_id, kind, evidence_id, *, submission_id)
             or any(
                 selected.get("kind") != kind
                 or selected.get("evidence_id") != str(item.pk)
+                or (
+                    attachment_id is not None
+                    and selected.get("attachment_id") != str(attachment_id)
+                )
                 for selected in existing.inputs
             )
         ):
@@ -170,7 +138,7 @@ def start_evidence_analysis(actor, case_id, kind, evidence_id, *, submission_id)
         ), False
     runs = []
     for index, (operation, selections, parameters) in enumerate(
-        _plan(case, kind, item)
+        _plan(case, kind, item, attachment_id)
     ):
         run, _ = start_run(
             actor,
@@ -203,16 +171,13 @@ def follow_up_extraction(run, result):
         }
         for selected in run.inputs
     ]
-    for name in ("entities", "text_topics"):
-        parameters = {"automatic_batch": batch}
-        if name == "text_topics":
-            parameters["include_summary"] = False
+    for name, inputs, parameters in _text_checks(selections):
         start_run(
             run.requested_by,
             run.case_id,
             name,
-            selections,
-            parameters=parameters,
+            inputs,
+            parameters=parameters | {"automatic_batch": batch},
             submission_id=uuid5(run.pk, name),
             previous_run=run,
         )

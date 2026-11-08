@@ -7,7 +7,7 @@
 </div>
 <form class="search-form" method="get" role="search" aria-label="Search vehicles">
   <label for="vehicles-search">Search vehicles</label>
-  <div class="actions"><input id="vehicles-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Make, model, year, plate, VIN, color, or notes"><button class="button button-secondary" type="submit">Search</button>{% if query %}<a class="button button-secondary" href="{% url 'vehicles:list' case_id=case.pk %}">Clear filters</a>{% endif %}</div>
+  <div class="actions"><input id="vehicles-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Make, model, year, plate, VIN, or color"><button class="button button-secondary" type="submit">Search</button>{% if query %}<a class="button button-secondary" href="{% url 'vehicles:list' case_id=case.pk %}">Clear filters</a>{% endif %}</div>
 </form>
 {% if page_obj.object_list %}
 <p class="result-count secondary">{{ page_obj.paginator.count }} vehicle record{{ page_obj.paginator.count|pluralize }}</p>

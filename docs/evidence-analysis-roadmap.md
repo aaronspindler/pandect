@@ -1,12 +1,12 @@
 # Evidence analysis implementation roadmap
 
-**Proposed priorities, 2026-10-27.** This roadmap turns the
-[scored analysis catalogue](evidence-analysis.md) into an implementation sequence.
-It proposes future work; it does not implement or schedule these features.
+This roadmap sequences work from the [scored analysis catalogue](evidence-analysis.md).
+See [case analysis](analysis.md) for current capabilities and supported inputs.
 
-Start by making retained text searchable. Then make file contents searchable,
-build useful conversation and movement workflows, and connect their results.
-Add specialized matching where a case need and evaluation justify it.
+The next product milestone connects evidence and surfaces source-backed insights.
+Start with exact shared identifiers and explicit links across distinct records.
+Follow with cited AI insights on selected evidence. The earlier sections capture
+the extraction and analysis foundations for that work.
 
 ## How priorities were chosen
 
@@ -37,18 +37,16 @@ once image processing and source-region support exist.
 
 ## 1. Search and inspect existing material
 
-**First implementation: extend the case Evidence collection search to retained
-text.** Search Text bodies, Text message bodies, and all supplied transcripts
-on Phone call and FaceTime attachments. Current collection search covers
-metadata and related records, but not those contents. Preserve case scoping,
+**Search retained text in the case Evidence collection.** Search Text bodies,
+Text message bodies, and all supplied transcripts on Phone call and FaceTime
+attachments. Preserve case scoping,
 type/archive filters, pagination, and private responses. Return each call once
 even if several additions match, and identify the matching transcript addition.
 
-This is literal content search, an enabling capability narrower than the
-catalogue's semantic search. It needs no AI, parser, or analysis framework.
-Uploaded file contents remain outside search until extraction is implemented.
+This is literal content search. Uploaded file contents become searchable as
+supported text extraction is retained.
 
-Next, ship small read-only reports from existing fields:
+Read-only reports use existing fields:
 
 - Call counts, reported-duration distributions, and recorded timing patterns.
 - Vehicle-observation coverage, missing/out-of-order observations, receipt delays,
@@ -169,18 +167,19 @@ can produce no conclusion. Named-author attribution is outside this increment.
 Start as soon as the relevant extracted inputs are ready; completion of all
 three priority-3 tracks is not required.
 
-1. **Connect explicit values and events.** Add reviewable identifier/entity
-   candidates and a unified timeline. Distinguish recorded event time, extracted
-   dates, planned events, reported events, and upload time. Start with explicit
-   references before ambiguous semantic relationships. Add duplicate-source
-   review so copied material does not masquerade as independent corroboration.
-2. **Retrieve related passages.** Add case-scoped semantic retrieval alongside
+1. **Connect explicit values and events.** Start with reviewable exact-identifier
+   matches and explicit links across distinct records. Show the retained source
+   anchor on both sides, identify copied material, and present matches as leads.
+   Later, a unified timeline can distinguish recorded event time, extracted dates,
+   planned events, reported events, and upload time.
+2. **Synthesize selected evidence.** Use explicitly selected evidence to generate
+   cited AI insights, with supporting and conflicting passages, unknowns, and
+   abstention when the sources cannot support a claim. Default to an explicitly
+   configured private runtime. External processing requires separate approval
+   through the gateway. Keep insights reviewable and linked to source anchors.
+3. **Retrieve related passages.** Add case-scoped semantic retrieval alongside
    lexical search. Evaluate relevant and irrelevant hits, enforce access at
    query/result time, and preserve the source selection and index provenance.
-3. **Synthesize selected evidence.** Deliver cited answers, supporting/conflicting
-   passages, and selected-evidence case summaries. Retain unknowns, contrary
-   evidence, missing periods, and unanswered questions. Connect conversations
-   to candidate journeys only when both input tracks are available.
 
 **Complete when:** every candidate link, timeline entry, or summary claim can be
 inspected against sources; unsupported assertions can be rejected without
@@ -232,10 +231,9 @@ Cross-case matching remains outside this roadmap's case-scoped assumptions.
 Revisit advanced route inference and broad semantic linking only after their
 basic observation and relationship workflows are dependable.
 
-## Recommended first three implementation increments
+## Foundation delivery sequence
 
-1. **Search retained text and transcripts** in the existing Evidence collection.
-   This is the first deliverable: useful immediately and independent of AI.
+1. **Search retained text and transcripts** in the Evidence collection.
 2. **Add call and vehicle-observation reports**, plus exact-file duplicate
    candidates, with source links and missing-value/coverage explanations.
 3. **Deliver bounded native-document text extraction** with the minimum durable

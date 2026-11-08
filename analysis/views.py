@@ -24,7 +24,7 @@ from evidence.queries import get_evidence, scoped_evidence
 from evidence.types import KIND_LABELS, KINDS
 
 from .artifacts import MAX_ARTIFACT_BYTES
-from .automatic import start_evidence_analysis
+from .automatic import evidence_runs, start_evidence_analysis
 from .errors import AnalysisError, error_message
 from .execution import requires_inference
 from .forms import AnalysisForm, EvidenceAnalysisForm, ReportForm, ReviewForm, selection
@@ -254,13 +254,12 @@ def process_evidence(request, case_id, kind, evidence_id):
                 )
                 + query_suffix(request)
             )
-    page = Paginator(
-        AnalysisRun.objects.filter(
-            case=case,
-            inputs__contains=[{"kind": kind, "evidence_id": str(item.pk)}],
-        ).select_related("requested_by"),
-        25,
-    ).get_page(request.GET.get("results_page"))
+    runs = evidence_runs(case, kind, item.pk)
+    local_runs = runs.filter(parameters__has_key="automatic_batch")
+    local_analysis_pending = local_runs.filter(
+        status__in=("queued", "running")
+    ).exists()
+    page = Paginator(runs, 25).get_page(request.GET.get("results_page"))
     for run in page:
         run.label = get_operation(run.operation).label
         run.processing_label = _processing_details(run)["label"]
@@ -277,6 +276,8 @@ def process_evidence(request, case_id, kind, evidence_id):
                 "list_suffix": query_suffix(request),
                 "form": form,
                 "page_obj": page,
+                "local_analysis_pending": local_analysis_pending,
+                "has_local_analysis": local_analysis_pending or local_runs.exists(),
                 "additional_operations": _additional_operations(kind).items(),
             },
             status=400 if form.errors else 200,

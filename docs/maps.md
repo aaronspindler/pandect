@@ -1,6 +1,6 @@
 # Investigation map
 
-Open a case and choose **Map**. Owners, editors and viewers can inspect the same
+Open a case and choose **Case tools → Map**. Owners, editors and viewers can inspect
 case-scoped locations and follow links back to retained evidence. Owners and
 editors can choose **Add location** or **Add POI**.
 
@@ -8,9 +8,9 @@ editors can choose **Add location** or **Add POI**.
 
 Choose **Add POI** to link a place to a person in the current case. Choose
 **Home**, **Work**, or **Custom** and enter a custom label such as Gym. Enter
-WGS84 latitude/longitude, with an optional address, source/citation, and
-investigator notes. Alternatively, click or tap a spot on the map and choose
-**Add POI here** to prefill coordinates before choosing the person and label.
+WGS84 latitude/longitude, with an optional address and source/citation.
+Previously saved POI notes remain readable. Click or tap a spot on the map and
+choose **Add POI here** to prefill coordinates before choosing the person and label.
 The normal form works with a keyboard and without JavaScript or map tiles.
 If the case has no people, the form offers **Add person** first.
 

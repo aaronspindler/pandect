@@ -1,11 +1,14 @@
 """Local evidence batches, exact extraction follow-up and current authorization."""
 
+from contextlib import contextmanager
 from dataclasses import replace
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import OperationalError
 from django.http import Http404
 from django.test import TestCase, override_settings
 from django_tasks_db.models import DBTaskResult
@@ -24,6 +27,7 @@ from evidence.models import (
     PhoneCallEvidence,
     TextMessageEvidence,
 )
+from evidence.storage import retain_uploaded_originals
 from evidence.tests.test_views import EvidenceViewTestMixin
 
 from .test_media import image_bytes, wav_bytes
@@ -64,6 +68,220 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
                 run.status, {"queued", "running", "failed"}, run.error_code
             )
 
+    def test_product_upload_queues_once_and_retry_returns_the_same_evidence(self):
+        self.login("editor")
+        submission_id = str(uuid4())
+        upload = self.url("create")
+        payload = self.payload(submission_id=submission_id)
+
+        added = self.client.post(upload, payload, HTTP_ACCEPT="application/json")
+        self.assertEqual(added.status_code, 201)
+        self.assertEqual(set(added.json()), {"type", "id", "detail_url"})
+        repeated = self.client.post(upload, payload, HTTP_ACCEPT="application/json")
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(added.json(), repeated.json())
+        runs = list(AnalysisRun.objects.filter(case=self.case))
+        self.assertEqual({run.operation for run in runs}, {"entities", "text_topics"})
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(DBTaskResult.objects.count(), 2)
+        self.assertEqual(len({run.parameters["automatic_batch"] for run in runs}), 1)
+        for run in runs:
+            self.assertEqual(run.inputs[0]["evidence_id"], added.json()["id"])
+            self.assertEqual(run.requested_by, self.users["editor"])
+            self.assertEqual(run.status, "queued")
+            self.assertFalse(run.external_processing)
+
+    def test_duplicate_review_enqueues_only_the_confirmed_new_copy(self):
+        earlier = self.document(b"Synthetic file")
+        self.login("owner")
+        upload = self.url("create")
+        submission_id = str(uuid4())
+
+        def submit(**values):
+            return self.client.post(
+                upload,
+                self.payload(
+                    "document",
+                    submission_id=submission_id,
+                    file=SimpleUploadedFile("source.txt", b"Synthetic file"),
+                    **values,
+                ),
+                HTTP_ACCEPT="application/json",
+            )
+
+        paused = submit()
+        self.assertEqual(paused.status_code, 409)
+        self.assertEqual(paused.json()["code"], "duplicate_evidence")
+        self.assertFalse(AnalysisRun.objects.exists())
+        self.assertFalse(DBTaskResult.objects.exists())
+
+        added = submit(duplicate_confirmation=paused.json()["confirmation"])
+        self.assertEqual(added.status_code, 201)
+        run = AnalysisRun.objects.get()
+        self.assertEqual(run.inputs[0]["evidence_id"], added.json()["id"])
+        self.assertNotEqual(run.inputs[0]["evidence_id"], str(earlier.pk))
+        self.assertEqual(run.inputs[0]["sha256"], earlier.sha256)
+        self.assertEqual(DBTaskResult.objects.count(), 1)
+
+    def test_failed_auto_queue_rolls_back_evidence_runs_tasks_and_new_file(self):
+        self.login("owner")
+        earlier = self.document()
+        submission_id = str(uuid4())
+
+        def upload():
+            return self.client.post(
+                self.url("create"),
+                self.payload(
+                    "image",
+                    file=SimpleUploadedFile("source.png", image_bytes()),
+                    submission_id=submission_id,
+                ),
+                HTTP_ACCEPT="application/json",
+            )
+
+        def enqueue(*args, **kwargs):
+            if args[2] == "ocr":
+                raise OperationalError("Private queue failure details")
+            return start_run(*args, **kwargs)
+
+        existing_files = {path for path in self.media_root.rglob("*") if path.is_file()}
+        with patch("analysis.automatic.start_run", side_effect=enqueue):
+            failed = upload()
+        self.assertEqual(failed.status_code, 503)
+        self.assertEqual(failed.json()["code"], "save_unconfirmed")
+        self.assertNotIn("Private queue failure details", failed.content.decode())
+        self.assertFalse(ImageEvidence.objects.exists())
+        self.assertFalse(AnalysisRun.objects.exists())
+        self.assertFalse(DBTaskResult.objects.exists())
+        self.assertEqual(
+            {path for path in self.media_root.rglob("*") if path.is_file()},
+            existing_files,
+        )
+        self.assertTrue(earlier.file.storage.exists(earlier.file.name))
+        self.assertEqual(upload().status_code, 201)
+        self.assertEqual(AnalysisRun.objects.count(), 2)
+
+    def test_lost_commit_confirmation_keeps_originals_and_resolves_on_retry(self):
+        self.login("owner")
+        call = self.call()
+        document_submission = str(uuid4())
+        attachment_submission = str(uuid4())
+
+        @contextmanager
+        def lose_confirmation():
+            with retain_uploaded_originals() as originals:
+                yield originals
+            raise OperationalError("Synthetic lost commit confirmation")
+
+        def upload_document():
+            return self.client.post(
+                self.url("create"),
+                self.payload(
+                    "document",
+                    submission_id=document_submission,
+                    file=SimpleUploadedFile("source.txt", b"Synthetic retained text"),
+                ),
+            )
+
+        def upload_attachment():
+            return self.client.post(
+                self.url("add_attachment", call, "phone-call"),
+                {
+                    "submission_id": attachment_submission,
+                    "file": SimpleUploadedFile("call.wav", wav_bytes()),
+                },
+            )
+
+        with patch("evidence.views.retain_uploaded_originals", lose_confirmation):
+            document_error = upload_document()
+            attachment_error = upload_attachment()
+        for response in (document_error, attachment_error):
+            self.assertContains(response, "retry this submission", status_code=503)
+            self.assertNotContains(response, "Evidence added.", status_code=503)
+            self.assertNotContains(
+                response, "Transcript or audio added.", status_code=503
+            )
+        document = DocumentEvidence.objects.get(submission_id=document_submission)
+        attachment = call.attachments.get(submission_id=attachment_submission)
+        for original in (document.file, attachment.file):
+            self.assertTrue(original.storage.exists(original.name))
+        self.assertEqual(AnalysisRun.objects.count(), 2)
+        self.assertEqual(DBTaskResult.objects.count(), 2)
+
+        self.assertRedirects(
+            upload_document(), self.url("detail", document, "document")
+        )
+        self.assertRedirects(
+            upload_attachment(),
+            self.url("detail", call, "phone-call") + f"#attachment-{attachment.pk}",
+        )
+        self.assertEqual(DocumentEvidence.objects.count(), 1)
+        self.assertEqual(call.attachments.count(), 1)
+        self.assertEqual(AnalysisRun.objects.count(), 2)
+        self.assertEqual(DBTaskResult.objects.count(), 2)
+
+    def test_initial_call_only_queues_for_supplied_content(self):
+        self.login("owner")
+        upload = self.url("create")
+        empty_call = self.client.post(
+            upload, self.payload("phone-call"), HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(empty_call.status_code, 201)
+        self.assertFalse(AnalysisRun.objects.exists())
+
+        added = self.client.post(
+            upload,
+            self.payload("phone-call", transcript="Contact source@example.test."),
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(added.status_code, 201)
+        call = PhoneCallEvidence.objects.get(pk=added.json()["id"])
+        attachment = call.attachments.get()
+        runs = list(AnalysisRun.objects.all())
+        self.assertEqual({run.operation for run in runs}, {"entities", "text_topics"})
+        self.assertEqual(len(runs), 2)
+        for run in runs:
+            self.assertEqual(run.inputs[0]["attachment_id"], str(attachment.pk))
+
+    @override_settings(PANDECT_ANALYSIS_MAX_SOURCES=1)
+    def test_appended_call_only_queues_for_new_attachment_and_reuses_it_on_retry(self):
+        self.login("editor")
+        call = self.call()
+        CallEvidenceAttachment.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            phone_call=call,
+            transcript="Earlier retained transcript",
+        )
+        submission_id = str(uuid4())
+
+        def submit():
+            return self.client.post(
+                self.url("add_attachment", call, "phone-call"),
+                {
+                    "submission_id": submission_id,
+                    "transcript": "New retained transcript",
+                    "file": SimpleUploadedFile("call.wav", wav_bytes()),
+                },
+                HTTP_ACCEPT="application/json",
+            )
+
+        added = submit()
+        self.assertEqual(added.status_code, 201)
+        repeated = submit()
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(added.json(), repeated.json())
+        runs = list(AnalysisRun.objects.all())
+        self.assertEqual(
+            {run.operation for run in runs},
+            {"audio_metadata", "entities", "text_topics"},
+        )
+        self.assertEqual(len(runs), 3)
+        self.assertEqual(DBTaskResult.objects.count(), 3)
+        for run in runs:
+            self.assertEqual(len(run.inputs), 1)
+            self.assertEqual(run.inputs[0]["attachment_id"], added.json()["id"])
+
     def test_text_batch_queues_all_applicable_local_operations_without_network(self):
         item = self.text()
         with (
@@ -75,7 +293,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.assertTrue(created)
             self.assertEqual(
                 {run.operation for run in runs},
-                {"entities", "style_profiles", "text_topics"},
+                {"entities", "text_topics"},
             )
             self.complete(runs)
             gateway.assert_not_called()
@@ -139,7 +357,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         item = self.text()
 
         def enqueue(*args, **kwargs):
-            if args[2] == "style_profiles":
+            if args[2] == "text_topics":
                 raise RuntimeError("Synthetic queue failure")
             return start_run(*args, **kwargs)
 
@@ -219,7 +437,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(AnalysisRun.objects.count(), 1)
         self.assertEqual(AnalysisResult.objects.count(), 0)
 
-    def test_message_adds_local_conversation_analysis(self):
+    def test_single_message_checks_content_without_comparing_conversations(self):
         message = TextMessageEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
@@ -231,7 +449,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         runs, _ = self.start(message, "text-message")
         self.assertEqual(
             {run.operation for run in runs},
-            {"entities", "style_profiles", "text_topics", "sessions", "comm_patterns"},
+            {"entities", "text_topics"},
         )
         self.complete(runs)
 
@@ -253,7 +471,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         runs, _ = self.start(call, "phone-call")
         self.assertEqual(
             {run.operation for run in runs},
-            {"audio_metadata", "entities", "copied_text", "text_topics"},
+            {"audio_metadata", "entities", "text_topics"},
         )
         for run in runs:
             expected = {str(first.pk)}
@@ -332,23 +550,22 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
             longitude="-79.000000",
         )
         runs, _ = self.start(location, "location")
+        self.assertEqual({x.operation for x in runs}, {"location_quality"})
+        address = LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic address",
+            address="12 Example Street",
+        )
+        address_runs, _ = self.start(address, "location")
         self.assertEqual(
-            {x.operation for x in runs},
-            {
-                "normalize_addresses",
-                "location_quality",
-                "spatial_groups",
-                "candidate_visits",
-                "candidate_trips",
-                "movement_routines",
-                "colocation",
-                "travel_discrepancies",
-            },
+            {x.operation for x in address_runs},
+            {"location_quality", "normalize_addresses"},
         )
         with (
             patch("analysis.geocoding.Geocoder.lookup") as geocoder,
             patch("analysis.geographic_context.ContextClient.lookup") as maps,
         ):
-            self.complete(runs)
+            self.complete(runs + address_runs)
             geocoder.assert_not_called()
             maps.assert_not_called()

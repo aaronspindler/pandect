@@ -60,9 +60,15 @@ assert result.status == TaskResultStatus.READY
 assert result.started_at is None
 PY
 compose exec -T web python manage.py shell <<'PY'
+from uuid import uuid4
+
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import Client
+from django.urls import reverse
 from allauth.account.models import EmailAddress
+from analysis.models import AnalysisRun
 from analysis.services import start_run
 from cases.models import Case, CaseMembership
 from evidence.models import AudioEvidence, CallEvidenceAttachment, DocumentEvidence, FaceTimeEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, PhoneCallEvidence, TextEvidence, TextMessageEvidence, VehicleLocationEvidence, VehicleLocationImport
@@ -87,14 +93,21 @@ for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
         source="Synthetic smoke source",
         file=ContentFile(b"Synthetic smoke original\x00\r\n", name="original.bin"),
     )
-native_document = DocumentEvidence.objects.create(
-    case=case, uploaded_by=owner, title="Synthetic analysis source",
-    file=ContentFile(b"Source-anchored native extraction.\n", name="analysis-native.txt"),
+client = Client()
+client.force_login(owner)
+response = client.post(
+    reverse("evidence:create", args=[case.pk]),
+    {
+        "kind": "document", "title": "Synthetic analysis source", "submission_id": str(uuid4()),
+        "file": SimpleUploadedFile(
+            "analysis-native.txt", b"Source-anchored native extraction.\n", content_type="text/plain",
+        ),
+    },
+    HTTP_ACCEPT="application/json", HTTP_HOST="localhost",
 )
-run, created = start_run(owner, case.pk, "native_text", [
-    {"kind": "document", "id": str(native_document.pk)},
-])
-assert created and run.status == "queued"
+assert response.status_code == 201, response.content
+run = AnalysisRun.objects.get(case=case, operation="native_text")
+assert run.status == "queued" and run.inputs[0]["evidence_id"] == response.json()["id"]
 # Real local OCR must run after restart without AI credentials.
 import io
 from PIL import Image, ImageDraw, ImageFont
@@ -296,6 +309,9 @@ assert batch.status == "complete", (batch.status, batch.error_code)
 assert batch.completed_at is not None
 assert batch.vehicle_mapping == {"0": str(batch.selected_vehicle_id)}
 location = VehicleLocationEvidence.objects.get(import_batch=batch)
+assert not AnalysisRun.objects.filter(case_id=batch.case_id, inputs__contains=[
+    {"kind": "vehicle-location", "evidence_id": str(location.pk)},
+]).exists()
 assert location.vehicle_id == batch.selected_vehicle_id
 assert location.speed_kmh == 0
 assert location.raw_row["Serial Number"] == "000001"

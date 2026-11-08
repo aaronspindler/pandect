@@ -9,7 +9,7 @@ evidence table: `Evidence`, `FileEvidence`, `LocationContent`, `CommunicationEvi
 ## Reading and editing evidence
 
 The Original tab keeps the retained content and, when supplied, a concise source
-line visible. Investigator descriptions, full uploader/time attribution, checksums,
+line visible. Saved read-only descriptions, full uploader/time attribution, checksums,
 and editable source metadata are in Details. Record history and integrity open on
 request. Unrecorded optional fields do not fill the reader with placeholders.
 Location originals omit empty optional values and group coordinates together;
@@ -17,17 +17,18 @@ imported vehicle observations keep exact CSV cells, receipt time, export timezon
 and parser version in **Original CSV row and interpretation**. The import link and
 source row remain visible beside the observation.
 
-On add forms, Title and original content remain visible. **Description and source
-details** holds the optional description, source, source URL, source description,
+On add forms, Title and original content remain visible. **Source details**
+holds the optional source name, URL, description of the source,
 collection time and any declared technical fields. It opens
 for edits and validation errors, preserving entered values. These native sections
 work without JavaScript. Collection **Filters** also opens automatically when
 a non-default type/state filter is applied.
 
-The reader orders its sections **Original**, **Analysis**, **Details**. Owners and
-editors can choose **Analyze evidence** beside the original to open its local
-analysis controls and results. Download stays available beside it. File content
-type declarations open under **File details** in Details.
+The reader orders its sections **Original**, **Analysis**, **Details**. Choose
+**View analysis** beside the original when checks are in progress or results
+exist. Owners and editors can choose **Analyze evidence** for records without
+runs. Download stays available beside it. File content type declarations
+open under **File details** in Details.
 
 ## Investigator workflow
 
@@ -35,7 +36,7 @@ Inside a case, owners and editors choose **Add evidence** and select Document,
 Image, Audio, Text, Location, Person location, Vehicle location, Text message,
 Phone call, or FaceTime. File categories describe the
 submitted material; no parser verifies them. Enter a title, an optional
-**Source** name/citation, and optional description, source URL, source
+**Source** name/citation, and optional source URL, source
 description, and collection time. Text captures one browser-submitted original;
 to preserve a text file's exact bytes, upload the file as a Document instead.
 Browser textareas may normalize line endings, but the server does not trim or
@@ -51,7 +52,7 @@ category, with Document as the fallback. These suggestions do not verify format.
 The file picker comes first. Expand **Shared source details** to enter a source name, URL, description, and
 collection time once. Changes follow pending files unless that individual field
 has been edited, including cleared. **Use shared details** restores an entry's
-shared source fields without changing its investigator description. Saved and
+shared source fields. Saved and
 unconfirmed originals keep their submitted details unchanged. Shared controls
 are disabled while uploading; file selection is also disabled while any save
 confirmation remains unresolved.
@@ -116,13 +117,11 @@ checking confirmation again. Inconsistent case links show a recovery message
 instead of disclosing or deleting foreign material.
 The same deletion is also available in the scoped Django admin, as described below.
 
-Open **Analysis** from an evidence record; owners/editors can choose
-**Analyze evidence** to run all applicable local analysis
-for that evidence and its retained content together. The **Analysis** tab shows
-its progress and results to current case members. External processing remains a
-separate choice requiring explicit approval; custom comparisons and imports still
-require source selection and assumptions. See
-[analysis](analysis.md#retained-processing) for supported operations and recovery.
+New evidence added through the investigator workflow queues applicable local
+checks. The **Analysis** tab shows progress and results to current case members.
+Owners and editors can also start local checks on existing evidence or retry them.
+See [analysis](analysis.md#retained-processing) for supported operations,
+processing choices, import exceptions, and recovery.
 
 ### Duplicate checks
 
@@ -163,8 +162,9 @@ All ten concrete evidence models inherit these fields from `Evidence`:
 - Required `case`, `uploaded_by`, and `title` (up to 255 characters).
 - Automatic `created_at` and `edited_at` timestamps. `edited_at` changes on normal
   saves, including `save(update_fields=[...])`; creation time remains fixed.
-- Optional `description`, `source` (a name/citation up to 255 characters),
-  `source_url`, `source_description`, and `collected_at`.
+- Optional `source` (a name/citation up to 255 characters), `source_url`,
+  `source_description`, and `collected_at`. Previously saved `description`
+  values remain readable and searchable.
   Collection time describes source provenance, not the upload timestamp.
 - Generated `sha256`, calculated from the original bytes, captured UTF-8 text,
   or canonical location/communication JSON.
@@ -180,11 +180,11 @@ All ten concrete evidence models inherit these fields from `Evidence`:
 | `AudioEvidence` | `file` | `duration` as a `timedelta`, `sample_rate` in Hz, `channel_count` |
 | `DocumentEvidence` | `file` | `page_count` |
 | `TextEvidence` | `body` | `language` tag, up to 35 characters |
-| `LocationEvidence` | `address` and/or `latitude` + `longitude`, optional `observed_at` | Shared source/description fields |
-| `PersonLocationEvidence` | Same location fields plus a required `person` in the same case | Shared source/description fields |
-| `VehicleLocationEvidence` | Same location fields plus a required same-case `vehicle`; optional immutable CSV row, speed, receipt time, and import provenance | Shared source/description fields |
-| `TextMessageEvidence` | Required same-case `sender` and `recipient`, one `body`, optional `occurred_at` | Shared source/description fields |
-| `PhoneCallEvidence` / `FaceTimeEvidence` | Required same-case `sender` and `recipient`, optional `occurred_at` and `duration` | Shared source/description fields; retained attachments added separately |
+| `LocationEvidence` | `address` and/or `latitude` + `longitude`, optional `observed_at` | Shared source fields |
+| `PersonLocationEvidence` | Same location fields plus a required `person` in the same case | Shared source fields |
+| `VehicleLocationEvidence` | Same location fields plus a required same-case `vehicle`; optional immutable CSV row, speed, receipt time, and import provenance | Shared source fields |
+| `TextMessageEvidence` | Required same-case `sender` and `recipient`, one `body`, optional `occurred_at` | Shared source fields |
+| `PhoneCallEvidence` / `FaceTimeEvidence` | Required same-case `sender` and `recipient`, optional `occurred_at` and `duration` | Shared source fields. Retained attachments can be added separately. |
 
 File models inherit `file`, generated `original_filename` and `byte_size`, and
 optional `declared_content_type` from `FileEvidence`. Uploaded-file content types
@@ -196,8 +196,9 @@ must be nonnegative. A zero duration is distinct from an unknown duration.
 Optional [case analysis](analysis.md) extracts bounded document/image/audio content
 and retains derived metadata, OCR, and transcripts separately. Image originals
 continue to use `FileField`; parsing never replaces supplied metadata. Text files may be stored as documents; `TextEvidence.body`
-holds pasted original text. Descriptions and optional metadata are analyst input,
-not extracted facts or AI results. File checksums do not prove a source is truthful.
+holds pasted original text. Source descriptions and declared technical metadata
+record supplied context. Processing results are retained separately. File
+checksums establish byte integrity.
 
 ## Communications and retained call material
 
@@ -273,11 +274,11 @@ Supply both latitude (-90 to 90) and longitude (-180 to 180), or neither. At
 least a non-whitespace address or a coordinate pair is required. Zero is a valid
 coordinate. Optional **Observed at (UTC)** records the time reported by the
 source, separately from source collection time and the time the record was
-added. Unknown values remain unknown. There is no geocoding, map, tracking, or
-presence verification.
+added. Unknown values remain unknown. The map and location analysis distinguish
+reported coordinates from derived estimates.
 
 The address, coordinates, observation time, and person link are immutable
-originals. Correct a description or source through **Edit details**; create
+originals. Correct source details through **Edit details**. Create
 another record to correct the original observation. Person names shown in the
 reader reflect the current person record, while its retained UUID identifies the
 original association. A reported association is not proof of identity or
@@ -311,14 +312,14 @@ superuser workflows described here.
 Vehicle location originals and the bounded Asset Location CSV import flow are
 documented in [Vehicle locations and CSV imports](vehicle-location-imports.md).
 Source CSVs remain retained Document evidence. Imported telemetry and associations
-are immutable; ordinary description/source edits do not replace them.
+are immutable. Source edits leave them intact.
 
 All ten concrete evidence models are available under **Evidence** at `/admin/`.
 Active staff status and the corresponding Django model permission are required
 in addition to current case access. Lists, searches, history, and direct record
 URLs include only cases the operator owns or shares, including for superusers.
-Admin, product readers, and case overviews share the same relationship checks:
-linked people, vehicles, import batches, and source documents must belong to the
+Admin and product readers share the same relationship checks. Linked people,
+vehicles, import batches, and source documents must belong to the
 evidence's case. Inconsistent records created through trusted maintenance writes
 are excluded from these views. Owner-only case deletion confirmation still counts
 all evidence belonging to the case, without displaying inconsistent source details.
@@ -342,7 +343,8 @@ selected case, with mismatches rejected on the server. Product and admin forms
 share file/text limit validation, and original text and addresses are preserved
 without trimming.
 
-The title, description, source name, and original are visible by default. Expand
+The title, source name, and original are visible by default. Saved investigator
+descriptions are read-only on existing records. Expand
 **Additional source details** for the source URL, source description, and
 collection date. Validation errors keep affected fields visible. Declared
 metadata, imported source values, and integrity attribution use separate native
@@ -434,8 +436,8 @@ text = TextEvidence(
 )
 text.full_clean()
 text.save()
-text.description = "Analyst description, separate from the source text."
-text.save(update_fields=["description"])
+text.source = "Interview excerpt"
+text.save(update_fields=["source"])
 ```
 
 Normal creation calculates integrity metadata, ignoring supplied checksum, size,
@@ -452,7 +454,7 @@ numeric bounds.
 Normal validation and saves reject changes to the case, uploader, creation time,
 original text/file/location/person link, original filename, byte size, declared
 content type, and checksum, and submission ID. A changed original must become a
-new record. Descriptions, source names/descriptions, collection dates, and optional
+new record. Source names/descriptions, collection dates, and optional
 type metadata may be corrected. Removing a collaborator does not remove their
 retained evidence or attribution. The uploader uses `PROTECT`: users with
 evidence cannot be deleted until that evidence is removed.

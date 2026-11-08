@@ -36,7 +36,7 @@
       <div class="empty-state compact-empty">
         {% if query or selected_kind %}<h2>No matching evidence</h2><p>Try another search or clear your filters.</p><a href="{% url 'evidence:list' case_id=case.pk %}">Clear filters</a>
         {% elif state == 'archived' %}<h2>No archived evidence</h2><p>Archived evidence remains available to current case members.</p>
-        {% else %}<h2>No evidence yet</h2><p>Add files, text, communications, or locations to begin.</p>{% if can_edit %}<a class="button button-primary" href="{% url 'evidence:create' case_id=case.pk %}">Add evidence</a>{% else %}<p>An owner or editor can add evidence to this case.</p>{% endif %}{% endif %}
+        {% else %}<h2>No evidence yet</h2>{% if can_edit %}<p>Add files, text, communications, or locations to begin.</p>{% else %}<p>An owner or editor can add evidence to this case.</p>{% endif %}{% endif %}
       </div>
       {% endfor %}
     </div>
@@ -54,13 +54,14 @@
       <div><p class="eyebrow">{{ kind_label }}</p><h1>{{ item.title }}</h1></div>
       {% if section == 'original' %}<div class="actions">
         {% if item.is_archived %}<span class="badge">Archived</span>{% endif %}
-        {% if can_edit %}<a class="button button-primary" href="{% url 'analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}">Analyze evidence</a>{% endif %}
+        {% if has_analysis or can_edit %}<a class="button button-primary" href="{% url 'analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}">{% if has_analysis %}View analysis{% else %}Analyze evidence{% endif %}</a>{% endif %}
         <a class="button button-secondary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">{% include 'components/icon.html' with name='download' %} {% if is_communication %}Download communication record{% elif kind == 'text' %}Download text{% else %}Download original{% endif %}</a>
       </div>{% endif %}
     </header>
     {% if not can_edit %}<p class="role-note">You have Viewer access. You can inspect this evidence and download its original.</p>{% endif %}
     {% if item.is_archived %}<p class="notice">Archived evidence is retained and remains accessible to current case members.</p>{% endif %}
     {% include 'evidence/sections.html' %}
+    {% if analysis_pending %}<p class="notice">Analysis is in progress.</p>{% endif %}
     {% if section == 'original' and item.source or section == 'original' and item.source_description %}<p class="evidence-provenance">Source: {% if item.source %}{{ item.source }}{% else %}{{ item.source_description|truncatechars:160 }}{% if item.source_description|length > 160 %} <a href="{% url 'evidence:detail' case.pk kind item.pk %}?section=details{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}">Full source details</a>{% endif %}{% endif %}</p>{% endif %}
     {% if section == 'original' %}
       {% if is_communication %}{% include 'evidence/communication_original.html' %}{% elif kind == 'text' %}<div class="original-text">{{ item.body }}</div>{% elif is_location %}
@@ -81,7 +82,7 @@
         {% if item.source_url %}<div><dt>Source URL</dt><dd><a href="{{ item.source_url }}" rel="noopener noreferrer" referrerpolicy="no-referrer">{{ item.source_url }}</a></dd></div>{% endif %}
         {% if item.collected_at %}<div><dt>Collected at</dt><dd>{{ item.collected_at|date:"d M Y, H:i" }} UTC</dd></div>{% endif %}
       </dl>
-      {% if item.description %}<section class="description-section"><h2>Description</h2><div class="prose">{{ item.description|linebreaksbr }}</div></section>{% endif %}
+      {% if item.description %}<details class="disclosure"><summary>Saved description</summary><div class="disclosure-body prose">{{ item.description|linebreaks }}</div></details>{% endif %}
       {% if kind == 'document' or kind == 'image' or kind == 'audio' %}<details class="disclosure"><summary>File details</summary><dl class="metadata-grid"><div><dt>Declared content type</dt><dd>{{ item.declared_content_type|default:'Not supplied' }}</dd></div></dl><p class="muted">Supplied by the browser; format is not verified.</p></details>{% endif %}
       <details class="disclosure"><summary>Record history</summary><dl class="metadata-grid"><div><dt>Added by</dt><dd>{{ item.uploaded_by }}</dd></div><div><dt>Added at</dt><dd>{{ item.created_at|date:"d M Y, H:i" }} UTC</dd></div><div><dt>Details last changed</dt><dd>{{ item.edited_at|date:"d M Y, H:i" }} UTC</dd></div></dl></details>
       {% if technical_details %}<details class="disclosure"><summary>Declared technical details</summary><p class="muted">Investigator-supplied information; not verified by a parser.</p><dl class="metadata-grid">{% for label,value in technical_details %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl></details>{% endif %}

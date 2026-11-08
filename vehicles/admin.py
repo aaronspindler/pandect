@@ -10,7 +10,7 @@ class VehicleAdmin(CaseScopedAdmin):
     list_display = ("__str__", "case", "license_plate", "vin", "updated_at")
     list_select_related = ("case",)
     search_fields = ("make", "model", "license_plate", "vin")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "updated_at", "notes")
     fieldsets = (
         (
             None,
@@ -23,12 +23,8 @@ class VehicleAdmin(CaseScopedAdmin):
                     "color",
                     "license_plate",
                     "vin",
-                    "notes",
                 ),
-                "description": (
-                    "Enter at least a make, model, license plate, or VIN. "
-                    "Record uncertainty and source context in notes."
-                ),
+                "description": ("Enter at least a make, model, license plate, or VIN."),
             },
         ),
         (
@@ -36,3 +32,12 @@ class VehicleAdmin(CaseScopedAdmin):
             {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
         ),
     )
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is not None and obj.notes:
+            return (
+                *fieldsets,
+                ("Saved notes", {"fields": ("notes",), "classes": ("collapse",)}),
+            )
+        return fieldsets

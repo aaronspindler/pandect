@@ -61,7 +61,6 @@ class VehicleInterfaceTests(TestCase):
             "license_plate": vehicle.license_plate,
             "color": vehicle.color,
             "year": vehicle.year or "",
-            "notes": vehicle.notes,
             "revision": response.context["form"]["revision"].value(),
             **changes,
         }
@@ -132,10 +131,16 @@ class VehicleInterfaceTests(TestCase):
             with self.subTest(user=user.username):
                 self.client.force_login(user)
                 response = self.client.post(
-                    self.url("create"), {**identity, "case": str(self.other_case.pk)}
+                    self.url("create"),
+                    {
+                        **identity,
+                        "case": str(self.other_case.pk),
+                        "notes": "Forged notes",
+                    },
                 )
                 self.assertEqual(response.status_code, 302)
                 vehicle = Vehicle.objects.get(case=self.case, **identity)
+                self.assertEqual(vehicle.notes, "")
                 self.assertRedirects(
                     response,
                     self.url("detail", vehicle=vehicle),
@@ -145,18 +150,17 @@ class VehicleInterfaceTests(TestCase):
 
     def test_blank_identity_and_invalid_year_preserve_entered_values(self):
         self.client.force_login(self.editor)
-        response = self.client.post(
-            self.url("create"), {"color": "Blue", "notes": "Unknown"}
-        )
+        response = self.client.post(self.url("create"), {"color": "Blue"})
         self.assertEqual(response.status_code, 400)
         self.assertContains(response, "Blue", status_code=400)
         self.assertContains(response, "Enter at least", status_code=400)
         response = self.client.post(
             self.url("create"),
-            {"make": "Proposed name", "year": "not-a-year", "notes": "Keep this"},
+            {"make": "Proposed name", "year": "not-a-year"},
         )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.context["form"].data["notes"], "Keep this")
+        self.assertContains(response, "Proposed name", status_code=400)
+        self.assertNotIn("notes", response.context["form"].fields)
         self.assertIn("year", response.context["form"].errors)
         self.assertEqual(Vehicle.objects.filter(case=self.case).count(), 1)
 
@@ -182,14 +186,16 @@ class VehicleInterfaceTests(TestCase):
                 response = self.client.post(
                     self.url("edit", vehicle=self.vehicle),
                     self.edit_data(
-                        notes=f"Updated by {user.username}",
+                        color=f"Updated by {user.username}",
+                        notes="Forged notes",
                         case=str(self.other_case.pk),
                     ),
                 )
                 self.assertEqual(response.status_code, 302)
                 self.vehicle.refresh_from_db()
                 self.assertEqual(self.vehicle.case_id, self.case.pk)
-                self.assertEqual(self.vehicle.notes, f"Updated by {user.username}")
+                self.assertEqual(self.vehicle.color, f"Updated by {user.username}")
+                self.assertEqual(self.vehicle.notes, "Unconfirmed vehicle observation.")
 
     def test_viewer_is_read_only_and_mutations_remain_denied_directly(self):
         self.client.force_login(self.viewer)
@@ -218,25 +224,26 @@ class VehicleInterfaceTests(TestCase):
 
     def test_stale_edit_shows_saved_details_and_preserves_proposal_for_review(self):
         self.client.force_login(self.editor)
-        proposal = self.edit_data(notes="My proposed notes")
-        self.vehicle.notes = "Newer saved notes"
+        proposal = self.edit_data(color="My proposed value")
+        self.vehicle.color = "Newer saved value"
         self.vehicle.save()
         response = self.client.post(self.url("edit", self.vehicle), proposal)
         self.assertEqual(response.status_code, 409)
-        self.assertContains(response, "Newer saved notes", status_code=409)
-        self.assertContains(response, "My proposed notes", status_code=409)
+        self.assertContains(response, "Newer saved value", status_code=409)
+        self.assertContains(response, "My proposed value", status_code=409)
         self.assertContains(response, "Save reviewed changes", status_code=409)
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.notes, "Newer saved notes")
+        self.assertEqual(self.vehicle.color, "Newer saved value")
         proposal["revision"] = response.context["form"]["revision"].value()
         reviewed = self.client.post(self.url("edit", self.vehicle), proposal)
         self.assertEqual(reviewed.status_code, 302)
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.notes, "My proposed notes")
+        self.assertEqual(self.vehicle.color, "My proposed value")
 
     def test_revision_cannot_be_missing_tampered_or_reused_for_another_vehicle(self):
+        original = self.vehicle.color
         self.client.force_login(self.owner)
-        data = self.edit_data(notes="Forged notes")
+        data = self.edit_data(color="Forged change")
         for token in ("", "tampered", f"{data['revision']}tampered"):
             with self.subTest(token=token):
                 response = self.client.post(
@@ -247,11 +254,12 @@ class VehicleInterfaceTests(TestCase):
         response = self.client.post(self.url("edit", another), data)
         self.assertEqual(response.status_code, 400)
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.notes, "Unconfirmed vehicle observation.")
+        self.assertEqual(self.vehicle.color, original)
 
     def test_revocation_and_role_downgrade_apply_to_an_already_open_form(self):
+        original = self.vehicle.color
         self.client.force_login(self.editor)
-        data = self.edit_data(notes="No longer allowed")
+        data = self.edit_data(color="No longer allowed")
         membership = CaseMembership.objects.get(case=self.case, user=self.editor)
         membership.role = CaseMembership.Role.VIEWER
         membership.save()
@@ -264,11 +272,11 @@ class VehicleInterfaceTests(TestCase):
             self.client.post(self.url("edit", self.vehicle), data).status_code, 404
         )
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.notes, "Unconfirmed vehicle observation.")
+        self.assertEqual(self.vehicle.color, original)
 
     def test_deleted_vehicle_is_not_recreated_by_a_stale_form(self):
         self.client.force_login(self.editor)
-        data = self.edit_data(notes="Stale changes")
+        data = self.edit_data(color="Stale changes")
         url = self.url("edit", self.vehicle)
         vehicle_id = self.vehicle.pk
         self.vehicle.delete()
@@ -375,11 +383,8 @@ class VehicleInterfaceTests(TestCase):
             self.assertIn("no-store", response["Cache-Control"])
             self.assertIn("private", response["Cache-Control"])
 
-    def test_case_overview_and_deletion_include_only_its_vehicles(self):
+    def test_case_deletion_includes_only_its_vehicles(self):
         self.client.force_login(self.owner)
-        response = self.client.get(reverse("cases:case_detail", args=[self.case.pk]))
-        self.assertEqual(response.context["vehicles_count"], 1)
-        self.assertContains(response, self.url())
         url = reverse("cases:case_delete", args=[self.case.pk])
         response = self.client.get(url)
         self.assertEqual(response.context["vehicles_count"], 1)

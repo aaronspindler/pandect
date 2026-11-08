@@ -259,7 +259,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         runs = list(AnalysisRun.objects.all())
         self.assertEqual(
             {run.operation for run in runs},
-            {"entities", "style_profiles", "text_topics"},
+            {"entities", "text_topics"},
         )
         for run in runs:
             self.assertFalse(run.external_processing)
@@ -290,6 +290,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         payload = {"submission_id": str(uuid4())}
         first = self.client.post(url, payload)
         first_ids = set(AnalysisRun.objects.values_list("pk", flat=True))
+        self.assertEqual(len(first_ids), 2)
         repeated = self.client.post(url, payload)
         self.assertRedirects(first, url)
         self.assertEqual(first["Location"], repeated["Location"])

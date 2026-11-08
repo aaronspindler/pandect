@@ -189,6 +189,7 @@ HSTS policies; assess them against the actual edge configuration.
 After activation, run in the deployed web Application terminal:
 
 ```sh
+cd /app
 python manage.py check --deploy
 python manage.py migrate --check
 python manage.py check_task_worker --timeout 30

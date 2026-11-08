@@ -176,7 +176,7 @@ class AuthenticationTests(TestCase):
             CaseMembership.objects.filter(case=case, user=self.user).exists()
         )
         response = self.client.post(invitation_url)
-        self.assertRedirects(response, reverse("cases:case_detail", args=(case.pk,)))
+        self.assertRedirects(response, reverse("evidence:list", args=(case.pk,)))
         self.assertTrue(
             CaseMembership.objects.filter(case=case, user=self.user).exists()
         )

@@ -11,9 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import Case, CaseInvitation, CaseMembership
-from cases.views import _case_summary
 from evidence.models import PersonLocationEvidence, PhoneCallEvidence, TextEvidence
-from evidence.types import KINDS
 from people.models import Person
 
 
@@ -94,12 +92,16 @@ class CaseInterfaceTests(TestCase):
                 self.assertEqual(case.current_role, expected.pop(case.pk))
         self.assertFalse(expected)
 
-    def test_case_summary_counts_both_archive_states_in_one_query_per_kind(self):
-        with self.assertNumQueries(2 * len(KINDS) + 4):
-            summary = _case_summary(self.case)
-        self.assertEqual(summary["active_evidence_count"], 0)
-        self.assertEqual(summary["archived_evidence_count"], 0)
-        self.assertEqual(summary["recent_evidence"], [])
+    def test_case_links_and_legacy_case_url_open_evidence(self):
+        evidence_url = reverse("evidence:list", args=(self.case.pk,))
+        for user in (self.owner, self.editor, self.viewer):
+            with self.subTest(user=user):
+                self.login(user)
+                response = self.client.get(reverse("cases:case_list"))
+                self.assertContains(response, f'href="{evidence_url}"')
+                self.assertRedirects(
+                    self.client.get(self.url("case_detail")), evidence_url
+                )
 
     def test_settings_keeps_actionable_invitations_outside_history(self):
         now = timezone.now()
@@ -162,7 +164,7 @@ class CaseInterfaceTests(TestCase):
         self.assertEqual(self.viewer_membership.role, "viewer")
         self.assertEqual(Case.objects.count(), 2)
 
-    def test_overview_scopes_details_but_deletion_counts_all_case_evidence(self):
+    def test_workspace_scopes_evidence_but_deletion_counts_all_case_evidence(self):
         person = Person.objects.create(case=self.case, first_name="Reported person")
         other_person = Person.objects.create(
             case=self.other_case, first_name="Unrelated person"
@@ -198,11 +200,11 @@ class CaseInterfaceTests(TestCase):
         for user in (self.owner, self.editor, self.viewer):
             with self.subTest(user=user):
                 self.login(user)
-                response = self.client.get(self.url("case_detail"))
-                self.assertEqual(response.context["active_evidence_count"], 1)
-                self.assertEqual(response.context["archived_evidence_count"], 1)
+                response = self.client.get(
+                    reverse("evidence:list", args=(self.case.pk,)), {"state": "all"}
+                )
                 self.assertCountEqual(
-                    [item["title"] for item in response.context["recent_evidence"]],
+                    [item["title"] for item in response.context["rows"]],
                     [active.title, archived.title],
                 )
                 self.assertNotContains(response, location.title)
@@ -219,7 +221,6 @@ class CaseInterfaceTests(TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.context["active_evidence_count"], 2)
             self.assertEqual(response.context["archived_evidence_count"], 2)
-            self.assertNotIn("recent_evidence", response.context)
             self.assertNotContains(response, location.title)
             self.assertNotContains(response, call.title)
             self.assertNotContains(response, other_person.first_name)
@@ -229,10 +230,16 @@ class CaseInterfaceTests(TestCase):
         self.login(self.viewer)
         response = self.client.post(
             reverse("cases:case_create"),
-            {"name": "New investigation", "owner": str(self.outsider.pk)},
+            {
+                "name": "New investigation",
+                "owner": str(self.outsider.pk),
+                "description": "Forged description",
+            },
         )
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(Case.objects.get(name="New investigation").owner, self.viewer)
+        case = Case.objects.get(name="New investigation")
+        self.assertEqual(case.owner, self.viewer)
+        self.assertEqual(case.description, "")
+        self.assertRedirects(response, reverse("evidence:list", args=(case.pk,)))
         response = self.client.post(reverse("cases:case_create"), {"name": "   "})
         self.assertEqual(response.status_code, 200)
         self.assertIn("name", response.context["form"].errors)
@@ -255,7 +262,8 @@ class CaseInterfaceTests(TestCase):
     def test_case_edit_detects_conflict_and_preserves_draft(self):
         self.login()
         revision = self.case.updated_at.isoformat()
-        self.case.description = "Newer saved details"
+        self.case.name = "Newer case name"
+        self.case.description = "Previous investigation context"
         self.case.save()
         response = self.client.post(
             self.url("case_settings"),
@@ -266,13 +274,14 @@ class CaseInterfaceTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 409)
-        self.assertContains(response, "My draft", status_code=409)
-        self.assertContains(response, "Newer saved details", status_code=409)
+        self.assertContains(response, "Draft case name", status_code=409)
+        self.assertContains(response, "Newer case name", status_code=409)
+        self.assertNotIn("description", response.context["form"].fields)
         self.assertContains(response, "Save reviewed changes", status_code=409)
         reviewed_revision = response.context["form"]["expected_updated_at"].value()
         self.case.refresh_from_db()
-        self.assertEqual(self.case.name, "Harbour records")
-        self.assertEqual(self.case.description, "Newer saved details")
+        self.assertEqual(self.case.name, "Newer case name")
+        self.assertEqual(self.case.description, "Previous investigation context")
         self.assertEqual(reviewed_revision, self.case.updated_at.isoformat())
         response = self.client.post(
             self.url("case_settings"),
@@ -286,7 +295,7 @@ class CaseInterfaceTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.case.refresh_from_db()
         self.assertEqual(self.case.name, "Draft case name")
-        self.assertEqual(self.case.description, "My draft")
+        self.assertEqual(self.case.description, "Previous investigation context")
         self.assertEqual(self.case.owner, self.owner)
 
     def test_case_edit_updates_timestamp_and_preserves_owner(self):

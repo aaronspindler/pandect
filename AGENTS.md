@@ -16,8 +16,10 @@ and relationship analysis, timelines, maps, annotations, and reporting. These ar
 capabilities to build incrementally, not claims about what already exists.
 
 - Design around an investigator's task and next useful action.
-- Lead routine workflows with evidence and analysis. Keep optional source metadata,
-  descriptions, and notes available through progressive disclosure.
+- Open cases to Evidence and keep Analysis beside it. Group supporting case tools
+  separately. Keep optional source metadata and saved legacy notes available on
+  request. Retire freeform note authoring while preserving source attribution and
+  finding review reasons.
 - Use clear language, consistent navigation, thoughtful defaults, and progressive
   disclosure. Make advanced capabilities discoverable without overwhelming routine
   work.
@@ -99,6 +101,8 @@ for invocation and configuration details.
 - Put lengthy ingestion and analysis in background jobs with visible progress,
   bounded retries, and recoverable failures. Retried work must not duplicate
   evidence or publish partial results as complete.
+- Queue bounded local checks for eligible new investigator evidence. Keep model
+  inference, context-dependent analysis, and bulk import review deliberate.
 - Use configurable storage suitable for local files and hosted operation. Evidence
   downloads and derived artifacts must remain subject to case authorization.
 - Choose the queue implementation and specialized libraries during implementation.

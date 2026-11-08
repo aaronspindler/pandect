@@ -75,6 +75,7 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
                     )
                     self.assertEqual(poi.person.case_id, self.case.pk)
                     self.assertEqual(poi.created_by, user)
+                    self.assertEqual(poi.notes, "")
                     self.assertEqual(
                         poi.label, "Gym" if kind == "custom" else kind.title()
                     )
@@ -100,7 +101,7 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
                 response = self.client.post(self.poi_url("create"), self.data(**values))
                 self.assertEqual(response.status_code, 400)
                 self.assertIn(field, response.context["form"].errors)
-                self.assertContains(response, "Keep uncertainty", status_code=400)
+                self.assertContains(response, "Synthetic citation", status_code=400)
         self.assertEqual(PointOfInterest.objects.count(), 2)
 
     def test_prefills_are_case_scoped_and_empty_case_has_next_action(self):
@@ -199,19 +200,26 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
 
     def test_edit_conflict_preserves_proposal_and_requires_review(self):
         self.client.force_login(self.editor)
-        data = self.data(revision=poi_revision(self.poi), notes="My draft")
-        self.poi.notes = "Newer saved details"
+        data = self.data(
+            revision=poi_revision(self.poi), source="My draft", notes="Forged notes"
+        )
+        self.poi.source = "Newer saved details"
         self.poi.save()
         response = self.client.post(self.poi_url("edit"), data)
         self.assertEqual(response.status_code, 409)
         self.assertContains(response, "Newer saved details", status_code=409)
         self.assertContains(response, "My draft", status_code=409)
         self.poi.refresh_from_db()
-        self.assertEqual(self.poi.notes, "Newer saved details")
+        self.assertEqual(self.poi.source, "Newer saved details")
+        self.assertNotIn("notes", response.context["form"].fields)
         data["revision"] = response.context["form"]["revision"].value()
         self.assertEqual(self.client.post(self.poi_url("edit"), data).status_code, 302)
         self.poi.refresh_from_db()
-        self.assertEqual(self.poi.notes, "My draft")
+        self.assertEqual(self.poi.source, "My draft")
+        self.assertEqual(self.poi.notes, "Unconfirmed residence")
+        self.assertContains(
+            self.client.get(self.poi_url("detail")), "Unconfirmed residence"
+        )
         self.assertEqual(self.poi.created_by, self.owner)
         for token in ("", "tampered", poi_revision(self.other_poi)):
             self.assertEqual(

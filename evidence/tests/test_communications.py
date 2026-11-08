@@ -437,10 +437,8 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
         for query in ("matching.wav", "Synthetic person"):
             result = self.client.get(self.url("list"), {"q": query})
             self.assertEqual(result.context["page_obj"].paginator.count, 1)
-        summary = self.client.get(
-            reverse("cases:case_detail", kwargs={"case_id": self.case.pk})
-        )
-        self.assertEqual(summary.context["active_evidence_count"], 1)
+        result = self.client.get(self.url("list"))
+        self.assertEqual(result.context["page_obj"].paginator.count, 1)
         self.login("viewer")
         self.assertNotContains(
             self.client.get(self.url("detail", item, kind="phone-call")),
