@@ -7,9 +7,10 @@ and explanations in `docs/`.
 
 ## Product direction
 
-Pandect is an open-source investigation and intelligence platform. It must combine
+Pandect is a self-hostable investigation and intelligence platform intended for
+an open-source release. It aims to be the Apple of OSINT projects, pairing
 comprehensive analysis, connection discovery, and investigation tools with an
-exceptionally approachable experience: the Apple of OSINT projects.
+exceptionally approachable experience.
 
 The product direction includes case management, evidence ingestion, search, entity
 and relationship analysis, timelines, maps, annotations, and reporting. These are

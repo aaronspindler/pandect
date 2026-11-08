@@ -1,6 +1,7 @@
 import io
 from unittest.mock import patch
 
+from allauth.account.models import EmailAddress
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase
@@ -152,6 +153,25 @@ class VehicleImportJobBoundaryTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.run_job(batch), "failed")
         self.assertEqual(batch.error_code, "source_invalid")
         self.assertFalse(batch.rows.exists())
+        self.assertFalse(VehicleLocationEvidence.objects.exists())
+
+    def test_queued_preparation_and_publication_require_current_email_verification(
+        self,
+    ):
+        pending = self.batch(prepare=False)
+        staged = self.batch()
+        self.queue_completion(staged)
+        EmailAddress.objects.filter(user=self.users["editor"]).update(verified=False)
+
+        with patch("evidence.vehicle_import_jobs.iter_import") as read_source:
+            for batch in (pending, staged):
+                with self.subTest(phase=batch.phase):
+                    self.assertEqual(self.run_job(batch), "failed")
+                    self.assertEqual(batch.error_code, "access_removed")
+                    self.assertIsNone(batch.completed_at)
+            read_source.assert_not_called()
+        self.assertFalse(pending.rows.exists())
+        self.assertEqual(staged.rows.count(), 1)
         self.assertFalse(VehicleLocationEvidence.objects.exists())
 
     def test_access_removed_during_final_chunk_rolls_back_publication(self):

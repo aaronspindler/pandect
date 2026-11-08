@@ -4,10 +4,13 @@ import io
 import itertools
 import os
 from contextlib import redirect_stdout
+from email.message import Message
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import call, patch
 from urllib.error import HTTPError, URLError
+from urllib.request import HTTPHandler, HTTPSHandler, OpenerDirector
+from urllib.response import addinfourl
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "deploy-dokploy.py"
 SPEC = importlib.util.spec_from_file_location("deploy_dokploy", SCRIPT)
@@ -42,7 +45,7 @@ class DeploymentCommandTests(TestCase):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 12))
 
     def test_native_deploy_accepts_an_empty_success_response(self):
-        with patch.object(deploy, "urlopen", return_value=io.BytesIO(b"")):
+        with patch.object(OpenerDirector, "open", return_value=io.BytesIO(b"")):
             self.assertIsNone(
                 deploy.api("https://deploy.example.test/api/application.deploy")
             )
@@ -174,7 +177,7 @@ class DeploymentCommandTests(TestCase):
             io.BytesIO(b"secret"),
         )
         with (
-            patch.object(deploy, "urlopen", side_effect=error) as request,
+            patch.object(OpenerDirector, "open", side_effect=error) as request,
             self.assertRaises(deploy.DeploymentError) as failure,
         ):
             deploy.api("https://example.test/private", {"x-api-key": "secret"})
@@ -184,10 +187,27 @@ class DeploymentCommandTests(TestCase):
         request.assert_called_once()
         self.assertEqual(request.call_args.kwargs["timeout"], 30)
 
+    def test_api_rejects_redirect_without_forwarding_credentials(self):
+        url = "https://deploy.example.test/api/application.one"
+        headers = Message()
+        headers["Location"] = "http://redirect.example.test/"
+        response = addinfourl(io.BytesIO(), headers, url, 302)
+        response.msg = "Found"
+        with (
+            patch.object(HTTPSHandler, "https_open", return_value=response) as initial,
+            patch.object(HTTPHandler, "http_open") as redirected,
+            self.assertRaisesRegex(deploy.DeploymentError, "HTTP 302"),
+        ):
+            deploy.api(
+                url, {"X-Api-Key": "synthetic", "Authorization": "Bearer synthetic"}
+            )
+        initial.assert_called_once()
+        redirected.assert_not_called()
+
     def test_transport_error_has_no_mutation_retry(self):
         with (
             patch.object(
-                deploy, "urlopen", side_effect=URLError("private detail")
+                OpenerDirector, "open", side_effect=URLError("private detail")
             ) as request,
             self.assertRaises(deploy.DeploymentError) as failure,
         ):

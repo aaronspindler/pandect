@@ -18,7 +18,8 @@ The existing sign-in and email-verification checks still protect case material.
 Public pages never query or display an investigator's cases or evidence. The home
 page includes a fictional case preview that pairs captured text with suggested
 keywords. Narrow layouts show the evidence reader first. Product describes the
-implemented workflows, and Trust explains preservation and access.
+implemented workflows, and Trust explains preservation, access, external AI
+approval, and privacy when operators configure external map tiles.
 
 The pages use `templates/marketing/` and `static/pandect/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links

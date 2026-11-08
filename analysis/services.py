@@ -14,6 +14,7 @@ from django.db import transaction
 from django.db.models import OuterRef, Subquery
 from django.http import Http404
 from django.utils import timezone
+from django.utils.crypto import constant_time_compare
 
 from cases.permissions import get_case
 from evidence.models import CallEvidenceAttachment
@@ -27,8 +28,8 @@ from .artifacts import (
 )
 from .errors import AnalysisError
 from .execution import (
-    processing_external,
     requires_inference,
+    retry_execution_confirmation,
     snapshot_execution,
     validate_execution,
 )
@@ -284,6 +285,7 @@ def start_run(
     submission_id=None,
     external_processing=False,
     previous_run=None,
+    retry_confirmation="",
 ):
     case = get_case(actor, case_id, edit=True, lock=True)
     specification = get_operation(operation)
@@ -301,10 +303,11 @@ def start_run(
     parameters = {
         key: value for key, value in parameters.items() if key != "_execution"
     }
-    external = processing_external(
-        operation, parameters, parameters.get("backend", "local")
-    )
+    execution = snapshot_execution(operation, parameters)
+    external = bool(execution and execution["location"] == "external")
     if external and not external_processing:
+        if previous_run:
+            raise AnalysisError("retry_approval_required")
         raise ValidationError("Approve external processing for this operation.")
     external_processing = external
     if not 1 <= len(selections) <= settings.PANDECT_ANALYSIS_MAX_SOURCES:
@@ -399,9 +402,16 @@ def start_run(
                 "This submission was already used for different analysis settings."
             )
         return existing, False
-    if previous_run and previous_run.case_id != case.pk:
-        raise Http404("Processing not found.")
-    execution = snapshot_execution(operation, parameters)
+    if previous_run:
+        if previous_run.case_id != case.pk:
+            raise Http404("Processing not found.")
+        if (external or retry_confirmation) and not constant_time_compare(
+            retry_confirmation,
+            retry_execution_confirmation(
+                actor.pk, previous_run.pk, submission_id, execution
+            ),
+        ):
+            raise AnalysisError("retry_approval_required")
     if execution is not None:
         parameters = parameters | {"_execution": execution}
     if len(json.dumps(parameters, allow_nan=False).encode()) > 32768:

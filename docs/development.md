@@ -1,6 +1,6 @@
 # Local development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.6 and
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.7 and
 Docker with Compose v2. uv manages Python, the `.venv`, and Python dependencies;
 there is no requirements.txt or separate pip installation step. If you already
 use [mise](https://mise.jdx.dev/), `mise install` installs the tools in `mise.toml`.
@@ -95,7 +95,8 @@ files. Compose reads `.env` itself and sets the database hostname to `db`.
 Run `uv run --locked --env-file .env python manage.py db_worker --no-reload`
 in another terminal to process tasks while using the host web server. See
 [background tasks](background-tasks.md) for diagnostics, recovery, and pruning.
-Existing invitation and import workflows do not enqueue tasks yet.
+The worker handles supported analysis and vehicle-location import preparation
+and publication. Invitation delivery runs in the web process.
 
 ## Configuration
 
@@ -109,6 +110,7 @@ setup, explicit cloud selection, capacity measurement and model qualification.
 | `DJANGO_SECRET_KEY` | Required in every mode; generate a unique secret. |
 | `DJANGO_DEBUG` | Defaults to `false`; `.env.example` enables local debug and console email. |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts; defaults to loopback names only. |
+| `PANDECT_TRUSTED_PROXY_COUNT` | allauth client-IP proxy hop count, default `0`. Set only for a [controlled proxy chain](operations.md#first-dokploy-deployment). |
 | `POSTGRES_DB`, `POSTGRES_USER` | Default to `pandect`. |
 | `POSTGRES_PASSWORD` | Required by Compose; use a generated local password. |
 | `POSTGRES_HOST`, `POSTGRES_PORT` | Host commands default to `127.0.0.1:5432`; Compose uses `db:5432`. |

@@ -7,11 +7,16 @@ import sys
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 class DeploymentError(Exception):
     pass
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def required(name):
@@ -33,7 +38,7 @@ def api(url, headers=None, data=None):
         },
     )
     try:
-        with urlopen(request, timeout=30) as response:
+        with build_opener(NoRedirect()).open(request, timeout=30) as response:
             body = response.read(2 * 1024 * 1024 + 1)
         if len(body) > 2 * 1024 * 1024:
             raise DeploymentError("Deployment API response exceeded its size limit.")

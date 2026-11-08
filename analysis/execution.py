@@ -1,7 +1,10 @@
 """Snapshot concrete execution routes without equating HTTP with cloud use."""
 
+import json
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.utils.crypto import salted_hmac
 
 from .errors import AnalysisError
 
@@ -114,6 +117,16 @@ def snapshot_execution(operation, parameters):
             snapshot["history_start"] = settings.PANDECT_MAP_CONTEXT_HISTORY_START
         return snapshot
     return None
+
+
+def retry_execution_confirmation(actor_id, run_id, submission_id, execution):
+    """Bind a retry approval to the actor, submission and reviewed settings."""
+    value = json.dumps(
+        [str(actor_id), str(run_id), str(submission_id), execution], sort_keys=True
+    )
+    return salted_hmac(
+        "analysis.retry.execution", value, algorithm="sha256"
+    ).hexdigest()
 
 
 def validate_execution(run):

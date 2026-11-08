@@ -10,15 +10,12 @@ vanilla JavaScript for the sequential upload queue and interface enhancements.
 
 ## Runtime decisions
 
-Python/Django compatibility verified on 2026-10-25; uv updated on 2026-11-06:
+The validated runtime and lockfile currently use:
 
-- Django **6.1.2** is the latest published stable Django release.
-- Python **3.15.1** is the latest Python release, but Django's compatibility table
-  adds Python 3.15 support in **6.1.3**, which is not published yet.
-- Python **3.14.9** is therefore the newest supported stable patch for this
-  foundation. `requires-python` deliberately excludes 3.15 until the dependency
-  stack supports it. Prereleases are not used.
-- uv **0.13.6** resolves a committed, cross-platform `uv.lock`. The application
+- Python **3.14.9**, Django **6.1.3**, and django-allauth **65.21.1**.
+  The project stays on Python 3.14 until a separate upgrade validates the full
+  dependency stack and both CI architectures.
+- uv **0.13.7** resolves a committed, cross-platform `uv.lock`. The application
   is a non-packaged uv project; commands run from the checkout.
 - PostgreSQL **18.6** is the development and CI database. Tests use a separate
   PostgreSQL test database through Django's built-in test runner.

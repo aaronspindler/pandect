@@ -3,12 +3,12 @@ description: Report a reproducible problem using synthetic data only.
 body:
   - type: markdown
     attributes:
-      value: "Use private security reporting for vulnerabilities. Never attach originals, databases, embeddings, backups, .env, secret.key, or unredacted logs."
+      value: "Follow the [security reporting policy](https://github.com/aaronspindler/pandect/blob/main/SECURITY.md) for vulnerabilities. Use synthetic evidence and redacted diagnostics."
   - type: input
     id: version
     attributes:
       label: Tag or commit
-      placeholder: v0.1.0a1 or a commit SHA
+      placeholder: Exact commit SHA or release tag
     validations:
       required: true
   - type: input

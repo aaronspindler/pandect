@@ -36,9 +36,8 @@ synthetic case, not generated mockups:
 - [Full reference comparison](comparison-desktop.png) and
   [focused evidence list comparison](comparison-evidence-list.png).
 
-See the [QA report](../../design-qa.md) for measured density, test coverage,
-intentional differences, and validation limits. Additional synthetic browser-test
-captures are written to ignored `data/validation/browser/`.
+See [browser validation](../validation.md#browser-checks) for coverage,
+density targets, and the location of current synthetic captures.
 
 ## Final refinement prompt
 

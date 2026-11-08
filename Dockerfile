@@ -17,8 +17,6 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --locked --no-dev --no-install-project
 
-RUN groupadd --system pandect && useradd --system --create-home --gid pandect pandect \
-    && mkdir -p /app/data && chown pandect:pandect /app/data
 COPY manage.py ./
 COPY config/ config/
 COPY background/ background/
@@ -31,6 +29,11 @@ COPY vehicles/ vehicles/
 COPY templates/ templates/
 COPY static/ static/
 COPY scripts/docker-entrypoint-worker.sh scripts/docker-entrypoint-worker.sh
+# Make the root-owned source readable even when the checkout uses umask 077.
+RUN chmod -R u=rwX,go=rX /app \
+    && groupadd --system pandect \
+    && useradd --system --create-home --gid pandect pandect \
+    && mkdir -p /app/data && chown pandect:pandect /app/data
 # A synthetic build-only setting is sufficient; collectstatic never needs a DB.
 RUN DJANGO_SECRET_KEY=static-collection-build-only python manage.py collectstatic --noinput \
     && chown -R pandect:pandect /app/staticfiles

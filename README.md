@@ -5,8 +5,8 @@
   <img src="static/pandect/brand/logo-oxblood.png" alt="Pandect logo" width="432">
 </picture>
 
-Pandect is an open-source investigation and intelligence platform designed to
-make open-source intelligence (OSINT) approachable. Its goal is to bring
+Pandect is a self-hostable investigation platform designed to make
+open-source intelligence (OSINT) approachable. Its goal is to bring
 evidence, people, connections, and analysis into one clear investigation
 workflow, with the care and usability expected of an everyday application.
 
@@ -39,17 +39,20 @@ Analysis and visualization capabilities are being built incrementally.
   capture reported information rather than verified whereabouts.
 - **Vehicle location imports:** Review Asset Location CSV exports, explicitly select
   their timezone and case vehicles, and retain source rows and telemetry alongside
-  the original CSV. Imports are bounded to 250 rows and 1 MiB.
+  the original CSV. A background worker prepares and publishes imports up to
+  100,000 data rows and 100 MiB, subject to the deployment's upload limit.
 - **Original preservation:** Retain originals with SHA-256 checksums. Edit
   descriptive details separately, archive or restore evidence, and download files
-  through case-authorized routes. Individual evidence is retained until its owner
-  confirms deletion of the whole case.
+  through case-authorized routes. Case owners can confirm whole-case deletion.
+  Superusers with current case access can review and confirm individual evidence
+  deletion, including its dependent records and files.
 - **Investigator workspace:** Search and filter evidence in a responsive interface
   with a three-pane desktop layout, mobile views, and keyboard navigation.
-- **Case analysis:** Inspect call/vehicle/duplicate reports, search retained and
-  extracted text, and run supported document/image/audio extraction. Review
-  source-linked conversation, writing-style, visit and journey candidates with
-  retained processing history. See [supported inputs and configuration](docs/analysis.md).
+- **Case analysis:** Inspect call, vehicle, and duplicate reports and search
+  retained and extracted text. Owners and editors can choose **Analyze evidence**
+  beside an original to start applicable local checks. Review source-linked
+  suggestions with retained processing history. See [supported inputs and
+  configuration](docs/analysis.md).
 - **Self-hosting:** Run locally with Docker Compose. Ordinary case management
   requires no AI credentials or hosted Pandect subscription.
 
@@ -64,7 +67,7 @@ current supported workflows.
 ## Getting started
 
 Install Docker with Compose v2, `make`, and
-[uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.5. uv manages
+[uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.7. uv manages
 the project's pinned Python version and dependencies.
 
 Clone the repository and prepare a local environment:
@@ -156,10 +159,10 @@ requests.
 - **Questions, bugs, and feature requests:**
   [Open an issue](https://github.com/aaronspindler/pandect/issues).
 - **Security vulnerabilities:**
-  [Report privately through GitHub](https://github.com/aaronspindler/pandect/security/advisories/new).
+  [Follow the security reporting policy](SECURITY.md).
 
 ## License
 
-This repository does not currently include a project-wide license file. Bundled
-third-party assets retain their own licenses; see the [icon
-license](static/pandect/icons/LICENSE).
+A project-wide license has yet to be selected for the rebuilt application.
+Bundled third-party assets retain their licenses, including the [Tabler
+icons](static/pandect/icons/LICENSE) and [Leaflet](static/vendor/leaflet/LICENSE).

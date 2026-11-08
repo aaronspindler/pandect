@@ -34,55 +34,97 @@ documented in [background tasks](background-tasks.md).
 
 ## Database backup and restoration
 
-Keep backups private and off-host. The database contains accounts, authentication
-state, cases, invitations, collaboration memberships, people, vehicles, captured text,
-archive attribution, and file evidence metadata.
-It also contains queued work and operational task results, including private
-arguments, return values, and exception details.
-File originals live separately in `app_data`; a database dump alone is incomplete.
-Stop application writers while taking matching database and file snapshots. For
-the current Compose stack, stop `web` and `worker`, create both backups, then
-restart them:
+Keep coordinated database and private-file backups in encrypted off-host storage.
+The database includes accounts, case and evidence metadata, captured text, and
+private task arguments and results. The `app_data` volume holds original and
+derived files. Retain the matching application revision and PostgreSQL major
+version with the snapshot.
+
+### Capture a matching backup
+
+From the checkout used by the running local Compose project, stop all application
+writers for the duration of both captures. The commands stage each attempt in a
+new owner-only directory. Use a backup only after both archive checks succeed
+and the `COMPLETE` marker exists.
 
 ```sh
-mkdir -p backups
-docker compose stop web worker
-docker compose exec -T db sh -c \
-  'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > backups/pandect.dump
-docker compose run --rm --no-deps -T web tar -C /app/data -cf - . \
-  > backups/pandect-files.tar
-docker compose up --wait web worker
+(
+  set -eu
+  umask 077
+  snapshot=$(mktemp -d "$HOME/pandect-backup.XXXXXXXX")
+  printf 'Snapshot directory: %s\n' "$snapshot"
+
+  docker compose stop web worker
+  docker compose exec -T db sh -c \
+    'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$snapshot/database.dump"
+  docker compose run --rm --no-deps -T web tar -C /app/data -cf - . \
+    > "$snapshot/app-data.tar"
+
+  docker compose exec -T db pg_restore --list < "$snapshot/database.dump" > /dev/null
+  tar -tf "$snapshot/app-data.tar" > /dev/null
+  touch "$snapshot/COMPLETE"
+  docker compose up --wait web worker
+)
 ```
 
-Test restoration into a **new** database, preserving the original:
+A capture or archive check failure leaves an incomplete directory and stops the
+sequence before restarting writers. Inspect the failure, then retry with a new
+snapshot or restart the original project with `docker compose up --wait web
+worker`. Copy completed snapshots off-host through your private backup process.
+Archive checks inspect the snapshot structure. Test restoration to verify recovery.
+
+### Restore in a separate Compose project
+
+Use a trusted completed snapshot and a checkout matching its application revision
+and PostgreSQL major version. Prepare a separate owner-only recovery environment
+file using the [local setup guide](development.md), with fresh secrets, closed
+signups, and optional external services unset. Start from a shell without
+production Django, PostgreSQL, Pandect, or Compose overrides. Use a new project
+name so recovery has fresh database and file volumes.
 
 ```sh
-docker compose exec -T db sh -c \
-  'createdb -U "$POSTGRES_USER" pandect_restore'
-docker compose exec -T db sh -c \
-  'pg_restore --exit-on-error --no-owner -U "$POSTGRES_USER" -d pandect_restore' \
-  < backups/pandect.dump
-docker compose exec -T db sh -c \
-  'psql -U "$POSTGRES_USER" -d pandect_restore -c "SELECT count(*) FROM accounts_user"'
+(
+  set -eu
+  snapshot=/absolute/path/to/completed-snapshot
+  recovery_env=/absolute/path/to/recovery.env
+  recovery_project=pandect-recovery-$(date -u +%Y%m%d%H%M%S)
+
+  recovery() {
+    PANDECT_DB_PORT=0 PANDECT_WEB_PORT=0 \
+      docker compose -f compose.yaml --env-file "$recovery_env" -p "$recovery_project" "$@"
+  }
+
+  test -f "$snapshot/COMPLETE"
+  existing_volumes=$(docker volume ls -q --filter "label=com.docker.compose.project=$recovery_project")
+  test -z "$existing_volumes"
+  printf 'Recovery project: %s\n' "$recovery_project"
+
+  recovery up -d --wait db
+  recovery exec -T db sh -c \
+    'pg_restore --single-transaction --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+    < "$snapshot/database.dump"
+  recovery run --build --rm --no-deps -T web tar -C /app/data -xf - \
+    < "$snapshot/app-data.tar"
+  recovery run --rm --no-deps -T web python manage.py migrate --check
+
+  recovery up --wait db web
+  recovery port web 8000
+)
 ```
 
-For actual recovery, stop `web` and `worker`, set `POSTGRES_DB=pandect_restore` in
-`.env`, and start only `db web` with `docker compose up --wait db web`.
-Keep the original database until the restored application and expected data
-have been checked. Do not restore an
-untrusted dump or change PostgreSQL major versions by replacing a container tag.
-Before starting a worker against a restored database, inspect queued/running work:
-restoration can replay pending work whose external effects already happened.
-Review the task store and feature-specific recovery needs, then start `worker`
-and run its diagnostic. Do not blindly replay running tasks.
+Both restores must succeed before web starts. The recovery project uses random
+loopback ports. Verify expected records and compare recovered originals against
+their retained checksums. For a failed restore, inspect the isolated project
+and retry in a fresh one. Keep the original project and volumes available until
+the recovered copy is qualified. Stop the recovery project by repeating its
+Compose flags with `stop`.
 
-When recovering evidence, restore the matching file snapshot into a separate
-private storage location and configure the recovered application to use it before
-serving requests. For Compose, use a separate recovery project's `app_data` volume;
-do not unpack a snapshot over the original volume. Keep storage keys unchanged.
-For an external storage backend, use its coordinated snapshot/restore procedure.
-Verify original bytes against stored checksums after restoration. See
-[evidence lifecycle and failed cleanup recovery](evidence.md#private-storage-and-deletion).
+Before enabling a worker or putting a recovered application back into use,
+inspect queued and running tasks for possible replay of earlier external
+effects. Review [background recovery](background-tasks.md) and run the worker
+diagnostic after startup. With external storage, use its coordinated snapshot
+and restore procedure and preserve the original storage keys. See [evidence
+lifecycle and failed cleanup recovery](evidence.md#private-storage-and-deletion).
 
 ## Local image text extraction
 
@@ -130,13 +172,13 @@ never reset a database as an incidental upgrade step.
 
 ## First Dokploy deployment
 
-Use the same deployment shape as `spindlers-monorepo`: CI builds versioned GHCR
-images, CD resolves immutable digests, and Dokploy runs separate native Docker
-Applications for **web** and **worker**, plus a managed **PostgreSQL** resource.
+CI builds versioned GHCR images, CD resolves immutable digests, and Dokploy runs
+separate native Docker Applications for **web** and **worker**, plus a managed
+**PostgreSQL** resource.
 The local `compose.yaml` remains a development tool; it is not used in Dokploy.
 
-1. In the existing `openpandect` production project, create a managed PostgreSQL
-   resource using `postgres:18.6`, with a new database, role, and strong password.
+1. In the production project, create a managed PostgreSQL resource using
+   `postgres:18.6`, with a new database, role, and strong password.
    Keep it private; use its internal hostname and port 5432 in the application
    configuration. Retain Dokploy's database volume and backup ownership.
 2. Create native Docker Applications named `web` and `worker` on the same intended
@@ -179,12 +221,18 @@ verification, and invitation delivery require working SMTP before use.
 
 The deployment trusts `X-Forwarded-Proto` only behind the existing controlled
 proxy and sets the exact HTTPS CSRF origin. Secure session/CSRF cookies remain
-enabled. As in the monorepo, application HTTPS redirection is disabled because
-the edge owns it. Verify public HTTP redirects, HTTPS sign-in CSRF, and current
-proxy behavior on the actual domain. Do not broaden shared proxy trust to make a
-local check pass. One-day HSTS does not include subdomains or preload. Deployment
+enabled. The edge owns HTTPS redirection. Verify public HTTP redirects, HTTPS
+sign-in CSRF, and current proxy behavior on the actual domain. One-day HSTS does not include subdomains or preload. Deployment
 checks can report the deliberately external SSL redirect and those optional
 HSTS policies; assess them against the actual edge configuration.
+
+For allauth rate limits, `PANDECT_TRUSTED_PROXY_COUNT=0` uses the directly connected
+address and ignores `X-Forwarded-For`. Set the count only when the controlled proxy
+chain supplies the genuine client address, its hop count is fixed, and clients
+cannot bypass the proxy. Verify distinct clients have separate limits and forged
+forwarding headers do not bypass them. Use a shared cache for reliable limits
+across multiple web processes. Restrict or rate-limit `/admin/login/` at the edge
+because Django admin has its own sign-in flow.
 
 After activation, run in the deployed web Application terminal:
 
@@ -210,16 +258,19 @@ rollback or matching backup restoration is a separately reviewed recovery action
 
 ### Continuous deployment
 
-The GitHub Actions workflow follows the monorepo's GHCR and native Dokploy Docker
-provider pattern. After all existing CI checks pass on a push to `main`, CI builds
+After all CI checks pass on a push to Pandect's upstream `main`, CI builds
 the Dockerfile's `web` and `worker` targets for Linux amd64 and publishes private
 `ghcr.io/<owner>/<repository>-web` and `-worker` images. Each has the commit tag
 and a `build-<CI run ID>` tag; the build summary records its immutable digest.
 Images embed `APP_COMMIT_SHA` so live health identifies their source revision.
 Pull requests and manually dispatched CI do not publish or activate releases.
 
-Configure these secrets in the GitHub **production** environment, using the same
-names as the monorepo where applicable:
+Under GitHub **Settings → Environments → production**, set **Deployment branches
+and tags** to **Selected branches and tags** and allow only the protected
+`main` branch. Store the following values as **environment secrets** in
+`production` and remove any repository-level duplicates. Verify a test workflow
+on an unapproved branch cannot use the environment before supplying credentials.
+See [GitHub's deployment branch and environment settings](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 
 | Secret | Value |
 | --- | --- |
@@ -232,7 +283,7 @@ names as the monorepo where applicable:
 The registry username is the repository owner. CI uses its scoped GitHub token
 for package publication; the long-lived Dokploy pull credential stays in secrets
 and the Docker provider configuration. Application environment, mounts, domain,
-database, and Doppler configuration remain under their existing operator owners.
+database, and secret-store configuration remain under their operator owners.
 The deployment helper does not replace those settings or redeploy PostgreSQL.
 
 The separate CD workflow activates only successful `CI` runs from same-repository
@@ -312,12 +363,18 @@ Case, account, and invitation responses disable caching and use
 `Referrer-Policy: same-origin`. This preserves native same-origin form CSRF
 validation while suppressing referrers to other origins. Explicit external source
 links additionally use `noreferrer`. Do not cache authenticated case material at
-a reverse proxy or CDN. The default image uses
-`config.privacy.PrivateAccessLogger` to redact invitation token path segments
-and query strings, including referrer URL values, from Gunicorn access logs;
-application/development log filters apply matching URL redaction. Preserve that logger when overriding the image
-command. Configure the same path/query/referrer redaction at external proxies/CDNs
-and any logging collector; the application cannot sanitize logs produced before requests reach it.
-Never add evidence bodies, passwords, cookies, or invitation tokens to telemetry.
+a reverse proxy or CDN. Preserve `config.privacy.PrivateAccessLogger` when
+overriding the Gunicorn command. Gunicorn and application log filters strip query
+strings and redact bearer tokens in invitation, email-confirmation, and
+password-reset URLs. Configure equivalent redaction of request targets and
+referrers at the ingress, CDN, and log collector for these route families:
+
+- `/invitations/<token>/`
+- `/accounts/confirm-email/<key>/`
+- `/accounts/password/reset/key/<uid>-<key>/`
+
+Keep evidence bodies, passwords, cookies, and bearer tokens out of telemetry.
+Review access and retention for logs produced before equivalent redaction was in
+place.
 
 Reference: [Django deployment checklist](https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/).

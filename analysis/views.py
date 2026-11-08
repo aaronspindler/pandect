@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from django.contrib import messages
@@ -26,7 +27,11 @@ from evidence.types import KIND_LABELS, KINDS
 from .artifacts import MAX_ARTIFACT_BYTES
 from .automatic import start_evidence_analysis
 from .errors import AnalysisError, error_message
-from .execution import requires_inference
+from .execution import (
+    requires_inference,
+    retry_execution_confirmation,
+    snapshot_execution,
+)
 from .forms import AnalysisForm, EvidenceAnalysisForm, ReportForm, ReviewForm, selection
 from .models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
 from .navigation import FINDINGS_PER_PAGE, finding_url
@@ -493,6 +498,37 @@ def _map_points(sources):
     ]
 
 
+def _retry_parameters(run):
+    parameters = dict(run.parameters)
+    if (
+        requires_inference(run.operation, parameters)
+        and "backend" not in parameters
+        and run.external_processing
+    ):
+        parameters["backend"] = "gateway"
+    return parameters
+
+
+def _retry_destination(execution):
+    if execution["backend"] == "gateway":
+        account, gateway, model = (
+            execution["account"],
+            execution["gateway"],
+            execution["model"],
+        )
+        if account and gateway and model:
+            return f"Cloudflare AI Gateway · {account} / {gateway} · {model}"
+        return "Cloudflare AI Gateway (configuration required)"
+    try:
+        endpoint = urlsplit(execution["url"])
+        if endpoint.scheme in {"http", "https"} and endpoint.hostname:
+            # Show the service origin without any userinfo, path or query.
+            return f"{endpoint.scheme}://{endpoint.netloc.rsplit('@', 1)[-1]}"
+    except ValueError:
+        pass
+    return "Geographic lookup service (configuration required)"
+
+
 @product_login_required
 @require_safe
 def detail(request, case_id, run_id):
@@ -567,6 +603,18 @@ def detail(request, case_id, run_id):
         "empty",
         "complete",
     }
+    if context["can_edit"] and context["can_retry"]:
+        execution = snapshot_execution(run.operation, _retry_parameters(run))
+        if execution and execution["location"] == "external":
+            context["retry_destination"] = _retry_destination(execution)
+            context["retry_data"] = (
+                "evidence content"
+                if execution["backend"] == "gateway"
+                else "addresses or coordinates"
+            )
+            context["retry_confirmation"] = retry_execution_confirmation(
+                request.user.pk, run.pk, context["retry_submission_id"], execution
+            )
     return private(render(request, "analysis/detail.html", context))
 
 
@@ -610,28 +658,25 @@ def retry(request, case_id, run_id):
         }
         for x in prior.inputs
     ]
-    parameters = dict(prior.parameters)
-    if (
-        requires_inference(prior.operation, parameters)
-        and "backend" not in parameters
-        and prior.external_processing
-    ):
-        parameters["backend"] = "gateway"
     try:
         run, _ = start_run(
             request.user,
             case.pk,
             prior.operation,
             choices,
-            parameters=parameters,
-            external_processing=prior.external_processing,
+            parameters=_retry_parameters(prior),
+            external_processing=request.POST.get("external_processing") == "on",
             previous_run=prior,
             submission_id=request.POST.get("submission_id") or uuid4(),
+            retry_confirmation=request.POST.get("retry_confirmation", ""),
         )
-    except ValidationError, AnalysisError:
+    except (ValidationError, AnalysisError) as error:
         messages.error(
             request,
-            (
+            error_message(error.code)
+            if isinstance(error, AnalysisError)
+            and error.code == "retry_approval_required"
+            else (
                 "The inputs changed or are no longer available. Start a new analysis "
                 "and review its source selection."
             ),

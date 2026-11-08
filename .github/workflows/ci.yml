@@ -56,7 +56,7 @@ jobs:
       - name: Install uv and the pinned Python runtime
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
 
       - name: Install local OCR
@@ -108,7 +108,7 @@ jobs:
       - name: Install uv and the pinned Python runtime
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
       - name: Prefer Ubuntu's primary package mirrors
         run: sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
@@ -135,7 +135,7 @@ jobs:
       - name: Install uv and the pinned Python runtime
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
 
       - name: Audit locked dependencies
@@ -144,7 +144,10 @@ jobs:
   images:
     name: Publish production ${{ matrix.service }} image
     needs: [check, browser, security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.repository == 'aaronspindler/pandect' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

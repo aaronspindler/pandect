@@ -8,6 +8,10 @@ class AnalysisError(Exception):
 
 
 ERROR_MESSAGES = {
+    "retry_approval_required": (
+        "Review the current processing destination and approve it before starting "
+        "another external run."
+    ),
     "execution_changed": (
         "Processing settings changed after this run was queued. Ask the operator "
         "to check the selected service and model, then start another run to "

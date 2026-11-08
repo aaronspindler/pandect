@@ -2,17 +2,27 @@
 
 import logging
 import re
+from urllib.parse import unquote
 
 from django.conf import settings
 from django.utils.cache import add_never_cache_headers
 from gunicorn.glogging import Logger
 
-TOKEN_PATH = re.compile(r"(/invitations/)[^/?\s\"'<>]+")
+TOKEN_PATH = re.compile(
+    r"(/invitations/|/accounts/(?:confirm-email/|password/reset/key/))[^/?\s\"'<>]+"
+)
 QUERY = re.compile(r"\?[^\s\"'<>]*")
 
 
 def redact_url(value):
-    return QUERY.sub("", TOKEN_PATH.sub(r"\1[redacted]", str(value)))
+    sanitized = TOKEN_PATH.sub(r"\1[redacted]", QUERY.sub("", str(value)))
+    if "%" in sanitized:
+        # Gunicorn can log the raw request target even when routing used a
+        # decoded path. Detect encoded route segments without logging decoded data.
+        decoded = unquote(sanitized)
+        if TOKEN_PATH.sub(r"\1[redacted]", decoded) != decoded:
+            return "[redacted]"
+    return sanitized
 
 
 class PrivatePageMiddleware:
@@ -63,8 +73,19 @@ class RedactPrivateURLs(logging.Filter):
 class PrivateAccessLogger(Logger):
     def atoms(self, resp, req, environ, request_time):
         atoms = super().atoms(resp, req, environ, request_time)
-        for key in ("r", "U", "f"):
+        for key in (
+            "r",
+            "U",
+            "f",
+            "{raw_uri}e",
+            "{path_info}e",
+            "{http_referer}e",
+            "{referer}i",
+            "{location}o",
+        ):
             if key in atoms:
                 atoms[key] = redact_url(atoms[key])
         atoms["q"] = ""
+        if "{query_string}e" in atoms:
+            atoms["{query_string}e"] = ""
         return atoms
