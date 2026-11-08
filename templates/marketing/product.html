@@ -1,25 +1,20 @@
 {% extends 'marketing/base.html' %}
 {% block title %}Investigation workspace{% endblock %}
-{% block description %}Collect and search evidence, analyze documents and conversations, and work together in a private Pandect case.{% endblock %}
+{% block description %}See fictional examples of how Pandect reads text from images, compares communications, and analyzes reported locations in a private case.{% endblock %}
 {% block content %}
 <section class="marketing-hero wrap page-intro">
   <p class="section-label">Product</p>
   <h1>Inside a Pandect case</h1>
   <p class="lead">Move from the material you’ve gathered to the details that matter. Keep your findings tied to their sources.</p>
+  <a class="text-link" href="#analysis">See analysis examples <span aria-hidden="true">↓</span></a>
 </section>
+{% include 'marketing/analysis_examples.html' %}
 <div class="wrap feature-rows">
   <section class="feature-row">
     <h2>Collect and search evidence</h2>
     <div>
       <p>Keep files, notes, messages, calls, and locations together. Record people and vehicles as the case develops.</p>
       <p>Search case material, map recorded locations, and bring in vehicle location records from supported CSV exports.</p>
-    </div>
-  </section>
-  <section class="feature-row">
-    <h2>Find details worth following</h2>
-    <div>
-      <p>Read text extracted from supported files and printed English in images. Explore call patterns and recorded movements, or compare samples of writing.</p>
-      <p>Analysis links back to the source so you can review each lead. Some tools need additional AI setup.</p>
     </div>
   </section>
   <section class="feature-row">

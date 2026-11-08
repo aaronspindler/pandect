@@ -7,7 +7,7 @@ application, with no separate frontend build or marketing service.
 | Route | Purpose |
 | --- | --- |
 | `/` | Product introduction and illustrative investigation workspace. |
-| `/product/` | Evidence, case collaboration, and supported analysis workflows. |
+| `/product/` | Evidence, case collaboration, and supported analysis workflows with result examples at `#analysis`. |
 | `/trust/` | Case access, original preservation, and responsible analysis. |
 | `/roadmap/` | Available capabilities, next priorities, and exploratory ideas. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
@@ -16,9 +16,13 @@ Anonymous visitors can read every page. Signed-in visitors opening `/` retain
 the shortcut to **All cases**; the other public pages show **Open workspace**.
 The existing sign-in and email-verification checks still protect case material.
 Public pages never query or display an investigator's cases or evidence. The home
-page includes a fictional case preview that pairs captured text with suggested
-keywords. Narrow layouts show the evidence reader first. Product describes the
-implemented workflows, and Trust explains preservation and access.
+page includes a fictional case preview that pairs captured text with observed
+keywords. Narrow layouts show the evidence reader first. Home links to fictional
+examples of printed-English OCR, a call report, and a candidate visit on Product.
+The examples show how to trace a result to its sources and
+interpret its limits. Product distinguishes local checks and comparisons that
+investigators start, case reports, and analysis that needs a configured service.
+Trust explains preservation, access, and processing approval.
 
 The pages use `templates/marketing/` and `static/pandect/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links
@@ -55,12 +59,12 @@ uv run --locked --env-file .env python manage.py test --settings=config.test_set
 
 The browser suite uses the installed Chromium and WebKit engines, with
 JavaScript disabled. It checks local links and fragment targets, public
-navigation, keyboard skip/navigation links and FAQ disclosures, visible focus,
-single page headings, loaded images, and horizontal reflow
-at the five design viewport sizes and 200% text sizing. It captures dark and
-reduced-motion appearances, plus forced colors in Chromium. Screenshots go to
-ignored `data/validation/marketing-browser`; the existing
-`PANDECT_BROWSER_ENGINES` and `PANDECT_BROWSER_ARTIFACTS` overrides apply.
+navigation, keyboard access to the analysis examples and FAQ disclosures,
+visible focus, single page headings, loaded images, and horizontal reflow at
+the five design viewport sizes and 200% text sizing. It captures dark appearance
+on Home and Product, reduced motion on Home, and forced colors on both pages in
+Chromium. Screenshots go to ignored `data/validation/marketing-browser`. Use
+`PANDECT_BROWSER_ENGINES` and `PANDECT_BROWSER_ARTIFACTS` to override the defaults.
 
 Review the captures as part of delivery. Browser checks do not establish full
 accessibility compliance or validate a live hosted deployment.
