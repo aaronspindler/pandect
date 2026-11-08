@@ -2,7 +2,10 @@
 
 Open a case and choose **Case tools → Map**. Owners, editors and viewers can inspect
 case-scoped locations and follow links back to retained evidence. Owners and
-editors can choose **Add location** or **Add POI**.
+editors can choose **Add location** or **Add POI**. The `geo` app owns the map
+views, local lookup coordination, POIs, templates, static assets, and tests.
+`geo.map_views` serves the existing case-scoped URLs, with named routes
+`geo:case_map` and `geo:map_locate`.
 
 ## Person points of interest
 
@@ -40,11 +43,11 @@ case also removes its POIs; retained evidence still enforces its existing person
 deletion restrictions. POIs record their creator and creation/update times, but
 do not provide a versioned annotation history. POIs have no Django admin editor.
 
-Apply the additive `people/0002_pointofinterest` migration using the
-[documented migration workflow](development.md#run-python-on-the-host).
-It creates a UUID table scoped through the required person relationship, with
-database constraints for labels and coordinate ranges. Existing evidence and
-person addresses are unchanged; no data conversion is required.
+`geo.PointOfInterest` is included in the fresh `geo/0001_initial` migration.
+Its UUID table is scoped through the required person relationship, with database
+constraints for labels and coordinate ranges. Use the
+[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
+on a new database and queue; no old POI table or data conversion is retained.
 
 ## Location observations
 
@@ -128,7 +131,8 @@ and reviews remain retained; see [background recovery](background-tasks.md).
 
 ## External tiles and privacy
 
-Leaflet 1.9.4 is vendored locally with its BSD license. One map instance belongs
+Leaflet 1.9.4 is vendored under `geo/static/geo/vendor/leaflet/` with its BSD
+license. Map templates live under `geo/templates/geo/`. One map instance belongs
 to the case page; evidence is supplied through Django's escaped `json_script`.
 Titles are rendered as DOM text, never as popup HTML. The complete server-rendered
 list works without JavaScript, tiles, or the map library.
@@ -175,8 +179,8 @@ capacity.
 Use the documented local PostgreSQL test setup:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings cases.tests.test_map cases.tests.test_map_geocoding config.tests.test_product_access --noinput
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings cases.map_browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings geo.tests.test_map geo.tests.test_map_geocoding geo.tests.test_pois config.tests.test_product_access --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings geo.map_browser --noinput
 ```
 
 The browser journey uses synthetic locations and mocked tile responses in

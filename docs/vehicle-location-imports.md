@@ -91,7 +91,7 @@ the same completed batch never add rows again.
 
 ## Retention and integrity
 
-`VehicleLocationEvidence` extends the existing abstract `LocationContent` model
+`geo.VehicleLocationEvidence` extends the abstract `geo.LocationContent` model
 with a required same-case `vehicle` link. Manual additions use the ordinary
 location fields and shared source metadata. Imported records additionally retain
 the import batch, logical CSV record number (header is 1), every original cell,
@@ -112,9 +112,8 @@ the original cell. Existing `asset-location.v1` reviews and jobs keep their
 original rules, including rejection of that placeholder; valid v1 imports can
 still complete. To import a CSV rejected only for `-` speeds, start a new upload
 of the unchanged original with the updated application. The earlier retained
-source and review stay unchanged. Migration `evidence/0007_vehicle_import_parser_v2`
-changes the default for new imports only; existing versions and checksums are
-preserved. Apply it before restarting the updated web and worker processes.
+source and review stay unchanged. New imports default to parser v2 in the fresh
+`geo` schema.
 
 Archiving retains the observation and all links. Retained observations prevent
 individual vehicle deletion. Superusers with current case access can confirm
@@ -122,9 +121,16 @@ source-document deletion from Evidence Details; its exact inventory includes the
 CSV, import batch, every staged row and imported observation, and their dependent
 analysis/files. A changed inventory requires another review. People and vehicles
 are retained. Owner-confirmed whole-case deletion also remains available. Files
-are removed after database commit. The additive `evidence/0004_vehicle_locations` migration
-creates the new tables and constraints; no existing records are rewritten or
-runtime data reset. Apply it through the documented development/upgrade workflow.
+are removed after database commit. The `geo` app owns `VehicleLocationImport`,
+`VehicleLocationImportRow`, and `VehicleLocationEvidence`, along with their
+constraints, parser, jobs, and import UI. Source files remain
+`document.DocumentEvidence` records; vehicle identities remain `vehicle.Vehicle`.
+
+`geo.vehicle_imports` contains the bounded CSV parser;
+`geo.vehicle_import_jobs` owns preparation, publication, and recovery. The
+`geo.tasks.process_vehicle_import` queue entry point accepts identifiers only.
+Import templates live under `geo/templates/geo/`; shared evidence deletion
+continues through `core.evidence.deletion`.
 
 ## Operational bounds and scope
 
@@ -152,13 +158,10 @@ Queued work waits safely while it is stopped. Failures display a sanitized reaso
 and permit up to three attempts per phase. Retry after fixing the reported
 problem; malformed source rows require a corrected new CSV. Recovery of work
 left running requires confirmation that the original worker stopped, rather than
-assuming elapsed time means it is dead. Retained CSVs and completed batches are
-preserved by migration `evidence/0006_large_vehicle_location_imports`; it also
-backfills a derived duplicate-search fingerprint without changing original JSON
-or its checksum. Pending older imports show **Prepare review** on their existing
-review page. Apply the migration before
-starting updated web and worker processes. Do not mix old and new import workers
-during upgrade.
+assuming elapsed time means it is dead. The app reorganization requires the
+[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
+and an empty queue. Do not mix old and new web/worker revisions or reuse old
+queued task paths. No application command automatically resets runtime data.
 
 There is no external lookup, geocoding, AI, tracking verification, map, or timeline
 in this feature. The sample format alone does not establish a vendor's timestamp,

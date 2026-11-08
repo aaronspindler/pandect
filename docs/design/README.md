@@ -5,7 +5,7 @@
 The [selected Pandect arch identity](brand/pandect-arch/README.md) includes
 transparent full-logo and symbol PNGs, light/dark/monochrome previews, and
 generation provenance. The shared header and case sidebar use optimized light
-and dark logo variants from `static/pandect/brand/`; browser and touch icons use
+and dark logo variants from `ui/static/ui/brand/`; browser and touch icons use
 the standalone arch.
 
 ## Interface references
@@ -36,9 +36,9 @@ synthetic case, not generated mockups:
 - [Full reference comparison](comparison-desktop.png) and
   [focused evidence list comparison](comparison-evidence-list.png).
 
-See the [QA report](../../design-qa.md) for measured density, test coverage,
-intentional differences, and validation limits. Additional synthetic browser-test
-captures are written to ignored `data/validation/browser/`.
+See [browser validation](../validation.md#browser-checks) for density checks,
+test coverage, and validation limits. Additional synthetic browser-test captures
+are written to ignored `data/validation/browser/`.
 
 ## Final refinement prompt
 

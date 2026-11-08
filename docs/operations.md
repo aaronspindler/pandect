@@ -125,8 +125,12 @@ Pandect domain migration or data reset is needed for the worker foundation.
 Debug is disabled by default; session/CSRF cookies require HTTPS in that mode.
 Run `python manage.py check --deploy` with the actual deployment configuration and
 resolve its findings. Trusted proxy headers must only be configured for a
-controlled reverse proxy. Interface upgrades use additive `0002` migrations;
-never reset a database as an incidental upgrade step.
+controlled reverse proxy. This pre-release app reorganization is an exception to ordinary additive
+upgrades: provision a fresh database and empty queue, migrate them, and configure
+both web and worker to use that new baseline. Do not apply the rewritten initial
+migrations to an old database or fake its history. See the
+[fresh baseline](architecture.md#primary-keys-and-the-initial-schema). Runtime
+database/media deletion is a separate deliberate operator action.
 
 ## First Dokploy deployment
 

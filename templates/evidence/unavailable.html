@@ -1,3 +1,0 @@
-{% extends "base.html" %}
-{% block title %}Original temporarily unavailable{% endblock %}
-{% block content %}<div class="page-content"><h1>Original temporarily unavailable</h1><p>The retained file could not be opened. Try again or contact the case owner.</p><p>Its evidence details remain available.</p><a class="button button-primary" href="{% url 'evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">Try download again</a><a class="button button-secondary" href="{% url 'evidence:detail' case_id=case.pk kind=kind evidence_id=item.pk %}">View evidence details</a></div>{% endblock %}

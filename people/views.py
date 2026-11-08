@@ -11,9 +11,9 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-
-from .forms import PersonDeleteForm, PersonForm, person_revision
-from .models import Person, SocialAccount
+from people.forms import PersonDeleteForm, PersonForm, person_revision
+from people.models import Person
+from socialmedia.models import SocialAccount
 
 
 def list_query(request):

@@ -1,10 +1,17 @@
 # Evidence models and original storage
 
-The `evidence` app stores original investigation material. Each record belongs
-to exactly one `cases.Case` through a required foreign key. A case can contain
-many records of each type. There is no global evidence pool or concrete shared
-evidence table: `Evidence`, `FileEvidence`, `LocationContent`, `CommunicationEvidence`, and
-`CallEvidence` are abstract Django models.
+The `text`, `image`, `audio`, `document`, `geo`, and `phone` apps own their
+concrete evidence models, forms, readers, administration, processing, and tests.
+`core` owns the unified evidence workspace, shared analysis lifecycle, integrity
+and storage helpers, and cross-type deletion. Each evidence record belongs to
+exactly one `cases.Case` through a required foreign key.
+
+There is no global evidence pool or concrete shared evidence table.
+`core.models.Evidence` and `core.models.FileEvidence` are abstract bases;
+`geo.models.LocationContent` and the communication/call bases in `phone.models`
+are abstract too. Shared screens use `core/templates/core/evidence/`, while
+original readers live in each domain app's namespaced template directory.
+The registered `video` app is a placeholder and adds no evidence category yet.
 
 ## Reading and editing evidence
 
@@ -151,8 +158,8 @@ interrupted confirmation.
 
 This check applies to the product's Add evidence and Bulk add files workflows.
 Location/communication records, call attachments, CSV imports, Django admin, and
-trusted model callers retain their existing behavior. No original storage or
-schema changes are required, and existing checksums are used without a backfill.
+trusted model callers retain their existing behavior. Duplicate checks compare
+the checksums of retained originals.
 
 ## Models and metadata
 
@@ -176,15 +183,15 @@ All ten concrete evidence models inherit these fields from `Evidence`:
 
 | Model | Original | Optional metadata |
 | --- | --- | --- |
-| `ImageEvidence` | `file` | `width`, `height` in pixels |
-| `AudioEvidence` | `file` | `duration` as a `timedelta`, `sample_rate` in Hz, `channel_count` |
-| `DocumentEvidence` | `file` | `page_count` |
-| `TextEvidence` | `body` | `language` tag, up to 35 characters |
-| `LocationEvidence` | `address` and/or `latitude` + `longitude`, optional `observed_at` | Shared source fields |
-| `PersonLocationEvidence` | Same location fields plus a required `person` in the same case | Shared source fields |
-| `VehicleLocationEvidence` | Same location fields plus a required same-case `vehicle`; optional immutable CSV row, speed, receipt time, and import provenance | Shared source fields |
-| `TextMessageEvidence` | Required same-case `sender` and `recipient`, one `body`, optional `occurred_at` | Shared source fields |
-| `PhoneCallEvidence` / `FaceTimeEvidence` | Required same-case `sender` and `recipient`, optional `occurred_at` and `duration` | Shared source fields. Retained attachments can be added separately. |
+| `image.ImageEvidence` | `file` | `width`, `height` in pixels |
+| `audio.AudioEvidence` | `file` | `duration` as a `timedelta`, `sample_rate` in Hz, `channel_count` |
+| `document.DocumentEvidence` | `file` | `page_count` |
+| `text.TextEvidence` | `body` | `language` tag, up to 35 characters |
+| `geo.LocationEvidence` | `address` and/or `latitude` + `longitude`, optional `observed_at` | Shared source fields |
+| `geo.PersonLocationEvidence` | Same location fields plus a required `person` in the same case | Shared source fields |
+| `geo.VehicleLocationEvidence` | Same location fields plus a required same-case `vehicle`; optional immutable CSV row, speed, receipt time, and import provenance | Shared source fields |
+| `phone.TextMessageEvidence` | Required same-case `sender` and `recipient`, one `body`, optional `occurred_at` | Shared source fields |
+| `phone.PhoneCallEvidence` / `phone.FaceTimeEvidence` | Required same-case `sender` and `recipient`, optional `occurred_at` and `duration` | Shared source fields. Retained attachments can be added separately. |
 
 File models inherit `file`, generated `original_filename` and `byte_size`, and
 optional `declared_content_type` from `FileEvidence`. Uploaded-file content types
@@ -256,7 +263,7 @@ without counting a call more than once when several attachments match.
 The three models use existing scoped admin permissions. Calls show retained
 attachments read-only, without storage URLs; **View on site** opens the product
 flow for adding material. Attachments are not independently registered in admin.
-Whole-case admin deletion also requires `evidence.delete_callevidenceattachment`
+Whole-case admin deletion also requires `phone.delete_callevidenceattachment`
 when retained call attachments exist, alongside the existing per-model permissions.
 
 ## Location observations
@@ -331,8 +338,10 @@ all evidence belonging to the case, without displaying inconsistent source detai
 | Edit metadata, archive, restore | Owner or editor | `change_<model>` |
 | Permanently delete individual evidence | Current case access and active staff superuser | Superuser only |
 
-Permission names use the `evidence` app and lowercase model names, for example
-`evidence.add_documentevidence`. Case permissions alone do not grant evidence
+Permission names use the owning domain app and lowercase model name, for example
+`document.add_documentevidence`, `image.view_imageevidence`,
+`text.change_textevidence`, `audio.view_audioevidence`,
+`geo.add_vehiclelocationevidence`, and `phone.view_phonecallevidence`. Case permissions alone do not grant evidence
 permissions. Staff without an editable case cannot open an evidence creation form.
 Removing or downgrading membership affects subsequent requests in existing sessions.
 
@@ -386,7 +395,7 @@ contributed to a multi-source analysis being removed. References from retained
 analysis to removed prior runs are cleared and listed as updates in the inventory.
 The source and all included dependents are deleted in one database transaction;
 existing model-level RESTRICT links still protect unplanned maintenance deletes.
-No schema migration is needed.
+`core.evidence.deletion` owns this cross-domain inventory and transaction.
 
 Deletion serializes with analysis publication using the case lock. Queued jobs
 for removed runs become harmless no-ops, and a running job cannot publish a new
@@ -399,8 +408,8 @@ Owner-confirmed whole-case deletion in admin requires `cases.delete_case`, the
 `delete_<model>` permission
 for every contained evidence type, and any other permissions listed on Django's
 confirmation screen. It removes retained evidence, people, and original files
-through the existing cascade and committed cleanup. No schema migration is needed
-for these admin registrations.
+through the existing cascade and committed cleanup. The confirmation uses the
+concrete models registered by each domain app.
 
 The implementation uses Django's standard
 [ModelAdmin hooks](https://docs.djangoproject.com/en/6.1/ref/contrib/admin/),
@@ -414,7 +423,8 @@ assumes `case` and `actor` have already been resolved and authorized by the call
 
 ```python
 from django.core.files.base import ContentFile
-from evidence.models import DocumentEvidence, TextEvidence
+from document.models import DocumentEvidence
+from text.models import TextEvidence
 
 document = DocumentEvidence(
     case=case,
@@ -492,14 +502,15 @@ backend interface rather than an end-user permission boundary.
 Trusted maintenance can delete evidence through the ORM, which removes its row;
 ordinary users have no individual deletion path. Superusers use the confirmed
 product or admin workflows above. Deleting a case cascades to all its active and
-archived evidence. For file evidence, a `post_delete` receiver
-removes the original through the storage API only after database commit,
+archived evidence. Each file-bearing app registers a `post_delete` receiver
+using `core.storage.schedule_original_deletion`. It removes the original through
+the storage API only after database commit,
 including queryset/cascading deletion. A rolled-back deletion preserves both the
 row and file. Text and location originals disappear with their database records.
 Files belonging to other cases are preserved.
 
 Storage failures do not undo a committed deletion or prevent cleanup of other
-files. The `evidence.signals` logger reports a generated storage key without the
+files. The `core.storage` logger reports a generated storage key without the
 original filename, content, or backend exception text. There is no automatic retry
 queue. After resolving storage availability, operators can retry the exact logged
 key in the configured application's management shell:
@@ -526,24 +537,11 @@ delete files merely because an upload or transaction reported an error.
 
 ## Migration and backup
 
-The initial evidence migration depends on the configured user model and
-`cases/0001_initial`; it creates four UUID tables without requiring new
-dependencies. Apply it with the usual documented `migrate` command on a fresh
-database. See the [pre-release UUID
-baseline](architecture.md#primary-keys-and-the-initial-schema) if the earlier
-integer initial migrations were already applied. The additive evidence `0002`
-migration adds archive attribution/state and submission IDs. Existing material
-starts active with null archive attribution and submission ID; original bytes
-and integrity metadata are unchanged. Apply pending migrations using the
-documented upgrade workflow, without resetting existing databases. The additive
-`0003_location_evidence_and_source` migration creates the two location tables
-and adds optional `source` fields to all four existing evidence tables. Existing
-records receive an empty source name; their source URLs, descriptions,
-checksums, and originals remain unchanged. No reset or data import is required.
-The additive `0004_vehicle_locations` migration creates vehicle-location evidence
-and import provenance tables. It does not change existing records. The additive
-`0005_communication_evidence` migration adds three communication tables and the
-call-attachment table with native UUID keys; existing originals are unchanged.
+Evidence tables now belong to their domain apps; shared processing tables belong
+to `core`. This pre-release reorganization uses a
+[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema),
+without data conversion or old app-label aliases. Start with a fresh PostgreSQL
+database and queue rather than applying it to an old migration history.
 Back up before upgrades. Database backups include text/location/communication
 originals, transcripts, and file metadata; file originals require a matching
 private storage backup. See

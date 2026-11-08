@@ -1,0 +1,39 @@
+{% extends 'marketing/base.html' %}
+{% block title %}Evidence and privacy{% endblock %}
+{% block description %}See how Pandect preserves originals, limits access to each case, and lets you review the sources behind analysis results.{% endblock %}
+{% block content %}
+<section class="marketing-hero wrap page-intro">
+  <p class="section-label">Trust</p>
+  <h1>Evidence and privacy</h1>
+  <p class="lead">Know who can access your case, where a finding came from, and when evidence is sent to an external AI service.</p>
+</section>
+<div class="wrap feature-rows">
+  <section class="feature-row">
+    <h2>Originals stay intact</h2>
+    <div>
+      <p>Pandect keeps original files and captured text separate from source metadata and analysis. Source details and checksums help you trace what was received.</p>
+      <p>Archived evidence stays available to case members. <a href="https://github.com/aaronspindler/pandect/blob/main/docs/evidence.md">Read the evidence guide</a> for how retention and deletion work.</p>
+    </div>
+  </section>
+  <section class="feature-row">
+    <h2>Access is set per case</h2>
+    <div>
+      <p>Owners choose who can review or edit each case. Opening evidence or downloading a file requires current access to that case.</p>
+    </div>
+  </section>
+  <section class="feature-row">
+    <h2>Findings link to sources</h2>
+    <div>
+      <p>Review the evidence behind an analysis result. Recorded observations, derived findings, and review decisions stay distinct from the original. A possible connection is a lead you can assess.</p>
+      <a class="text-link" href="{% url 'marketing:product' %}#analysis">See analysis results and their sources <span aria-hidden="true">→</span></a>
+    </div>
+  </section>
+  <section class="feature-row">
+    <h2>External AI requires approval</h2>
+    <div>
+      <p>Printed English text recognition runs locally. Other AI tools default to a local or private service that the operator configures. Pandect sends evidence to an external AI service only when that route is configured, selected, and approved.</p>
+      <a class="text-link" href="{% url 'marketing:hosting' %}">See hosting options <span aria-hidden="true">→</span></a>
+    </div>
+  </section>
+</div>
+{% endblock %}

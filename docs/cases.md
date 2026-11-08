@@ -3,7 +3,10 @@
 `cases.Case` is the concrete root investigation record and access boundary. Future
 investigation data must reference this model. Every implemented evidence model
 has one required case; see [evidence storage](evidence.md). There is no separate
-investigation model or unscoped collection of evidence.
+investigation model or unscoped collection of evidence. `cases` owns ownership,
+collaboration, invitations, settings, and shared authorization. Its templates
+live under `cases/templates/cases/`, including case navigation. `core` owns the
+Evidence and Analysis destinations; `geo` owns maps and POIs.
 
 ## Investigator workflow
 
@@ -120,7 +123,7 @@ must still own or share a case to inspect it.
 
 Deleting a case containing [people](people.md) also requires
 `people.delete_person` in Django admin, because those records are deleted too.
-Cases containing [vehicles](vehicles.md) also require `vehicles.delete_vehicle`.
+Cases containing [vehicles](vehicles.md) also require `vehicle.delete_vehicle`.
 
 Owners need `cases.view_casemembership` or `cases.change_casemembership` to inspect
 existing memberships in the inline. Assign the appropriate case and membership
@@ -143,22 +146,18 @@ next request, including requests in an existing session.
 
 ## Scope and migration
 
-`cases/0001_initial` creates the UUID schema with a swappable dependency
-on the configured user model. Run the usual `python manage.py migrate` command
-with the documented environment, or start the updated Compose image. The
-[pre-release UUID baseline](architecture.md#primary-keys-and-the-initial-schema)
-requires a fresh database if the earlier integer initial migrations were applied.
-No legacy data import, runtime upgrade, or dependency change is included.
-
-`cases/0002_case_interfaces` adds case metadata and `CaseInvitation` without
-rewriting initial migrations. It backfills existing names as `Case #<UUID>` and
-initializes update times from original creation times. Memberships, ownership,
-evidence, and identifiers remain intact. Back up before applying upgrades.
+`cases/0001_initial` creates the UUID case, membership, and invitation schema,
+including case metadata, with a swappable dependency on the configured user
+model. Use the [documented migration workflow](development.md#run-python-on-the-host)
+with the [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema).
+The application split requires a new PostgreSQL database and queue. There is no
+upgrade from the previous migration history, data conversion, or runtime upgrade.
 
 The product routes implement the workflows above. `cases.permissions` scopes
 product requests independently of staff/model permissions; the admin retains its
-additional operator gates. Public APIs, ownership transfer, and background/AI
-processing remain planned. Case material requires current access on each request,
+additional operator gates. Public APIs and ownership transfer remain planned.
+Case-scoped background analysis is implemented through `core` and the domain apps;
+see [analysis](analysis.md). Case material requires current access on each request,
 including after a membership is removed or downgraded.
 
 The implementation follows Django's [intermediary model pattern](https://docs.djangoproject.com/en/6.1/topics/db/models/#extra-fields-on-many-to-many-relationships)

@@ -22,8 +22,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from config.access import product_login_required
-from evidence.types import KINDS
-from people.models import PointOfInterest, SocialAccount
+from core.evidence.types import KINDS
+from geo.models import PointOfInterest
+from socialmedia.models import SocialAccount
 
 from .forms import (
     CaseForm,
@@ -118,7 +119,7 @@ def case_create(request):
         messages.success(
             request, "Case created. Add evidence to begin your investigation."
         )
-        return redirect("evidence:list", case_id=case.pk)
+        return redirect("core:evidence:list", case_id=case.pk)
     return render(request, "cases/form.html", {"form": form, "creating": True})
 
 
@@ -126,7 +127,7 @@ def case_create(request):
 @require_http_methods(["GET"])
 def case_detail(request, case_id):
     case = get_case(request.user, case_id)
-    return redirect("evidence:list", case_id=case.pk)
+    return redirect("core:evidence:list", case_id=case.pk)
 
 
 @product_login_required
@@ -483,7 +484,7 @@ def invitation_accept(request, token):
         existing = CaseMembership.objects.filter(case=case, user=request.user).first()
         if invitation.accepted_at:
             if invitation.accepted_by_id == request.user.pk and existing:
-                return redirect("evidence:list", case_id=case.pk)
+                return redirect("core:evidence:list", case_id=case.pk)
             return _invitation_unavailable(
                 request,
                 "This invitation was already used. "
@@ -511,7 +512,7 @@ def invitation_accept(request, token):
             invitation.accepted_by = request.user
             invitation.save(update_fields=["accepted_at", "accepted_by"])
             messages.success(request, "Invitation accepted. You can now open the case.")
-            return redirect("evidence:list", case_id=case.pk)
+            return redirect("core:evidence:list", case_id=case.pk)
     response = render(
         request, "cases/invitation_accept.html", {"invitation": invitation}
     )

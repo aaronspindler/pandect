@@ -30,22 +30,22 @@ from django.urls import reverse
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 
+from audio.models import AudioEvidence
 from cases.models import Case, CaseInvitation, CaseMembership
-from evidence.models import (
-    AudioEvidence,
-    DocumentEvidence,
-    ImageEvidence,
+from document.models import DocumentEvidence
+from geo.models import (
     LocationEvidence,
     PersonLocationEvidence,
-    TextEvidence,
     VehicleLocationEvidence,
     VehicleLocationImport,
 )
-from evidence.tests.test_vehicle_imports import csv_content
-from evidence.vehicle_import_jobs import enqueue_preparation, process_import
-from evidence.vehicle_imports import parse_csv
+from geo.testing import csv_content
+from geo.vehicle_import_jobs import enqueue_preparation, process_import
+from geo.vehicle_imports import parse_csv
+from image.models import ImageEvidence
 from people.models import Person
-from vehicles.models import Vehicle
+from text.models import TextEvidence
+from vehicle.models import Vehicle
 
 
 @override_settings(
@@ -248,7 +248,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             file=SimpleUploadedFile("unsupported.svg", b"<svg/>", "image/svg+xml"),
         )
         url = self.url(
-            "evidence:detail",
+            "core:evidence:detail",
             case_id=self.case.pk,
             kind="image",
             evidence_id=retained.pk,
@@ -325,7 +325,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 )
                 page.goto(
                     self.url(
-                        "evidence:detail",
+                        "core:evidence:detail",
                         case_id=self.case.pk,
                         kind="image",
                         evidence_id=unavailable.pk,
@@ -345,7 +345,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
         vehicle = Vehicle.objects.create(case=self.case, make="Synthetic vehicle")
         screens = (
             ("cases:case_list", {}, "cases"),
-            ("evidence:list", {"case_id": self.case.pk}, "evidence-landing"),
+            ("core:evidence:list", {"case_id": self.case.pk}, "evidence-landing"),
             ("cases:case_settings", {"case_id": self.case.pk}, "settings"),
             ("people:list", {"case_id": self.case.pk}, "people"),
             (
@@ -353,9 +353,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 {"case_id": self.case.pk, "person_id": person.pk},
                 "person",
             ),
-            ("vehicles:list", {"case_id": self.case.pk}, "vehicles"),
+            ("vehicle:list", {"case_id": self.case.pk}, "vehicles"),
             (
-                "vehicles:detail",
+                "vehicle:detail",
                 {"case_id": self.case.pk, "vehicle_id": vehicle.pk},
                 "vehicle",
             ),
@@ -384,7 +384,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                         )
                         self.capture(page, engine, f"refined-{name}-{width}x{height}")
 
-                page.goto(self.url("evidence:create", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:create", case_id=self.case.pk))
                 for kind, label in (
                     ("text", "Original text"),
                     ("location", "Address"),
@@ -408,7 +408,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("evidence:list", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:list", case_id=self.case.pk))
                 page.set_viewport_size({"width": 390, "height": 844})
                 mobile_navigation = page.locator(".case-navigation")
                 expect(page.locator('nav[aria-label="Investigation"]')).to_have_count(1)
@@ -463,7 +463,8 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.assertIn("state=all", page.url)
 
                 page.goto(
-                    self.url("evidence:create", case_id=self.case.pk) + "?kind=text"
+                    self.url("core:evidence:create", case_id=self.case.pk)
+                    + "?kind=text"
                 )
                 extra = page.locator("[data-additional-evidence-details]")
                 expect(page.get_by_label("Description", exact=True)).to_have_count(0)
@@ -552,7 +553,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 ):
                     self.sign_in(page)
                     page.goto(
-                        self.url("evidence:create", case_id=self.case.pk)
+                        self.url("core:evidence:create", case_id=self.case.pk)
                         + f"?kind={kind}"
                     )
                     title = f"Synthetic {kind} {engine}"
@@ -753,7 +754,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("vehicles:list", case_id=self.case.pk))
+                page.goto(self.url("vehicle:list", case_id=self.case.pk))
                 page.get_by_role("link", name="Import vehicle locations").click()
                 expect(
                     page.get_by_role("heading", name="Import vehicle locations")
@@ -983,7 +984,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     self.sign_in(page)
                     page.goto(
                         self.url(
-                            "evidence:vehicle_import_review",
+                            "geo:vehicle_import_review",
                             case_id=self.case.pk,
                             import_id=batch_id,
                         )
@@ -1072,7 +1073,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
 
     def evidence_url(self, record=None, *, case=None):
         return self.url(
-            "evidence:detail",
+            "core:evidence:detail",
             case_id=(case or self.case).pk,
             kind="text",
             evidence_id=(record or self.records[-1]).pk,
@@ -1084,7 +1085,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.sign_in(page)
                 page.goto(self.url("cases:case_detail", case_id=self.case.pk))
                 expect(page).to_have_url(
-                    self.url("evidence:list", case_id=self.case.pk)
+                    self.url("core:evidence:list", case_id=self.case.pk)
                 )
                 case_tools = page.locator(".case-tools")
                 vehicles_link = case_tools.get_by_role(
@@ -1225,7 +1226,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             # Verify ordinary links/forms without JavaScript for a read-only role.
             with self.browser_page(engine, java_script_enabled=False) as (_, page):
                 self.sign_in(page, viewer)
-                page.goto(self.url("vehicles:list", case_id=self.case.pk))
+                page.goto(self.url("vehicle:list", case_id=self.case.pk))
                 expect(page.get_by_role("link", name="Add vehicle")).to_have_count(0)
                 page.get_by_role("link", name=title, exact=True).click()
                 expect(
@@ -1237,7 +1238,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             # Owner-only deletion also works without JavaScript and needs confirmation.
             with self.browser_page(engine, java_script_enabled=False) as (_, page):
                 self.sign_in(page)
-                page.goto(self.url("vehicles:list", case_id=self.case.pk))
+                page.goto(self.url("vehicle:list", case_id=self.case.pk))
                 page.get_by_role("link", name="Add vehicle").first.click()
                 page.get_by_label("License plate", exact=True).fill(f"DELETE-{engine}")
                 page.get_by_role("button", name="Add vehicle", exact=True).click()
@@ -1265,7 +1266,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
         self.owner.is_staff = True
         self.owner.save(update_fields=["is_staff"])
         self.owner.user_permissions.set(
-            Permission.objects.filter(content_type__app_label="evidence")
+            Permission.objects.filter(content_type__app_label__in=("text", "document"))
         )
         document = DocumentEvidence.objects.create(
             case=self.case,
@@ -1276,7 +1277,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
-                page.goto(self.url("admin:evidence_textevidence_add"))
+                page.goto(self.url("admin:text_textevidence_add"))
                 page.get_by_label("Case:", exact=True).select_option(str(self.case.pk))
                 page.get_by_label("Title:", exact=True).fill(f"Admin source {engine}")
                 page.get_by_label("Body:", exact=True).fill("  Synthetic original.\n ")
@@ -1324,7 +1325,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.goto(
                     self.live_server_url
                     + reverse(
-                        "admin:evidence_documentevidence_change", args=[document.pk]
+                        "admin:document_documentevidence_change", args=[document.pk]
                     )
                 )
                 expect(page.get_by_text("source.txt", exact=True)).to_be_visible()
@@ -1355,7 +1356,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 ):
                     self.sign_in(page)
                     page.goto(
-                        self.url("evidence:create", case_id=self.case.pk)
+                        self.url("core:evidence:create", case_id=self.case.pk)
                         + f"?kind={kind}"
                     )
                     page.locator("[data-additional-evidence-details] > summary").focus()
@@ -1545,7 +1546,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
 
                 page.goto(
                     self.url(
-                        "people:social_account_create",
+                        "socialmedia:social_account_create",
                         case_id=self.case.pk,
                         person_id=long_name_person.pk,
                     )
@@ -1564,7 +1565,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 expect(page.get_by_label("Description", exact=True)).to_have_count(0)
                 page.get_by_role("button", name="Create case", exact=True).click()
                 case = self.db(Case.objects.get, name=name, owner=self.owner)
-                expect(page).to_have_url(self.url("evidence:list", case_id=case.pk))
+                expect(page).to_have_url(
+                    self.url("core:evidence:list", case_id=case.pk)
+                )
                 expect(
                     page.get_by_role("heading", name="Evidence", exact=True)
                 ).to_be_visible()
@@ -1596,7 +1599,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     "alex@example.test",
                 )
 
-                page.goto(self.url("evidence:create", case_id=case.pk) + "?kind=text")
+                page.goto(
+                    self.url("core:evidence:create", case_id=case.pk) + "?kind=text"
+                )
                 title = f"Browser captured source {engine}"
                 original = "Synthetic original.\n<untrusted> remains source text."
                 page.get_by_label("Title", exact=True).fill(title)
@@ -1627,13 +1632,13 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.assertFalse(record.is_archived)
                 self.assertEqual(record.sha256, checksum)
 
-                page.goto(self.url("evidence:list", case_id=case.pk))
+                page.goto(self.url("core:evidence:list", case_id=case.pk))
                 page.get_by_label("Search evidence", exact=True).fill("captured source")
                 page.get_by_role("button", name="Search", exact=True).click()
                 expect(page.locator(".evidence-row")).to_have_count(1)
                 expect(page.locator(".evidence-row")).to_contain_text(title)
 
-                page.goto(self.url("evidence:create", case_id=case.pk))
+                page.goto(self.url("core:evidence:create", case_id=case.pk))
                 files = [
                     {
                         "name": f"synthetic-{index}.txt",
@@ -1720,7 +1725,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                         "button", name="Accept invitation", exact=True
                     ).click()
                     expect(guest_page).to_have_url(
-                        self.url("evidence:list", case_id=case.pk)
+                        self.url("core:evidence:list", case_id=case.pk)
                     )
                     expect(
                         guest_page.get_by_role("heading", name="Evidence", exact=True)
@@ -1775,7 +1780,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("evidence:bulk_create", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:bulk_create", case_id=self.case.pk))
                 expect(page.locator("[data-bulk-fallback]")).to_be_visible()
                 expect(page.locator("[data-bulk-upload]")).to_be_hidden()
                 page.get_by_role("link", name="add one file at a time").click()
@@ -1814,7 +1819,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 self.assertEqual(document.byte_size, len(content))
                 self.capture(page, engine, "no-javascript-document")
 
-                page.goto(self.url("evidence:create", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:create", case_id=self.case.pk))
                 page.get_by_label("Title", exact=True).fill(f"Separate copy {engine}")
                 duplicate_file = {
                     "name": "renamed.txt",
@@ -1867,7 +1872,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             retained.save()
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
-                page.goto(self.url("evidence:bulk_create", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:bulk_create", case_id=self.case.pk))
                 page.locator("#id_file").set_input_files(
                     [
                         {
@@ -1969,8 +1974,8 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             )
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
-                upload_url = self.url("evidence:create", case_id=self.case.pk)
-                bulk_url = self.url("evidence:bulk_create", case_id=self.case.pk)
+                upload_url = self.url("core:evidence:create", case_id=self.case.pk)
+                bulk_url = self.url("core:evidence:bulk_create", case_id=self.case.pk)
                 page.goto(bulk_url)
                 page.locator(".bulk-shared-details>summary").click()
                 page.locator("#id_source").fill("Original shared source")
@@ -2181,7 +2186,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     }
                     for item in originals
                 ]
-                page.goto(self.url("evidence:list", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:list", case_id=self.case.pk))
                 page.locator(".evidence-list-heading").get_by_role(
                     "link", name="Add evidence", exact=True
                 ).click()
@@ -2287,7 +2292,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 )
                 self.capture(page, engine, "bulk-files-200-percent-text")
                 page.evaluate("document.documentElement.style.fontSize = ''")
-                upload_url = self.url("evidence:create", case_id=self.case.pk)
+                upload_url = self.url("core:evidence:create", case_id=self.case.pk)
 
                 def pause_first(route, *, picker=picker, shared=shared):
                     expect(picker).to_be_disabled()
@@ -2374,7 +2379,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             )
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, editor)
-                page.goto(self.url("evidence:bulk_create", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:bulk_create", case_id=self.case.pk))
                 picker = page.locator("#id_file")
                 picker.set_input_files(
                     [
@@ -2415,7 +2420,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     route.continue_()
 
                 page.route(
-                    self.url("evidence:create", case_id=self.case.pk),
+                    self.url("core:evidence:create", case_id=self.case.pk),
                     pause_first,
                     times=1,
                 )
@@ -2595,7 +2600,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 file=SimpleUploadedFile("original.txt", b"Synthetic original"),
             )
             change_url = self.live_server_url + reverse(
-                "admin:evidence_documentevidence_change", args=[document.pk]
+                "admin:document_documentevidence_change", args=[document.pk]
             )
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
@@ -2688,7 +2693,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 timezone="UTC",
             )
             detail_url = self.url(
-                "evidence:detail",
+                "core:evidence:detail",
                 case_id=self.case.pk,
                 kind="document",
                 evidence_id=document.pk,
@@ -2763,7 +2768,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 page.emulate_media(color_scheme="light")
                 page.goto(
                     self.url(
-                        "evidence:detail",
+                        "core:evidence:detail",
                         case_id=self.case.pk,
                         kind="document",
                         evidence_id=source.pk,
@@ -2798,7 +2803,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                     "Enter"
                 )
                 expect(page).to_have_url(
-                    self.url("evidence:list", case_id=self.case.pk) + suffix
+                    self.url("core:evidence:list", case_id=self.case.pk) + suffix
                 )
                 expect(
                     page.get_by_text("Evidence deleted.", exact=True)
@@ -2811,8 +2816,8 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
     def test_imported_source_deletion_inventory(self):
         from django.utils import timezone
 
-        from analysis.models import AnalysisArtifact, AnalysisResult, AnalysisRun
-        from evidence.models import VehicleLocationImportRow
+        from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
+        from geo.models import VehicleLocationImportRow
 
         self.owner.is_superuser = True
         self.owner.save(update_fields=["is_superuser"])
@@ -2890,7 +2895,7 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 height=1,
             )
             url = self.url(
-                "evidence:detail",
+                "core:evidence:detail",
                 case_id=self.case.pk,
                 kind="document",
                 evidence_id=source.pk,

@@ -37,7 +37,7 @@ fails immediately rather than installing a second interpreter into the image.
 The Docker image installs locked Python dependencies plus distribution-packaged
 Tesseract and English OCR data, runs as an
 unprivileged user, and defaults to `gunicorn config.wsgi:application`. Its build
-context excludes local secrets and data. Shared templates/static assets are
+context excludes local secrets and data. App-local templates/static assets are
 included explicitly; `collectstatic` runs during the image build and WhiteNoise
 serves public application assets. Private evidence is outside its static root.
 The Dockerfile's `web` target is the default image; its `worker` target uses the
@@ -73,24 +73,23 @@ adds domain-level authorization, immutable results, progress, and recovery. See
   model support the product workflows. `cases.permissions` provides current case
   authorization shared by product views. See [case workflows and permissions](cases.md).
 - `/health/` checks database connectivity without returning secrets or case data.
-- `evidence/` contains abstract `Evidence`, `FileEvidence`, and `LocationContent`
-  bases, plus abstract communication/call bases and concrete image, audio,
-  document, text, location, person-location, vehicle-location, text-message,
-  phone-call, and FaceTime models. Each record has one required case and uploader. Original files, text,
-  and location observations have generated checksums and are protected against
-  replacement through normal model saves. Archive state retains originals; immutable
-  submission UUIDs make uncertain upload retries idempotent. Call attachments
-  retain independently hashed transcripts/recordings with attribution, without
-  replacing the call original or earlier additions. See [evidence](evidence.md).
-- `people/` contains `Person`, an investigator-maintained name/contact record
-  linked to one case, with scoped Django administration. Owners and editors can
-  create and edit people; only owners can delete them. See [people](people.md).
-- `vehicles/` contains `Vehicle`, a case-scoped record of reported vehicle details
-  and any saved legacy notes, with the same roles and scoped administration as people.
-  See [vehicles](vehicles.md).
-- `analysis/` contains durable case-scoped runs, results, reviews and private
-  previews/reference snapshots. Concrete extraction/investigation modules share input resolution and
-  publication services, while current-field reports remain direct queries.
+- `core/` is one Django app owning abstract evidence/file bases, common evidence
+  management and the unified workspace, plus durable analysis runs, results,
+  reviews, artifacts, source resolution, inference adapters, and job orchestration.
+  `core.evidence` and `core.analysis` are focused Python packages, not Django apps.
+- `text/`, `image/`, `audio/`, and `document/` own their concrete evidence models,
+  forms, reader templates, administration, processing, and tests.
+- `geo/` owns location/person-location/vehicle-location evidence, points of
+  interest, maps, geocoding, geographic analysis, and vehicle-location CSV imports.
+- `phone/` owns message and call evidence, retained call additions, imported
+  communication context, message imports, and conversation analysis.
+- `people/` and `vehicle/` own case-scoped person and vehicle records. These are
+  investigator-maintained entities, not evidence subclasses. `socialmedia/` owns
+  social accounts linked to people. `video/` is a registered placeholder only.
+- `marketing/` owns public routes, templates, styles, and tests. It shares small
+  design primitives and brand assets with `ui/`, which owns the product shell,
+  shared controls, and error templates. Every template and static asset lives in
+  its owning app; template `DIRS` and `STATICFILES_DIRS` are empty.
 - `background/` supplies a synthetic worker probe and a bounded operator diagnostic
   command. It has no domain models or product routes. The queue's globally visible
   upstream admin is disabled because task records have no case authorization.
@@ -100,32 +99,48 @@ Allauth does not implement case invitations or authorization.
 
 ## Primary keys and the initial schema
 
-Every Pandect model uses an explicit, non-editable `UUIDField` primary key with
-`default=uuid4`: `User`, `Case`, `CaseMembership`, `CaseInvitation`, `Person`, `Vehicle`,
-all ten concrete evidence models, `CallEvidenceAttachment`, and
-`VehicleLocationImport`.
-Each new instance receives an independent
-UUIDv4 before saving; use the model's adding state rather than the presence of a
-primary key to tell whether it has been saved. Foreign keys to these models use
-PostgreSQL's native `uuid` type, including user references in Django admin and
-allauth.
+Every concrete Pandect model uses an explicit, non-editable UUID primary key
+with `default=uuid4`. Django/allauth internals and automatic join tables retain
+upstream schemas. UUIDs do not replace case authorization.
 
-Declare the same field on future Pandect models. Django's `DEFAULT_AUTO_FIELD`
-requires an `AutoField` subclass and cannot be set to `UUIDField`; the setting
-remains `BigAutoField` for upstream Django/allauth models and automatically
-generated join-table primary keys. Their user foreign keys still use UUIDs.
-UUIDs do not replace case authorization. UUIDv4 values do not encode creation
-order; use timestamps when ordering by age.
+The pre-release domain reorganization replaces Pandect's migration history with a
+fresh baseline. Shared processing models use the `core` app label; concrete
+models use their owning domain labels. Old `evidence`, `analysis`, and `vehicles`
+app labels, table names, permissions, imports, and queued task paths are not
+supported. `accounts.User` remains in its initial migration; upstream Django,
+allauth, and queue migrations are unchanged.
 
-This pre-release change rewrites the four application initial migrations because
-there are no active installations or real investigation databases. New databases
-start directly with UUIDs; there is no integer-to-UUID data migration. An existing
-disposable development database that applied the old integer migrations needs a
-fresh database/volume: `migrate` cannot update migrations already marked as applied.
-Create a fresh isolated development environment deliberately; no command in the
-application automatically deletes or resets an existing database or evidence.
+Use a new PostgreSQL database and empty queue for this baseline. Do not apply it
+on top of an old installation's migration history or use `--fake` to bridge the
+schemas. Existing pre-release data is disposable by design; this change contains
+no data conversion and no automatic database or media deletion. Validate with
+an isolated database before deliberately replacing any installation. Web and
+worker processes must use the same revision and the new database.
 
-Reference: [Django UUID fields](https://docs.djangoproject.com/en/6.1/ref/models/fields/#uuidfield).
+### Dependency boundaries
+
+Domain models inherit from `core.models` and reference `cases.Case`. Core model,
+form, storage, and parser contracts do not import domain registries. Explicit
+registries compose domain models/forms/readers and processing callables at the
+application layer; there is no plugin autodiscovery. Shared file cleanup runs
+only after transaction commit, with receivers registered by the owning apps.
+
+The core parser runner retains isolated Python subprocesses, resource limits,
+bounded input/output, and a fixed dispatch allowlist. Domain parser modules are
+Django-free; they never load settings or models in a parser child. Type-specific
+processing remains in the matching domain app, including text methods reused
+for extracted document or conversation text.
+
+Each domain's `analysis/` package separates deterministic calculations, metadata
+inspection, model-based AI, and external service lookups into `deterministic`,
+`metadata`, `ai`, and `external` modules or subpackages as applicable. Local OCR
+uses `image.analysis.ai_parser` inside the bounded parser process. Private geocoding
+belongs to External while retaining its private processing route. Category names
+describe code ownership, not network destination or approval requirements.
+Existing mixed operations use domain `workflows.py` modules to combine categories;
+their investigator-facing choices and parameters remain unchanged. Shared report
+dispatch stays in core, with call calculations in phone and vehicle-location
+calculations in geo.
 
 ## Interface delivery and migrations
 
@@ -140,12 +155,10 @@ and parent-case ownership are checked on every relevant request and again inside
 case-locked mutations. Invitation acceptance is bound to the invited verified
 email and never silently changes an existing membership or transfers ownership.
 
-The interface change adds `cases/0002_case_interfaces` and the evidence `0002`
-migration; it does not rewrite initial migrations or reset a database. Existing
-case names are backfilled as `Case #<UUID>`, with update times initialized from
-creation times. Existing evidence starts active with a null submission ID.
-Case/people/evidence edits detect stale revisions and preserve drafts for explicit
-review before saving newer values.
+The app split preserves browser paths and evidence-kind identifiers. Shared
+routes use `core:evidence:*` and `core:analysis:*`; specialized routes belong to
+`geo`, `phone`, `socialmedia`, and `vehicle`. Case/people/evidence edits continue
+to detect stale revisions and preserve drafts for review.
 
 Application assets use WhiteNoise; originals remain in private Django storage.
 Account, case, and invitation responses disable caching and suppress cross-origin

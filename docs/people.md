@@ -53,8 +53,9 @@ preserved draft. If the details change before removal, review them and confirm
 again. Accounts are managed in the investigator interface and are removed with
 their person record or case.
 
-The additive `people/0003_socialaccount` migration creates the account table.
-Apply it using the [documented migration workflow](development.md#run-python-on-the-host).
+`socialmedia.SocialAccount` owns the account table. Its forms, views, templates,
+and tests live in `socialmedia`; the person detail page continues to show these
+accounts through the person relationship.
 
 ### Points of interest
 
@@ -77,9 +78,8 @@ detail page, **Record details** reveals those timestamps and the editor's
 a person also deletes their POIs; the confirmation explains this consequence.
 They do not add another restriction on person deletion.
 
-The additive `people/0002_pointofinterest` migration is required. Apply it using
-the [documented migration workflow](development.md#run-python-on-the-host).
-Existing people and evidence are unchanged. See [the map workflow](maps.md#person-points-of-interest)
+`geo.PointOfInterest` owns points of interest, with forms, views, templates, and
+tests in `geo`. People retain their own contact fields and management workflows. See [the map workflow](maps.md#person-points-of-interest)
 for coordinate bounds, search, permissions, privacy, and fallbacks.
 
 ## Fields and validation
@@ -149,12 +149,10 @@ an individual person leaves its case and other people intact.
 
 ## Migration and scope
 
-`people/0001_initial` creates the UUID person table with a dependency on
-`cases/0001_initial`. Apply it with the [documented migration workflow](development.md),
-or start the updated Compose image. See the
-[pre-release UUID baseline](architecture.md#primary-keys-and-the-initial-schema)
-for databases that applied the earlier integer migrations. No data conversion,
-dependency changes, or runtime upgrades are included.
+`people` owns the UUID person table, while `socialmedia` and `geo` own linked
+social accounts and POIs. Apply the
+[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
+to a new database and queue. No data conversion or runtime upgrades are included.
 
 Authorization is enforced by both product and admin entry points, not
 automatically by ORM queries. Future exports, background jobs, and integrations

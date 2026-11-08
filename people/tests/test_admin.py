@@ -5,7 +5,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
-from evidence.models import PersonLocationEvidence
+from geo.models import PersonLocationEvidence
 from people.models import Person
 
 

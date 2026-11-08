@@ -6,6 +6,14 @@ there is no requirements.txt or separate pip installation step. If you already
 use [mise](https://mise.jdx.dev/), `mise install` installs the tools in `mise.toml`.
 mise is optional.
 
+## Pre-release database baseline
+
+The domain-app reorganization requires a fresh database and empty queue. Existing
+pre-release databases cannot be upgraded by applying the rewritten initial
+migrations; do not use `--fake`. Use a new isolated Compose project/volumes or
+new database, as described in [architecture](architecture.md#primary-keys-and-the-initial-schema).
+Startup never deletes existing databases or media.
+
 ## First run
 
 From the repository root:

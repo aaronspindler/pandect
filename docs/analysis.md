@@ -219,22 +219,63 @@ advertising broader supported conditions.
 
 ## Data and code boundaries
 
-`evidence.types` is the shared ten-type registry; `evidence.queries` enforces
-same-case relationships. `analysis.reports` computes current-field reports.
-Concrete document/media/text/conversation/location modules perform bounded work;
-`analysis.services` owns authorization, input snapshots, publication, and reviews.
-`analysis.operations` lists concrete callables; the worker passes authorization
+`core.evidence.types` is the shared ten-type registry; `core.evidence.queries` enforces
+same-case relationships. `core.analysis.reports` validates and dispatches current-field
+reports; call calculations live in `phone.analysis.deterministic.reports` and vehicle
+calculations in `geo.analysis.deterministic.reports`. Cross-type duplicate reports
+remain in `core.analysis.deterministic.reports` with neutral report helpers in
+`core.analysis.reporting`.
+
+Concrete operations live in each domain's `analysis/` package:
+
+| Code category | Implementations |
+| --- | --- |
+| `deterministic` | Document text extraction; text identifiers, style, repeated wording and keywords; phone conversation grouping, timing, imports and call reports; geographic calculations and vehicle reports |
+| `metadata` | Image and audio metadata inspection |
+| `ai` | Local image OCR, audio transcription, text suggestions and summaries, and semantic conversation analysis |
+| `external` | Geographic coordinate/address and map-context service lookups |
+
+Only implemented categories have modules. AI includes model processing on local,
+private, or approved gateway routes; External includes service lookups on private
+or public routes. Categories do not determine consent or network destination.
+They organize code only: analysis choices, forms, and automatic checks are unchanged.
+`text.analysis.workflows` and `phone.analysis.workflows` compose the existing optional
+AI branches with deterministic results. Communication import parsing and publication
+live in `phone.analysis.deterministic.imports`; geographic adapters live in
+`geo.analysis.external.geocoding` and `geo.analysis.external.geographic_context`.
+`core.analysis.services` owns authorization, input snapshots, publication, and reviews.
+`core.analysis.operations` lists concrete callables; the worker passes authorization
 and inference dependencies explicitly for the operations that use them.
-`analysis.tasks` is a thin UUID-only queue entrypoint. Durable runs/results/reviews
+`core.analysis.tasks` is a thin UUID-only queue entrypoint. Durable runs/results/reviews
 and extraction search passages survive operational queue housekeeping.
+
+The `analysis_form` factory in `core.analysis.forms` selects ordinary Django form
+subclasses from the domain `analysis_forms` modules. Image, geographic, communication,
+and text assumptions retain their own fields, validation, and parameter serialization.
+`core.analysis.form_base` owns shared source selection, submissions, processing location,
+and external-processing approval.
+The `report_form` factory similarly selects phone/geo report filters while
+`core.analysis.report_forms` owns common archive and period fields.
+
+`core.parsers` owns verified file reads and the bounded subprocess transport.
+Its fixed operation allowlist dispatches to the domain `parsers` modules in
+`document`, `image`, `audio`, and `geo`, and to `image.analysis.ai_parser` for local
+OCR. The image parser retains shared decoding, metadata, and preview preparation;
+the AI parser owns Tesseract execution and recognized-region interpretation.
+The pure parser contract and these domain modules load without Django initialization.
+The child runs with isolated Python,
+a restricted environment, and resource limits established before domain parsing;
+it imports application code only from the trusted root derived from the runner.
+The shared runner retains timeout, output-size, and process-group cleanup checks.
 
 Source resolution reuses originals and prior results only within one validation
 pass. Search similarly validates a shared run once per request. External requests
 and publication still perform fresh authorization and source checks, so this
 reuse does not preserve access or acceptance after it changes.
 
-Apply additive analysis migrations with the normal upgrade workflow; existing
-originals are retained. Back up PostgreSQL and private storage together. Whole-case
+The shared processing models belong to `core`; concrete processors belong to
+the domain apps. Use the [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
+for this pre-release refactor. Back up PostgreSQL and private storage together. Whole-case
 deletion removes its analysis/context alongside evidence. No global analysis admin
 or public result storage endpoint is registered.
 

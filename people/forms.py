@@ -2,7 +2,7 @@ from django import forms
 from django.core import signing
 from django.core.exceptions import ValidationError
 
-from .models import Person
+from people.models import Person
 
 
 def person_revision(person):

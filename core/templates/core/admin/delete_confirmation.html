@@ -1,0 +1,28 @@
+{% extends "admin/delete_confirmation.html" %}
+{% load admin_urls admin_filters static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'core/admin.css' %}">
+{% endblock %}
+
+{% block delete_confirm %}
+  <p>This permanently deletes the evidence, its original files, retained call material, and related analysis, reviews, and generated files. Analysis using several sources is removed in full, including downstream analysis that depends on it. This cannot be undone.</p>
+  {% if deletion_changed %}<p role="alert">{{ deletion_changed }}</p>{% endif %}
+  {% include "core/evidence/deletion_inventory.html" %}
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="post" value="yes">
+    <input type="hidden" name="revision" value="{{ deletion_revision }}">
+    {% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
+    {% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
+    <input type="submit" value="Permanently delete evidence">
+    {% url opts|admin_urlname:'change' object.pk|admin_urlquote as cancel_url %}
+    <a role="button" class="button evidence-delete-cancel" href="{% add_preserved_filters cancel_url %}">Cancel</a>
+  </form>
+{% endblock %}
+
+{% block delete_protected %}
+  <p>Ask an operator to correct inconsistent case links before trying again.</p>
+  {{ block.super }}
+{% endblock %}

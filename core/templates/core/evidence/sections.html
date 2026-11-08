@@ -1,0 +1,5 @@
+<nav class="section-tabs" aria-label="Evidence sections">
+  <a href="{% url 'core:evidence:detail' case.pk kind item.pk %}{{ list_suffix }}"{% if section == 'original' %} aria-current="page"{% endif %}>Original</a>
+  <a href="{% url 'core:analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}"{% if section == 'analysis' %} aria-current="page"{% endif %}>Analysis</a>
+  <a href="{% url 'core:evidence:detail' case.pk kind item.pk %}?section=details{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}"{% if section == 'details' %} aria-current="page"{% endif %}>Details</a>
+</nav>
