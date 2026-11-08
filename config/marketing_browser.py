@@ -114,15 +114,17 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                     ).to_be_focused()
                     page.keyboard.press("Enter")
                     expect(page.locator("#main-content")).to_be_focused()
-                    for name, route in (
-                        ("Product", "product"),
-                        ("Trust", "trust"),
-                        ("Roadmap", "roadmap"),
-                        ("Hosting", "hosting"),
-                        ("Sign in", "account_login"),
+                    analysis_url = reverse("product") + "#analysis"
+                    for scope, name, href in (
+                        ("header", "Product", reverse("product")),
+                        ("header", "Trust", reverse("trust")),
+                        ("header", "Roadmap", reverse("roadmap")),
+                        ("header", "Hosting", reverse("hosting")),
+                        ("header", "Sign in", reverse("account_login")),
+                        ("main", "See analysis examples", analysis_url),
                     ):
                         page.goto(self.live_server_url + reverse("home"))
-                        link = page.locator("header").get_by_role(
+                        link = page.locator(scope).get_by_role(
                             "link", name=name, exact=True
                         )
                         for _ in range(12):
@@ -139,7 +141,8 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             "3px",
                         )
                         page.keyboard.press("Enter")
-                        expect(page).to_have_url(self.live_server_url + reverse(route))
+                        expect(page).to_have_url(self.live_server_url + href)
+                    expect(page.locator("#analysis:target")).to_be_in_viewport()
 
                     page.goto(self.live_server_url + reverse("hosting"))
                     faqs = page.locator(".marketing-faq details")
@@ -153,7 +156,6 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         summary.press("Enter")
                         expect(faq.locator("p")).not_to_be_visible()
 
-                    page.goto(self.live_server_url + reverse("home"))
                     for appearance in ("dark", "reduced-motion", "forced-colors"):
                         if appearance == "forced-colors" and engine != "chromium":
                             continue
@@ -166,14 +168,23 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             if appearance == "forced-colors"
                             else "none",
                         )
-                        self.assert_reflow(page)
-                        if appearance == "forced-colors":
-                            expect(
-                                page.locator("header .wordmark-fallback")
-                            ).to_be_visible()
-                        page.screenshot(
-                            path=str(artifacts / f"{engine}-home-{appearance}.png"),
-                            full_page=True,
+                        appearance_pages = (
+                            ("home",)
+                            if appearance == "reduced-motion"
+                            else ("home", "product")
                         )
+                        for name in appearance_pages:
+                            page.goto(self.live_server_url + reverse(name))
+                            self.assert_reflow(page)
+                            if appearance == "forced-colors":
+                                expect(
+                                    page.locator("header .wordmark-fallback")
+                                ).to_be_visible()
+                            page.screenshot(
+                                path=str(
+                                    artifacts / f"{engine}-{name}-{appearance}.png"
+                                ),
+                                full_page=True,
+                            )
                     context.close()
                     browser.close()
