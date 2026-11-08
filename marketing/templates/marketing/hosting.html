@@ -1,0 +1,35 @@
+{% extends 'marketing/base.html' %}
+{% block title %}Self-host Pandect{% endblock %}
+{% block description %}Run Pandect on your own infrastructure with Docker Compose. A managed service is planned for openpandect.com.{% endblock %}
+{% block content %}
+<section class="marketing-hero wrap page-intro">
+  <p class="section-label">Hosting</p>
+  <h1>Self-host Pandect</h1>
+  <p class="lead">Run Pandect with Docker Compose on infrastructure you manage. You control storage, backups, and which analysis services to configure.</p>
+  <a class="marketing-button" href="https://github.com/aaronspindler/pandect/blob/main/docs/development.md">Read the setup guide <span aria-hidden="true">↗</span></a>
+</section>
+<section class="wrap feature-row" aria-labelledby="hosted-heading">
+  <div>
+    <p class="section-label">Planned</p>
+    <h2 id="hosted-heading">Hosted Pandect</h2>
+  </div>
+  <div><p>A managed service is planned for openpandect.com. Launch timing and pricing haven’t been announced.</p></div>
+</section>
+<section class="marketing-section wrap split-section faq-section" aria-labelledby="questions-heading">
+  <h2 id="questions-heading">Common questions</h2>
+  <div class="marketing-faq">
+    <details>
+      <summary>Do I need an AI service?</summary>
+      <p>Text extraction, printed English image recognition, comparisons, and case reports can run without AI credentials. Transcription and model-assisted analysis need separate configuration. <a href="{% url 'marketing:product' %}#analysis">See analysis examples.</a></p>
+    </details>
+    <details>
+      <summary>How do I maintain my installation?</summary>
+      <p>See the <a href="https://github.com/aaronspindler/pandect/blob/main/docs/operations.md">operations guide</a> for backups, updates, and recovery.</p>
+    </details>
+    <details>
+      <summary>Where do I sign in?</summary>
+      <p>Sign in on the installation where your account was created.</p>
+    </details>
+  </div>
+</section>
+{% endblock %}

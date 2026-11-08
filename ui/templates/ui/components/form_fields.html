@@ -1,0 +1,5 @@
+{% include 'ui/components/form_errors.html' with form=form %}
+{% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+{% for field in form.visible_fields %}
+  {% include 'ui/components/form_field.html' with field=field only %}
+{% endfor %}

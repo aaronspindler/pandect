@@ -11,8 +11,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import Case, CaseInvitation, CaseMembership
-from evidence.models import PersonLocationEvidence, PhoneCallEvidence, TextEvidence
+from geo.models import PersonLocationEvidence
 from people.models import Person
+from phone.models import PhoneCallEvidence
+from text.models import TextEvidence
 
 
 @override_settings(PANDECT_PUBLIC_ORIGIN="https://pandect.example")
@@ -93,7 +95,7 @@ class CaseInterfaceTests(TestCase):
         self.assertFalse(expected)
 
     def test_case_links_and_legacy_case_url_open_evidence(self):
-        evidence_url = reverse("evidence:list", args=(self.case.pk,))
+        evidence_url = reverse("core:evidence:list", args=(self.case.pk,))
         for user in (self.owner, self.editor, self.viewer):
             with self.subTest(user=user):
                 self.login(user)
@@ -201,7 +203,8 @@ class CaseInterfaceTests(TestCase):
             with self.subTest(user=user):
                 self.login(user)
                 response = self.client.get(
-                    reverse("evidence:list", args=(self.case.pk,)), {"state": "all"}
+                    reverse("core:evidence:list", args=(self.case.pk,)),
+                    {"state": "all"},
                 )
                 self.assertCountEqual(
                     [item["title"] for item in response.context["rows"]],
@@ -239,7 +242,7 @@ class CaseInterfaceTests(TestCase):
         case = Case.objects.get(name="New investigation")
         self.assertEqual(case.owner, self.viewer)
         self.assertEqual(case.description, "")
-        self.assertRedirects(response, reverse("evidence:list", args=(case.pk,)))
+        self.assertRedirects(response, reverse("core:evidence:list", args=(case.pk,)))
         response = self.client.post(reverse("cases:case_create"), {"name": "   "})
         self.assertEqual(response.status_code, 200)
         self.assertIn("name", response.context["form"].errors)

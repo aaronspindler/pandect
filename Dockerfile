@@ -24,12 +24,19 @@ COPY config/ config/
 COPY background/ background/
 COPY accounts/ accounts/
 COPY cases/ cases/
-COPY evidence/ evidence/
-COPY analysis/ analysis/
+COPY core/ core/
 COPY people/ people/
-COPY vehicles/ vehicles/
-COPY templates/ templates/
-COPY static/ static/
+COPY vehicle/ vehicle/
+COPY text/ text/
+COPY image/ image/
+COPY audio/ audio/
+COPY document/ document/
+COPY geo/ geo/
+COPY phone/ phone/
+COPY socialmedia/ socialmedia/
+COPY video/ video/
+COPY marketing/ marketing/
+COPY ui/ ui/
 COPY scripts/docker-entrypoint-worker.sh scripts/docker-entrypoint-worker.sh
 # A synthetic build-only setting is sufficient; collectstatic never needs a DB.
 RUN DJANGO_SECRET_KEY=static-collection-build-only python manage.py collectstatic --noinput \

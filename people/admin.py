@@ -1,8 +1,7 @@
 from django.contrib import admin
 
 from cases.admin_access import CaseScopedAdmin
-
-from .models import Person
+from people.models import Person
 
 
 @admin.register(Person)

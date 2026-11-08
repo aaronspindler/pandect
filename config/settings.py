@@ -34,10 +34,19 @@ INSTALLED_APPS = [
     "background.apps.BackgroundConfig",
     "accounts.apps.AccountsConfig",
     "cases.apps.CasesConfig",
-    "evidence.apps.EvidenceConfig",
-    "analysis.apps.AnalysisConfig",
+    "core.apps.CoreConfig",
     "people.apps.PeopleConfig",
-    "vehicles.apps.VehiclesConfig",
+    "vehicle.apps.VehicleConfig",
+    "text.apps.TextConfig",
+    "image.apps.ImageConfig",
+    "audio.apps.AudioConfig",
+    "document.apps.DocumentConfig",
+    "geo.apps.GeoConfig",
+    "phone.apps.PhoneConfig",
+    "socialmedia.apps.SocialmediaConfig",
+    "video.apps.VideoConfig",
+    "marketing.apps.MarketingConfig",
+    "ui.apps.UiConfig",
     "allauth",
     "allauth.account",
 ]
@@ -57,7 +66,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],
+        "DIRS": [],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -146,7 +155,7 @@ USE_TZ = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [BASE_DIR / "static"]
+STATICFILES_DIRS = []
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
@@ -212,7 +221,7 @@ if (
 ):
     raise ImproperlyConfigured("PANDECT_PUBLIC_ORIGIN must be an HTTP(S) origin.")
 FILE_UPLOAD_HANDLERS = [
-    "evidence.uploads.LimitedUploadHandler",
+    "core.evidence.uploads.LimitedUploadHandler",
     "django.core.files.uploadhandler.MemoryFileUploadHandler",
     "django.core.files.uploadhandler.TemporaryFileUploadHandler",
 ]
@@ -240,7 +249,7 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
-        "evidence": {
+        "core": {
             "handlers": ["private_console"],
             "level": "WARNING",
             "propagate": False,

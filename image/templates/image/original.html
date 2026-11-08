@@ -1,0 +1,8 @@
+{% load static %}
+<div class="file-original"><h2>{{ item.original_filename }}</h2><p>{{ item.byte_size|filesizeformat }}</p>
+  <figure class="evidence-image-preview" data-image-preview>
+    <img src="{% url 'core:evidence:preview' case_id=case.pk kind=kind evidence_id=item.pk %}" alt="Image preview of {{ item.title }}" decoding="async" aria-describedby="image-preview-caption">
+    <figcaption id="image-preview-caption" role="status">Resized preview. Download the original for full detail. If the preview is unavailable, you can still download the original.</figcaption>
+  </figure>
+</div>
+<script src="{% static 'image/preview.js' %}" defer></script>

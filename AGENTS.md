@@ -101,8 +101,8 @@ for invocation and configuration details.
 - Put lengthy ingestion and analysis in background jobs with visible progress,
   bounded retries, and recoverable failures. Retried work must not duplicate
   evidence or publish partial results as complete.
-- Queue bounded local checks for eligible new investigator evidence. Keep model
-  inference, context-dependent analysis, and bulk import review deliberate.
+- Queue bounded local checks for eligible new investigator evidence. Keep LLM
+  analysis, transcription, context-dependent analysis, and bulk import review deliberate.
 - Use configurable storage suitable for local files and hosted operation. Evidence
   downloads and derived artifacts must remain subject to case authorization.
 - Choose the queue implementation and specialized libraries during implementation.
@@ -249,6 +249,34 @@ durable project requirements change.
   local validation, CI results, and live deployment or provider evidence.
 - Review documentation-only changes for accuracy, links, structure, and whitespace;
   do not add application tests that merely restate documentation.
+
+## Application ownership
+
+Keep Django apps at the repository root. `core` owns shared evidence foundations,
+case-scoped evidence management, analysis lifecycle/orchestration, and inference
+integration. `core.evidence` and `core.analysis` are Python subpackages of that
+single app. Concrete models, forms, specialized views, processors, templates,
+assets, and tests belong to `text`, `image`, `audio`, `document`, `geo`, `phone`,
+`people`, `vehicle`, or `socialmedia`. `video` is a placeholder, not an implemented
+upload or analysis capability. Geo owns all locations, POIs, maps, and
+vehicle-location imports; phone owns messages, calls, and communication context.
+
+Organize concrete analysis implementations inside each owning app's `analysis/`
+package by `deterministic`, `metadata`, `ai`, and `external`, creating only the
+categories that app implements. AI means model-based processing, including local
+OCR; External means service lookups, including private geographic services.
+These are code boundaries, separate from processing location and approval, and
+do not group or rename investigator-facing choices. Mixed operations compose
+their category implementations in a small domain `workflows.py` module.
+
+`marketing` owns the public frontend and shares only small design/brand primitives
+with `ui`. Keep templates and static assets in their owning app directories; do
+not recreate repository-wide template or static roots. Account/allauth overrides
+belong to `accounts`. Core contracts must not import domain registries.
+
+The current pre-release migration baseline requires a fresh PostgreSQL database
+and queue. No data migration or compatibility aliases are provided. Runtime data
+must never be reset automatically by application startup or incidental refactors.
 
 ## Rebuild context
 

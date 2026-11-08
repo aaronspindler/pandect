@@ -1,0 +1,53 @@
+{% extends "ui/base.html" %}
+{% block title %}{{ person }} · {{ case }} · Pandect{% endblock %}
+{% block content %}
+<div class="detail-layout">
+<p class="breadcrumb"><a href="{% url 'people:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to people</a></p>
+<div class="page-header"><div><p class="eyebrow">Person</p><h1>{{ person }}</h1><p class="help-text">Identity unverified</p></div>{% if can_edit %}<a class="button button-primary" href="{% url 'people:edit' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit person</a>{% endif %}</div>
+{% if not can_edit %}<p class="notice">You have viewer access to this person record.</p>{% endif %}
+{% if person.email or person.phone_number or person.address %}
+<section class="content-section" aria-labelledby="contact-heading"><h2 id="contact-heading">Contact details</h2>
+  <dl class="metadata-grid">
+    {% if person.email %}<div><dt>Email</dt><dd>{{ person.email }}</dd></div>{% endif %}
+    {% if person.phone_number %}<div><dt>Phone number</dt><dd>{{ person.phone_number }}</dd></div>{% endif %}
+    {% if person.address %}<div><dt>Address</dt><dd>{{ person.address|linebreaksbr }}</dd></div>{% endif %}
+  </dl>
+</section>
+{% else %}<p class="muted">No contact details recorded.</p>{% endif %}
+
+<section class="content-section" aria-labelledby="social-accounts">
+  <div class="section-header">
+    <h2 id="social-accounts">Social accounts</h2>
+    {% if can_edit %}<a class="button button-secondary" href="{% url 'socialmedia:social_account_create' case.pk person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add social account</a>{% endif %}
+  </div>
+  {% if social_accounts %}
+  <p class="muted">Reported associations</p>
+  <ul class="record-list social-account-list">
+    {% for account in social_accounts %}
+    <li class="record-row">
+      <div>
+        <strong>{{ account.username }}</strong>
+        <p class="muted">{{ account.platform }}</p>
+        {% if account.source %}<dl><dt>Source / citation</dt><dd>{{ account.source }}</dd></dl>{% endif %}
+      </div>
+      {% if can_edit %}<a class="button button-secondary" aria-label="Edit social account for {{ account.platform }} {{ account.username }}" href="{% url 'socialmedia:social_account_edit' case.pk person.pk account.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">No social accounts recorded.</p>{% endif %}
+</section>
+<section class="content-section" aria-labelledby="poi-list"><div class="section-header"><h2 id="poi-list">Points of interest</h2>{% if can_edit %}<a class="button button-secondary" href="{% url 'geo:poi_create' case.pk %}?person={{ person.pk }}">Add POI</a>{% endif %}</div>{% include "geo/poi_list.html" %}</section>
+<details class="disclosure">
+<summary>Record details</summary>
+<div class="disclosure-body">
+{% if person.notes %}<h2>Saved notes</h2><div class="prose">{{ person.notes|linebreaks }}</div>{% endif %}
+{% if person.first_name or person.last_name %}<dl class="metadata-grid">
+{% if person.first_name %}<div><dt>First name</dt><dd>{{ person.first_name }}</dd></div>{% endif %}
+{% if person.last_name %}<div><dt>Last name</dt><dd>{{ person.last_name }}</dd></div>{% endif %}
+</dl>{% endif %}
+<dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ person.created_at|date:'c' }}">{{ person.created_at|date:"j M Y, H:i" }} UTC</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ person.updated_at|date:'c' }}">{{ person.updated_at|date:"j M Y, H:i" }} UTC</time></dd></div></dl>
+{% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'people:delete' case_id=case.pk person_id=person.pk %}">Delete person</a></div>{% endif %}
+</div>
+</details>
+</div>
+{% endblock %}

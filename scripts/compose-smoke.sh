@@ -68,13 +68,18 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
 from allauth.account.models import EmailAddress
-from analysis.models import AnalysisRun
-from analysis.services import start_run
+from core.models import AnalysisRun
+from core.analysis.services import start_run
 from cases.models import Case, CaseMembership
-from evidence.models import AudioEvidence, CallEvidenceAttachment, DocumentEvidence, FaceTimeEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, PhoneCallEvidence, TextEvidence, TextMessageEvidence, VehicleLocationEvidence, VehicleLocationImport
-from evidence.vehicle_import_jobs import enqueue_preparation
+from audio.models import AudioEvidence
+from phone.models import CallEvidenceAttachment, FaceTimeEvidence, PhoneCallEvidence, TextMessageEvidence
+from document.models import DocumentEvidence
+from image.models import ImageEvidence
+from geo.models import LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence, VehicleLocationImport
+from text.models import TextEvidence
+from geo.vehicle_import_jobs import enqueue_preparation
 from people.models import Person
-from vehicles.models import Vehicle
+from vehicle.models import Vehicle
 
 owner = get_user_model().objects.create_user(
     username="smoke", email="smoke@example.test", password="synthetic-smoke-password"
@@ -96,7 +101,7 @@ for model in (ImageEvidence, AudioEvidence, DocumentEvidence):
 client = Client()
 client.force_login(owner)
 response = client.post(
-    reverse("evidence:create", args=[case.pk]),
+    reverse("core:evidence:create", args=[case.pk]),
     {
         "kind": "document", "title": "Synthetic analysis source", "submission_id": str(uuid4()),
         "file": SimpleUploadedFile(
@@ -170,9 +175,14 @@ from django.contrib.auth import get_user_model
 import hashlib
 from uuid import UUID
 from cases.models import Case
-from evidence.models import AudioEvidence, CallEvidenceAttachment, DocumentEvidence, FaceTimeEvidence, ImageEvidence, LocationEvidence, PersonLocationEvidence, PhoneCallEvidence, TextEvidence, TextMessageEvidence, VehicleLocationEvidence, VehicleLocationImport
+from audio.models import AudioEvidence
+from phone.models import CallEvidenceAttachment, FaceTimeEvidence, PhoneCallEvidence, TextMessageEvidence
+from document.models import DocumentEvidence
+from image.models import ImageEvidence
+from geo.models import LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence, VehicleLocationImport
+from text.models import TextEvidence
 from people.models import Person
-from vehicles.models import Vehicle
+from vehicle.models import Vehicle
 
 owner = get_user_model().objects.get(username="smoke")
 assert isinstance(owner.pk, UUID)
@@ -261,7 +271,7 @@ assert result.status == TaskResultStatus.SUCCESSFUL
 assert result.return_value == "compose-worker-restart"
 assert len(result.worker_ids) == 1
 
-from analysis.models import AnalysisRun, ExtractedPassage
+from core.models import AnalysisRun, ExtractedPassage
 ocr_run = AnalysisRun.objects.get(operation="ocr")
 assert ocr_run.status in {"complete", "partial"}, ocr_run.error_code
 assert not ocr_run.external_processing
@@ -269,14 +279,14 @@ assert "PANDECT LOCAL TEXT 12345" in " ".join(
     ExtractedPassage.objects.filter(result=ocr_run.result).values_list("text", flat=True)
 )
 assert ocr_run.result.artifacts.exists()
-from analysis.models import GatewayRequest
+from core.models import GatewayRequest
 assert not GatewayRequest.objects.filter(run=ocr_run).exists()
 run = AnalysisRun.objects.get(operation="native_text")
 assert run.status == "complete", run.error_code
 assert run.result.data["items"][0]["text"] == "Source-anchored native extraction.\n"
 assert run.result.provenance["source_inputs"] == run.inputs
 assert ExtractedPassage.objects.get(result=run.result).text == run.result.data["items"][0]["text"]
-assert run.inputs[0]["sha256"] == run.case.evidence_documentevidence_items.get(
+assert run.inputs[0]["sha256"] == run.case.document_documentevidence_items.get(
     original_filename="analysis-native.txt",
 ).sha256
 
@@ -286,8 +296,8 @@ import hashlib
 import json
 import time
 from django.contrib.auth import get_user_model
-from evidence.models import VehicleLocationEvidence, VehicleLocationImport
-from evidence.vehicle_import_jobs import enqueue_completion, process_import
+from geo.models import VehicleLocationEvidence, VehicleLocationImport
+from geo.vehicle_import_jobs import enqueue_completion, process_import
 
 batch = VehicleLocationImport.objects.get()
 deadline = time.monotonic() + 30
@@ -325,7 +335,7 @@ assert VehicleLocationEvidence.objects.filter(import_batch=batch).count() == 1
 
 # Verify native geometry dependencies in the bounded Linux parser, without HTTP.
 import json
-from analysis.parsers import run_parser
+from core.parsers import run_parser
 context = run_parser("geographic_context", json.dumps({"elements": [{
     "type": "node", "id": 1, "lat": 43.65, "lon": -79.38,
     "tags": {"amenity": "cafe", "name": "Synthetic map reference"},
@@ -363,9 +373,9 @@ try:
     else:
         raise RuntimeError("The production WSGI server did not become ready.")
     for path, expected in (
-        ("/static/pandect/app.css", b"evidence-workspace"),
-        ("/static/pandect/app.js", b"data-evidence-upload"),
-        ("/static/pandect/icons/file-text.svg", b"<svg"),
+        ("/static/ui/app.css", b"evidence-workspace"),
+        ("/static/core/evidence.js", b"data-evidence-upload"),
+        ("/static/ui/icons/file-text.svg", b"<svg"),
         ("/accounts/login/", b"Welcome to Pandect"),
     ):
         with urlopen("http://127.0.0.1:8001" + path, timeout=5) as response:

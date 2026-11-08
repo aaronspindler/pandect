@@ -1,7 +1,6 @@
 from django.urls import path
 
 from . import views
-from .map_views import case_map, locate_map_addresses
 
 app_name = "cases"
 
@@ -9,8 +8,6 @@ urlpatterns = [
     path("", views.case_list, name="case_list"),
     path("new/", views.case_create, name="case_create"),
     path("<uuid:case_id>/", views.case_detail, name="case_detail"),
-    path("<uuid:case_id>/map/", case_map, name="case_map"),
-    path("<uuid:case_id>/map/locate/", locate_map_addresses, name="map_locate"),
     path("<uuid:case_id>/settings/", views.case_settings, name="case_settings"),
     path("<uuid:case_id>/delete/", views.case_delete, name="case_delete"),
     path(

@@ -9,7 +9,7 @@ sends evidence to the cloud automatically.
 Printed-English OCR, native document text, metadata inspection, rule-based
 identifiers, keywords, writing comparisons, conversation timing and spatial
 calculations already run locally. **Analyze evidence** keeps its existing
-deterministic/OCR batch; it does not automatically add model inference.
+deterministic/OCR batch; it does not automatically add LLM analysis or transcription.
 
 ## Current methods and limits
 

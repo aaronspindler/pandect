@@ -1,0 +1,8 @@
+{% extends 'allauth/layouts/base.html' %}
+{% block head_title %}Sign in{% endblock %}
+{% block content %}
+<p class="eyebrow">Your investigations, together</p><h1>Welcome to Pandect</h1>
+<p class="intro">Sign in to open your cases and continue your work.</p>
+<form method="post" action="{% url 'account_login' %}" class="form-panel">{% csrf_token %}{% include 'ui/components/form_fields.html' %}{{ redirect_field }}<div class="form-actions"><button class="button button-primary" type="submit">Sign in</button></div></form>
+{% if allow_signups %}<p class="account-alternative">New to Pandect? <a href="{{ signup_url }}">Create an account</a></p>{% else %}<p class="account-alternative">Account registration is currently closed. Existing users can still sign in.</p>{% endif %}
+{% endblock %}

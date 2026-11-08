@@ -25,7 +25,7 @@ new evidence, investigator-started comparisons, case reports, and analysis that
 needs a configured service. Trust explains preservation, access, and processing
 approval.
 
-The pages use `templates/marketing/` and `static/pandect/marketing.css`, sharing
+The pages use `marketing/templates/marketing/` and `marketing/static/marketing/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links
 and work without JavaScript. Responsive layouts, dark appearance, keyboard
 focus, a skip link, and forced-colors brand text follow [the design
@@ -54,8 +54,8 @@ Use the development PostgreSQL setup from [local development](development.md).
 Run the tests sequentially so they do not compete for the same test database:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.test_marketing config.tests.test_product_access --noinput
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.marketing_browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.tests.test_views config.tests.test_product_access --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.browser --noinput
 ```
 
 The browser suite uses the installed Chromium and WebKit engines, with

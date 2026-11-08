@@ -1,11 +1,13 @@
 # Vehicles
 
-`vehicles.Vehicle` is an investigator-maintained record belonging to exactly one
+`vehicle.Vehicle` is an investigator-maintained record belonging to exactly one
 `cases.Case`. Use `case.vehicles.all()` for its vehicles. Vehicle records capture
 reported details and investigative work; matching plates or VINs do not establish
 identity, ownership, or a person's association with a vehicle. Records are not
 automatically linked to people or other vehicles. Investigators can explicitly
-link reported location evidence to a same-case vehicle.
+link reported location evidence to a same-case vehicle. The `vehicle` app owns
+entity models, forms, views, templates, administration, and tests. The related
+location evidence, imports, maps, and analysis belong to `geo`.
 
 ## Investigator workflow
 
@@ -79,15 +81,15 @@ Active staff status and Django model permissions apply in addition to case acces
 
 | Operation | Case requirement | Global permission |
 | --- | --- | --- |
-| List, search, inspect, history | Owner, viewer, or editor | `vehicles.view_vehicle` or `vehicles.change_vehicle` |
-| Create | Owner or editor of the selected case | `vehicles.add_vehicle` |
-| Edit | Owner or editor | `vehicles.change_vehicle` |
-| Delete | Owner only | `vehicles.delete_vehicle` |
+| List, search, inspect, history | Owner, viewer, or editor | `vehicle.view_vehicle` or `vehicle.change_vehicle` |
+| Create | Owner or editor of the selected case | `vehicle.add_vehicle` |
+| Edit | Owner or editor | `vehicle.change_vehicle` |
+| Delete | Owner only | `vehicle.delete_vehicle` |
 
 Lists, searches, direct URLs, and submitted case choices are scoped server-side.
 Revocation and role downgrades affect subsequent requests in existing sessions.
 Superusers have no case-access bypass. Admin deletion of a case with vehicles
-also requires `vehicles.delete_vehicle` in addition to the other affected model
+also requires `vehicle.delete_vehicle` in addition to the other affected model
 permissions.
 
 Product views require an active, email-verified account and current case access;
@@ -98,12 +100,10 @@ permissions themselves.
 
 ## Migration and scope
 
-`vehicles/0001_initial` adds the vehicle table and constraints, depending on
-`cases/0002_case_interfaces`. Apply the additive migration using the
-[documented development workflow](development.md), or start the updated Compose
-image with `make run`. Existing records and migrations are unchanged; no data
-conversion, database reset, new dependency, or runtime upgrade is required.
+`vehicle` owns the vehicle table and constraints; `geo` owns vehicle-location
+evidence and CSV import tables. The app split uses the
+[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema).
+Use a new database and queue; no data conversion or runtime upgrade is included.
 
-Vehicle-location evidence and bounded CSV ingestion are implemented through the
-additive `evidence/0004_vehicle_locations` migration. Person/vehicle relationships,
-external lookups, public APIs, and analysis remain planned.
+Person/vehicle relationships, external vehicle lookups, and public APIs remain
+planned. Geographic analysis of retained vehicle locations is implemented in `geo`.

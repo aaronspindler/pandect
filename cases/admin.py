@@ -1,6 +1,7 @@
-from django.apps import apps
 from django.contrib import admin
 from django.forms.models import BaseInlineFormSet
+
+from core.evidence.types import KINDS
 
 from .models import Case, CaseMembership
 from .permissions import accessible_cases
@@ -103,7 +104,7 @@ class CaseAdmin(admin.ModelAdmin):
         )
         # Evidence denies individual deletion. An owner may still confirm the
         # entire case cascade, with the ordinary per-model delete permissions.
-        for model in apps.get_app_config("evidence").get_models():
+        for model in KINDS.values():
             opts = model._meta
             if request.user.has_perm(f"{opts.app_label}.delete_{opts.model_name}"):
                 permissions.discard(opts.verbose_name)

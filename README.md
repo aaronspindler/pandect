@@ -1,8 +1,8 @@
 # Pandect
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="static/pandect/brand/logo-ivory.png">
-  <img src="static/pandect/brand/logo-oxblood.png" alt="Pandect logo" width="432">
+  <source media="(prefers-color-scheme: dark)" srcset="ui/static/ui/brand/logo-ivory.png">
+  <img src="ui/static/ui/brand/logo-oxblood.png" alt="Pandect logo" width="432">
 </picture>
 
 Pandect is an open-source investigation and intelligence platform designed to
@@ -161,4 +161,4 @@ requests.
 
 This repository does not currently include a project-wide license file. Bundled
 third-party assets retain their own licenses; see the [icon
-license](static/pandect/icons/LICENSE).
+license](ui/static/ui/icons/LICENSE).

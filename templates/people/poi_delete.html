@@ -1,9 +1,0 @@
-{% extends "base.html" %}
-{% block title %}Delete POI · Pandect{% endblock %}
-{% block content %}
-<div class="form-layout">
-<p class="breadcrumb"><a href="{% url 'people:poi_detail' case.pk poi.pk %}">Back to POI</a></p>
-<div class="page-header"><div><p class="eyebrow">{{ case }}</p><h1>Delete {{ poi }}?</h1><p>This permanently removes this POI, its coordinates, and notes. There is no in-app undo. The person and retained evidence are unchanged.</p></div></div>
-<form method="post">{% csrf_token %}{% include "components/form_fields.html" with form=form %}<div class="form-actions"><a class="button button-secondary" href="{% url 'people:poi_detail' case.pk poi.pk %}">Cancel</a><button class="button button-danger" type="submit">Permanently delete POI</button></div></form>
-</div>
-{% endblock %}

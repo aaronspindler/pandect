@@ -119,28 +119,28 @@
     "source": "Approved final PNG artwork; proportional downsampling only. Square browser and touch icons place the original symbol on an ivory background.",
     "assets": [
       {
-        "path": "static/pandect/brand/apple-touch-icon.png",
+        "path": "ui/static/ui/brand/apple-touch-icon.png",
         "width": 180,
         "height": 180,
         "bytes": 7607,
         "sha256": "a1034ada2235db711a5ae0c68b220c9746de452f29fe55f78ae9a4c1ad203f53"
       },
       {
-        "path": "static/pandect/brand/favicon.png",
+        "path": "ui/static/ui/brand/favicon.png",
         "width": 32,
         "height": 32,
         "bytes": 1044,
         "sha256": "721156d42b4415cd0b9ae7c55f5e8413da10d312e48ab2eaa977824dc10c0680"
       },
       {
-        "path": "static/pandect/brand/logo-ivory.png",
+        "path": "ui/static/ui/brand/logo-ivory.png",
         "width": 432,
         "height": 170,
         "bytes": 29964,
         "sha256": "7ccfddad8e9a64a39f13cc57bb737ac3cd4d945bfe6ad34b6e627ec2365e9dae"
       },
       {
-        "path": "static/pandect/brand/logo-oxblood.png",
+        "path": "ui/static/ui/brand/logo-oxblood.png",
         "width": 432,
         "height": 170,
         "bytes": 26874,

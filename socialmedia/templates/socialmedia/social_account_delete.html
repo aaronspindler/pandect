@@ -1,0 +1,24 @@
+{% extends "ui/base.html" %}
+{% block title %}Remove social account · Pandect{% endblock %}
+{% block content %}
+<div class="form-layout">
+  <p class="breadcrumb"><a href="{{ return_url }}">Back to person</a></p>
+  <div class="page-header"><div>
+    <h1>Remove social account?</h1>
+    <p>This permanently removes the reported account from the person record.</p>
+  </div></div>
+  {% if stale %}<p class="notice" role="alert">Review the current account details and confirm removal again.</p>{% endif %}
+  <dl class="metadata-grid">
+    <div><dt>Person</dt><dd>{{ person }}</dd></div>
+    <div><dt>Platform</dt><dd>{{ account.platform }}</dd></div>
+    <div><dt>Username</dt><dd>{{ account.username }}</dd></div>
+  </dl>
+  <form method="post" class="form-layout">
+    {% csrf_token %}{% include "ui/components/form_fields.html" with form=form %}
+    <div class="form-actions">
+      <a class="button button-secondary" href="{{ return_url }}">Cancel</a>
+      <button class="button button-danger" type="submit">Remove social account</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

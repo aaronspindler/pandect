@@ -1,0 +1,86 @@
+"""Synthetic in-memory input fixtures shared by processing regression suites."""
+
+import hashlib
+import io
+import struct
+import wave
+from types import SimpleNamespace
+from uuid import uuid4
+
+from PIL import Image, ImageDraw, PngImagePlugin
+
+from core.analysis.sources import Source
+
+
+class ByteStorage:
+    def __init__(self, content):
+        self.content = content
+
+    def open(self, name, mode="rb"):
+        return io.BytesIO(self.content)
+
+
+def file_source(content, kind="document", **values):
+    item = SimpleNamespace(
+        pk=uuid4(),
+        case_id=uuid4(),
+        title="Synthetic retained source",
+        file=SimpleNamespace(name="fixture", storage=ByteStorage(content)),
+        byte_size=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+        **values,
+    )
+    return Source(str(uuid4()), kind, item)
+
+
+def image_bytes(*, exif=False, xmp=None, rotate=False):
+    image = Image.new("RGB", (120, 80), "white")
+    ImageDraw.Draw(image).text((5, 20), "Synthetic receipt", fill="black")
+    if rotate:
+        image = image.rotate(90, expand=True)
+    buffer = io.BytesIO()
+    if exif:
+        tags = Image.Exif()
+        tags[271] = "Synthetic camera"
+        tags[306] = "2026:10:27 12:34:56"
+        tags[274] = 6
+        image.save(buffer, format="JPEG", exif=tags)
+    else:
+        metadata = PngImagePlugin.PngInfo()
+        if xmp is not None:
+            metadata.add_itxt("XML:com.adobe.xmp", xmp)
+        image.save(buffer, format="PNG", pnginfo=metadata)
+    return buffer.getvalue()
+
+
+def wav_bytes(seconds=1, value=200, *, channels=1, rate=8000):
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as recording:
+        recording.setnchannels(channels)
+        recording.setsampwidth(2)
+        recording.setframerate(rate)
+        recording.writeframes(struct.pack("<h", value) * int(rate * seconds) * channels)
+    return buffer.getvalue()
+
+
+def preview_image_bytes():
+    stream = io.BytesIO()
+    image = Image.new("RGB", (80, 60), "white")
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_text("Comment", "Synthetic original metadata")
+    image.save(stream, format="PNG", pnginfo=metadata)
+    return stream.getvalue()
+
+
+def local_ocr_response(
+    *, text="Synthetic extraction phrase", status="complete", content=None
+):
+    from core.parsers import run_parser
+
+    return run_parser("image_preview", content or preview_image_bytes()) | {
+        "engine": "tesseract synthetic-test",
+        "status": status,
+        "regions": [
+            {"text": text, "bbox": [0.1, 0.2, 0.8, 0.6], "order": 0, "confidence": 95}
+        ],
+    }

@@ -1,0 +1,18 @@
+{% extends "ui/base.html" %}
+{% block title %}Case invitation{% endblock %}
+{% block content %}
+<div class="form-panel">
+<p class="eyebrow">You are invited</p>
+<h1>Join {{ invitation.case.name }}</h1>
+<p>{{ invitation.invited_by.get_username }} invited you with <strong>{{ invitation.get_role_display }}</strong> access.</p>
+<p class="muted">
+{% if invitation.role == 'editor' %}You can inspect/download case material, add and edit people, vehicles, and evidence, and archive/restore evidence.{% else %}You can inspect case material and download original evidence.{% endif %} Ownership remains with the case owner.</p>
+<form method="post">
+{% csrf_token %}
+<div class="form-actions">
+<button class="button button-primary" type="submit">Accept invitation</button>
+<a class="button" href="{% url 'cases:case_list' %}">Not now</a>
+</div>
+</form>
+</div>
+{% endblock %}

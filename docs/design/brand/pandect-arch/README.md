@@ -27,7 +27,7 @@ Treat the image as decorative when adjacent accessible text already names Pandec
 ## Website integration
 
 The shared application header and case sidebar render optimized 432-pixel-wide
-logo variants from `static/pandect/brand/`, with the ivory image selected by the
+logo variants from `ui/static/ui/brand/`, with the ivory image selected by the
 browser's dark-mode preference. The linked artwork has the accessible name
 Pandect; forced-colors mode displays readable system-font text. Browser and
 Apple touch icons use the arch symbol on ivory at 32 and 180 pixels respectively.

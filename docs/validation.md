@@ -135,7 +135,7 @@ uv run --locked --env-file .env make browser-check
 
 On Linux, install browser OS dependencies as required by Playwright (CI uses
 `playwright install --with-deps chromium webkit`). `make browser-check` runs
-`python manage.py test --settings=config.test_settings config.tests.browser config.marketing_browser analysis.browser analysis.context_browser cases.map_browser --noinput`; it is
+`python manage.py test --settings=config.test_settings config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser geo.map_browser --noinput`; it is
 separate from the ordinary
 unit suite. Browser fixtures use synthetic accounts/material and temporary
 private file storage. Never run competing Django test processes against the same
@@ -202,7 +202,7 @@ access, CSRF, stale edits, confirmed deletion and person/case cascades. Map test
 cover private HTML/JSON, escaped labels, bounded independent POI pagination,
 shared search, polar positions, and changed asynchronous snapshots.
 
-`cases.map_browser` (included in `make browser-check`) exercises pointer-prefilled
+`geo.map_browser` (included in `make browser-check`) exercises pointer-prefilled
 creation, keyboard selection and saving, validation recovery, custom-label edits,
 and no-JavaScript person-linked creation/deletion in Chromium and WebKit.
 Synthetic captures in `data/validation/maps` include POI forms and maps at the
@@ -218,7 +218,7 @@ malformed/active content, byte/pixel bounds, and safe failures. Run the focused
 checks with:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings evidence.tests.test_previews --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings image.tests.test_previews --noinput
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
 ```
 
@@ -235,11 +235,23 @@ conversation, and location calculations:
 
 ```sh
 uv run --locked --env-file .env make check
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings analysis.browser --noinput
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings analysis.context_browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.browser --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.context_browser --noinput
 make compose-smoke
 make security-check
 ```
+
+Processing unit tests live with their domain apps; shared execution, access,
+publication, and result integration tests remain in `core.analysis.tests`.
+For a focused parser check, run:
+
+```sh
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_parser_dispatch document.tests.test_analysis image.tests.test_analysis image.tests.test_ocr audio.tests.test_analysis geo.tests.test_geographic_context --noinput
+```
+
+These checks exercise real isolated parser dispatch, imports without Django,
+native document extraction, image metadata/previews/OCR, audio decoding, and
+geographic conversion. Inference calls remain mocked in ordinary tests.
 
 The focused analysis browser suite is also included in `make browser-check` and
 uses Chromium and WebKit with synthetic
@@ -286,7 +298,7 @@ Whisper or Qwen weights. Run their focused checks independently with:
 
 ```sh
 uv run --locked python -m unittest inference.test_server
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings analysis.tests.test_local_inference config.tests.test_settings --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_local_inference config.tests.test_settings --noinput
 ```
 
 Optional runtime build validation is

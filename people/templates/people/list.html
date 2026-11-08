@@ -1,0 +1,33 @@
+{% extends "ui/base.html" %}
+{% block title %}People · {{ case }} · Pandect{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>People</h1></div>
+  {% if can_edit and page_obj.object_list or can_edit and query %}<a class="button button-primary" href="{% url 'people:create' case_id=case.pk %}">Add person</a>{% endif %}
+</div>
+<form class="search-form" method="get" role="search" aria-label="Search people">
+  <label for="people-search">Search people</label>
+  <div class="actions"><input id="people-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Name, contact, or username"><button class="button button-secondary" type="submit">Search</button>{% if query %}<a class="button button-secondary" href="{% url 'people:list' case_id=case.pk %}">Clear filters</a>{% endif %}</div>
+</form>
+{% if page_obj.object_list %}
+<p class="result-count secondary">{{ page_obj.paginator.count }} person record{{ page_obj.paginator.count|pluralize }}</p>
+<div class="table-wrap"><table class="record-table">
+  <caption class="visually-hidden">People in {{ case }}</caption>
+  <thead><tr><th scope="col">Person</th><th scope="col">Email</th><th scope="col">Phone</th></tr></thead>
+  <tbody>{% for person in page_obj %}<tr>
+    <td><a class="record-link" href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ person }}</a></td>
+    <td{% if not person.email %} class="empty-metadata"{% endif %}>{{ person.email|default:"—" }}</td><td{% if not person.phone_number %} class="empty-metadata"{% endif %}>{{ person.phone_number|default:"—" }}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% if page_obj.has_other_pages %}<nav class="pagination" aria-label="People pages">
+  {% if page_obj.has_previous %}<a class="button button-secondary" href="?{% if search_query %}{{ search_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}<a class="button button-secondary" href="?{% if search_query %}{{ search_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+</nav>{% endif %}
+{% else %}
+<section class="empty-state"><h2>{% if query %}No matching people{% else %}Keep the people in this case together{% endif %}</h2>
+  <p>{% if query %}Try another name, contact detail, platform, or username.{% else %}Add the names and contact details you encounter. Partial details are enough to start.{% endif %}</p>
+  {% if query %}<a class="button button-secondary" href="{% url 'people:list' case_id=case.pk %}">Clear filters</a>{% elif can_edit %}<a class="button button-primary" href="{% url 'people:create' case_id=case.pk %}">Add person</a>{% else %}<p class="secondary">You have viewer access. The owner or an editor can add people.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}
