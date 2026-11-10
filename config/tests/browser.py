@@ -231,7 +231,8 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             drawing.rectangle((820, 440, 1180, 470), fill="#dcc8a6")
             drawing.line((900, 390, 900, 580), fill="#655449", width=12)
             drawing.line((1100, 390, 1100, 580), fill="#655449", width=12)
-            image.save(buffer, format="PNG")
+            with Image.new("RGB", (32, 24), "gray") as auxiliary:
+                image.save(buffer, format="MPO", append_images=[auxiliary])
         original = buffer.getvalue()
         retained = ImageEvidence.objects.create(
             case=self.case,
@@ -239,7 +240,9 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
             title="Synthetic harbour photograph",
             source="Synthetic interface fixture",
             description="Illustration used to validate the image evidence preview.",
-            file=SimpleUploadedFile("harbour.png", original, content_type="image/png"),
+            file=SimpleUploadedFile(
+                "harbour.jpeg", original, content_type="image/jpeg"
+            ),
         )
         unavailable = ImageEvidence.objects.create(
             case=self.case,

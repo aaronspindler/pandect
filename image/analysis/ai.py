@@ -16,6 +16,7 @@ def ocr(sources, parameters, *, authorize):
     preview_bytes = omitted_previews = 0
     preview_limit_reached = False
     unsupported = partial = 0
+    recognized_regions = no_text = 0
     total_text = 0
     if parameters.get("mode", "printed") != "printed":
         return output(
@@ -77,9 +78,20 @@ def ocr(sources, parameters, *, authorize):
             preview_limit_reached = True
             omitted_previews += 1
         status = result["status"]
-        source_partial = status in {"partial", "unreadable"}
+        image_count = prepared.get("image_count", 1)
+        if image_count > 1:
+            warnings.append(
+                f"Only the primary image of {source.item.title} was read; "
+                f"{image_count - 1} additional embedded images were not analyzed. "
+                "OCR regions and the preview refer to the primary image."
+            )
         regions = sorted(result["regions"], key=lambda x: x["order"])
+        recognized_regions += len(regions)
+        source_partial = (
+            status in {"partial", "unreadable"} or image_count > 1 or not regions
+        )
         if not regions:
+            no_text += 1
             items.append(
                 _item(
                     source,
@@ -137,6 +149,12 @@ def ocr(sources, parameters, *, authorize):
         "Regions use the original unrotated pixel coordinate space. The private "
         "preview is the resized, metadata-free JPEG used for recognition."
     )
+    if no_text:
+        noun = "image" if no_text == 1 else "images"
+        warnings.append(
+            f"No text was recognized in {no_text} supported {noun}. Small or "
+            "angled text in photographs may be missed; inspect the originals."
+        )
     if omitted_previews:
         warnings.append(
             f"{omitted_previews} prepared image previews were omitted because "
@@ -144,19 +162,29 @@ def ocr(sources, parameters, *, authorize):
             "region coordinates remain available; download the retained "
             "originals to inspect those regions."
         )
+    supported = len(sources) - unsupported
     outcome = (
         "partial"
-        if partial or (unsupported and total_text)
+        if partial or (unsupported and supported)
         else "unsupported"
         if unsupported
         else "complete"
     )
+    if recognized_regions:
+        noun = "region" if recognized_regions == 1 else "regions"
+        summary = f"Recognized {recognized_regions} source-linked text {noun}."
+    elif supported:
+        summary = "No text recognized. Inspect the original images."
+    else:
+        summary = "No supported images could be read."
     result = output(
-        f"Produced {len(items)} source-linked OCR findings.",
+        summary,
         items=items,
         metrics={
             "Selected sources": len(sources),
             "Unsupported inputs": unsupported,
+            "Recognized text regions": recognized_regions,
+            "Images with no recognized text": no_text,
             "Partial/unreadable inputs": partial,
             "UTF-8 text bytes": total_text,
             "OCR profile": "Printed English (local)",

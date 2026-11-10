@@ -14,6 +14,7 @@ from geo.analysis.deterministic import locations
 from geo.analysis.external import geocoding, geographic_context
 from image.analysis import ai as image_ai
 from image.analysis import metadata as image_metadata
+from image.analysis.plates import plate_ocr
 from phone.analysis import ai as phone_ai
 from phone.analysis import workflows as phone_workflows
 from phone.analysis.deterministic import conversations
@@ -34,6 +35,11 @@ class Operation:
 
 TEXT = ("text", "text-message", "document", "image", "audio", "phone-call", "facetime")
 INPUT_GUIDANCE = {
+    "plate_ocr": (
+        "One retained JPEG or PNG image. Local geometric detection searches for "
+        "possible plates and reads their central text line. Misses and false "
+        "candidates are possible; review every reading against the original."
+    ),
     "native_text": (
         "UTF-8 text or unencrypted native-text PDF, up to 16 MiB. Scanned PDF "
         "pages require separate page-image OCR; office formats are "
@@ -77,7 +83,7 @@ OPERATIONS = {
         "Extract document text", documents.native_text, ("document",)
     ),
     "image_metadata": Operation(
-        "Inspect image metadata", image_metadata.image_metadata, ("image",)
+        "Inspect image metadata", image_metadata.image_metadata, ("image",), version="3"
     ),
     "audio_metadata": Operation(
         "Inspect audio metadata",
@@ -85,8 +91,9 @@ OPERATIONS = {
         ("audio", "phone-call", "facetime"),
     ),
     "ocr": Operation(
-        "Read text in images", image_ai.ocr, ("image", "document"), version="3"
+        "Read text in images", image_ai.ocr, ("image", "document"), version="5"
     ),
+    "plate_ocr": Operation("Find vehicle plates", plate_ocr, ("image",)),
     "transcription": Operation(
         "Transcribe recordings",
         audio_ai.transcription,

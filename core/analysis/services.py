@@ -533,6 +533,7 @@ def process_run(run_id):
         if run.operation in {
             "transcription",
             "ocr",
+            "plate_ocr",
             "geocode_locations",
             "geographic_context",
         }:
@@ -580,10 +581,21 @@ def process_run(run_id):
             )
             totals = {kind: 0 for kind in AnalysisArtifact.Kind.values}
             reference_keys = set()
+            prepared_findings = set()
             source_ids = {str(s.id) for s in sources}
             for payload in artifacts:
                 raw, values = decode_artifact(payload, source_ids)
                 kind = values["kind"]
+                finding_index = values.get("metadata", {}).get("finding_index")
+                if finding_index is not None:
+                    if (
+                        finding_index >= len(data.get("items", []))
+                        or values["source_id"]
+                        not in data["items"][finding_index]["source_ids"]
+                        or finding_index in prepared_findings
+                    ):
+                        raise AnalysisError("invalid_artifact")
+                    prepared_findings.add(finding_index)
                 totals[kind] += len(raw)
                 reference = kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
                 limit = (
@@ -606,7 +618,7 @@ def process_run(run_id):
                 artifact.file.save(filename, ContentFile(raw), save=False)
                 stored_files.append((artifact.file.storage, artifact.file.name))
                 artifact.save()
-            if run.operation in {"native_text", "ocr", "transcription"}:
+            if run.operation in {"native_text", "ocr", "plate_ocr", "transcription"}:
                 for item_index, item in enumerate(data.get("items", [])):
                     if not item.get("text"):
                         continue

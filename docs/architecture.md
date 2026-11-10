@@ -34,6 +34,11 @@ architectures. uv's required version, mise version, Docker stage, and workflow
 version must also agree. Docker disables Python downloads: an incompatible base
 fails immediately rather than installing a second interpreter into the image.
 
+Headless OpenCV supplies the bounded geometric plate-region detector; it uses the
+existing NumPy dependency and adds no GUI, trained model or network service. Its
+native processing runs only in the isolated file parser, with one OpenCV thread
+and OpenCL disabled. See [plate extraction](analysis-extraction.md#vehicle-plate-candidates).
+
 The Docker image installs locked Python dependencies plus distribution-packaged
 Tesseract and English OCR data, runs as an
 unprivileged user, and defaults to `gunicorn config.wsgi:application`. Its build
@@ -77,6 +82,9 @@ adds domain-level authorization, immutable results, progress, and recovery. See
   management and the unified workspace, plus durable analysis runs, results,
   reviews, artifacts, source resolution, inference adapters, and job orchestration.
   `core.evidence` and `core.analysis` are focused Python packages, not Django apps.
+  Core also owns the synthetic worker probe, the bounded `check_task_worker`
+  diagnostic, and the safeguard disabling global queue administration because
+  operational task records have no case authorization.
 - `text/`, `image/`, `audio/`, and `document/` own their concrete evidence models,
   forms, reader templates, administration, processing, and tests.
 - `geo/` owns location/person-location/vehicle-location evidence, points of
@@ -90,9 +98,6 @@ adds domain-level authorization, immutable results, progress, and recovery. See
   design primitives and brand assets with `ui/`, which owns the product shell,
   shared controls, and error templates. Every template and static asset lives in
   its owning app; template `DIRS` and `STATICFILES_DIRS` are empty.
-- `background/` supplies a synthetic worker probe and a bounded operator diagnostic
-  command. It has no domain models or product routes. The queue's globally visible
-  upstream admin is disabled because task records have no case authorization.
 
 Use `get_user_model()` or `settings.AUTH_USER_MODEL` in future applications.
 Allauth does not implement case invitations or authorization.

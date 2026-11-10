@@ -7,7 +7,7 @@ from django.tasks import TaskResultStatus
 from django.tasks.exceptions import TaskResultDoesNotExist
 from django_tasks_db import DatabaseBackend
 
-from background.tasks import worker_probe
+from core.tasks import worker_probe
 
 
 class Command(BaseCommand):

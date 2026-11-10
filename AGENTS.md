@@ -254,7 +254,9 @@ durable project requirements change.
 
 Keep Django apps at the repository root. `core` owns shared evidence foundations,
 case-scoped evidence management, analysis lifecycle/orchestration, and inference
-integration. `core.evidence` and `core.analysis` are Python subpackages of that
+integration. Core also owns worker diagnostics and the safeguard that disables
+global queue administration; operational task records have no case authorization.
+`core.evidence` and `core.analysis` are Python subpackages of that
 single app. Concrete models, forms, specialized views, processors, templates,
 assets, and tests belong to `text`, `image`, `audio`, `document`, `geo`, `phone`,
 `people`, `vehicle`, or `socialmedia`. `video` is a placeholder, not an implemented

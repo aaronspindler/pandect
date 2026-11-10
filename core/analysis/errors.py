@@ -8,6 +8,11 @@ class AnalysisError(Exception):
 
 
 ERROR_MESSAGES = {
+    "plate_image_required": "Choose one original JPEG or PNG image for plate search.",
+    "plate_detector_unavailable": (
+        "Local plate detection is unavailable. Ask the operator to sync the "
+        "locked dependencies or rebuild the application and worker images."
+    ),
     "execution_changed": (
         "Processing settings changed after this run was queued. Ask the operator "
         "to check the selected service and model, then start another run to "

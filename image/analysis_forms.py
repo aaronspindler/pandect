@@ -17,7 +17,7 @@ class ImageAnalysisForm(BaseAnalysisForm):
         ),
     )
 
-    operation_fields = {"ocr": ("mode",)}
+    operation_fields = {"ocr": ("mode",), "plate_ocr": ()}
     field_order = [
         "mode",
         "backend",
@@ -30,3 +30,9 @@ class ImageAnalysisForm(BaseAnalysisForm):
     def parameter_values(self):
         mode = self.cleaned_data.get("mode")
         return {"mode": mode} if mode not in (None, "") else {}
+
+    def clean(self):
+        data = super().clean()
+        if self.operation_name == "plate_ocr" and len(data.get("sources", [])) != 1:
+            self.add_error("sources", "Choose one original image for plate search.")
+        return data

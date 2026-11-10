@@ -12,7 +12,7 @@ from core.parsers import read_source, run_parser
 
 def image_metadata(sources, parameters):
     items, warnings = [], []
-    supported = 0
+    supported = partial = 0
     retained_metadata_bytes = 0
     for source in sources:
         if source.kind != "image":
@@ -42,6 +42,15 @@ def image_metadata(sources, parameters):
             "Capture time candidate": parsed.get("capture_time_candidate") or "Unknown",
             "GPS candidate": parsed.get("gps_candidate") or "Unknown",
         }
+        image_count = parsed.get("image_count", 1)
+        if image_count > 1:
+            partial += 1
+            values["Embedded images"] = image_count
+            values["Inspected image"] = f"Primary image (1 of {image_count})"
+            warnings.append(
+                f"Only the primary image of {source.item.title} was inspected; "
+                f"{image_count - 1} additional embedded images were not analyzed."
+            )
         for field in ("width", "height"):
             supplied = getattr(source.item, field, None)
             values[f"Supplied {field}"] = (
@@ -71,7 +80,16 @@ def image_metadata(sources, parameters):
                 )
         if parsed.get("xmp_fields"):
             items.append(
-                _item(source, "Interpreted XMP attributes", values=parsed["xmp_fields"])
+                _item(
+                    source,
+                    "Interpreted XMP attributes",
+                    values=parsed["xmp_fields"]
+                    | {
+                        "Trailing XMP NUL bytes ignored for interpretation": parsed.get(
+                            "xmp_trailing_nuls", 0
+                        )
+                    },
+                )
             )
         if parsed.get("xmp_warning"):
             warnings.append(parsed["xmp_warning"])
@@ -86,7 +104,7 @@ def image_metadata(sources, parameters):
         metrics={"Supported images": supported, "Selected sources": len(sources)},
         warnings=warnings,
         outcome="complete"
-        if supported == len(sources)
+        if supported == len(sources) and not partial
         else "partial"
         if supported
         else "unsupported",

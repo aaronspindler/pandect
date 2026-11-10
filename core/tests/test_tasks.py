@@ -15,10 +15,10 @@ from django.urls import NoReverseMatch, reverse
 from django_tasks_db.management.commands.db_worker import Command as WorkerCommand
 from django_tasks_db.models import DBTaskResult
 
-from background.tasks import worker_probe
 from cases.models import Case
+from core.tasks import worker_probe
 
-COMMAND = "background.management.commands.check_task_worker"
+COMMAND = "core.management.commands.check_task_worker"
 WORKER = "django_tasks_db.management.commands.db_worker"
 
 
@@ -49,6 +49,7 @@ class QueueTests(TransactionTestCase):
         result = worker_probe.enqueue("synthetic-nonce")
         self.assertEqual(result.status, TaskResultStatus.READY)
         stored = DBTaskResult.objects.get(pk=result.id)
+        self.assertEqual(stored.task_path, "core.tasks.worker_probe")
         self.assertIsInstance(stored.pk, UUID)
         self.assertEqual(stored.pk.version, 4)
         self.assertIsNone(stored.started_at)

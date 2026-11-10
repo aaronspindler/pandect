@@ -21,22 +21,22 @@ from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests import browser as core_browser
-from core.analysis.services import process_run
+from core.analysis.services import process_run, start_run
 from core.models import AnalysisRun
 from geo.models import LocationEvidence
 from image.models import ImageEvidence
 
 
 def synthetic_page():
-    image = Image.new("RGB", (640, 240), "white")
+    image = Image.new("RGB", (8064, 6048), "white")
     ImageDraw.Draw(image).text(
-        (30, 60),
+        (400, 800),
         "Synthetic printed pickup 07:30",
-        font=ImageFont.load_default(size=32),
+        font=ImageFont.load_default(size=400),
         fill="black",
     )
     content = io.BytesIO()
-    image.save(content, format="PNG")
+    image.save(content, format="JPEG", progressive=True)
     return content.getvalue()
 
 
@@ -101,6 +101,7 @@ def synthetic_reference():
     PANDECT_MAP_CONTEXT_VERSION="synthetic-reference-1",
     PANDECT_MAP_CONTEXT_ATTRIBUTION="Synthetic fixtures, CC0",
     PANDECT_MAP_CONTEXT_USER_AGENT="Pandect browser fixture",
+    PANDECT_MAP_CONTEXT_LOCAL=False,
     PANDECT_MAP_CONTEXT_TIMEOUT=10,
     PANDECT_MAP_CONTEXT_HISTORY_START="2012-01-01",
 )
@@ -155,7 +156,7 @@ class ContextBrowserTests(StaticLiveServerTestCase):
             case=self.case,
             uploaded_by=self.owner,
             title="Synthetic OCR page",
-            file=ContentFile(self.image_bytes, name="synthetic-page.png"),
+            file=ContentFile(self.image_bytes, name="synthetic-page.jpeg"),
         )
         self.locations = [
             LocationEvidence.objects.create(
@@ -261,6 +262,81 @@ class ContextBrowserTests(StaticLiveServerTestCase):
         page.emulate_media(forced_colors="none", reduced_motion="no-preference")
         page.set_viewport_size({"width": 1440, "height": 900})
 
+    def test_unrecognized_image_and_nul_terminated_xmp_results(self):
+        stream = io.BytesIO()
+        xmp = (
+            '<x xmlns:claim="https://example.test/claims" '
+            'claim:Software="Synthetic camera"/>\x00'
+        )
+        with (
+            Image.new("RGB", (400, 300), "white") as primary,
+            Image.new("RGB", (32, 24), "gray") as auxiliary,
+        ):
+            primary.save(
+                stream, format="MPO", append_images=[auxiliary], xmp=xmp.encode()
+            )
+        source = ImageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic image without recognized text",
+            file=ContentFile(stream.getvalue(), name="synthetic-camera.jpeg"),
+        )
+        runs = {}
+        for operation in ("ocr", "image_metadata"):
+            run, _ = start_run(
+                self.owner,
+                self.case.pk,
+                operation,
+                [{"kind": "image", "id": str(source.pk)}],
+            )
+            process_run(run.pk)
+            run.refresh_from_db()
+            self.assertEqual(run.status, "partial", run.error_code)
+            runs[operation] = run.pk
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(
+                    self.url(
+                        "core:analysis:detail", case_id=self.case.pk, run_id=runs["ocr"]
+                    )
+                )
+                expect(
+                    page.get_by_role(
+                        "heading",
+                        name="No text recognized. Inspect the original images.",
+                        exact=True,
+                    )
+                ).to_be_visible()
+                summary = page.locator("summary").filter(has_text="Processing summary")
+                summary.focus()
+                expect(summary).to_be_focused()
+                summary.press("Space")
+                metric = page.locator(".analysis-measurements > div").filter(
+                    has=page.locator("dt", has_text="Recognized text regions")
+                )
+                expect(metric.locator("dd")).to_have_text("0")
+                self._capture_layouts(page, engine, "local-ocr-no-text")
+                page.goto(
+                    self.url(
+                        "core:analysis:detail",
+                        case_id=self.case.pk,
+                        run_id=runs["image_metadata"],
+                    )
+                )
+                expect(page.get_by_text("Malformed XMP", exact=False)).to_have_count(0)
+                page.get_by_role(
+                    "link", name=re.compile(r"^Interpreted XMP attributes")
+                ).click()
+                expect(
+                    page.get_by_role("heading", name="Interpreted XMP attributes")
+                ).to_be_visible()
+                self._capture_layouts(page, engine, "image-nul-xmp")
+        self.gateway_request.assert_not_called()
+
     def test_local_printed_ocr_regions_search_and_private_original(
         self,
     ):
@@ -296,11 +372,22 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                 ).to_be_visible()
                 expect(
                     page.get_by_text(
+                        "OCR can miss text. Compare candidates with the original.",
+                        exact=True,
+                    )
+                ).to_be_visible()
+                limits = page.locator("summary").filter(
+                    has_text=re.compile(r"^Limitations$")
+                )
+                limits.press("Enter")
+                expect(
+                    page.get_by_text(
                         "Printed English OCR runs locally; no image is sent "
                         "to an external service.",
                         exact=False,
                     )
                 ).to_be_visible()
+                limits.press("Enter")
                 preview = finding.locator("svg image")
                 expect(preview).to_have_count(1)
                 preview_url = urljoin(page.url, preview.get_attribute("href"))
@@ -340,7 +427,7 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                             AnalysisRun.objects.get(pk=identifier).method_version
                         )
                     ),
-                    "3",
+                    "5",
                 )
         self.gateway_request.assert_not_called()
         self.map_lookup.assert_not_called()
@@ -398,23 +485,21 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                     "Synthetic quarter",
                 ):
                     expect(
-                        page.get_by_role(
-                            "heading", name=re.compile(re.escape(name))
-                        ).first
+                        page.get_by_role("link", name=re.compile(re.escape(name))).first
                     ).to_be_visible()
-                for summary in page.locator(".finding-measurements > summary").all():
-                    summary.click()
+                for feature, relation in (
+                    ("Synthetic building", "Inside retrieved polygon"),
+                    ("Synthetic quarter", "Nearby map label; no boundary supplied"),
+                ):
+                    page.locator(".analysis-finding-link").filter(
+                        has_text=feature
+                    ).first.click()
+                    expect(page.get_by_text(relation, exact=True)).to_be_visible()
+                page.locator(".finding-measurements > summary").click()
+                references.press("Enter")
                 page.locator("summary").filter(
                     has_text=re.compile(r"^Processing summary$")
                 ).click()
-                expect(
-                    page.get_by_text("Inside retrieved polygon", exact=True).first
-                ).to_be_visible()
-                expect(
-                    page.get_by_text(
-                        "Nearby map label; no boundary supplied", exact=True
-                    ).first
-                ).to_be_visible()
                 expect(
                     page.get_by_text("Historical map snapshot", exact=True).first
                 ).to_be_visible()

@@ -27,6 +27,7 @@ PARSER_MODULES = {
     "document": "document.parsers",
     "image": "image.parsers",
     "ocr": "image.analysis.ai_parser",
+    "plate_ocr": "image.analysis.plate_parser",
     "image_preview": "image.parsers",
     "audio": "audio.parsers",
     "audio_chunk": "audio.parsers",

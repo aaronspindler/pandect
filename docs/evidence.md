@@ -86,8 +86,10 @@ screens keep the record list beside the selected original/details; smaller
 screens use the same canonical detail pages and browser navigation. Text
 originals are shown as escaped read-only text. Image evidence shows a resized
 preview in the Original tab, including for archived images. Previews support
-single-frame JPEG and PNG files up to 16 MiB and 25 million pixels. They are
-decoded in the existing resource-bounded child process, respect EXIF orientation,
+JPEG (`.jpg` and `.jpeg`) and single-frame PNG files up to 16 MiB and 50 million
+pixels, including 48 MP iPhone RAW exports saved as JPEG. Multi-picture JPEGs
+display only the primary image; auxiliary pictures are retained in the original.
+Previews are decoded in the existing resource-bounded child process, respect EXIF orientation,
 flatten transparency onto white, and are re-encoded as JPEGs up to 2048 pixels per
 side with embedded source metadata removed. The retained file and checksum are
 unchanged. Unsupported, corrupt, oversized, changed, or unavailable files keep the

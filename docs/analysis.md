@@ -48,7 +48,8 @@ Earlier results and reviews remain unchanged.
 
 Adding evidence through the investigator's single-item or bulk upload queues
 applicable local checks in the background. These checks cover native document
-text extraction, image metadata and printed-English OCR, audio metadata,
+text extraction, image metadata, printed-English OCR and possible vehicle-plate
+search, audio metadata,
 identifiers, dates and keywords in available text, and location quality with
 string normalization when a recorded address is present. A new call transcript
 or recording is processed independently of earlier additions. Text checks after
@@ -86,31 +87,40 @@ assumptions before starting an investigation workflow.
 Only the selected operation's settings are validated and saved. Operations without
 optional assumptions do not show an empty assumptions section. Report forms load
 only the people or vehicle choices applicable to that report. **Report filters**
-starts collapsed for the default selection, leaving results visible first; it opens
-when filters are applied or a submitted selection needs correction. Finding reviews
-return to the reviewed finding, including its results page; invalid reviews retain
-the entered decision and comment for correction. PostgreSQL selects the latest
-review for each visible finding; the full review history remains retained and
-available on the run page.
+starts collapsed for the default selection, leaving results visible first. It opens
+when filters are applied or a submitted selection needs correction. Report rows use
+**Measurements**, and report metrics open under **Report summary**.
 
-Run pages keep the result summary, warnings, finding text, source links and latest
-finding and overall result reviews visible. A finding review does not replace an
-overall result review; without one the overall result stays unresolved. Supporting
-finding values are in **Measurements and context**; report rows use **Measurements**.
-Run totals and report metrics open under **Processing summary** and **Report
-summary**. The result summaries, selected counts and warnings remain visible.
-**Retained map references**,
-**Review history**, **Review this result**, and **Selected sources and method**
-open on request. The history count includes both overall and finding reviews.
-Requester attribution and the exact request time are in **Selected sources and
-method**; the result header keeps a compact date, status and download link.
-These native disclosures work with a keyboard and without
-JavaScript. Review decisions and provenance remain retained even while collapsed.
-The recent-run lists show a compact date and status; requester and processing
-details are available on the run page.
+## Inspecting run results
+
+Select a row in **Findings** to inspect its output and source. On wide screens the
+paginated list stays beside the selected finding. On narrower screens, open a
+finding and use **Back to findings** to return to its page. A run with one finding
+opens it directly. Rows show the finding value where available, the latest review
+state, and a low OCR engine score notice when applicable.
+
+The selected finding keeps available source links and exact anchors alongside the
+output. The detail can include a marked region in the retained image preview or a
+recording with the cited time interval. Derived inputs link to their exact retained
+extraction and to the original. Supporting values open under **Measurements and
+context**.
+
+The processing outcome, count of findings with recorded reviews, and overall
+result review are separate. **Awaiting review** means there is no recorded decision
+at that scope. **Unresolved** is a decision a reviewer can record. Owners and editors
+can review the selected finding. Geocode reviews apply to individual candidates.
+Viewers can inspect output, sources and reviews. Saving returns to the same finding.
+If validation fails, the entered decision and reason stay available for correction.
+
+Open **Limitations** for the full result warnings and **Review history** for recorded
+finding and overall decisions. **Run details** groups processing totals, selected
+inputs, method and requester attribution. Where present, the coordinate map and
+retained map references can be opened on request. The links and disclosures work
+with a keyboard and without JavaScript.
 
 **Download results** saves private JSON containing the result, selected sources,
-and processing provenance.
+and processing provenance. If an exact retained input is unavailable or changed,
+the run withholds the result and its download.
 
 The PostgreSQL worker described in [background tasks](background-tasks.md) executes
 queued work. Queued, running, complete, partial, no findings, insufficient evidence,

@@ -2,9 +2,9 @@
 
 Pandect uses Django's native Tasks API with `django-tasks-db` 0.13 and its existing
 PostgreSQL database. One `default` queue is shared by web and worker processes.
-There is no Redis service, scheduler, or external queue. AI integration belongs
-to the case-scoped analysis application. The
-backend remains asynchronous when `DEBUG=true`.
+There is no Redis service, scheduler, or external queue. Shared queue diagnostics
+and AI integration belong to `core`; case analysis lives in its `core.analysis`
+subpackage. The backend remains asynchronous when `DEBUG=true`.
 
 The synthetic diagnostic returns a nonce; [case analysis](analysis.md) and
 [vehicle-location CSV imports](vehicle-location-imports.md) also use this queue
@@ -31,12 +31,22 @@ and allows 30 seconds for graceful shutdown before forcing termination. Restart
 or rebuild the worker after source changes; it does not reload automatically.
 For hosted deployments, apply migrations once before starting web and workers.
 
-`check_task_worker` enqueues a fresh random nonce, waits for its matching result,
-and prints the task UUID and `OK`. It exits nonzero for failure, mismatch, database
+Core's `check_task_worker` command enqueues `core.tasks.worker_probe` with a fresh
+random nonce, waits for its matching result, and prints the task UUID and `OK`.
+It exits nonzero for failure, mismatch, database
 errors, or a timeout (default 30 seconds; positive integer seconds only). It never
 executes the task itself and refuses an inline backend. A timeout leaves the
 probe queued or running for later inspection; it does not cancel it. Probe rows
 remain until pruned.
+
+The former standalone `background` app is removed. This consolidation adds no
+schema migration: the app had no models, and queue storage still belongs to
+`django_tasks_db`. Before replacing workers, let any queued
+`background.tasks.worker_probe` diagnostics finish on the previous code; that old
+task path has no compatibility alias. After upgrading, rerun `check_task_worker`
+to create a probe with the new path. Failed probes remain available for inspection;
+abandoned queued or running probes still require deliberate review. Do not reset
+the database or the queue for this change.
 
 `docker compose up --wait` confirms HTTP/database readiness and that the worker
 container is running. `/health/` remains a web/database check; only the diagnostic
@@ -56,7 +66,8 @@ uv run --locked --env-file .env python manage.py check_task_worker --timeout 30
 
 Task state is `READY`, `RUNNING`, `SUCCESSFUL`, or `FAILED`. The backend's task
 rows and UUIDs are operational records, not case authorization. Its upstream
-global admin registration is disabled, including for superusers. The case Analysis workspace exposes its own case-scoped processing status;
+global admin registration is disabled by `core.admin`, including for superusers.
+The case Analysis workspace exposes its own case-scoped processing status;
 operational task rows are never the product authorization boundary.
 
 Use the operator shell for a metadata-only summary:

@@ -1,0 +1,87 @@
+<article class="analysis-finding{% if item.value_first %} analysis-finding-value-first{% endif %}" id="finding-{{ item.number }}" tabindex="-1" aria-labelledby="finding-heading-{{ item.number }}">
+  {% if finding_page.paginator.count > 1 %}
+  <a class="back-link analysis-finding-back" href="?page={{ finding_page.number }}#finding-link-{{ item.number }}">Back to findings</a>
+  {% endif %}
+  <header class="analysis-finding-heading">
+    <p class="eyebrow">Finding {{ item.number }}</p>
+    <h2 id="finding-heading-{{ item.number }}">{{ item.label }}</h2>
+  </header>
+  {% if item.text %}
+  <div class="original-text analysis-finding-text{% if item.value_first and item.summary_text == item.text %} analysis-finding-short-value{% endif %}">{{ item.text }}</div>
+  {% endif %}
+  {% if item.low_ocr_score %}
+  <p class="analysis-finding-limit"><strong>Low OCR score.</strong> Compare this candidate with the original. The OCR engine score is uncalibrated.</p>
+  {% endif %}
+
+  {% if item.prepared_preview %}
+  <figure>
+    <img class="analysis-plate-preview" src="{{ item.prepared_preview.url }}" width="{{ item.prepared_preview.width }}" height="{{ item.prepared_preview.height }}" alt="Processed plate-region crop used for this reading">
+    <figcaption>Processed crop used for this reading. Compare it with the original region below.</figcaption>
+  </figure>
+  {% endif %}
+
+  {% if item.sources %}
+  <h3 class="analysis-finding-sources-heading">Sources</h3>
+  <ul class="source-list analysis-finding-sources">
+    {% for source in item.sources %}
+    <li>
+      <div class="analysis-source-links">
+        <a href="{{ source.url }}">{{ source.label }}</a>
+        {% if source.derived %}<span class="muted">Exact selected extraction version</span><a href="{{ source.original_url }}">Open original</a>{% endif %}
+      </div>
+      {% if source.coordinates %}
+      <p class="muted">{{ source.coordinate_label }} · {{ source.coordinates.0 }}, {{ source.coordinates.1 }}{% if source.observed_at %} · {{ source.observed_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
+      {% endif %}
+      {% if source.anchors %}
+      <div class="analysis-source-anchors muted">
+        {% for anchor in source.anchors %}
+        {% if anchor.line_start %}<span>Lines {{ anchor.line_start }}–{{ anchor.line_end }}</span>{% endif %}
+        {% if anchor.page %}<span>Page {{ anchor.page }}</span>{% endif %}
+        {% if anchor.region %}<details class="analysis-region"><summary>Image region coordinates</summary><p>{{ anchor.region }}</p></details>{% endif %}
+        {% if anchor.end_seconds != None %}<span>{{ anchor.start_seconds }}–{{ anchor.end_seconds }} seconds</span>{% endif %}
+        {% if anchor.end != None %}<span>Characters {{ anchor.start }}–{{ anchor.end }}</span>{% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if item.key_measurements %}{% include 'core/analysis/measurements.html' with measurements=item.key_measurements only %}{% endif %}
+  {% if item.preview %}
+  {% if item.plate_candidate %}<details class="disclosure"><summary>Show region on source image</summary>{% endif %}
+  <figure>
+    <svg class="analysis-image-preview" viewBox="0 0 {{ item.preview.width }} {{ item.preview.height }}" role="img" aria-label="{% if item.plate_candidate %}Source image with the possible plate region marked{% else %}Retained image preview with the extracted text region marked{% endif %}">
+      <image href="{{ item.preview.url }}" width="{{ item.preview.width }}" height="{{ item.preview.height }}"/>
+      <rect x="{{ item.preview.x }}" y="{{ item.preview.y }}" width="{{ item.preview.region_width }}" height="{{ item.preview.region_height }}" fill="none" stroke="currentColor" stroke-width="3" vector-effect="non-scaling-stroke"/>
+    </svg>
+    <figcaption>Retained preview. The outline marks the region used for this candidate in the original pixel orientation.</figcaption>
+  </figure>
+  {% if item.plate_candidate %}</details>{% endif %}
+  {% endif %}
+  {% if item.audio_url %}<audio controls preload="none" src="{{ item.audio_url }}"><a href="{{ item.audio_url }}">Play source recording</a></audio>{% endif %}
+  <div class="analysis-finding-review">
+    <p class="muted">Finding review: <strong>{% if item.latest_review %}{{ item.latest_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if item.latest_review %} · {{ item.latest_review.reviewed_by }} · {{ item.latest_review.created_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
+    {% if can_edit %}
+    <details class="finding-review">
+      <summary>Review this finding</summary>
+      <form class="analysis-review-form form-layout" method="post" aria-label="Review {{ item.label }}" action="{% url 'core:analysis:review' case.pk run.pk %}" data-unsaved-form>
+        {% csrf_token %}<input type="hidden" name="item_index" value="{{ item.index }}">
+        <div class="field">
+          <label for="finding-decision-{{ item.number }}">Decision</label>
+          <select id="finding-decision-{{ item.number }}" name="decision"><option value="unresolved">Unresolved</option><option value="accepted">Accepted</option><option value="rejected">Rejected</option></select>
+        </div>
+        <div class="field">
+          <label for="finding-comment-{{ item.number }}">Reason</label>
+          <textarea id="finding-comment-{{ item.number }}" name="comment" maxlength="4000"></textarea>
+        </div>
+        <div class="form-actions"><button class="button button-primary" type="submit">Record finding review</button></div>
+      </form>
+    </details>
+    {% endif %}
+  </div>
+
+  {% if item.measurements %}<details class="disclosure finding-measurements"><summary>Measurements and context</summary>{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}</details>{% endif %}
+  {% if item.reference_snapshot %}<p><a class="record-link" href="{% url 'core:analysis:artifact' case.pk run.pk item.reference_snapshot.pk %}">Download the reference response for this finding</a></p>{% endif %}
+</article>

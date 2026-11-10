@@ -135,7 +135,7 @@ uv run --locked --env-file .env make browser-check
 
 On Linux, install browser OS dependencies as required by Playwright (CI uses
 `playwright install --with-deps chromium webkit`). `make browser-check` runs
-`python manage.py test --settings=config.test_settings config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser geo.map_browser --noinput`; it is
+`python manage.py test --settings=config.test_settings config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser image.browser geo.map_browser --noinput`; it is
 separate from the ordinary
 unit suite. Browser fixtures use synthetic accounts/material and temporary
 private file storage. Never run competing Django test processes against the same
@@ -227,6 +227,12 @@ JavaScript, keyboard downloads, all five design viewport sizes, dark appearance,
 reduced motion, and forced colors where supported. Captures use the core browser
 artifact directory.
 
+Image regressions include synthetic 48 MP progressive `.jpeg` exports and
+multi-picture JPEGs, original-byte preservation, and rejection above 50 million
+pixels. The preview browser journey uses a multi-picture JPEG; the context browser
+OCR journey uses a 48 MP JPEG with real local recognition. These fixtures exercise
+the supported profiles without qualifying an individual photo or native RAW input.
+
 ## Analysis validation
 
 Run the ordinary checks for retained-content search, current-field reports,
@@ -246,12 +252,17 @@ publication, and result integration tests remain in `core.analysis.tests`.
 For a focused parser check, run:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_parser_dispatch document.tests.test_analysis image.tests.test_analysis image.tests.test_ocr audio.tests.test_analysis geo.tests.test_geographic_context --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_parser_dispatch document.tests.test_analysis image.tests.test_analysis image.tests.test_ocr image.tests.test_plates core.analysis.tests.test_plates audio.tests.test_analysis geo.tests.test_geographic_context --noinput
 ```
 
 These checks exercise real isolated parser dispatch, imports without Django,
 native document extraction, image metadata/previews/OCR, audio decoding, and
 geographic conversion. Inference calls remain mocked in ordinary tests.
+
+`image.browser` runs real local plate search on a synthetic angled plate, checks
+private processed crops and original bytes, and captures desktop/mobile/reflow,
+dark and forced-colors layouts with keyboard-operated region disclosure. These
+fixtures do not establish general plate-detection or recognition accuracy.
 
 The focused analysis browser suite is also included in `make browser-check` and
 uses Chromium and WebKit with synthetic
@@ -277,7 +288,8 @@ synthetic files in real bounded child processes, including real local printed OC
 Host validation requires Tesseract and English data; see
 [development](development.md#run-python-on-the-host). These establish handling and
 provenance, not general recognition accuracy. The isolated Compose smoke
-also queues native extraction and local printed-image OCR while its worker is stopped, restarts the stack,
+also queues native extraction, local printed-image OCR and synthetic plate search
+while its worker is stopped, restarts the stack,
 then verifies retained extraction/search output after worker recovery.
 
 Regression coverage includes bounded extraction-search queries, shared source

@@ -10,29 +10,46 @@ decode or transcribe. Supplied transcripts remain independent retained material.
 | Operation | Supported input | Output and important limits |
 | --- | --- | --- |
 | Native text | UTF-8, with optional BOM; unencrypted native-text PDF | Exact derived text with line/page anchors. UTF-8 BOM removal is recorded. No native text on a PDF page means visual review is needed; it does not establish a blank page. Mixed text/scanned pages produce partial coverage. Office formats are unsupported. |
-| Image metadata | Single-frame JPEG and PNG | Decoded dimensions, raw EXIF/XMP, orientation, device/software claims, capture-time and GPS candidates. An absent timezone is left absent. Raw values stay available alongside interpretations. |
+| Image metadata | JPEG and single-frame PNG | Decoded dimensions, raw EXIF/XMP, orientation, device/software claims, capture-time and GPS candidates. An absent timezone is left absent. Raw values stay available alongside interpretations. Multi-picture JPEGs inspect only the primary image with explicitly partial coverage. |
 | Audio metadata | Uncompressed signed 16-bit little-endian PCM WAV, mono/stereo, 8–48 kHz | Decoded duration, sample rate, channels and codec; numerical RMS and one-second digital-zero/full-scale sample observations. Supplied values remain separate, with discrepancies disclosed. |
 | Local OCR | JPEG/PNG source or separately retained page image, printed English | Tesseract candidate text grouped by line, normalized rectangles, reading order, minimum word confidence and engine version. Handwriting, mixed text, other languages, direct PDF rendering and complex layouts are unsupported. |
+| Find vehicle plates | One retained JPEG/PNG image | Local geometric region detection and three Tesseract readings per possible plate. Crops, source rectangles, processing settings and engine scores remain reviewable. This is a bounded heuristic for roughly horizontal rectangular plates with a central Latin text line; other shapes, scripts and layouts can be missed. |
 | Transcription | The supported WAV profile, English input | Candidate text with source recording intervals and original-timeline chunk offsets. No speaker identity or diarization. Non-English input profiles are unsupported. |
 
 OCR uses the installed Tesseract engine and English language data entirely on the
 worker host. It needs no AI credentials, makes no network request and never falls
 back to external processing. The ordinary image **Analyze evidence** action queues
-OCR and image metadata; successful OCR then queues identifier/date and keyword
+OCR, image metadata and plate search; successful ordinary OCR then queues identifier/date and keyword
 analysis against that exact retained extraction. JPEG/PNG page images stored as
 documents can use **Read text in images** in manual analysis.
 
+JPEG support includes `.jpg` and `.jpeg` files, including 48 MP iPhone RAW
+exports saved as JPEG, within the byte and pixel limits below. For multi-picture
+JPEGs (MPO), previews, metadata and OCR use only the primary image. Analysis
+reports partial coverage and warns that additional embedded pictures were not
+analyzed; the complete original remains available for download. Animated PNG
+remains unsupported. Native RAW files are not decoded.
+
 Only **Printed English** is offered. Handwriting and mixed-text recognition from
 the earlier remote implementation are no longer supported; earlier results remain
-readable. OCR method version 3 records the local engine version and language
-setting. Queued older OCR versions fail with a recoverable version message; start
-a new run rather than rewriting their retained parameters or history.
+readable. The current image metadata method (version 3) and OCR method (version 5)
+include the larger JPEG profile and primary-image handling. Metadata interpretation
+ignores terminal NUL bytes in XMP packets, records their count, and retains the
+unaltered raw XMP claim. Malformed XML and DTD/entity-bearing packets remain
+uninterpreted. OCR summaries count recognized text regions separately from
+coverage and unsupported-input records; no recognized text is reported explicitly.
+OCR retains the local engine version and language setting.
+Queued older method versions fail with a recoverable version
+message; start a new run rather than rewriting their retained parameters or history.
 
 Tesseract scores are engine scores, not calibrated probabilities. A line retains
 its minimum word score; scores below 80 mark coverage partial. The English setting
 is not language detection. Missing regions, handwriting and other scripts can go
 unrecognized even with high scores. No recognized text is partial/unresolved,
 never proof that the image is blank. Review candidate text against the original.
+Small or angled lettering in photographs, including vehicle plates, can be missed
+by the ordinary page-text recognition profile. **Find vehicle plates** uses a
+separate region-detection and single-line recognition profile, described below.
 Synthetic printed-image tests exercise real local recognition, while controlled
 engine fixtures cover failure and publication paths. They do not establish
 recognition accuracy on real investigation material. Transcription defaults to
@@ -41,6 +58,51 @@ selected and approved option. Routine tests mock inference; see
 [local analysis](local-analysis.md) for real-model qualification.
 
 ## Source anchors and interpretation
+
+### Vehicle plate candidates
+
+Image uploads and **Run local analysis again** queue **Find vehicle plates** with
+the other local checks. To run it alone, choose it in **Additional analysis** or
+the case's **Start analysis** picker. Select one original image per run. Earlier
+results are retained; no original or vehicle record is changed.
+
+Method version 1 uses headless OpenCV to find convex, approximately horizontal
+quadrilaterals in a metadata-free preview of at most 2048 pixels on its longest
+side. It examines at most 1000 contours, suppresses near-duplicate outlines,
+keeps at most five candidate regions and reports when either limit is reached. These geometric
+regions are candidates, not a trained plate classifier. Signs, windows and other
+rectangular objects can be mistaken for plates; no detected region does not prove
+that no plate is present.
+
+Each candidate is mapped back to the original unrotated pixel space and cropped
+from the original resolution before perspective correction. The rectified panel
+is capped at 1024 × 512 pixels. Three bounded variants read its central vertical
+band (22–80%): 2× with full width, then 2× and 3× with a 2% horizontal inset to
+reduce frame edges. Grayscale autocontrast, Lanczos resizing and a 20-pixel white
+border precede JPEG quality-95 encoding. Recognition input is capped at 1200 × 400
+pixels before the border. Tesseract uses English, single-line segmentation
+(`--psm 7`) and disabled word dictionaries. It makes at most 15 recognition calls
+inside the existing parser CPU, memory, output and wall-clock limits.
+
+Raw readings with at least three ASCII letters/digits are retained as text
+candidates, including unexpected punctuation and conflicting alternatives.
+Shorter output is retained as context, not indexed candidate text. The result is
+always **Partial** because geometric detection cannot establish exhaustive plate
+coverage. Candidates are searchable and reviewable; they never create or update
+vehicle records or establish identity, ownership, presence or association.
+
+Every reading retains original region corners and bounding rectangle, crop and
+resize settings, parser/detector/engine versions, minimum word score, and hashes
+of the original and exact recognition JPEG. Its private processed crop appears
+beside the text; **Show region on source image** reveals the original-region
+preview. Crops use the existing case-authorized private artifact routes and
+immutable result history. Up to 1 MiB of processed crop previews is returned by
+the parser, subject to the existing cumulative 2 MiB retained-preview budget;
+omissions are disclosed without dropping readings or provenance. No cloud call,
+character substitution, jurisdiction-specific guessing or automatic conflict
+resolution is performed. Multi-picture JPEGs search only the primary picture.
+
+### Other extraction anchors
 
 Native PDF text uses one-based page numbers. The extraction order follows the
 native PDF content stream; it may disagree with visual reading order or hidden
@@ -102,7 +164,7 @@ address-space limit here; the development runner samples process-group RSS and t
 it above 1 GiB. That sampled check is not a hard instantaneous memory limit.
 
 Additional format limits apply: at most 100 PDF pages, 4 MiB per decompressed
-content stream and 16 MiB accumulated page streams, 2 MiB derived text, 25 million
+content stream and 16 MiB accumulated page streams, 2 MiB derived text, 50 million
 image pixels, 256 KiB extracted image metadata, and 30 minutes of decoded WAV.
 Decompression warnings fail closed. Unsupported encodings, encrypted PDFs,
 malformed/truncated sources and limits remain visible outcomes or recoverable

@@ -10,7 +10,7 @@ from xml.etree import ElementTree
 
 from core.parser_contract import ParserFailure
 
-MAX_PIXELS = 25_000_000
+MAX_PIXELS = 50_000_000
 MAX_METADATA_BYTES = 256 * 1024
 
 
@@ -94,13 +94,17 @@ def _image(content, *, prepare=False, orient=False):
     with Image.open(io.BytesIO(content), formats=["JPEG", "PNG"]) as image:
         if image.width * image.height > MAX_PIXELS:
             raise ParserFailure("image_pixel_limit")
-        if getattr(image, "n_frames", 1) != 1:
+        image_count = getattr(image, "n_frames", 1)
+        # JPEGs can contain auxiliary pictures (for example a phone gain map).
+        # Decode only their primary picture; animated PNG remains unsupported.
+        if image_count != 1 and image.format != "MPO":
             return {"status": "unsupported", "reason": "animated_image"}
         image.load()
         result = {
             "status": "complete",
             "version": f"Pillow {PIL.__version__}",
             "format": image.format,
+            "image_count": image_count,
             "width": image.width,
             "height": image.height,
             "mode": image.mode,
@@ -150,13 +154,17 @@ def _image(content, *, prepare=False, orient=False):
             if not isinstance(xmp, str) or len(xmp.encode()) > MAX_METADATA_BYTES:
                 raise ParserFailure("image_metadata_limit")
             raw["XMP"] = xmp
+            # Some camera exports NUL-terminate the XML packet. Keep the raw
+            # source claim intact and ignore only terminal NULs for parsing.
+            packet = xmp.rstrip("\x00")
+            result["xmp_trailing_nuls"] = len(xmp) - len(packet)
             if "<!doctype" in xmp.lower() or "<!entity" in xmp.lower():
                 result["xmp_warning"] = (
                     "DTD/entity-bearing XMP was retained without interpretation."
                 )
             else:
                 try:
-                    tree = ElementTree.fromstring(xmp)
+                    tree = ElementTree.fromstring(packet)
                     result["xmp_fields"] = {
                         key: value[:8192]
                         for element in list(tree.iter())[:256]

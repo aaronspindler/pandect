@@ -151,6 +151,28 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             self.assertContains(response, "&lt;img src=x onerror=alert(1)&gt;")
             self.assertNotContains(response, "<img src=x onerror=alert(1)>")
 
+    def test_no_text_ocr_publishes_coverage_without_searchable_candidate_text(self):
+        original = self.image()
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "ocr",
+            [{"kind": "image", "id": str(original.pk)}],
+        )
+        reply = local_ocr_response(status="partial") | {"regions": []}
+        with patch("image.analysis.ai.run_parser", return_value=reply):
+            process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "partial", run.error_code)
+        self.assertFalse(ExtractedPassage.objects.filter(result=run.result).exists())
+        self.assertEqual(run.result.data["metrics"]["Recognized text regions"], 0)
+        self.login("viewer")
+        response = self.client.get(self.analysis_url("detail", run))
+        self.assertContains(
+            response, "No text recognized. Inspect the original images."
+        )
+        self.assertNotContains(response, "Produced 1 source-linked OCR findings")
+
     def test_private_preview_route_rechecks_current_case_run_and_original_access(self):
         original, run, result, artifact = self.processed_ocr()
         url = self.analysis_url("artifact", run, artifact_id=artifact.pk)

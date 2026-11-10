@@ -1791,6 +1791,7 @@ audio { width: 100%; max-width: 42rem; }
 
 .analysis-image-preview { width: 100%; max-height: 32rem; color: var(--accent); }
 .analysis-image-preview image { pointer-events: none; }
+.analysis-plate-preview { display: block; max-width: 100%; height: auto; }
 
 .analysis-measurements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 2rem; }
 .analysis-measurements dt { color: var(--secondary); font-size: .875rem; }

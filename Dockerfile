@@ -21,7 +21,6 @@ RUN groupadd --system pandect && useradd --system --create-home --gid pandect pa
     && mkdir -p /app/data && chown pandect:pandect /app/data
 COPY manage.py ./
 COPY config/ config/
-COPY background/ background/
 COPY accounts/ accounts/
 COPY cases/ cases/
 COPY core/ core/

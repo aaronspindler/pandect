@@ -44,7 +44,8 @@ from core.analysis.services import (
 from core.evidence.navigation import query_suffix
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import KIND_LABELS, KINDS
-from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
+from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
+from image.analysis import MIN_OCR_WORD_SCORE
 
 
 def private(response):
@@ -106,7 +107,7 @@ def _additional_operations(kind):
     return {
         key: spec
         for key, spec in OPERATIONS.items()
-        if kind in spec.kinds and (spec.external or key == "text_topics")
+        if kind in spec.kinds and (spec.external or key in {"text_topics", "plate_ocr"})
     }
 
 
@@ -368,115 +369,174 @@ def create(request, case_id, kind=None, evidence_id=None):
     )
 
 
-def _items(data, sources, case, run, *, offset=0):
+def _finding_row(finding, index, review, case, run):
+    label = finding["label"]
+    value_first = run.operation in {
+        "native_text",
+        "entities",
+        "ocr",
+        "plate_ocr",
+        "transcription",
+        "copied_text",
+    } or label in {"Selected message", "Recurring wording comparison"}
+    text = finding.get("text", "").strip() if value_first else ""
+    excerpt = " ".join(text[:110].split())
+    if len(text) > 110:
+        excerpt += "…"
+    score = finding.get("values", {}).get("Minimum word confidence (0–100)")
+    return {
+        "number": index + 1,
+        "index": index,
+        "label": label,
+        "summary_text": excerpt if excerpt != label else "",
+        "value_first": value_first,
+        "url": finding_url(case.pk, run.pk, index),
+        "latest_review": review,
+        "low_ocr_score": (
+            run.operation in {"ocr", "plate_ocr"}
+            and isinstance(score, int | float)
+            and score < MIN_OCR_WORD_SCORE
+        ),
+    }
+
+
+def _finding_detail(finding, row, sources, case, result):
+    item = finding | row
+    run = result.run
     source_map = {str(x.id): x for x in sources}
-    formatter = measurement_formatter(data, case=case, sources=sources)
-    artifacts = list(
-        AnalysisArtifact.objects.filter(case=case, result__case=case, result__run=run)
-    )
+    values = item.get("values", {})
+    formatter = measurement_formatter(values, case=case, sources=sources)
+    artifacts = list(result.artifacts.filter(case=case))
     previews = {
         str(x.source_id): x
         for x in artifacts
         if x.kind == AnalysisArtifact.Kind.IMAGE_PREVIEW
+        and "finding_index" not in x.metadata
     }
+    item["plate_candidate"] = run.operation == "plate_ocr"
+    prepared = next(
+        (
+            x
+            for x in artifacts
+            if x.kind == AnalysisArtifact.Kind.IMAGE_PREVIEW
+            and x.metadata.get("finding_index") == row["index"]
+            and str(x.source_id) in item.get("source_ids", [])
+        ),
+        None,
+    )
+    if prepared is not None:
+        item["prepared_preview"] = {
+            "url": reverse(
+                "core:analysis:artifact",
+                kwargs={
+                    "case_id": case.pk,
+                    "run_id": run.pk,
+                    "artifact_id": prepared.pk,
+                },
+            ),
+            "width": prepared.width,
+            "height": prepared.height,
+        }
     references = {
         x.metadata.get("reference_key"): x
         for x in artifacts
         if x.kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
     }
-    items = []
-    latest_reviews = {
-        reviewed.item_index: reviewed
-        for reviewed in AnalysisReview.objects.filter(
-            case=case,
-            result__case=case,
-            result__run=run,
-            item_index__gte=offset,
-            item_index__lt=offset + len(data.get("items", [])),
-        )
-        .order_by("item_index", "-created_at", "id")
-        .distinct("item_index")
-        .select_related("reviewed_by")
-    }
-    for index, finding in enumerate(data.get("items", [])):
-        item = dict(finding)
-        item["measurements"] = formatter(
-            item.get("values", {}), duplicate_text=item.get("text", "")
-        )
-        item["number"] = index + 1 + offset
-        item["index"] = index + offset
-        item["latest_review"] = latest_reviews.get(item["index"])
-        links = []
-        for source_id in item.get("source_ids", []):
-            source = source_map.get(source_id)
-            if source is not None:
-                anchors = [
-                    x
-                    for x in item.get("anchors", [])
-                    if x.get("source_id") == source_id
-                ]
-                url = source.url
-                display_anchors = list(anchors)
-                for anchor in anchors:
-                    if source.derived_run_id and anchor.get("extraction_ranges"):
-                        first = anchor["extraction_ranges"][0]
-                        finding = first["finding_index"]
-                        url = finding_url(case.pk, source.derived_run_id, finding)
-                        display_anchors.extend(
-                            x
-                            for part in anchor["extraction_ranges"]
-                            for x in part.get("original_anchors", [])
-                        )
-                links.append(
-                    {
-                        "label": source.item.title,
-                        "url": url,
-                        "anchors": display_anchors,
-                        "derived": bool(source.derived_result_id),
-                    }
-                )
-                for anchor in anchors:
-                    if "start_seconds" in anchor and (
-                        source.kind == "audio" or source.attachment is not None
-                    ):
-                        item["audio_url"] = (
-                            reverse(
-                                "core:analysis:audio",
-                                kwargs={
-                                    "case_id": case.pk,
-                                    "run_id": run.pk,
-                                    "source_id": source_id,
-                                },
-                            )
-                            + f"#t={anchor['start_seconds']},{anchor['end_seconds']}"
-                        )
-        item["sources"] = links
-        reference = references.get(item.get("values", {}).get("Reference snapshot"))
-        if reference is not None:
-            item["reference_snapshot"] = reference
-        for anchor in item.get("anchors", []):
-            preview = previews.get(anchor.get("source_id"))
-            if preview and "region" in anchor:
-                left, top, right, bottom = anchor["region"]
-                item["preview"] = {
-                    "url": reverse(
-                        "core:analysis:artifact",
-                        kwargs={
-                            "case_id": case.pk,
-                            "run_id": run.pk,
-                            "artifact_id": preview.pk,
-                        },
+    item["measurements"] = formatter(values, duplicate_text=item.get("text", ""))
+    key_labels = {
+        "geographic_context": {"Spatial relation", "Approximate distance (m)"},
+        "geocode_locations": {"Address", "Latitude", "Longitude", "Granularity"},
+        "colocation": {"Distance estimate (m)", "Time difference (seconds)"},
+    }.get(run.operation, set())
+    if key_labels:
+        item["key_measurements"] = [
+            measurement
+            for measurement in item["measurements"]
+            if measurement["label"] in key_labels
+        ]
+        item["measurements"] = [
+            measurement
+            for measurement in item["measurements"]
+            if measurement["label"] not in key_labels
+        ]
+    links = []
+    for source_id in item.get("source_ids", []):
+        source = source_map.get(source_id)
+        if source is not None:
+            anchors = [
+                x for x in item.get("anchors", []) if x.get("source_id") == source_id
+            ]
+            url = source.url
+            display_anchors = list(anchors)
+            for anchor in anchors:
+                if source.derived_run_id and anchor.get("extraction_ranges"):
+                    first = anchor["extraction_ranges"][0]
+                    finding = first["finding_index"]
+                    url = finding_url(case.pk, source.derived_run_id, finding)
+                    display_anchors.extend(
+                        x
+                        for part in anchor["extraction_ranges"]
+                        for x in part.get("original_anchors", [])
+                    )
+            links.append(
+                {
+                    "label": source.item.title,
+                    "url": url,
+                    "anchors": display_anchors,
+                    "derived": bool(source.derived_result_id),
+                    "original_url": source.original_url
+                    if source.derived_result_id
+                    else None,
+                    "coordinates": source.coordinates,
+                    "coordinate_label": (
+                        "Reviewed estimate"
+                        if getattr(source.item, "latitude", None) is None
+                        else "Reported coordinates"
                     ),
-                    "width": preview.width,
-                    "height": preview.height,
-                    "x": left * preview.width,
-                    "y": top * preview.height,
-                    "region_width": (right - left) * preview.width,
-                    "region_height": (bottom - top) * preview.height,
+                    "observed_at": getattr(source.item, "observed_at", None),
                 }
-                break
-        items.append(item)
-    return items
+            )
+            for anchor in anchors:
+                if "start_seconds" in anchor and (
+                    source.kind == "audio" or source.attachment is not None
+                ):
+                    item["audio_url"] = (
+                        reverse(
+                            "core:analysis:audio",
+                            kwargs={
+                                "case_id": case.pk,
+                                "run_id": run.pk,
+                                "source_id": source_id,
+                            },
+                        )
+                        + f"#t={anchor['start_seconds']},{anchor['end_seconds']}"
+                    )
+    item["sources"] = links
+    reference = references.get(values.get("Reference snapshot"))
+    if reference is not None:
+        item["reference_snapshot"] = reference
+    for anchor in item.get("anchors", []):
+        preview = previews.get(anchor.get("source_id"))
+        if preview and "region" in anchor:
+            left, top, right, bottom = anchor["region"]
+            item["preview"] = {
+                "url": reverse(
+                    "core:analysis:artifact",
+                    kwargs={
+                        "case_id": case.pk,
+                        "run_id": run.pk,
+                        "artifact_id": preview.pk,
+                    },
+                ),
+                "width": preview.width,
+                "height": preview.height,
+                "x": left * preview.width,
+                "y": top * preview.height,
+                "region_width": (right - left) * preview.width,
+                "region_height": (bottom - top) * preview.height,
+            }
+            break
+    return item
 
 
 def _map_points(sources):
@@ -541,27 +601,46 @@ def detail(request, case_id, run_id):
             reviews = list(
                 result.reviews.filter(case=case).select_related("reviewed_by")
             )
-            finding_page = Paginator(
-                result.data.get("items", []), FINDINGS_PER_PAGE
-            ).get_page(request.GET.get("page"))
+            findings = Paginator(result.data.get("items", []), FINDINGS_PER_PAGE)
+            try:
+                selected_index = int(request.GET.get("finding", "")) - 1
+            except ValueError:
+                selected_index = -1
+            finding_selected = 0 <= selected_index < findings.count
+            finding_page = findings.get_page(
+                selected_index // FINDINGS_PER_PAGE + 1
+                if finding_selected
+                else request.GET.get("page")
+            )
+            offset = (finding_page.number - 1) * FINDINGS_PER_PAGE
+            latest_reviews = {}
+            for review in reviews:
+                latest_reviews.setdefault(review.item_index, review)
+            latest_result_review = latest_reviews.pop(None, None)
+            items = [
+                _finding_row(finding, index, latest_reviews.get(index), case, run)
+                for index, finding in enumerate(finding_page, offset)
+            ]
+            position = selected_index - offset if finding_selected else 0
             context |= {
                 "result": result,
                 "data": result.data,
                 "metrics": measurement_formatter(
                     result.data.get("metrics", {}), case=case, sources=sources
                 )(result.data.get("metrics", {})),
-                "items": _items(
-                    result.data | {"items": list(finding_page)},
-                    sources,
-                    case,
-                    run,
-                    offset=(finding_page.number - 1) * FINDINGS_PER_PAGE,
+                "items": items,
+                "selected_finding": (
+                    _finding_detail(
+                        finding_page[position], items[position], sources, case, result
+                    )
+                    if items
+                    else None
                 ),
+                "finding_selected": finding_selected,
                 "finding_page": finding_page,
                 "reviews": reviews,
-                "latest_result_review": next(
-                    (review for review in reviews if review.item_index is None), None
-                ),
+                "reviewed_count": len(latest_reviews),
+                "latest_result_review": latest_result_review,
                 "reference_snapshots": result.artifacts.filter(
                     case=case, kind=AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
                 ),

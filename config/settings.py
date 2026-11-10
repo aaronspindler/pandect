@@ -31,7 +31,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_tasks_db",
-    "background.apps.BackgroundConfig",
     "accounts.apps.AccountsConfig",
     "cases.apps.CasesConfig",
     "core.apps.CoreConfig",

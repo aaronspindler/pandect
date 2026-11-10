@@ -76,7 +76,9 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         resolved = resolve_inputs(derived, self.case)[0]
         self.assertEqual(resolved.id, source_id(choice))
         self.assertEqual(UUID(resolved.id).version, 5)
-        self.assertEqual(resolved.url, self.detail_url(first) + "?page=1#finding-1")
+        self.assertEqual(
+            resolved.url, self.detail_url(first) + "?page=1&finding=1#finding-1"
+        )
         self.assertNotIn(str(newest.pk), resolved.url)
         self.assertEqual(
             resolved.original_url, self.url("detail", document, kind="document")
@@ -107,21 +109,21 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         )
         self.process(derived)
         self.login("viewer")
-        response = self.client.get(self.detail_url(derived))
-        second_email = next(
-            item
-            for item in response.context["items"]
-            if item["text"] == "second@example.test"
-        )
+        response = self.client.get(self.detail_url(derived), {"finding": 2})
+        second_email = response.context["selected_finding"]
+        self.assertEqual(second_email["text"], "second@example.test")
         source = second_email["sources"][0]
-        self.assertEqual(source["url"], self.detail_url(first) + "?page=1#finding-2")
+        self.assertEqual(
+            source["url"], self.detail_url(first) + "?page=1&finding=2#finding-2"
+        )
         self.assertTrue(any(value.get("page") == 2 for value in source["anchors"]))
         self.assertContains(response, "Exact selected extraction version")
         self.assertContains(response, "Page 2")
         original = self.client.get(resolved.original_url)
         self.assertEqual(original.status_code, 200)
         selected_version = self.client.get(source["url"])
-        self.assertContains(selected_version, 'id="finding-2"')
+        self.assertContains(selected_version, 'id="finding-2"', count=1)
+        self.assertEqual(selected_version.context["selected_finding"]["number"], 2)
         self.assertContains(selected_version, "Page 2")
 
     def test_ocr_regions_survive_entity_extraction_and_point_to_the_correct_finding(
@@ -134,18 +136,21 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             file=SimpleUploadedFile("regions.png", image_bytes()),
         )
         extraction = self.start("ocr", image, "image")
-        reply = local_ocr_response()
+        reply = local_ocr_response(status="partial")
         reply["regions"] = [
-            {"text": text, "bbox": box, "order": index, "confidence": 95}
-            for index, (text, box) in enumerate(
+            {"text": text, "bbox": box, "order": index, "confidence": score}
+            for index, (text, box, score) in enumerate(
                 [
-                    ("first@example.test", [0.1, 0.1, 0.7, 0.3]),
-                    ("second@example.test", [0.1, 0.5, 0.8, 0.8]),
+                    ("first@example.test", [0.1, 0.1, 0.7, 0.3], 95),
+                    ("second@example.test", [0.1, 0.5, 0.8, 0.8], 78),
                 ]
             )
         ]
         with patch("image.analysis.ai.run_parser", return_value=reply):
-            result = self.process(extraction)
+            process_run(extraction.pk)
+        extraction.refresh_from_db()
+        self.assertEqual(extraction.status, "partial", extraction.error_code)
+        result = extraction.result
         derived = self.start(
             "entities", image, "image", extra={"result_id": str(result.pk)}
         )
@@ -160,18 +165,22 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         )
         self.process(derived)
         self.login("viewer")
-        response = self.client.get(self.detail_url(derived))
-        second = next(
-            item
-            for item in response.context["items"]
-            if item["text"] == "second@example.test"
-        )
+        response = self.client.get(self.detail_url(derived), {"finding": 2})
+        second = response.context["selected_finding"]
+        self.assertEqual(second["text"], "second@example.test")
         self.assertEqual(
             second["sources"][0]["url"],
-            self.detail_url(extraction) + "?page=1#finding-2",
+            self.detail_url(extraction) + "?page=1&finding=2#finding-2",
         )
-        self.assertContains(response, "Region")
+        self.assertContains(response, "Image region coordinates")
+        self.assertContains(response, "[0.1, 0.5, 0.8, 0.8]")
         self.assertEqual(resolved.original_url, self.url("detail", image, kind="image"))
+        ocr_view = self.client.get(second["sources"][0]["url"])
+        self.assertEqual(
+            [item["low_ocr_score"] for item in ocr_view.context["items"]],
+            [False, True],
+        )
+        self.assertContains(ocr_view, "Low OCR score", count=2)
 
     def test_call_transcript_version_preserves_recording_intervals_and_addition(self):
         call = PhoneCallEvidence.objects.create(
@@ -234,15 +243,12 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         )
         self.process(derived)
         self.login("viewer")
-        response = self.client.get(self.detail_url(derived))
-        second = next(
-            item
-            for item in response.context["items"]
-            if item["text"] == "second@example.test"
-        )
+        response = self.client.get(self.detail_url(derived), {"finding": 2})
+        second = response.context["selected_finding"]
+        self.assertEqual(second["text"], "second@example.test")
         self.assertEqual(
             second["sources"][0]["url"],
-            self.detail_url(extraction) + "?page=1#finding-2",
+            self.detail_url(extraction) + "?page=1&finding=2#finding-2",
         )
         self.assertContains(response, "0.5–1.0 seconds")
         addition.refresh_from_db()
@@ -304,7 +310,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             extra={"result_id": str(result.pk)},
         )
         resolved = resolve_inputs(selected, self.case)[0]
-        expected = self.detail_url(prior) + "?page=2#finding-51"
+        expected = self.detail_url(prior) + "?page=2&finding=51#finding-51"
         self.assertEqual(resolved.url, expected)
         self.assertEqual(resolved.segments[0]["finding_index"], 50)
         self.process(selected)
@@ -313,7 +319,9 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(extraction, 'id="finding-51"')
         self.assertContains(extraction, "later@example.test")
         downstream = self.client.get(self.detail_url(selected))
-        self.assertEqual(downstream.context["items"][0]["sources"][0]["url"], expected)
+        self.assertEqual(
+            downstream.context["selected_finding"]["sources"][0]["url"], expected
+        )
 
     def test_equivalent_address_candidates_can_receive_different_item_reviews(self):
         observations = [
@@ -381,7 +389,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         endpoint = reverse(
             "core:analysis:review", kwargs={"case_id": self.case.pk, "run_id": run.pk}
         )
-        for index, decision in ((50, "accepted"), (0, "rejected")):
+        for index, decision in ((51, "accepted"), (0, "rejected")):
             response = self.client.post(
                 endpoint,
                 {
@@ -392,18 +400,36 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             )
             self.assertRedirects(
                 response,
-                self.detail_url(run) + f"?page={index // 50 + 1}#finding-{index + 1}",
+                self.detail_url(run)
+                + f"?page={index // 50 + 1}&finding={index + 1}#finding-{index + 1}",
             )
         self.assertEqual(
             set(result.reviews.values_list("item_index", "decision")),
-            {(50, "accepted"), (0, "rejected")},
+            {(51, "accepted"), (0, "rejected")},
         )
         self.assertFalse(result.reviews.filter(item_index__isnull=True).exists())
         rendered = self.client.get(self.detail_url(run), {"page": 2})
-        self.assertContains(rendered, "Accepted · Finding 51")
+        self.assertContains(rendered, "Accepted · Finding 52")
         self.assertContains(rendered, "Rejected · Finding 1")
         result.refresh_from_db()
         self.assertEqual(result.data["items"][50]["label"], "Candidate 51")
+
+    def test_finding_selection_uses_its_own_page_and_only_renders_its_review_form(self):
+        run, _ = self.findings_fixture()
+        self.login("editor")
+        response = self.client.get(self.detail_url(run), {"page": 1, "finding": 52})
+        self.assertEqual(response.context["finding_page"].number, 2)
+        self.assertEqual(response.context["selected_finding"]["index"], 51)
+        self.assertContains(response, 'id="finding-52"', count=1)
+        self.assertContains(response, 'id="finding-link-52"', count=1)
+        self.assertContains(response, 'name="item_index" value="51"', count=1)
+        self.assertNotContains(response, 'name="item_index" value="50"')
+        for invalid in ("0", "61", "unavailable", "9" * 4500):
+            with self.subTest(finding=invalid[:16]):
+                fallback = self.client.get(
+                    self.detail_url(run), {"page": 2, "finding": invalid}
+                )
+                self.assertEqual(fallback.context["selected_finding"]["number"], 51)
 
     def test_invalid_individual_index_does_not_turn_into_a_whole_result_review(self):
         run, result = self.findings_fixture(2)
@@ -429,6 +455,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             (0, "accepted"),
             (50, "accepted"),
             (50, "rejected"),
+            (51, "unresolved"),
             (None, "unresolved"),
         ):
             reviews.append(
@@ -445,7 +472,11 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         items = response.context["items"]
         self.assertEqual(items[0]["index"], 50)
         self.assertEqual(items[0]["latest_review"], reviews[2])
-        self.assertTrue(all(item["latest_review"] is None for item in items[1:]))
+        self.assertEqual(items[1]["latest_review"], reviews[3])
+        self.assertTrue(all(item["latest_review"] is None for item in items[2:]))
+        self.assertEqual(response.context["reviewed_count"], 3)
+        self.assertEqual(response.context["latest_result_review"], reviews[4])
+        self.assertNotContains(response, 'name="item_index"')
         self.assertCountEqual(response.context["reviews"], reviews)
         first_page = self.client.get(self.detail_url(run))
         self.assertEqual(first_page.context["items"][0]["latest_review"], reviews[0])
@@ -464,7 +495,8 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.context["form"]["comment"].value(), comment)
         self.assertEqual(response.context["form"]["item_index"].value(), "50")
         self.assertEqual(
-            response.context["return_url"], self.detail_url(run) + "?page=2#finding-51"
+            response.context["return_url"],
+            self.detail_url(run) + "?page=2&finding=51#finding-51",
         )
         self.assertFalse(result.reviews.exists())
 

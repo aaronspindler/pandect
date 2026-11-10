@@ -5,8 +5,6 @@
 !manage.py
 !config/
 !config/**
-!background/
-!background/**
 !accounts/
 !accounts/**
 !cases/

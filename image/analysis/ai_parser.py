@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 from core.parser_contract import MAX_TEXT, ParserFailure
+from image.analysis import MIN_OCR_WORD_SCORE
 from image.parsers import _image
 
 
@@ -49,7 +50,18 @@ def _ocr(content):
         ["stdin", "stdout", "-l", "eng", "--psm", "3", "tsv"],
         base64.b64decode(prepared["image"]),
     )
-    width, height = prepared["prepared_width"], prepared["prepared_height"]
+    regions = text_regions(raw, prepared["prepared_width"], prepared["prepared_height"])
+    return prepared | {
+        "engine": version,
+        "regions": regions,
+        "status": "partial"
+        if not regions or any(r["confidence"] < MIN_OCR_WORD_SCORE for r in regions)
+        else "complete",
+    }
+
+
+def text_regions(raw, width, height):
+    """Validate Tesseract TSV and group words into source-linked lines."""
     lines = {}
     try:
         rows = csv.DictReader(io.StringIO(raw), delimiter="\t", quoting=csv.QUOTE_NONE)
@@ -100,13 +112,7 @@ def _ocr(content):
                 "confidence": min(line["confidence"]),
             }
         )
-    return prepared | {
-        "engine": version,
-        "regions": regions,
-        "status": "partial"
-        if not regions or any(r["confidence"] < 80 for r in regions)
-        else "complete",
-    }
+    return regions
 
 
 def parse(operation, content, options):

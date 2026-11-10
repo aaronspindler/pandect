@@ -38,6 +38,16 @@ def decode_artifact(payload, source_ids):
             ):
                 raise ValueError
             values |= {key: payload[key] for key in ("width", "height")}
+            if "metadata" in payload:
+                metadata = payload["metadata"]
+                if (
+                    not isinstance(metadata, dict)
+                    or set(metadata) != {"finding_index"}
+                    or type(metadata["finding_index"]) is not int
+                    or not 0 <= metadata["finding_index"] < 10000
+                ):
+                    raise ValueError
+                values["metadata"] = metadata
         elif kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE:
             if payload["content_type"] != "application/json" or any(
                 payload.get(key) is not None for key in ("width", "height")

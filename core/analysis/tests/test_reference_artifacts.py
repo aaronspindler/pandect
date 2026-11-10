@@ -224,7 +224,9 @@ class GeographicReferenceArtifactTests(GeographicReferenceFixtures, TestCase):
         reference_url = self.analysis_url("artifact", run, artifact_id=reference.pk)
         response = self.client.get(self.analysis_url("detail", run))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["items"][0]["preview"]["url"], jpeg_url)
+        self.assertEqual(
+            response.context["selected_finding"]["preview"]["url"], jpeg_url
+        )
         self.assertContains(response, reference_url)
         self.assertNotContains(response, f'src="{reference_url}"')
         self.assertNotContains(response, f'href="{reference_url}" width=')

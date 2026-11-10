@@ -18,7 +18,7 @@ from playwright.sync_api import expect
 from cases.models import Case, CaseMembership
 from config.tests import browser as core_browser
 from core.analysis.services import process_run, start_run
-from core.models import AnalysisResult, AnalysisReview, AnalysisRun
+from core.models import AnalysisReview, AnalysisRun
 from document.models import DocumentEvidence
 from geo.models import PersonLocationEvidence
 from people.models import Person
@@ -126,28 +126,21 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
         )
 
     def _review_findings(self):
+        source = TextEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title=self.text.title,
+            body="\n".join(
+                f"contact-{number:02}@example.test" for number in range(1, 61)
+            ),
+        )
         run, _ = start_run(
             self.owner,
             self.case.pk,
             "entities",
-            [{"kind": "text", "id": str(self.text.pk)}],
+            [{"kind": "text", "id": str(source.pk)}],
         )
-        AnalysisRun.objects.filter(pk=run.pk).update(status="complete", progress=100)
-        AnalysisResult.objects.create(
-            case=self.case,
-            run=run,
-            data={
-                "summary": "Synthetic findings for review recovery",
-                "items": [
-                    {
-                        "label": f"Synthetic finding {index + 1}",
-                        "text": "A reported statement requiring investigator review.",
-                        "source_ids": [run.inputs[0]["id"]],
-                    }
-                    for index in range(60)
-                ],
-            },
-        )
+        self._complete(run.pk)
         return run.pk
 
     def test_analysis_overview_reports_and_responsive_layout(self):
@@ -263,9 +256,9 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     self.url(
                         "core:analysis:detail", case_id=self.case.pk, run_id=run_id
                     )
-                    + "?page=2"
+                    + "?page=2&finding=52#finding-52"
                 )
-                finding = page.locator("#finding-51")
+                finding = page.locator("#finding-52")
                 finding.locator("summary").filter(
                     has_text=re.compile(r"^Review this finding$")
                 ).click()
@@ -283,8 +276,10 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 expect(page.locator("[data-error-summary]")).to_be_focused()
                 expect(page.get_by_label("Reason", exact=True)).to_have_value(entered)
                 expect(
-                    page.get_by_role("link", name="Back to finding 51", exact=True)
-                ).to_have_attribute("href", re.compile(r"\?page=2#finding-51$"))
+                    page.get_by_role("link", name="Back to finding 52", exact=True)
+                ).to_have_attribute(
+                    "href", re.compile(r"\?page=2&finding=52#finding-52$")
+                )
                 for width, height, label in (
                     (1440, 900, "desktop"),
                     (390, 844, "mobile"),
@@ -297,12 +292,58 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 )
                 page.get_by_label("Decision", exact=True).select_option("accepted")
                 page.get_by_role("button", name="Record review", exact=True).click()
-                expect(page).to_have_url(re.compile(r"\?page=2#finding-51$"))
+                expect(page).to_have_url(re.compile(r"\?page=2&finding=52#finding-52$"))
                 expect(
-                    page.locator("#finding-51").get_by_text(
+                    page.locator("#finding-52").get_by_text(
                         "Finding review: Accepted", exact=False
                     )
                 ).to_be_visible()
+
+    def test_findings_desk_navigation_without_javascript(self):
+        run_id = self._review_findings()
+        run_url = self.url("core:analysis:detail", case_id=self.case.pk, run_id=run_id)
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.goto(run_url)
+                page.get_by_role("link", name="Next findings", exact=True).press(
+                    "Enter"
+                )
+                expect(page).to_have_url(re.compile(r"\?page=2(?:#.*)?$"))
+                row = page.locator("#finding-link-52")
+                row.focus()
+                expect(row).to_be_focused()
+                row.press("Enter")
+                expect(page).to_have_url(re.compile(r"\?page=2&finding=52#finding-52$"))
+                inspector = page.locator("#finding-52")
+                expect(
+                    inspector.get_by_role("link", name=self.text.title)
+                ).to_be_visible()
+                expect(page.locator("input[name=item_index]")).to_have_count(1)
+                expect(page.locator("input[name=item_index]")).to_have_value("51")
+                page.evaluate("window.scrollTo(0, 0)")
+                self.capture(page, engine, "analysis-findings-desk-desktop")
+                page.go_back()
+                expect(page).to_have_url(re.compile(r"\?page=2(?:#.*)?$"))
+                expect(page.locator("input[name=item_index]")).to_have_value("50")
+
+                page.set_viewport_size({"width": 320, "height": 844})
+                row.press("Enter")
+                self._assert_reflow(page)
+                expect(
+                    inspector.get_by_role("link", name=self.text.title)
+                ).to_be_visible()
+                self.capture(page, engine, "analysis-findings-desk-mobile-detail")
+                back = page.get_by_role("link", name="Back to findings", exact=True)
+                back.press("Enter")
+                expect(page).to_have_url(re.compile(r"\?page=2#finding-link-52$"))
+                expect(row).to_be_visible()
+                self._assert_reflow(page)
+                self.capture(page, engine, "analysis-findings-desk-mobile-list")
 
     def test_native_extraction_review_source_anchors_and_responsive_layout(self):
         for engine in self.engines:
@@ -818,12 +859,19 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
             self.assertNotIn(identifier, visible)
 
     def _capture_phase3(self, page, engine, name):
+        finding = page.locator("#finding-1")
+        measurements = finding.locator(".finding-measurements")
+        measurements_open = measurements.get_attribute("open") is not None
         for width, height, label in ((1440, 900, "desktop"), (390, 844, "mobile")):
             page.set_viewport_size({"width": width, "height": height})
+            if not finding.is_visible():
+                page.locator("#finding-link-1").press("Enter")
+                if measurements_open:
+                    measurements.locator("summary").press("Enter")
             self._assert_reflow(page)
             page.evaluate("window.scrollTo(0, 0)")
             self.capture(page, engine, f"phase3-{name}-{label}")
-            page.locator("#finding-1").screenshot(
+            finding.screenshot(
                 path=str(self.artifacts / f"{engine}-phase3-{name}-finding-{label}.png")
             )
         page.set_viewport_size({"width": 1440, "height": 900})
@@ -852,11 +900,14 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 )
                 visits = self._queue_and_finish(page, "candidate_visits")
                 self.db(self._assert_phase3_run, visits, "candidate_visits", locations)
+                positions = page.locator("summary").filter(
+                    has_text=re.compile(r"^Selected observation positions$")
+                )
+                positions.press("Enter")
                 expect(
-                    page.get_by_role(
-                        "heading", name="Selected observation positions", exact=True
-                    )
+                    page.get_by_role("img", name=re.compile(r"^Selected positions"))
                 ).to_be_visible()
+                positions.press("Enter")
                 first = page.locator("#finding-1")
                 expect(
                     first.get_by_role(
@@ -874,7 +925,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     "button", name="Record finding review", exact=True
                 ).click()
                 expect(
-                    page.get_by_text("Result review: Unresolved", exact=True)
+                    page.get_by_text("Result review: Awaiting review", exact=True)
                 ).to_be_visible()
                 page.locator("summary").filter(
                     has_text=re.compile(r"^Review history")
@@ -936,13 +987,12 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 self.db(self._assert_phase3_run, style, "style_change", writing)
                 expect(
                     page.get_by_role(
-                        "heading",
-                        name="Possible observed-style change interval",
-                        exact=True,
+                        "link",
+                        name=re.compile(r"^Possible observed-style change interval"),
                     )
                 ).to_be_visible()
                 expect(
-                    page.get_by_role("heading", name="Group A coverage", exact=True)
+                    page.get_by_role("link", name=re.compile(r"Group A coverage"))
                 ).to_be_visible()
                 self._assert_readable_findings(page, style)
                 page.locator("#finding-1 .finding-measurements > summary").click()
@@ -988,12 +1038,10 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 timing = self._queue_and_finish(page, "comm_patterns")
                 self.db(self._assert_phase3_run, timing, "comm_patterns", exchanges)
                 expect(
-                    page.get_by_role("heading", name="Observed session 2", exact=True)
+                    page.get_by_role("link", name=re.compile(r"Observed session 2"))
                 ).to_be_visible()
                 expect(
-                    page.get_by_role(
-                        "heading", name="At/after selected split", exact=True
-                    )
+                    page.get_by_role("link", name="At/after selected split")
                 ).to_be_visible()
                 self._assert_readable_findings(page, timing)
                 first_exchange = page.locator("#finding-1")

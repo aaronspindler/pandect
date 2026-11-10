@@ -14,6 +14,7 @@ from core.analysis.errors import AnalysisError
 from core.parsers import MAX_BYTES
 from core.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence
+from image.testing import jpeg_bytes
 
 
 def image_bytes(format="PNG", size=(80, 50), **options):
@@ -127,6 +128,34 @@ class ImagePreviewTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(preview.mode, "RGB")
             self.assertEqual(preview.getpixel((0, 0)), (255, 255, 255))
 
+    def test_iphone_jpeg_exports_preview_without_changing_originals(self):
+        self.login("owner")
+        for content, size, preview_size in (
+            (jpeg_bytes(size=(8064, 6048)), (8064, 6048), (2048, 1536)),
+            (jpeg_bytes(multiple_pictures=True), (1000, 240), (1000, 240)),
+        ):
+            with self.subTest(size=size):
+                response = self.client.post(
+                    self.url("create"),
+                    self.payload(
+                        "image",
+                        file=SimpleUploadedFile(
+                            "iphone-export.jpeg", content, "image/jpeg"
+                        ),
+                    ),
+                    HTTP_ACCEPT="application/json",
+                )
+                self.assertEqual(response.status_code, 201)
+                item = ImageEvidence.objects.get(pk=response.json()["id"])
+                preview = self.client.get(self.url("preview", item, kind="image"))
+                self.assertEqual(preview.status_code, 200)
+                with Image.open(io.BytesIO(preview.content)) as decoded:
+                    self.assertEqual(decoded.size, preview_size)
+                    self.assertEqual(decoded.format, "JPEG")
+                download = self.client.get(self.url("download", item, kind="image"))
+                self.assertEqual(b"".join(download.streaming_content), content)
+                self.assertEqual(item.sha256, hashlib.sha256(content).hexdigest())
+
     def test_unsupported_active_malformed_and_animated_content_is_never_embedded(self):
         animated = io.BytesIO()
         with Image.new("RGB", (8, 8), "red") as first:
@@ -164,7 +193,7 @@ class ImagePreviewTests(EvidenceViewTestMixin, TestCase):
 
     def test_pixel_limit_is_checked_before_decoding_pixels(self):
         content = image_bytes()
-        header = struct.pack(">II", 5001, 5000) + content[24:29]
+        header = struct.pack(">II", 10001, 5000) + content[24:29]
         checksum = struct.pack(">I", zlib.crc32(b"IHDR" + header))
         item = self.image(content[:16] + header + checksum + content[33:])
         self.login("owner")

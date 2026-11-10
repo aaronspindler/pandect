@@ -154,7 +154,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertTrue(earlier.file.storage.exists(earlier.file.name))
         self.assertEqual(upload().status_code, 201)
-        self.assertEqual(AnalysisRun.objects.count(), 2)
+        self.assertEqual(AnalysisRun.objects.count(), 3)
 
     def test_lost_commit_confirmation_keeps_originals_and_resolves_on_retry(self):
         self.login("owner")
@@ -515,7 +515,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
                 runs, _ = self.start(item, kind)
                 self.assertEqual(
                     {x.operation for x in runs},
-                    {operation, "ocr"} if kind == "image" else {operation},
+                    {operation, "ocr", "plate_ocr"} if kind == "image" else {operation},
                 )
                 self.complete(runs)
 
@@ -527,7 +527,9 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
             file=ContentFile(image_bytes(), name="source.png"),
         )
         runs, _ = self.start(image, "image")
-        self.assertEqual({x.operation for x in runs}, {"image_metadata", "ocr"})
+        self.assertEqual(
+            {x.operation for x in runs}, {"image_metadata", "ocr", "plate_ocr"}
+        )
         from core.analysis.testing import local_ocr_response
 
         with patch("image.analysis.ai.run_parser", return_value=local_ocr_response()):

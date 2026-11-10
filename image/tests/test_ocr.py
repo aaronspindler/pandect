@@ -15,6 +15,7 @@ from core.parser_contract import MAX_TEXT, ParserFailure
 from core.parsers import run_parser
 from image.analysis.ai import ocr
 from image.analysis.ai_parser import _ocr, _tesseract
+from image.testing import jpeg_bytes
 
 
 def printed_page():
@@ -31,6 +32,30 @@ def printed_page():
 
 
 class LocalOCRTests(SimpleTestCase):
+    def test_iphone_jpeg_exports_use_local_ocr_and_report_partial_coverage(self):
+        for content, expected in (
+            (jpeg_bytes(size=(8064, 6048)), "complete"),
+            (jpeg_bytes(multiple_pictures=True), "partial"),
+        ):
+            with self.subTest(expected=expected):
+                source = file_source(content, "image")
+                source.item.file.name = "iphone-export.jpeg"
+                with patch("core.analysis.gateway.GatewayClient.request") as gateway:
+                    result = ocr([source], {}, authorize=Mock())
+                gateway.assert_not_called()
+                self.assertEqual(result["outcome"], expected)
+                self.assertIn(
+                    "PANDECT LOCAL TEXT 12345",
+                    " ".join(item["text"] for item in result["items"]),
+                )
+                if expected == "partial":
+                    self.assertTrue(
+                        any(
+                            "primary image" in warning for warning in result["warnings"]
+                        )
+                    )
+                self.assertEqual(source.item.file.storage.content, content)
+
     def test_real_engine_extracts_printed_text_without_network_or_credentials(self):
         content = printed_page()
         source = file_source(content, "image")
@@ -48,15 +73,35 @@ class LocalOCRTests(SimpleTestCase):
         )
         self.assertTrue(all(0 <= n <= 1 for n in item["anchors"][0]["region"]))
         self.assertEqual(source.item.file.storage.content, content)
+        self.assertEqual(result["metrics"]["Recognized text regions"], 1)
+        self.assertIn("Recognized 1", result["summary"])
 
     def test_no_recognized_text_does_not_claim_blank_image(self):
         stream = io.BytesIO()
         Image.new("RGB", (300, 200), "white").save(stream, format="PNG")
         result = ocr([file_source(stream.getvalue(), "image")], {}, authorize=Mock())
         self.assertEqual(result["outcome"], "partial")
+        self.assertIn("No text recognized", result["summary"])
+        self.assertEqual(result["metrics"]["Recognized text regions"], 0)
+        self.assertEqual(result["metrics"]["Images with no recognized text"], 1)
+        self.assertEqual(result["metrics"]["UTF-8 text bytes"], 0)
         self.assertIn(
             "No text recognized", result["items"][0]["values"]["Recognition status"]
         )
+
+    def test_unrecognized_and_unsupported_inputs_have_distinct_coverage(self):
+        source = file_source(image_bytes(), "image")
+        reply = local_ocr_response(status="partial") | {"regions": []}
+        with patch("image.analysis.ai.run_parser", return_value=reply):
+            result = ocr(
+                [source, file_source(b"%PDF-not-rendered")], {}, authorize=Mock()
+            )
+        self.assertEqual(result["outcome"], "partial")
+        self.assertIn("No text recognized", result["summary"])
+        self.assertEqual(result["metrics"]["Unsupported inputs"], 1)
+        self.assertEqual(result["metrics"]["Images with no recognized text"], 1)
+        self.assertEqual(result["metrics"]["Recognized text regions"], 0)
+        self.assertTrue(all(not item["text"] for item in result["items"]))
 
     def test_unsupported_profiles_and_documents_never_dispatch(self):
         with patch("image.analysis.ai.run_parser") as parser:

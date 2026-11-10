@@ -13,7 +13,7 @@ from core.models import AnalysisResult
 SOURCE_CHOICE_LIMIT = 500
 EXTRACTIONS_BY_KIND = {
     "document": ("native_text", "ocr"),
-    "image": ("ocr",),
+    "image": ("ocr", "plate_ocr"),
     "audio": ("transcription",),
     "phone-call": ("transcription",),
     "facetime": ("transcription",),
@@ -76,6 +76,8 @@ def source_choices(case, operation, query="", *, evidence=None):
                     )
             if len(choices) >= SOURCE_CHOICE_LIMIT:
                 return choices
+            if operation == "plate_ocr":
+                continue
             extractions = EXTRACTIONS_BY_KIND.get(kind)
             if not extractions:
                 continue

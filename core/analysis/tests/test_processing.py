@@ -18,7 +18,6 @@ from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from background.tests.test_tasks import drain_queue
 from cases.models import Case, CaseMembership
 from core.analysis.errors import AnalysisError
 from core.analysis.operations import get_operation
@@ -40,6 +39,7 @@ from core.models import (
     GatewayRequest,
 )
 from core.testing import EvidenceViewTestMixin
+from core.tests.test_tasks import drain_queue
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence

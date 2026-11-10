@@ -22,7 +22,7 @@ test:
 	$(RUN) python manage.py test --settings=$(TEST_SETTINGS)
 
 browser-check:
-	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser geo.map_browser --noinput --settings=$(TEST_SETTINGS)
+	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser image.browser geo.map_browser --noinput --settings=$(TEST_SETTINGS)
 
 validate:
 	$(UV) lock --check

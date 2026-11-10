@@ -51,7 +51,7 @@ compose exec -T web python manage.py migrate --check
 compose exec -T web python manage.py check_task_worker --timeout 30
 compose stop worker
 compose exec -T web python manage.py shell <<'PY'
-from background.tasks import worker_probe
+from core.tasks import worker_probe
 from django.tasks import TaskResultStatus
 
 result = worker_probe.enqueue("compose-worker-restart")
@@ -131,6 +131,15 @@ ocr_run, created = start_run(owner, case.pk, "ocr", [
     {"kind": "image", "id": str(local_image.pk)},
 ])
 assert created and not ocr_run.external_processing
+from image.testing import plate_scene
+plate_image = ImageEvidence.objects.create(
+    case=case, uploaded_by=owner, title="Synthetic plate search source",
+    file=ContentFile(plate_scene(), name="plate-scene.jpeg"),
+)
+plate_run, created = start_run(owner, case.pk, "plate_ocr", [
+    {"kind": "image", "id": str(plate_image.pk)},
+])
+assert created and not plate_run.external_processing
 TextEvidence.objects.create(
     case=case, uploaded_by=owner, title="Synthetic text", body="Original café\r\n",
     source="Synthetic smoke source",
@@ -281,6 +290,16 @@ assert "PANDECT LOCAL TEXT 12345" in " ".join(
 assert ocr_run.result.artifacts.exists()
 from core.models import GatewayRequest
 assert not GatewayRequest.objects.filter(run=ocr_run).exists()
+plate_run = AnalysisRun.objects.get(operation="plate_ocr")
+assert plate_run.status == "partial", plate_run.error_code
+assert not plate_run.external_processing
+assert not GatewayRequest.objects.filter(run=plate_run).exists()
+assert "TEST 482" in " ".join(
+    ExtractedPassage.objects.filter(result=plate_run.result).values_list("text", flat=True)
+)
+for crop in plate_run.result.artifacts.exclude(metadata={}):
+    finding = plate_run.result.data["items"][crop.metadata["finding_index"]]
+    assert crop.sha256 == finding["values"]["Recognition JPEG SHA-256"]
 run = AnalysisRun.objects.get(operation="native_text")
 assert run.status == "complete", run.error_code
 assert run.result.data["items"][0]["text"] == "Source-anchored native extraction.\n"

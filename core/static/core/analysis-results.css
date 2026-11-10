@@ -1,0 +1,250 @@
+.analysis-result-header {
+  margin-bottom: 1rem;
+}
+
+.analysis-result-overview {
+  padding-block: 1rem;
+  border-block: 1px solid var(--divider);
+}
+
+.analysis-result-overview h2 {
+  margin-bottom: .25rem;
+}
+
+.analysis-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 1.5rem;
+}
+
+.analysis-result-overview p {
+  margin: 0;
+}
+
+.analysis-result-limits > summary,
+.analysis-finding-review summary {
+  min-height: 44px;
+  padding-block: .625rem;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.analysis-result-limits[open] {
+  flex-basis: 100%;
+}
+
+.analysis-result-limits ul {
+  margin-bottom: .5rem;
+}
+
+.analysis-findings {
+  padding-block: 1rem 1.5rem;
+}
+
+.analysis-findings-many:not(.analysis-findings-selected) .analysis-finding:not(:target),
+.analysis-findings-selected .analysis-finding-list {
+  display: none;
+}
+
+.analysis-finding-list,
+.analysis-finding {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.analysis-finding-list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .25rem 1rem;
+  margin-bottom: .5rem;
+}
+
+.analysis-finding-list-header > * {
+  margin: 0;
+}
+
+.analysis-finding-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--divider);
+}
+
+.analysis-finding-rows > li {
+  border-bottom: 1px solid var(--divider);
+}
+
+.analysis-finding-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem 1rem;
+  min-height: 3.5rem;
+  padding: .5rem .75rem;
+  border-inline-start: 3px solid transparent;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.analysis-finding-link small {
+  display: block;
+  color: var(--secondary);
+  font-size: .875rem;
+}
+
+.analysis-finding-link > small {
+  flex-shrink: 0;
+  text-align: end;
+}
+
+.analysis-finding-link:hover {
+  background: var(--background);
+}
+
+.analysis-finding-link:hover strong {
+  text-decoration: underline;
+}
+
+.analysis-finding-link[aria-current],
+.analysis-finding-link:target,
+.analysis-finding-rows > li:target > .analysis-finding-link {
+  border-inline-start-color: var(--accent);
+  background: var(--selected);
+}
+
+.analysis-finding-link:focus-visible {
+  outline-offset: -3px;
+}
+
+.analysis-finding-pagination {
+  margin: .75rem 0 0;
+}
+
+.analysis-finding-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: .5rem;
+}
+
+.analysis-finding-heading .eyebrow {
+  margin: 0 0 .25rem;
+}
+
+.analysis-finding-value-first h2 {
+  margin-bottom: .5rem;
+  color: var(--secondary);
+  font-size: 1rem;
+}
+
+.analysis-finding-short-value {
+  font-size: 1.125rem;
+  font-weight: 550;
+}
+
+.analysis-finding-text {
+  margin-bottom: .75rem;
+  padding: .75rem 1rem;
+}
+
+.analysis-finding-limit {
+  margin-bottom: .75rem;
+}
+
+.analysis-finding-sources-heading {
+  margin-bottom: 0;
+}
+
+.analysis-finding-sources {
+  margin: 0 0 .75rem;
+}
+
+.analysis-finding-sources > li {
+  padding: 0 .25rem .5rem;
+}
+
+.analysis-source-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: .75rem;
+}
+
+.analysis-source-anchors {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: .75rem;
+  font-size: .875rem;
+}
+
+.analysis-region > summary {
+  min-height: 44px;
+  padding-block: .75rem;
+  cursor: pointer;
+}
+
+.analysis-finding-sources p {
+  margin-bottom: 0;
+}
+
+.analysis-finding-review p {
+  margin: 0;
+}
+
+.analysis-finding .analysis-review-form {
+  margin-block: .5rem 1rem;
+}
+
+.analysis-finding figure {
+  margin-block: .75rem;
+}
+
+.analysis-finding .analysis-image-preview {
+  display: block;
+  max-width: 42rem;
+  max-height: 17rem;
+  background: var(--background);
+}
+
+.analysis-run-details .disclosure {
+  margin-block: .5rem;
+}
+
+@media (max-width: 32rem) {
+  .analysis-finding-link {
+    flex-direction: column;
+    align-items: start;
+    gap: .125rem;
+  }
+}
+
+@media (min-width: 80rem) {
+  .analysis-findings-many {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: start;
+    gap: 1.5rem;
+  }
+
+  .analysis-findings-many:not(.analysis-findings-selected) .analysis-finding:not(:target),
+  .analysis-findings-selected .analysis-finding-list {
+    display: block;
+  }
+
+  .analysis-findings-many .analysis-finding {
+    padding-inline-start: 1.5rem;
+    border-inline-start: 1px solid var(--divider);
+  }
+
+  .analysis-finding-rows {
+    max-height: clamp(24rem, 64vh, 42rem);
+    overflow: auto;
+  }
+
+  .analysis-finding-back {
+    display: none;
+  }
+}
