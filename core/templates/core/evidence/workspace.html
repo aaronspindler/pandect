@@ -1,6 +1,7 @@
 {% extends "ui/base.html" %}
 {% block title %}{% if item %}{{ item.title }}{% else %}Evidence{% endif %} · {{ case.name }}{% endblock %}
 {% block body_class %}workspace-page{% if item %} has-selection{% endif %}{% endblock %}
+{% block extra_js %}{% include 'core/evidence/assets.html' only %}{% endblock %}
 {% block content %}
 <div class="evidence-workspace{% if item %} has-selection{% endif %}">
   <a class="skip-link" href="#evidence-records">Skip to evidence list</a>
@@ -29,7 +30,7 @@
     <div id="evidence-records" class="evidence-records" tabindex="0" role="region" aria-label="Evidence records">
       {% for row in rows %}
       <a class="evidence-row{% if item.pk == row.id and kind == row.kind %} is-selected{% endif %}" href="{{ row.url }}"{% if item.pk == row.id and kind == row.kind %} aria-current="true"{% endif %}>
-        <span class="evidence-type-icon" aria-hidden="true">{% if row.kind == 'image' %}{% include 'ui/components/icon.html' with name='image' %}{% elif row.kind == 'audio' %}{% include 'ui/components/icon.html' with name='music' %}{% else %}{% include 'ui/components/icon.html' with name='file-text' %}{% endif %}</span>
+        <span class="evidence-type-icon" aria-hidden="true">{% if row.kind == 'image' %}{% include 'ui/components/icon.html' with name='photo' %}{% elif row.kind == 'audio' %}{% include 'ui/components/icon.html' with name='music' %}{% else %}{% include 'ui/components/icon.html' with name='file-text' %}{% endif %}</span>
         <span class="evidence-row-content"><span class="evidence-row-title">{{ row.title }}</span><span class="evidence-row-meta">{{ row.label }}{% if row.is_archived %} · Archived{% endif %}</span>{% if row.content_match %}<span class="evidence-row-meta">{{ row.content_match.label }}: {{ row.content_match.excerpt }}</span>{% endif %}</span>
       </a>
       {% empty %}

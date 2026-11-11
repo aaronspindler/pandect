@@ -11,7 +11,6 @@
   <link rel="stylesheet" href="{% static 'ui/primitives.css' %}">
   <link rel="stylesheet" href="{% static 'ui/app.css' %}">
   <script src="{% static 'ui/app.js' %}" defer></script>
-  <script src="{% static 'core/evidence.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body class="{% if case %}case-page {% endif %}{% block body_class %}{% endblock %}">
@@ -35,7 +34,6 @@
     {% block before_content %}{% endblock %}
     {% block content %}{% endblock %}
   </main>
-  <div class="sr-only" role="status" aria-live="polite" data-global-status></div>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

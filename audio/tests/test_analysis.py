@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
 
-from django.core.exceptions import PermissionDenied
 from django.test import SimpleTestCase
 
 from audio.analysis.ai import transcription
@@ -43,23 +42,22 @@ class AudioAnalysisTests(SimpleTestCase):
         self.assertEqual(malformed.exception.code, "truncated_audio")
 
     def test_metadata_only_call_and_unsupported_audio_are_not_transcribed(self):
-        gateway, authorize = Mock(), Mock()
+        client = Mock()
         call = file_source(b"unused", "phone-call", duration=None)
-        result = transcription([call], {}, gateway=gateway, authorize=authorize)
+        result = transcription([call], {}, client=client)
         self.assertEqual(result["outcome"], "unsupported")
         unsupported = transcription(
             [file_source(b"not a wav", "audio")],
             {},
-            gateway=gateway,
-            authorize=authorize,
+            client=client,
         )
         self.assertEqual(unsupported["outcome"], "unsupported")
-        gateway.request.assert_not_called()
+        client.request.assert_not_called()
 
     def test_long_recording_offsets_and_call_addition_attribution(self):
         source = file_source(wav_bytes(seconds=61), "audio")
-        gateway, authorize = Mock(), Mock()
-        gateway.request.side_effect = [
+        client = Mock()
+        client.request.side_effect = [
             {
                 "text": text,
                 "segments": [{"start": 0, "end": duration, "text": text}],
@@ -71,12 +69,12 @@ class AudioAnalysisTests(SimpleTestCase):
                 ("unclear", 1),
             )
         ]
-        result = transcription([source], {}, gateway=gateway, authorize=authorize)
+        result = transcription([source], {}, client=client)
         self.assertEqual(
             [x["anchors"][0]["start_seconds"] for x in result["items"]], [0, 30, 60]
         )
         self.assertEqual(result["items"][-1]["anchors"][0]["end_seconds"], 61)
-        self.assertEqual(authorize.call_count, 6)
+        self.assertEqual(client.request.call_count, 3)
         addition = SimpleNamespace(**vars(source.item))
         addition.pk = uuid4()
         addition.audio_sha256 = source.item.sha256
@@ -92,12 +90,12 @@ class AudioAnalysisTests(SimpleTestCase):
 
     def test_untranscribed_intervals_remain_partial_and_provider_failure_aborts(self):
         source = file_source(wav_bytes(seconds=31), "audio")
-        gateway, authorize = Mock(), Mock()
-        gateway.request.side_effect = [
+        client = Mock()
+        client.request.side_effect = [
             {"text": "Middle", "segments": [{"start": 5, "end": 20, "text": "Middle"}]},
             {"text": "", "segments": []},
         ]
-        result = transcription([source], {}, gateway=gateway, authorize=authorize)
+        result = transcription([source], {}, client=client)
         self.assertEqual(result["outcome"], "partial")
         gaps = [
             x
@@ -107,7 +105,7 @@ class AudioAnalysisTests(SimpleTestCase):
         self.assertEqual(len(gaps), 2)
         self.assertEqual(gaps[0]["anchors"][0]["start_seconds"], 0)
         self.assertEqual(gaps[1]["anchors"][0]["end_seconds"], 30)
-        gateway.request.side_effect = [
+        client.request.side_effect = [
             {
                 "text": "Candidate",
                 "segments": [{"start": 0, "end": 30, "text": "Candidate"}],
@@ -115,40 +113,34 @@ class AudioAnalysisTests(SimpleTestCase):
             AnalysisError("gateway_unavailable"),
         ]
         with self.assertRaises(AnalysisError) as failed:
-            transcription([source], {}, gateway=gateway, authorize=authorize)
+            transcription([source], {}, client=client)
         self.assertEqual(failed.exception.code, "gateway_unavailable")
 
-    def test_silence_coarse_text_uncertainty_invalid_times_and_revocation(self):
-        gateway, authorize = Mock(), Mock()
+    def test_silence_coarse_text_uncertainty_and_invalid_times(self):
+        client = Mock()
         silent = transcription(
             [file_source(wav_bytes(value=0), "audio")],
             {},
-            gateway=gateway,
-            authorize=authorize,
+            client=client,
         )
         self.assertEqual(silent["outcome"], "empty")
-        gateway.request.assert_not_called()
+        client.request.assert_not_called()
         source = file_source(wav_bytes(), "audio")
-        gateway.request.return_value = {"text": "An uncertain name", "segments": []}
-        coarse = transcription([source], {}, gateway=gateway, authorize=authorize)
+        client.request.return_value = {"text": "An uncertain name", "segments": []}
+        coarse = transcription([source], {}, client=client)
         self.assertEqual(coarse["outcome"], "partial")
-        gateway.request.return_value = {
+        client.request.return_value = {
             "text": "Name",
             "segments": [{"start": 0, "end": 1, "text": "Name", "avg_logprob": -2}],
         }
-        uncertain = transcription([source], {}, gateway=gateway, authorize=authorize)
+        uncertain = transcription([source], {}, client=client)
         self.assertEqual(
             uncertain["items"][0]["values"]["Model uncertainty"],
             "Review uncertain speech",
         )
-        gateway.request.return_value = {
+        client.request.return_value = {
             "text": "bad",
             "segments": [{"start": 0, "end": 9, "text": "bad"}],
         }
         with self.assertRaises(AnalysisError):
-            transcription([source], {}, gateway=gateway, authorize=authorize)
-        authorize.side_effect = PermissionDenied("Access removed")
-        gateway.request.reset_mock()
-        with self.assertRaises(PermissionDenied):
-            transcription([source], {}, gateway=gateway, authorize=authorize)
-        gateway.request.assert_not_called()
+            transcription([source], {}, client=client)

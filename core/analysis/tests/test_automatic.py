@@ -16,7 +16,7 @@ from django_tasks_db.models import DBTaskResult
 from audio.models import AudioEvidence
 from cases.models import CaseMembership
 from core.analysis.automatic import start_evidence_analysis
-from core.analysis.operations import OPERATIONS, get_operation
+from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
 from core.analysis.testing import image_bytes, wav_bytes
 from core.models import AnalysisResult, AnalysisRun, GatewayRequest
@@ -302,7 +302,6 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         topics = next(run for run in runs if run.operation == "text_topics")
         self.assertIs(topics.parameters["include_summary"], False)
         self.assertTrue(all(not run.external_processing for run in runs))
-        self.assertTrue(all(not get_operation(run.operation).external for run in runs))
         self.assertEqual(GatewayRequest.objects.count(), 0)
         item.refresh_from_db()
         self.assertEqual(item.body, "Original café\r\n  preserved.  ")

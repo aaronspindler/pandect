@@ -51,7 +51,7 @@ def _segments(response, duration):
     return text, segments
 
 
-def transcription(sources, parameters, *, gateway, authorize):
+def transcription(sources, parameters, *, client):
     items, warnings = [], []
     unsupported = partial = supported = 0
     total_text = 0
@@ -107,8 +107,7 @@ def transcription(sources, parameters, *, gateway, authorize):
                     )
                 )
                 continue
-            authorize()
-            response = gateway.request(
+            response = client.request(
                 "transcription",
                 {
                     "audio": chunk["audio"],
@@ -118,7 +117,6 @@ def transcription(sources, parameters, *, gateway, authorize):
                     "condition_on_previous_text": False,
                 },
             )
-            authorize()
             text, segments = _segments(response, duration)
             info = response.get("transcription_info", {})
             if not isinstance(info, dict):

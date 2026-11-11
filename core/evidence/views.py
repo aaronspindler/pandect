@@ -61,26 +61,17 @@ SAVE_UNCONFIRMED = (
 )
 
 
-def _private(response):
-    response["Cache-Control"] = "private, no-store"
-    return response
-
-
 def _error(request, code, message, status=400, errors=None):
     if wants_json(request):
-        return _private(
-            JsonResponse(
-                {"code": code, "message": message, "errors": errors or {}},
-                status=status,
-            )
-        )
-    return _private(
-        render(
-            request,
-            "core/evidence/error.html",
-            {"error_message": message},
+        return JsonResponse(
+            {"code": code, "message": message, "errors": errors or {}},
             status=status,
         )
+    return render(
+        request,
+        "core/evidence/error.html",
+        {"error_message": message},
+        status=status,
     )
 
 
@@ -209,7 +200,7 @@ def evidence_list(request, case_id):
     case = get_case(request.user, case_id)
     context = case_context(case, request.user) | _list_context(request, case)
     context["nav_section"] = "evidence"
-    return _private(render(request, "core/evidence/workspace.html", context))
+    return render(request, "core/evidence/workspace.html", context)
 
 
 @product_login_required
@@ -253,17 +244,15 @@ def detail(request, case_id, kind, evidence_id):
         context["vehicle_import"] = VehicleLocationImport.objects.filter(
             case=case, document=item
         ).first()
-    return _private(render(request, "core/evidence/workspace.html", context))
+    return render(request, "core/evidence/workspace.html", context)
 
 
 def _created_response(request, case, kind, item, *, created):
     url = _detail_url(case, kind, item)
     if wants_json(request):
-        return _private(
-            JsonResponse(
-                {"type": kind, "id": str(item.pk), "detail_url": url},
-                status=201 if created else 200,
-            )
+        return JsonResponse(
+            {"type": kind, "id": str(item.pk), "detail_url": url},
+            status=201 if created else 200,
         )
     messages.success(
         request, "Evidence added." if created else "This evidence was already saved."
@@ -314,7 +303,7 @@ def bulk_create(request, case_id):
         "max_batch_files": settings.PANDECT_MAX_BATCH_FILES,
         "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
     }
-    return _private(render(request, "core/evidence/bulk_form.html", context))
+    return render(request, "core/evidence/bulk_form.html", context)
 
 
 @product_login_required
@@ -394,11 +383,9 @@ def create(request, case_id):
                     duplicates = _duplicate_review(request, case, kind, form.instance)
                     if duplicates:
                         if wants_json(request):
-                            return _private(
-                                JsonResponse(
-                                    {"code": "duplicate_evidence", **duplicates},
-                                    status=409,
-                                )
+                            return JsonResponse(
+                                {"code": "duplicate_evidence", **duplicates},
+                                status=409,
                             )
                         status = 409
                     else:
@@ -493,7 +480,7 @@ def create(request, case_id):
             settings, "PANDECT_MAX_FILE_BYTES", 100 * 1024 * 1024
         ),
     }
-    return _private(render(request, "core/evidence/form.html", context, status=status))
+    return render(request, "core/evidence/form.html", context, status=status)
 
 
 @product_login_required
@@ -544,7 +531,7 @@ def edit(request, case_id, kind, evidence_id):
             "conflict": conflict,
             "latest_details": latest_details if conflict else [],
         }
-    return _private(render(request, "core/evidence/form.html", context, status=status))
+    return render(request, "core/evidence/form.html", context, status=status)
 
 
 @product_login_required
@@ -566,7 +553,7 @@ def preview(request, case_id, kind, evidence_id):
         response = HttpResponse(content, content_type="image/jpeg")
         response["Content-Disposition"] = f'inline; filename="preview-{item.pk}.jpg"'
     response["X-Content-Type-Options"] = "nosniff"
-    return _private(response)
+    return response
 
 
 def _file_download(request, case, kind, item, *, attachment=None):
@@ -616,7 +603,7 @@ def download(request, case_id, kind, evidence_id):
     else:
         response = _file_download(request, case, kind, item)
     response["X-Content-Type-Options"] = "nosniff"
-    return _private(response)
+    return response
 
 
 @product_login_required
@@ -706,20 +693,18 @@ def delete(request, case_id, kind, evidence_id):
     review_context = deletion_review_context(request, plan)
     if review_context["inventory_changed"]:
         status = 409
-    return _private(
-        render(
-            request,
-            "core/evidence/delete.html",
-            {
-                **case_context(case, request.user),
-                "item": item,
-                "form": form,
-                "deletion_blocker": plan.blocker,
-                "analysis_count": plan.analysis_count,
-                **review_context,
-                "cancel_url": _detail_url(case, kind, item) + "?" + params.urlencode(),
-                "nav_section": "evidence",
-            },
-            status=status,
-        )
+    return render(
+        request,
+        "core/evidence/delete.html",
+        {
+            **case_context(case, request.user),
+            "item": item,
+            "form": form,
+            "deletion_blocker": plan.blocker,
+            "analysis_count": plan.analysis_count,
+            **review_context,
+            "cancel_url": _detail_url(case, kind, item) + "?" + params.urlencode(),
+            "nav_section": "evidence",
+        },
+        status=status,
     )

@@ -228,14 +228,13 @@ class Handler(BaseHTTPRequestHandler):
                 200 if ready else 503,
                 {"status": "ready" if ready else "unavailable"},
             )
-        elif self.path == "/identity" and self.authorized():
+        elif self.path != "/identity":
+            self.reply(404, {"error": "unknown_route"})
+        elif self.authorized():
             if runtime.ready():
                 self.reply(200, runtime.identity)
             else:
                 self.reply(503, {"error": "runtime_unavailable"})
-        else:
-            if self.path != "/identity":
-                self.reply(404, {"error": "unknown_route"})
 
     def do_POST(self):
         if not self.authorized():

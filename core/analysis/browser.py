@@ -1,26 +1,21 @@
 """Synthetic journeys: run explicitly with manage.py test core.analysis.browser."""
 
 import json
-import os
 import re
-import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
-from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.core.files.base import ContentFile
-from django.test import override_settings
 from django.urls import reverse
 from PIL import Image
 from playwright.sync_api import expect
 
 from audio.models import AudioEvidence
 from cases.models import Case, CaseMembership
-from config.tests import browser as core_browser
+from config.tests.browser_base import BrowserTestCase
 from core.analysis.services import process_run, start_run
 from core.analysis.testing import wav_bytes
 from core.models import AnalysisReview, AnalysisRun
@@ -33,56 +28,11 @@ from text.models import TextEvidence
 from vehicle.models import Vehicle
 
 
-@override_settings(
-    SESSION_COOKIE_SECURE=False,
-    CSRF_COOKIE_SECURE=False,
-    ACCOUNT_RATE_LIMITS=False,
-    MAILERS={"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}},
-)
-class AnalysisBrowserTests(StaticLiveServerTestCase):
-    password = "synthetic-browser-correct-horse-742!"
-    # Reuse the established browser/thread/database helpers without inheriting
-    # the unrelated core test journeys.
-    make_user = core_browser.CoreInterfaceBrowserTests.make_user
-    url = core_browser.CoreInterfaceBrowserTests.url
-    db = core_browser.CoreInterfaceBrowserTests.db
-    browser_page = core_browser.CoreInterfaceBrowserTests.browser_page
-    sign_in = core_browser.CoreInterfaceBrowserTests.sign_in
-    capture = core_browser.CoreInterfaceBrowserTests.capture
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.engines = tuple(
-            item.strip()
-            for item in os.environ.get(
-                "PANDECT_BROWSER_ENGINES", "chromium,webkit"
-            ).split(",")
-            if item.strip()
-        )
-        if not cls.engines or set(cls.engines) - {"chromium", "webkit"}:
-            raise ValueError(
-                "Select chromium and/or webkit in PANDECT_BROWSER_ENGINES."
-            )
+class AnalysisBrowserTests(BrowserTestCase):
+    artifact_subdirectory = "analysis-browser"
 
     def setUp(self):
         super().setUp()
-        self.playwright = None
-        self.browsers = {}
-        self.browser_context_number = 0
-        self.database_worker = ThreadPoolExecutor(max_workers=1)
-        self.addCleanup(self.database_worker.shutdown)
-        self.media_directory = tempfile.TemporaryDirectory(
-            prefix="pandect-analysis-browser-"
-        )
-        self.addCleanup(self.media_directory.cleanup)
-        self.enterContext(override_settings(MEDIA_ROOT=self.media_directory.name))
-        self.artifacts = Path(
-            os.environ.get(
-                "PANDECT_BROWSER_ARTIFACTS", "data/validation/analysis-browser"
-            )
-        ).resolve()
-        self.artifacts.mkdir(parents=True, exist_ok=True)
         self.owner = self.make_user("analysis-browser-owner")
         self.viewer = self.make_user("analysis-browser-viewer")
         self.case = Case.objects.create(

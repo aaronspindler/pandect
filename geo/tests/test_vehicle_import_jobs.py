@@ -8,13 +8,13 @@ from django.test import SimpleTestCase, TestCase
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
-from geo.testing import csv_content
+from geo.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import (
     enqueue_completion,
     enqueue_preparation,
     process_import,
 )
-from geo.vehicle_imports import HEADERS, iter_csv, parse_csv
+from geo.vehicle_imports import HEADERS, iter_csv
 
 
 class StreamingVehicleCSVTests(SimpleTestCase):

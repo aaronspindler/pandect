@@ -127,7 +127,6 @@ def _record_rows(model, objects):
             "run",
             "result",
             "message",
-            "evidence_id",
         }
     )
     return model.objects.filter(pk__in=[obj.pk for obj in objects]).values(
@@ -174,43 +173,47 @@ def _case_file(name, case_id):
 def plan_deletion(item, kind):
     collector = Collector(using=item._state.db, origin=item, force_collection=True)
     plan = DeletionPlan(item, kind, collector)
-    roots = [(kind, item)]
+    roots = {kind: [item]}
     batches = []
     if kind == "document":
         batches = list(
             VehicleLocationImport.objects.filter(document=item).only("id", "case_id")
         )
-        observations = list(
+        roots["vehicle-location"] = list(
             VehicleLocationEvidence.objects.filter(import_batch__in=batches).only(
                 "id", "case_id"
             )
         )
-        messages = list(
+        roots["text-message"] = list(
             KINDS["text-message"]
             .objects.filter(communication_context__source_document=item)
             .only("id", "case_id")
         )
-        roots.extend(("vehicle-location", obj) for obj in observations)
-        roots.extend(("text-message", obj) for obj in messages)
     # Check source-linked roots before querying or displaying any private labels.
-    if any(obj.case_id != item.case_id for _, obj in roots) or any(
-        batch.case_id != item.case_id for batch in batches
-    ):
+    if any(
+        obj.case_id != item.case_id for objects in roots.values() for obj in objects
+    ) or any(batch.case_id != item.case_id for batch in batches):
         plan.blocker = CASE_CONFLICT
         return plan
-    for model in {type(obj) for _, obj in roots}:
-        ids = [obj.pk for _, obj in roots if type(obj) is model]
+    for root_kind, objects in roots.items():
+        model = KINDS[root_kind]
+        ids = [obj.pk for obj in objects]
         if same_case_evidence(model.objects.filter(pk__in=ids)).count() != len(ids):
             plan.blocker = CASE_CONFLICT
             return plan
-    runs = _analysis_runs(item.case_id, {(k, str(obj.pk)) for k, obj in roots})
-    plan.analysis_count = runs.count()
+    runs = _analysis_runs(
+        item.case_id,
+        {
+            (root_kind, str(obj.pk))
+            for root_kind, objects in roots.items()
+            for obj in objects
+        },
+    )
+    plan.analysis_count = len(runs)
     try:
-        for model in {type(obj) for _, obj in roots}:
-            collector.collect(
-                [obj for _, obj in roots if type(obj) is model],
-                fail_on_restricted=False,
-            )
+        for objects in roots.values():
+            if objects:
+                collector.collect(objects, fail_on_restricted=False)
         if batches:
             collector.collect(batches, fail_on_restricted=False)
         collector.collect(runs, fail_on_restricted=False)

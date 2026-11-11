@@ -6,12 +6,11 @@ from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from people.forms import PersonDeleteForm, PersonForm, person_revision
+from people.forms import PersonDeleteForm, PersonForm
 from people.models import Person
 from socialmedia.models import SocialAccount
 
@@ -28,7 +27,6 @@ def list_query(request):
 
 @product_login_required
 @require_safe
-@never_cache
 def person_list(request, case_id):
     case = get_case(request.user, case_id)
     query = request.GET.get("q", "").strip()[:200]
@@ -62,7 +60,6 @@ def person_list(request, case_id):
 
 @product_login_required
 @require_safe
-@never_cache
 def person_detail(request, case_id, person_id):
     case = get_case(request.user, case_id)
     person = get_object_or_404(Person, case=case, pk=person_id)
@@ -83,7 +80,6 @@ def person_detail(request, case_id, person_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def person_create(request, case_id):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")
@@ -112,7 +108,6 @@ def person_create(request, case_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def person_edit(request, case_id, person_id):
     latest_person = None
     with transaction.atomic():
@@ -131,7 +126,7 @@ def person_edit(request, case_id, person_id):
         if form.stale:
             latest_person = Person.objects.get(pk=person.pk, case=case)
             form.data = form.data.copy()
-            form.data["revision"] = person_revision(latest_person)
+            form.data["revision"] = form.initial["revision"]
     return render(
         request,
         "people/form.html",
@@ -149,7 +144,6 @@ def person_edit(request, case_id, person_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def person_delete(request, case_id, person_id):
     with transaction.atomic():
         case = get_case(

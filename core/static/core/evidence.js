@@ -1,23 +1,9 @@
 (() => {
   "use strict";
   const announce = (message) => {
-    const region = document.querySelector("[data-global-status]");
+    const region = document.querySelector("[data-evidence-status]");
     if (region) region.textContent = message;
   };
-  const dirtyForms = new Set();
-  document.querySelectorAll("[data-evidence-upload]").forEach((form) => {
-    form.addEventListener("input", (event) => {
-      if (!event.target.closest(".upload-entry")) dirtyForms.add(form);
-    });
-    form.addEventListener("submit", () => dirtyForms.delete(form));
-  });
-  let entries = [];
-  window.addEventListener("beforeunload", (event) => {
-    if (dirtyForms.size || entries.some((entry) => entry.state !== "added")) {
-      event.preventDefault();
-      event.returnValue = "";
-    }
-  });
   document.querySelectorAll("[data-copy-target]").forEach((button) => {
     if (!navigator.clipboard) { button.hidden = true; return; }
     button.addEventListener("click", async () => {
@@ -45,7 +31,20 @@
     });
   }
   const form = document.querySelector("[data-evidence-upload]");
-  if (!form || !window.FormData || !window.XMLHttpRequest || !window.crypto?.randomUUID) return;
+  if (!form) return;
+  let formDirty = false;
+  let entries = [];
+  form.addEventListener("input", (event) => {
+    if (!event.target.closest(".upload-entry")) formDirty = true;
+  });
+  form.addEventListener("submit", () => { formDirty = false; });
+  window.addEventListener("beforeunload", (event) => {
+    if (formDirty || entries.some((entry) => entry.state !== "added")) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
+  if (!window.FormData || !window.XMLHttpRequest || !window.crypto?.randomUUID) return;
   const fileInput = form.querySelector('input[type="file"]');
   const section = document.getElementById("upload-queue");
   if (!fileInput || !section) return;
@@ -94,7 +93,6 @@
     if (blocked || entry.frozen || !["ready", "failed", "duplicate"].includes(entry.state)) return;
     sharedInputs.forEach((shared) => {
       if (entry.overrides.has(shared.name)) return;
-      entry.values[shared.name] = shared.value;
       entry.inputs.find((input) => input.dataset.fieldName === shared.name).value = shared.value;
     });
   };
@@ -121,10 +119,7 @@
     if (name === "source") input.maxLength = 255;
     if (name === "source_url") input.maxLength = 2048;
     if (name === "source_description") input.maxLength = 20000;
-    input.addEventListener("input", () => {
-      entry.values[name] = input.value;
-      entry.overrides.add(name);
-    });
+    input.addEventListener("input", () => entry.overrides.add(name));
     wrapper.append(input);
     parent.append(wrapper);
     entry.inputs.push(input);
@@ -144,7 +139,7 @@
   };
   const renderEntry = (file, defaults) => {
     const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : bulk ? "document" : form.dataset.kind;
-    const entry = {id:crypto.randomUUID(), file, state:"ready", frozen:null, inputs:[], overrides:new Set(), values:{...defaults, kind, title:defaults.title || file.name}};
+    const entry = {id:crypto.randomUUID(), file, state:"ready", frozen:null, inputs:[], overrides:new Set(), defaults:{...defaults}};
     entry.node = element("article", null, {class:"upload-entry"});
     const header = element("div", null, {class:"upload-entry-header"});
     header.append(element("strong", file.name));
@@ -163,7 +158,7 @@
     });
     header.append(entry.remove); entry.node.append(header);
     const basic = element("div", null, {class:"upload-entry-fields"});
-    inputField(basic, entry, "title", "Title", "text", entry.values.title);
+    entry.title = inputField(basic, entry, "title", "Title", "text", defaults.title || file.name);
     const category = element("div", null);
     const selectId = `queue-${entry.id}-kind`;
     category.append(element("label", "Category", {for:selectId}));
@@ -171,7 +166,6 @@
     select.dataset.fieldName = "kind";
     [["document","Document"],["image","Image"],["audio","Audio"]].forEach(([value,label]) => select.append(element("option", label, {value})));
     select.value = kind;
-    select.addEventListener("change", () => {entry.values.kind = select.value;});
     entry.inputs.push(select); category.append(select); basic.append(category); entry.node.append(basic);
     const details = element("details", null);
     details.append(element("summary", "Source details"));
@@ -232,7 +226,7 @@
     entries.push(...selected.map((file) => renderEntry(file, defaults)));
     section.hidden = !entries.length;
     overall.textContent = `${entries.length} file${entries.length === 1 ? "" : "s"} in this batch; ${entries.filter((entry) => entry.state === "added").length} added. Review titles and suggested categories before uploading.`;
-    dirtyForms.delete(form);
+    formDirty = false;
     blocked = false;
     refreshControls();
   };
@@ -242,7 +236,11 @@
   form.addEventListener("drop", (event) => {if (event.dataTransfer.files.length) {event.preventDefault(); form.classList.remove("drop-active"); loadFiles(event.dataTransfer.files);}});
   const send = (entry) => new Promise((resolve) => {
     entry.inputs.forEach((input) => {input.removeAttribute("aria-invalid"); input.removeAttribute("aria-describedby");});
-    if (!entry.frozen) entry.frozen = {...entry.values};
+    if (!entry.frozen) {
+      // Read the editable fields once, then reuse the exact payload on uncertain retries.
+      entry.frozen = {...entry.defaults};
+      for (const input of entry.inputs) entry.frozen[input.dataset.fieldName] = input.value;
+    }
     const data = new FormData();
     Object.entries(entry.frozen).forEach(([key,value]) => {if (key !== "body" && value !== undefined) data.set(key, value);});
     data.set("csrfmiddlewaretoken", csrf); data.set("submission_id", entry.id); data.set("file", entry.file, entry.file.name);
@@ -269,7 +267,7 @@
         setStatus(entry, "blocked", result?.message || "Access is unavailable. Sign in again or ask the case owner for access before continuing.");
       } else if (xhr.status === 409 && result?.code === "duplicate_evidence") {
         entry.frozen = null;
-        entry.values.duplicate_confirmation = result.confirmation;
+        entry.defaults.duplicate_confirmation = result.confirmation;
         entry.matches.replaceChildren(element("p", "Matching evidence already exists. Review matches in a new tab, remove this file from the queue, or add a separate copy for its source."));
         const list = element("ul", null);
         result.matches.forEach((match) => {
@@ -314,7 +312,7 @@
     for (const entry of pending) {
       if (stopRequested || blocked) break;
       if (entry.invalidFile || !["ready", "failed", "unknown"].includes(entry.state)) continue;
-      if (!entry.frozen && !entry.values.title.trim()) {setStatus(entry, "failed", "Enter a title before uploading."); continue;}
+      if (!entry.frozen && !entry.title.value.trim()) {setStatus(entry, "failed", "Enter a title before uploading."); continue;}
       await send(entry);
     }
     running = false; stopButton.disabled = true;
@@ -323,13 +321,14 @@
     const count = entries.filter((entry) => entry.state === "added").length;
     const duplicates = entries.filter((entry) => entry.state === "duplicate").length;
     overall.textContent = blocked ? "Uploads stopped because case access is unavailable. No remaining queue entries will be sent. Check your case access before continuing." : `${count} of ${entries.length} files added.${duplicates ? ` ${duplicates} exact duplicate${duplicates === 1 ? " needs" : "s need"} review.` : ""}${stopRequested ? " Pending uploads are paused." : " Review individual results below."}`;
-    announce(overall.textContent); dirtyForms.delete(form);
+    announce(overall.textContent);
+    formDirty = false;
   };
   stopButton.disabled = true;
   stopButton.addEventListener("click", () => {stopRequested = true; stopButton.disabled = true; overall.textContent = "The current file will finish; pending files will stay queued.";});
   form.addEventListener("submit", (event) => {
     if (!entries.length && !bulk) return;
-    event.preventDefault(); dirtyForms.delete(form);
+    event.preventDefault();
     run(entries.slice());
   });
   if (bulk) {

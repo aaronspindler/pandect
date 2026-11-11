@@ -2,7 +2,6 @@ from django.contrib import messages
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
@@ -28,7 +27,6 @@ def person_accounts_url(request, person):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def social_account_save(request, case_id, person_id, account_id=None):
     latest_account = None
     with transaction.atomic():
@@ -76,7 +74,6 @@ def social_account_save(request, case_id, person_id, account_id=None):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def social_account_delete(request, case_id, person_id, account_id):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")

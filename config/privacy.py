@@ -30,7 +30,7 @@ class PrivatePageMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        if request.path.startswith(("/cases/", "/accounts/", "/invitations/")):
+        if request.path_info.startswith(("/cases/", "/accounts/", "/invitations/")):
             add_never_cache_headers(response)
             # Preserve same-origin form Origin/Referer checks. `no-referrer`
             # makes browsers send Origin: null for ordinary form POSTs.

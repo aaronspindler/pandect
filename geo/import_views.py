@@ -8,7 +8,6 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import F
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
@@ -28,7 +27,6 @@ from geo.vehicle_imports import MAX_BYTES, MAX_GROUPS, MAX_ROWS, PARSER_VERSION
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def vehicle_import_upload(request, case_id):
     case = get_case(request.user, case_id, edit=True)
     form = VehicleImportUploadForm(
@@ -133,7 +131,6 @@ def vehicle_import_upload(request, case_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def vehicle_import_review(request, case_id, import_id):
     case = get_case(request.user, case_id, edit=request.method == "POST")
     batch = get_object_or_404(

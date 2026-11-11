@@ -17,7 +17,7 @@
     <section aria-labelledby="processing-heading">
       <h2 id="processing-heading">{% if batch.phase == 'publish' %}Importing observations{% else %}Preparing the review{% endif %}</h2>
       <p role="status">{{ batch.get_status_display }}{% if batch.processed_rows %} · {{ batch.processed_rows }} rows processed{% endif %}</p>
-      <progress class="analysis-progress"{% if progress != None %} value="{{ progress }}"{% endif %} max="100" aria-label="Vehicle location import progress">{% if progress != None %}{{ progress }}%{% else %}Processing{% endif %}</progress>
+      <progress class="work-progress"{% if progress != None %} value="{{ progress }}"{% endif %} max="100" aria-label="Vehicle location import progress">{% if progress != None %}{{ progress }}%{% else %}Processing{% endif %}</progress>
       <p>You can leave and return from the source CSV. Refresh for the latest progress.</p>
       <a class="button button-secondary" href="">Refresh status</a>
       {% if batch.status == 'running' and can_retry %}<details><summary>Recover interrupted processing</summary><p>If progress has stopped, ask the operator to stop the worker before retrying. Earlier observations will not be added twice.</p><form method="post" class="form-layout">{% csrf_token %}<input type="hidden" name="action" value="retry"><div class="field"><label for="worker-stopped"><input id="worker-stopped" type="checkbox" name="worker_stopped" required> The operator has stopped the worker for this interrupted attempt</label></div><button class="button button-secondary" type="submit">Retry interrupted import</button></form></details>{% endif %}

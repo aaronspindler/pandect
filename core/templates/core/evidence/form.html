@@ -34,6 +34,9 @@
     {% if not editing and is_file or not editing and is_call %}<p class="muted">Your browser may require you to select the file again after a validation error. Other entered details are retained.</p>{% endif %}
     <div class="actions form-actions"><button class="button button-primary" type="submit"{% if duplicates %} name="duplicate_confirmation" value="{{ duplicates.confirmation }}"{% endif %}>{% if duplicates %}Add duplicate anyway{% elif conflict %}Save reviewed changes{% elif editing %}Save changes{% elif is_communication %}Save {{ kind_label|lower }}{% elif kind == 'text' %}Save text{% elif is_file %}Upload file{% else %}Save location{% endif %}</button><a class="button button-secondary" href="{% if editing %}{% url 'core:evidence:detail' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}{% else %}{% url 'core:evidence:list' case_id=case.pk %}{% endif %}">Cancel</a></div>
   </form>
-  {% if not editing and is_file %}<section id="upload-queue" class="upload-queue" hidden aria-label="File upload queue"><div class="page-header"><h2>Upload queue</h2><button type="button" class="button button-secondary" data-stop-uploads>Stop after this file</button></div><div data-upload-entries></div><p role="status" data-upload-status></p></section>{% endif %}
+  {% if not editing and is_file and not duplicates %}
+  <section id="upload-queue" class="upload-queue" hidden aria-label="File upload queue"><div class="page-header"><h2>Upload queue</h2><button type="button" class="button button-secondary" data-stop-uploads>Stop after this file</button></div><div data-upload-entries></div><p role="status" data-upload-status></p></section>
+  {% include 'core/evidence/assets.html' only %}
+  {% endif %}
 </div>
 {% endblock %}

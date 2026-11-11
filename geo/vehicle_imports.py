@@ -37,7 +37,6 @@ class ImportRow:
     raw: dict
     values: dict = field(default_factory=dict)
     errors: list = field(default_factory=list)
-    duplicate: bool = False
 
     @property
     def asset(self):
@@ -240,16 +239,6 @@ def iter_csv(
         raise ValidationError(
             "The source CSV failed its integrity check. Restore its original bytes."
         )
-
-
-def parse_csv(content, timezone_name):
-    """Compatibility helper for small in-memory callers; jobs use iter_csv."""
-    rows = list(iter_csv(io.BytesIO(content), timezone_name))
-    seen = set()
-    for row in rows:
-        row.duplicate = row.fingerprint in seen
-        seen.add(row.fingerprint)
-    return rows
 
 
 def iter_import(batch):

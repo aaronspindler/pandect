@@ -34,9 +34,7 @@ KIND_LABELS = {
 FILE_KINDS = ("image", "audio", "document")
 CALL_KINDS = ("phone-call", "facetime")
 COMMUNICATION_KINDS = ("text-message", *CALL_KINDS)
-COMMUNICATION_FIELDS = ("sender", "recipient", "occurred_at")
 LOCATION_KINDS = ("location", "person-location", "vehicle-location")
-LOCATION_FIELDS = ("address", "latitude", "longitude", "observed_at")
 
 READER_TEMPLATES = {
     "image": "image/original.html",

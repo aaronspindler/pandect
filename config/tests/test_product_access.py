@@ -120,13 +120,16 @@ class ProductAccessTests(TestCase):
         self.assertNotIn("pending_invitation_path", self.client.session)
 
     def test_private_pages_have_no_store_and_same_origin_referrers(self):
-        request = RequestFactory().get("/invitations/synthetic-token/")
-        response = PrivatePageMiddleware(lambda request: HttpResponse("Synthetic"))(
-            request
-        )
-        self.assertIn("no-store", response["Cache-Control"])
-        self.assertIn("private", response["Cache-Control"])
-        self.assertEqual(response["Referrer-Policy"], "same-origin")
+        for path in ("/cases/", "/accounts/", "/invitations/synthetic-token/"):
+            for prefix in ("", "/pandect"):
+                with self.subTest(path=path, prefix=prefix):
+                    request = RequestFactory().get(path, SCRIPT_NAME=prefix)
+                    response = PrivatePageMiddleware(
+                        lambda request: HttpResponse("Synthetic")
+                    )(request)
+                    self.assertIn("no-store", response["Cache-Control"])
+                    self.assertIn("private", response["Cache-Control"])
+                    self.assertEqual(response["Referrer-Policy"], "same-origin")
 
     def test_log_filter_removes_tokens_queries_and_expected_error_tracebacks(self):
         record = logging.LogRecord(

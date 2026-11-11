@@ -1,7 +1,9 @@
 """New local routes, explicit disclosure, pinned execution and legacy history."""
 
+import json
 from copy import deepcopy
 from datetime import timedelta
+from io import BytesIO
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -224,6 +226,34 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
             run.result.data["items"][0]["values"]["Average log probability"],
             "Not supplied",
         )
+
+    def test_revocation_during_transcription_stops_before_another_chunk(self):
+        audio = AudioEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["editor"],
+            title="Synthetic multi-chunk recording",
+            file=ContentFile(wav_bytes(seconds=31), name="synthetic.wav"),
+        )
+        run = self.start(
+            "transcription", [{"kind": "audio", "id": str(audio.pk)}], role="editor"
+        )
+
+        def respond(request, *, timeout):
+            if request.get_method() == "GET":
+                identity = LOCAL["transcription"] | {"kind": "transcription"}
+                return BytesIO(json.dumps(identity).encode())
+            CaseMembership.objects.filter(
+                case=self.case, user=self.users["editor"]
+            ).delete()
+            return BytesIO(b'{"text": "Synthetic first chunk"}')
+
+        with patch("core.analysis.local.build_opener") as build:
+            request = build.return_value.open
+            request.side_effect = respond
+            self.assertEqual(self.process(run), "failed")
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(run.error_code, "access_removed")
+        self.assertFalse(hasattr(run, "result"))
 
     def test_private_geographic_results_need_no_ai_or_external_approval(self):
         observation = LocationEvidence.objects.create(

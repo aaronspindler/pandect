@@ -14,7 +14,7 @@ from geo.models import (
     PersonLocationEvidence,
     VehicleLocationEvidence,
 )
-from geo.vehicle_imports import HEADERS
+from geo.vehicle_imports import HEADERS, iter_csv
 from people.models import Person
 from vehicle.models import Vehicle
 
@@ -37,6 +37,10 @@ def csv_content(*rows, **changes):
     writer.writeheader()
     writer.writerows(rows or [row])
     return output.getvalue().encode("utf-8")
+
+
+def parse_csv(content, timezone_name):
+    return list(iter_csv(io.BytesIO(content), timezone_name))
 
 
 class MapCaseFixtures:

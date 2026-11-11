@@ -254,21 +254,19 @@ def require_current_geocode_reviews(run, sources):
         raise AnalysisError("geocode_review_required")
 
 
-def _authorize_run(run, *, lock=False, allow_finished=False):
+def _authorize_run(run, *, lock=False):
     actor = get_user_model().objects.get(pk=run.requested_by_id)
     case = get_case(actor, run.case_id, edit=True, lock=lock)
     if not EmailAddress.objects.filter(user=actor, verified=True).exists():
         raise PermissionDenied("Verify your email before processing.")
     current = AnalysisRun.objects.get(pk=run.pk)
-    if current.status == "cancelled" or (
-        not allow_finished and current.status in FINISHED
-    ):
+    if current.status in FINISHED:
         raise AnalysisError("processing_cancelled")
     return case
 
 
-def authorize_run(run, *, lock=False, allow_finished=False):
-    case = _authorize_run(run, lock=lock, allow_finished=allow_finished)
+def authorize_run(run, *, lock=False):
+    case = _authorize_run(run, lock=lock)
     validate_execution(run)
     resolve_inputs(run, case)
     return case
@@ -578,9 +576,8 @@ def process_run(run_id):
             client = LocalClient(authorize, execution)
         kwargs = {}
         if run.operation == "transcription":
-            kwargs["gateway"] = client
+            kwargs["client"] = client
         if run.operation in {
-            "transcription",
             "ocr",
             "plate_ocr",
             "geocode_locations",

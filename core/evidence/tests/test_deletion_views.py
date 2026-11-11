@@ -25,9 +25,8 @@ from geo.models import (
     VehicleLocationImport,
     VehicleLocationImportRow,
 )
-from geo.testing import csv_content
+from geo.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import process_import
-from geo.vehicle_imports import parse_csv
 from phone.models import CallEvidenceAttachment, CommunicationContext
 
 

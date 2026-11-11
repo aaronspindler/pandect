@@ -1,7 +1,4 @@
-{% extends 'ui/base.html' %}
-{% load static %}
-{% block extra_head %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endblock %}
-{% block body_class %}analysis-page{% endblock %}
+{% extends 'core/analysis/base.html' %}
 {% block title %}{% if evidence %}Additional analysis{% else %}Start analysis{% endif %} · {{ case.name }}{% endblock %}
 {% block content %}
 {% if evidence %}<a class="back-link" href="{{ evidence_url }}">Back to evidence</a>{% else %}<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to analysis</a>{% endif %}

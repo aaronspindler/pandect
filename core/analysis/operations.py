@@ -29,7 +29,7 @@ class Operation:
     label: str
     function: Callable
     kinds: tuple
-    external: bool = False
+    additional_on_evidence: bool = False
     version: str = "1"
 
 
@@ -93,12 +93,18 @@ OPERATIONS = {
     "ocr": Operation(
         "Read text in images", image_ai.ocr, ("image", "document"), version="5"
     ),
-    "plate_ocr": Operation("Find vehicle plates", plate_ocr, ("image",), version="2"),
+    "plate_ocr": Operation(
+        "Find vehicle plates",
+        plate_ocr,
+        ("image",),
+        additional_on_evidence=True,
+        version="2",
+    ),
     "transcription": Operation(
         "Transcribe recordings",
         audio_ai.transcription,
         ("audio", "phone-call", "facetime"),
-        True,
+        additional_on_evidence=True,
     ),
     "entities": Operation("Extract identifiers and dates", text.extract_entities, TEXT),
     "style_profiles": Operation(
@@ -113,19 +119,23 @@ OPERATIONS = {
     ),
     "copied_text": Operation("Find repeated wording", text.copied_text, TEXT),
     "text_topics": Operation(
-        "Inspect keywords and topics", text_workflows.text_topics, TEXT, version="2"
+        "Inspect keywords and topics",
+        text_workflows.text_topics,
+        TEXT,
+        additional_on_evidence=True,
+        version="2",
     ),
     "content_events": Operation(
         "Suggest claims and commitments",
         text_ai.content_events,
         TEXT,
-        True,
+        additional_on_evidence=True,
     ),
     "session_summaries": Operation(
         "Summarize selected conversations",
         phone_ai.session_summaries,
         COMMUNICATIONS,
-        True,
+        additional_on_evidence=True,
         version="2",
     ),
     "sessions": Operation(
@@ -164,7 +174,7 @@ OPERATIONS = {
         "Look up geographic context",
         geographic_context.geographic_context,
         LOCATIONS,
-        True,
+        additional_on_evidence=True,
     ),
     "proximity": Operation(
         "Find observations in an area", locations.proximity, LOCATIONS
@@ -201,7 +211,7 @@ OPERATIONS = {
         "Look up geographic coordinates or addresses",
         geocoding.geocode_locations,
         LOCATIONS,
-        True,
+        additional_on_evidence=True,
     ),
 }
 

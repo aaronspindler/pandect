@@ -24,9 +24,9 @@ from core.evidence.form_registry import evidence_form
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
-from geo.testing import csv_content
+from geo.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import enqueue_completion, process_import
-from geo.vehicle_imports import iter_csv, parse_csv
+from geo.vehicle_imports import iter_csv
 from vehicle.models import Vehicle
 
 

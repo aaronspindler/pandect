@@ -6,13 +6,12 @@ from django.db import transaction
 from django.db.models import Q
 from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.evidence.queries import same_case_evidence
-from vehicle.forms import VehicleDeleteForm, VehicleForm, vehicle_revision
+from vehicle.forms import VehicleDeleteForm, VehicleForm
 from vehicle.models import Vehicle
 
 
@@ -28,7 +27,6 @@ def list_query(request):
 
 @product_login_required
 @require_safe
-@never_cache
 def vehicle_list(request, case_id):
     case = get_case(request.user, case_id)
     query = request.GET.get("q", "").strip()[:200]
@@ -61,7 +59,6 @@ def vehicle_list(request, case_id):
 
 @product_login_required
 @require_safe
-@never_cache
 def vehicle_detail(request, case_id, vehicle_id):
     case = get_case(request.user, case_id)
     vehicle = get_object_or_404(Vehicle, case=case, pk=vehicle_id)
@@ -81,7 +78,6 @@ def vehicle_detail(request, case_id, vehicle_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def vehicle_create(request, case_id):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")
@@ -110,7 +106,6 @@ def vehicle_create(request, case_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def vehicle_edit(request, case_id, vehicle_id):
     latest_vehicle = None
     with transaction.atomic():
@@ -129,7 +124,7 @@ def vehicle_edit(request, case_id, vehicle_id):
         if form.stale:
             latest_vehicle = Vehicle.objects.get(pk=vehicle.pk, case=case)
             form.data = form.data.copy()
-            form.data["revision"] = vehicle_revision(latest_vehicle)
+            form.data["revision"] = form.initial["revision"]
     return render(
         request,
         "vehicle/form.html",
@@ -147,7 +142,6 @@ def vehicle_edit(request, case_id, vehicle_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def vehicle_delete(request, case_id, vehicle_id):
     with transaction.atomic():
         case = get_case(

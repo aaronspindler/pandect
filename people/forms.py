@@ -1,19 +1,15 @@
 from django import forms
-from django.core import signing
-from django.core.exceptions import ValidationError
 
 from people.models import Person
+from ui.forms import SignedRevisionForm
 
 
-def person_revision(person):
-    return signing.dumps(
-        {"id": str(person.pk), "updated_at": person.updated_at.isoformat()},
-        salt="people.edit-revision",
+class PersonForm(SignedRevisionForm):
+    revision_salt = "people.edit-revision"
+    stale_message = (
+        "This person has newer saved details. Review them below before "
+        "saving your proposed changes."
     )
-
-
-class PersonForm(forms.ModelForm):
-    revision = forms.CharField(widget=forms.HiddenInput)
 
     class Meta:
         model = Person
@@ -33,37 +29,6 @@ class PersonForm(forms.ModelForm):
         help_texts = {
             "phone_number": "Preserve the source's formatting and extensions.",
         }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.stale = False
-        if self.instance._state.adding:
-            del self.fields["revision"]
-        else:
-            self.initial["revision"] = person_revision(self.instance)
-
-    def clean_revision(self):
-        value = self.cleaned_data["revision"]
-        try:
-            revision = signing.loads(value, salt="people.edit-revision")
-        except signing.BadSignature as error:
-            raise ValidationError("Reload this form before saving changes.") from error
-        if not isinstance(revision, dict) or revision.get("id") != str(
-            self.instance.pk
-        ):
-            raise ValidationError("Reload this form before saving changes.")
-        if revision.get("updated_at") != self.instance.updated_at.isoformat():
-            self.stale = True
-        return value
-
-    def clean(self):
-        cleaned = super().clean()
-        if self.stale:
-            raise ValidationError(
-                "This person has newer saved details. Review them below before "
-                "saving your proposed changes."
-            )
-        return cleaned
 
 
 class PersonDeleteForm(forms.Form):

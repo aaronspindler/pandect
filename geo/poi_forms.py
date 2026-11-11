@@ -1,20 +1,16 @@
 from django import forms
-from django.core import signing
-from django.core.exceptions import ValidationError
 
 from geo.models import PointOfInterest
 from people.models import Person
+from ui.forms import SignedRevisionForm
 
 
-def poi_revision(poi):
-    return signing.dumps(
-        {"id": str(poi.pk), "updated_at": poi.updated_at.isoformat()},
-        salt="people.poi-revision",
+class PointOfInterestForm(SignedRevisionForm):
+    revision_salt = "people.poi-revision"
+    stale_message = (
+        "This POI has newer saved details. Review them below before "
+        "saving your proposed changes."
     )
-
-
-class PointOfInterestForm(forms.ModelForm):
-    revision = forms.CharField(widget=forms.HiddenInput)
 
     class Meta:
         model = PointOfInterest
@@ -50,24 +46,6 @@ class PointOfInterestForm(forms.ModelForm):
     def __init__(self, *args, case, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["person"].queryset = Person.objects.filter(case=case)
-        self.stale = False
-        if self.instance._state.adding:
-            del self.fields["revision"]
-        else:
-            self.initial["revision"] = poi_revision(self.instance)
-
-    def clean_revision(self):
-        value = self.cleaned_data["revision"]
-        try:
-            revision = signing.loads(value, salt="people.poi-revision")
-        except signing.BadSignature as error:
-            raise ValidationError("Reload this form before saving changes.") from error
-        if not isinstance(revision, dict) or revision.get("id") != str(
-            self.instance.pk
-        ):
-            raise ValidationError("Reload this form before saving changes.")
-        self.stale = revision.get("updated_at") != self.instance.updated_at.isoformat()
-        return value
 
     def clean(self):
         cleaned = super().clean()
@@ -76,11 +54,6 @@ class PointOfInterestForm(forms.ModelForm):
                 self.add_error("custom_label", "Enter a label for this custom POI.")
         else:
             cleaned["custom_label"] = ""
-        if self.stale:
-            raise ValidationError(
-                "This POI has newer saved details. Review them below before "
-                "saving your proposed changes."
-            )
         return cleaned
 
 

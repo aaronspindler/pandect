@@ -1,7 +1,4 @@
-{% extends 'ui/base.html' %}
-{% load static %}
-{% block extra_head %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endblock %}
-{% block body_class %}analysis-page{% endblock %}
+{% extends 'core/analysis/base.html' %}
 {% block title %}{{ operation_label }} · {{ case.name }}{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ back_to_analysis }}">Back to analysis</a>
@@ -48,7 +45,7 @@
 {% if run.status == 'queued' or run.status == 'running' %}
 <section class="analysis-section">
   <h2>Processing {{ run.progress }}%</h2>
-  <progress class="analysis-progress" value="{{ run.progress }}" max="100" aria-label="Analysis progress">{{ run.progress }}%</progress>
+  <progress class="work-progress" value="{{ run.progress }}" max="100" aria-label="Analysis progress">{{ run.progress }}%</progress>
   <p>Refresh to see progress. Queued work waits for the operator's worker.</p>
   <div class="actions">
     <a class="button button-secondary" href="">Refresh status</a>

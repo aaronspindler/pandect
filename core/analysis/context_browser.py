@@ -2,10 +2,7 @@
 
 import io
 import json
-import os
 import re
-import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -13,14 +10,13 @@ from unittest.mock import patch
 from urllib.parse import urljoin
 from uuid import UUID
 
-from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.core.files.base import ContentFile
 from django.test import override_settings
 from PIL import Image, ImageDraw, ImageFont
 from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
-from config.tests import browser as core_browser
+from config.tests.browser_base import BrowserTestCase
 from core.analysis.services import process_run, start_run
 from core.models import AnalysisRun
 from geo.models import LocationEvidence
@@ -92,10 +88,6 @@ def synthetic_reference():
 
 
 @override_settings(
-    SESSION_COOKIE_SECURE=False,
-    CSRF_COOKIE_SECURE=False,
-    ACCOUNT_RATE_LIMITS=False,
-    MAILERS={"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}},
     PANDECT_MAP_CONTEXT_URL="https://maps.example.test/api/interpreter",
     PANDECT_MAP_CONTEXT_NAME="Synthetic reference source",
     PANDECT_MAP_CONTEXT_VERSION="synthetic-reference-1",
@@ -105,48 +97,11 @@ def synthetic_reference():
     PANDECT_MAP_CONTEXT_TIMEOUT=10,
     PANDECT_MAP_CONTEXT_HISTORY_START="2012-01-01",
 )
-class ContextBrowserTests(StaticLiveServerTestCase):
-    password = "synthetic-browser-correct-horse-742!"
-    make_user = core_browser.CoreInterfaceBrowserTests.make_user
-    url = core_browser.CoreInterfaceBrowserTests.url
-    db = core_browser.CoreInterfaceBrowserTests.db
-    browser_page = core_browser.CoreInterfaceBrowserTests.browser_page
-    sign_in = core_browser.CoreInterfaceBrowserTests.sign_in
-    capture = core_browser.CoreInterfaceBrowserTests.capture
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.engines = tuple(
-            item.strip()
-            for item in os.environ.get(
-                "PANDECT_BROWSER_ENGINES", "chromium,webkit"
-            ).split(",")
-            if item.strip()
-        )
-        if not cls.engines or set(cls.engines) - {"chromium", "webkit"}:
-            raise ValueError(
-                "Select chromium and/or webkit in PANDECT_BROWSER_ENGINES."
-            )
+class ContextBrowserTests(BrowserTestCase):
+    artifact_subdirectory = "context-browser"
 
     def setUp(self):
         super().setUp()
-        self.playwright = None
-        self.browsers = {}
-        self.browser_context_number = 0
-        self.database_worker = ThreadPoolExecutor(max_workers=1)
-        self.addCleanup(self.database_worker.shutdown)
-        self.media_directory = tempfile.TemporaryDirectory(
-            prefix="pandect-context-browser-"
-        )
-        self.addCleanup(self.media_directory.cleanup)
-        self.enterContext(override_settings(MEDIA_ROOT=self.media_directory.name))
-        self.artifacts = Path(
-            os.environ.get(
-                "PANDECT_BROWSER_ARTIFACTS", "data/validation/context-browser"
-            )
-        ).resolve()
-        self.artifacts.mkdir(parents=True, exist_ok=True)
         self.owner = self.make_user("context-browser-owner")
         self.viewer = self.make_user("context-browser-viewer")
         self.case = Case.objects.create(owner=self.owner, name="Synthetic context case")

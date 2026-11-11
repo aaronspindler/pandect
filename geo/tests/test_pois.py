@@ -8,7 +8,7 @@ from django.urls import reverse
 
 from cases.models import CaseMembership
 from geo.models import PointOfInterest
-from geo.poi_forms import poi_revision
+from geo.poi_forms import PointOfInterestForm
 from geo.testing import MapCaseFixtures
 from people.models import Person
 
@@ -202,7 +202,9 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
     def test_edit_conflict_preserves_proposal_and_requires_review(self):
         self.client.force_login(self.editor)
         data = self.data(
-            revision=poi_revision(self.poi), source="My draft", notes="Forged notes"
+            revision=PointOfInterestForm.revision_for(self.poi),
+            source="My draft",
+            notes="Forged notes",
         )
         self.poi.source = "Newer saved details"
         self.poi.save()
@@ -222,7 +224,7 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
             self.client.get(self.poi_url("detail")), "Unconfirmed residence"
         )
         self.assertEqual(self.poi.created_by, self.owner)
-        for token in ("", "tampered", poi_revision(self.other_poi)):
+        for token in ("", "tampered", PointOfInterestForm.revision_for(self.other_poi)):
             self.assertEqual(
                 self.client.post(
                     self.poi_url("edit"), self.data(revision=token)
@@ -232,7 +234,7 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
 
     def test_revoked_or_downgraded_access_blocks_open_forms(self):
         self.client.force_login(self.editor)
-        data = self.data(revision=poi_revision(self.poi))
+        data = self.data(revision=PointOfInterestForm.revision_for(self.poi))
         membership = CaseMembership.objects.get(case=self.case, user=self.editor)
         membership.role = "viewer"
         membership.save()
@@ -258,7 +260,7 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
         self,
     ):
         self.client.force_login(self.editor)
-        data = self.data(revision=poi_revision(self.poi))
+        data = self.data(revision=PointOfInterestForm.revision_for(self.poi))
         edit_url = self.poi_url("edit")
         self.assertContains(self.client.get(self.poi_url("delete")), "Delete Home")
         self.assertEqual(self.client.post(self.poi_url("delete")).status_code, 400)

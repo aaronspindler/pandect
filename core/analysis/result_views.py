@@ -1,16 +1,23 @@
 """Choose a reading view for each operation at the application boundary."""
 
-from audio.analysis.presentation import present as audio
-from document.analysis.presentation import present as document
-from geo.analysis.presentation import present as geo
-from image.analysis.presentation import present as image
-from phone.analysis.presentation import present as phone
-from text.analysis.presentation import present as text
+from audio.analysis import presentation as audio
+from document.analysis import presentation as document
+from geo.analysis import presentation as geo
+from image.analysis import presentation as image
+from phone.analysis import presentation as phone
+from text.analysis import presentation as text
 
-RESULT_PRESENTERS = {
-    **dict.fromkeys(("image_metadata", "ocr", "plate_ocr"), image),
-    "native_text": document,
-    **dict.fromkeys(("audio_metadata", "transcription"), audio),
+GROUPED_RESULTS = "core/analysis/result_groups.html"
+RESULT_VIEWS = {
+    **dict.fromkeys(
+        ("image_metadata", "ocr", "plate_ocr"),
+        (image.present, "image/analysis/results.html"),
+    ),
+    "native_text": (document.present, GROUPED_RESULTS),
+    **dict.fromkeys(
+        ("audio_metadata", "transcription"),
+        (audio.present, "audio/analysis/results.html"),
+    ),
     **dict.fromkeys(
         (
             "entities",
@@ -20,7 +27,7 @@ RESULT_PRESENTERS = {
             "text_topics",
             "content_events",
         ),
-        text,
+        (text.present, GROUPED_RESULTS),
     ),
     **dict.fromkeys(
         (
@@ -30,30 +37,12 @@ RESULT_PRESENTERS = {
             "session_summaries",
             "conversation_import",
         ),
-        phone,
+        (phone.present, GROUPED_RESULTS),
     ),
-    **dict.fromkeys(
-        (
-            "normalize_addresses",
-            "location_quality",
-            "spatial_groups",
-            "proximity",
-            "candidate_visits",
-            "candidate_trips",
-            "movement_routines",
-            "colocation",
-            "travel_discrepancies",
-            "location_conflicts",
-            "geocode_locations",
-            "geographic_context",
-        ),
-        geo,
-    ),
+    **dict.fromkeys(geo.PRIMARY_FIELDS, (geo.present, GROUPED_RESULTS)),
 }
 
-RESULT_TEMPLATES = {
-    **dict.fromkeys(
-        ("image_metadata", "ocr", "plate_ocr"), "image/analysis/results.html"
-    ),
-    **dict.fromkeys(("audio_metadata", "transcription"), "audio/analysis/results.html"),
-}
+
+def result_view(operation, items, formatter):
+    presenter, template = RESULT_VIEWS[operation]
+    return presenter(operation, items, formatter), template

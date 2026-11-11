@@ -24,7 +24,6 @@ from core.evidence.views import (
     _detail_url,
     _error,
     _file_download,
-    _private,
 )
 from core.storage import retain_uploaded_originals
 from phone.forms import CallAttachmentForm, save_call_content
@@ -115,11 +114,9 @@ def add_attachment(request, case_id, kind, evidence_id):
         if attachment is not None:
             url = _detail_url(case, kind, item) + f"#attachment-{attachment.pk}"
             if wants_json(request):
-                return _private(
-                    JsonResponse(
-                        {"id": str(attachment.pk), "detail_url": url},
-                        status=200 if previous else 201,
-                    )
+                return JsonResponse(
+                    {"id": str(attachment.pk), "detail_url": url},
+                    status=200 if previous else 201,
                 )
             messages.success(
                 request,
@@ -136,21 +133,19 @@ def add_attachment(request, case_id, kind, evidence_id):
             status,
             form.errors.get_json_data(),
         )
-    return _private(
-        render(
-            request,
-            "phone/attachment_form.html",
-            case_context(case, request.user)
-            | {
-                "item": item,
-                "kind": kind,
-                "form": form,
-                "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
-                "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
-                "nav_section": "evidence",
-            },
-            status=status,
-        )
+    return render(
+        request,
+        "phone/attachment_form.html",
+        case_context(case, request.user)
+        | {
+            "item": item,
+            "kind": kind,
+            "form": form,
+            "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
+            "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
+            "nav_section": "evidence",
+        },
+        status=status,
     )
 
 
@@ -185,4 +180,4 @@ def attachment_download(request, case_id, kind, evidence_id, attachment_id, comp
     else:
         raise Http404("Attachment not found.")
     response["X-Content-Type-Options"] = "nosniff"
-    return _private(response)
+    return response

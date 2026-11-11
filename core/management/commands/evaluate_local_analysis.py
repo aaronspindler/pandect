@@ -232,6 +232,4 @@ class Command(BaseCommand):
             sha256=hashlib.sha256(content).hexdigest(),
         )
         source = Source(str(_id("audio-source")), "audio", item)
-        return transcription(
-            [source], {"language": "en"}, gateway=client, authorize=lambda: None
-        )
+        return transcription([source], {"language": "en"}, client=client)

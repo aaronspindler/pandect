@@ -3,8 +3,6 @@
 import hashlib
 import secrets
 from datetime import timedelta
-from smtplib import SMTPException
-from urllib.parse import urlsplit
 
 from allauth.account.models import EmailAddress
 from django.conf import settings
@@ -43,7 +41,6 @@ def _render_case(request, template, case, *, status=200, **context):
         template,
         {
             **case_context(case, request.user),
-            "invitation_days": settings.PANDECT_INVITATION_DAYS,
             **context,
         },
         status=status,
@@ -209,7 +206,7 @@ def _issue_token(invitation):
     token = secrets.token_urlsafe(32)
     invitation.token_digest = hashlib.sha256(token.encode("ascii")).hexdigest()
     invitation.expires_at = timezone.now() + timedelta(
-        days=getattr(settings, "PANDECT_INVITATION_DAYS", 7)
+        days=settings.PANDECT_INVITATION_DAYS
     )
     invitation.delivery_failed = False
     invitation.last_sent_at = None
@@ -217,22 +214,8 @@ def _issue_token(invitation):
 
 
 def _deliver_invitation(request, invitation, token):
-    origin = getattr(settings, "PANDECT_PUBLIC_ORIGIN", "http://localhost:8000").rstrip(
-        "/"
-    )
-    parsed = urlsplit(origin)
+    link = settings.PANDECT_PUBLIC_ORIGIN + reverse("invitation_accept", args=(token,))
     try:
-        if (
-            parsed.scheme not in ("http", "https")
-            or not parsed.netloc
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-            or parsed.path not in ("", "/")
-        ):
-            raise ImproperlyConfigured("Configure PANDECT_PUBLIC_ORIGIN.")
-        link = origin + reverse("invitation_accept", args=(token,))
         email = EmailMessage(
             subject=f"Invitation to {invitation.case.name}",
             body=(
@@ -247,7 +230,7 @@ def _deliver_invitation(request, invitation, token):
         )
         if not email.send():
             raise OSError("The mailer did not accept the invitation.")
-    except SMTPException, OSError, ImproperlyConfigured, ValueError:
+    except OSError, ImproperlyConfigured, ValueError:
         CaseInvitation.objects.filter(
             pk=invitation.pk, token_digest=invitation.token_digest
         ).update(delivery_failed=True)
@@ -292,7 +275,12 @@ def invitation_create(request, case_id):
         case = get_case(request.user, case_id, owner=True)
         form = InvitationForm(case=case)
     return _render_case(
-        request, "cases/invitation_form.html", case, form=form, creating=True
+        request,
+        "cases/invitation_form.html",
+        case,
+        form=form,
+        creating=True,
+        invitation_days=settings.PANDECT_INVITATION_DAYS,
     )
 
 

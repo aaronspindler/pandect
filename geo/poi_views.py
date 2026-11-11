@@ -5,19 +5,17 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from geo.models import PointOfInterest
-from geo.poi_forms import PointOfInterestDeleteForm, PointOfInterestForm, poi_revision
+from geo.poi_forms import PointOfInterestDeleteForm, PointOfInterestForm
 from people.models import Person
 
 
 @product_login_required
 @require_safe
-@never_cache
 def poi_detail(request, case_id, poi_id):
     case = get_case(request.user, case_id)
     poi = get_object_or_404(
@@ -34,7 +32,6 @@ def poi_detail(request, case_id, poi_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def poi_save(request, case_id, poi_id=None):
     latest_poi = None
     with transaction.atomic():
@@ -79,7 +76,7 @@ def poi_save(request, case_id, poi_id=None):
                 pk=poi.pk, person__case=case
             )
             form.data = form.data.copy()
-            form.data["revision"] = poi_revision(latest_poi)
+            form.data["revision"] = form.initial["revision"]
     return render(
         request,
         "geo/poi_form.html",
@@ -97,7 +94,6 @@ def poi_save(request, case_id, poi_id=None):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-@never_cache
 def poi_delete(request, case_id, poi_id):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")

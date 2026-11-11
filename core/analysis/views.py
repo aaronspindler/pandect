@@ -49,7 +49,7 @@ from core.analysis.presentation import (
     table_rows,
 )
 from core.analysis.reports import REPORT_NAMES, report
-from core.analysis.result_views import RESULT_PRESENTERS, RESULT_TEMPLATES
+from core.analysis.result_views import result_view
 from core.analysis.services import (
     cancel_run,
     require_current_geocode_reviews,
@@ -70,12 +70,6 @@ from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, Analys
 from geo.analysis import presentation as geo_presentation
 from image.analysis import MIN_OCR_WORD_SCORE
 from phone.analysis import presentation as phone_presentation
-
-
-def private(response):
-    response["Cache-Control"] = "private, no-store"
-    response["X-Content-Type-Options"] = "nosniff"
-    return response
 
 
 def _context(request, case):
@@ -117,7 +111,6 @@ def _processing_details(run):
         )
     return {
         "label": label,
-        "recorded": bool(execution),
         "legacy": not execution
         and bool(
             run.external_processing or requires_inference(run.operation, run.parameters)
@@ -131,7 +124,7 @@ def _additional_operations(kind):
     return {
         key: spec
         for key, spec in OPERATIONS.items()
-        if kind in spec.kinds and (spec.external or key in {"text_topics", "plate_ocr"})
+        if kind in spec.kinds and spec.additional_on_evidence
     }
 
 
@@ -175,39 +168,37 @@ def index(request, case_id):
             (first.get("kind"), first.get("evidence_id")), "Source unavailable"
         )
         run.additional_sources = max(0, len(run.inputs) - 1)
-    return private(
-        render(
-            request,
-            "core/analysis/index.html",
-            _context(request, case)
-            | {
-                "page_obj": page,
-                "history_filters": filters,
-                "history_suffix": analysis_query_suffix(
-                    filters | ({"history_page": page.number} if page.number > 1 else {})
+    return render(
+        request,
+        "core/analysis/index.html",
+        _context(request, case)
+        | {
+            "page_obj": page,
+            "history_filters": filters,
+            "history_suffix": analysis_query_suffix(
+                filters | ({"history_page": page.number} if page.number > 1 else {})
+            ),
+            "evidence_kinds": KIND_LABELS.items(),
+            "run_statuses": AnalysisRun.Status.choices,
+            "reports": (
+                ("calls", "Call patterns", "Counts, duration and timing"),
+                (
+                    "vehicle-coverage",
+                    "Vehicle observation coverage",
+                    "Recorded locations and gaps",
                 ),
-                "evidence_kinds": KIND_LABELS.items(),
-                "run_statuses": AnalysisRun.Status.choices,
-                "reports": (
-                    ("calls", "Call patterns", "Counts, duration and timing"),
-                    (
-                        "vehicle-coverage",
-                        "Vehicle observation coverage",
-                        "Recorded locations and gaps",
-                    ),
-                    (
-                        "vehicle-speed",
-                        "Vehicle speed and heading",
-                        "Source-reported movement",
-                    ),
-                    (
-                        "duplicates",
-                        "Exact file duplicates",
-                        "Files with identical bytes",
-                    ),
+                (
+                    "vehicle-speed",
+                    "Vehicle speed and heading",
+                    "Source-reported movement",
                 ),
-            },
-        )
+                (
+                    "duplicates",
+                    "Exact file duplicates",
+                    "Files with identical bytes",
+                ),
+            ),
+        },
     )
 
 
@@ -293,19 +284,17 @@ def current_report(request, case_id, name):
             ]
     else:
         tables = []
-    return private(
-        render(
-            request,
-            "core/analysis/report.html",
-            _context(request, case)
-            | {
-                "form": form,
-                "data": data,
-                "name": name,
-                "tables": tables,
-                "filters_applied": filters_applied,
-            },
-        )
+    return render(
+        request,
+        "core/analysis/report.html",
+        _context(request, case)
+        | {
+            "form": form,
+            "data": data,
+            "name": name,
+            "tables": tables,
+            "filters_applied": filters_applied,
+        },
     )
 
 
@@ -372,32 +361,30 @@ def process_evidence(request, case_id, kind, evidence_id):
         source_fields, import_source = geo_presentation.evidence_context(item, kind)
     for run in page:
         run.label = get_operation(run.operation).label
-    return private(
-        render(
-            request,
-            "core/analysis/evidence.html",
-            _context(request, case)
-            | {
-                "evidence": item,
-                "kind": kind,
-                "kind_label": KIND_LABELS[kind],
-                "source_fields": source_fields,
-                "import_source": import_source,
-                "recent_additions": additions[:12],
-                "more_additions": len(additions) > 12,
-                "nav_section": "evidence",
-                "list_suffix": query_suffix(request),
-                "form": form,
-                "page_obj": page,
-                "highlights": _evidence_highlights(runs, case, kind, item.pk),
-                "local_analysis_pending": local_analysis_pending,
-                "analysis_pending": local_analysis_pending
-                or runs.filter(status__in=("queued", "running")).exists(),
-                "has_local_analysis": local_analysis_pending or local_runs.exists(),
-                "additional_operations": _additional_operations(kind).items(),
-            },
-            status=400 if form.errors else 200,
-        )
+    return render(
+        request,
+        "core/analysis/evidence.html",
+        _context(request, case)
+        | {
+            "evidence": item,
+            "kind": kind,
+            "kind_label": KIND_LABELS[kind],
+            "source_fields": source_fields,
+            "import_source": import_source,
+            "recent_additions": additions[:12],
+            "more_additions": len(additions) > 12,
+            "nav_section": "evidence",
+            "list_suffix": query_suffix(request),
+            "form": form,
+            "page_obj": page,
+            "highlights": _evidence_highlights(runs, case, kind, item.pk),
+            "local_analysis_pending": local_analysis_pending,
+            "analysis_pending": local_analysis_pending
+            or runs.filter(status__in=("queued", "running")).exists(),
+            "has_local_analysis": local_analysis_pending or local_runs.exists(),
+            "additional_operations": _additional_operations(kind).items(),
+        },
+        status=400 if form.errors else 200,
     )
 
 
@@ -458,42 +445,36 @@ def create(request, case_id, kind=None, evidence_id=None):
                 "Analysis queued." if created else "This analysis was already queued.",
             )
             return redirect(_url(case, run))
-    return private(
-        render(
-            request,
-            "core/analysis/create.html",
-            _context(request, case)
-            | {
-                "form": form,
-                "source_options": [
-                    (choice, str(choice.data["value"]).count(":") == 1)
-                    for choice in form["sources"]
-                ],
-                "operation_groups": [
-                    (
-                        group,
-                        [
-                            (key, operations[key].label)
-                            for key in keys
-                            if key in operations
-                        ],
-                    )
-                    for group, keys in OPERATION_GROUPS.items()
-                    if operations.keys() & keys.keys()
-                ],
-                "operation": operation,
-                "operation_label": OPERATIONS[operation].label,
-                "input_guidance": INPUT_GUIDANCE.get(operation, ""),
-                "result_guidance": next(
-                    keys[operation]
-                    for keys in OPERATION_GROUPS.values()
-                    if operation in keys
-                ),
-                "query": query,
-                "evidence": evidence[1] if evidence else None,
-                "evidence_url": evidence_url,
-            },
-        )
+    return render(
+        request,
+        "core/analysis/create.html",
+        _context(request, case)
+        | {
+            "form": form,
+            "source_options": [
+                (choice, str(choice.data["value"]).count(":") == 1)
+                for choice in form["sources"]
+            ],
+            "operation_groups": [
+                (
+                    group,
+                    [(key, operations[key].label) for key in keys if key in operations],
+                )
+                for group, keys in OPERATION_GROUPS.items()
+                if operations.keys() & keys.keys()
+            ],
+            "operation": operation,
+            "operation_label": OPERATIONS[operation].label,
+            "input_guidance": INPUT_GUIDANCE.get(operation, ""),
+            "result_guidance": next(
+                keys[operation]
+                for keys in OPERATION_GROUPS.values()
+                if operation in keys
+            ),
+            "query": query,
+            "evidence": evidence[1] if evidence else None,
+            "evidence_url": evidence_url,
+        },
     )
 
 
@@ -953,19 +934,12 @@ def detail(request, case_id, run_id):
                 )
                 for index, finding in entries
             ]
-            presenter = RESULT_PRESENTERS.get(run.operation)
-            groups = (
-                presenter(run.operation, items, formatter)
-                if presenter
-                else [{"items": items}]
-            )
+            groups, template = result_view(run.operation, items, formatter)
             run_query = history | ({"weak": 1} if show_weak else {})
             context |= {
                 "result": result,
                 "result_groups": groups,
-                "result_template": RESULT_TEMPLATES.get(
-                    run.operation, "core/analysis/result_groups.html"
-                ),
+                "result_template": template,
                 "run_query": run_query,
                 "run_suffix": analysis_query_suffix(run_query),
                 "map_points": geo_presentation.map_points(run.operation, items)
@@ -1004,7 +978,7 @@ def detail(request, case_id, run_id):
         "empty",
         "complete",
     }
-    return private(render(request, "core/analysis/detail.html", context))
+    return render(request, "core/analysis/detail.html", context)
 
 
 @product_login_required
@@ -1130,27 +1104,25 @@ def review(request, case_id, run_id):
             )
     index = form.cleaned_data.get("item_index")
     valid_index = index is not None and index < len(result.data.get("items", []))
-    return private(
-        render(
-            request,
-            "core/analysis/review.html",
-            _context(request, case)
-            | {
-                "form": form,
-                "run": run,
-                "finding_number": index + 1 if valid_index else None,
-                "return_url": (
-                    finding_url(
-                        case.pk, run.pk, index, show_weak=show_weak, history=history
-                    )
-                    if valid_index
-                    else _url(case, run) + run_suffix
-                ),
-                "run_suffix": run_suffix,
-                "operation_label": get_operation(run.operation).label,
-            },
-            status=400,
-        )
+    return render(
+        request,
+        "core/analysis/review.html",
+        _context(request, case)
+        | {
+            "form": form,
+            "run": run,
+            "finding_number": index + 1 if valid_index else None,
+            "return_url": (
+                finding_url(
+                    case.pk, run.pk, index, show_weak=show_weak, history=history
+                )
+                if valid_index
+                else _url(case, run) + run_suffix
+            ),
+            "run_suffix": run_suffix,
+            "operation_label": get_operation(run.operation).label,
+        },
+        status=400,
     )
 
 
@@ -1179,7 +1151,7 @@ def download(request, case_id, run_id):
         content_type="application/octet-stream",
     )
     response["Content-Disposition"] = f'attachment; filename="analysis-{run.pk}.json"'
-    return private(response)
+    return response
 
 
 @product_login_required
@@ -1211,7 +1183,7 @@ def audio(request, case_id, run_id, source_id):
             raise Http404("This recording cannot be played inline.")
     except OSError:
         raise Http404("Recording unavailable.") from None
-    return private(FileResponse(stream, content_type="audio/wav", as_attachment=False))
+    return FileResponse(stream, content_type="audio/wav", as_attachment=False)
 
 
 @product_login_required
@@ -1244,4 +1216,4 @@ def artifact(request, case_id, run_id, artifact_id):
         if reference
         else f'inline; filename="preview-{retained.pk}.jpg"'
     )
-    return private(response)
+    return response
