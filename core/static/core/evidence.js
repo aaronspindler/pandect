@@ -6,7 +6,9 @@
   };
   const dirtyForms = new Set();
   document.querySelectorAll("[data-evidence-upload]").forEach((form) => {
-    form.addEventListener("input", () => dirtyForms.add(form));
+    form.addEventListener("input", (event) => {
+      if (!event.target.closest(".upload-entry")) dirtyForms.add(form);
+    });
     form.addEventListener("submit", () => dirtyForms.delete(form));
   });
   let entries = [];
@@ -80,6 +82,13 @@
     if (newBatch) newBatch.hidden = running || blocked || unfinished || !entries.length;
     const label = form.querySelector("[data-file-label]");
     if (label) label.textContent = entries.length ? "Add more files" : "Select files";
+    submit.textContent = entries.length === 1 || (!bulk && !entries.length) ? "Upload file" : "Upload files";
+    if (!bulk) {
+      const hasFiles = entries.length > 0;
+      fields.filter((field) => field !== fileField).forEach((field) => {field.hidden = hasFiles;});
+      if (additionalDetails) additionalDetails.hidden = hasFiles;
+      form.noValidate = hasFiles;
+    }
   };
   const inheritShared = (entry) => {
     if (blocked || entry.frozen || !["ready", "failed", "duplicate"].includes(entry.state)) return;
@@ -115,7 +124,6 @@
     input.addEventListener("input", () => {
       entry.values[name] = input.value;
       entry.overrides.add(name);
-      dirtyForms.delete(form);
     });
     wrapper.append(input);
     parent.append(wrapper);
@@ -146,6 +154,10 @@
       entry.state = "removed"; entry.node.remove();
       entries = entries.filter((item) => item !== entry);
       refreshControls();
+      if (!entries.length && !bulk) {
+        section.hidden = true;
+        fileInput.focus();
+      }
       overall.textContent = `${entries.filter((item) => item.state === "added").length} of ${entries.length} files added. ${maxFiles - entries.length} places available in this batch.`;
       announce(`${file.name} removed from the queue.`);
     });
@@ -219,12 +231,6 @@
     if (!bulk) {container.replaceChildren(); entries = [];}
     entries.push(...selected.map((file) => renderEntry(file, defaults)));
     section.hidden = !entries.length;
-    if (!bulk) {
-      fields.filter((field) => field !== fileField).forEach((field) => {field.hidden = Boolean(entries.length);});
-      if (additionalDetails) additionalDetails.hidden = Boolean(entries.length);
-    }
-    form.noValidate = Boolean(entries.length);
-    submit.textContent = entries.length > 1 ? "Upload files" : "Upload file";
     overall.textContent = `${entries.length} file${entries.length === 1 ? "" : "s"} in this batch; ${entries.filter((entry) => entry.state === "added").length} added. Review titles and suggested categories before uploading.`;
     dirtyForms.delete(form);
     blocked = false;

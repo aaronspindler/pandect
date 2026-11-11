@@ -79,7 +79,9 @@ startup. No configured inference URL means analysis reports a recoverable
 configuration error; it does not disable case management.
 
 Each runtime verifies its mounted, read-only model before launching the pinned
-native engine. Its authenticated `/identity` reports the model digest and engine
+native engine. It rejects a model that changes during verification and stops the
+engine if the verified file changes or becomes unavailable. Its authenticated
+`/identity` reports the model digest and engine
 revision. Before evidence is sent, the application compares that identity with
 the queued execution snapshot. Every POST also supplies the expected identity;
 the runtime compares it under its request lock before reading/forwarding content,

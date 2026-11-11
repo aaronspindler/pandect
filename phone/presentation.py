@@ -1,9 +1,11 @@
+from core.evidence.queries import scoped_evidence
+from core.evidence.types import CALL_KINDS
 from phone.models import CommunicationContext
 
 
 def reader_context(case, kind, item):
     context = {}
-    if kind in ("phone-call", "facetime"):
+    if kind in CALL_KINDS:
         context["attachments"] = item.attachments.filter(case=case).select_related(
             "uploaded_by"
         )
@@ -17,20 +19,22 @@ def reader_context(case, kind, item):
         )
         imported = context["communication_context"]
         if imported:
-            related = CommunicationContext.objects.filter(
-                case=case, source_document=imported.source_document, message__case=case
+            related = (
+                CommunicationContext.objects.filter(
+                    case=case,
+                    source_document=imported.source_document,
+                    message__in=scoped_evidence(case, "text-message"),
+                )
+                .select_related("message")
+                .only("source_row", "message__title")
             )
             context["native_reply_candidates"] = (
-                related.filter(native_message_id=imported.reply_to_id).select_related(
-                    "message"
-                )[:20]
+                related.filter(native_message_id=imported.reply_to_id)[:20]
                 if imported.reply_to_id
                 else []
             )
             context["native_thread_messages"] = (
-                related.filter(native_thread_id=imported.native_thread_id)
-                .select_related("message")
-                .order_by("source_row")[:100]
+                related.filter(native_thread_id=imported.native_thread_id)[:100]
                 if imported.native_thread_id
                 else []
             )

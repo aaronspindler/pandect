@@ -103,7 +103,8 @@ files. Compose reads `.env` itself and sets the database hostname to `db`.
 Run `uv run --locked --env-file .env python manage.py db_worker --no-reload`
 in another terminal to process tasks while using the host web server. See
 [background tasks](background-tasks.md) for diagnostics, recovery, and pruning.
-Existing invitation and import workflows do not enqueue tasks yet.
+Invitations send mail synchronously. Vehicle-location CSV preparation and
+publication use the worker, as do eligible automatic evidence checks.
 
 ## Configuration
 

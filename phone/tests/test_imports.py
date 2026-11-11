@@ -5,8 +5,9 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import Http404
 from django.test import TestCase
+from django.urls import reverse
 
-from cases.models import CaseMembership
+from cases.models import Case, CaseMembership
 from core.analysis.services import process_run, start_run
 from core.analysis.sources import Source
 from core.models import AnalysisResult, AnalysisRun
@@ -158,6 +159,27 @@ class CommunicationImportTests(EvidenceViewTestMixin, TestCase):
                 context = CommunicationContext.objects.get(source_document=source.item)
                 self.assertEqual(html[context.source_start : context.source_end], row)
 
+    def test_import_result_shows_mapping_time_and_unresolved_rows(self):
+        source = self.document(self.row() + self.row(sender="Unmapped source"))
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "conversation_import",
+            [{"kind": "document", "id": str(source.item.pk)}],
+            parameters=self.parameters(),
+        )
+        process_run(run.pk)
+        self.login("viewer")
+        response = self.client.get(
+            reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        )
+        self.assertContains(response, "Reported sender")
+        self.assertContains(response, "2026-10-27T16:30:00+00:00")
+        self.assertContains(response, "Unresolved message row 2")
+        self.assertContains(response, "Unresolved source-label mapping")
+        self.assertContains(response, "Source row 2")
+        self.assertNotContains(response, str(self.person.pk))
+
     def test_old_queued_import_version_requires_a_new_run_without_importing(self):
         source = self.document(self.row())
         run, _ = start_run(
@@ -167,8 +189,8 @@ class CommunicationImportTests(EvidenceViewTestMixin, TestCase):
             [{"kind": "document", "id": str(source.item.pk)}],
             parameters=self.parameters(),
         )
-        self.assertEqual(run.method_version, "2")
-        AnalysisRun.objects.filter(pk=run.pk).update(method_version="1")
+        self.assertEqual(run.method_version, "3")
+        AnalysisRun.objects.filter(pk=run.pk).update(method_version="2")
         process_run(str(run.pk))
         run.refresh_from_db()
         self.assertEqual(run.status, "failed")
@@ -208,6 +230,21 @@ class CommunicationImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(TextMessageEvidence.objects.count(), 1)
         self.assertEqual(CommunicationContext.objects.count(), 1)
 
+    def test_retry_rejects_a_retained_message_link_outside_the_case(self):
+        source = self.document(self.row())
+        data = prepare_import([source], self.parameters())
+        run, result = self.run_result(source, data)
+        with transaction.atomic():
+            self.assertEqual(apply_import(run, result.data, [source]), 1)
+        other_case = Case.objects.create(owner=run.requested_by, name="Unrelated case")
+        TextMessageEvidence.objects.filter(case=self.case).update(case=other_case)
+        with (
+            self.assertRaisesMessage(ValidationError, "inconsistent retained message"),
+            transaction.atomic(),
+        ):
+            apply_import(run, result.data, [source])
+        self.assertEqual(TextMessageEvidence.objects.count(), 1)
+
     def test_unresolved_labels_and_missing_native_fields_stay_unknown(self):
         source = self.document(self.row(sender="Third distinct account"))
         result = prepare_import([source], self.parameters())
@@ -218,6 +255,58 @@ class CommunicationImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(values["native_message_id"], "")
         self.assertEqual(values["participants"], [])
         self.assertNotIn("import_message", values)
+
+    def test_valueless_optional_attributes_do_not_prevent_parsing(self):
+        source = self.document(
+            self.row(
+                attrs="data-edited",
+                extra='<span class></span><a class="attachment" href>Reference</a>',
+            )
+        )
+        result = prepare_import([source], self.parameters())
+        self.assertEqual(result["outcome"], "complete")
+        values = result["items"][0]["values"]
+        self.assertEqual(values["source_context"], {"data-edited": ""})
+        self.assertEqual(values["attachments"][0]["href"], "")
+
+    def test_oversized_timestamp_does_not_block_valid_rows(self):
+        source = self.document(
+            self.row()
+            + self.row(timestamp="Oct 27, 2026  12:30:00 PM (" + "x" * 256 + ")")
+        )
+        result = prepare_import([source], self.parameters())
+        self.assertEqual(result["outcome"], "partial")
+        self.assertEqual(result["metrics"]["ready_rows"], 1)
+        run, retained = self.run_result(source, result)
+        with transaction.atomic():
+            self.assertEqual(apply_import(run, retained.data, [source]), 1)
+
+    def test_uuid_spelling_does_not_create_a_conflicting_mapping(self):
+        source = self.document(self.row())
+        parameters = self.parameters()
+        parameters["sender_map"]["Me"] = self.person.pk.hex.upper()
+        parameters["recipient_map"]["Me"] = self.other_person.pk.hex
+        result = prepare_import([source], parameters)
+        run, retained = self.run_result(source, result, parameters=parameters)
+        with transaction.atomic():
+            self.assertEqual(apply_import(run, retained.data, [source]), 1)
+            self.assertEqual(apply_import(run, retained.data, [source]), 0)
+        self.assertEqual(TextMessageEvidence.objects.get().sender_id, self.person.pk)
+
+    def test_large_supported_export_publishes_without_redundant_body_copies(self):
+        body = "x" * (768 * 1024)
+        source = self.document(self.row(body) + self.row(body, sender="Other account"))
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "conversation_import",
+            [{"kind": "document", "id": str(source.item.pk)}],
+            parameters=self.parameters(),
+        )
+        process_run(str(run.pk))
+        run.refresh_from_db()
+        self.assertEqual(run.status, "complete")
+        self.assertEqual(TextMessageEvidence.objects.filter(body=body).count(), 2)
 
     def test_ambiguous_and_nonexistent_time_need_review(self):
         for timestamp in (

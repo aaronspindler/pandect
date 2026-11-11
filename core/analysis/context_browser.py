@@ -491,12 +491,12 @@ class ContextBrowserTests(StaticLiveServerTestCase):
                     ("Synthetic building", "Inside retrieved polygon"),
                     ("Synthetic quarter", "Nearby map label; no boundary supplied"),
                 ):
-                    page.locator(".analysis-finding-link").filter(
-                        has_text=feature
-                    ).first.click()
-                    expect(page.get_by_text(relation, exact=True)).to_be_visible()
-                page.locator(".finding-measurements > summary").click()
-                references.press("Enter")
+                    finding = (
+                        page.locator(".analysis-finding")
+                        .filter(has=page.get_by_role("link", name=re.compile(feature)))
+                        .first
+                    )
+                    expect(finding.get_by_text(relation, exact=True)).to_be_visible()
                 page.locator("summary").filter(
                     has_text=re.compile(r"^Processing summary$")
                 ).click()

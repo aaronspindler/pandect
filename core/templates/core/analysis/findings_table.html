@@ -1,0 +1,16 @@
+<table role="table" class="analysis-metadata-table analysis-findings-table" aria-label="{{ group.title|default:'Identifiers and dates' }}">
+  <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Finding</th><th scope="col" role="columnheader">Sources</th><th scope="col" role="columnheader">Review</th></tr></thead>
+  <tbody role="rowgroup">
+    {% for item in group.items %}
+    <tr role="row" id="finding-{{ item.number }}">
+      <th scope="row" role="rowheader">
+        {% include 'core/analysis/finding_link.html' %}
+        {% if item.text and not item.values.occurrences %}<div class="analysis-finding-text">{{ item.text }}</div>{% endif %}
+        {% if item.primary_measurements %}{% include 'core/analysis/measurements.html' with measurements=item.primary_measurements only %}{% endif %}
+      </th>
+      <td role="cell">{% include 'core/analysis/finding_sources.html' with compact=True %}</td>
+      <td role="cell" class="muted">{{ item.latest_review.get_decision_display|default:'Awaiting review' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

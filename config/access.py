@@ -10,14 +10,17 @@ from django.shortcuts import redirect
 
 
 def wants_json(request):
-    return "application/json" in request.headers.get("Accept", "")
+    return request.get_preferred_type(["text/html", "application/json"]) == (
+        "application/json"
+    )
 
 
 def product_login_required(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
+        invitation = request.path.startswith("/invitations/")
         if not request.user.is_authenticated or not request.user.is_active:
-            if request.path.startswith("/invitations/"):
+            if invitation:
                 request.session["pending_invitation_path"] = request.path
             if wants_json(request):
                 return JsonResponse(
@@ -27,6 +30,8 @@ def product_login_required(view):
                     },
                     status=401,
                 )
+            if invitation:
+                return redirect("account_login")
             return redirect_to_login(request.get_full_path())
         if not EmailAddress.objects.filter(user=request.user, verified=True).exists():
             if wants_json(request):
@@ -37,7 +42,7 @@ def product_login_required(view):
                     },
                     status=403,
                 )
-            if request.path.startswith("/invitations/"):
+            if invitation:
                 request.session["pending_invitation_path"] = request.path
             messages.info(request, "Verify your email address to open your cases.")
             return redirect("account_email")

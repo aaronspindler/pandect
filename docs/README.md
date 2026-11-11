@@ -15,6 +15,7 @@
 - [Evidence, communications, retained call material, and private downloads](evidence.md)
 - [Vehicle locations and Asset Location CSV imports](vehicle-location-imports.md)
 - [Validation, CI, and Dependabot](validation.md)
+- [November 2026 code review catalogue and validation](code-review-2026-11.md)
 - [October 2026 code review catalogue and validation](code-review-2026-10.md)
 - [Compose operation, backup, and recovery](operations.md)
 - [First Dokploy deployment on openpandect.com](operations.md#first-dokploy-deployment)

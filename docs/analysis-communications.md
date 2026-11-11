@@ -175,8 +175,9 @@ message bodies are decoded visible text, not original Messages database bytes.
 
 Choose an explicit IANA `timezone`. ISO timestamps with offsets retain their
 interpretation; the inspected `%b %d, %Y  %I:%M:%S %p` display format requires the
-selected zone. Ambiguous/nonexistent daylight-saving times and malformed rows
-remain unresolved. Missing times remain unknown.
+selected zone. Ambiguous or nonexistent daylight-saving times, timestamps over
+255 characters, and malformed rows remain unresolved. Missing times remain
+unknown.
 
 `sender_map` explicitly maps each raw source label to an existing same-case
 Person UUID. `recipient_map` explicitly maps each sender label to its selected
@@ -208,15 +209,18 @@ HTML character range. Unresolved rows stay visible in the partial result for
 recovery. Whole publication rollback removes newly created messages/context.
 Retries reuse the same document/row identity; a conflicting mapping or content
 interpretation is rejected for review instead of replacing the earlier original.
+Each mapped body is stored once in the retained result as the finding text used
+for publication. The shared analysis result limit still applies to the complete
+result.
 
-Import method version `2` uses parser `imessage-html-v2` with the same supported
-HTML profile. Source ranges follow literal LF line positions and include the exact
-closing tag, including whitespace. This corrects ranges for exports containing
-standalone CR or Unicode line separators before later LF characters. Existing
-results and imported message context retain their original version and ranges;
-they are never rewritten. A new run retains corrected result anchors and reuses
-previously imported messages when their interpretation agrees. Finish queued
-imports with the old worker before upgrading when possible. Queued method `1`
-runs otherwise fail with the visible method-version-unavailable outcome after
-upgrading; start a new run with the same source and settings. No database reset
-or data migration is required.
+Import method version `3` uses parser `imessage-html-v3` with the same supported
+HTML profile. It handles valueless optional attributes, flags oversized timestamps
+for review, and stores mapped message text once. It preserves version 2's exact
+source ranges based on literal LF line positions and closing tags. Existing results
+and imported messages retain their recorded provenance. A new run reuses previous
+messages when their interpretation agrees.
+
+Finish queued imports with the old worker before upgrading when possible. Queued
+method `1` or `2` runs otherwise report that their method version is unavailable.
+Start a new run with the same source and settings. The upgrade requires no data
+migration.

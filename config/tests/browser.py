@@ -1652,12 +1652,28 @@ class CoreInterfaceBrowserTests(StaticLiveServerTestCase):
                 ]
                 picker = page.locator("#id_file")
                 entries = page.locator(".upload-entry")
-                for _ in range(2):
+                for width, height in ((390, 844), (1440, 900)):
+                    page.set_viewport_size({"width": width, "height": height})
                     picker.set_input_files(files[0])
                     expect(picker).to_have_value("")
                     expect(entries).to_have_count(1)
-                    entries.get_by_role("button", name="Remove from queue").click()
+                    entries.get_by_label("Title", exact=True).fill("Discarded draft")
+                    entries.get_by_role("button", name="Remove from queue").press(
+                        "Enter"
+                    )
                     expect(entries).to_have_count(0)
+                    expect(picker).to_be_focused()
+                    expect(page.locator("#id_title")).to_be_visible()
+                    expect(
+                        page.locator("[data-additional-evidence-details]")
+                    ).to_be_visible()
+                    self.assertTrue(
+                        page.evaluate(
+                            "window.dispatchEvent("
+                            "new Event('beforeunload', {cancelable: true}))"
+                        )
+                    )
+                    self.capture(page, engine, f"single-upload-reset-{width}")
                 picker.set_input_files(files)
                 expect(entries).to_have_count(2)
                 first_entry = entries.first

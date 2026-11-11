@@ -32,6 +32,7 @@ class Source:
     derived_result_id: str | None = None
     derived_run_id: str | None = None
     segments: tuple = ()
+    geocode_candidate: int | None = None
 
     @property
     def text(self):
@@ -50,7 +51,9 @@ class Source:
     @property
     def url(self):
         if self.derived_run_id:
-            finding = self.segments[0]["finding_index"] if self.segments else 0
+            finding = self.geocode_candidate
+            if finding is None:
+                finding = self.segments[0]["finding_index"] if self.segments else 0
             return finding_url(self.item.case_id, self.derived_run_id, finding)
         return self.original_url
 

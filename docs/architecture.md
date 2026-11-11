@@ -168,7 +168,8 @@ to detect stale revisions and preserve drafts for review.
 Application assets use WhiteNoise; originals remain in private Django storage.
 Account, case, and invitation responses disable caching and suppress cross-origin
 referrers while preserving native same-origin CSRF validation. Routine
-access logging redacts invitation tokens and query strings; deployment proxies
+access logging redacts invitation, email confirmation, and password reset keys
+and query strings. Deployment proxies
 need matching treatment. See [operations](operations.md).
 
 ## Planned work

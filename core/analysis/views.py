@@ -30,10 +30,26 @@ from core.analysis.forms import (
     analysis_form,
     report_form,
 )
-from core.analysis.navigation import FINDINGS_PER_PAGE, finding_url
-from core.analysis.operations import INPUT_GUIDANCE, OPERATIONS, get_operation
-from core.analysis.presentation import measurement_formatter
-from core.analysis.reports import report
+from core.analysis.navigation import (
+    FINDINGS_PER_PAGE,
+    finding_url,
+    history_filters,
+    history_query,
+)
+from core.analysis.navigation import query_suffix as analysis_query_suffix
+from core.analysis.operations import (
+    INPUT_GUIDANCE,
+    OPERATION_GROUPS,
+    OPERATIONS,
+    get_operation,
+)
+from core.analysis.presentation import (
+    measurement_formatter,
+    prioritize_measurements,
+    table_rows,
+)
+from core.analysis.reports import REPORT_NAMES, report
+from core.analysis.result_views import RESULT_PRESENTERS, RESULT_TEMPLATES
 from core.analysis.services import (
     cancel_run,
     require_current_geocode_reviews,
@@ -43,9 +59,17 @@ from core.analysis.services import (
 )
 from core.evidence.navigation import query_suffix
 from core.evidence.queries import get_evidence, scoped_evidence
-from core.evidence.types import KIND_LABELS, KINDS
-from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
+from core.evidence.types import (
+    CALL_KINDS,
+    COMMUNICATION_KINDS,
+    KIND_LABELS,
+    KINDS,
+    LOCATION_KINDS,
+)
+from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
+from geo.analysis import presentation as geo_presentation
 from image.analysis import MIN_OCR_WORD_SCORE
+from phone.analysis import presentation as phone_presentation
 
 
 def private(response):
@@ -115,9 +139,13 @@ def _additional_operations(kind):
 @require_safe
 def index(request, case_id):
     case = get_case(request.user, case_id)
-    page = Paginator(
-        AnalysisRun.objects.filter(case=case).select_related("requested_by"), 25
-    ).get_page(request.GET.get("page"))
+    filters = history_filters(request.GET)
+    runs = AnalysisRun.objects.filter(case=case)
+    if "kind" in filters:
+        runs = runs.filter(inputs__contains=[{"kind": filters["kind"]}])
+    if "status" in filters:
+        runs = runs.filter(status=filters["status"])
+    page = Paginator(runs, 25).get_page(request.GET.get("page"))
     titles = {}
     for kind in KINDS:
         ids = {
@@ -136,6 +164,13 @@ def index(request, case_id):
         run.label = get_operation(run.operation).label
         run.processing_label = _processing_details(run)["label"]
         first = run.inputs[0] if run.inputs else {}
+        run.source_kinds = ", ".join(
+            dict.fromkeys(
+                KIND_LABELS[entry["kind"]]
+                for entry in run.inputs
+                if entry.get("kind") in KIND_LABELS
+            )
+        )
         run.source_title = titles.get(
             (first.get("kind"), first.get("evidence_id")), "Source unavailable"
         )
@@ -147,6 +182,12 @@ def index(request, case_id):
             _context(request, case)
             | {
                 "page_obj": page,
+                "history_filters": filters,
+                "history_suffix": analysis_query_suffix(
+                    filters | ({"history_page": page.number} if page.number > 1 else {})
+                ),
+                "evidence_kinds": KIND_LABELS.items(),
+                "run_statuses": AnalysisRun.Status.choices,
                 "reports": (
                     ("calls", "Call patterns", "Counts, duration and timing"),
                     (
@@ -174,7 +215,7 @@ def index(request, case_id):
 @require_safe
 def current_report(request, case_id, name):
     case = get_case(request.user, case_id)
-    if name not in {"calls", "vehicle-coverage", "vehicle-speed", "duplicates"}:
+    if name not in REPORT_NAMES:
         raise Http404("Report not found.")
     form = report_form(request.GET or None, case=case, report_name=name)
     filters_applied = request.GET.get("state", "active") != "active" or any(
@@ -197,10 +238,61 @@ def current_report(request, case_id, name):
     if data is not None:
         formatter = measurement_formatter(data, case=case)
         data["measurements"] = formatter(data.get("metrics", {}))
-        for item in data.get("items", []):
-            item["measurements"] = formatter(
-                item.get("values", {}), duplicate_text=item.get("text", "")
-            )
+        summary_fields = {
+            "calls": (
+                "Reported duration total (seconds, known only)",
+                "Reported duration median (seconds, known only)",
+                "Unknown duration",
+                "Zero duration",
+                "Duration distribution",
+            ),
+            "vehicle-coverage": (
+                "Vehicles in selection",
+                "Missing observation time in selection",
+                "Intervals of at least 30 minutes",
+                "Out-of-order CSV rows",
+                "Negative receipt delays",
+            ),
+            "vehicle-speed": (
+                "Known reported speeds",
+                "Unknown reported speeds",
+                "Zero reported speeds",
+                "Reported speed median (km/h)",
+                "Reported heading counts",
+            ),
+            "duplicates": ("Duplicate byte groups", "Occurrences in duplicate groups"),
+        }
+        prioritize_measurements(data, "Selected records", *summary_fields[name])
+        for item in data["items"]:
+            item["measurements"] = formatter(item.get("values", {}))
+        if name == "calls":
+            tables = phone_presentation.report_table(data)
+        elif name in {"vehicle-coverage", "vehicle-speed"}:
+            tables = geo_presentation.report_table(data, name)
+        else:
+            grouped = {}
+            for item in data["items"]:
+                grouped.setdefault(item["values"]["SHA-256"], []).append(item)
+            tables = [
+                {
+                    "title": f"Group {items[0]['values']['Group']}",
+                    "checksum": checksum,
+                    "items": items,
+                    "columns": table_rows(
+                        items,
+                        (
+                            ("Retained file", ("Source type", "Byte size")),
+                            (
+                                "Record history",
+                                ("Uploaded at (UTC)", "Archived parent"),
+                            ),
+                        ),
+                    ),
+                }
+                for checksum, items in grouped.items()
+            ]
+    else:
+        tables = []
     return private(
         render(
             request,
@@ -210,6 +302,7 @@ def current_report(request, case_id, name):
                 "form": form,
                 "data": data,
                 "name": name,
+                "tables": tables,
                 "filters_applied": filters_applied,
             },
         )
@@ -268,9 +361,17 @@ def process_evidence(request, case_id, kind, evidence_id):
         status__in=("queued", "running")
     ).exists()
     page = Paginator(runs, 25).get_page(request.GET.get("results_page"))
+    source_fields, import_source, additions = [], None, []
+    if kind in COMMUNICATION_KINDS:
+        source_fields = phone_presentation.evidence_context(item)
+        if kind in CALL_KINDS:
+            additions = list(
+                item.attachments.filter(case=case).order_by("-created_at", "pk")[:13]
+            )
+    elif kind in LOCATION_KINDS:
+        source_fields, import_source = geo_presentation.evidence_context(item, kind)
     for run in page:
         run.label = get_operation(run.operation).label
-        run.processing_label = _processing_details(run)["label"]
     return private(
         render(
             request,
@@ -280,11 +381,18 @@ def process_evidence(request, case_id, kind, evidence_id):
                 "evidence": item,
                 "kind": kind,
                 "kind_label": KIND_LABELS[kind],
+                "source_fields": source_fields,
+                "import_source": import_source,
+                "recent_additions": additions[:12],
+                "more_additions": len(additions) > 12,
                 "nav_section": "evidence",
                 "list_suffix": query_suffix(request),
                 "form": form,
                 "page_obj": page,
+                "highlights": _evidence_highlights(runs, case, kind, item.pk),
                 "local_analysis_pending": local_analysis_pending,
+                "analysis_pending": local_analysis_pending
+                or runs.filter(status__in=("queued", "running")).exists(),
                 "has_local_analysis": local_analysis_pending or local_runs.exists(),
                 "additional_operations": _additional_operations(kind).items(),
             },
@@ -357,10 +465,30 @@ def create(request, case_id, kind=None, evidence_id=None):
             _context(request, case)
             | {
                 "form": form,
-                "operations": operations.items(),
+                "source_options": [
+                    (choice, str(choice.data["value"]).count(":") == 1)
+                    for choice in form["sources"]
+                ],
+                "operation_groups": [
+                    (
+                        group,
+                        [
+                            (key, operations[key].label)
+                            for key in keys
+                            if key in operations
+                        ],
+                    )
+                    for group, keys in OPERATION_GROUPS.items()
+                    if operations.keys() & keys.keys()
+                ],
                 "operation": operation,
                 "operation_label": OPERATIONS[operation].label,
                 "input_guidance": INPUT_GUIDANCE.get(operation, ""),
+                "result_guidance": next(
+                    keys[operation]
+                    for keys in OPERATION_GROUPS.values()
+                    if operation in keys
+                ),
                 "query": query,
                 "evidence": evidence[1] if evidence else None,
                 "evidence_url": evidence_url,
@@ -369,8 +497,12 @@ def create(request, case_id, kind=None, evidence_id=None):
     )
 
 
-def _finding_row(finding, index, review, case, run):
+def _finding_row(finding, index, review, case, run, *, show_weak=False, history=None):
     label = finding["label"]
+    values = finding.get("values", {})
+    weak_plate = (
+        run.operation == "plate_ocr" and values.get("Weak plate region") is True
+    )
     value_first = run.operation in {
         "native_text",
         "entities",
@@ -379,7 +511,11 @@ def _finding_row(finding, index, review, case, run):
         "transcription",
         "copied_text",
     } or label in {"Selected message", "Recurring wording comparison"}
-    text = finding.get("text", "").strip() if value_first else ""
+    text = (
+        values.get("Weak region OCR output", "")
+        if weak_plate
+        else finding.get("text", "")
+    ).strip()
     excerpt = " ".join(text[:110].split())
     if len(text) > 110:
         excerpt += "…"
@@ -390,8 +526,15 @@ def _finding_row(finding, index, review, case, run):
         "label": label,
         "summary_text": excerpt if excerpt != label else "",
         "value_first": value_first,
-        "url": finding_url(case.pk, run.pk, index),
+        "url": finding_url(
+            case.pk, run.pk, index, show_weak=show_weak, history=history
+        ),
         "latest_review": review,
+        "plate_score": values.get("Plate-likeness score (0–100)")
+        if run.operation == "plate_ocr"
+        else None,
+        "weak_plate_region": weak_plate,
+        "weak_ocr_text": text if weak_plate else "",
         "low_ocr_score": (
             run.operation in {"ocr", "plate_ocr"}
             and isinstance(score, int | float)
@@ -400,65 +543,148 @@ def _finding_row(finding, index, review, case, run):
     }
 
 
-def _finding_detail(finding, row, sources, case, result):
-    item = finding | row
-    run = result.run
-    source_map = {str(x.id): x for x in sources}
-    values = item.get("values", {})
-    formatter = measurement_formatter(values, case=case, sources=sources)
-    artifacts = list(result.artifacts.filter(case=case))
-    previews = {
-        str(x.source_id): x
-        for x in artifacts
-        if x.kind == AnalysisArtifact.Kind.IMAGE_PREVIEW
-        and "finding_index" not in x.metadata
-    }
-    item["plate_candidate"] = run.operation == "plate_ocr"
-    prepared = next(
-        (
-            x
-            for x in artifacts
-            if x.kind == AnalysisArtifact.Kind.IMAGE_PREVIEW
-            and x.metadata.get("finding_index") == row["index"]
-            and str(x.source_id) in item.get("source_ids", [])
-        ),
-        None,
+def _evidence_highlights(runs, case, kind, evidence_id):
+    """Select a few source-linked findings independently of the history page."""
+    recent = (
+        runs.filter(result__case=case)
+        .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
+        .order_by("operation", "-created_at", "pk")
+        .distinct("operation")
+        .values_list("pk", "operation", "status")
     )
-    if prepared is not None:
-        item["prepared_preview"] = {
-            "url": reverse(
-                "core:analysis:artifact",
-                kwargs={
-                    "case_id": case.pk,
-                    "run_id": run.pk,
-                    "artifact_id": prepared.pk,
-                },
-            ),
-            "width": prepared.width,
-            "height": prepared.height,
-        }
-    references = {
-        x.metadata.get("reference_key"): x
-        for x in artifacts
-        if x.kind == AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
+    priority = {
+        "plate_ocr": 0,
+        "image_metadata": 1,
+        "entities": 2,
+        "text_topics": 4,
     }
+    measurement_keys = {
+        "image_metadata": ("Capture time candidate", "GPS candidate"),
+        "audio_metadata": (
+            "Decoded duration (seconds)",
+            "Decoded sample rate (Hz)",
+            "Decoded channel count",
+            "Full-scale sample fraction",
+        ),
+        "geocode_locations": ("address", "latitude", "longitude"),
+        "location_quality": ("Event time", "Position origin", "Address"),
+    }
+    highlights = []
+    for run_id, operation, status in sorted(
+        recent, key=lambda row: priority.get(row[1], 3)
+    ):
+        if status not in {AnalysisRun.Status.COMPLETE, AnalysisRun.Status.PARTIAL}:
+            continue
+        result = (
+            AnalysisResult.objects.filter(case=case, run_id=run_id, run__case=case)
+            .select_related("run")
+            .first()
+        )
+        if result is None:
+            continue
+        run = result.run
+        try:
+            sources = resolve_inputs(run, case)
+        except AnalysisError, Http404:
+            continue
+        sources_for_evidence = {
+            str(source.id): source
+            for source in sources
+            if source.kind == kind and source.item.pk == evidence_id
+        }
+        reviews = {
+            review.item_index: review
+            for review in result.reviews.filter(case=case)
+            .only("item_index", "decision")
+            .order_by("item_index", "-created_at", "pk")
+            .distinct("item_index")
+        }
+        rejected = AnalysisReview.Decision.REJECTED
+        if None in reviews and reviews[None].decision == rejected:
+            continue
+
+        findings = enumerate(result.data.get("items", []))
+        if operation == "plate_ocr":
+            findings = sorted(
+                findings,
+                key=lambda entry: (
+                    entry[1].get("values", {}).get("Minimum word confidence (0–100)")
+                    or 0
+                ),
+                reverse=True,
+            )
+        plate_readings = set()
+        shown = 0
+        for index, finding in findings:
+            review = reviews.get(index)
+            source = next(
+                (
+                    sources_for_evidence[key]
+                    for key in finding.get("source_ids", [])
+                    if key in sources_for_evidence
+                ),
+                None,
+            )
+            if source is None or (review and review.decision == rejected):
+                continue
+            values = finding.get("values", {})
+            keys = measurement_keys.get(operation, ())
+            fields = {
+                key: values[key]
+                for key in keys
+                if values.get(key) not in (None, "", "Unknown")
+            }
+            if not (fields if keys else finding.get("text", "").strip()):
+                continue
+            row = _finding_row(finding, index, review, case, run)
+            if operation == "plate_ocr":
+                if row["summary_text"] in plate_readings:
+                    continue
+                plate_readings.add(row["summary_text"])
+            if fields:
+                row["summary_text"] = ""
+                row["measurements"] = measurement_formatter(fields, case=case)(fields)
+            if operation == "image_metadata":
+                row["label"] = "Embedded metadata claims"
+            if operation == "geocode_locations":
+                row["label"] = (
+                    "Reviewed geographic estimate"
+                    if review and review.decision == AnalysisReview.Decision.ACCEPTED
+                    else "Geographic lookup candidate"
+                )
+            if operation == "text_topics" and "occurrences" in values:
+                row["summary_text"] = ""
+                row["label"] = f"Keyword · {finding['label']}"
+            row["anchors"] = [
+                anchor
+                for anchor in finding.get("anchors", [])
+                if anchor.get("source_id") == str(source.id)
+            ][:1]
+            row["attachment_label"] = phone_presentation.addition_label(
+                source, operation
+            )
+            row["partial"] = run.status == AnalysisRun.Status.PARTIAL
+            highlights.append(row)
+            shown += 1
+            if len(highlights) == 12:
+                return highlights
+            if shown == 3:
+                break
+    return highlights
+
+
+def _finding_detail(
+    finding, row, source_map, case, run, formatter, previews, references
+):
+    item = finding | row
+    values = item.get("values", {})
     item["measurements"] = formatter(values, duplicate_text=item.get("text", ""))
-    key_labels = {
-        "geographic_context": {"Spatial relation", "Approximate distance (m)"},
-        "geocode_locations": {"Address", "Latitude", "Longitude", "Granularity"},
-        "colocation": {"Distance estimate (m)", "Time difference (seconds)"},
-    }.get(run.operation, set())
-    if key_labels:
-        item["key_measurements"] = [
-            measurement
-            for measurement in item["measurements"]
-            if measurement["label"] in key_labels
-        ]
-        item["measurements"] = [
-            measurement
-            for measurement in item["measurements"]
-            if measurement["label"] not in key_labels
-        ]
+    item["plate_candidate"] = run.operation == "plate_ocr"
+    for source_id in item.get("source_ids", []):
+        prepared = previews.get((source_id, row["index"]))
+        if prepared is not None:
+            item["prepared_preview"] = _preview_details(prepared, case, run)
+            break
     links = []
     for source_id in item.get("source_ids", []):
         source = source_map.get(source_id)
@@ -480,10 +706,32 @@ def _finding_detail(finding, row, sources, case, result):
                     )
             links.append(
                 {
+                    "id": source_id,
                     "label": source.item.title,
+                    "kind_label": KIND_LABELS[source.kind],
+                    "attachment_label": phone_presentation.addition_label(
+                        source, run.operation
+                    ),
                     "url": url,
                     "anchors": display_anchors,
+                    "excerpt": _source_excerpt(source, anchors)
+                    if run.operation
+                    in {
+                        "entities",
+                        "copied_text",
+                        "text_topics",
+                        "content_events",
+                        "session_summaries",
+                        "conversation_link",
+                    }
+                    else "",
+                    "reviewed_coordinates": source.derived_coordinates
+                    if getattr(source.item, "latitude", None) is not None
+                    else None,
                     "derived": bool(source.derived_result_id),
+                    "derived_label": "Selected geographic estimate"
+                    if source.derived_coordinates is not None
+                    else "Exact selected extraction version",
                     "original_url": source.original_url
                     if source.derived_result_id
                     else None,
@@ -496,40 +744,39 @@ def _finding_detail(finding, row, sources, case, result):
                     "observed_at": getattr(source.item, "observed_at", None),
                 }
             )
-            for anchor in anchors:
-                if "start_seconds" in anchor and (
-                    source.kind == "audio" or source.attachment is not None
-                ):
-                    item["audio_url"] = (
-                        reverse(
-                            "core:analysis:audio",
-                            kwargs={
-                                "case_id": case.pk,
-                                "run_id": run.pk,
-                                "source_id": source_id,
-                            },
-                        )
-                        + f"#t={anchor['start_seconds']},{anchor['end_seconds']}"
-                    )
-    item["sources"] = links
-    reference = references.get(values.get("Reference snapshot"))
-    if reference is not None:
-        item["reference_snapshot"] = reference
-    for anchor in item.get("anchors", []):
-        preview = previews.get(anchor.get("source_id"))
-        if preview and "region" in anchor:
-            left, top, right, bottom = anchor["region"]
-            item["preview"] = {
-                "url": reverse(
-                    "core:analysis:artifact",
+            interval = next(
+                (anchor for anchor in anchors if "start_seconds" in anchor), None
+            )
+            if (
+                source.kind == "audio" or (source.attachment and source.attachment.file)
+            ) and (interval is not None or "Decoded duration (seconds)" in values):
+                item["recording_url"] = reverse(
+                    "core:analysis:audio",
                     kwargs={
                         "case_id": case.pk,
                         "run_id": run.pk,
-                        "artifact_id": preview.pk,
+                        "source_id": source_id,
                     },
-                ),
-                "width": preview.width,
-                "height": preview.height,
+                )
+                if interval is not None:
+                    start, end = interval["start_seconds"], interval["end_seconds"]
+                    item.update(
+                        start_seconds=start,
+                        end_seconds=end,
+                        audio_url=f"{item['recording_url']}#t={start},{end}",
+                    )
+    item["sources"] = links
+    reference_key = values.get("Reference snapshot")
+    reference = (
+        references.get(reference_key) if isinstance(reference_key, str) else None
+    )
+    if reference is not None:
+        item["reference_snapshot"] = reference
+    for anchor in item.get("anchors", []):
+        preview = previews.get((anchor.get("source_id"), None))
+        if preview and "region" in anchor:
+            left, top, right, bottom = anchor["region"]
+            item["preview"] = _preview_details(preview, case, run) | {
                 "x": left * preview.width,
                 "y": top * preview.height,
                 "region_width": (right - left) * preview.width,
@@ -539,26 +786,26 @@ def _finding_detail(finding, row, sources, case, result):
     return item
 
 
-def _map_points(sources):
-    points = [x for x in sources if x.coordinates is not None]
-    if not points:
-        return []
-    latitudes = [x.coordinates[0] for x in points]
-    longitudes = [x.coordinates[1] for x in points]
-    low_lat, high_lat = min(latitudes), max(latitudes)
-    low_lon, high_lon = min(longitudes), max(longitudes)
-    return [
-        {
-            "x": 30
-            + 540 * (s.coordinates[1] - low_lon) / max(high_lon - low_lon, 0.00001),
-            "y": 270
-            - 240 * (s.coordinates[0] - low_lat) / max(high_lat - low_lat, 0.00001),
-            "label": s.item.title,
-            "url": s.url,
-            "derived": getattr(s.item, "latitude", None) is None,
-        }
-        for s in points
-    ]
+def _preview_details(artifact, case, run):
+    return {
+        "url": reverse("core:analysis:artifact", args=[case.pk, run.pk, artifact.pk]),
+        "width": artifact.width,
+        "height": artifact.height,
+    }
+
+
+def _source_excerpt(source, anchors):
+    for anchor in anchors:
+        start, end = anchor.get("start"), anchor.get("end")
+        if (
+            type(start) is int
+            and type(end) is int
+            and 0 <= start < end <= len(source.text)
+        ):
+            return source.text[start : min(end, start + 320)] + (
+                "…" if end - start > 320 else ""
+            )
+    return ""
 
 
 @product_login_required
@@ -566,13 +813,24 @@ def _map_points(sources):
 def detail(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
+    history = history_query(request.GET)
+    history_page = history.get("history_page")
+    history_back = history_filters(history) | (
+        {"page": history_page} if history_page else {}
+    )
     context = _context(request, case) | {
         "run": run,
+        "history_suffix": analysis_query_suffix(history),
+        "back_to_analysis": reverse("core:analysis:index", args=[case.pk])
+        + analysis_query_suffix(history_back),
         "operation_label": get_operation(run.operation).label,
         "retry_submission_id": uuid4(),
         "error_message": error_message(run.error_code),
         "processing": _processing_details(run),
     }
+    context["can_review_result"] = (
+        context["can_edit"] and run.operation != "geocode_locations"
+    )
     try:
         sources = resolve_inputs(run, case, require_current_review=False)
         try:
@@ -586,13 +844,18 @@ def detail(request, case_id, run_id):
         context["source_unavailable"] = True
         sources = []
     context["sources"] = sources
+    evidence_keys = {(source.kind, source.item.pk) for source in sources}
+    if len(evidence_keys) == 1:
+        kind, evidence_id = next(iter(evidence_keys))
+        context["evidence_analysis_url"] = reverse(
+            "core:analysis:process_evidence", args=[case.pk, kind, evidence_id]
+        )
     assumptions = {
         key: value for key, value in run.parameters.items() if key != "_execution"
     }
     context["assumptions"] = measurement_formatter(
         assumptions, case=case, sources=sources
     )(assumptions)
-    context["map_points"] = _map_points(sources)
     if not context.get("source_unavailable"):
         result = AnalysisResult.objects.filter(
             case=case, run=run, run__case=case
@@ -601,49 +864,136 @@ def detail(request, case_id, run_id):
             reviews = list(
                 result.reviews.filter(case=case).select_related("reviewed_by")
             )
-            findings = Paginator(result.data.get("items", []), FINDINGS_PER_PAGE)
+            indexed_findings = list(enumerate(result.data.get("items", [])))
+            weak_indices = {
+                index
+                for index, finding in indexed_findings
+                if run.operation == "plate_ocr"
+                and finding.get("values", {}).get("Weak plate region") is True
+            }
             try:
                 selected_index = int(request.GET.get("finding", "")) - 1
             except ValueError:
                 selected_index = -1
-            finding_selected = 0 <= selected_index < findings.count
+            show_weak = bool(weak_indices) and (
+                request.GET.get("weak") == "1" or selected_index in weak_indices
+            )
+            visible_findings = [
+                (index, finding)
+                for index, finding in indexed_findings
+                if show_weak or index not in weak_indices
+            ]
+            selected_position = next(
+                (
+                    position
+                    for position, (index, _) in enumerate(visible_findings)
+                    if index == selected_index
+                ),
+                None,
+            )
+            findings = Paginator(visible_findings, FINDINGS_PER_PAGE)
             finding_page = findings.get_page(
-                selected_index // FINDINGS_PER_PAGE + 1
-                if finding_selected
+                selected_position // FINDINGS_PER_PAGE + 1
+                if selected_position is not None
                 else request.GET.get("page")
             )
-            offset = (finding_page.number - 1) * FINDINGS_PER_PAGE
+            focused = selected_position is not None or findings.count == 1
+            entries = finding_page.object_list
+            if selected_position is not None:
+                entries = [entries[selected_position % FINDINGS_PER_PAGE]]
             latest_reviews = {}
             for review in reviews:
                 latest_reviews.setdefault(review.item_index, review)
             latest_result_review = latest_reviews.pop(None, None)
+            source_map = {str(source.id): source for source in sources}
+            formatter = measurement_formatter(
+                [finding.get("values", {}) for _, finding in entries],
+                case=case,
+                sources=sources,
+            )
+            artifacts = result.artifacts.filter(case=case)
+            previews = (
+                {
+                    (
+                        str(artifact.source_id),
+                        artifact.metadata.get("finding_index"),
+                    ): artifact
+                    for artifact in artifacts.filter(
+                        kind=AnalysisArtifact.Kind.IMAGE_PREVIEW
+                    )
+                }
+                if run.operation in {"ocr", "plate_ocr"} or focused
+                else {}
+            )
+            snapshots = list(
+                artifacts.filter(kind=AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE)
+            )
+            references = {
+                snapshot.metadata.get("reference_key"): snapshot
+                for snapshot in snapshots
+            }
             items = [
-                _finding_row(finding, index, latest_reviews.get(index), case, run)
-                for index, finding in enumerate(finding_page, offset)
+                _finding_detail(
+                    finding,
+                    _finding_row(
+                        finding,
+                        index,
+                        latest_reviews.get(index),
+                        case,
+                        run,
+                        show_weak=show_weak,
+                        history=history,
+                    ),
+                    source_map,
+                    case,
+                    run,
+                    formatter,
+                    previews,
+                    references,
+                )
+                for index, finding in entries
             ]
-            position = selected_index - offset if finding_selected else 0
+            presenter = RESULT_PRESENTERS.get(run.operation)
+            groups = (
+                presenter(run.operation, items, formatter)
+                if presenter
+                else [{"items": items}]
+            )
+            run_query = history | ({"weak": 1} if show_weak else {})
             context |= {
                 "result": result,
+                "result_groups": groups,
+                "result_template": RESULT_TEMPLATES.get(
+                    run.operation, "core/analysis/result_groups.html"
+                ),
+                "run_query": run_query,
+                "run_suffix": analysis_query_suffix(run_query),
+                "map_points": geo_presentation.map_points(run.operation, items)
+                if run.operation in geo_presentation.PRIMARY_FIELDS
+                else [],
                 "data": result.data,
                 "metrics": measurement_formatter(
                     result.data.get("metrics", {}), case=case, sources=sources
                 )(result.data.get("metrics", {})),
                 "items": items,
-                "selected_finding": (
-                    _finding_detail(
-                        finding_page[position], items[position], sources, case, result
-                    )
-                    if items
-                    else None
-                ),
-                "finding_selected": finding_selected,
+                "focused_finding": focused,
+                "metadata_result": run.operation
+                in {"image_metadata", "audio_metadata"},
                 "finding_page": finding_page,
                 "reviews": reviews,
-                "reviewed_count": len(latest_reviews),
-                "latest_result_review": latest_result_review,
-                "reference_snapshots": result.artifacts.filter(
-                    case=case, kind=AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE
+                "reviewed_count": sum(
+                    index in latest_reviews for index, _ in visible_findings
                 ),
+                "show_weak_regions": show_weak,
+                "weak_region_count": len(
+                    {
+                        str(finding.get("values", {}).get("Plate region number", index))
+                        for index, finding in indexed_findings
+                        if index in weak_indices
+                    }
+                ),
+                "latest_result_review": latest_result_review,
+                "reference_snapshots": snapshots,
             }
     context["can_retry"] = run.status in {
         "failed",
@@ -668,7 +1018,9 @@ def cancel(request, case_id, run_id):
             "recalled; their results will not be published."
         ),
     )
-    return redirect(_url(run.case, run))
+    return redirect(
+        _url(run.case, run) + analysis_query_suffix(history_query(request.GET))
+    )
 
 
 @product_login_required
@@ -684,7 +1036,9 @@ def retry(request, case_id, run_id):
                 "stopped worker before recovering abandoned work."
             ),
         )
-        return redirect(_url(case, prior))
+        return redirect(
+            _url(case, prior) + analysis_query_suffix(history_query(request.GET))
+        )
     choices = [
         {
             "kind": x["kind"],
@@ -723,9 +1077,11 @@ def retry(request, case_id, run_id):
                 "and review its source selection."
             ),
         )
-        return redirect(_url(case, prior))
+        return redirect(
+            _url(case, prior) + analysis_query_suffix(history_query(request.GET))
+        )
     messages.success(request, "A new run is queued; the earlier history is retained.")
-    return redirect(_url(case, run))
+    return redirect(_url(case, run) + analysis_query_suffix(history_query(request.GET)))
 
 
 @product_login_required
@@ -738,6 +1094,9 @@ def review(request, case_id, run_id):
     except AnalysisResult.DoesNotExist:
         raise Http404("Result not found.") from None
     form = ReviewForm(request.POST)
+    show_weak = request.GET.get("weak") == "1" and run.operation == "plate_ocr"
+    history = history_query(request.GET)
+    run_suffix = analysis_query_suffix(history | ({"weak": 1} if show_weak else {}))
     if form.is_valid():
         try:
             review_result(
@@ -763,9 +1122,11 @@ def review(request, case_id, run_id):
             )
             index = form.cleaned_data.get("item_index")
             return redirect(
-                _url(case, run)
+                _url(case, run) + run_suffix
                 if index is None
-                else finding_url(case.pk, run.pk, index)
+                else finding_url(
+                    case.pk, run.pk, index, show_weak=show_weak, history=history
+                )
             )
     index = form.cleaned_data.get("item_index")
     valid_index = index is not None and index < len(result.data.get("items", []))
@@ -779,10 +1140,14 @@ def review(request, case_id, run_id):
                 "run": run,
                 "finding_number": index + 1 if valid_index else None,
                 "return_url": (
-                    finding_url(case.pk, run.pk, index)
+                    finding_url(
+                        case.pk, run.pk, index, show_weak=show_weak, history=history
+                    )
                     if valid_index
-                    else _url(case, run)
+                    else _url(case, run) + run_suffix
                 ),
+                "run_suffix": run_suffix,
+                "operation_label": get_operation(run.operation).label,
             },
             status=400,
         )

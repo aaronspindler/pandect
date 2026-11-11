@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
+from core.evidence import deletion
 from core.evidence.types import CALL_KINDS, KINDS
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
 from core.testing import ALL_MODELS, EvidenceTestMixin
@@ -386,6 +387,9 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         downstream = self.derived_analysis(
             retained_location, "location", prior=first[1]
         )
+        final = self.derived_analysis(
+            retained_location, "location", prior=downstream[1]
+        )
         retained_run, retained_result, retained_artifact = self.derived_analysis(
             retained_location, "location", previous=first[0]
         )
@@ -407,6 +411,7 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
             *first,
             *second,
             *downstream,
+            *final,
         ]
         deleted_ids = {
             row["id"]
@@ -419,10 +424,13 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         }
         self.assertEqual(
             file_ids,
-            {str(obj.pk) for obj in (source, first[2], second[2], downstream[2])},
+            {
+                str(obj.pk)
+                for obj in (source, first[2], second[2], downstream[2], final[2])
+            },
         )
         self.assertEqual(
-            inventory["counts"], {"records": len(expected), "files": 4, "updates": 1}
+            inventory["counts"], {"records": len(expected), "files": 5, "updates": 1}
         )
         self.assertTrue(
             any(
@@ -432,11 +440,24 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         )
         self.assertNotIn(source.file.name, json.dumps(inventory))
         self.assertNotIn("Original message.", json.dumps(inventory))
-        files = [source.file, first[2].file, second[2].file, downstream[2].file]
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(self.url(source), self.confirmation(source))
+        files = [
+            source.file,
+            first[2].file,
+            second[2].file,
+            downstream[2].file,
+            final[2].file,
+        ]
+        confirmation = self.confirmation(source)
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch.object(
+                deletion, "_analysis_runs", wraps=deletion._analysis_runs
+            ) as scan,
+        ):
+            response = self.client.post(self.url(source), confirmation)
             for original in files:
                 self.assertTrue(original.storage.exists(original.name))
+        scan.assert_called_once()
         self.assertEqual(response.status_code, 302)
         for obj in expected:
             self.assertFalse(type(obj).objects.filter(pk=obj.pk).exists())
@@ -465,7 +486,11 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
             import_batch=batch,
             source_row=10,
         )
-        response = self.client.post(self.url(source), old)
+        with patch.object(
+            deletion, "_analysis_runs", wraps=deletion._analysis_runs
+        ) as scan:
+            response = self.client.post(self.url(source), old)
+        scan.assert_called_once()
         self.assertContains(
             response, "What will be removed has changed", status_code=409
         )

@@ -144,13 +144,17 @@ class NativeDocumentTests(SimpleTestCase):
         from unittest.mock import Mock
 
         process = Mock()
-        process.communicate.return_value = (b'{"status":"complete"}', b"")
         process.poll.return_value = 0
         process.returncode = 0
+
+        def start_child(*args, stdout, **kwargs):
+            stdout.write(b'{"status":"complete"}')
+            return process
+
         with (
             patch("core.parsers.os.killpg"),
             patch.dict("os.environ", {"SYNTHETIC_PROVIDER_KEY": "private-test-value"}),
-            patch("core.parsers.subprocess.Popen", return_value=process) as create,
+            patch("core.parsers.subprocess.Popen", side_effect=start_child) as create,
         ):
             run_parser("document", b"text")
         self.assertNotIn("SYNTHETIC_PROVIDER_KEY", create.call_args.kwargs["env"])

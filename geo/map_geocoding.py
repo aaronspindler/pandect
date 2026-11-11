@@ -1,5 +1,7 @@
 """Local map estimates backed by retained analysis runs, never evidence edits."""
 
+from collections import defaultdict
+
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import CharField, Func, OuterRef, Q, Subquery, Value
@@ -7,7 +9,7 @@ from django.db.models.functions import Cast, JSONObject
 
 from core.analysis.navigation import finding_url
 from core.analysis.services import start_run
-from core.models import AnalysisRun
+from core.models import AnalysisReview, AnalysisRun
 from geo.analysis.deterministic.locations import coordinate
 from geo.analysis.external.geocoding import MAX_LOOKUPS, Geocoder
 
@@ -69,22 +71,27 @@ def address_estimates(case, rows):
             by_run.setdefault(run_id, []).append(row)
         else:
             row["geocode"]["new"] = True
+    reviews_by_result = defaultdict(dict)
+    reviews = (
+        AnalysisReview.objects.filter(
+            case=case,
+            result__case=case,
+            result__run_id__in=by_run,
+            item_index__isnull=False,
+        )
+        .order_by("result_id", "item_index", "-created_at", "id")
+        .distinct("result_id", "item_index")
+        .values_list("result_id", "item_index", "decision")
+    )
+    for result_id, index, decision in reviews:
+        reviews_by_result[result_id][index] = decision
     runs = AnalysisRun.objects.filter(case=case, pk__in=by_run).select_related("result")
     for run in runs.iterator(chunk_size=1):
         try:
             result = run.result
         except ObjectDoesNotExist:
             result = None
-        reviews = (
-            dict(
-                result.reviews.filter(case=case)
-                .order_by("item_index", "-created_at", "id")
-                .distinct("item_index")
-                .values_list("item_index", "decision")
-            )
-            if result and result.case_id == case.pk
-            else {}
-        )
+        reviews = reviews_by_result.get(result.pk, {}) if result else {}
         for row in by_run[run.pk]:
             state = row["geocode"]
             state["url"] = finding_url(case.pk, run.pk, 0)

@@ -77,7 +77,7 @@ class AnalysisPresentationTests(EvidenceViewTestMixin, TestCase):
             {"Unknown duration": None, "Zero duration": 0, "Truncated": False}
         )
         self.assertIn("Unknown", content)
-        self.assertIn(">0<", content)
+        self.assertRegex(content, r">0\s*<")
         self.assertIn("No", content)
 
     def test_display_bounds_do_not_silently_hide_remaining_values(self):

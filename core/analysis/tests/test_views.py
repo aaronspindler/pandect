@@ -13,10 +13,13 @@ from django.urls import reverse
 from audio.models import AudioEvidence
 from cases.models import CaseMembership
 from core.analysis.form_base import source_choices
+from core.analysis.navigation import finding_url
 from core.analysis.services import process_run, start_run
+from core.analysis.testing import image_bytes
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
+from image.models import ImageEvidence
 from people.models import Person
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
 from text.models import TextEvidence
@@ -318,6 +321,103 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(url, self.payload()).status_code, 403)
+
+    def test_evidence_highlights_use_latest_result_and_current_finding_reviews(self):
+        earlier = self.analysis_run()
+        other = TextEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Other retained note",
+            body="Contact other@example.test.",
+        )
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "entities",
+            [
+                {"kind": "text", "id": str(self.note.pk)},
+                {"kind": "text", "id": str(other.pk)},
+            ],
+        )
+        process_run(run.pk)
+        result = AnalysisResult.objects.get(run=run)
+        for decision in ("rejected", "accepted"):
+            AnalysisReview.objects.create(
+                case=self.case,
+                result=result,
+                item_index=0,
+                reviewed_by=self.users["owner"],
+                decision=decision,
+            )
+        # Fill the first history page with newer queued runs.
+        AnalysisRun.objects.bulk_create(
+            [
+                AnalysisRun(
+                    case=self.case,
+                    requested_by=self.users["owner"],
+                    operation=run.operation,
+                    method_version=run.method_version,
+                    inputs=run.inputs,
+                )
+                for _ in range(25)
+            ]
+        )
+        self.login("viewer")
+        url = self.analysis_url(
+            "process_evidence", kind="text", evidence_id=self.note.pk
+        )
+        response = self.client.get(url)
+        self.assertNotContains(
+            response, f'href="{self.analysis_url("detail", run=run)}"'
+        )
+        self.assertContains(response, "source@example.test", count=1)
+        self.assertNotContains(response, "other@example.test")
+        self.assertContains(response, "Accepted")
+        target = finding_url(self.case.pk, run.pk, 0)
+        self.assertContains(response, target.replace("&", "&amp;"))
+        self.assertContains(self.client.get(target), "source@example.test")
+        second_page = self.client.get(url, {"results_page": 2})
+        self.assertContains(second_page, "source@example.test", count=1)
+        self.assertContains(second_page, self.analysis_url("detail", run=earlier))
+        self.assertContains(second_page, target.replace("&", "&amp;"))
+
+        AnalysisReview.objects.create(
+            case=self.case,
+            result=result,
+            item_index=0,
+            reviewed_by=self.users["owner"],
+            decision="rejected",
+        )
+        response = self.client.get(url)
+        self.assertNotContains(response, "source@example.test")
+        self.assertNotContains(response, target.replace("&", "&amp;"))
+
+    def test_evidence_highlights_show_embedded_capture_time_until_source_changes(self):
+        image = ImageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic photo",
+            file=ContentFile(image_bytes(exif=True), name="synthetic.jpeg"),
+        )
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "image_metadata",
+            [{"kind": "image", "id": str(image.pk)}],
+        )
+        process_run(run.pk)
+        self.login("owner")
+        url = self.analysis_url("process_evidence", kind="image", evidence_id=image.pk)
+        response = self.client.get(url)
+        self.assertContains(response, "Capture time candidate")
+        self.assertContains(response, "2026-10-27T12:34:56")
+        self.assertNotContains(response, "Input SHA-256")
+        self.assertNotContains(response, "GPS candidate")
+
+        ImageEvidence.objects.filter(pk=image.pk).update(sha256="a" * 64)
+        response = self.client.get(url)
+        self.assertNotContains(response, "2026-10-27T12:34:56")
+        self.assertContains(response, self.analysis_url("detail", run=run))
 
     def test_external_evidence_picker_preselects_target_beyond_case_choice_limit(self):
         TextEvidence.objects.bulk_create(

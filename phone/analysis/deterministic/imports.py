@@ -10,14 +10,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils.dateparse import parse_datetime
 
 from cases.permissions import get_case
 from core.analysis.sources import output
+from core.evidence.queries import scoped_evidence
 from people.models import Person
 from phone.models import CommunicationContext, TextMessageEvidence
 
-PARSER_VERSION = "imessage-html-v2"
+PARSER_VERSION = "imessage-html-v3"
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 500
 
@@ -68,7 +70,9 @@ class _ExportParser(HTMLParser):
         self.nodes += 1
         if self.nodes > 20_000 or len(self.stack) >= 40:
             raise ValidationError("The HTML export exceeds its node or nesting limit.")
-        node = _Node(tag, dict(attrs), self._offset())
+        # HTMLParser reports valueless attributes as None. Treat them as empty
+        # values while retaining their presence in the source context.
+        node = _Node(tag, {name: value or "" for name, value in attrs}, self._offset())
         self.stack[-1].children.append(node)
         if tag not in {
             "area",
@@ -144,7 +148,10 @@ def _metadata(node):
         if (
             not isinstance(participants, list)
             or len(participants) > 100
-            or any(not isinstance(x, str) or len(x) > 255 for x in participants)
+            or any(
+                not isinstance(x, str) or len(x) > 255 or "\x00" in x
+                for x in participants
+            )
         ):
             raise ValueError("Invalid source participant labels")
     attachments = []
@@ -196,23 +203,28 @@ def _mapping(parameters, case):
             "Supply explicit sender_map and recipient_map source-label mappings."
         )
     ids = set()
+    normalized = []
     for mapping in (sender_map, recipient_map):
+        labels = {}
         for label, person_id in mapping.items():
             if not isinstance(label, str) or not 1 <= len(label) <= 255:
                 raise ValidationError(
                     "Each source participant label needs 1–255 characters."
                 )
             try:
-                ids.add(UUID(str(person_id)))
+                identifier = UUID(str(person_id))
             except (ValueError, TypeError, AttributeError) as error:
                 raise ValidationError(
                     "Map source labels to existing case people."
                 ) from error
+            labels[label] = str(identifier)
+            ids.add(identifier)
+        normalized.append(labels)
     if Person.objects.filter(case=case, pk__in=ids).count() != len(ids):
         raise ValidationError(
             "A participant mapping refers to a person outside this case."
         )
-    return sender_map, recipient_map
+    return tuple(normalized)
 
 
 def prepare_import(sources, parameters):
@@ -242,6 +254,8 @@ def prepare_import(sources, parameters):
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as error:
         raise ValidationError("The supported HTML export must be UTF-8.") from error
+    if "\x00" in text:
+        raise ValidationError("The HTML export contains unsupported null characters.")
     parser = _ExportParser(text)
     parser.feed(text)
     parser.close()
@@ -283,6 +297,8 @@ def prepare_import(sources, parameters):
                 or len(body.encode()) > 1024 * 1024
             ):
                 raise ValueError("Missing sender, empty message, or oversized body")
+            if len(timestamp) > 255:
+                raise ValueError("The source timestamp exceeds 255 characters")
             metadata = _metadata(node)
             values |= {
                 "raw_sender": sender,
@@ -306,11 +322,11 @@ def prepare_import(sources, parameters):
                     "sender and recipient selections"
                 )
             values["import_message"] = {
-                "sender_id": str(sender_id),
-                "recipient_id": str(recipient_id),
-                "body": body,
+                "sender_id": sender_id,
+                "recipient_id": recipient_id,
                 "occurred_at": event.isoformat() if event else None,
             }
+            del values["body_candidate"]
             items.append(
                 {
                     "label": f"Message row {row}",
@@ -324,7 +340,7 @@ def prepare_import(sources, parameters):
                     "values": values,
                 }
             )
-        except (ValueError, TypeError, json.JSONDecodeError) as error:
+        except (ValueError, TypeError) as error:
             errors += 1
             values["unresolved_reason"] = str(error)
             items.append(
@@ -383,6 +399,14 @@ def apply_import(run, data, sources):
     if source.item.sha256 != run.inputs[0]["sha256"]:
         raise ValidationError("Import source changed after selection.")
     sender_map, recipient_map = _mapping(run.parameters, case)
+    contexts = CommunicationContext.objects.filter(source_document=source.item)
+    scope = Q(case=case, message__in=scoped_evidence(case, "text-message"))
+    if contexts.exclude(scope).exists():
+        raise ValidationError("The export has an inconsistent retained message link.")
+    existing_rows = {
+        context.source_row: context
+        for context in contexts.filter(scope).select_related("message").order_by()
+    }
     created = 0
     for item in data.get("items", []):
         values = item.get("values", {})
@@ -404,25 +428,18 @@ def apply_import(run, data, sources):
             else recipient_map.get(raw_sender)
         )
         if (
-            str(sender_map.get(raw_sender)) != prepared["sender_id"]
-            or str(recipient_id) != prepared["recipient_id"]
+            sender_map.get(raw_sender) != prepared["sender_id"]
+            or recipient_id != prepared["recipient_id"]
         ):
             raise ValidationError(
                 "The prepared participant mapping no longer agrees with confirmation."
             )
-        existing = (
-            CommunicationContext.objects.filter(
-                source_document=source.item, source_row=values["source_row"]
-            )
-            .select_related("message")
-            .first()
-        )
+        body = item["text"]
+        existing = existing_rows.get(values["source_row"])
         if existing:
             message = existing.message
             if (
-                existing.case_id != case.pk
-                or message.case_id != case.pk
-                or message.body != prepared["body"]
+                message.body != body
                 or str(message.sender_id) != prepared["sender_id"]
                 or str(message.recipient_id) != prepared["recipient_id"]
                 or (message.occurred_at.isoformat() if message.occurred_at else None)
@@ -441,7 +458,7 @@ def apply_import(run, data, sources):
             case=case,
             uploaded_by=run.requested_by,
             title=f"Imported message · row {values['source_row']}",
-            body=prepared["body"],
+            body=body,
             sender_id=prepared["sender_id"],
             recipient_id=prepared["recipient_id"],
             occurred_at=parse_datetime(prepared["occurred_at"])
@@ -477,7 +494,7 @@ def apply_import(run, data, sources):
                 "source_context",
             )
         }
-        CommunicationContext.objects.create(
+        existing_rows[values["source_row"]] = CommunicationContext.objects.create(
             case=case, message=message, source_document=source.item, **fields
         )
         created += 1

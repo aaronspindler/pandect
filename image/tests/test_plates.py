@@ -12,13 +12,53 @@ from PIL import Image, ImageDraw
 from core.analysis.errors import AnalysisError
 from core.analysis.testing import file_source
 from core.parsers import run_parser
-from image.analysis.plate_parser import MAX_CANDIDATES, candidate_quads
+from image.analysis.plate_parser import MAX_CANDIDATES, candidate_quads, plate_likeness
 from image.analysis.plate_parser import parse as parse_plates
 from image.analysis.plates import plate_ocr
 from image.testing import plate_scene
 
 
 class PlateTests(SimpleTestCase):
+    def test_plate_score_filters_blank_panels_without_dropping_retained_regions(self):
+        source = file_source(plate_scene(distractors=True), "image")
+        result = plate_ocr([source], {}, authorize=Mock())
+        self.assertEqual(result["metrics"]["Possible plate regions"], 5)
+        self.assertEqual(result["metrics"]["Plate regions above filter"], 1)
+        self.assertEqual(result["metrics"]["Weak plate regions"], 4)
+        self.assertEqual(len(result["items"]), 15)
+        strong = [
+            item for item in result["items"] if not item["values"]["Weak plate region"]
+        ]
+        weak = [item for item in result["items"] if item["values"]["Weak plate region"]]
+        self.assertTrue(all("TEST 482" in item["text"] for item in strong))
+        self.assertTrue(all(item["text"] == "" for item in weak))
+        self.assertTrue(
+            all(
+                0 <= item["values"]["Plate-likeness score (0–100)"] <= 100
+                for item in result["items"]
+            )
+        )
+        self.assertTrue(
+            all("Weak region OCR output" in item["values"] for item in weak)
+        )
+        self.assertTrue(
+            all(
+                "TEST 482" not in item["values"]["Weak region OCR output"]
+                for item in weak
+            )
+        )
+
+    def test_confident_ocr_alone_cannot_make_a_blank_rectangle_a_likely_plate(self):
+        stream = io.BytesIO()
+        Image.new("L", (400, 150), "white").save(stream, format="JPEG")
+        score = plate_likeness(
+            {"aspect_ratio": 3, "rectangularity": 1},
+            stream.getvalue(),
+            [{"text": "FAKE 123", "confidence": 100}] * 3,
+        )
+        self.assertLess(score["plate_score"], 50)
+        self.assertEqual(score["score_details"]["Character row points (0–60)"], 0)
+
     def test_real_local_detection_reads_straight_and_angled_synthetic_plate(self):
         for angle in (0, 8):
             with self.subTest(angle=angle):

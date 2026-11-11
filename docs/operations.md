@@ -308,6 +308,8 @@ path or credentials. It is used in invitation emails rather than trusting an
 incoming Host header. Invitations require verified recipient email and expire
 after `PANDECT_INVITATION_DAYS` (default seven). Failed delivery leaves an
 invitation available for owner-initiated resend; correct SMTP settings first.
+Sign-in resumes the invitation through the session without carrying its token
+in the login URL.
 
 Production SMTP uses the configured sender, STARTTLS, and bounded timeout. Console
 mail is a development-only feature and deliberately prints verification/invitation
@@ -318,11 +320,11 @@ Case, account, and invitation responses disable caching and use
 validation while suppressing referrers to other origins. Explicit external source
 links additionally use `noreferrer`. Do not cache authenticated case material at
 a reverse proxy or CDN. The default image uses
-`config.privacy.PrivateAccessLogger` to redact invitation token path segments
-and query strings, including referrer URL values, from Gunicorn access logs;
-application/development log filters apply matching URL redaction. Preserve that logger when overriding the image
-command. Configure the same path/query/referrer redaction at external proxies/CDNs
-and any logging collector; the application cannot sanitize logs produced before requests reach it.
+`config.privacy.PrivateAccessLogger` to redact invitation, email confirmation,
+and password reset keys, along with query strings in request and referrer URLs.
+Application and development log filters apply the same URL redaction. Preserve
+that logger when overriding the image command. Configure equivalent redaction at
+proxies, CDNs, and log collectors that receive requests before the application.
 Never add evidence bodies, passwords, cookies, or invitation tokens to telemetry.
 
 Reference: [Django deployment checklist](https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/).

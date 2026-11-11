@@ -8,20 +8,23 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.http import Http404
 from django.test import TestCase
+from django.urls import reverse
 
 from cases.models import CaseMembership
 from core.analysis.artifacts import decode_artifact
 from core.analysis.errors import AnalysisError
 from core.analysis.forms import analysis_form
-from core.analysis.services import process_run, start_run
+from core.analysis.services import process_run, resolve_inputs, start_run
 from core.analysis.sources import output
 from core.analysis.testing import local_ocr_response
 from core.models import (
     AnalysisArtifact,
     AnalysisResult,
+    AnalysisRun,
     ExtractedPassage,
     GatewayRequest,
 )
+from core.parsers import run_parser
 from core.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence
 from image.testing import plate_scene
@@ -38,13 +41,137 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
             file=ContentFile(self.original, name="synthetic-plate.jpeg"),
         )
 
-    def start(self, role="owner"):
+    def start(self, role="owner", image=None):
         return start_run(
             self.users[role],
             self.case.pk,
             "plate_ocr",
-            [{"kind": "image", "id": str(self.image.pk)}],
+            [{"kind": "image", "id": str((image or self.image).pk)}],
         )[0]
+
+    def mixed_run(self, *, only_weak=False):
+        original = plate_scene(distractors=True)
+        image = ImageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic scored scene",
+            file=ContentFile(original, name="scored-plate.jpeg"),
+        )
+        parsed = run_parser("plate_ocr", original)
+        for region in parsed["candidates"]:
+            if region["plate_score"] < 50:
+                for attempt in region["attempts"]:
+                    attempt["text"] = "<b>NOISE987</b>"
+                    attempt["confidence"] = 100
+        if only_weak:
+            parsed["candidates"] = parsed["candidates"][:1]
+            parsed["candidates"][0]["plate_score"] = 0
+        run = self.start(image=image)
+        with patch("image.analysis.plates.run_parser", return_value=parsed):
+            process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "partial", run.error_code)
+        return image, run
+
+    def test_weak_regions_are_hidden_without_renumbering_findings_or_leaking_text(self):
+        image, run = self.mixed_run()
+        self.assertEqual(ExtractedPassage.objects.filter(result=run.result).count(), 3)
+        self.login("viewer")
+        url = reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        response = self.client.get(url)
+        self.assertEqual(
+            [item["index"] for item in response.context["items"]], [12, 13, 14]
+        )
+        self.assertEqual(response.context["items"][0]["index"], 12)
+        self.assertEqual(response.context["weak_region_count"], 4)
+        self.assertContains(response, "Show weak regions")
+        self.assertNotContains(response, "NOISE987")
+        self.assertContains(response, "Heuristic score, not a probability")
+        shown = self.client.get(url, {"weak": "1"})
+        self.assertEqual(len(shown.context["items"]), 15)
+        self.assertTrue(all("weak=1" in item["url"] for item in shown.context["items"]))
+        self.assertContains(shown, "&lt;b&gt;NOISE987&lt;/b&gt;")
+        self.assertNotContains(shown, "<b>NOISE987</b>")
+        self.assertTrue(shown.context["show_weak_regions"])
+        explicit = self.client.get(url, {"finding": "2"})
+        self.assertEqual(explicit.context["items"][0]["index"], 1)
+        self.assertTrue(explicit.context["show_weak_regions"])
+        strong = self.client.get(url, {"finding": "14"})
+        self.assertEqual(strong.context["items"][0]["index"], 13)
+        self.assertFalse(strong.context["show_weak_regions"])
+        self.login("editor")
+        reviewed = self.client.post(
+            reverse("core:analysis:review", args=[self.case.pk, run.pk]) + "?weak=1",
+            {
+                "item_index": "13",
+                "decision": "accepted",
+                "comment": "Synthetic review",
+            },
+        )
+        self.assertEqual(reviewed.status_code, 302)
+        self.assertEqual(run.result.reviews.get().item_index, 13)
+        self.assertIn("weak=1", reviewed["Location"])
+        self.assertIn("finding=14", reviewed["Location"])
+        derived, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "entities",
+            [
+                {
+                    "kind": "image",
+                    "id": str(image.pk),
+                    "result_id": str(run.result.pk),
+                }
+            ],
+        )
+        self.assertNotIn("NOISE987", resolve_inputs(derived, self.case)[0].text)
+        self.assertNotContains(
+            self.client.get(self.url("list"), {"q": "NOISE987"}),
+            "Synthetic scored scene",
+        )
+        self.login("outsider")
+        self.assertEqual(self.client.get(url, {"weak": "1"}).status_code, 404)
+
+    def test_all_weak_regions_have_recoverable_empty_state_and_zero_score(self):
+        _, run = self.mixed_run(only_weak=True)
+        self.login("viewer")
+        url = reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.context["items"], [])
+        self.assertContains(response, "No regions met the plate filter")
+        self.assertFalse(ExtractedPassage.objects.filter(result=run.result).exists())
+        shown = self.client.get(url, {"weak": "1"})
+        self.assertContains(shown, "Plate-likeness: 0/100")
+        self.assertContains(shown, "Weak region")
+
+    def test_historical_unscored_results_remain_visible(self):
+        run = self.start()
+        AnalysisRun.objects.filter(pk=run.pk).update(
+            status="partial", method_version="1"
+        )
+        AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data=output(
+                "Legacy plate result",
+                items=[
+                    {
+                        "label": "Historical reading",
+                        "text": "LEGACY123",
+                        "values": {},
+                        "source_ids": [run.inputs[0]["id"]],
+                        "anchors": [],
+                    }
+                ],
+                outcome="partial",
+            ),
+        )
+        self.login("viewer")
+        response = self.client.get(
+            reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        )
+        self.assertContains(response, "LEGACY123")
+        self.assertNotContains(response, "Show weak regions")
 
     def test_local_form_only_selects_one_original_and_never_requests_cloud_approval(
         self,
@@ -96,7 +223,9 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
         from django.urls import reverse
 
         url = reverse("core:analysis:artifact", args=[self.case.pk, run.pk, crop.pk])
-        detail_url = reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        detail_url = (
+            reverse("core:analysis:detail", args=[self.case.pk, run.pk]) + "?finding=1"
+        )
         for role, expected in (
             ("owner", 200),
             ("editor", 200),

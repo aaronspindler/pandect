@@ -30,6 +30,7 @@ from geo.analysis.external.geocoding import (
     GeocodingError,
     geocode_locations,
 )
+from geo.analysis.presentation import map_points
 
 START = datetime(2026, 10, 1, 10, tzinfo=UTC)
 CASE = UUID("00000000-0000-4000-8000-000000000001")
@@ -62,6 +63,25 @@ def source(index, *, point=(43.65, -79.38), minute=0, kind="person-location", **
 
 
 class LocationOperationTests(SimpleTestCase):
+    def test_map_links_reported_and_reviewed_points_to_their_exact_sources(self):
+        source = {
+            "id": "observation",
+            "label": "Retained observation",
+            "coordinates": (0, 0),
+            "coordinate_label": "Reported coordinates",
+            "reviewed_coordinates": (0, 1),
+            "url": "/analysis/lookup/?finding=3#finding-3",
+            "original_url": "/evidence/observation/",
+        }
+        points = map_points("location_quality", [{"sources": [source]}])
+        self.assertEqual(
+            {point["kind"]: point["url"] for point in points},
+            {
+                "reported": "/evidence/observation/",
+                "reviewed": "/analysis/lookup/?finding=3#finding-3",
+            },
+        )
+
     def test_geodesic_zero_dateline_and_poles(self):
         self.assertEqual(distance_m((0, 0), (0, 0)), 0)
         self.assertAlmostEqual(distance_m((0, 179.9), (0, -179.9)), 22_239, delta=10)
@@ -738,6 +758,20 @@ class GeocoderTests(SimpleTestCase):
         self.assertEqual(
             result["items"][1]["values"]["Failure code"], "geocoder_rate_limited"
         )
+
+    @override_settings(PANDECT_GEOCODER_URL="")
+    def test_all_ineligible_observations_do_not_need_a_configured_lookup(self):
+        authorize = Mock()
+        result = geocode_locations(
+            [source(1, address="")],
+            {"external_processing": True},
+            authorize=authorize,
+        )
+        self.assertEqual(result["outcome"], "insufficient")
+        self.assertEqual(result["metrics"]["Unsupported observations"], 1)
+        self.assertEqual(result["metrics"]["Unique lookups"], 0)
+        self.assertEqual(result["items"][0]["label"], "Lookup unsupported")
+        authorize.assert_not_called()
 
     def test_revocation_prevents_next_external_lookup(self):
         client = Mock()

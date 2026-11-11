@@ -1,5 +1,7 @@
 from allauth.account.models import EmailAddress
 from django import forms
+from django.contrib.auth import get_user_model
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from .models import Case, CaseInvitation, CaseMembership
@@ -42,22 +44,16 @@ class InvitationForm(forms.ModelForm):
 
     def clean_email(self):
         email = self.cleaned_data["email"].strip().casefold()
-        current_users = [
-            self.case.owner_id,
-            *self.case.memberships.values_list("user_id", flat=True),
-        ]
-        has_access = EmailAddress.objects.filter(
-            user_id__in=current_users, email__iexact=email
-        ).exists()
-        if not has_access:
-            from django.contrib.auth import get_user_model
-
-            has_access = (
-                get_user_model()
-                .objects.filter(pk__in=current_users, email__iexact=email)
-                .exists()
-            )
-        if has_access:
+        member_ids = self.case.memberships.values("user_id")
+        matching_address = EmailAddress.objects.filter(
+            user_id=OuterRef("pk"), email__iexact=email
+        )
+        if (
+            get_user_model()
+            .objects.filter(Q(pk=self.case.owner_id) | Q(pk__in=member_ids))
+            .filter(Q(email__iexact=email) | Exists(matching_address))
+            .exists()
+        ):
             raise forms.ValidationError(
                 "This person already has access. Use the collaborator controls."
             )
@@ -68,8 +64,6 @@ class InvitationForm(forms.ModelForm):
             revoked_at__isnull=True,
             expires_at__gt=timezone.now(),
         )
-        if self.instance.pk and not self.instance._state.adding:
-            pending = pending.exclude(pk=self.instance.pk)
         if pending.exists():
             raise forms.ValidationError(
                 "An invitation is already pending. Resend it from Case settings."

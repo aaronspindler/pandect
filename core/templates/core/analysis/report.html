@@ -1,4 +1,6 @@
 {% extends 'ui/base.html' %}
+{% load static %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endblock %}
 {% block body_class %}analysis-page{% endblock %}
 {% block title %}Report · {{ case.name }}{% endblock %}
 {% block content %}
@@ -7,6 +9,12 @@
   <div>
     <h1>{% if name == 'calls' %}Call patterns{% elif name == 'vehicle-coverage' %}Vehicle observation coverage{% elif name == 'vehicle-speed' %}Vehicle speed and heading{% else %}Exact file duplicates{% endif %}</h1>
   </div>
+  {% if data.items %}
+  <nav class="actions" aria-label="Report sections">
+    <a class="record-link" href="#report-records">View records</a>
+    <a class="record-link" href="#report-totals">View totals</a>
+  </nav>
+  {% endif %}
 </header>
 <details class="disclosure report-filters"{% if filters_applied or form.errors %} open{% endif %}>
   <summary>Report filters{% if filters_applied %} · Applied{% endif %}</summary>
@@ -19,17 +27,23 @@
 <section class="analysis-section">
   <h2>{{ data.summary }}</h2>
   {% if data.warnings %}<ul class="notice analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
-  {% if data.measurements %}<details class="disclosure"><summary>Report summary</summary>{% include 'core/analysis/measurements.html' with measurements=data.measurements only %}</details>{% endif %}
 </section>
-{% for item in data.items %}
-<article class="analysis-section analysis-finding">
-  <h2>{% if item.url %}<a class="record-link" href="{{ item.url }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</h2>
-  <p>{{ item.text }}</p>
-  {% if item.measurements %}<details class="disclosure"><summary>Measurements</summary>{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}</details>{% endif %}
-  {% if item.related %}<ul class="source-list">{% for source in item.related %}<li><a href="{{ source.url }}">{{ source.label }}</a></li>{% endfor %}</ul>{% endif %}
-</article>
-{% empty %}
-<div class="empty-state"><h2>No records in this selection</h2><p>Broaden the period or archive filter.</p><a class="button button-secondary" href="?">Reset selection</a></div>
-{% endfor %}
+{% if data.items %}
+  <section aria-labelledby="report-records">
+    <h2 id="report-records" tabindex="-1">Records</h2>
+    {% for table in tables %}{% include 'core/analysis/report_table.html' %}{% endfor %}
+  </section>
+{% else %}
+  <div class="empty-state">
+    <h2>{% if name == 'duplicates' %}No exact file duplicates in this selection{% else %}No records in this selection{% endif %}</h2>
+    <p>Broaden the period or archive filter.</p>
+    <a class="button button-secondary" href="?">Reset selection</a>
+  </div>
+{% endif %}
+<section class="analysis-section" aria-labelledby="report-totals">
+  <h2 id="report-totals" tabindex="-1">Report totals</h2>
+  {% if data.primary_measurements %}{% include 'core/analysis/measurements.html' with measurements=data.primary_measurements only %}{% endif %}
+  {% if data.measurements %}<details class="disclosure"><summary>Selection and additional totals</summary>{% include 'core/analysis/measurements.html' with measurements=data.measurements only %}</details>{% endif %}
+</section>
 {% endif %}
 {% endblock %}

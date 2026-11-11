@@ -18,6 +18,7 @@ from cases.models import CaseMembership
 from cases.permissions import get_case
 from core.analysis.operations import get_operation
 from core.analysis.services import process_run
+from core.evidence import deletion
 from core.evidence.types import KINDS
 from core.models import (
     AnalysisArtifact,
@@ -393,15 +394,18 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         run, result, original = self.analysis(item)
 
         def corrupt_after_confirmation(*args, **kwargs):
+            self.assertTrue(kwargs["lock"])
             case = get_case(*args, **kwargs)
             AnalysisResult.objects.filter(pk=result.pk).update(case=self.other_case)
             return case
 
+        confirmation = self.confirmation(item)
         with patch(
             "core.evidence.deletion.get_case", side_effect=corrupt_after_confirmation
         ):
-            response = self.client.post(self.url(item), self.confirmation(item))
-        self.assertEqual(response.status_code, 403)
+            response = self.client.post(self.url(item), confirmation)
+        self.assertContains(response, "inconsistent case links")
+        self.assertNotContains(response, str(result.pk))
         self.assertTrue(DocumentEvidence.objects.filter(pk=item.pk).exists())
         self.assertTrue(AnalysisRun.objects.filter(pk=run.pk).exists())
         self.assertTrue(original.storage.exists(original.name))
@@ -409,10 +413,18 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
     def test_rollback_preserves_originals_and_derived_files(self):
         item = self.create_evidence(DocumentEvidence)
         run, _, artifact = self.analysis(item)
-        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+        confirmation = self.confirmation(item)
+        with (
+            self.captureOnCommitCallbacks(execute=True) as callbacks,
+            patch.object(
+                deletion, "_analysis_runs", wraps=deletion._analysis_runs
+            ) as scan,
+        ):
             with transaction.atomic():
-                self.client.post(self.url(item), self.confirmation(item))
+                response = self.client.post(self.url(item), confirmation)
+                self.assertEqual(response.status_code, 302)
                 transaction.set_rollback(True)
+        scan.assert_called_once()
         self.assertEqual(callbacks, [])
         self.assertTrue(DocumentEvidence.objects.filter(pk=item.pk).exists())
         self.assertTrue(AnalysisRun.objects.filter(pk=run.pk).exists())

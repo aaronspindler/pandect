@@ -324,6 +324,7 @@ class GeographicContextTests(SimpleTestCase):
                     )
                 self.assertEqual(client.lookup.call_count, calls)
 
+    @override_settings(PANDECT_MAP_CONTEXT_LOCAL=False)
     def test_invalid_runtime_parameters_and_case_mix_are_rejected(self):
         for parameters in (
             {},

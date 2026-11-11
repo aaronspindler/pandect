@@ -4,6 +4,7 @@ import io
 import itertools
 import os
 from contextlib import redirect_stdout
+from http.client import IncompleteRead
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import call, patch
@@ -195,6 +196,15 @@ class DeploymentCommandTests(TestCase):
         self.assertNotIn("private detail", str(failure.exception))
         request.assert_called_once()
 
+    def test_incomplete_response_is_reported_without_response_bytes(self):
+        with (
+            patch.object(
+                deploy, "urlopen", side_effect=IncompleteRead(b"private content", 1)
+            ),
+            self.assertRaisesRegex(deploy.DeploymentError, "inspect service status"),
+        ):
+            deploy.api("https://example.test")
+
 
 class ReleaseReadinessTests(TestCase):
     def setUp(self):
@@ -260,7 +270,7 @@ class ReleaseReadinessTests(TestCase):
 
     def test_public_ingress_can_become_ready_after_initial_failure(self):
         responses = itertools.chain(
-            [deploy.DeploymentError("not ready")],
+            [deploy.DeploymentError("not ready"), None, ["unexpected response"]],
             itertools.repeat({"status": "ok", "commit": SHA}),
         )
         with (
@@ -269,7 +279,7 @@ class ReleaseReadinessTests(TestCase):
             patch.object(deploy, "api", side_effect=responses) as health,
         ):
             self.wait()
-        self.assertGreaterEqual(health.call_count, 3)
+        self.assertGreaterEqual(health.call_count, 4)
 
     def test_worker_without_current_release_marker_times_out(self):
         def request(path, data=None, **query):

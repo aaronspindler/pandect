@@ -1,0 +1,40 @@
+{% load tz %}
+{% if table.title %}<h3>{{ table.title }}</h3>{% endif %}
+{% if table.checksum %}<p class="analysis-report-checksum"><span class="muted">File SHA-256</span> <code>{{ table.checksum }}</code></p>{% endif %}
+<table role="table" class="analysis-metadata-table analysis-report-table" aria-label="{{ table.title|default:'Report records' }}">
+  <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Source</th>{% for column in table.columns %}<th scope="col" role="columnheader">{{ column }}</th>{% endfor %}</tr></thead>
+  <tbody role="rowgroup">
+    {% for item in table.items %}
+    <tr role="row">
+      <th scope="row" role="rowheader"><a class="record-link" href="{{ item.url }}">{{ item.label }}</a>
+        {% if item.text and not table.checksum %}<p>{{ item.text }}</p>{% endif %}
+        {% if item.related or item.measurements %}
+        <details>
+          <summary aria-label="Record details for {{ item.label }}">Record details</summary>
+          {% if item.related %}<ul class="source-list">{% for source in item.related %}<li><a href="{{ source.url }}">{{ source.label }}</a></li>{% endfor %}</ul>{% endif %}
+          {% if item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
+        </details>
+        {% endif %}
+      </th>
+      {% for cell in item.cells %}
+      <td role="cell">
+        <dl>
+          {% for row in cell %}
+          <div>
+            <dt>{{ row.label }}</dt>
+            <dd>
+              {% if row.timestamp %}
+              {% with stamp=row.timestamp|utc %}<time datetime="{{ row.text }}">{{ stamp|date:"j M Y" }} {{ stamp|date:"H:i:s" }}{% if stamp.microsecond %}.{{ stamp|date:"u" }}{% endif %}</time>{% endwith %}
+              {% else %}
+              {% include 'core/analysis/measurement_value.html' with row=row only %}
+              {% endif %}
+            </dd>
+          </div>
+          {% endfor %}
+        </dl>
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

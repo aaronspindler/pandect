@@ -36,6 +36,10 @@ class ProductAccessTests(TestCase):
         )
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["code"], "authentication_required")
+        response = self.client.get(
+            reverse("cases:case_list"), HTTP_ACCEPT="text/html, application/json;q=0"
+        )
+        self.assertRedirects(response, reverse("account_login") + "?next=/cases/")
 
     def test_forced_unverified_session_cannot_open_case_material(self):
         case = Case.objects.create(owner=self.user, name="Private synthetic case")
@@ -78,7 +82,7 @@ class ProductAccessTests(TestCase):
     def test_anonymous_invitation_survives_the_sign_in_flow(self):
         path = "/invitations/synthetic-token/"
         response = self.client.get(path)
-        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse("account_login"))
         self.assertEqual(self.client.session["pending_invitation_path"], path)
         EmailAddress.objects.create(
             user=self.user, email=self.user.email, verified=True, primary=True
@@ -141,6 +145,14 @@ class ProductAccessTests(TestCase):
         self.assertIn("[redacted]", record.getMessage())
         self.assertEqual(redact_url("/cases/?q=source%20claim&page=2"), "/cases/")
 
+    def test_account_credential_paths_are_redacted(self):
+        for route in ("/accounts/confirm-email/", "/accounts/password/reset/key/"):
+            with self.subTest(route=route):
+                self.assertEqual(
+                    redact_url(f"GET {route}synthetic-key/ HTTP/1.1"),
+                    f"GET {route}[redacted]/ HTTP/1.1",
+                )
+
     def test_gunicorn_access_atoms_do_not_contain_tokens_or_queries(self):
         with patch(
             "gunicorn.glogging.Logger.atoms",
@@ -148,11 +160,12 @@ class ProductAccessTests(TestCase):
                 "r": "GET /invitations/raw-secret/?q=source HTTP/1.1",
                 "U": "/invitations/raw-secret/",
                 "q": "q=source",
-                "f": "https://example.com/path?q=private",
+                "f": "https://example.com/accounts/confirm-email/email-key/?q=private",
             },
         ):
             logger = object.__new__(PrivateAccessLogger)
             result = logger.atoms(None, None, {}, timedelta())
         self.assertNotIn("raw-secret", str(result))
+        self.assertNotIn("email-key", str(result))
         self.assertNotIn("q=source", str(result))
         self.assertNotIn("q=private", str(result))

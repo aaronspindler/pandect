@@ -73,15 +73,20 @@ class VehicleImportReviewForm(forms.Form):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        vehicles = Vehicle.objects.filter(case=case)
+        choices = [("", "---------")]
+        choices.extend(
+            (str(vehicle.pk), str(vehicle))
+            for vehicle in Vehicle.objects.filter(case=case)
+        )
+        vehicle_mapping = vehicle_mapping or {}
         for index, (asset, serial) in enumerate(groups):
             label = asset or "Unnamed asset"
             if serial:
                 label += f" · serial {serial}"
-            self.fields[f"vehicle_{index}"] = forms.ModelChoiceField(
-                queryset=vehicles,
+            self.fields[f"vehicle_{index}"] = forms.ChoiceField(
+                choices=choices,
                 label=label,
-                initial=(vehicle_mapping or {}).get(str(index), default_vehicle),
+                initial=vehicle_mapping.get(str(index), default_vehicle),
                 help_text=(
                     "Choose the case vehicle reported by this asset. "
                     "This association is not independently verified."

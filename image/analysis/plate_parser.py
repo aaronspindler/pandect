@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import math
+from collections import Counter
 
 from PIL import Image, ImageOps
 
@@ -14,6 +15,105 @@ from image.parsers import _image
 MAX_CANDIDATES = 5
 MAX_CONTOURS = 1000
 MAX_CROP_PREVIEW_BYTES = 1024 * 1024
+
+
+def plate_likeness(candidate, recognition_image, attempts):
+    """Fixed ranking heuristic, not an estimated probability of a real plate."""
+    import cv2
+    import numpy as np
+
+    with Image.open(io.BytesIO(recognition_image)) as image:
+        gray = np.asarray(image.convert("L"))[20:-20, 20:-20]
+    height, width = gray.shape
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    best = {
+        "points": 0,
+        "characters": 0,
+        "span": 0,
+        "baseline_deviation": 1,
+        "density": 0,
+    }
+    for foreground in (binary, cv2.bitwise_not(binary)):
+        _, _, stats, _ = cv2.connectedComponentsWithStats(foreground, 8)
+        stats = stats[1:]
+        widths, heights = stats[:, 2], stats[:, 3]
+        glyphs = stats[
+            (heights >= 0.35 * height)
+            & (heights <= 0.98 * height)
+            & (widths >= 0.08 * heights)
+            & (widths <= 1.2 * heights)
+            & (stats[:, 4] >= 0.1 * widths * heights)
+        ]
+        count = len(glyphs)
+        span = (
+            float((max(glyphs[:, 0] + glyphs[:, 2]) - min(glyphs[:, 0])) / width)
+            if count
+            else 0
+        )
+        deviation = (
+            float(
+                np.median(
+                    np.abs(
+                        glyphs[:, 1]
+                        + glyphs[:, 3]
+                        - np.median(glyphs[:, 1] + glyphs[:, 3])
+                    )
+                )
+                / height
+            )
+            if count
+            else 1
+        )
+        density = float(np.count_nonzero(foreground) / foreground.size)
+        points = (
+            60 * min(count / 5, 1) * min(span / 0.5, 1) * max(0, 1 - deviation / 0.15)
+            if 3 <= count <= 12 and 0.03 <= density <= 0.65
+            else 0
+        )
+        if points > best["points"] or (
+            points == best["points"] and count > best["characters"]
+        ):
+            best = {
+                "points": points,
+                "characters": count,
+                "span": span,
+                "baseline_deviation": deviation,
+                "density": density,
+            }
+    aspect = candidate["aspect_ratio"]
+    geometry = 10 * candidate["rectangularity"] + 10 * min(
+        1, (aspect - 1) / 0.8, (6.5 - aspect) / 2
+    )
+    readings = []
+    scores = []
+    for attempt in attempts:
+        normalized = "".join(
+            c.upper() for c in attempt["text"] if c.isascii() and c.isalnum()
+        )
+        if 3 <= len(normalized) <= 12:
+            readings.append(normalized)
+            scores.append(attempt["confidence"])
+    agreeing = max(Counter(readings).values(), default=0)
+    readability = max(scores, default=0) / 10
+    agreement = 10 * agreeing / len(attempts) if agreeing >= 2 else 0
+    return {
+        "plate_score": round(
+            max(0, min(100, geometry + best["points"] + readability + agreement))
+        ),
+        "score_details": {
+            "Scoring method": "plate-likeness.v1; uncalibrated heuristic",
+            "Geometry points (0–20)": round(geometry, 2),
+            "Panel aspect ratio": round(aspect, 3),
+            "Rectangular fill fraction": round(candidate["rectangularity"], 3),
+            "Character row points (0–60)": round(best["points"], 2),
+            "OCR readability points (0–10)": round(readability, 2),
+            "Reading agreement points (0–10)": round(agreement, 2),
+            "Character-like components": best["characters"],
+            "Character row width fraction": round(best["span"], 3),
+            "Median baseline deviation fraction": round(best["baseline_deviation"], 3),
+            "Foreground pixel fraction": round(best["density"], 3),
+        },
+    }
 
 
 def _overlap(first, second):
@@ -73,6 +173,8 @@ def candidate_quads(preview):
         candidates.append(
             {
                 "bbox": [float(x) for x in bbox],
+                "aspect_ratio": float(long / short),
+                "rectangularity": float(area / (width * height)),
                 "corners": [
                     [float(x / preview.width), float(y / preview.height)]
                     for x, y in quad
@@ -144,6 +246,7 @@ def parse(operation, content, options):
                 )
             )
             attempts = []
+            scoring_image = None
             for enlargement, inset in ((2, 0), (2, 0.02), (3, 0.02)):
                 text_crop = [inset, 0.22, 1 - inset, 0.8]
                 line = rectified.crop(
@@ -165,6 +268,8 @@ def parse(operation, content, options):
                 buffer = io.BytesIO()
                 pixels.save(buffer, format="JPEG", quality=95)
                 encoded = buffer.getvalue()
+                if scoring_image is None:
+                    scoring_image = encoded
                 raw = _tesseract(
                     [
                         "stdin",
@@ -203,7 +308,7 @@ def parse(operation, content, options):
             candidate |= {
                 "rectified_size": list(size),
                 "attempts": attempts,
-            }
+            } | plate_likeness(candidate, scoring_image, attempts)
     return prepared | {
         "candidates": candidates,
         "limited": limited,

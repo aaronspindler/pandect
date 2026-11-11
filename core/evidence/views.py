@@ -32,9 +32,9 @@ from core.analysis.errors import AnalysisError
 from core.analysis.search import derived_content_condition, derived_text_matches
 from core.evidence.deletion import (
     CHANGED,
-    delete_evidence,
     deletion_manifest_response,
     deletion_review_context,
+    get_deletion_target,
     plan_deletion,
 )
 from core.evidence.form_registry import TYPE_FIELDS, evidence_form
@@ -245,10 +245,10 @@ def detail(request, case_id, kind, evidence_id):
             status__in=("queued", "running")
         ).exists()
         context["has_analysis"] = context["analysis_pending"] or runs.exists()
-    if kind in COMMUNICATION_KINDS:
-        from phone.presentation import reader_context
+        if kind in COMMUNICATION_KINDS:
+            from phone.presentation import reader_context
 
-        context.update(reader_context(case, kind, item))
+            context.update(reader_context(case, kind, item))
     if kind == "document":
         context["vehicle_import"] = VehicleLocationImport.objects.filter(
             case=case, document=item
@@ -499,9 +499,10 @@ def create(request, case_id):
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def edit(request, case_id, kind, evidence_id):
+    is_post = request.method == "POST"
     with transaction.atomic():
-        case = get_case(request.user, case_id, edit=True, lock=True)
-        item = get_evidence(case, kind, evidence_id, lock=True)
+        case = get_case(request.user, case_id, edit=True, lock=is_post)
+        item = get_evidence(case, kind, evidence_id, lock=is_post)
         saved_timestamp = item.edited_at
         latest_details = [
             (item._meta.get_field(name).verbose_name.capitalize(), getattr(item, name))
@@ -509,10 +510,10 @@ def edit(request, case_id, kind, evidence_id):
         ]
         conflict = False
         form = evidence_form(kind, editing=True)(
-            request.POST if request.method == "POST" else None, kind=kind, instance=item
+            request.POST if is_post else None, kind=kind, instance=item
         )
         status = 200
-        if request.method == "POST" and form.is_valid():
+        if is_post and form.is_valid():
             if form.cleaned_data["expected_edited_at"] != saved_timestamp:
                 form.add_error(
                     None,
@@ -529,7 +530,7 @@ def edit(request, case_id, kind, evidence_id):
                     request, "Evidence details saved. The original is unchanged."
                 )
                 return redirect(_detail_url(case, kind, item) + query_suffix(request))
-        elif request.method == "POST":
+        elif is_post:
             status = 400
         context = case_context(case, request.user) | {
             "form": form,
@@ -543,9 +544,7 @@ def edit(request, case_id, kind, evidence_id):
             "conflict": conflict,
             "latest_details": latest_details if conflict else [],
         }
-        return _private(
-            render(request, "core/evidence/form.html", context, status=status)
-        )
+    return _private(render(request, "core/evidence/form.html", context, status=status))
 
 
 @product_login_required
@@ -665,10 +664,9 @@ def _set_archive(request, case_id, kind, evidence_id, archived):
 def delete(request, case_id, kind, evidence_id):
     status = 200 if request.method == "GET" else 400
     with transaction.atomic():
-        case = get_case(request.user, case_id, lock=request.method == "POST")
-        if not request.user.is_superuser:
-            raise PermissionDenied("Only superusers can permanently delete evidence.")
-        item = get_evidence(case, kind, evidence_id, lock=request.method == "POST")
+        case, item = get_deletion_target(
+            request.user, case_id, kind, evidence_id, lock=request.method == "POST"
+        )
         plan = plan_deletion(item, kind)
         if (
             request.method == "GET"
@@ -685,25 +683,12 @@ def delete(request, case_id, kind, evidence_id):
             initial={"revision": plan.revision(request.user)},
         )
         if request.method == "POST" and not plan.blocker and form.is_valid():
-            try:
-                if not plan.matches(form.cleaned_data["revision"], request.user):
-                    raise ValidationError(CHANGED, code="deletion_changed")
-                delete_evidence(
-                    request.user,
-                    case.pk,
-                    kind,
-                    item.pk,
-                    revision=form.cleaned_data["revision"],
-                )
-            except ValidationError as error:
-                plan = plan_deletion(item, kind)
-                if error.code == "deletion_changed":
-                    form.add_error(None, error)
-                else:
-                    plan.blocker = " ".join(error.messages)
+            if not plan.matches(form.cleaned_data["revision"], request.user):
+                form.add_error(None, CHANGED)
                 status = 409
             else:
                 LogEntry.objects.log_actions(request.user.pk, [item], DELETION)
+                plan.collector.delete()
                 messages.success(request, "Evidence deleted.")
                 return redirect(
                     reverse("core:evidence:list", kwargs={"case_id": case.pk})

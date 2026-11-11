@@ -2,17 +2,26 @@
 
 import logging
 import re
+from urllib.parse import unquote
 
 from django.conf import settings
 from django.utils.cache import add_never_cache_headers
 from gunicorn.glogging import Logger
 
-TOKEN_PATH = re.compile(r"(/invitations/)[^/?\s\"'<>]+")
+TOKEN_PATH = re.compile(
+    r"(/(?:invitations|accounts/(?:confirm-email|password/reset/key))/)[^/?\s\"'<>]+"
+)
 QUERY = re.compile(r"\?[^\s\"'<>]*")
 
 
 def redact_url(value):
-    return QUERY.sub("", TOKEN_PATH.sub(r"\1[redacted]", str(value)))
+    value = QUERY.sub("", str(value))
+    decoded = unquote(value)
+    redacted = TOKEN_PATH.sub(r"\1[redacted]", decoded)
+    if redacted == decoded:
+        return value
+    # Decoding a credential-bearing request target must not add log lines.
+    return redacted.replace("\r", r"\r").replace("\n", r"\n")
 
 
 class PrivatePageMiddleware:

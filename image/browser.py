@@ -54,7 +54,7 @@ class PlateBrowserTests(StaticLiveServerTestCase):
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self.owner = self.make_user("plate-browser-owner")
         self.case = Case.objects.create(owner=self.owner, name="Synthetic plate case")
-        self.original = plate_scene()
+        self.original = plate_scene(distractors=True)
         self.image = ImageEvidence.objects.create(
             case=self.case,
             uploaded_by=self.owner,
@@ -92,7 +92,44 @@ class PlateBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("status").filter(has_text=re.compile(r"^Partial$"))
                 ).to_be_visible()
-                page.locator("#finding-link-1").click()
+                page.goto(
+                    self.url(
+                        "core:analysis:process_evidence",
+                        case_id=self.case.pk,
+                        kind="image",
+                        evidence_id=self.image.pk,
+                    )
+                )
+                finding = page.get_by_role("region", name="Findings").get_by_role(
+                    "link", name=re.compile(r"^TEST 482")
+                )
+                expect(finding).to_have_count(1)
+                expect(finding).to_contain_text("Awaiting review")
+                expect(finding).to_contain_text("Partial coverage")
+                expect(finding).to_contain_text("Plate-likeness:")
+                self.assertEqual(
+                    finding.evaluate("node => getComputedStyle(node).display"), "flex"
+                )
+                self.assertEqual(
+                    page.locator(".analysis-finding-rows").evaluate(
+                        "node => getComputedStyle(node).listStyleType"
+                    ),
+                    "none",
+                )
+                expect(page.get_by_role("heading", name="Run history")).to_be_visible()
+                for width, height in ((1440, 900), (390, 844), (320, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"plate-highlights-{width}x{height}")
+                finding.focus()
+                expect(finding).to_be_focused()
+                self.assertNotEqual(
+                    finding.evaluate("node => getComputedStyle(node).outlineStyle"),
+                    "none",
+                )
+                finding.press("Enter")
                 expect(page.locator(".analysis-finding-text")).to_contain_text(
                     "TEST 482"
                 )
@@ -105,17 +142,40 @@ class PlateBrowserTests(StaticLiveServerTestCase):
                 self.assertEqual(response.headers["content-type"], "image/jpeg")
                 self.assertIn("private", response.headers["cache-control"])
                 self.assertIn("no-store", response.headers["cache-control"])
-                region = page.locator("summary").filter(
-                    has_text="Show region on source image"
+                region = page.get_by_text("Region on source image", exact=True)
+                source_image = page.get_by_role(
+                    "img", name="Source image with the possible plate region marked"
                 )
+                expect(source_image).to_be_visible()
                 region.focus()
                 expect(region).to_be_focused()
                 region.press("Space")
+                expect(source_image).to_be_hidden()
+                region.press("Space")
+                expect(source_image).to_be_visible()
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.get_by_role("link", name="Back to findings", exact=True).click()
+                expect(page.locator(".analysis-finding-link")).to_have_count(3)
+                toggle = page.get_by_role("link", name="Show weak regions", exact=True)
+                toggle.focus()
+                expect(toggle).to_be_focused()
+                toggle.press("Enter")
+                expect(page.locator(".analysis-finding-link")).to_have_count(15)
+                page.locator("#finding-link-1").click()
                 expect(
-                    page.get_by_role(
-                        "img", name="Source image with the possible plate region marked"
+                    page.get_by_text(
+                        "This region is below the default filter threshold.",
+                        exact=False,
                     )
                 ).to_be_visible()
+                self.capture(page, engine, "plate-weak-regions")
+                page.get_by_role("link", name="Hide weak regions", exact=True).click()
+                expect(page.locator(".analysis-finding-link")).to_have_count(3)
+                page.locator(".analysis-finding-link").first.click()
+                expect(
+                    page.get_by_text("Heuristic score, not a probability.", exact=False)
+                ).to_be_visible()
+                expect(source_image).to_be_visible()
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),

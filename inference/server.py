@@ -21,6 +21,10 @@ def positive(name, default):
     return value
 
 
+def model_signature(stat):
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
 class Runtime:
     def __init__(self):
         self.kind = os.environ["PANDECT_RUNTIME_KIND"]
@@ -55,16 +59,21 @@ class Runtime:
             )
         self.lock = threading.Lock()
         self.process = None
-        self.model_stat = None
+        self.verified_model = None
 
     def verify_model(self):
         if not self.model_path.is_file():
             raise ValueError("model_unavailable")
         with self.model_path.open("rb") as stream:
+            signature = model_signature(os.fstat(stream.fileno()))
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            if signature != model_signature(os.fstat(stream.fileno())):
+                raise ValueError("model_changed_during_verification")
+        if signature != model_signature(self.model_path.stat()):
+            raise ValueError("model_changed_during_verification")
         if not hmac.compare_digest(digest, self.identity["sha256"]):
             raise ValueError("model_digest_mismatch")
-        self.model_stat = self.model_path.stat()
+        self.verified_model = signature
 
     def command(self):
         common = [
@@ -136,14 +145,13 @@ class Runtime:
         if self.process is None or self.process.poll() is not None:
             return False
         try:
-            current = self.model_path.stat()
-            if (current.st_size, current.st_mtime_ns, current.st_ino) != (
-                self.model_stat.st_size,
-                self.model_stat.st_mtime_ns,
-                self.model_stat.st_ino,
-            ):
-                self.stop()
-                return False
+            current = model_signature(self.model_path.stat())
+        except OSError:
+            current = None
+        if current is None or current != self.verified_model:
+            self.stop()
+            return False
+        try:
             connection = http.client.HTTPConnection("127.0.0.1", 8081, timeout=2)
             try:
                 connection.request("GET", "/health")

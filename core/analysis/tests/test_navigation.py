@@ -110,7 +110,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.process(derived)
         self.login("viewer")
         response = self.client.get(self.detail_url(derived), {"finding": 2})
-        second_email = response.context["selected_finding"]
+        second_email = response.context["items"][0]
         self.assertEqual(second_email["text"], "second@example.test")
         source = second_email["sources"][0]
         self.assertEqual(
@@ -123,7 +123,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(original.status_code, 200)
         selected_version = self.client.get(source["url"])
         self.assertContains(selected_version, 'id="finding-2"', count=1)
-        self.assertEqual(selected_version.context["selected_finding"]["number"], 2)
+        self.assertEqual(selected_version.context["items"][0]["number"], 2)
         self.assertContains(selected_version, "Page 2")
 
     def test_ocr_regions_survive_entity_extraction_and_point_to_the_correct_finding(
@@ -166,7 +166,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.process(derived)
         self.login("viewer")
         response = self.client.get(self.detail_url(derived), {"finding": 2})
-        second = response.context["selected_finding"]
+        second = response.context["items"][0]
         self.assertEqual(second["text"], "second@example.test")
         self.assertEqual(
             second["sources"][0]["url"],
@@ -176,11 +176,13 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "[0.1, 0.5, 0.8, 0.8]")
         self.assertEqual(resolved.original_url, self.url("detail", image, kind="image"))
         ocr_view = self.client.get(second["sources"][0]["url"])
+        self.assertTrue(ocr_view.context["items"][0]["low_ocr_score"])
+        self.assertContains(ocr_view, "Low OCR score", count=1)
+        overview = self.client.get(self.detail_url(extraction))
         self.assertEqual(
-            [item["low_ocr_score"] for item in ocr_view.context["items"]],
-            [False, True],
+            [item["low_ocr_score"] for item in overview.context["items"]], [False, True]
         )
-        self.assertContains(ocr_view, "Low OCR score", count=2)
+        self.assertContains(overview, "Low OCR score", count=1)
 
     def test_call_transcript_version_preserves_recording_intervals_and_addition(self):
         call = PhoneCallEvidence.objects.create(
@@ -244,7 +246,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.process(derived)
         self.login("viewer")
         response = self.client.get(self.detail_url(derived), {"finding": 2})
-        second = response.context["selected_finding"]
+        second = response.context["items"][0]
         self.assertEqual(second["text"], "second@example.test")
         self.assertEqual(
             second["sources"][0]["url"],
@@ -319,9 +321,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(extraction, 'id="finding-51"')
         self.assertContains(extraction, "later@example.test")
         downstream = self.client.get(self.detail_url(selected))
-        self.assertEqual(
-            downstream.context["selected_finding"]["sources"][0]["url"], expected
-        )
+        self.assertEqual(downstream.context["items"][0]["sources"][0]["url"], expected)
 
     def test_equivalent_address_candidates_can_receive_different_item_reviews(self):
         observations = [
@@ -385,7 +385,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertContains(second, 'id="finding-51"')
         self.assertNotContains(second, 'id="finding-1"')
-        self.assertContains(second, 'name="item_index" value="50"')
+        self.assertNotContains(second, 'name="item_index"')
         endpoint = reverse(
             "core:analysis:review", kwargs={"case_id": self.case.pk, "run_id": run.pk}
         )
@@ -414,14 +414,52 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         result.refresh_from_db()
         self.assertEqual(result.data["items"][50]["label"], "Candidate 51")
 
+    def test_analysis_history_filters_and_page_survive_finding_review(self):
+        run, _ = self.findings_fixture()
+        AnalysisRun.objects.bulk_create(
+            [
+                AnalysisRun(
+                    case=self.case,
+                    requested_by=self.users["owner"],
+                    operation=run.operation,
+                    method_version=run.method_version,
+                    inputs=run.inputs,
+                    status=status,
+                )
+                for status in ["complete"] * 25 + ["failed"]
+            ]
+        )
+        self.login("editor")
+        index = reverse("core:analysis:index", args=[self.case.pk])
+        filters = {"kind": "text", "status": "complete", "page": 2}
+        history = self.client.get(index, filters)
+        self.assertEqual(history.context["page_obj"].paginator.count, 26)
+        self.assertEqual([entry.pk for entry in history.context["page_obj"]], [run.pk])
+        suffix = "?kind=text&status=complete&history_page=2"
+        self.assertContains(
+            history, (self.detail_url(run) + suffix).replace("&", "&amp;")
+        )
+        review = reverse("core:analysis:review", args=[self.case.pk, run.pk]) + suffix
+        saved = self.client.post(review, {"item_index": 51, "decision": "accepted"})
+        self.assertRedirects(
+            saved,
+            self.detail_url(run)
+            + "?page=2&finding=52&kind=text&status=complete&history_page=2#finding-52",
+        )
+        focused = self.client.get(saved["Location"])
+        self.assertEqual(focused.context["items"][0]["index"], 51)
+        self.assertContains(
+            focused, f'href="{index}?kind=text&amp;status=complete&amp;page=2"'
+        )
+
     def test_finding_selection_uses_its_own_page_and_only_renders_its_review_form(self):
         run, _ = self.findings_fixture()
         self.login("editor")
         response = self.client.get(self.detail_url(run), {"page": 1, "finding": 52})
         self.assertEqual(response.context["finding_page"].number, 2)
-        self.assertEqual(response.context["selected_finding"]["index"], 51)
+        self.assertEqual(response.context["items"][0]["index"], 51)
         self.assertContains(response, 'id="finding-52"', count=1)
-        self.assertContains(response, 'id="finding-link-52"', count=1)
+        self.assertContains(response, 'href="?page=2#finding-link-52"', count=1)
         self.assertContains(response, 'name="item_index" value="51"', count=1)
         self.assertNotContains(response, 'name="item_index" value="50"')
         for invalid in ("0", "61", "unavailable", "9" * 4500):
@@ -429,7 +467,9 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
                 fallback = self.client.get(
                     self.detail_url(run), {"page": 2, "finding": invalid}
                 )
-                self.assertEqual(fallback.context["selected_finding"]["number"], 51)
+                self.assertEqual(fallback.context["items"][0]["number"], 51)
+                self.assertContains(fallback, 'id="finding-link-52"', count=1)
+                self.assertNotContains(fallback, 'name="item_index"')
 
     def test_invalid_individual_index_does_not_turn_into_a_whole_result_review(self):
         run, result = self.findings_fixture(2)

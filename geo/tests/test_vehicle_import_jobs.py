@@ -86,6 +86,23 @@ class VehicleImportJobBoundaryTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(second.observations.exists())
         self.assertEqual(VehicleLocationEvidence.objects.count(), 1)
 
+    def test_deleted_matches_stop_suppressing_the_first_row_across_chunks(self):
+        first = self.batch()
+        self.queue_completion(first)
+        self.assertEqual(self.run_job(first), "complete")
+        row = parse_csv(csv_content(), "UTC")[0].raw
+        with patch("geo.vehicle_import_jobs.CHUNK_SIZE", 1):
+            second = self.batch(csv_content(row, row))
+            self.assertEqual(second.duplicate_count, 2)
+            self.queue_completion(second)
+            first.observations.all().delete()
+            self.assertEqual(self.run_job(second), "complete")
+        self.assertEqual(second.duplicate_count, 1)
+        self.assertEqual(second.observations.get().source_row, 2)
+        self.assertEqual(
+            list(second.rows.values_list("duplicate", flat=True)), [False, True]
+        )
+
     def test_v1_jobs_retain_their_original_rules_and_can_still_complete(self):
         for speed in ("-", "0 km/h"):
             with self.subTest(speed=speed):

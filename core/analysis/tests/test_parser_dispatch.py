@@ -5,8 +5,12 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
+
+from core.analysis.errors import AnalysisError
+from core.parsers import run_parser
 
 
 class IsolatedDomainParserTests(SimpleTestCase):
@@ -49,3 +53,20 @@ print(json.dumps({'django_loaded': False}))
         parsed = json.loads(result.stdout)
         self.assertEqual(parsed["status"], "complete")
         self.assertEqual(parsed["text"], "Synthetic retained text")
+
+    def test_worker_checks_output_size_before_decoding(self):
+        def start_child(*args, stdout, **kwargs):
+            stdout.write(b'{"status":"complete"}')
+            return Mock(returncode=0)
+
+        with (
+            patch("core.parsers.MAX_OUTPUT", 16),
+            patch("core.parsers.os.killpg"),
+            patch("core.parsers.subprocess.Popen", side_effect=start_child) as child,
+            patch("core.parsers.json.loads") as decode,
+            self.assertRaisesMessage(AnalysisError, "parser_resource_limit"),
+        ):
+            run_parser("document", b"Synthetic retained text")
+
+        decode.assert_not_called()
+        self.assertTrue(child.call_args.kwargs["stdout"].closed)

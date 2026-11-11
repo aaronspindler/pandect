@@ -5,7 +5,8 @@ import os
 import re
 import sys
 import time
-from urllib.error import HTTPError, URLError
+from http.client import HTTPException
+from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
@@ -28,7 +29,7 @@ def api(url, headers=None, data=None):
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "spindlers-monorepo-cd/1.0",
+            "User-Agent": "pandect-cd/1.0",
             **(headers or {}),
         },
     )
@@ -45,7 +46,7 @@ def api(url, headers=None, data=None):
             f"Deployment API request failed (HTTP {status})."
         ) from None
     # The CD runner uses Python 3.12 rather than the application's runtime.
-    except (URLError, TimeoutError, OSError, ValueError):  # noqa: UP039  # fmt: skip
+    except (OSError, HTTPException, ValueError):  # noqa: UP039  # fmt: skip
         raise DeploymentError(
             "Deployment API request failed; inspect service status."
         ) from None
@@ -147,7 +148,11 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, work
                 health = api("https://openpandect.com/health/")
             except DeploymentError:
                 health = {}
-            ready = health.get("status") == "ok" and health.get("commit") == sha
+            ready = (
+                isinstance(health, dict)
+                and health.get("status") == "ok"
+                and health.get("commit") == sha
+            )
         if ready:
             if stable_task is None:
                 stable_task, stable_since = task, time.monotonic()

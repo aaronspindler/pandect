@@ -82,9 +82,9 @@ archived observations. They are not proof of the same event or vehicle. By
 default, import the first occurrence in the CSV and skip later identical rows;
 if a matching retained observation already exists, skip every matching row.
 Select **Keep the possible duplicates as separate observations** to import
-them all instead. Matches are checked again under the case lock before import,
-so the skip choice also applies to observations imported after the review was
-prepared. If every row is skipped, the import completes with zero new
+them all instead. Matches are checked again under the case lock before import.
+Observations imported or deleted after review can change which rows are skipped.
+If every row is skipped, the import completes with zero new
 observations. The complete original CSV and reviewed rows stay retained.
 No fuzzy matching or automatic cross-export merging occurs. Exact retries of
 the same completed batch never add rows again.

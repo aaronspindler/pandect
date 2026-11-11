@@ -1,0 +1,21 @@
+{% load l10n %}
+<details class="analysis-section disclosure analysis-position-map" open>
+  <summary>Selected observation positions</summary>
+  <p class="muted">Positions linked to findings on this page. Circles are reported positions, squares are reviewed estimates, and diamonds are lookup candidates.</p>
+  <svg class="analysis-map" viewBox="0 0 600 180" role="img" aria-labelledby="coordinate-map-title">
+    <title id="coordinate-map-title">Selected positions. North is upward. The plot shows points without routes.</title>
+    <rect width="600" height="180" fill="none" stroke="currentColor"/>
+    {% for point in map_points %}
+      <a href="{{ point.url }}" aria-label="{{ point.label }}">
+        {% if point.kind == 'reviewed' %}
+          <rect x="-5" y="-5" width="10" height="10" fill="currentColor" transform="translate({{ point.x|unlocalize }} {{ point.y|unlocalize }})"/>
+        {% elif point.kind == 'candidate' %}
+          <path d="M 0,-6 L 6,0 L 0,6 L -6,0 Z" fill="currentColor" transform="translate({{ point.x|unlocalize }} {{ point.y|unlocalize }})"/>
+        {% else %}
+          <circle cx="{{ point.x|unlocalize }}" cy="{{ point.y|unlocalize }}" r="5" fill="currentColor"/>
+        {% endif %}
+        <title>{{ point.label }}</title>
+      </a>
+    {% endfor %}
+  </svg>
+</details>

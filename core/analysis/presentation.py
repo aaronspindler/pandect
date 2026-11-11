@@ -3,6 +3,8 @@
 import json
 import re
 
+from django.utils.dateparse import parse_datetime
+
 from people.models import Person
 from vehicle.models import Vehicle
 
@@ -173,3 +175,46 @@ def measurement_formatter(data, *, case, sources=()):
         return rows(values)
 
     return render
+
+
+def group_by_source(items):
+    """Keep the page's source order, including exact versions and additions."""
+    groups = {}
+    for item in items:
+        source = item["sources"][0] if item["sources"] else {}
+        group = groups.setdefault(source.get("id"), {"source": source, "items": []})
+        group["items"].append(item)
+    return list(groups.values())
+
+
+def prioritize_measurements(item, *labels):
+    """Promote available fields in task order and keep the rest inspectable."""
+    if not labels:
+        return
+    measurements = item["measurements"]
+    primary = [row for key in labels for row in measurements if row["label"] == key]
+    if primary:
+        item["primary_measurements"] = primary
+        item["measurements"] = [
+            row for row in measurements if row["label"] not in labels
+        ]
+
+
+def table_rows(items, columns):
+    """Reports use an explicit list of retained keys in each column."""
+    displayed = {key for _, keys in columns for key in keys}
+    timestamp_labels = {label for label in displayed if label.endswith(" (UTC)")}
+    for item in items:
+        measurements = {row["label"]: row for row in item["measurements"]}
+        for label in timestamp_labels & measurements.keys():
+            row = measurements[label]
+            if stamp := parse_datetime(row["text"]):
+                row["timestamp"] = stamp
+        item["cells"] = [
+            [measurements[key] for key in keys if key in measurements]
+            for _, keys in columns
+        ]
+        item["measurements"] = [
+            row for row in item["measurements"] if row["label"] not in displayed
+        ]
+    return [title for title, _ in columns]

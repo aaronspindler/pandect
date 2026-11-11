@@ -66,7 +66,7 @@ the other local checks. To run it alone, choose it in **Additional analysis** or
 the case's **Start analysis** picker. Select one original image per run. Earlier
 results are retained; no original or vehicle record is changed.
 
-Method version 1 uses headless OpenCV to find convex, approximately horizontal
+Method version 2 uses headless OpenCV to find convex, approximately horizontal
 quadrilaterals in a metadata-free preview of at most 2048 pixels on its longest
 side. It examines at most 1000 contours, suppresses near-duplicate outlines,
 keeps at most five candidate regions and reports when either limit is reached. These geometric
@@ -84,9 +84,32 @@ pixels before the border. Tesseract uses English, single-line segmentation
 (`--psm 7`) and disabled word dictionaries. It makes at most 15 recognition calls
 inside the existing parser CPU, memory, output and wall-clock limits.
 
-Raw readings with at least three ASCII letters/digits are retained as text
-candidates, including unexpected punctuation and conflicting alternatives.
-Shorter output is retained as context, not indexed candidate text. The result is
+Each region receives a **Plate-likeness** score from 0–100, separate from its
+Tesseract reading scores. The fixed `plate-likeness.v1` recipe gives up to 20
+points for rectangularity/aspect ratio, 60 for a row of character-like connected
+components, 10 for OCR readability and 10 for agreement between preprocessing
+variants. The character-row measurement uses the first recognition JPEG with
+its white border removed, Otsu thresholding in both polarities, component size,
+horizontal coverage and median baseline deviation. It requires 3–12 components
+and bounded foreground density. Agreement compares ASCII letters/digits with
+case and punctuation ignored, without altering any retained reading.
+
+This is a manually weighted ranking heuristic, not a probability or a trained
+plate classifier. Regions below 50 are hidden by default. **Show weak regions**
+reveals their retained readings, scores, signals and private previews; hiding
+them again does not delete anything. Direct finding links reveal the requested
+weak region without renumbering findings or moving reviews. Filtered review
+counts describe visible findings. All raw findings remain in **Download results**.
+Text-bearing signs can still pass, and blurred, obscured or unfamiliar plates
+can fall below the threshold. These checks do not establish general accuracy.
+
+Above-threshold readings with at least three ASCII letters/digits are retained
+as searchable text candidates, including unexpected punctuation and conflicting
+alternatives. Weak-region raw OCR remains in context instead of extracted text,
+so it is excluded from search, evidence highlights and downstream extraction
+inputs. Shorter output is also retained as context. Unscored historical results
+keep their original presentation. Queued version-1 plate runs need a new run
+rather than rewriting their retained method or history. The result is
 always **Partial** because geometric detection cannot establish exhaustive plate
 coverage. Candidates are searchable and reviewable; they never create or update
 vehicle records or establish identity, ownership, presence or association.
@@ -158,8 +181,11 @@ through stdin and no case records, storage paths, Django configuration or provid
 credentials. stderr is discarded and safe error codes replace exception strings.
 The worker kills/reaps the parser process group, including native OCR children,
 after 20 seconds; child CPU is limited to 15 seconds,
-core dumps are disabled, and output and open descriptors are bounded. Linux
-workers enforce a 1 GiB address-space limit. macOS does not support the same
+core dumps are disabled, and open descriptors are bounded. Parser output goes
+to a private temporary file subject to the child's file-size limit. The worker
+reads at most 8 MiB plus one byte before parsing it and closes the file on
+success or failure. Linux workers enforce a 1 GiB address-space limit.
+macOS does not support the same
 address-space limit here; the development runner samples process-group RSS and terminates
 it above 1 GiB. That sampled check is not a hard instantaneous memory limit.
 

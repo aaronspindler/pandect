@@ -4,18 +4,21 @@ import hashlib
 import io
 import json
 from copy import deepcopy
-from unittest.mock import patch
+from dataclasses import replace
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import transaction
+from django.db import connection, transaction
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
 
 from cases.models import Case, CaseMembership
 from core.analysis.errors import AnalysisError
+from core.analysis.operations import get_operation
 from core.analysis.services import process_run, resolve_inputs, review_result, start_run
 from core.analysis.sources import output
 from core.analysis.testing import local_ocr_response
@@ -23,6 +26,7 @@ from core.analysis.testing import preview_image_bytes as image_bytes
 from core.models import (
     AnalysisArtifact,
     AnalysisResult,
+    AnalysisReview,
     AnalysisRun,
     ExtractedPassage,
     GatewayRequest,
@@ -34,6 +38,75 @@ from image.models import ImageEvidence
 
 
 class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
+    def test_malformed_worker_output_records_a_safe_specific_failure(self):
+        original = self.image()
+        operation = get_operation("image_metadata")
+        for result, code in (
+            ([], "invalid_result"),
+            (output("Synthetic", outcome=[]), "invalid_result"),
+            (output("Synthetic") | {"metrics": []}, "invalid_result"),
+            (
+                output("Synthetic", items=[{"label": "Finding", "values": []}]),
+                "invalid_result",
+            ),
+            (
+                output("Synthetic", metrics={"bad number": float("nan")}),
+                "invalid_result",
+            ),
+            (
+                output("Synthetic", items=[{"label": "Finding", "source_ids": [{}]}]),
+                "invalid_anchor",
+            ),
+        ):
+            with self.subTest(code=code, result=result):
+                run, _ = start_run(
+                    self.users["owner"],
+                    self.case.pk,
+                    "image_metadata",
+                    [{"kind": "image", "id": str(original.pk)}],
+                )
+                with patch(
+                    "core.analysis.services.get_operation",
+                    return_value=replace(operation, function=Mock(return_value=result)),
+                ):
+                    self.assertEqual(process_run(run.pk), code)
+                run.refresh_from_db()
+                self.assertEqual((run.status, run.error_code), ("failed", code))
+                self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
+
+    def test_multi_source_extraction_publishes_search_passages_in_one_insert(self):
+        documents = [
+            DocumentEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title=f"Source {index}",
+                file=SimpleUploadedFile(f"{index}.txt", f"Source {index}".encode()),
+            )
+            for index in range(3)
+        ]
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "native_text",
+            [{"kind": "document", "id": str(item.pk)} for item in documents],
+        )
+        with CaptureQueriesContext(connection) as queries:
+            process_run(run.pk)
+        inserts = [
+            query["sql"]
+            for query in queries.captured_queries
+            if query["sql"].startswith('INSERT INTO "core_extractedpassage"')
+        ]
+        self.assertEqual(len(inserts), 1)
+        self.assertEqual(
+            list(
+                run.result.passages.order_by("item_index").values_list(
+                    "evidence_id", "evidence_sha256", "text"
+                )
+            ),
+            [(item.pk, item.sha256, item.title) for item in documents],
+        )
+
     def image(self, *, case=None, **values):
         return ImageEvidence.objects.create(
             case=case or self.case,
@@ -406,6 +479,43 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             item_index=0,
         )
         return location, run, result, review
+
+    def test_geocode_source_resolution_ignores_reviews_from_other_cases(self):
+        location, _, result, review = self.geocode_fixture()
+        selections = [
+            {
+                "kind": "location",
+                "id": str(location.pk),
+                "result_id": str(result.pk),
+            }
+        ]
+        AnalysisReview.objects.bulk_create(
+            [
+                AnalysisReview(
+                    case=self.other_case,
+                    result=result,
+                    reviewed_by=self.users["outsider"],
+                    decision="rejected",
+                    item_index=0,
+                )
+            ]
+        )
+        queued, _ = start_run(
+            self.users["owner"], self.case.pk, "spatial_groups", selections
+        )
+        self.assertEqual(queued.inputs[0]["review_id"], str(review.pk))
+        self.assertEqual(
+            resolve_inputs(queued, self.case)[0].derived_coordinates, (43.0, -79.0)
+        )
+        AnalysisReview.objects.filter(pk=review.pk).update(case=self.other_case)
+        for require_current_review in (True, False):
+            with (
+                self.subTest(require_current_review=require_current_review),
+                self.assertRaisesMessage(AnalysisError, "geocode_review_required"),
+            ):
+                resolve_inputs(
+                    queued, self.case, require_current_review=require_current_review
+                )
 
     def test_downstream_geocode_retains_review_id_and_historical_interpretation(
         self,

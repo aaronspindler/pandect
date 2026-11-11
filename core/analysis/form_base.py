@@ -134,7 +134,8 @@ def source_choices(case, operation, query="", *, evidence=None):
                             choices.append(
                                 (
                                     f"{prefix}:{index}",
-                                    f"{label} · {candidate['label']} · "
+                                    f"{label} · Reviewed estimate · "
+                                    f"{candidate['label']} · "
                                     f"{candidate['values'].get('address', '')}",
                                 )
                             )

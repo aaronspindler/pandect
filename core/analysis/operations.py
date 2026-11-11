@@ -93,7 +93,7 @@ OPERATIONS = {
     "ocr": Operation(
         "Read text in images", image_ai.ocr, ("image", "document"), version="5"
     ),
-    "plate_ocr": Operation("Find vehicle plates", plate_ocr, ("image",)),
+    "plate_ocr": Operation("Find vehicle plates", plate_ocr, ("image",), version="2"),
     "transcription": Operation(
         "Transcribe recordings",
         audio_ai.transcription,
@@ -147,7 +147,7 @@ OPERATIONS = {
         "Import an iMessage export",
         communication_imports.prepare_import,
         ("document",),
-        version="2",
+        version="3",
     ),
     "normalize_addresses": Operation(
         "Compare recorded addresses",
@@ -211,3 +211,74 @@ def get_operation(name):
         return OPERATIONS[name]
     except KeyError:
         raise ValidationError("Choose a supported analysis.") from None
+
+
+OPERATION_GROUPS = {
+    "Extract and inspect files": {
+        "native_text": "Read native document text with page or line references.",
+        "image_metadata": (
+            "Compare decoded image properties with embedded metadata claims."
+        ),
+        "audio_metadata": (
+            "Inspect recording properties and numerical signal intervals."
+        ),
+        "ocr": "Read printed text and compare candidates with their image regions.",
+        "plate_ocr": "Compare possible plate readings and their source regions.",
+        "transcription": (
+            "Read candidate speech with recording timestamps and coverage gaps."
+        ),
+    },
+    "Read and compare text": {
+        "entities": "Find identifiers and dates with the exact wording they came from.",
+        "style_profiles": "Inspect descriptive writing measurements and examples.",
+        "style_change": "Compare two writing samples and their coverage.",
+        "copied_text": "Compare matching passages and their source positions.",
+        "text_topics": (
+            "Review frequent words and optionally request cited topic suggestions."
+        ),
+        "content_events": (
+            "Review model suggestions for claims and commitments with source "
+            "quotations."
+        ),
+    },
+    "Inspect communications": {
+        "sessions": (
+            "Read inferred sessions with reported participants and event times."
+        ),
+        "comm_patterns": (
+            "Compare recorded message counts, intervals and selected periods."
+        ),
+        "conversation_link": (
+            "Compare exchanges across channels using reported timing and wording."
+        ),
+        "session_summaries": "Review source-cited suggestions about selected sessions.",
+        "conversation_import": (
+            "Import mapped message rows and identify rows that need correction."
+        ),
+    },
+    "Compare locations and movement": {
+        "normalize_addresses": (
+            "Compare the recorded and normalized wording of addresses."
+        ),
+        "location_quality": (
+            "Inspect missing positions, event times and differences between "
+            "interpretations."
+        ),
+        "spatial_groups": "See candidate groups and the observations they contain.",
+        "proximity": "See which observations fall near a selected point or area.",
+        "candidate_visits": (
+            "Compare candidate visits, observed spans and sampling gaps."
+        ),
+        "candidate_trips": "Inspect candidate journeys, observed endpoints and gaps.",
+        "movement_routines": "Compare recurring directed journeys and sample coverage.",
+        "colocation": "Compare nearby samples by distance and time difference.",
+        "travel_discrepancies": "Review unusual transitions and gaps between samples.",
+        "location_conflicts": (
+            "Compare selected observations for the same reported event."
+        ),
+        "geocode_locations": (
+            "Review candidate positions or addresses from the configured lookup."
+        ),
+        "geographic_context": "Inspect spatial relations and retained map references.",
+    },
+}

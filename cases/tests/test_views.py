@@ -5,8 +5,9 @@ from unittest.mock import patch
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core import mail
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import Client, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -356,8 +357,11 @@ class CaseInterfaceTests(TestCase):
         invitation, token = self.invite(role="editor")
         self.login(self.invitee)
         url = reverse("invitation_accept", args=(token,))
-        response = self.client.get(url)
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
+        self.assertFalse(any("FOR UPDATE" in query["sql"] for query in queries))
+        self.assertIn("no-store", response["Cache-Control"])
         self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertFalse(
             CaseMembership.objects.filter(case=self.case, user=self.invitee).exists()
@@ -484,7 +488,16 @@ class CaseInterfaceTests(TestCase):
 
     def test_owner_current_member_and_duplicate_pending_invites_rejected(self):
         self.login()
-        for email in (self.owner.email, self.viewer.email, self.editor.email):
+        secondary = EmailAddress.objects.create(
+            user=self.viewer, email="viewer-secondary@example.com", verified=True
+        )
+        EmailAddress.objects.filter(user=self.editor).delete()
+        for email in (
+            self.owner.email,
+            self.viewer.email,
+            secondary.email,
+            self.editor.email,
+        ):
             response = self.client.post(
                 self.url("invitation_create"),
                 {"email": email.upper(), "role": "viewer"},

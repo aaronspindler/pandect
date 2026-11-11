@@ -17,8 +17,15 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS
 from core.testing import COMMUNICATION_MODELS, EvidenceTestMixin, EvidenceViewTestMixin
+from document.models import DocumentEvidence
 from people.models import Person
-from phone.models import CallEvidenceAttachment, FaceTimeEvidence, PhoneCallEvidence
+from phone.models import (
+    CallEvidenceAttachment,
+    CommunicationContext,
+    FaceTimeEvidence,
+    PhoneCallEvidence,
+    TextMessageEvidence,
+)
 
 
 class CommunicationModelTests(EvidenceTestMixin, TestCase):
@@ -213,6 +220,70 @@ class CommunicationModelTests(EvidenceTestMixin, TestCase):
 
 
 class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
+    def test_imported_reply_and_thread_lists_use_message_case_scope(self):
+        source = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Export",
+            file=ContentFile(b"Synthetic export", name="messages.html"),
+        )
+        rows = (
+            ("Selected message", "selected", "reply"),
+            ("Visible reply candidate", "reply", ""),
+            ("Inconsistent reply candidate", "reply", ""),
+        )
+        messages = []
+        for number, (title, native_id, reply_to_id) in enumerate(rows, 1):
+            message = TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                sender=self.person,
+                recipient=self.person,
+                title=title,
+                body="Synthetic message",
+            )
+            CommunicationContext.objects.create(
+                case=self.case,
+                message=message,
+                source_document=source,
+                source_sha256=source.sha256,
+                source_row=number,
+                source_start=number - 1,
+                source_end=number,
+                parser_version="test",
+                timezone="UTC",
+                raw_sender="Synthetic sender",
+                native_message_id=native_id,
+                native_thread_id="thread",
+                reply_to_id=reply_to_id,
+            )
+            messages.append(message)
+        other_person = Person.objects.create(
+            case=self.other_case, first_name="Unrelated person"
+        )
+        TextMessageEvidence.objects.filter(pk=messages[-1].pk).update(
+            recipient=other_person
+        )
+
+        self.login("viewer")
+        response = self.client.get(self.url("detail", messages[0], kind="text-message"))
+        self.assertContains(response, messages[1].title)
+        self.assertNotContains(response, messages[2].title)
+        self.assertEqual(
+            [
+                context.message_id
+                for context in response.context["native_reply_candidates"]
+            ],
+            [messages[1].pk],
+        )
+        self.assertEqual(
+            [
+                context.message_id
+                for context in response.context["native_thread_messages"]
+            ],
+            [messages[0].pk, messages[1].pk],
+        )
+
     def create_call(self, kind="phone-call", **values):
         self.login("owner")
         response = self.client.post(

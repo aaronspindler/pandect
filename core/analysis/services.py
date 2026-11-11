@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+from itertools import batched
 from uuid import UUID, uuid4
 
 from allauth.account.models import EmailAddress
@@ -10,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import OuterRef, Subquery
 from django.http import Http404
 from django.utils import timezone
@@ -121,6 +122,7 @@ def resolve_inputs(run, case, *, require_current_review=True):
         text = None
         coordinates = None
         derived_result_id = derived_run_id = None
+        candidate_index = None
         segments = []
         if selected.get("result_id"):
             result_id = selected["result_id"]
@@ -197,11 +199,10 @@ def resolve_inputs(run, case, *, require_current_review=True):
                 candidates = [x for index, x in candidates if index == candidate_index]
                 if len(candidates) != 1:
                     raise AnalysisError("ambiguous_geocode")
-                review = prior.reviews.filter(item_index=candidate_index).first()
+                reviews = prior.reviews.filter(case=case, item_index=candidate_index)
                 if not require_current_review:
-                    review = prior.reviews.filter(
-                        pk=selected.get("review_id"), item_index=candidate_index
-                    ).first()
+                    reviews = reviews.filter(pk=selected.get("review_id"))
+                review = reviews.first()
                 if not review or review.decision != "accepted":
                     raise AnalysisError("geocode_review_required")
                 values = candidates[0]["values"]
@@ -217,6 +218,7 @@ def resolve_inputs(run, case, *, require_current_review=True):
                 derived_result_id,
                 derived_run_id,
                 tuple(segments),
+                geocode_candidate=candidate_index,
             )
         )
     return sources
@@ -352,7 +354,9 @@ def start_run(
                 if candidate_index is None and len(candidates) == 1:
                     candidate_index = candidates[0][0]
                 identity_candidate = candidate_index
-                accepted = prior.reviews.filter(item_index=candidate_index).first()
+                accepted = prior.reviews.filter(
+                    case=case, item_index=candidate_index
+                ).first()
                 review_id = (
                     str(accepted.pk)
                     if accepted and accepted.decision == "accepted"
@@ -417,7 +421,16 @@ def start_run(
         previous_run=previous_run,
     )
     resolve_inputs(run, case)
-    run.save()
+    try:
+        with transaction.atomic():
+            run.save()
+    except IntegrityError:
+        # Distinct case locks do not serialize a shared submission UUID.
+        if AnalysisRun.objects.filter(submission_id=submission_id).exists():
+            raise ValidationError(
+                "This submission was already used for different analysis settings."
+            ) from None
+        raise
     from core.analysis.tasks import process_analysis
 
     process_analysis.enqueue(str(run.pk))
@@ -425,17 +438,25 @@ def start_run(
 
 
 def validate_output(data, sources):
-    if not isinstance(data, dict) or not isinstance(data.get("summary"), str):
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("summary"), str)
+        or not isinstance(data.get("metrics", {}), dict)
+    ):
         raise AnalysisError("invalid_result")
-    if data.get("outcome", "complete") not in {
+    if data.get("outcome", "complete") not in (
         "complete",
         "partial",
         "empty",
         "insufficient",
         "unsupported",
-    }:
+    ):
         raise AnalysisError("invalid_result")
-    if len(json.dumps(data, allow_nan=False).encode()) > 4 * 1024 * 1024:
+    try:
+        size = len(json.dumps(data, allow_nan=False).encode())
+    except ValueError, TypeError, RecursionError:
+        raise AnalysisError("invalid_result") from None
+    if size > 4 * 1024 * 1024:
         raise AnalysisError("result_limit")
     source_map = {str(x.id): x for x in sources}
     items = data.get("items", [])
@@ -446,12 +467,20 @@ def validate_output(data, sources):
             not isinstance(item, dict)
             or not isinstance(item.get("label"), str)
             or not isinstance(item.get("text", ""), str)
+            or not isinstance(item.get("values", {}), dict)
         ):
             raise AnalysisError("invalid_result")
         refs = item.get("source_ids", [])
-        if not refs or not set(refs) <= source_map.keys():
+        if (
+            not isinstance(refs, list)
+            or not refs
+            or any(not isinstance(ref, str) or ref not in source_map for ref in refs)
+        ):
             raise AnalysisError("invalid_anchor")
-        for anchor in item.get("anchors", []):
+        anchors = item.get("anchors", [])
+        if not isinstance(anchors, list):
+            raise AnalysisError("invalid_anchor")
+        for anchor in anchors:
             if not isinstance(anchor, dict) or anchor.get("source_id") not in refs:
                 raise AnalysisError("invalid_anchor")
             source = source_map[anchor["source_id"]]
@@ -491,6 +520,26 @@ def validate_output(data, sources):
                 ):
                     raise AnalysisError("invalid_anchor")
     return data
+
+
+def _extracted_passages(result, sources):
+    sources_by_id = {str(source.id): source for source in sources}
+    for item_index, item in enumerate(result.data.get("items", [])):
+        if not item.get("text"):
+            continue
+        for ref in item["source_ids"]:
+            source = sources_by_id[ref]
+            yield ExtractedPassage(
+                case_id=result.case_id,
+                result=result,
+                kind=source.kind,
+                evidence_id=source.item.pk,
+                evidence_sha256=source.item.sha256,
+                attachment_id=source.attachment.pk if source.attachment else None,
+                text=item["text"],
+                item_index=item_index,
+                anchors=item.get("anchors", []),
+            )
 
 
 def process_run(run_id):
@@ -547,6 +596,8 @@ def process_run(run_id):
         if run.operation in {"geocode_locations", "geographic_context"}:
             parameters["external_processing"] = run.external_processing
         data = operation.function(sources, parameters, **kwargs)
+        if not isinstance(data, dict):
+            raise AnalysisError("invalid_result")
         artifacts = data.pop("artifacts", [])
         if not isinstance(artifacts, list) or len(artifacts) > 500:
             raise AnalysisError("invalid_preview")
@@ -619,24 +670,10 @@ def process_run(run_id):
                 stored_files.append((artifact.file.storage, artifact.file.name))
                 artifact.save()
             if run.operation in {"native_text", "ocr", "plate_ocr", "transcription"}:
-                for item_index, item in enumerate(data.get("items", [])):
-                    if not item.get("text"):
-                        continue
-                    for source_id in item.get("source_ids", []):
-                        source = next(x for x in sources if x.id == source_id)
-                        ExtractedPassage.objects.create(
-                            case=case,
-                            result=result,
-                            kind=source.kind,
-                            evidence_id=source.item.pk,
-                            evidence_sha256=source.item.sha256,
-                            attachment_id=source.attachment.pk
-                            if source.attachment
-                            else None,
-                            text=item["text"],
-                            item_index=item_index,
-                            anchors=item.get("anchors", []),
-                        )
+                for batch in batched(
+                    _extracted_passages(result, sources), 500, strict=False
+                ):
+                    ExtractedPassage.objects.bulk_create(batch)
             current.status = data.get("outcome", "complete")
             current.progress = 100
             current.finished_at = timezone.now()

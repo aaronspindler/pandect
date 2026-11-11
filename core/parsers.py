@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from importlib import import_module
 from pathlib import Path
@@ -72,6 +73,32 @@ def run_parser(operation, content, *, options=None):
         raise AnalysisError("unsupported_parser")
     if not isinstance(content, bytes) or len(content) > MAX_BYTES:
         raise AnalysisError("input_limit")
+    # The child's file-size limit applies to a regular file, while a pipe
+    # would let communicate() buffer stdout before checking its length.
+    try:
+        output = tempfile.TemporaryFile()
+    except OSError:
+        raise AnalysisError("parser_unavailable") from None
+    with output:
+        _run_child(operation, content, options, output)
+        output.seek(0)
+        stdout = output.read(MAX_OUTPUT + 1)
+    if len(stdout) > MAX_OUTPUT:
+        raise AnalysisError("parser_resource_limit")
+    try:
+        value = json.loads(stdout)
+    except ValueError, UnicodeError:
+        raise AnalysisError("parser_failed") from None
+    if not isinstance(value, dict):
+        raise AnalysisError("parser_failed")
+    if "error" in value:
+        raise AnalysisError(value["error"])
+    return value
+
+
+def _run_child(operation, content, options, output):
+    from core.analysis.errors import AnalysisError
+
     try:
         process = subprocess.Popen(
             [
@@ -83,7 +110,7 @@ def run_parser(operation, content, *, options=None):
             ],
             start_new_session=True,
             stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
+            stdout=output,
             stderr=subprocess.DEVNULL,
             env={
                 **{
@@ -104,7 +131,7 @@ def run_parser(operation, content, *, options=None):
         pending = content
         while True:
             try:
-                stdout, _ = process.communicate(input=pending, timeout=0.25)
+                process.communicate(input=pending, timeout=0.25)
                 break
             except subprocess.TimeoutExpired:
                 pending = None
@@ -135,17 +162,8 @@ def run_parser(operation, content, *, options=None):
         except ProcessLookupError:
             pass
         process.communicate()
-    if process.returncode != 0 or len(stdout) > MAX_OUTPUT:
+    if process.returncode != 0:
         raise AnalysisError("parser_resource_limit")
-    try:
-        value = json.loads(stdout)
-    except ValueError, UnicodeError:
-        raise AnalysisError("parser_failed") from None
-    if not isinstance(value, dict):
-        raise AnalysisError("parser_failed")
-    if "error" in value:
-        raise AnalysisError(value["error"])
-    return value
 
 
 def _child():

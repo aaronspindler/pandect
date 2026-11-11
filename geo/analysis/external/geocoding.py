@@ -166,7 +166,6 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
     reverse = parameters.get("reverse", False)
     if not isinstance(reverse, bool):
         raise GeocodingError("invalid_lookup")
-    client = client or Geocoder()
     queries = {}
     skipped = []
     for source in sources:
@@ -180,6 +179,8 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
         queries.setdefault(key, []).append(source)
     if len(queries) > MAX_LOOKUPS:
         raise GeocodingError("geocoder_selection_too_large")
+    if queries and client is None:
+        client = Geocoder()
     items = []
     failures = 0
     candidates_count = 0
@@ -277,9 +278,9 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
                 "Review candidates individually before use."
             )
         ],
-        outcome="partial"
+        outcome="insufficient"
+        if not queries
+        else "partial"
         if failures or skipped
-        else "complete"
-        if queries
-        else "insufficient",
+        else "complete",
     )

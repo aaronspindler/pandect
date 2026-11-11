@@ -1,0 +1,5 @@
+<nav class="pagination analysis-finding-pagination" aria-label="{{ label }}">
+  {% if finding_page.has_previous %}<a class="button button-secondary" href="{% querystring run_query page=finding_page.previous_page_number %}#analysis-findings-heading">Previous findings</a>{% endif %}
+  <span>{{ finding_page.start_index }}–{{ finding_page.end_index }} of {{ finding_page.paginator.count }} findings</span>
+  {% if finding_page.has_next %}<a class="button button-secondary" href="{% querystring run_query page=finding_page.next_page_number %}#analysis-findings-heading">Next findings</a>{% endif %}
+</nav>

@@ -3,6 +3,7 @@
 from core.analysis.errors import AnalysisError
 from core.analysis.sources import output, source_item, unsupported_source
 from core.parsers import read_source, run_parser
+from image.analysis import MIN_PLATE_LIKENESS
 
 MAX_PREVIEW_BYTES = 2 * 1024 * 1024
 
@@ -46,7 +47,10 @@ def plate_ocr(sources, parameters, *, authorize):
         preview_bytes += size
 
     preview(parsed["image"], parsed["prepared_width"], parsed["prepared_height"])
+    weak_regions = 0
     for region_index, region in enumerate(parsed["candidates"], 1):
+        weak = region["plate_score"] < MIN_PLATE_LIKENESS
+        weak_regions += weak
         for attempt_index, attempt in enumerate(region["attempts"], 1):
             text = attempt["text"]
             # The single-line plate profile needs at least three letters/digits.
@@ -55,11 +59,18 @@ def plate_ocr(sources, parameters, *, authorize):
                 sum(character.isascii() and character.isalnum() for character in text)
                 >= 3
             )
-            readings += candidate
+            readings += candidate and not weak
             values = {
                 "Recognition status": "Unverified plate text candidate"
-                if candidate
+                if candidate and not weak
+                else "Weak region excluded by the plate filter"
+                if weak
                 else "No plate-length text recognized",
+                "Plate-likeness score (0–100)": region["plate_score"],
+                "Plate filter threshold": MIN_PLATE_LIKENESS,
+                "Weak plate region": weak,
+                "Plate region number": region_index,
+                "Plate score signals": region["score_details"],
                 "OCR engine": parsed["engine"],
                 "Detection method": parsed["detector"],
                 "Preparation parser": parsed["version"],
@@ -86,12 +97,14 @@ def plate_ocr(sources, parameters, *, authorize):
             }
             if not candidate:
                 values["Short OCR output"] = text or "None"
+            if weak:
+                values["Weak region OCR output"] = text
             index = len(items)
             items.append(
                 source_item(
                     source,
                     f"Possible plate · region {region_index} · reading {attempt_index}",
-                    text=text if candidate else "",
+                    text=text if candidate and not weak else "",
                     anchors=[
                         source.anchor(
                             region=region["bbox"],
@@ -129,6 +142,12 @@ def plate_ocr(sources, parameters, *, authorize):
         "Engine scores are not probabilities. Alternative readings are retained "
         "without resolving conflicts or substituting characters."
     ]
+    warnings.append(
+        "Plate-likeness is an uncalibrated 0–100 heuristic, separate from OCR "
+        f"reading scores. Regions below {MIN_PLATE_LIKENESS} are hidden by default "
+        "and excluded from extracted text. Show weak regions to inspect their "
+        "retained readings and previews. Filtering can hide real plates."
+    )
     if parsed.get("image_count", 1) > 1:
         warnings.append(
             "Only the primary embedded image was searched; additional pictures "
@@ -145,7 +164,8 @@ def plate_ocr(sources, parameters, *, authorize):
             "Region coordinates and preparation details remain available."
         )
     result = output(
-        f"Possible plate regions: {len(parsed['candidates'])}. "
+        f"Plate regions above filter: {len(parsed['candidates']) - weak_regions}. "
+        f"Weak regions: {weak_regions}. "
         f"Text candidates: {readings}."
         if parsed["candidates"]
         else "No candidate plate regions found. Inspect the original image.",
@@ -154,6 +174,9 @@ def plate_ocr(sources, parameters, *, authorize):
         outcome="partial",
         metrics={
             "Possible plate regions": len(parsed["candidates"]),
+            "Plate regions above filter": len(parsed["candidates"]) - weak_regions,
+            "Weak plate regions": weak_regions,
+            "Default plate filter threshold": MIN_PLATE_LIKENESS,
             "Text candidates": readings,
             "Processing location": "This server",
             "Search limit reached": parsed["limited"],

@@ -156,7 +156,8 @@ choose among alternatives. Rejections, unresolved outcomes, explanations and
 later reruns retain their history. No-match, unsupported, quota/authentication,
 invalid response and unavailable-service outcomes remain distinguishable. A
 partly failed batch retains completed candidates with a partial outcome instead
-of claiming every lookup succeeded.
+of claiming every lookup succeeded. A selection with no eligible addresses or
+coordinates is reported as insufficient and does not contact the lookup service.
 
 The [investigation map](maps.md#local-address-lookup) can queue local forward
 lookups and display unreviewed candidates as distinct square estimate markers.

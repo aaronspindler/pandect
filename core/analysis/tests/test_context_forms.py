@@ -5,7 +5,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from core.analysis.form_base import source_choices
 from core.analysis.forms import analysis_form
@@ -53,6 +53,7 @@ class ContextAndOCRFormTests(EvidenceViewTestMixin, TestCase):
             operation=operation,
         )
 
+    @override_settings(PANDECT_MAP_CONTEXT_LOCAL=False)
     def test_local_ocr_needs_no_external_approval_and_only_offers_printed_text(self):
         unbound = analysis_form(case=self.case, operation="ocr")
         self.assertEqual(

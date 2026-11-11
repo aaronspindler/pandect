@@ -1,0 +1,21 @@
+{% if item.sources %}
+<ul class="source-list analysis-finding-sources">
+  {% for source in item.sources %}
+  <li>
+    <div class="analysis-source-links">
+      <a href="{{ source.url }}">{{ source.label }}</a>
+      {% if source.attachment_label %}<span class="muted">{{ source.attachment_label }}</span>{% endif %}
+      {% if source.derived %}<span class="muted">{{ source.derived_label }}</span><a href="{{ source.original_url }}">Open original</a>{% endif %}
+    </div>
+    {% if source.coordinates %}
+    <p class="muted">{{ source.coordinate_label }} · {{ source.coordinates.0 }}, {{ source.coordinates.1 }}{% if source.observed_at %} · {{ source.observed_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
+    {% endif %}
+    {% if source.reviewed_coordinates %}
+    <p class="muted">Reviewed estimate · {{ source.reviewed_coordinates.0 }}, {{ source.reviewed_coordinates.1 }}</p>
+    {% endif %}
+    {% if source.anchors %}<div class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=source.anchors %}</div>{% endif %}
+    {% if source.excerpt and source.excerpt != item.text or source.excerpt and not compact %}<blockquote class="analysis-source-excerpt">{{ source.excerpt }}</blockquote>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

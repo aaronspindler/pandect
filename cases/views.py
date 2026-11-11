@@ -433,17 +433,15 @@ def membership_remove(request, case_id, membership_id):
 
 
 def _invitation_unavailable(request, reason, status=400):
-    response = render(
+    return render(
         request, "cases/invitation_unavailable.html", {"reason": reason}, status=status
     )
-    response["Cache-Control"] = "private, no-store"
-    response["Referrer-Policy"] = "same-origin"
-    return response
 
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def invitation_accept(request, token):
+    is_post = request.method == "POST"
     if len(token) > 128:
         return _invitation_unavailable(
             request, "This invitation link is not valid.", 404
@@ -458,12 +456,13 @@ def invitation_accept(request, token):
         )
     with transaction.atomic():
         # Acceptance cannot use get_case: the invitee does not have access yet.
-        case = get_object_or_404(
-            Case.objects.select_for_update(), pk=candidate["case_id"]
-        )
-        invitation = get_object_or_404(
-            CaseInvitation.objects.select_for_update(), token_digest=digest, case=case
-        )
+        cases = Case.objects.all()
+        invitations = CaseInvitation.objects.all()
+        if is_post:
+            cases = cases.select_for_update()
+            invitations = invitations.select_for_update()
+        case = get_object_or_404(cases, pk=candidate["case_id"])
+        invitation = get_object_or_404(invitations, token_digest=digest, case=case)
         recipient_matches = EmailAddress.objects.filter(
             user=request.user, email__iexact=invitation.email, verified=True
         ).exists()
@@ -498,7 +497,7 @@ def invitation_accept(request, token):
             return _invitation_unavailable(
                 request, "The owner already has access to this case."
             )
-        if request.method == "POST":
+        if is_post:
             if not existing:
                 # The case lock serializes product mutations. get_or_create also
                 # tolerates a concurrent authorized admin insert without changing
@@ -513,9 +512,4 @@ def invitation_accept(request, token):
             invitation.save(update_fields=["accepted_at", "accepted_by"])
             messages.success(request, "Invitation accepted. You can now open the case.")
             return redirect("core:evidence:list", case_id=case.pk)
-    response = render(
-        request, "cases/invitation_accept.html", {"invitation": invitation}
-    )
-    response["Cache-Control"] = "private, no-store"
-    response["Referrer-Policy"] = "no-referrer"
-    return response
+    return render(request, "cases/invitation_accept.html", {"invitation": invitation})

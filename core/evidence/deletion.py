@@ -2,14 +2,13 @@
 
 import hashlib
 import json
-from collections import Counter
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from django.core import signing
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db import transaction
 from django.db.models.deletion import Collector, ProtectedError
 from django.http import StreamingHttpResponse
 
@@ -77,29 +76,27 @@ def _analysis_runs(case_id, selections):
     # Scan retained selections once rather than issue one JSON query for every
     # observation in a CSV (which can contain 100,000 rows).
     runs = AnalysisRun.objects.filter(case_id=case_id)
-    snapshots = list(runs.values("pk", "inputs", "result__pk"))
-    ids = {
-        row["pk"]
-        for row in snapshots
-        if any(
-            (source.get("kind"), source.get("evidence_id")) in selections
-            for source in row["inputs"]
-        )
-    }
-    while True:
-        results = {
-            str(row["result__pk"])
-            for row in snapshots
-            if row["pk"] in ids and row["result__pk"]
-        }
-        downstream = {
-            row["pk"]
-            for row in snapshots
-            if any(source.get("result_id") in results for source in row["inputs"])
-        } - ids
-        if not downstream:
-            return runs.filter(pk__in=ids).only("id", "case_id", "operation", "status")
-        ids.update(downstream)
+    result_ids = {}
+    dependents = defaultdict(set)
+    ids = set()
+    for run_id, inputs, result_id in runs.values_list(
+        "pk", "inputs", "result__pk"
+    ).iterator():
+        if result_id is not None:
+            result_ids[run_id] = str(result_id)
+        for source in inputs:
+            if (source.get("kind"), source.get("evidence_id")) in selections:
+                ids.add(run_id)
+            if upstream := source.get("result_id"):
+                dependents[upstream].add(run_id)
+    pending = deque(ids)
+    while pending:
+        result_id = result_ids.get(pending.popleft())
+        for run_id in dependents.get(result_id, ()):
+            if run_id not in ids:
+                ids.add(run_id)
+                pending.append(run_id)
+    return runs.filter(pk__in=ids).only("id", "case_id", "operation", "status")
 
 
 def _outside_case(model, objects, case_id):
@@ -364,15 +361,8 @@ def deletion_manifest_response(plan):
     return response
 
 
-@transaction.atomic
-def delete_evidence(actor, case_id, kind, evidence_id, *, revision):
-    case = get_case(actor, case_id, lock=True)
+def get_deletion_target(actor, case_id, kind, evidence_id, *, lock=False):
+    case = get_case(actor, case_id, lock=lock)
     if not actor.is_superuser:
         raise PermissionDenied("Only superusers can permanently delete evidence.")
-    item = get_evidence(case, kind, evidence_id, lock=True)
-    plan = plan_deletion(item, kind)
-    if plan.blocker:
-        raise ValidationError(plan.blocker)
-    if not plan.matches(revision, actor):
-        raise ValidationError(CHANGED, code="deletion_changed")
-    plan.collector.delete()
+    return case, get_evidence(case, kind, evidence_id, lock=lock)

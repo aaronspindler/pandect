@@ -7,23 +7,30 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.core.files.base import ContentFile
 from django.test import override_settings
+from django.urls import reverse
+from PIL import Image
 from playwright.sync_api import expect
 
+from audio.models import AudioEvidence
 from cases.models import Case, CaseMembership
 from config.tests import browser as core_browser
 from core.analysis.services import process_run, start_run
+from core.analysis.testing import wav_bytes
 from core.models import AnalysisReview, AnalysisRun
 from document.models import DocumentEvidence
-from geo.models import PersonLocationEvidence
+from geo.models import PersonLocationEvidence, VehicleLocationEvidence
+from image.models import ImageEvidence
 from people.models import Person
-from phone.models import PhoneCallEvidence, TextMessageEvidence
+from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
 from text.models import TextEvidence
+from vehicle.models import Vehicle
 
 
 @override_settings(
@@ -163,6 +170,15 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     self.text.title
                 )
                 expect(page.locator(".analysis-options a")).to_have_count(4)
+                run_filters = page.get_by_text("Run filters", exact=True)
+                expect(page.get_by_label("Status", exact=True)).to_be_hidden()
+                run_filters.press("Enter")
+                page.get_by_label("Status", exact=True).select_option("cancelled")
+                page.get_by_role("button", name="Filter runs").press("Enter")
+                expect(
+                    page.get_by_role("heading", name="No runs match these filters")
+                ).to_be_visible()
+                page.get_by_role("link", name="Clear filters").press("Enter")
                 for width, height, label in (
                     (1440, 900, "desktop"),
                     (1440, 1024, "tall-desktop"),
@@ -299,7 +315,9 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     )
                 ).to_be_visible()
 
-    def test_findings_desk_navigation_without_javascript(self):
+    def test_paginated_findings_show_output_and_keep_review_links_without_javascript(
+        self,
+    ):
         run_id = self._review_findings()
         run_url = self.url("core:analysis:detail", case_id=self.case.pk, run_id=run_id)
         for engine in self.engines:
@@ -310,11 +328,18 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 self.sign_in(page)
                 page.set_viewport_size({"width": 1440, "height": 900})
                 page.goto(run_url)
-                page.get_by_role("link", name="Next findings", exact=True).press(
-                    "Enter"
-                )
+                page.get_by_role(
+                    "navigation", name="Finding pages", exact=True
+                ).get_by_role("link", name="Next findings", exact=True).press("Enter")
                 expect(page).to_have_url(re.compile(r"\?page=2(?:#.*)?$"))
+                for number in (51, 52):
+                    finding = page.locator(f"#finding-{number}")
+                    expect(
+                        finding.get_by_role("link", name=self.text.title)
+                    ).to_be_visible()
+                    expect(finding.locator(".analysis-finding-text")).to_be_visible()
                 row = page.locator("#finding-link-52")
+                expect(row).to_have_accessible_name("Email · contact-52@example.test")
                 row.focus()
                 expect(row).to_be_focused()
                 row.press("Enter")
@@ -326,10 +351,13 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 expect(page.locator("input[name=item_index]")).to_have_count(1)
                 expect(page.locator("input[name=item_index]")).to_have_value("51")
                 page.evaluate("window.scrollTo(0, 0)")
-                self.capture(page, engine, "analysis-findings-desk-desktop")
+                self.capture(page, engine, "analysis-findings-desktop")
                 page.go_back()
                 expect(page).to_have_url(re.compile(r"\?page=2(?:#.*)?$"))
-                expect(page.locator("input[name=item_index]")).to_have_value("50")
+                expect(page.locator("input[name=item_index]")).to_have_count(0)
+                expect(
+                    page.locator("#finding-51 .analysis-finding-text")
+                ).to_be_visible()
 
                 page.set_viewport_size({"width": 320, "height": 844})
                 row.press("Enter")
@@ -337,13 +365,235 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 expect(
                     inspector.get_by_role("link", name=self.text.title)
                 ).to_be_visible()
-                self.capture(page, engine, "analysis-findings-desk-mobile-detail")
+                self.capture(page, engine, "analysis-findings-mobile-detail")
                 back = page.get_by_role("link", name="Back to findings", exact=True)
                 back.press("Enter")
                 expect(page).to_have_url(re.compile(r"\?page=2#finding-link-52$"))
                 expect(row).to_be_visible()
                 self._assert_reflow(page)
-                self.capture(page, engine, "analysis-findings-desk-mobile-list")
+                self.capture(page, engine, "analysis-findings-mobile-list")
+
+    def test_image_metadata_shows_values_by_source_without_javascript(self):
+        titles = ("Synthetic north camera", "Synthetic south camera")
+        makes = ("<b>Synthetic make A</b>", "Synthetic make B")
+        inputs = []
+        for title, make in zip(titles, makes, strict=True):
+            image = Image.new("RGB", (80, 60))
+            exif = image.getexif()
+            exif[271] = make
+            exif[272] = "Synthetic model"
+            exif[274] = 1
+            contents = BytesIO()
+            image.save(contents, "JPEG", exif=exif)
+            evidence = ImageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=title,
+                file=ContentFile(contents.getvalue(), name="metadata.jpg"),
+            )
+            inputs.append({"kind": "image", "id": str(evidence.pk)})
+        run, _ = start_run(self.owner, self.case.pk, "image_metadata", inputs)
+        self._complete(run.pk)
+        url = self.url("core:analysis:detail", case_id=self.case.pk, run_id=run.pk)
+
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(url)
+                decoded = page.get_by_role(
+                    "table", name="Decoded image and metadata claims", exact=True
+                )
+                expect(
+                    decoded.first.get_by_role("rowheader", name="Decoded width")
+                ).to_be_visible()
+                expect(
+                    decoded.first.get_by_role("cell", name="80", exact=True)
+                ).to_be_visible()
+                for title, make in zip(titles, makes, strict=True):
+                    tags = page.get_by_role(
+                        "table", name=f"Embedded metadata · {title}"
+                    )
+                    expect(
+                        tags.get_by_role("cell", name=make, exact=True)
+                    ).to_be_visible()
+                    expect(
+                        tags.get_by_role("cell", name="Synthetic model")
+                    ).to_be_visible()
+                    expect(
+                        tags.get_by_role("cell", name="1", exact=True)
+                    ).to_be_visible()
+                tags = page.get_by_role(
+                    "table", name=f"Embedded metadata · {titles[0]}"
+                )
+                make_link = tags.get_by_role("link", name="Make", exact=True)
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (320, 844, "reflow"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    tags.scroll_into_view_if_needed()
+                    self.capture(page, engine, f"analysis-metadata-{label}")
+                page.emulate_media(color_scheme="dark")
+                self.capture(page, engine, "analysis-metadata-dark")
+                make_link.focus()
+                expect(make_link).to_be_focused()
+                make_link.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Raw metadata · Make")
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name=titles[0], exact=True)
+                ).to_be_visible()
+                page.get_by_text("Review this finding", exact=True).press("Enter")
+                review = page.get_by_role("form", name="Review Raw metadata · Make")
+                review.get_by_label("Decision", exact=True).select_option("accepted")
+                review.get_by_label("Reason", exact=True).fill(
+                    "Compared with the original."
+                )
+                review.get_by_role("button", name="Record finding review").press(
+                    "Enter"
+                )
+                page.get_by_role("link", name="Back to findings").press("Enter")
+                reviewed = tags.get_by_role("row").filter(has_text=makes[0])
+                expect(
+                    reviewed.get_by_role("cell", name="Accepted", exact=True)
+                ).to_be_visible()
+
+    def test_recording_intervals_and_current_record_tables_without_javascript(self):
+        content = wav_bytes(seconds=2, value=0)
+        recording = AudioEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic recorder",
+            file=ContentFile(content, name="recorder.wav"),
+        )
+        call = PhoneCallEvidence.objects.get(case=self.case)
+        addition = CallEvidenceAttachment.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            phone_call=call,
+            transcript="Synthetic supplied call wording",
+            file=ContentFile(content, name="retained-call.wav"),
+        )
+        run, _ = start_run(
+            self.owner,
+            self.case.pk,
+            "audio_metadata",
+            [
+                {"kind": "audio", "id": str(recording.pk)},
+                {
+                    "kind": "phone-call",
+                    "id": str(call.pk),
+                    "attachment_id": str(addition.pk),
+                },
+            ],
+        )
+        self._complete(run.pk)
+        stamp = datetime(2026, 10, 27, 12, tzinfo=UTC)
+        vehicle = Vehicle.objects.create(case=self.case, make="Synthetic vehicle")
+        observation = VehicleLocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic depot observation",
+            vehicle=vehicle,
+            address="Recorded depot",
+            observed_at=stamp,
+            received_at=stamp + timedelta(seconds=7),
+            speed_kmh=0,
+        )
+
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(
+                    self.url(
+                        "core:analysis:detail", case_id=self.case.pk, run_id=run.pk
+                    )
+                )
+                expect(page.locator("audio")).to_have_count(2)
+                expect(
+                    page.get_by_role("link", name="Play 0.0–1.0 seconds")
+                ).to_have_count(2)
+                expect(
+                    page.get_by_role("heading", name=re.compile("retained-call.wav"))
+                ).to_be_visible()
+                audio_url = page.locator("audio").first.get_attribute("src")
+                audio = page.request.get(self.live_server_url + audio_url)
+                self.assertEqual(audio.status, 200)
+                self.assertIn("private", audio.headers["cache-control"])
+                self.assertEqual(audio.body(), content)
+                for width, height in ((1440, 900), (320, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    page.locator("audio").first.scroll_into_view_if_needed()
+                    self.capture(page, engine, f"analysis-audio-results-{width}")
+
+                for name, field in (
+                    ("vehicle-coverage", "Receipt minus event (seconds)"),
+                    ("vehicle-speed", "Reported speed (km/h)"),
+                    ("duplicates", "Source type"),
+                ):
+                    page.goto(
+                        self.live_server_url
+                        + reverse("core:analysis:report", args=[self.case.pk, name])
+                    )
+                    expect(page.get_by_role("table")).to_have_count(1)
+                    expect(
+                        page.get_by_role("table").get_by_text(field, exact=True).first
+                    ).to_be_visible()
+                    if name == "duplicates":
+                        expect(
+                            page.get_by_role("table")
+                            .get_by_text("No", exact=True)
+                            .first
+                        ).to_be_visible()
+                    if name == "vehicle-coverage":
+                        observed = page.locator(
+                            'time[datetime="2026-10-27T12:00:00+00:00"]'
+                        )
+                        expect(observed).to_have_text("27 Oct 2026 12:00:00")
+                        page.get_by_role("link", name="View records").press("Enter")
+                        expect(page.locator("#report-records")).to_be_in_viewport()
+                        page.get_by_role("link", name="View totals").press("Enter")
+                        expect(page.locator("#report-totals")).to_be_in_viewport()
+                    self._assert_reflow(page)
+                    page.get_by_role("table").scroll_into_view_if_needed()
+                    self.capture(page, engine, f"analysis-report-{name}-320")
+
+                page.goto(
+                    self.url(
+                        "core:analysis:process_evidence",
+                        case_id=self.case.pk,
+                        kind="vehicle-location",
+                        evidence_id=observation.pk,
+                    )
+                )
+                expect(page.get_by_text("Reported vehicle", exact=True)).to_be_visible()
+                expect(page.get_by_text("Recorded depot", exact=True)).to_be_visible()
+                self._assert_reflow(page)
+                page.goto(
+                    self.url(
+                        "core:analysis:process_evidence",
+                        case_id=self.case.pk,
+                        kind="phone-call",
+                        evidence_id=call.pk,
+                    )
+                )
+                page.get_by_text(
+                    "Retained recordings and transcripts", exact=True
+                ).press("Enter")
+                expect(
+                    page.get_by_role(
+                        "link", name="retained-call.wav · Supplied transcript"
+                    )
+                ).to_be_visible()
 
     def test_native_extraction_review_source_anchors_and_responsive_layout(self):
         for engine in self.engines:
@@ -428,6 +678,10 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 self.capture(page, engine, "analysis-result-forced-colors")
                 page.emulate_media(forced_colors="none")
                 page.set_viewport_size({"width": 1440, "height": 900})
+                page.get_by_role("link", name="Review result", exact=True).press(
+                    "Enter"
+                )
+                expect(page.locator("#investigator-review")).to_be_in_viewport()
                 global_review = page.get_by_role(
                     "heading", name="Investigator review", exact=True
                 ).locator("..")
@@ -567,6 +821,11 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     "link", name=re.compile("Extract document text")
                 ).first
                 expect(native).to_contain_text("Queued")
+                expect(
+                    page.get_by_role("status").filter(
+                        has_text="Analysis is in progress"
+                    )
+                ).to_be_visible()
                 run_id = UUID(native.get_attribute("href").rstrip("/").split("/")[-1])
                 self.db(self._complete, run_id)
                 refresh = page.get_by_role("link", name="Refresh status", exact=True)
@@ -627,6 +886,12 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("heading", name="Native UTF-8 text", exact=True)
                 ).to_be_visible()
+                page.get_by_role(
+                    "link", name="View evidence analysis", exact=True
+                ).press("Enter")
+                expect(
+                    page.get_by_role("heading", name=self.document.title, exact=True)
+                ).to_be_visible()
                 run = self.db(AnalysisRun.objects.get, pk=run_id)
                 self.assertEqual(
                     [selected["evidence_id"] for selected in run.inputs],
@@ -660,14 +925,10 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         exact=True,
                     )
                 ).to_be_visible()
-                report_summary = page.locator("summary").filter(
-                    has_text=re.compile(r"^Report summary$")
-                )
-                expect(page.get_by_text("Selected records", exact=True)).to_be_hidden()
-                report_summary.focus()
-                report_summary.press("Enter")
                 expect(page.get_by_text("Selected records", exact=True)).to_be_visible()
-                report_summary.press("Enter")
+                expect(
+                    page.get_by_text("Reported duration (seconds)", exact=True).first
+                ).to_be_visible()
                 expect(page.get_by_label("State", exact=True)).to_be_hidden()
                 self.capture(page, engine, "analysis-report-default")
                 report_filters = page.locator(".report-filters > summary")
@@ -860,14 +1121,8 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
 
     def _capture_phase3(self, page, engine, name):
         finding = page.locator("#finding-1")
-        measurements = finding.locator(".finding-measurements")
-        measurements_open = measurements.get_attribute("open") is not None
         for width, height, label in ((1440, 900, "desktop"), (390, 844, "mobile")):
             page.set_viewport_size({"width": width, "height": height})
-            if not finding.is_visible():
-                page.locator("#finding-link-1").press("Enter")
-                if measurements_open:
-                    measurements.locator("summary").press("Enter")
             self._assert_reflow(page)
             page.evaluate("window.scrollTo(0, 0)")
             self.capture(page, engine, f"phase3-{name}-{label}")
@@ -903,7 +1158,6 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 positions = page.locator("summary").filter(
                     has_text=re.compile(r"^Selected observation positions$")
                 )
-                positions.press("Enter")
                 expect(
                     page.get_by_role("img", name=re.compile(r"^Selected positions"))
                 ).to_be_visible()
@@ -914,6 +1168,7 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         "heading", name="Candidate visit to place 1", exact=True
                     )
                 ).to_be_visible()
+                first.get_by_role("link", name="Candidate visit to place 1").click()
                 first.locator("summary").filter(
                     has_text=re.compile(r"^Review this finding$")
                 ).click()
@@ -940,11 +1195,6 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                         ).exists()
                     )
                 )
-                measurements = page.locator(
-                    "#finding-1 .finding-measurements > summary"
-                )
-                measurements.focus()
-                measurements.press("Enter")
                 expect(
                     page.locator("#finding-1").get_by_text(
                         "Synthetic writer", exact=True
@@ -995,7 +1245,6 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                     page.get_by_role("link", name=re.compile(r"Group A coverage"))
                 ).to_be_visible()
                 self._assert_readable_findings(page, style)
-                page.locator("#finding-1 .finding-measurements > summary").click()
                 examples = page.locator("#finding-1 .analysis-example")
                 quotes = examples.locator("blockquote").all_text_contents()
                 self.assertIn("hello", quotes)
@@ -1045,7 +1294,6 @@ class AnalysisBrowserTests(StaticLiveServerTestCase):
                 ).to_be_visible()
                 self._assert_readable_findings(page, timing)
                 first_exchange = page.locator("#finding-1")
-                first_exchange.locator(".finding-measurements > summary").click()
                 expect(
                     first_exchange.get_by_text("Synthetic writer", exact=True)
                 ).to_be_visible()

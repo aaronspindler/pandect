@@ -74,28 +74,31 @@ The evidence reader keeps its contents within `60rem`, with metadata within
 editors see **Analyze evidence** for records without runs. Keep download there
 for every case role. **Details** holds saved read-only descriptions,
 record history, integrity, editing and archive/restore controls, with a retention explanation; **Analysis**
-opens the evidence's local checks and results. Original, Analysis, and Details
+leads with source-linked findings and keeps analysis controls and run history
+below. Original, Analysis, and Details
 use the same section navigation and evidence title. Collection filters survive
 this round trip; evidence analysis uses `results_page` separately from the
 collection's `page` parameter. The local-analysis explanation is concise, with
 supported-content guidance in a native disclosure. Additional processing and
-comparisons remain explicit, separate choices below the results.
+comparisons remain explicit, separate choices below run history.
 
-Case Analysis gives recent runs the main reading area. Four current-record
-reports sit in a secondary column on wide screens and follow the runs on smaller
-screens. Each run identifies its first source by its current evidence title and
-counts additional selected sources; these titles are case-scoped display labels,
-not replacements for retained input checksums. Stacked layouts offer a **View
-reports** jump link so reports remain accessible above long histories. Starting
-custom analysis uses two labelled sections: choose an analysis
-and show sources, then select sources and review settings before queueing.
+Case Analysis gives recent runs the main reading area. The evidence-type and
+outcome filters preserve the list page through a run and its reviews. Run rows
+show the first source title, evidence types, additional-source count and outcome.
+Four current-record reports sit in a secondary column on wide screens and
+follow the runs on smaller screens, with a **View reports** jump link. The setup
+form groups operations by task and identifies source versions and additions.
 
 Analysis selection, assumptions, external-processing approval, and review fields
 use the same field rendering as other forms, including help and error links.
 Assumptions open after validation errors, and enhanced error links reveal any
 containing disclosure before focusing the field. Processing progress has a native
-progress indicator; findings retain their source links, individual reviews, and
-full provenance downloads. Reports identify their selected subject in the heading.
+progress indicator. Findings show source links and review state with the output.
+Use metadata tables, retained image regions and crops, recording intervals,
+paired passages and sample values, message sequences, and observation maps where
+the operation supplies those records. Reports place chronological or grouped
+source rows below their main measures. Narrow report rows stack while retaining
+the field labels.
 
 These refinements preserve the three-pane evidence layout and its row-density
 targets. Validation commands and capture locations are in

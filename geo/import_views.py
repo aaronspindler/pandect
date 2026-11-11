@@ -6,7 +6,6 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import transaction
 from django.db.models import F
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
@@ -14,7 +13,7 @@ from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.storage import delete_original
+from core.storage import retain_uploaded_originals
 from document.models import DocumentEvidence
 from geo.import_forms import VehicleImportReviewForm, VehicleImportUploadForm
 from geo.models import VehicleLocationImport
@@ -37,8 +36,6 @@ def vehicle_import_upload(request, case_id):
         request.FILES if request.method == "POST" else None,
         case=case,
     )
-    document = None
-    save_finished = False
     status = 200
     if request.method == "POST":
         status = 400
@@ -46,13 +43,9 @@ def vehicle_import_upload(request, case_id):
             form.add_error(None, "Choose a CSV within the displayed import size limit.")
         elif form.is_valid():
             original = form.cleaned_data["file"]
-            digest = hashlib.sha256()
-            for chunk in original.chunks():
-                digest.update(chunk)
-            original.seek(0)
             vehicle = form.cleaned_data["vehicle"]
             try:
-                with transaction.atomic():
+                with retain_uploaded_originals() as originals:
                     case = get_case(request.user, case_id, edit=True, lock=True)
                     batch = (
                         VehicleLocationImport.objects.filter(
@@ -62,9 +55,13 @@ def vehicle_import_upload(request, case_id):
                         .first()
                     )
                     if batch:
+                        digest = hashlib.sha256()
+                        for chunk in original.chunks():
+                            digest.update(chunk)
                         if (
                             batch.case_id != case.pk
                             or batch.uploaded_by_id != request.user.pk
+                            or batch.document.case_id != case.pk
                             or batch.document.sha256 != digest.hexdigest()
                             or batch.timezone != form.cleaned_data["timezone"]
                             or batch.selected_vehicle_id != getattr(vehicle, "pk", None)
@@ -90,6 +87,7 @@ def vehicle_import_upload(request, case_id):
                         )
                         document.full_clean()
                         document.save()
+                        originals.append(document.file)
                         batch = VehicleLocationImport(
                             id=form.cleaned_data["submission_id"],
                             case=case,
@@ -101,10 +99,7 @@ def vehicle_import_upload(request, case_id):
                         )
                         batch.save()
                         enqueue_preparation(request.user, case.pk, batch.pk)
-                        # Once the body finishes, a commit error may be
-                        # ambiguous. Keep potentially referenced source bytes.
-                        save_finished = True
-                if document:
+                if originals:
                     messages.success(
                         request,
                         "CSV retained. Its review is being prepared in the background.",
@@ -114,13 +109,7 @@ def vehicle_import_upload(request, case_id):
                         case_id=case.pk,
                         import_id=batch.pk,
                     )
-            except Exception as error:
-                # Storage is outside the database transaction. Remove only a new
-                # file whose record did not commit alongside its queued task.
-                if document and not save_finished and document.file._committed:
-                    delete_original(document.file.storage, document.file.name)
-                if not isinstance(error, (OSError, ValidationError)):
-                    raise
+            except OSError, ValidationError:
                 form.add_error(
                     None,
                     "The CSV could not be retained. Select it again and retry; "
@@ -165,7 +154,7 @@ def vehicle_import_review(request, case_id, import_id):
                 "This import was already completed. No observations were added again.",
             )
             return redirect(review_url, case_id=case.pk, import_id=batch.pk)
-    if batch.status == "review" and not batch.completed_at:
+    if context["can_edit"] and batch.status == "review" and not batch.completed_at:
         form = VehicleImportReviewForm(
             request.POST if request.method == "POST" else None,
             case=case,
@@ -202,7 +191,7 @@ def vehicle_import_review(request, case_id, import_id):
                 return redirect(review_url, case_id=case.pk, import_id=batch.pk)
             if form and form.is_valid() and not batch.invalid_count:
                 mapping = {
-                    str(index): str(form.cleaned_data[f"vehicle_{index}"].pk)
+                    str(index): form.cleaned_data[f"vehicle_{index}"]
                     for index in range(len(batch.groups))
                 }
                 enqueue_completion(

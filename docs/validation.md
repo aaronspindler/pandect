@@ -267,7 +267,9 @@ fixtures do not establish general plate-detection or recognition accuracy.
 The focused analysis browser suite is also included in `make browser-check` and
 uses Chromium and WebKit with synthetic
 material, no JavaScript, all five design viewport sizes, keyboard focus,
-light/dark/forced colors, extraction, reviews, downloads, and access revocation.
+light/dark/forced colors, extraction, source-grouped metadata tables and
+recording intervals, current-record report tables, reviews, downloads, and access
+revocation.
 Captures default to ignored `data/validation/analysis-browser`. When running a
 focused suite, do not run another PostgreSQL test process at the same time;
 `PANDECT_BROWSER_ENGINES` and

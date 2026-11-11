@@ -5,10 +5,19 @@ import io
 from PIL import Image, ImageDraw, ImageFont
 
 
-def plate_scene(*, angle=8):
+def plate_scene(*, angle=8, distractors=False):
     """Fictional plate in a larger scene, with a separate header and frame."""
     background = "#303844"
     with Image.new("RGB", (2400, 1600), background) as scene:
+        if distractors:
+            draw = ImageDraw.Draw(scene)
+            for box in (
+                (100, 100, 700, 300),
+                (1000, 100, 1600, 300),
+                (1700, 500, 2300, 700),
+                (100, 1100, 700, 1300),
+            ):
+                draw.rectangle(box, fill="white", outline="black", width=6)
         with Image.new("RGB", (440, 180), "white") as panel:
             draw = ImageDraw.Draw(panel)
             draw.rectangle((0, 0, 439, 179), outline="black", width=6)

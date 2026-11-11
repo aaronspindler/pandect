@@ -127,7 +127,8 @@ instead of disclosing or deleting foreign material.
 The same deletion is also available in the scoped Django admin, as described below.
 
 New evidence added through the investigator workflow queues applicable local
-checks. The **Analysis** tab shows progress and results to current case members.
+checks. The **Analysis** tab shows source-linked findings first, with processing
+outcomes and earlier results in **Run history** below.
 Owners and editors can also start local checks on existing evidence or retry them.
 See [analysis](analysis.md#retained-processing) for supported operations,
 processing choices, import exceptions, and recovery.

@@ -54,6 +54,27 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "model_unavailable"):
             self.runtime.verify_model()
 
+    def test_replaced_path_cannot_inherit_the_previous_files_digest(self):
+        replacement = self.model.with_name("replacement")
+        replacement.write_bytes(b"different model")
+        file_digest = hashlib.file_digest
+
+        def replace_while_hashing(stream, algorithm):
+            result = file_digest(stream, algorithm)
+            replacement.replace(self.model)
+            return result
+
+        with (
+            patch(
+                "inference.server.hashlib.file_digest",
+                side_effect=replace_while_hashing,
+            ),
+            patch("inference.server.subprocess.Popen") as process,
+            self.assertRaisesRegex(ValueError, "model_changed_during_verification"),
+        ):
+            self.runtime.start()
+        process.assert_not_called()
+
     def test_native_process_has_no_operator_secrets_or_output_logging(self):
         with patch("inference.server.subprocess.Popen") as process:
             self.runtime.start()
@@ -69,6 +90,15 @@ class RuntimeTests(unittest.TestCase):
         self.runtime.process = Mock()
         self.runtime.process.poll.return_value = None
         self.model.write_bytes(b"changed model bytes")
+        with patch.object(self.runtime, "stop") as stop:
+            self.assertFalse(self.runtime.ready())
+        stop.assert_called_once()
+
+    def test_missing_mounted_file_stops_the_running_engine(self):
+        self.runtime.verify_model()
+        self.runtime.process = Mock()
+        self.runtime.process.poll.return_value = None
+        self.model.unlink()
         with patch.object(self.runtime, "stop") as stop:
             self.assertFalse(self.runtime.ready())
         stop.assert_called_once()

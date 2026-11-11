@@ -600,13 +600,15 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
                 [source],
             )
 
-    def geocode_fixture(self):
+    def geocode_fixture(self, *, with_reported_position=False):
         observations = [
             LocationEvidence.objects.create(
                 case=self.case,
                 uploaded_by=self.users["owner"],
                 title=f"Address {index}",
                 address=f"{index} Synthetic Street",
+                latitude=42 if with_reported_position and index == 1 else None,
+                longitude=-78 if with_reported_position and index == 1 else None,
             )
             for index in (1, 2)
         ]
@@ -637,7 +639,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         return observations, run, result
 
     def test_geocode_review_is_candidate_specific_and_uses_global_finding_index(self):
-        observations, prior, result = self.geocode_fixture()
+        observations, prior, result = self.geocode_fixture(with_reported_position=True)
         selection = {
             "kind": "location",
             "id": str(observations[0].pk),
@@ -664,9 +666,16 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         current, _ = start_run(
             self.users["owner"], self.case.pk, "spatial_groups", [selection]
         )
-        self.assertEqual(
-            resolve_inputs(current, self.case)[0].derived_coordinates, (44.0, -79.0)
+        resolved = resolve_inputs(current, self.case)[0]
+        self.assertEqual(resolved.derived_coordinates, (44.0, -79.0))
+        prior_url = reverse("core:analysis:detail", args=[self.case.pk, prior.pk])
+        self.assertEqual(resolved.url, prior_url + "?page=1&finding=3#finding-3")
+        self.login("viewer")
+        response = self.client.get(
+            reverse("core:analysis:detail", args=[self.case.pk, current.pk])
         )
+        self.assertContains(response, "Reported coordinates 42.000000, -78.000000")
+        self.assertContains(response, "Reviewed estimate 44.0, -79.0")
         for decision in ("rejected", "unresolved"):
             review_result(
                 self.users["editor"], self.case.pk, result.pk, decision, item_index=2
@@ -982,6 +991,52 @@ class QueuePublicationTests(TransactionTestCase):
             results = list(executor.map(lambda _: submit(), range(2)))
         self.assertEqual(len({value[0] for value in results}), 1)
         self.assertEqual(sorted(value[1] for value in results), [False, True])
+        self.assertEqual(AnalysisRun.objects.count(), 1)
+        self.assertEqual(DBTaskResult.objects.count(), 1)
+
+    def test_concurrent_submission_id_reuse_in_different_cases_fails_cleanly(self):
+        actor = get_user_model().objects.create_user(username="two-case-owner")
+        originals = [
+            TextEvidence.objects.create(
+                case=Case.objects.create(owner=actor, name=f"Case {index}"),
+                uploaded_by=actor,
+                title=f"Synthetic source {index}",
+                body="Synthetic retained text",
+            )
+            for index in range(2)
+        ]
+        submission_id = uuid4()
+        both_checked_submission = Barrier(2)
+
+        def resolve_after_both_checks(run, case):
+            both_checked_submission.wait(timeout=10)
+            return resolve_inputs(run, case)
+
+        def submit(evidence):
+            close_old_connections()
+            try:
+                _, created = start_run(
+                    actor,
+                    evidence.case_id,
+                    "entities",
+                    [{"kind": "text", "id": str(evidence.pk)}],
+                    submission_id=submission_id,
+                )
+                return created
+            except ValidationError as error:
+                self.assertIn("already used for different analysis", str(error))
+                return False
+            finally:
+                close_old_connections()
+
+        with (
+            patch(
+                "core.analysis.services.resolve_inputs",
+                side_effect=resolve_after_both_checks,
+            ),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            self.assertEqual(sorted(executor.map(submit, originals)), [False, True])
         self.assertEqual(AnalysisRun.objects.count(), 1)
         self.assertEqual(DBTaskResult.objects.count(), 1)
 

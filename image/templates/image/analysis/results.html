@@ -1,0 +1,30 @@
+{% load l10n %}
+{% for group in result_groups %}
+  {% if group.source %}{% include 'core/analysis/source_heading.html' with source=group.source only %}{% endif %}
+  {% if group.preview %}
+  <figure class="analysis-group-preview">
+    <svg class="analysis-image-preview" viewBox="0 0 {{ group.preview.width }} {{ group.preview.height }}" role="img" aria-label="Retained image preview with the extracted text regions marked">
+      <image href="{{ group.preview.url }}" width="{{ group.preview.width }}" height="{{ group.preview.height }}"/>
+      {% for item in group.regions %}
+      <a href="{{ item.url }}" aria-label="{{ item.label }} · {{ item.summary_text }}">
+        <rect x="{{ item.preview.x|unlocalize }}" y="{{ item.preview.y|unlocalize }}" width="{{ item.preview.region_width|unlocalize }}" height="{{ item.preview.region_height|unlocalize }}" fill="none" stroke="currentColor" stroke-width="3" vector-effect="non-scaling-stroke"/>
+      </a>
+      {% endfor %}
+    </svg>
+    <figcaption>Outlines mark the retained regions shown on this page.</figcaption>
+  </figure>
+  {% endif %}
+  {% if run.operation == 'plate_ocr' %}
+    {% for region in group.regions %}
+    <section class="analysis-plate-region">
+      {% if region.number != None %}<h4>Region {{ region.number }}</h4>{% endif %}
+      <div class="analysis-comparison">
+        {% for item in region.items %}{% include 'core/analysis/finding.html' %}{% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  {% else %}
+    {% for item in group.items %}{% include 'core/analysis/finding.html' with shared_preview=group.preview %}{% endfor %}
+    {% if group.tags %}{% include 'core/analysis/embedded_metadata.html' with tags=group.tags only %}{% endif %}
+  {% endif %}
+{% endfor %}

@@ -722,7 +722,7 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
                 return uncertain_commit(*args, **kwargs)
             return real_atomic(*args, **kwargs)
 
-        with patch("geo.import_views.transaction.atomic", side_effect=atomic_context):
+        with patch("core.storage.transaction.atomic", side_effect=atomic_context):
             response = self.upload()
         self.assertEqual(response.status_code, 503)
         batch = VehicleLocationImport.objects.get()

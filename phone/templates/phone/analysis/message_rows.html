@@ -1,0 +1,11 @@
+<ol class="analysis-message-rows">
+  {% for message in item.messages %}
+  <li>
+    <p class="muted">{{ message.channel }} · {{ message.time }}</p>
+    <a class="record-link" href="{{ message.source.url }}">{{ message.source.label }}</a>
+    {% include 'core/analysis/measurements.html' with measurements=message.participants only %}
+    {% if message.text %}<div class="original-text analysis-finding-text">{{ message.text }}</div>{% endif %}
+    {% if message.references %}<details><summary>Source message references</summary>{% include 'core/analysis/measurements.html' with measurements=message.references only %}</details>{% endif %}
+  </li>
+  {% endfor %}
+</ol>

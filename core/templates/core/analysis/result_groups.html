@@ -1,0 +1,13 @@
+{% for group in result_groups %}
+  {% if group.items %}
+    {% if group.title %}<h3 class="analysis-group-heading">{{ group.title }}</h3>{% endif %}
+    {% if group.source %}{% include 'core/analysis/source_heading.html' with source=group.source only %}{% endif %}
+    {% if group.table %}
+      {% include 'core/analysis/findings_table.html' %}
+    {% else %}
+      {% if group.compare %}<div class="analysis-comparison">{% endif %}
+      {% for item in group.items %}{% include 'core/analysis/finding.html' %}{% endfor %}
+      {% if group.compare %}</div>{% endif %}
+    {% endif %}
+  {% endif %}
+{% endfor %}

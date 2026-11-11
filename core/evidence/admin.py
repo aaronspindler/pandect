@@ -4,16 +4,16 @@ from collections import Counter
 
 from django.contrib import admin
 from django.contrib.admin.widgets import AdminTextareaWidget
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import PermissionDenied
 from django.urls import reverse
 from django.utils import timezone
 
 from cases.admin_access import CaseScopedAdmin
 from core.evidence.deletion import (
     CHANGED,
-    delete_evidence,
     deletion_manifest_response,
     deletion_review_context,
+    get_deletion_target,
     plan_deletion,
 )
 from core.evidence.forms import BaseEvidenceForm
@@ -190,7 +190,13 @@ class EvidenceAdmin(CaseScopedAdmin):
 
     def get_deleted_objects(self, objs, request):
         # Bulk deletion is disabled; the same plan supplies review and mutation.
-        plan = plan_deletion(objs[0], self.kind)
+        obj = objs[0]
+        if request.method == "POST":
+            # Django holds the delete transaction through this hook and delete_model.
+            _, obj = get_deletion_target(
+                request.user, obj.case_id, self.kind, obj.pk, lock=True
+            )
+        plan = plan_deletion(obj, self.kind)
         request.evidence_deletion_plan = plan
         if plan.blocker:
             return [], {}, set(), [plan.blocker]
@@ -235,16 +241,7 @@ class EvidenceAdmin(CaseScopedAdmin):
         return super().delete_view(request, object_id, extra_context)
 
     def delete_model(self, request, obj):
-        try:
-            delete_evidence(
-                request.user,
-                obj.case_id,
-                self.kind,
-                obj.pk,
-                revision=request.POST.get("revision", ""),
-            )
-        except ValidationError as error:
-            raise PermissionDenied from error
+        request.evidence_deletion_plan.collector.delete()
 
     def save_model(self, request, obj, form, change):
         if not change:

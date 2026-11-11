@@ -3,7 +3,9 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
+from django.db import connection
 from django.test import Client, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from cases.models import CaseMembership
@@ -243,6 +245,33 @@ class LocalMapGeocodingTests(MapCaseFixtures, TestCase):
             )
         )
         self.assertEqual(AnalysisReview.objects.count(), 4)
+
+    def test_latest_item_reviews_are_fetched_together_for_the_page(self):
+        first = self.run_lookup()
+        LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Second address observation",
+            address="Another synthetic road",
+        )
+        second = self.run_lookup()
+        for run, decision in ((first, "rejected"), (second, "accepted")):
+            AnalysisReview.objects.create(
+                case=self.case,
+                result=run.result,
+                reviewed_by=self.owner,
+                item_index=0,
+                decision=decision,
+            )
+        with CaptureQueriesContext(connection) as queries:
+            data = self.client.get(self.url, HTTP_ACCEPT="application/json").json()
+        self.assertEqual(
+            sum(AnalysisReview._meta.db_table in query["sql"] for query in queries), 1
+        )
+        self.assertEqual(
+            [point["label"] for point in data["points"] if point.get("derived")],
+            ["Reviewed address estimate"],
+        )
 
     def test_no_match_failure_and_explicit_retry(self):
         self.locate()

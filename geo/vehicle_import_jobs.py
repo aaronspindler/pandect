@@ -42,10 +42,6 @@ ERROR_MESSAGES = {
         "A selected vehicle is no longer available in this case. "
         "Review the vehicle choices."
     ),
-    "duplicate_review_required": (
-        "Additional possible duplicates appeared. Leave 'Keep the possible "
-        "duplicates' unchecked to skip them, or select it to keep them."
-    ),
     "version_unavailable": (
         "This import's parser version is unavailable. "
         "Restore the matching worker version or upload a new CSV."
@@ -206,27 +202,33 @@ def _existing_fingerprints(batch, fingerprints):
             import_batch__document__case_id=batch.case_id,
             import_batch__timezone=batch.timezone,
             raw_fingerprint__in=fingerprints,
-        ).values_list("raw_fingerprint", flat=True)
+        )
+        .order_by()
+        .values_list("raw_fingerprint", flat=True)
+        .distinct()
     )
 
 
-def _stage_chunk(batch, rows, groups, counts, started):
+def _duplicate_flags(batch, fingerprints, seen):
+    existing = _existing_fingerprints(batch, set(fingerprints) - seen)
+    for fingerprint in fingerprints:
+        duplicate = fingerprint in seen or fingerprint in existing
+        seen.add(fingerprint)
+        yield duplicate
+
+
+def _stage_chunk(batch, rows, groups, counts, seen, started):
     _check_time(started)
     with transaction.atomic():
         _database_limits()
         _authorize(batch, lock=True)
         current = _current(batch)
         fingerprints = [row.fingerprint for row in rows]
-        seen = set(
-            current.rows.filter(fingerprint__in=fingerprints).values_list(
-                "fingerprint", flat=True
-            )
-        )
-        existing = _existing_fingerprints(batch, fingerprints)
         staged = []
-        for row in rows:
-            duplicate = row.fingerprint in seen or row.fingerprint in existing
-            seen.add(row.fingerprint)
+        duplicates = _duplicate_flags(batch, fingerprints, seen)
+        for row, fingerprint, duplicate in zip(
+            rows, fingerprints, duplicates, strict=True
+        ):
             counts["invalid_count"] += bool(row.errors)
             counts["duplicate_count"] += duplicate
             # Invalid normalized values may exceed database bounds; originals and
@@ -240,7 +242,7 @@ def _stage_chunk(batch, rows, groups, counts, started):
                     raw=row.raw,
                     errors=row.errors,
                     duplicate=duplicate,
-                    fingerprint=row.fingerprint,
+                    fingerprint=fingerprint,
                     observed_at=values.get("observed_at"),
                     received_at=values.get("received_at"),
                     speed_kmh=values.get("speed_kmh"),
@@ -274,6 +276,7 @@ def _prepare(batch, started):
         current.save()
     rows, groups = [], []
     counts = {"invalid_count": 0, "duplicate_count": 0}
+    seen = set()
     for row in iter_import(batch):
         group = list(row.group)
         if group not in groups:
@@ -282,10 +285,10 @@ def _prepare(batch, started):
             groups.append(group)
         rows.append(row)
         if len(rows) == CHUNK_SIZE:
-            _stage_chunk(batch, rows, groups, counts, started)
+            _stage_chunk(batch, rows, groups, counts, seen, started)
             rows = []
     if rows:
-        _stage_chunk(batch, rows, groups, counts, started)
+        _stage_chunk(batch, rows, groups, counts, seen, started)
     with transaction.atomic():
         _database_limits()
         _authorize(batch, lock=True)
@@ -294,6 +297,27 @@ def _prepare(batch, started):
         current.status = "review"
         current.finished_at = timezone.now()
         current.save()
+
+
+def _refresh_duplicates(batch, started):
+    seen = set()
+    count = 0
+    staged = (
+        batch.rows.order_by("number")
+        .only("fingerprint", "duplicate")
+        .iterator(chunk_size=CHUNK_SIZE)
+    )
+    for rows in batched(staged, CHUNK_SIZE, strict=False):
+        _check_time(started)
+        flags = _duplicate_flags(batch, [row.fingerprint for row in rows], seen)
+        changed = []
+        for row, duplicate in zip(rows, flags, strict=True):
+            count += duplicate
+            if row.duplicate != duplicate:
+                row.duplicate = duplicate
+                changed.append(row)
+        VehicleLocationImportRow.objects.bulk_update(changed, ("duplicate",))
+    return count
 
 
 def _publish(batch, started):
@@ -313,27 +337,8 @@ def _publish(batch, started):
             raise ImportJobError("vehicle_unavailable") from None
         if current.invalid_count or current.rows.count() != current.row_count:
             raise ImportJobError("source_invalid")
-        # A second import may have completed since this preview. Refresh matches
-        # under the case lock so the selected skip policy also covers those rows.
-        if not current.duplicates_confirmed:
-            duplicates = 0
-            for rows in batched(
-                current.rows.iterator(chunk_size=CHUNK_SIZE), CHUNK_SIZE, strict=False
-            ):
-                _check_time(started)
-                matches = _existing_fingerprints(
-                    batch, [row.fingerprint for row in rows]
-                )
-                changed = []
-                for row in rows:
-                    if row.fingerprint in matches and not row.duplicate:
-                        row.duplicate = True
-                        changed.append(row)
-                    duplicates += row.duplicate
-                VehicleLocationImportRow.objects.bulk_update(
-                    changed, ("duplicate",), batch_size=CHUNK_SIZE
-                )
-            current.duplicate_count = duplicates
+        # Observations may have been imported or deleted since the preview.
+        current.duplicate_count = _refresh_duplicates(current, started)
         import_rows = current.rows.all()
         if not current.duplicates_confirmed:
             import_rows = import_rows.filter(duplicate=False)

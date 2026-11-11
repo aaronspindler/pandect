@@ -329,6 +329,10 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
     def test_edit_source_details_rejects_stale_data_and_preserves_original(self):
         item = self.text(description="Earlier investigator context")
         self.login("editor")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url("edit", item))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(any("FOR UPDATE" in query["sql"] for query in queries))
         stale = item.edited_at.isoformat()
         item.source_description = "A collaborator's latest source details"
         item.save(update_fields=["source_description"])
