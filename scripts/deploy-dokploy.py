@@ -106,6 +106,7 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, work
     deadline = time.monotonic() + 12 * 60
     stable_task = None
     stable_since = None
+    waiting_for = "the matching Dokploy deployment to finish"
     while time.monotonic() < deadline:
         deployments = records(dokploy("deployment.all", applicationId=application_id))
         deployment = next(
@@ -119,10 +120,14 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, work
         )
         if deployment and deployment["status"] not in {"running", "queued", "done"}:
             raise DeploymentError("Dokploy reported an unsuccessful deployment.")
-        application = dokploy("application.one", applicationId=application_id)
-        task = current_task(application, image)
-        ready = deployment and deployment["status"] == "done" and task
-        if ready and worker:
+        task = None
+        if deployment and deployment["status"] == "done":
+            waiting_for = "one running Swarm task on the expected image"
+            application = dokploy("application.one", applicationId=application_id)
+            task = current_task(application, image)
+        ready = False
+        if task and worker:
+            waiting_for = "the worker startup marker for the expected commit"
             logs = dokploy(
                 "application.readLogs",
                 applicationId=application_id,
@@ -142,13 +147,15 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, work
                 == marker
                 for line in logs.splitlines()
             )
-        elif ready:
+        elif task:
+            waiting_for = "public web health on the expected commit"
             try:
                 health = api("https://openpandect.com/health/")
             except DeploymentError:
                 health = {}
             ready = health.get("status") == "ok" and health.get("commit") == sha
         if ready:
+            waiting_for = "the 60-second readiness window"
             if stable_task is None:
                 stable_task, stable_since = task, time.monotonic()
             elif task != stable_task:
@@ -163,12 +170,13 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, work
             )
         time.sleep(5)
     raise DeploymentError(
-        "Timed out waiting for the exact release. The remote deployment may still "
+        f"Timed out waiting for {waiting_for}. The remote deployment may still "
         "be running; inspect it before retrying."
     )
 
 
 def deploy(application_id, image, sha, service):
+    print(f"Deploying {service} to Dokploy.", flush=True)
     previous = records(dokploy("deployment.all", applicationId=application_id))
     if any(item["status"] in {"running", "queued"} for item in previous):
         raise DeploymentError("Another deployment is active; wait before retrying.")
@@ -221,6 +229,14 @@ def main():
     if current["object"]["sha"] != sha:
         print("Skipped stale CI run: main has advanced beyond the tested commit.")
         return
+    if os.environ.get("PANDECT_PRODUCTION_DATABASE_BASELINE") != "domain-apps-v1":
+        raise DeploymentError(
+            "Production requires a fresh PostgreSQL database and empty queue for "
+            "the domain-app migration baseline. Configure both Dokploy applications "
+            "for it, then set the GitHub production environment variable "
+            "PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1. "
+            "See docs/operations.md."
+        )
     origin = urlsplit(required("DOKPLOY_URL").rstrip("/"))
     if (
         origin.scheme != "https"

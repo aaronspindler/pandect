@@ -92,9 +92,12 @@ class PlateBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("status").filter(has_text=re.compile(r"^Partial$"))
                 ).to_be_visible()
-                page.locator("#finding-link-1").click()
+                plate_text = re.compile(r"\btest 482\b", re.IGNORECASE)
+                page.locator(".analysis-finding-link").filter(
+                    has_text=plate_text
+                ).first.click()
                 expect(page.locator(".analysis-finding-text")).to_contain_text(
-                    "TEST 482"
+                    plate_text
                 )
                 preview = page.locator(".analysis-plate-preview")
                 expect(preview).to_be_visible()

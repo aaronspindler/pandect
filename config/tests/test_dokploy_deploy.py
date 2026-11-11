@@ -22,6 +22,7 @@ ENVIRONMENT = {
     "GITHUB_API_URL": "https://api.github.com",
     "GITHUB_TOKEN": "synthetic-github-token",
     "CI_RUN_ID": "123",
+    "PANDECT_PRODUCTION_DATABASE_BASELINE": "domain-apps-v1",
     "DOKPLOY_URL": "https://deploy.example.test",
     "DOKPLOY_API_KEY": "synthetic-dokploy-key",
     "DOKPLOY_REGISTRY_PASSWORD": "synthetic-registry-password",
@@ -70,6 +71,16 @@ class DeploymentCommandTests(TestCase):
                 call("web-id", ENVIRONMENT["WEB_IMAGE"], SHA, "web"),
             ],
         )
+
+    def test_missing_database_baseline_blocks_all_dokploy_requests(self):
+        del os.environ["PANDECT_PRODUCTION_DATABASE_BASELINE"]
+        with (
+            patch.object(deploy, "api", return_value={"object": {"sha": SHA}}),
+            patch.object(deploy, "dokploy") as request,
+            self.assertRaisesRegex(deploy.DeploymentError, "fresh PostgreSQL database"),
+        ):
+            deploy.main()
+        request.assert_not_called()
 
     def test_invalid_web_image_is_rejected_before_worker_mutation(self):
         os.environ["WEB_IMAGE"] = "ghcr.io/example/pandect-web:latest"
@@ -254,7 +265,7 @@ class ReleaseReadinessTests(TestCase):
             patch.object(
                 deploy, "api", return_value={"status": "ok", "commit": "older"}
             ),
-            self.assertRaisesRegex(deploy.DeploymentError, "Timed out"),
+            self.assertRaisesRegex(deploy.DeploymentError, "public web health"),
         ):
             self.wait()
 
@@ -280,7 +291,7 @@ class ReleaseReadinessTests(TestCase):
         with (
             patch.object(deploy, "dokploy", side_effect=request),
             patch.object(deploy, "current_task", return_value="task"),
-            self.assertRaisesRegex(deploy.DeploymentError, "Timed out"),
+            self.assertRaisesRegex(deploy.DeploymentError, "worker startup marker"),
         ):
             self.wait(worker=True)
 

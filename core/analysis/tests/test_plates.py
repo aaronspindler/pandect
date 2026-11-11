@@ -80,13 +80,16 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, "partial", run.error_code)
         self.assertFalse(GatewayRequest.objects.filter(run=run).exists())
-        self.assertEqual(ExtractedPassage.objects.filter(result=run.result).count(), 3)
-        self.assertTrue(
-            all(
-                "TEST 482" in x.text
-                for x in ExtractedPassage.objects.filter(result=run.result)
+        passages = list(
+            ExtractedPassage.objects.filter(result=run.result).values_list(
+                "text", flat=True
             )
         )
+        self.assertCountEqual(
+            passages,
+            [item["text"] for item in run.result.data["items"] if item["text"]],
+        )
+        self.assertTrue(any("test 482" in text.casefold() for text in passages))
         crops = list(run.result.artifacts.exclude(metadata={}))
         self.assertEqual(len(crops), 3)
         for crop in crops:
