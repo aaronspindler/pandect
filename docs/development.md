@@ -1,6 +1,6 @@
 # Local development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.6 and
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.7 and
 Docker with Compose v2. uv manages Python, the `.venv`, and Python dependencies;
 there is no requirements.txt or separate pip installation step. If you already
 use [mise](https://mise.jdx.dev/), `mise install` installs the tools in `mise.toml`.
@@ -118,6 +118,7 @@ setup, explicit cloud selection, capacity measurement and model qualification.
 | `DJANGO_SECRET_KEY` | Required in every mode; generate a unique secret. |
 | `DJANGO_DEBUG` | Defaults to `false`; `.env.example` enables local debug and console email. |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts; defaults to loopback names only. |
+| `PANDECT_TRUSTED_PROXY_COUNT` | Proxy hops trusted by allauth for client IP detection. Defaults to `0`. Set only behind a [controlled proxy chain](operations.md#first-dokploy-deployment). |
 | `POSTGRES_DB`, `POSTGRES_USER` | Default to `pandect`. |
 | `POSTGRES_PASSWORD` | Required by Compose; use a generated local password. |
 | `POSTGRES_HOST`, `POSTGRES_PORT` | Host commands default to `127.0.0.1:5432`; Compose uses `db:5432`. |

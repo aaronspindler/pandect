@@ -6,6 +6,7 @@ import wave
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -19,6 +20,7 @@ from core.analysis.testing import image_bytes
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
+from geo.models import LocationEvidence
 from image.models import ImageEvidence
 from people.models import Person
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
@@ -729,6 +731,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(original.status, "cancelled")
         process_run(original.pk)
         self.assertFalse(AnalysisResult.objects.filter(run=original).exists())
+        detail = self.client.get(self.analysis_url("detail", run=original))
+        self.assertNotContains(detail, "I approve external processing")
         retry_id = str(uuid4())
         self.assertEqual(
             self.client.post(
@@ -746,6 +750,130 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             302,
         )
         self.assertEqual(AnalysisRun.objects.count(), 2)
+
+    def test_external_rerun_requires_current_editor_approval_of_current_destination(
+        self,
+    ):
+        gateway = settings.PANDECT_AI_GATEWAY | {
+            "account": "a" * 32,
+            "gateway": "original-gateway",
+            "models": {"text": "@cf/synthetic/old-model"},
+        }
+        with self.settings(PANDECT_AI_GATEWAY=gateway):
+            original, _ = start_run(
+                self.users["owner"],
+                self.case.pk,
+                "content_events",
+                [{"kind": "text", "id": str(self.note.pk)}],
+                parameters={"backend": "gateway"},
+                external_processing=True,
+            )
+            self.login("owner")
+            self.client.post(self.analysis_url("cancel", run=original))
+            detail_url = self.analysis_url("detail", run=original)
+            retry_url = self.analysis_url("retry", run=original)
+            owner_page = self.client.get(detail_url)
+            self.assertContains(owner_page, "original-gateway")
+            owner_data = {
+                "submission_id": owner_page.context["retry_submission_id"],
+                "retry_confirmation": owner_page.context["retry_confirmation"],
+                "external_processing": "on",
+            }
+            self.login("editor")
+            editor_page = self.client.get(detail_url)
+            editor_data = owner_data | {
+                "submission_id": editor_page.context["retry_submission_id"],
+                "retry_confirmation": editor_page.context["retry_confirmation"],
+            }
+            for rejected in (
+                owner_data,
+                editor_data | {"external_processing": ""},
+                editor_data | {"retry_confirmation": ""},
+                editor_data | {"submission_id": uuid4()},
+            ):
+                with self.subTest(rejected=rejected):
+                    response = self.client.post(retry_url, rejected, follow=True)
+                    self.assertContains(
+                        response, "Review the current processing destination"
+                    )
+                    self.assertEqual(AnalysisRun.objects.count(), 1)
+
+        changed_gateway = gateway | {
+            "account": "b" * 32,
+            "gateway": "replacement-gateway",
+            "models": {"text": "@cf/synthetic/new-model"},
+        }
+        with self.settings(PANDECT_AI_GATEWAY=changed_gateway):
+            response = self.client.post(retry_url, editor_data, follow=True)
+            self.assertContains(response, "Review the current processing destination")
+            self.assertContains(response, "replacement-gateway")
+            self.assertContains(response, "@cf/synthetic/new-model")
+            self.assertNotContains(response, "original-gateway")
+            self.assertEqual(AnalysisRun.objects.count(), 1)
+
+            current_data = editor_data | {
+                "submission_id": response.context["retry_submission_id"],
+                "retry_confirmation": response.context["retry_confirmation"],
+            }
+            response = self.client.post(retry_url, current_data)
+            self.assertEqual(response.status_code, 302)
+            new_run = AnalysisRun.objects.get(previous_run=original)
+            self.assertEqual(
+                response["Location"], self.analysis_url("detail", run=new_run)
+            )
+            self.assertEqual(new_run.requested_by, self.users["editor"])
+            self.assertEqual(new_run.inputs, original.inputs)
+            self.assertTrue(new_run.external_processing)
+            self.assertEqual(
+                new_run.parameters["_execution"]["gateway"], "replacement-gateway"
+            )
+
+        with self.settings(PANDECT_AI_GATEWAY=gateway):
+            # Recover the already queued run after losing the POST response.
+            repeat = self.client.post(retry_url, current_data)
+            self.assertRedirects(
+                repeat, response["Location"], fetch_redirect_response=False
+            )
+            self.assertEqual(AnalysisRun.objects.count(), 2)
+
+    def test_local_geographic_rerun_requires_approval_after_external_reconfiguration(
+        self,
+    ):
+        location = LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic location",
+            address="Synthetic Example Street",
+        )
+        with self.settings(
+            PANDECT_GEOCODER_LOCAL=True, PANDECT_GEOCODER_URL="http://internal.test"
+        ):
+            original, _ = start_run(
+                self.users["owner"],
+                self.case.pk,
+                "geocode_locations",
+                [{"kind": "location", "id": str(location.pk)}],
+            )
+            self.login("owner")
+            self.client.post(self.analysis_url("cancel", run=original))
+            response = self.client.get(self.analysis_url("detail", run=original))
+            self.assertNotContains(response, "I approve external processing")
+            prior_submission_id = response.context["retry_submission_id"]
+
+        with self.settings(
+            PANDECT_GEOCODER_LOCAL=False,
+            PANDECT_GEOCODER_URL="https://geocoder.example.test/internal-path",
+        ):
+            response = self.client.post(
+                self.analysis_url("retry", run=original),
+                {"submission_id": prior_submission_id, "external_processing": "on"},
+                follow=True,
+            )
+            self.assertContains(response, "Review the current processing destination")
+            self.assertContains(response, "https://geocoder.example.test")
+            self.assertNotContains(response, "internal-path")
+            self.assertContains(response, "I approve external processing")
+            self.assertEqual(AnalysisRun.objects.count(), 1)
 
     def test_revocation_and_downgrade_before_publication_blocks_result(self):
         self.login("editor")

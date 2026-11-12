@@ -179,9 +179,14 @@ and atomic publication. Access removal blocks later inspection as well as work.
 
 A duplicate delivery cannot claim a running/completed run again. Retrying a form
 with its original submission ID returns the same run. Recover a failed run by
-starting another run; do not reset queue rows. If a worker crashes with a run still
-marked running, confirm it has stopped before cancellation/recovery. A stopped
-worker may have dispatched an external request; cancelled results remain withheld.
+starting another run while preserving the earlier queue records. **Start another
+run with these inputs** keeps the source selection and uses current processing
+settings. The investigator starting the run must review and approve any external
+destination. If the settings change after the approval form is displayed, review
+the updated destination before submitting again. Local reruns use the same button
+without external approval. If a worker crashes with a run still marked running,
+confirm it has stopped before cancellation or recovery. A stopped worker may
+have sent a request, and cancelled results remain withheld.
 The same-database queue insert and new run commit or roll back together.
 
 Originals and supplied metadata remain separate from extracted observations, model

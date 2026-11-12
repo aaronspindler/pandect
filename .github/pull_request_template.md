@@ -11,8 +11,9 @@ their exact limitations; distinguish unit tests from runtime/capacity checks.
 
 - [ ] Tests cover meaningful behavior and failure paths; migrations are included where needed.
 - [ ] Documentation matches configuration, operation, and security changes.
-- [ ] Originals and immutable evidence remain preserved; new native parsing uses the isolated runner.
+- [ ] Original evidence, checksums, provenance, and case authorization are preserved.
+- [ ] Any new native parsing uses the isolated runner.
 - [ ] No investigation evidence, credentials, personal paths, or unredacted logs are included.
-- [ ] I have the right to contribute this material under Apache-2.0 and retained third-party notices.
+- [ ] I have the right to contribute these changes and have retained applicable third-party notices.
 
-Report suspected vulnerabilities through `SECURITY.md`, not this public PR.
+Use the [security reporting policy](https://github.com/aaronspindler/pandect/blob/main/SECURITY.md) for suspected vulnerabilities.

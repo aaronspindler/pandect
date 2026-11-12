@@ -39,9 +39,11 @@ it; the earlier source stays retained. Repeating a completed confirmation return
 the saved result. Repeating an upload with its original submission ID, identical
 file, uploader, case, timezone, and selected upload vehicle reopens its review
 without retaining another file. Changing those values requires a new submission.
-An owner or editor can
-finish a review begun by another collaborator; each observation records the user
-who confirmed it, separately from the original file's uploader.
+An owner or editor can finish a review begun by another collaborator. Each
+observation records the user who confirmed it separately from the original
+file's uploader. The worker rechecks the requester's case edit access and
+verified email during preparation and publication. A verified owner or editor
+can retry if the original requester loses access or verification.
 
 The review keeps **Source and time interpretation** in a native disclosure.
 Source bytes, timezone and time semantics remain available without crowding the

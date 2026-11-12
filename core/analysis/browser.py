@@ -2,12 +2,14 @@
 
 import json
 import re
+import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.urls import reverse
 from PIL import Image
@@ -16,7 +18,7 @@ from playwright.sync_api import expect
 from audio.models import AudioEvidence
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
-from core.analysis.services import process_run, start_run
+from core.analysis.services import cancel_run, process_run, start_run
 from core.analysis.testing import wav_bytes
 from core.models import AnalysisReview, AnalysisRun
 from document.models import DocumentEvidence
@@ -209,6 +211,84 @@ class AnalysisBrowserTests(BrowserTestCase):
                     88,
                 )
                 self.capture(page, engine, "analysis-selection-large-text")
+
+    def test_external_rerun_approval_is_keyboard_accessible_without_javascript(self):
+        gateway = settings.PANDECT_AI_GATEWAY | {
+            "account": "a" * 32,
+            "gateway": "synthetic-rerun",
+            "models": {"text": "@cf/synthetic/reviewed-model"},
+        }
+        with self.settings(PANDECT_AI_GATEWAY=gateway):
+            prior, _ = start_run(
+                self.owner,
+                self.case.pk,
+                "content_events",
+                [{"kind": "text", "id": str(self.text.pk)}],
+                parameters={"backend": "gateway"},
+                external_processing=True,
+            )
+            cancel_run(self.owner, self.case.pk, prior.pk)
+            detail_url = self.url(
+                "core:analysis:detail", case_id=self.case.pk, run_id=prior.pk
+            )
+            for engine in self.engines:
+                with (
+                    self.subTest(engine=engine),
+                    self.browser_page(engine, java_script_enabled=False) as (_, page),
+                ):
+                    self.sign_in(page)
+                    page.goto(detail_url)
+                    approval = page.get_by_role(
+                        "checkbox", name="I approve external processing for this run"
+                    )
+                    expect(approval).not_to_be_checked()
+                    expect(approval).to_have_accessible_description(
+                        re.compile("synthetic-rerun.*reviewed-model")
+                    )
+                    next_control = (
+                        "Alt+Tab"
+                        if engine == "webkit" and sys.platform == "darwin"
+                        else "Tab"
+                    )
+                    page.get_by_text("Method and settings", exact=True).focus()
+                    page.keyboard.press(next_control)
+                    expect(approval).to_be_focused()
+                    self.assertNotEqual(
+                        approval.evaluate(
+                            "node => getComputedStyle(node).outlineStyle"
+                        ),
+                        "none",
+                    )
+                    for width, height, label in (
+                        (1440, 900, "desktop"),
+                        (1440, 1024, "tall-desktop"),
+                        (768, 1024, "tablet"),
+                        (390, 844, "mobile"),
+                        (320, 844, "reflow"),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self._assert_reflow(page)
+                        approval.scroll_into_view_if_needed()
+                        self.capture(page, engine, f"external-rerun-approval-{label}")
+                    page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                    self.capture(page, engine, "external-rerun-approval-dark")
+                    if engine == "chromium":
+                        page.emulate_media(color_scheme="light", forced_colors="active")
+                        self.capture(
+                            page, engine, "external-rerun-approval-forced-colors"
+                        )
+                    page.keyboard.press("Space")
+                    expect(approval).to_be_checked()
+                    submit = page.get_by_role(
+                        "button", name="Start another run with these inputs"
+                    )
+                    page.keyboard.press(next_control)
+                    expect(submit).to_be_focused()
+                    page.keyboard.press("Enter")
+                    expect(page).not_to_have_url(detail_url)
+                    expect(
+                        page.get_by_role("heading", name="Processing 0%")
+                    ).to_be_visible()
 
     def test_review_errors_preserve_text_focus_and_later_finding_page(self):
         for engine in self.engines:

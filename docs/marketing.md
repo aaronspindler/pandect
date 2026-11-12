@@ -8,7 +8,7 @@ application, with no separate frontend build or marketing service.
 | --- | --- |
 | `/` | Product introduction and illustrative investigation workspace. |
 | `/product/` | Evidence, case collaboration, and supported analysis workflows with result examples at `#analysis`. |
-| `/trust/` | Case access, original preservation, and responsible analysis. |
+| `/trust/` | Case access, original preservation, analysis approval, and map tile privacy. |
 | `/roadmap/` | Available capabilities, next priorities, and exploratory ideas. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
 
@@ -22,8 +22,8 @@ examples of printed-English OCR, a call report, and a candidate visit on Product
 The examples show how to trace a result to its sources and
 interpret its limits. Product distinguishes automatic local checks on eligible
 new evidence, investigator-started comparisons, case reports, and analysis that
-needs a configured service. Trust explains preservation, access, and processing
-approval.
+needs a configured service. Trust explains preservation, access, external AI
+approval, and what [external map tile providers receive](maps.md#external-tiles-and-privacy).
 
 The pages use `marketing/templates/marketing/` and `marketing/static/marketing/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links

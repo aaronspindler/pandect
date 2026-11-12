@@ -1,12 +1,12 @@
 import hashlib
 import logging
 from datetime import timedelta
-from unittest.mock import patch
+from types import SimpleNamespace
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -131,6 +131,8 @@ class ProductAccessTests(TestCase):
                     self.assertIn("private", response["Cache-Control"])
                     self.assertEqual(response["Referrer-Policy"], "same-origin")
 
+
+class PrivateLoggingTests(SimpleTestCase):
     def test_log_filter_removes_tokens_queries_and_expected_error_tracebacks(self):
         record = logging.LogRecord(
             "django.server",
@@ -157,18 +159,57 @@ class ProductAccessTests(TestCase):
                 )
 
     def test_gunicorn_access_atoms_do_not_contain_tokens_or_queries(self):
-        with patch(
-            "gunicorn.glogging.Logger.atoms",
-            return_value={
-                "r": "GET /invitations/raw-secret/?q=source HTTP/1.1",
-                "U": "/invitations/raw-secret/",
-                "q": "q=source",
-                "f": "https://example.com/accounts/confirm-email/email-key/?q=private",
-            },
-        ):
-            logger = object.__new__(PrivateAccessLogger)
-            result = logger.atoms(None, None, {}, timedelta())
-        self.assertNotIn("raw-secret", str(result))
-        self.assertNotIn("email-key", str(result))
-        self.assertNotIn("q=source", str(result))
-        self.assertNotIn("q=private", str(result))
+        paths = (
+            reverse("invitation_accept", args=("synthetic-invitation",)),
+            reverse("account_confirm_email", args=("synthetic-confirm:email",)),
+            reverse(
+                "account_reset_password_from_key", args=("fakeuid", "synthetic-reset")
+            ),
+        )
+        logger = object.__new__(PrivateAccessLogger)
+        for path in paths:
+            with self.subTest(path=path):
+                target = f"{path}?q=source"
+                referrer = f"https://example.test{path}?q=private"
+                result = logger.atoms(
+                    SimpleNamespace(status="302 Found", headers={"Location": target}),
+                    {"Referer": referrer},
+                    {
+                        "REQUEST_METHOD": "GET",
+                        "RAW_URI": target,
+                        "PATH_INFO": path,
+                        "QUERY_STRING": "q=source",
+                        "SERVER_PROTOCOL": "HTTP/1.1",
+                        "HTTP_REFERER": referrer,
+                    },
+                    timedelta(),
+                )
+                for key in (
+                    "r",
+                    "U",
+                    "f",
+                    "{raw_uri}e",
+                    "{path_info}e",
+                    "{http_referer}e",
+                    "{referer}i",
+                    "{location}o",
+                ):
+                    self.assertIn("[redacted]", result[key])
+                    self.assertNotIn("synthetic", result[key])
+                    self.assertNotIn("?q=", result[key])
+                self.assertEqual(result["q"], "")
+                self.assertEqual(result["{query_string}e"], "")
+                self.assertEqual(result["s"], "302")
+
+    def test_encoded_private_path_is_redacted_without_decoding_log_content(self):
+        self.assertEqual(
+            redact_url("GET /%61ccounts/confirm-email/synthetic%3Asecret/ HTTP/1.1"),
+            "[redacted]",
+        )
+        self.assertEqual(
+            redact_url("/%61ccounts/password/reset/key/fakeuid-synthetic/?q=private"),
+            "[redacted]",
+        )
+        self.assertEqual(
+            redact_url("/cases/synthetic%20slug/"), "/cases/synthetic%20slug/"
+        )
