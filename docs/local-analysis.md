@@ -185,21 +185,15 @@ URLs. After verifying the endpoint is operated under your control, set
 lookup requires external-processing approval. Record source name, dataset version
 and attribution as described in the focused geographic guides.
 
-The existing Spindlers homelab configuration uses the `misc-containers` VM,
-Overpass at `http://192.168.1.246:8081/api/interpreter`, and Nominatim at
-`http://192.168.1.246:8082`. Reuse its guarded import/recovery procedures rather
-than deploying duplicate services. The latest recorded planet import on
-2026-10-28 failed from memory exhaustion on an 8 GB VM; completion is unverified.
-Qualify actual queries, dataset timestamp, replication freshness, restart,
-storage and recovery before connecting Pandect. Low query traffic does not
-remove import costs. Do not replace intended worldwide coverage with regional
-data silently or introduce an arbitrary Pandect RAM gate.
+Before connecting an existing private service, verify query behavior, geographic
+coverage, dataset timestamp, replication freshness, and restart and recovery
+procedures. Size initial imports separately from routine queries. Record any
+regional limits so investigators can interpret gaps.
 
-That Overpass deployment has no historical attic data. Leave
-`PANDECT_MAP_CONTEXT_HISTORY_START` empty until historical coverage is genuinely
-provisioned and tested. Current OSM data cannot reconstruct old map states or
-establish real-world conditions. Reference snapshots and geocode reviews remain
-retained independently of service availability.
+Leave `PANDECT_MAP_CONTEXT_HISTORY_START` empty unless the configured Overpass
+service has verified historical coverage. Current OSM data cannot reconstruct old
+map states or establish real-world conditions. Pandect retains reference snapshots
+and geocode reviews independently of service availability.
 
 Background tiles are separate from analysis. An empty `PANDECT_MAP_TILE_URL`
 disables the basemap. Operators may configure a private or public HTTPS raster
@@ -294,9 +288,8 @@ Raw synthetic results are retained locally in ignored
 files and source/checksum metadata are in ignored `data/models/`. The initial
 multi-method run lost runtime availability during an interrupted session;
 separate completed trials supersede those interrupted method results.
-The existing homelab endpoints were unreachable from the validation host, so
-worldwide coverage, replication and historical data remain unqualified. The
-application environment and running application stack were not changed.
+These inference trials do not establish map coverage, replication freshness, or
+historical data availability. Qualify those against the configured map services.
 
 Recover local failures by correcting configuration/capacity and starting another
 run. Do not edit retained runs, force-reset task rows, or delete originals.

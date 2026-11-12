@@ -334,10 +334,11 @@ permitting the private services. Do not use public map capacity in routine tests
   Ubuntu's primary mirrors instead of the runner's Azure mirror to avoid stalled
   OCR/browser dependency downloads.
 - A separate CI job audits locked dependencies without database credentials.
-- After those checks pass for a `main` push, CI publishes the Linux amd64 web and
-  worker image targets to GHCR. CD resolves their successful-run/commit tags to
-  matching digests and deploys the native Dokploy Applications, verifying worker
-  startup before the web release. See [continuous deployment](operations.md#continuous-deployment).
+- After those checks pass for a `main` push in the Pandect operator repository,
+  CI publishes the Linux amd64 web and worker image targets to GHCR. CD resolves
+  their successful-run and commit tags to matching digests and deploys the native
+  Dokploy Applications, verifying worker startup before the web release. See
+  [continuous deployment](operations.md#continuous-deployment).
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
 - **CodeQL** analyzes Python on pushes, pull requests, and a weekly schedule. The
   existing public-repository guard remains: private repositories skip this job
@@ -356,12 +357,33 @@ uv run --locked python -m unittest config.tests.test_dokploy_deploy
 ```
 
 They cover stale CI skips, immutable image validation, worker-before-web ordering,
-native provider updates, active/failed deployments, sanitized transport failures,
-exact running task digests, release markers, and readiness stability. They do not
-establish that GitHub secrets, GHCR access, or Dokploy resources are configured.
+native provider updates, active and failed deployments, redirect rejection,
+sanitized transport failures, exact running task digests, release markers, and
+readiness stability. GitHub secrets, GHCR access, and Dokploy resources require
+separate live verification.
 
 Local checks do not prove hosted workflow execution or deployed behavior. Hosted
 checks run only after changes reach GitHub.
+
+## Public release checks
+
+Review and scan the exact source and Git refs intended for publication for
+credentials, private infrastructure details, and investigation material. Review
+retained issues, pull requests, attachments, Actions logs, and artifacts before
+changing an existing repository's visibility. Confirm that the source license,
+third-party notices, and private reporting instructions cover the release.
+Verify CodeQL and the repository's secret scanning and push protection settings
+after a visibility change.
+
+For public image distribution, record each platform image digest and its source
+revision. Inspect the image's package inventory and provenance, review applicable
+redistribution terms for the base image and bundled libraries, and retain
+required notices and corresponding source where applicable. Run a container
+vulnerability scan on each exact digest and review the results before publication.
+Repeat these checks for separately distributed inference images and model artifacts.
+
+References: [GitHub visibility consequences](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility)
+and [GitHub secret scanning](https://docs.github.com/en/code-security/concepts/secret-security/secret-scanning).
 
 ## Dependabot
 

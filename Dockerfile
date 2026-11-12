@@ -17,8 +17,6 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --locked --no-dev --no-install-project
 
-RUN groupadd --system pandect && useradd --system --create-home --gid pandect pandect \
-    && mkdir -p /app/data && chown pandect:pandect /app/data
 COPY manage.py ./
 COPY config/ config/
 COPY accounts/ accounts/
@@ -37,6 +35,10 @@ COPY video/ video/
 COPY marketing/ marketing/
 COPY ui/ ui/
 COPY scripts/docker-entrypoint-worker.sh scripts/docker-entrypoint-worker.sh
+# Normalize copied source permissions before running the image as pandect.
+RUN chmod -R u=rwX,go=rX /app \
+    && groupadd --system pandect && useradd --system --create-home --gid pandect pandect \
+    && mkdir -p /app/data && chown pandect:pandect /app/data
 # A synthetic build-only setting is sufficient; collectstatic never needs a DB.
 RUN DJANGO_SECRET_KEY=static-collection-build-only python manage.py collectstatic --noinput \
     && chown -R pandect:pandect /app/staticfiles

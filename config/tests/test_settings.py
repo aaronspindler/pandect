@@ -4,7 +4,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase
+
+from accounts.adapter import PandectAccountAdapter
 
 
 class StartupTests(SimpleTestCase):
@@ -20,6 +22,33 @@ class StartupTests(SimpleTestCase):
             os.environ, {"DJANGO_SECRET_KEY": "synthetic", **values}, clear=True
         ):
             return runpy.run_path(Path(__file__).parents[1] / "settings.py")
+
+    def test_rate_limit_client_ip_requires_a_configured_trusted_proxy_chain(self):
+        request = RequestFactory().get(
+            "/accounts/login/",
+            REMOTE_ADDR="203.0.113.3",
+            HTTP_X_FORWARDED_FOR="192.0.2.1, 198.51.100.2, 203.0.113.2",
+        )
+        adapter = PandectAccountAdapter()
+        for values, expected in (
+            ({}, "203.0.113.3"),
+            ({"PANDECT_TRUSTED_PROXY_COUNT": "2"}, "198.51.100.2"),
+        ):
+            settings = self.load_settings(**values)
+            with self.settings(
+                ALLAUTH_TRUSTED_PROXY_COUNT=settings["ALLAUTH_TRUSTED_PROXY_COUNT"]
+            ):
+                self.assertEqual(adapter.get_client_ip(request), expected)
+
+    def test_proxy_count_must_be_a_nonnegative_integer(self):
+        for invalid in ("-1", "two"):
+            with (
+                self.subTest(invalid=invalid),
+                self.assertRaisesMessage(
+                    ImproperlyConfigured, "PANDECT_TRUSTED_PROXY_COUNT"
+                ),
+            ):
+                self.load_settings(PANDECT_TRUSTED_PROXY_COUNT=invalid)
 
     def test_local_first_defaults_do_not_configure_public_services(self):
         settings = self.load_settings()

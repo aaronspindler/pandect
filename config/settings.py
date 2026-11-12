@@ -138,6 +138,19 @@ ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_ADAPTER = "accounts.adapter.PandectAccountAdapter"
+# Opt in only when the application is reachable through a controlled proxy chain.
+try:
+    ALLAUTH_TRUSTED_PROXY_COUNT = int(
+        os.environ.get("PANDECT_TRUSTED_PROXY_COUNT", "0")
+    )
+except ValueError as error:
+    raise ImproperlyConfigured(
+        "PANDECT_TRUSTED_PROXY_COUNT must be a nonnegative integer."
+    ) from error
+if ALLAUTH_TRUSTED_PROXY_COUNT < 0:
+    raise ImproperlyConfigured(
+        "PANDECT_TRUSTED_PROXY_COUNT must be a nonnegative integer."
+    )
 PANDECT_ALLOW_SIGNUPS = (
     os.environ.get("PANDECT_ALLOW_SIGNUPS", "true").lower() == "true"
 )

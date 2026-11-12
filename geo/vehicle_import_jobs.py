@@ -4,6 +4,7 @@ import time
 from itertools import batched
 from uuid import uuid4
 
+from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
@@ -35,8 +36,8 @@ ERROR_MESSAGES = {
         "to check its format and upload a corrected CSV."
     ),
     "access_removed": (
-        "The requester no longer has edit access. "
-        "An owner or editor can retry this import."
+        "The requester needs edit access and a verified email address. "
+        "A verified owner or editor can retry this import."
     ),
     "vehicle_unavailable": (
         "A selected vehicle is no longer available in this case. "
@@ -172,7 +173,10 @@ def _authorize(batch, *, lock=False):
         actor = get_user_model().objects.get(pk=batch.requested_by_id)
     except get_user_model().DoesNotExist:
         raise Http404 from None
-    return get_case(actor, batch.case_id, edit=True, lock=lock)
+    case = get_case(actor, batch.case_id, edit=True, lock=lock)
+    if not EmailAddress.objects.filter(user=actor, verified=True).exists():
+        raise PermissionDenied("Verify your email before processing.")
+    return case
 
 
 def _current(batch):

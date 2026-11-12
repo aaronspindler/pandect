@@ -15,13 +15,14 @@ QUERY = re.compile(r"\?[^\s\"'<>]*")
 
 
 def redact_url(value):
-    value = QUERY.sub("", str(value))
-    decoded = unquote(value)
-    redacted = TOKEN_PATH.sub(r"\1[redacted]", decoded)
-    if redacted == decoded:
-        return value
-    # Decoding a credential-bearing request target must not add log lines.
-    return redacted.replace("\r", r"\r").replace("\n", r"\n")
+    sanitized = TOKEN_PATH.sub(r"\1[redacted]", QUERY.sub("", str(value)))
+    # A raw request target can encode route segments. Detect those credentials
+    # without emitting the decoded target or introducing new log characters.
+    if "%" in sanitized:
+        decoded = unquote(sanitized)
+        if TOKEN_PATH.sub(r"\1[redacted]", decoded) != decoded:
+            return "[redacted]"
+    return sanitized
 
 
 class PrivatePageMiddleware:
@@ -72,8 +73,19 @@ class RedactPrivateURLs(logging.Filter):
 class PrivateAccessLogger(Logger):
     def atoms(self, resp, req, environ, request_time):
         atoms = super().atoms(resp, req, environ, request_time)
-        for key in ("r", "U", "f"):
+        for key in (
+            "r",
+            "U",
+            "f",
+            "{raw_uri}e",
+            "{path_info}e",
+            "{http_referer}e",
+            "{referer}i",
+            "{location}o",
+        ):
             if key in atoms:
                 atoms[key] = redact_url(atoms[key])
         atoms["q"] = ""
+        if "{query_string}e" in atoms:
+            atoms["{query_string}e"] = ""
         return atoms

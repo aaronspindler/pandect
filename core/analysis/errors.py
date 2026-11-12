@@ -8,6 +8,10 @@ class AnalysisError(Exception):
 
 
 ERROR_MESSAGES = {
+    "retry_approval_required": (
+        "Review the current processing destination and confirm before starting "
+        "another run."
+    ),
     "plate_image_required": "Choose one original JPEG or PNG image for plate search.",
     "plate_detector_unavailable": (
         "Local plate detection is unavailable. Ask the operator to sync the "

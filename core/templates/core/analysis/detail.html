@@ -172,8 +172,16 @@
   </details>
 </section>
 {% if can_edit and can_retry %}
-<form method="post" action="{% url 'core:analysis:retry' case.pk run.pk %}{{ history_suffix }}">
+<form class="form-layout" method="post" action="{% url 'core:analysis:retry' case.pk run.pk %}{{ history_suffix }}">
   {% csrf_token %}<input type="hidden" name="submission_id" value="{{ retry_submission_id }}">
+  {% if retry_confirmation %}
+  <input type="hidden" name="retry_confirmation" value="{{ retry_confirmation }}">
+  <p class="notice" id="retry-destination">This run will send {{ retry_data }} to {{ retry_destination }}. Operator retention policies apply.</p>
+  <div class="field field-checkbox">
+    <input id="approve-retry" type="checkbox" name="external_processing" aria-describedby="retry-destination" required>
+    <label for="approve-retry">I approve external processing for this run</label>
+  </div>
+  {% endif %}
   <button class="button button-secondary" type="submit">Start another run with these inputs</button>
 </form>
 {% endif %}
