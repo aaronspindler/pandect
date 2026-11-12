@@ -199,8 +199,10 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 show = page.get_by_role(
                     "button", name=f"Show {label} on map", exact=True
                 )
+                expect(show).to_be_visible()
                 show.focus()
-                page.keyboard.press("Enter")
+                expect(show).to_be_focused()
+                show.press("Enter")
                 expect(canvas).to_be_focused()
                 expect(page.locator(".leaflet-popup-content")).to_contain_text("POI")
                 expect(page.locator(".leaflet-popup-content")).to_contain_text(label)

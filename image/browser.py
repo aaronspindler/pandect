@@ -66,8 +66,9 @@ class PlateBrowserTests(BrowserTestCase):
                         evidence_id=self.image.pk,
                     )
                 )
+                plate_text = re.compile(r"^TEST 482\b", re.IGNORECASE)
                 finding = page.get_by_role("region", name="Findings").get_by_role(
-                    "link", name=re.compile(r"^TEST 482")
+                    "link", name=plate_text
                 )
                 expect(finding).to_have_count(1)
                 expect(finding).to_contain_text("Awaiting review")
@@ -97,7 +98,7 @@ class PlateBrowserTests(BrowserTestCase):
                 )
                 finding.press("Enter")
                 expect(page.locator(".analysis-finding-text")).to_contain_text(
-                    "TEST 482"
+                    plate_text
                 )
                 preview = page.locator(".analysis-plate-preview")
                 expect(preview).to_be_visible()

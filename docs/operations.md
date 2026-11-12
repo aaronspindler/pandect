@@ -242,6 +242,15 @@ The deployment helper does not replace those settings or redeploy PostgreSQL.
 
 The separate CD workflow activates only successful `CI` runs from same-repository
 pushes to `main`. It checks the current `main` commit and skips stale results.
+For the [domain-app migration baseline](architecture.md#primary-keys-and-the-initial-schema),
+retain the previous database and evidence volume, prepare a fresh PostgreSQL
+database with an empty queue, and configure both Dokploy Applications to use it.
+Once both are configured, set the GitHub
+**production** environment variable `PANDECT_PRODUCTION_DATABASE_BASELINE` to
+`domain-apps-v1`. The deployment helper stops before changing either Application
+until this setting is present. Rerun the failed **Deploy production** workflow
+for the successful CI run on current `main` once the database is ready.
+
 For each image, both the successful run's tag and commit tag must resolve to the
 same digest; Dokploy receives `repository@sha256:...`, never a moving tag. CD
 checks out only the trusted `main` deployment helper and executes no downloaded
@@ -260,8 +269,9 @@ Queue execution still requires the bounded `check_task_worker` diagnostic above;
 CD's worker checks establish startup and task identity.
 
 Requests and readiness waits are bounded. Mutation failures are not retried
-automatically, and a timeout does not cancel a remote deployment. Inspect the
-native deployment/task status before rerunning; the helper refuses another
+automatically. A readiness timeout identifies the service and the check it was
+waiting on. Inspect the native deployment/task status before rerunning because
+the remote rollout can continue after a timeout. The helper refuses another
 observably active deployment. A worker or web failure stops the remaining steps
 and can leave a partial release requiring operator review. Keep migrations
 compatible with the running release and take backups before schema upgrades.
