@@ -338,29 +338,35 @@ permitting the private services. Do not use public map capacity in routine tests
   CI publishes the Linux amd64 web and worker image targets to GHCR. CD resolves
   their successful-run and commit tags to matching digests and deploys the native
   Dokploy Applications, verifying worker startup before the web release. See
-  [continuous deployment](operations.md#continuous-deployment).
+  [continuous deployment](operations.md#continuous-deployment). After both services
+  pass verification, a dependent job publishes a GitHub release for the tested
+  commit. Stale skips and failed deployments do not publish.
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
 - **CodeQL** analyzes Python on pushes, pull requests, and a weekly schedule. The
   existing public-repository guard remains: private repositories skip this job
   unless the project deliberately configures an eligible code-scanning plan.
 
-Workflows use pinned action commits and read-only contents permissions. Only CI's
-production image jobs receive package-write permission; CD receives package-read
-permission and the production environment's deployment secrets. These workflows
-do not perform container or secret scanning.
+Workflows use pinned action commits and default to read-only contents permissions.
+Only CI's production image jobs receive package-write permission; CD's deploy job
+receives package-read permission and the production environment's deployment
+secrets. Its separate release job receives contents-write permission through the
+built-in GitHub token, without deployment secrets. These workflows do not perform
+container or secret scanning.
 
-The deployment helper has mocked API and failure-path tests that run without
+The deployment and release helpers have mocked API and failure-path tests without
 credentials, network access, or a database:
 
 ```sh
-uv run --locked python -m unittest config.tests.test_dokploy_deploy
+uv run --locked python -m unittest config.tests.test_dokploy_deploy config.tests.test_github_release
 ```
 
 They cover stale CI skips, immutable image validation, worker-before-web ordering,
 native provider updates, active and failed deployments, redirect rejection,
 sanitized transport failures, exact running task digests, release markers, and
-readiness stability. GitHub secrets, GHCR access, and Dokploy resources require
-separate live verification.
+readiness stability. They also cover the completion output, exact release commit
+target, existing-release reruns, tag conflicts, interrupted publication, and API
+failures. GitHub token permissions, tag rules, release publication, GHCR access,
+and Dokploy resources require separate live verification.
 
 Local checks do not prove hosted workflow execution or deployed behavior. Hosted
 checks run only after changes reach GitHub.

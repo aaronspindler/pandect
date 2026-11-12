@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from email.message import Message
 from http.client import IncompleteRead
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import call, patch
 from urllib.error import HTTPError, URLError
@@ -39,7 +40,13 @@ ENVIRONMENT = {
 
 class DeploymentCommandTests(TestCase):
     def setUp(self):
-        self.environment = patch.dict(os.environ, ENVIRONMENT, clear=True)
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.output = Path(temporary.name) / "github-output"
+        self.output.touch()
+        self.environment = patch.dict(
+            os.environ, {**ENVIRONMENT, "GITHUB_OUTPUT": str(self.output)}, clear=True
+        )
         self.environment.start()
         self.addCleanup(self.environment.stop)
 
@@ -61,11 +68,17 @@ class DeploymentCommandTests(TestCase):
             deploy.main()
         activate.assert_not_called()
         self.assertIn("Skipped stale", output.getvalue())
+        self.assertEqual(self.output.read_text(), "")
 
     def test_worker_is_verified_before_web_activation(self):
+        self.output.write_text("existing=retained\n")
+
+        def verify(application_id, image, sha, service):
+            self.assertEqual(self.output.read_text(), "existing=retained\n")
+
         with (
             patch.object(deploy, "api", return_value={"object": {"sha": SHA}}),
-            patch.object(deploy, "deploy") as activate,
+            patch.object(deploy, "deploy", side_effect=verify) as activate,
         ):
             deploy.main()
         self.assertEqual(
@@ -75,6 +88,17 @@ class DeploymentCommandTests(TestCase):
                 call("web-id", ENVIRONMENT["WEB_IMAGE"], SHA, "web"),
             ],
         )
+        self.assertEqual(self.output.read_text(), "existing=retained\ndeployed=true\n")
+
+    def test_missing_output_blocks_deployment(self):
+        del os.environ["GITHUB_OUTPUT"]
+        with (
+            patch.object(deploy, "api", return_value={"object": {"sha": SHA}}),
+            patch.object(deploy, "deploy") as activate,
+            self.assertRaisesRegex(deploy.DeploymentError, "GITHUB_OUTPUT"),
+        ):
+            deploy.main()
+        activate.assert_not_called()
 
     def test_missing_database_baseline_blocks_all_dokploy_requests(self):
         del os.environ["PANDECT_PRODUCTION_DATABASE_BASELINE"]
@@ -117,6 +141,20 @@ class DeploymentCommandTests(TestCase):
             deploy.main()
         self.assertEqual(activate.call_count, 1)
         self.assertEqual(activate.call_args.args[-1], "worker")
+        self.assertEqual(self.output.read_text(), "")
+
+    def test_failed_web_does_not_report_deployment_success(self):
+        with (
+            patch.object(deploy, "api", return_value={"object": {"sha": SHA}}),
+            patch.object(
+                deploy, "deploy", side_effect=[None, deploy.DeploymentError("failed")]
+            ) as activate,
+            self.assertRaises(deploy.DeploymentError),
+        ):
+            deploy.main()
+        self.assertEqual(activate.call_count, 2)
+        self.assertEqual(activate.call_args.args[-1], "web")
+        self.assertEqual(self.output.read_text(), "")
 
     def test_native_provider_update_preserves_runtime_configuration(self):
         with (

@@ -240,6 +240,7 @@ def main():
     if current["object"]["sha"] != sha:
         print("Skipped stale CI run: main has advanced beyond the tested commit.")
         return
+    output_path = required("GITHUB_OUTPUT")
     if os.environ.get("PANDECT_PRODUCTION_DATABASE_BASELINE") != "domain-apps-v1":
         raise DeploymentError(
             "Production requires a fresh PostgreSQL database and empty queue for "
@@ -279,6 +280,8 @@ def main():
         raise DeploymentError("Web and worker must use separate Dokploy applications.")
     for application_id, image, service in services:
         deploy(application_id, image, sha, service)
+    with open(output_path, "a", encoding="utf-8") as output:
+        output.write("deployed=true\n")
 
 
 if __name__ == "__main__":

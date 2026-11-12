@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     environment: production
+    outputs:
+      deployed: ${{ steps.rollout.outputs.deployed }}
     steps:
       - name: Check out the trusted deployment helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,6 +61,7 @@ jobs:
           done
 
       - name: Deploy worker and web to Dokploy
+        id: rollout
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -70,3 +73,24 @@ jobs:
           DOKPLOY_WORKER_APPLICATION_ID: ${{ secrets.DOKPLOY_WORKER_APPLICATION_ID }}
           DOKPLOY_REGISTRY_PASSWORD: ${{ secrets.DOKPLOY_REGISTRY_PASSWORD }}
         run: python3 scripts/deploy-dokploy.py
+
+  release:
+    needs: deploy
+    if: needs.deploy.outputs.deployed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the trusted release helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: Publish the verified deployment release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python3 scripts/create-github-release.py

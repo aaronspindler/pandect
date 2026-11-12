@@ -318,6 +318,32 @@ on its exact image. An accepted deploy request alone does not count as success.
 Queue execution still requires the bounded `check_task_worker` diagnostic above;
 CD's worker checks establish startup and task identity.
 
+Only after both services pass verification does the deployment helper emit its
+`deployed=true` output. A dependent job then publishes a GitHub release tagged
+`deploy-<full tested commit SHA>`, pointing to that exact commit, with generated
+release notes and links to the CI and deployment runs. Tags identify deployed
+commits; semantic versions remain managed separately. Stale CI skips and
+failed or partial deployments never enable the release job. The release helper
+comes from the trusted workflow revision; only this job receives
+`contents: write` through the built-in GitHub token, without Dokploy secrets.
+
+Reruns preserve an existing published release after checking that its tag
+resolves to the tested commit. A matching tag left by an interrupted publication
+can be reused to create the missing release. Conflicting tags, existing drafts,
+and API failures stop publication for operator review; the helper never moves
+tags or edits/deletes existing releases. Deployment releases leave GitHub's
+**Latest** designation unchanged so a late retry cannot supersede a newer release.
+If publication fails after deployment
+succeeds, production remains deployed. Use GitHub Actions **Re-run failed jobs**
+to retry only publication using the successful deployment's output; rerunning
+the entire workflow repeats the deployment and its current-`main` check.
+Inspect an uncertain publication before retrying. Repository tag rules must
+permit the workflow to create `deploy-*` tags. GitHub can also reject release
+creation with HTTP 403/404 if the target commit's workflow files differ from the
+current default branch and the token lacks workflow-modification authority;
+inspect the target and repository rules rather than adding fallback credentials.
+See [GitHub's release API](https://docs.github.com/en/rest/releases/releases#create-a-release).
+
 Requests and readiness waits are bounded. The helper rejects HTTP redirects and
 leaves failed mutations for operator review. A readiness timeout identifies the
 service and the check it was waiting on. Inspect the native deployment/task
