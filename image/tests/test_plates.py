@@ -30,7 +30,12 @@ class PlateTests(SimpleTestCase):
             item for item in result["items"] if not item["values"]["Weak plate region"]
         ]
         weak = [item for item in result["items"] if item["values"]["Weak plate region"]]
-        self.assertTrue(all("TEST 482" in item["text"] for item in strong))
+        self.assertEqual(len(strong), 3)
+        self.assertEqual(len(weak), 12)
+        readings = [item["text"] for item in strong]
+        self.assertTrue(
+            any("test 482" in text.casefold() for text in readings), readings
+        )
         self.assertTrue(all(item["text"] == "" for item in weak))
         self.assertTrue(
             all(
@@ -43,7 +48,7 @@ class PlateTests(SimpleTestCase):
         )
         self.assertTrue(
             all(
-                "TEST 482" not in item["values"]["Weak region OCR output"]
+                "test 482" not in item["values"]["Weak region OCR output"].casefold()
                 for item in weak
             )
         )

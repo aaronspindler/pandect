@@ -196,11 +196,13 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     page.get_by_role("heading", name=label, exact=True)
                 ).to_be_visible()
                 page.get_by_role("link", name="Back to map", exact=True).click()
+                page.wait_for_url(self.map_url, wait_until="domcontentloaded")
+                page.bring_to_front()
                 show = page.get_by_role(
                     "button", name=f"Show {label} on map", exact=True
                 )
-                show.focus()
-                page.keyboard.press("Enter")
+                show.scroll_into_view_if_needed()
+                show.press("Enter")
                 expect(canvas).to_be_focused()
                 expect(page.locator(".leaflet-popup-content")).to_contain_text("POI")
                 expect(page.locator(".leaflet-popup-content")).to_contain_text(label)
