@@ -8,7 +8,7 @@ from uuid import uuid4
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -138,7 +138,8 @@ def _additional_operations(kind):
 def index(request, case_id):
     case = get_case(request.user, case_id)
     filters = history_filters(request.GET)
-    runs = AnalysisRun.objects.filter(case=case)
+    all_runs = AnalysisRun.objects.filter(case=case)
+    runs = all_runs
     if "kind" in filters:
         runs = runs.filter(inputs__contains=[{"kind": filters["kind"]}])
     if "status" in filters:
@@ -173,6 +174,16 @@ def index(request, case_id):
             (first.get("kind"), first.get("evidence_id")), "Source unavailable"
         )
         run.additional_sources = max(0, len(run.inputs) - 1)
+    trips = report(case, "vehicle-trips")
+    trips["items"] = trips["items"][:3]
+    trips["gaps"] = []
+    pattern_findings = []
+    for name, label in (("calls", "Call patterns"), ("duplicates", "Repeated files")):
+        current = report(case, name)
+        if current["items"] and (name != "calls" or len(current["items"]) > 1):
+            pattern_findings.append(
+                {"name": name, "label": label, "summary": current["summary"]}
+            )
     return render(
         request,
         "core/analysis/index.html",
@@ -185,7 +196,15 @@ def index(request, case_id):
             ),
             "evidence_kinds": KIND_LABELS.items(),
             "run_statuses": AnalysisRun.Status.choices,
+            "highlights": _case_highlights(all_runs, case),
+            "processing_counts": {
+                row["status"]: row["total"]
+                for row in all_runs.values("status").annotate(total=Count("pk"))
+            },
+            "trip_report": trips,
+            "pattern_findings": pattern_findings,
             "reports": (
+                ("vehicle-trips", "Vehicle trips", "Journeys, stops and gaps"),
                 ("calls", "Call patterns", "Counts, duration and timing"),
                 (
                     "vehicle-coverage",
@@ -256,6 +275,7 @@ def current_report(request, case_id, name):
                 "Reported speed median (km/h)",
                 "Reported heading counts",
             ),
+            "vehicle-trips": ("Possible trips", "Vehicles in selection"),
             "duplicates": ("Duplicate byte groups", "Occurrences in duplicate groups"),
         }
         prioritize_measurements(data, "Selected records", *summary_fields[name])
@@ -263,6 +283,8 @@ def current_report(request, case_id, name):
             item["measurements"] = formatter(item.get("values", {}))
         if name == "calls":
             tables = phone_presentation.report_table(data)
+        elif name == "vehicle-trips":
+            tables = []
         elif name in {"vehicle-coverage", "vehicle-speed"}:
             tables = geo_presentation.report_table(data, name)
         else:
@@ -408,11 +430,34 @@ def create(request, case_id, kind=None, evidence_id=None):
             kwargs={"case_id": case.pk, "kind": kind, "evidence_id": item.pk},
         )
         operations = _additional_operations(kind)
+    chooser_context = _context(request, case) | {
+        "operation_groups": [
+            (
+                group,
+                [
+                    {
+                        "key": key,
+                        "label": operations[key].label,
+                        "description": description,
+                    }
+                    for key, description in choices.items()
+                    if key in operations
+                ],
+            )
+            for group, choices in OPERATION_GROUPS.items()
+            if operations.keys() & choices.keys()
+        ],
+        "evidence": evidence[1] if evidence else None,
+        "evidence_url": evidence_url,
+        "chooser_url": request.path,
+    }
     operation = (
         request.POST.get("operation")
         if request.method == "POST"
-        else request.GET.get("operation", "native_text")
+        else request.GET.get("operation")
     )
+    if request.method == "GET" and operation not in operations:
+        return render(request, "core/analysis/create.html", chooser_context)
     if operation not in operations:
         operation = next(iter(operations))
     query = request.GET.get("q", "")[:200] if evidence is None else ""
@@ -453,20 +498,12 @@ def create(request, case_id, kind=None, evidence_id=None):
     return render(
         request,
         "core/analysis/create.html",
-        _context(request, case)
+        chooser_context
         | {
             "form": form,
             "source_options": [
                 (choice, str(choice.data["value"]).count(":") == 1)
                 for choice in form["sources"]
-            ],
-            "operation_groups": [
-                (
-                    group,
-                    [(key, operations[key].label) for key in keys if key in operations],
-                )
-                for group, keys in OPERATION_GROUPS.items()
-                if operations.keys() & keys.keys()
             ],
             "operation": operation,
             "operation_label": OPERATIONS[operation].label,
@@ -477,8 +514,6 @@ def create(request, case_id, kind=None, evidence_id=None):
                 if operation in keys
             ),
             "query": query,
-            "evidence": evidence[1] if evidence else None,
-            "evidence_url": evidence_url,
         },
     )
 
@@ -544,6 +579,92 @@ def _evidence_highlights(runs, case, kind, evidence_id):
         "entities": 2,
         "text_topics": 4,
     }
+    highlights = []
+    for run_id, _operation, status in sorted(
+        recent, key=lambda row: priority.get(row[1], 3)
+    ):
+        if status not in {AnalysisRun.Status.COMPLETE, AnalysisRun.Status.PARTIAL}:
+            continue
+        result = (
+            AnalysisResult.objects.filter(case=case, run_id=run_id, run__case=case)
+            .select_related("run")
+            .first()
+        )
+        if result is not None:
+            highlights.extend(
+                _result_highlights(result, case, kind=kind, evidence_id=evidence_id)
+            )
+        if len(highlights) >= 12:
+            break
+    return highlights[:12]
+
+
+def _case_highlights(runs, case):
+    """Recent useful results, latest per operation/source, with current sources."""
+    recent = (
+        runs.filter(result__case=case)
+        .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
+        .exclude(
+            operation__in=(
+                "native_text",
+                "ocr",
+                "audio_metadata",
+                "location_quality",
+                "normalize_addresses",
+                "text_topics",
+            )
+        )
+        .select_related("result")
+        .order_by("-created_at", "pk")[:40]
+    )
+    seen = set()
+    highlights = []
+    for run in recent:
+        identities = {
+            (
+                run.operation,
+                item["kind"],
+                item["evidence_id"],
+                item.get("attachment_id") or "",
+            )
+            for item in run.inputs
+        }
+        current = identities - seen
+        seen.update(identities)
+        if not current or run.status not in {
+            AnalysisRun.Status.COMPLETE,
+            AnalysisRun.Status.PARTIAL,
+        }:
+            continue
+        highlights.extend(_result_highlights(run.result, case, allowed=current))
+        if len(highlights) >= 12:
+            break
+    return highlights[:12]
+
+
+def _result_highlights(result, case, *, kind=None, evidence_id=None, allowed=None):
+    run = result.run
+    operation = run.operation
+    try:
+        sources = resolve_inputs(run, case)
+    except AnalysisError, Http404:
+        return []
+    selected_sources = {
+        str(source.id): source
+        for source in sources
+        if (
+            source.kind == kind and source.item.pk == evidence_id
+            if kind is not None
+            else not source.item.is_archived
+            and (
+                run.operation,
+                source.kind,
+                str(source.item.pk),
+                str(source.attachment.pk) if source.attachment else "",
+            )
+            in allowed
+        )
+    }
     measurement_keys = {
         "image_metadata": ("Capture time candidate", "GPS candidate"),
         "audio_metadata": (
@@ -556,106 +677,81 @@ def _evidence_highlights(runs, case, kind, evidence_id):
         "location_quality": ("Event time", "Position origin", "Address"),
     }
     highlights = []
-    for run_id, operation, status in sorted(
-        recent, key=lambda row: priority.get(row[1], 3)
-    ):
-        if status not in {AnalysisRun.Status.COMPLETE, AnalysisRun.Status.PARTIAL}:
-            continue
-        result = (
-            AnalysisResult.objects.filter(case=case, run_id=run_id, run__case=case)
-            .select_related("run")
-            .first()
-        )
-        if result is None:
-            continue
-        run = result.run
-        try:
-            sources = resolve_inputs(run, case)
-        except AnalysisError, Http404:
-            continue
-        sources_for_evidence = {
-            str(source.id): source
-            for source in sources
-            if source.kind == kind and source.item.pk == evidence_id
-        }
-        reviews = {
-            review.item_index: review
-            for review in result.reviews.filter(case=case)
-            .only("item_index", "decision")
-            .order_by("item_index", "-created_at", "pk")
-            .distinct("item_index")
-        }
-        rejected = AnalysisReview.Decision.REJECTED
-        if None in reviews and reviews[None].decision == rejected:
-            continue
+    reviews = {
+        review.item_index: review
+        for review in result.reviews.filter(case=case)
+        .only("item_index", "decision")
+        .order_by("item_index", "-created_at", "pk")
+        .distinct("item_index")
+    }
+    rejected = AnalysisReview.Decision.REJECTED
+    if None in reviews and reviews[None].decision == rejected:
+        return []
 
-        findings = enumerate(result.data.get("items", []))
+    findings = enumerate(result.data.get("items", []))
+    if operation == "plate_ocr":
+        findings = sorted(
+            findings,
+            key=lambda entry: (
+                entry[1].get("values", {}).get("Minimum word confidence (0–100)") or 0
+            ),
+            reverse=True,
+        )
+    plate_readings = set()
+    for index, finding in findings:
+        review = reviews.get(index)
+        source = next(
+            (
+                selected_sources[key]
+                for key in finding.get("source_ids", [])
+                if key in selected_sources
+            ),
+            None,
+        )
+        if source is None or (review and review.decision == rejected):
+            continue
+        values = finding.get("values", {})
+        keys = measurement_keys.get(operation, ())
+        fields = {
+            key: values[key]
+            for key in keys
+            if values.get(key) not in (None, "", "Unknown")
+        }
+        if not (fields if keys else finding.get("text", "").strip()):
+            continue
+        row = _finding_row(finding, index, review, case, run)
+        if row["weak_plate_region"] or row["low_ocr_score"]:
+            continue
         if operation == "plate_ocr":
-            findings = sorted(
-                findings,
-                key=lambda entry: (
-                    entry[1].get("values", {}).get("Minimum word confidence (0–100)")
-                    or 0
-                ),
-                reverse=True,
-            )
-        plate_readings = set()
-        shown = 0
-        for index, finding in findings:
-            review = reviews.get(index)
-            source = next(
-                (
-                    sources_for_evidence[key]
-                    for key in finding.get("source_ids", [])
-                    if key in sources_for_evidence
-                ),
-                None,
-            )
-            if source is None or (review and review.decision == rejected):
+            if row["summary_text"] in plate_readings:
                 continue
-            values = finding.get("values", {})
-            keys = measurement_keys.get(operation, ())
-            fields = {
-                key: values[key]
-                for key in keys
-                if values.get(key) not in (None, "", "Unknown")
-            }
-            if not (fields if keys else finding.get("text", "").strip()):
-                continue
-            row = _finding_row(finding, index, review, case, run)
-            if operation == "plate_ocr":
-                if row["summary_text"] in plate_readings:
-                    continue
-                plate_readings.add(row["summary_text"])
-            if fields:
-                row["summary_text"] = ""
-                row["measurements"] = measurement_formatter(fields, case=case)(fields)
-            if operation == "image_metadata":
-                row["label"] = "Embedded metadata claims"
-            if operation == "geocode_locations":
-                row["label"] = (
-                    "Reviewed geographic estimate"
-                    if review and review.decision == AnalysisReview.Decision.ACCEPTED
-                    else "Geographic lookup candidate"
-                )
-            if operation == "text_topics" and "occurrences" in values:
-                row["summary_text"] = ""
-                row["label"] = f"Keyword · {finding['label']}"
-            row["anchors"] = [
-                anchor
-                for anchor in finding.get("anchors", [])
-                if anchor.get("source_id") == str(source.id)
-            ][:1]
-            row["attachment_label"] = phone_presentation.addition_label(
-                source, operation
+            plate_readings.add(row["summary_text"])
+        if fields:
+            row["summary_text"] = ""
+            row["measurements"] = measurement_formatter(fields, case=case)(fields)
+        if operation == "image_metadata":
+            row["label"] = "Embedded metadata claims"
+        if operation == "geocode_locations":
+            row["label"] = (
+                "Reviewed geographic estimate"
+                if review and review.decision == AnalysisReview.Decision.ACCEPTED
+                else "Geographic lookup candidate"
             )
-            row["partial"] = run.status == AnalysisRun.Status.PARTIAL
-            highlights.append(row)
-            shown += 1
-            if len(highlights) == 12:
-                return highlights
-            if shown == 3:
-                break
+        if operation == "text_topics" and "occurrences" in values:
+            row["summary_text"] = ""
+            row["label"] = f"Keyword · {finding['label']}"
+        row["anchors"] = [
+            anchor
+            for anchor in finding.get("anchors", [])
+            if anchor.get("source_id") == str(source.id)
+        ][:1]
+        row["attachment_label"] = phone_presentation.addition_label(source, operation)
+        row["partial"] = run.status == AnalysisRun.Status.PARTIAL
+        row["source_title"] = source.item.title
+        row["source_url"] = source.original_url
+        highlights.append(row)
+        if len(highlights) == 3:
+            break
     return highlights
 
 
@@ -987,6 +1083,7 @@ def detail(request, case_id, run_id):
                 )(result.data.get("metrics", {})),
                 "items": items,
                 "focused_finding": focused,
+                "show_result_overview": not focused or run.status != "complete",
                 "metadata_result": run.operation
                 in {"image_metadata", "audio_metadata"},
                 "finding_page": finding_page,

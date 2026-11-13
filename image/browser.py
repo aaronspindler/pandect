@@ -41,14 +41,15 @@ class PlateBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("core:analysis:create", case_id=self.case.pk))
-                page.get_by_label("Analysis", exact=True).select_option("plate_ocr")
-                page.get_by_role("button", name="Show sources", exact=True).click()
+                page.goto(
+                    self.url("core:analysis:create", case_id=self.case.pk)
+                    + "?operation=plate_ocr"
+                )
                 page.get_by_label("Image · Synthetic vehicle plate", exact=True).check()
                 expect(
                     page.get_by_role("checkbox", name="I approve external processing")
                 ).to_have_count(0)
-                page.get_by_role("button", name="Queue analysis", exact=True).click()
+                page.get_by_role("button", name="Start analysis", exact=True).click()
                 expect(
                     page.get_by_role("status").filter(has_text=re.compile(r"^Queued$"))
                 ).to_be_visible()
@@ -71,7 +72,7 @@ class PlateBrowserTests(BrowserTestCase):
                     "link", name=plate_text
                 )
                 expect(finding).to_have_count(1)
-                expect(finding).to_contain_text("Awaiting review")
+                expect(finding).not_to_contain_text("Awaiting review")
                 expect(finding).to_contain_text("Partial coverage")
                 expect(finding).to_contain_text("Plate-likeness:")
                 self.assertEqual(
@@ -83,7 +84,10 @@ class PlateBrowserTests(BrowserTestCase):
                     ),
                     "none",
                 )
-                expect(page.get_by_role("heading", name="Run history")).to_be_visible()
+                expect(
+                    page.get_by_text("Processing history", exact=True)
+                ).to_be_visible()
+                expect(page.locator(".analysis-history-row:visible")).to_have_count(0)
                 for width, height in ((1440, 900), (390, 844), (320, 844)):
                     page.set_viewport_size({"width": width, "height": height})
                     self.assertLessEqual(
@@ -136,6 +140,7 @@ class PlateBrowserTests(BrowserTestCase):
                     )
                 ).to_be_visible()
                 self.capture(page, engine, "plate-weak-regions")
+                page.get_by_role("link", name="Back to findings", exact=True).click()
                 page.get_by_role("link", name="Hide weak regions", exact=True).click()
                 expect(page.locator(".analysis-finding-link")).to_have_count(3)
                 page.locator(".analysis-finding-link").first.click()

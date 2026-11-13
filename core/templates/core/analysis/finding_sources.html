@@ -14,7 +14,7 @@
     <p class="muted">Reviewed estimate · {{ source.reviewed_coordinates.0 }}, {{ source.reviewed_coordinates.1 }}</p>
     {% endif %}
     {% if source.anchors %}<div class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=source.anchors %}</div>{% endif %}
-    {% if source.excerpt and source.excerpt != item.text or source.excerpt and not compact %}<blockquote class="analysis-source-excerpt">{{ source.excerpt }}</blockquote>{% endif %}
+    {% if source.excerpt and source.excerpt != item.text %}<blockquote class="analysis-source-excerpt">{{ source.excerpt }}</blockquote>{% endif %}
   </li>
   {% endfor %}
 </ul>

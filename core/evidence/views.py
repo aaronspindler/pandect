@@ -291,10 +291,7 @@ def _duplicate_review(request, case, kind, item):
     }
 
 
-@product_login_required
-@require_safe
-def bulk_create(request, case_id):
-    case = get_case(request.user, case_id, edit=True)
+def _add_files(request, case):
     form = evidence_form("document")(
         kind="document", instance=KINDS["document"](case=case, uploaded_by=request.user)
     )
@@ -302,8 +299,21 @@ def bulk_create(request, case_id):
         "shared_fields": [form[name] for name in SOURCE_FIELDS],
         "max_batch_files": settings.PANDECT_MAX_BATCH_FILES,
         "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
+        "manual_kinds": [
+            (kind, label)
+            for kind, label in KIND_LABELS.items()
+            if kind not in (*FILE_KINDS, "text")
+        ],
+        "nav_section": "evidence",
     }
     return render(request, "core/evidence/bulk_form.html", context)
+
+
+@product_login_required
+@require_safe
+def bulk_create(request, case_id):
+    case = get_case(request.user, case_id, edit=True)
+    return _add_files(request, case)
 
 
 @product_login_required
@@ -324,6 +334,8 @@ def create(request, case_id):
         if wants_json(request):
             return _error(request, "not_found", "This case is unavailable.", 404)
         raise
+    if request.method == "GET" and "kind" not in request.GET:
+        return _add_files(request, case)
     kind = (
         request.POST.get("kind", "document")
         if request.method == "POST"

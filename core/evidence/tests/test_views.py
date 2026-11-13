@@ -26,6 +26,7 @@ from text.models import TextEvidence
 class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
     def test_bulk_page_requires_current_case_edit_access(self):
         self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 302)
+        self.assertEqual(self.client.get(self.url("create")).status_code, 302)
         for role, status in (
             ("owner", 200),
             ("editor", 200),
@@ -36,12 +37,13 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             with self.subTest(role=role):
                 response = self.client.get(self.url("bulk_create"))
                 self.assertEqual(response.status_code, status)
+                intake = self.client.get(self.url("create"))
+                self.assertEqual(intake.status_code, status)
                 collection = self.client.get(self.url("list"))
                 if status == 200:
                     self.assertContains(collection, self.url("create"))
-                    self.assertContains(
-                        self.client.get(self.url("create")), self.url("bulk_create")
-                    )
+                    self.assertTemplateUsed(intake, "core/evidence/bulk_form.html")
+                    self.assertContains(intake, "data-bulk-upload")
                     self.assertContains(response, "Shared source details")
                     self.assertContains(response, self.url("create"))
                     directives = response["Cache-Control"].split(", ")
@@ -54,10 +56,12 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             case=self.case, user=self.users["editor"]
         ).delete()
         self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 404)
+        self.assertEqual(self.client.get(self.url("create")).status_code, 404)
         self.users["outsider"].is_superuser = True
         self.users["outsider"].save()
         self.login("outsider")
         self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 404)
+        self.assertEqual(self.client.get(self.url("create")).status_code, 404)
 
     def test_bulk_page_rejects_unverified_users_and_writes(self):
         self.login("owner")
@@ -66,15 +70,30 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         )
         EmailAddress.objects.filter(user=self.users["owner"]).update(verified=False)
         self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 302)
+        self.assertEqual(self.client.get(self.url("create")).status_code, 302)
         self.assertEqual(TextEvidence.objects.count(), 0)
 
     @override_settings(PANDECT_MAX_BATCH_FILES=3, PANDECT_MAX_FILE_BYTES=4096)
     def test_bulk_page_displays_configured_limits_and_single_file_fallback(self):
         self.login("editor")
-        response = self.client.get(self.url("bulk_create"))
-        self.assertContains(response, 'data-max-batch-files="3"')
-        self.assertContains(response, 'data-max-file-bytes="4096"')
-        self.assertContains(response, "add one file at a time")
+        for route in ("create", "bulk_create"):
+            with self.subTest(route=route):
+                response = self.client.get(self.url(route))
+                self.assertContains(response, 'data-max-batch-files="3"')
+                self.assertContains(response, 'data-max-file-bytes="4096"')
+                self.assertContains(
+                    response,
+                    f'href="{self.url("create")}?kind=document">add one file at a time',
+                )
+                self.assertContains(response, f'href="{self.url("create")}?kind=text"')
+                self.assertCountEqual(
+                    [kind for kind, _ in response.context["manual_kinds"]],
+                    set(KINDS) - set(FILE_KINDS) - {"text"},
+                )
+        fallback = self.client.get(self.url("create"), {"kind": "document"})
+        self.assertTemplateUsed(fallback, "core/evidence/form.html")
+        self.assertEqual(fallback.context["kind"], "document")
+        self.assertContains(fallback, 'id="id_file"')
 
     def test_create_all_types_for_owner_and_editor_preserves_originals(self):
         for role in ("owner", "editor"):
@@ -126,6 +145,8 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         for kind in KINDS:
             with self.subTest(kind=kind):
                 form = self.client.get(self.url("create") + f"?kind={kind}")
+                self.assertTemplateUsed(form, "core/evidence/form.html")
+                self.assertEqual(form.context["kind"], kind)
                 self.assertContains(form, "submission_id")
                 response = self.client.post(self.url("create"), self.payload(kind))
                 self.assertEqual(response.status_code, 302)
@@ -384,6 +405,9 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             self.url("create"), self.payload(body="", title="Keep this title")
         )
         self.assertEqual(response.status_code, 400)
+        self.assertTemplateUsed(response, "core/evidence/form.html")
+        self.assertEqual(response.context["kind"], "text")
+        self.assertTrue(response.context["form"].is_bound)
         self.assertContains(response, "Keep this title", status_code=400)
         self.assertFalse(TextEvidence.objects.exists())
         response = self.client.post(
@@ -540,6 +564,9 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
 
     def test_invalid_uuid_kind_and_missing_parent_cannot_leak_records(self):
         self.login("owner")
+        for kind in ("unsupported", ""):
+            response = self.client.get(self.url("create"), {"kind": kind})
+            self.assertEqual(response.status_code, 400)
         item = self.text()
         response = self.client.get(self.url("detail", item, kind="unsupported"))
         self.assertEqual(response.status_code, 404)

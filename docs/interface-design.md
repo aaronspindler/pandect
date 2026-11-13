@@ -34,9 +34,9 @@ optional metadata and repeated list timestamps are omitted where they add no val
 Evidence search stays visible; **Filters** opens type and archive-state selectors,
 with an explicit **Apply filters** submit. Non-default filters reopen on navigation
 and stay in record URLs. Repeated ingestion dates are omitted from collection
-rows; exact dates remain in record history. Bulk upload is available on file
-forms; CSV import is available on the vehicle-location form and in Vehicles
-instead of crowding unrelated screens.
+rows; exact dates remain in record history. **Add evidence** opens mixed-file
+upload directly, with **Add text** and **Import vehicle locations** alongside it.
+Manual location and communication forms live under **More ways to add evidence**.
 
 Location originals show the linked person/vehicle, supplied address or coordinates,
 observation time and available speed. **Original CSV row and interpretation** holds
@@ -49,7 +49,7 @@ validation errors. Required original fields remain visible.
 
 Management screens use consistent section dividers, readable detail and form
 widths, aligned actions, and explicit filter recovery. A single **Case navigation**
-menu serves every viewport. Evidence and Analysis are its primary destinations.
+menu serves every viewport. Evidence and Findings are its primary destinations.
 Map, People, Vehicles, owner-only Settings, and **Case details** belong under
 **Case tools**.
 On small screens it starts closed when JavaScript is available. Without JavaScript
@@ -61,44 +61,58 @@ Operator forms disclose optional source metadata, permission pickers, and record
 dates while retaining core fields and access flags. Field errors reveal their
 containing group.
 
-Add evidence uses a labelled type selector and an explicit **Choose type** button
-that works without JavaScript. All ten types remain available. The form starts
-with the title and original material. **Source details** holds optional source
-metadata. File forms link to bulk upload and vehicle-location forms link to CSV import.
-Adding eligible evidence queues bounded local checks, with status and results in
-the evidence's Analysis tab.
+Single-record forms identify their evidence type in the page title. **Change type**
+contains a labelled selector and explicit **Choose type** button that works without
+JavaScript. All ten types remain available. Required title and original material
+stay visible; **Source details** holds optional metadata. The mixed-file uploader
+links to an explicit single-document form when JavaScript is unavailable. Adding eligible evidence queues bounded local checks, with
+status and results in the evidence's Findings tab.
 
 The evidence reader keeps its contents within `60rem`, with metadata within
 `42rem`, so wide monitors do not separate labels from related information.
-**View analysis** is available beside the title when runs exist. Owners and
-editors see **Analyze evidence** for records without runs. Keep download there
-for every case role. **Details** holds saved read-only descriptions,
-record history, integrity, editing and archive/restore controls, with a retention explanation; **Analysis**
-leads with source-linked findings and keeps analysis controls and run history
-below. Original, Analysis, and Details
-use the same section navigation and evidence title. Collection filters survive
-this round trip; evidence analysis uses `results_page` separately from the
-collection's `page` parameter. The local-analysis explanation is concise, with
-supported-content guidance in a native disclosure. Additional processing and
-comparisons remain explicit, separate choices below run history.
+Downloads remain beside the evidence title for every case role. **Details** holds
+saved read-only descriptions, record history, integrity, editing and archive/restore
+controls. **Findings** leads with source-linked results and partial-coverage labels.
+Original details, rerunning checks, processing history, and additional analysis
+are collapsed native disclosures. Additional checks and comparisons share one
+entry point. Review state and forms remain available on
+individual results, without an “Awaiting review” label on every highlight.
+Original, Findings, and Details use the same section navigation and evidence title.
+Collection filters survive this round trip; evidence findings use `results_page`
+separately from the collection's `page` parameter. Validation errors open their
+containing controls, and paginated processing history stays open on navigation.
 
-Case Analysis gives recent runs the main reading area. The evidence-type and
-outcome filters preserve the list page through a run and its reviews. Run rows
-show the first source title, evidence types, additional-source count and outcome.
-Four current-record reports sit in a secondary column on wide screens and
-follow the runs on smaller screens, with a **View reports** jump link. The setup
-form groups operations by task and identifies source versions and additions.
+The case Findings screen leads with useful results and vehicle trips. Processing
+history retains evidence-type and outcome filters and source-linked run rows,
+but remains secondary to the results. Current-evidence reports and deliberate
+additional analysis remain available. Additional analysis first offers tasks in
+groups; choosing a task opens its own source-selection form. Required sample,
+area and claimed-event inputs stay visible. **Options** contains optional tuning
+and opens after errors. Source versions and additions remain explicit. External
+processing still requires approval.
+
+Vehicle-location CSV import asks for the vehicle mapping before its collapsed
+source-row preview. Invalid rows open the preview; possible-duplicate counts stay
+visible beside the mapping form. Import completion links to Findings and keeps
+individual observations in a disclosure. The original CSV and all attribution
+remain accessible throughout.
 
 Analysis selection, assumptions, external-processing approval, and review fields
 use the same field rendering as other forms, including help and error links.
-Assumptions open after validation errors, and enhanced error links reveal any
+Optional settings open after validation errors, and enhanced error links reveal any
 containing disclosure before focusing the field. Processing progress has a native
-progress indicator. Findings show source links and review state with the output.
+progress indicator. Findings show source links and limitations with the output.
+Review and processing details are collapsed, with retry controls exposed after
+a processing failure.
 Use metadata tables, retained image regions and crops, recording intervals,
 paired passages and sample values, message sequences, and observation maps where
 the operation supplies those records. Reports place chronological or grouped
-source rows below their main measures. Narrow report rows stack while retaining
-the field labels.
+source rows after a concise summary. Coverage warnings remain visible, while
+**About this report** holds fixed limitations and totals. Narrow report rows stack
+while retaining field labels. Trip rows show dates, endpoints and observed duration;
+source observations open on request. Vehicle pages omit the repeated vehicle name
+from each trip. Focused findings show their output and sources before processing
+metadata; identifier normalization remains available in **Value details**.
 
 These refinements preserve the three-pane evidence layout and its row-density
 targets. Validation commands and capture locations are in
@@ -118,7 +132,7 @@ over incidental mockup text or rendering details.
 
 | Region | Desktop specification |
 | --- | --- |
-| Case navigation | `13rem` wide, with the case name, All cases, Evidence, Analysis, Case tools, and account link. |
+| Case navigation | `13rem` wide, with the case name, All cases, Evidence, Findings, Case tools, and account link. |
 | Evidence list | `20rem` wide; heading and Add evidence, search, then a Filters disclosure. |
 | List chrome | At most `164px` for heading/search/filters, with a `44px` pagination footer at default zoom. |
 | Evidence row | At least `56px` high: `16px` title and `14px` type line; one whole-row link. |
@@ -147,7 +161,7 @@ Preserve safe local return destinations through sign-in and verification.
 | All cases | Searchable owned/shared case list and role; **Create case**. |
 | Create case | Required case name and **Create case**. Opens Evidence. |
 | Evidence | Case landing page with active records by default, query/type/archive-state filters, pagination, and **Add evidence** for owners/editors. |
-| Evidence detail | Original content, analysis, and downloads. Source metadata, saved read-only descriptions, editing, and archive/restore are in Details. |
+| Evidence detail | Original content, findings, and downloads. Source metadata, saved read-only descriptions, editing, and archive/restore are in Details. |
 | Add evidence | Choose files or captured text, then clear input-specific fields; **Upload files** or **Save text**. |
 | Edit evidence details | Title, optional source details, declared metadata, and **Save changes**. |
 | People | Searchable case list; **Add person** for owners/editors. |
@@ -206,15 +220,15 @@ different record. Moving to the next item follows normal record navigation.
 
 The reading pane contains:
 
-1. A compact title, a link to analysis, and an authorized download. Editing and
+1. A compact title and an authorized download. Editing and
    archive/restore controls live in Details.
-2. **Original**, **Analysis**, and **Details** links with full-page navigation and
+2. **Original**, **Findings**, and **Details** links with full-page navigation and
    collection filters preserved. Ordinary links work without JavaScript.
 3. A concise source line when supplied. Full attribution, collection time, and
    source metadata are in Details.
 4. Escaped read-only text or a supported image preview on Original. Files show
    their name, size, and download action; document/audio content can be extracted
-   through Analysis when supported. File format declarations are in Details.
+   through Findings when supported. File format declarations are in Details.
 5. Saved descriptions and source context as read-only prose in Details.
    Record history, declared technical values, and full SHA-256 open on request.
    Checksums have a copy action with a selectable text fallback.
@@ -235,16 +249,16 @@ A normal single-item HTML form is the complete fallback. JavaScript enhances
 file selection into a local batch;
 it is not required to add any supported evidence type.
 
-**Bulk add files** is a dedicated page linked from the ordinary creation form.
-Its picker and drag/drop append files without replacing pending edits. Shared source name,
+**Add evidence** opens the mixed-file uploader. Its picker and drag/drop append files without replacing pending edits. Shared source name,
 URL, description, and collection time live in an optional disclosure. They follow
 pending entries per field until individually overridden, including by a blank
 value. **Use shared details** resets an entry's source overrides. Frozen and
 saved entries keep their submitted values. Disable shared controls while uploading,
 and block file additions while
 running or any confirmation is unresolved. Saved entries count toward the page's
-queue limit. Once every entry is added or removed, **Start another batch** opens
-a fresh page. If enhanced upload support is unavailable, explain the limitation
+queue limit. Queue and upload actions appear after selection; removing every
+pending file returns to the empty picker. After every remaining entry is added,
+**Start another batch** opens a fresh page. If enhanced upload support is unavailable, explain the limitation
 and link to the ordinary single-file form.
 
 Default bounded limits are 20 entries per browser batch, 100 MiB per file, and
@@ -273,7 +287,7 @@ editable after upload.
 | Outcome unknown | Explain interrupted confirmation; retry with the same submission ID to resolve the saved result before editing, removing, or replacing the entry. |
 | Access removed | Stop queued writes and explain loss of access; do not continue blind retries. |
 
-Allow **Stop after this file**, which stops pending entries without claiming to
+Show **Stop after this file** while uploading. It stops pending entries without claiming to
 cancel a request already saving. Warn before leaving an unfinished queue. Keep
 queue contents only in page memory; do not persist investigation material to
 browser storage. A reload may require file reselection. Successful items stay

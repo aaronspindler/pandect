@@ -7,6 +7,7 @@ from django.utils import timezone
 from core.analysis.deterministic.reports import duplicate_report
 from core.analysis.reporting import MAX_RECORDS
 from geo.analysis.deterministic.reports import vehicle_report
+from geo.analysis.deterministic.trips import vehicle_trip_report
 from people.models import Person
 from phone.analysis.deterministic.reports import call_report
 from vehicle.models import Vehicle
@@ -15,6 +16,7 @@ REPORT_NAMES = {
     "calls": "calls",
     "vehicle-coverage": "vehicle",
     "vehicle-speed": "vehicle",
+    "vehicle-trips": "vehicle",
     "duplicates": "duplicates",
 }
 
@@ -76,6 +78,8 @@ def report(
             raise ValidationError(
                 "A participant filter does not apply to vehicle reports."
             )
+        if name == "vehicle-trips":
+            return vehicle_trip_report(case, state, vehicle_id, start, end, limit)
         return vehicle_report(case, state, vehicle_id, start, end, limit)
     if vehicle_id or participant_id or other_participant_id:
         raise ValidationError(

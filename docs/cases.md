@@ -6,13 +6,13 @@ has one required case; see [evidence storage](evidence.md). There is no separate
 investigation model or unscoped collection of evidence. `cases` owns ownership,
 collaboration, invitations, settings, and shared authorization. Its templates
 live under `cases/templates/cases/`, including case navigation. `core` owns the
-Evidence and Analysis destinations; `geo` owns maps and POIs.
+Evidence and Findings destinations; `geo` owns maps and POIs.
 
 ## Investigator workflow
 
 Sign in with a verified account and open **All cases**. Choose **Create case** and
 enter a name. The signed-in user becomes the owner. Opening, creating, or joining
-a case takes you to **Evidence**, with **Analysis** beside it in case navigation.
+a case takes you to **Evidence**, with **Findings** beside it in case navigation.
 Saved case URLs still open Evidence after checking access. **Case tools** groups
 Map, People, Vehicles, and owner-only Settings. Open **Case details** there for
 the owner, timestamps, and any saved read-only description. All cases searches

@@ -87,12 +87,12 @@ def duplicate_report(case, state, start, end, limit):
             "Occurrences in duplicate groups": len(items),
         }
     )
-    warnings.append(
+    limitations = [
         "Equal byte checksums identify candidate file reuse, not independent "
         "corroboration or the same event. Communication-record and attachment "
         "manifest checksums are excluded. Different file bytes are not matched; "
         "no evidence is merged or deleted."
-    )
+    ]
     return {
         "summary": (
             f"{len(repeated)} exact-byte duplicate groups among "
@@ -101,4 +101,5 @@ def duplicate_report(case, state, start, end, limit):
         "metrics": metrics,
         "items": items,
         "warnings": warnings,
+        "limitations": limitations,
     }

@@ -1,0 +1,34 @@
+<p class="muted">{{ trip_report.coverage }}</p>
+{% for warning in trip_report.warnings %}<p class="notice">{{ warning }}</p>{% endfor %}
+{% if trip_report.items %}
+<p class="help-text">Possible trips are inferred from changes in reported positions. Departure, arrival and the route between observations remain uncertain.</p>
+<ol class="trip-list">
+{% for trip in trip_report.items %}
+<li class="trip-row">
+  <div class="trip-heading">
+    <h3><time datetime="{{ trip.start.time|date:'Y-m-d' }}">{{ trip.start.time|date:'j M Y' }}</time>{% if not hide_vehicle %} · <a href="{{ trip.vehicle_url }}">{{ trip.vehicle }}</a>{% endif %}</h3>
+    <span class="muted">{{ trip.minutes|floatformat:'-1' }} min observed</span>
+  </div>
+  <div class="trip-route">
+    <div><span class="muted">From</span><a class="record-link" href="{{ trip.start.url }}">{{ trip.start.place }}</a><time datetime="{{ trip.start.time|date:'c' }}">{{ trip.start.time|date:'H:i' }} UTC</time></div>
+    <span class="trip-arrow" aria-hidden="true">→</span>
+    <div><span class="muted">To</span><a class="record-link" href="{{ trip.end.url }}">{{ trip.end.place }}</a><time datetime="{{ trip.end.time|date:'c' }}">{% if trip.start.time.date != trip.end.time.date %}{{ trip.end.time|date:'j M Y' }}, {% endif %}{{ trip.end.time|date:'H:i' }} UTC</time></div>
+  </div>
+  <details class="disclosure">
+    <summary>{{ trip.sources|length }} observation{{ trip.sources|length|pluralize }}</summary>
+    <div class="disclosure-body"><p class="muted">{{ trip.basis }}. No road route or distance travelled is inferred.</p>
+    <ul class="record-list">{% for source in trip.sources %}<li class="record-row"><div><a class="record-link" href="{{ source.url }}">{{ source.place }}</a><p><time datetime="{{ source.time|date:'c' }}">{{ source.time|date:'j M Y, H:i' }} UTC</time>{% if source.import_url %} · CSV row {{ source.row }} · <a href="{{ source.import_url }}">View import</a>{% endif %}</p></div></li>{% endfor %}</ul>
+    </div>
+  </details>
+</li>
+{% endfor %}
+</ol>
+{% else %}
+<div class="empty-state compact-empty"><h3>No trips found yet</h3><p>Trips appear automatically when timed observations for the same vehicle show a change of location. Repeated stationary observations do not form a trip.</p></div>
+{% endif %}
+{% if trip_report.gaps %}
+<details class="disclosure"><summary>{{ trip_report.gaps|length }} gap{{ trip_report.gaps|length|pluralize }} in location coverage</summary>
+<div class="disclosure-body"><p>No trip is inferred across gaps longer than one hour.</p><ul class="record-list">{% for gap in trip_report.gaps %}<li class="record-row"><div><strong>{{ gap.vehicle }} · {{ gap.minutes|floatformat:'-1' }} min without observations</strong><p><a href="{{ gap.start.url }}">{{ gap.start.time|date:'j M Y, H:i' }}</a> to <a href="{{ gap.end.url }}">{{ gap.end.time|date:'j M Y, H:i' }}</a> UTC</p></div></li>{% endfor %}</ul></div>
+</details>
+{% endif %}
+<details class="disclosure"><summary>How trips are found</summary><div class="disclosure-body"><p>Trips are recalculated from the current selection. A stop requires at least five minutes of nearby coordinates (within 100 metres) or matching address wording, with no positive reported speed. Stops and gaps over one hour separate trips. Address matching is approximate and a repeated address does not prove the vehicle stopped. Conflicting positions at the same time and positions that cannot be compared also separate trips.</p></div></details>

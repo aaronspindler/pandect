@@ -63,7 +63,139 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(
             response, reverse("core:evidence:create", kwargs={"case_id": self.case.pk})
         )
-        self.assertContains(response, 'type="submit" disabled>Queue analysis')
+        self.assertContains(response, 'type="submit" disabled>Start analysis')
+
+    def test_analysis_chooser_defers_source_selection_until_a_task_is_chosen(self):
+        self.login("editor")
+        for query in ({}, {"operation": "unknown"}):
+            response = self.client.get(self.analysis_url("create"), query)
+            self.assertContains(response, "Choose an analysis")
+            self.assertContains(response, 'href="?operation=entities"')
+            self.assertNotIn("form", response.context)
+            self.assertNotContains(response, 'name="sources"')
+            self.assertNotContains(response, ">Start analysis</button>")
+        selected = self.client.get(
+            self.analysis_url("create"), {"operation": "entities"}
+        )
+        self.assertEqual(selected.context["operation"], "entities")
+        self.assertContains(selected, "Choose evidence")
+        self.assertContains(selected, 'name="sources"')
+        self.assertContains(selected, "Change analysis")
+        self.assertNotContains(selected, 'id="analysis-operation"')
+        self.assertFalse(AnalysisRun.objects.exists())
+
+    def test_required_comparison_inputs_are_visible_and_blank_event_never_queues(self):
+        point = LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Reported point",
+            latitude=0,
+            longitude=0,
+        )
+        self.login("editor")
+        for operation, names in (
+            ("style_change", ["group_a", "group_b"]),
+            (
+                "proximity",
+                ["reference_latitude", "reference_longitude", "radius_m", "polygon"],
+            ),
+            ("location_conflicts", ["event_label"]),
+        ):
+            with self.subTest(operation=operation):
+                response = self.client.get(
+                    self.analysis_url("create"), {"operation": operation}
+                )
+                form = response.context["form"]
+                self.assertEqual([field.name for field in form.task_fields], names)
+                self.assertFalse(
+                    set(names) & {field.name for field in form.assumptions}
+                )
+                self.assertContains(
+                    response, 'class="form-layout analysis-task-fields"'
+                )
+        payload = self.payload(
+            operation="location_conflicts",
+            sources=[f"location:{point.pk}"],
+            event_label="  ",
+        )
+        response = self.client.post(self.analysis_url("create"), payload)
+        self.assertIn("event_label", response.context["form"].errors)
+        self.assertEqual(
+            response.context["form"]["sources"].value(), payload["sources"]
+        )
+        self.assertFalse(AnalysisRun.objects.exists())
+        valid = self.client.post(
+            self.analysis_url("create"), payload | {"event_label": "Reported delivery"}
+        )
+        self.assertEqual(valid.status_code, 302)
+        self.assertEqual(
+            AnalysisRun.objects.get().parameters["event_label"], "Reported delivery"
+        )
+
+    def test_required_sample_and_area_errors_keep_selection_and_open_options(self):
+        self.login("editor")
+        response = self.client.post(
+            self.analysis_url("create"), self.payload(operation="style_change")
+        )
+        form = response.context["form"]
+        self.assertIn("group_a", form.errors)
+        self.assertIn("group_b", form.errors)
+        self.assertEqual(form["sources"].value(), [f"text:{self.note.pk}"])
+        self.assertContains(response, 'class="analysis-assumptions" open')
+        point = LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Area source",
+            latitude=0,
+            longitude=0,
+        )
+        response = self.client.post(
+            self.analysis_url("create"),
+            self.payload(
+                operation="proximity",
+                sources=[f"location:{point.pk}"],
+                reference_latitude="0",
+            ),
+        )
+        form = response.context["form"]
+        self.assertIn("reference_latitude", form.errors)
+        self.assertEqual(form["reference_latitude"].value(), "0")
+        self.assertEqual(form["sources"].value(), [f"location:{point.pk}"])
+        self.assertFalse(AnalysisRun.objects.exists())
+
+    def test_configuration_errors_keep_the_exact_extraction_version(self):
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Two extraction versions",
+            file=ContentFile(b"Write to source@example.test.", name="source.txt"),
+        )
+        runs = []
+        for _ in range(2):
+            run, _ = start_run(
+                self.users["owner"],
+                self.case.pk,
+                "native_text",
+                [{"kind": "document", "id": str(document.pk)}],
+            )
+            process_run(run.pk)
+            runs.append(run)
+        selected = f"document:{document.pk}:-:{runs[0].result.pk}"
+        self.login("owner")
+        response = self.client.post(
+            self.analysis_url("create"),
+            self.payload(
+                operation="content_events", sources=[selected], backend="gateway"
+            ),
+        )
+        form = response.context["form"]
+        self.assertIn("external_processing", form.errors)
+        self.assertEqual(form["sources"].value(), [selected])
+        self.assertIn(
+            f"document:{document.pk}:-:{runs[1].result.pk}",
+            dict(form.fields["sources"].choices),
+        )
+        self.assertEqual(AnalysisRun.objects.count(), 2)
 
     def test_history_names_current_sources_without_exposing_foreign_case_titles(self):
         own = self.analysis_run(complete=False)
@@ -200,12 +332,12 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
                 if expected == 200:
                     self.assert_private(response)
                     self.assertContains(detail, f'href="{url}"')
-                    self.assertContains(response, 'aria-current="page">Analysis</a>')
+                    self.assertContains(response, 'aria-current="page">Findings</a>')
                     if role == "viewer":
                         self.assertNotContains(response, "External analysis")
-                        self.assertNotContains(response, ">Analyze evidence</button>")
+                        self.assertNotContains(response, ">Run checks</button>")
                     else:
-                        self.assertContains(response, ">Analyze evidence</button>")
+                        self.assertContains(response, ">Run checks</button>")
                 if role in {"viewer", "outsider"}:
                     self.assertEqual(
                         self.client.post(url, self.payload()).status_code,
@@ -374,7 +506,10 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertContains(response, "source@example.test", count=1)
         self.assertNotContains(response, "other@example.test")
-        self.assertContains(response, "Accepted")
+        self.assertEqual(
+            response.context["highlights"][0]["latest_review"].decision, "accepted"
+        )
+        self.assertNotContains(response, "Awaiting review")
         target = finding_url(self.case.pk, run.pk, 0)
         self.assertContains(response, target.replace("&", "&amp;"))
         self.assertContains(self.client.get(target), "source@example.test")
@@ -439,7 +574,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             self.analysis_url(
                 "external_evidence", kind="text", evidence_id=self.note.pk
             ),
-            {"q": "Does not match the target"},
+            {"operation": "content_events", "q": "Does not match the target"},
         )
         form = response.context["form"]
         self.assertEqual(form["sources"].value(), [f"text:{self.note.pk}"])
@@ -453,7 +588,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertNotContains(response, "Other retained note")
         self.assertNotContains(response, self.foreign.title)
-        self.assertNotContains(response, "Find source titles")
+        self.assertNotContains(response, "Find evidence by title")
 
     def test_external_evidence_requires_approval_current_edit_access_and_csrf(self):
         url = self.analysis_url(
@@ -537,7 +672,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(
             self.analysis_url(
                 "external_evidence", kind="phone-call", evidence_id=call.pk
-            )
+            ),
+            {"operation": "transcription"},
         )
         self.assertEqual(
             response.context["form"]["sources"].value(),
@@ -553,9 +689,9 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         url = self.analysis_url(
             "external_evidence", kind="phone-call", evidence_id=empty_call.pk
         )
-        response = self.client.get(url)
+        response = self.client.get(url, {"operation": "transcription"})
         self.assertContains(response, "No suitable sources")
-        self.assertContains(response, 'type="submit" disabled>Queue analysis')
+        self.assertContains(response, 'type="submit" disabled>Start analysis')
         self.assertNotContains(response, "call.wav")
         response = self.client.post(
             self.analysis_url(

@@ -62,6 +62,7 @@
   const sharedDetails = form.querySelector("[data-shared-details]");
   const sharedInputs = Array.from(sharedDetails?.querySelectorAll("input, textarea") || []);
   const newBatch = form.querySelector("[data-new-batch]");
+  const uploadActions = form.querySelector("[data-upload-actions]");
   let running = false, stopRequested = false, blocked = false;
   fileInput.multiple = true;
   fileInput.setAttribute("aria-describedby", `${fileInput.id}_helptext`);
@@ -77,6 +78,8 @@
     const unfinished = entries.some((entry) => entry.state !== "added");
     submit.disabled = running || blocked || !entries.some((entry) => !entry.invalidFile && ["ready", "failed", "unknown"].includes(entry.state));
     fileInput.disabled = running || blocked || unknown;
+    stopButton.hidden = !running;
+    if (uploadActions) uploadActions.hidden = !entries.length;
     if (sharedDetails) sharedDetails.disabled = running || blocked;
     if (newBatch) newBatch.hidden = running || blocked || unfinished || !entries.length;
     const label = form.querySelector("[data-file-label]");
@@ -149,7 +152,7 @@
       entry.state = "removed"; entry.node.remove();
       entries = entries.filter((item) => item !== entry);
       refreshControls();
-      if (!entries.length && !bulk) {
+      if (!entries.length) {
         section.hidden = true;
         fileInput.focus();
       }

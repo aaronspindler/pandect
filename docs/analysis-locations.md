@@ -143,6 +143,22 @@ candidate matches and 256 KiB of response data. Addresses longer than 2,000
 characters are unsupported for lookup; the retained original may be longer.
 Redirects are not followed. There are no client-side automatic retries.
 
+Forward lookup recognizes imported comma-delimited Canadian addresses with at
+least street, municipality, province, `CAN`, and a trailing Canadian-format
+postcode. It submits the `CAN` component as Nominatim's `countrycodes=ca` filter
+instead of free-text content, retaining the other address fields, including the
+postcode. Other address formats are submitted unchanged. Each finding retains
+the submitted query; adjusted lookups also retain the exact original address,
+country filter and adjustment explanation, including no-match and failed lookups.
+This makes one request per distinct original query, without broadening to a
+street/city-only search. Returned addresses can still disagree with the source,
+including its postcode; candidates remain estimates requiring review.
+
+This query handling is geocoding method version 2. Upgrade web and worker together
+and start a new run for previous no-match results. Queued version 1 work fails
+recoverably with `processing_version_unavailable` on a version 2 worker; earlier
+results and originals remain retained. No database migration is required.
+
 [Forward lookup](https://nominatim.org/release-docs/latest/api/Search/) retains
 candidate coordinates, display address, match granularity, bounding box, source
 reference, attribution, lookup time, query and reference version. Alternatives
@@ -170,3 +186,35 @@ trajectory interpretations discussed in Microsoft's
 [trajectory-data mining research](https://www.microsoft.com/en-us/research/project/trajectory-data-mining/).
 Road-network reconstruction and inferred transport modes require additional
 inputs and evaluation beyond these methods.
+
+## Automatic vehicle trips
+
+Vehicle pages and the **Vehicle trips** report calculate possible trips from the
+current vehicle-location evidence as soon as observations are available. This
+includes address-only Asset Location CSV imports after their associations and time
+interpretation have been confirmed. No analysis job, geocoding lookup, or finding
+review is needed. The existing coordinate-based retained journey operation remains
+available for a deliberately selected, versioned analysis.
+
+The current-evidence report uses at most the latest 500 matching observations by
+reported observation time and shows its coverage. Vehicle and UTC date filters let
+investigators inspect another period; archived observations are excluded by default.
+Vehicle pages show the five most recent possible trips and link to the full report.
+Untimed observations cannot form trips. Each vehicle is segmented independently,
+using only evidence whose vehicle and import provenance remain in the same case.
+
+Reported coordinates take precedence when both observations have them; positions
+within 100 metres are treated as nearby. Otherwise conservative matching address
+wording groups nearby observations without inferring coordinates. A stationary
+group lasting at least five observed minutes, with no positive reported speed,
+separates possible trips. Gaps longer than one hour, conflicting positions at the
+same time, and positions that cannot be compared also split the sequence. Stationary
+observations alone do not produce a trip. Address wording is an approximation and
+does not establish a physical stop.
+
+Trips show their first and last observed place/time, elapsed observed minutes, all
+contributing observation links, and imported CSV row links. Actual departure,
+arrival, road route, distance travelled, driver, and continuous presence remain
+unknown. Coverage gaps are available alongside trips. Results are recalculated on
+the next page load when observations are added or archived; these reports do not
+create retained analysis results or change original evidence.

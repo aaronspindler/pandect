@@ -111,7 +111,7 @@ class VehicleReportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             list(VehicleLocationEvidence.objects.values_list("pk", "sha256")), originals
         )
-        self.assertIn("not inactivity", " ".join(result["warnings"]))
+        self.assertIn("not inactivity", " ".join(result["limitations"]))
 
     def test_vehicle_empty_and_missing_event_times_do_not_become_zero(self):
         result = report(self.case, "vehicle-speed")

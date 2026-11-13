@@ -4,13 +4,12 @@
     <p class="muted">Unverified values from the file.</p>
   </header>
   <table class="analysis-metadata-table analysis-metadata-tags" aria-labelledby="finding-heading-{{ tags.0.number }}">
-    <thead><tr><th scope="col">Tag</th><th scope="col">Value</th><th scope="col">Review</th></tr></thead>
+    <thead><tr><th scope="col">Tag</th><th scope="col">Value</th></tr></thead>
     <tbody>
       {% for item in tags|dictsort:'metadata_field' %}
       <tr id="finding-{{ item.number }}">
         <th scope="row"><a class="analysis-finding-link" href="{{ item.url }}" id="finding-link-{{ item.number }}">{{ item.metadata_field }}</a></th>
         <td class="analysis-metadata-value">{{ item.text }}</td>
-        <td class="muted">{% if item.latest_review %}{{ item.latest_review.get_decision_display }}{% else %}Awaiting review{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

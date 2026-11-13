@@ -1,0 +1,16 @@
+.trip-list { list-style: none; padding: 0; margin: 1rem 0; }
+.trip-row { border-top: 1px solid var(--divider); padding-top: 1rem; }
+.trip-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .25rem 1rem; }
+.trip-heading h3 { margin: 0; font-size: 1rem; }
+.trip-heading a { display: inline-block; padding-block: .5rem; }
+.trip-heading > span { font-size: .875rem; }
+.trip-route { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 1rem; margin-block: .5rem; }
+.trip-route > div { display: grid; align-content: start; min-width: 0; }
+.trip-route > div > span, .trip-route time { font-size: .875rem; }
+.trip-route a { overflow-wrap: anywhere; }
+.trip-arrow { align-self: center; color: var(--secondary); }
+.trip-row .disclosure { margin-block: .25rem .75rem; border: 0; }
+@media (max-width: 30rem) {
+  .trip-route { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+  .trip-arrow { display: none; }
+}

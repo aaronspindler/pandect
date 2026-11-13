@@ -142,7 +142,7 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
             args=(self.case.pk, "text", self.note.pk),
         )
         response = self.client.get(url, {"operation": "content_events"})
-        self.assertContains(response, "Additional analysis")
+        self.assertContains(response, "Suggest claims and commitments")
         self.assertContains(response, "Processing location")
         self.assertEqual(response.context["form"]["backend"].value(), "local")
         with patch(

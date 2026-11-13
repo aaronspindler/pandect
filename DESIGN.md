@@ -12,7 +12,7 @@ screen specifications and delivery plans belong in `docs/`.
 
 - **Make the task obvious.** Give each screen a clear title and one primary
   action. Keep related controls beside the material they affect.
-- **Lead with evidence and analysis.** Open cases to Evidence and keep Analysis
+- **Lead with evidence and analysis.** Open cases to Evidence and keep Findings
   beside it. Group supporting destinations under **Case tools**. Put source
   metadata, saved notes, and record history in Details or native disclosures.
 - **Make room for the investigation.** Use compact navigation, aligned rows,

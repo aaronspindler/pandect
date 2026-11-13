@@ -37,7 +37,7 @@
       <div class="empty-state compact-empty">
         {% if query or selected_kind %}<h2>No matching evidence</h2><p>Try another search or clear your filters.</p><a href="{% url 'core:evidence:list' case_id=case.pk %}">Clear filters</a>
         {% elif state == 'archived' %}<h2>No archived evidence</h2><p>Archived evidence remains available to current case members.</p>
-        {% else %}<h2>No evidence yet</h2>{% if can_edit %}<p>Add files, text, communications, or locations to begin.</p>{% else %}<p>An owner or editor can add evidence to this case.</p>{% endif %}{% endif %}
+        {% else %}<h2>No evidence yet</h2>{% if can_edit %}<p>Add files, text, communications, or locations. Supported checks run automatically.</p>{% else %}<p>An owner or editor can add evidence to this case.</p>{% endif %}{% endif %}
       </div>
       {% endfor %}
     </div>
@@ -55,14 +55,13 @@
       <div><p class="eyebrow">{{ kind_label }}</p><h1>{{ item.title }}</h1></div>
       {% if section == 'original' %}<div class="actions">
         {% if item.is_archived %}<span class="badge">Archived</span>{% endif %}
-        {% if has_analysis or can_edit %}<a class="button button-primary" href="{% url 'core:analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}">{% if has_analysis %}View analysis{% else %}Analyze evidence{% endif %}</a>{% endif %}
         <a class="button button-secondary" href="{% url 'core:evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">{% include 'ui/components/icon.html' with name='download' %} {% if is_communication %}Download communication record{% elif kind == 'text' %}Download text{% else %}Download original{% endif %}</a>
       </div>{% endif %}
     </header>
     {% if not can_edit %}<p class="role-note">You have Viewer access. You can inspect this evidence and download its original.</p>{% endif %}
     {% if item.is_archived %}<p class="notice">Archived evidence is retained and remains accessible to current case members.</p>{% endif %}
     {% include 'core/evidence/sections.html' %}
-    {% if analysis_pending %}<p class="notice">Analysis is in progress.</p>{% endif %}
+    {% if analysis_pending %}<p class="notice" role="status">Checking this evidence. Results will appear in Findings.</p>{% endif %}
     {% if section == 'original' and item.source or section == 'original' and item.source_description %}<p class="evidence-provenance">Source: {% if item.source %}{{ item.source }}{% else %}{{ item.source_description|truncatechars:160 }}{% if item.source_description|length > 160 %} <a href="{% url 'core:evidence:detail' case.pk kind item.pk %}?section=details{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}">Full source details</a>{% endif %}{% endif %}</p>{% endif %}
     {% if section == 'original' %}
       {% include reader_template %}
@@ -84,10 +83,10 @@
     {% if section == 'details' %}<details class="integrity-details"><summary>Integrity details</summary><p>A checksum identifies original content. It does not verify truth or identity.</p><dl><dt>SHA-256</dt><dd><code id="evidence-checksum">{{ item.sha256 }}</code></dd></dl><button type="button" class="button button-secondary" data-copy-target="evidence-checksum">Copy checksum</button></details>{% endif %}
     {% if section == 'details' and can_edit %}<section class="description-section"><h2>{% if item.is_archived %}Restore evidence{% else %}Archive evidence{% endif %}</h2><p class="muted">{% if item.is_archived %}Return this record to active evidence.{% else %}Move this record out of active evidence.{% endif %} The original and its analysis stay retained and accessible.</p><form method="post" action="{% if item.is_archived %}{% url 'core:evidence:restore' case_id=case.pk kind=kind evidence_id=item.pk %}{% else %}{% url 'core:evidence:archive' case_id=case.pk kind=kind evidence_id=item.pk %}{% endif %}?section=details{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}">{% csrf_token %}<button class="button button-secondary" type="submit">{% include 'ui/components/icon.html' with name='archive' %}{% if item.is_archived %}Restore{% else %}Archive{% endif %}</button></form></section>{% endif %}
     {% if section == 'details' and can_delete_evidence %}<section class="description-section"><h2>Delete evidence</h2><p class="muted">Superuser action. Permanently remove this evidence, its imported derivatives, retained files, and related analysis. You will review the consequences before deleting.</p><a class="button button-danger" href="{% url 'core:evidence:delete' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Delete evidence</a></section>{% endif %}
-    {% if vehicle_import %}<p><a href="{% url 'geo:vehicle_import_review' case_id=case.pk import_id=vehicle_import.pk %}">{% if vehicle_import.completed_at %}View vehicle location import{% else %}Resume vehicle location review{% endif %}</a></p>{% endif %}
+    {% if vehicle_import %}<p><a href="{% url 'geo:vehicle_import_review' case_id=case.pk import_id=vehicle_import.pk %}">{% if vehicle_import.completed_at %}View vehicle location import{% else %}Continue vehicle location import{% endif %}</a></p>{% endif %}
     </div>
     {% else %}
-    <div class="empty-state reader-empty"><h2>Select evidence</h2><p>Read, search, and analyze your case material.</p></div>
+    <div class="empty-state reader-empty"><h2>Select evidence</h2><p>Open an item to see its original, or go to Findings to explore the results.</p></div>
     {% endif %}
   </section>
 </div>

@@ -1,30 +1,38 @@
 {% extends 'core/analysis/base.html' %}
-{% block title %}{% if evidence %}Additional analysis{% else %}Start analysis{% endif %} · {{ case.name }}{% endblock %}
+{% block title %}{{ operation_label|default:'Additional analysis' }} · {{ case.name }}{% endblock %}
 {% block content %}
-{% if evidence %}<a class="back-link" href="{{ evidence_url }}">Back to evidence</a>{% else %}<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to analysis</a>{% endif %}
+{% if evidence %}<a class="back-link" href="{{ evidence_url }}">Back to evidence</a>{% else %}<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to findings</a>{% endif %}
 <header class="page-header">
-  <div>{% if evidence %}<h1>Additional analysis</h1><p>{{ evidence.title }}</p>{% else %}<h1>Start analysis</h1>{% endif %}</div>
+  <div><h1>{{ operation_label|default:'Choose an analysis' }}</h1>
+    {% if evidence %}<p>{{ evidence.title }}</p>{% endif %}
+    {% if operation %}<p>{{ result_guidance }}</p>{% else %}<p>Choose what you want to learn beyond the automatic checks.</p>{% endif %}
+  </div>
+  {% if operation %}<a class="record-link" href="{{ chooser_url }}">Change analysis</a>{% endif %}
 </header>
 
-<form method="get" action="#analysis-selection" class="analysis-section analysis-picker" aria-label="Choose analysis and sources">
-  <h2>1. Choose analysis</h2>
-  <div class="field">
-    <label for="analysis-operation">Analysis</label>
-    <select id="analysis-operation" name="operation">
-      {% for group,choices in operation_groups %}
-      <optgroup label="{{ group }}">{% for key,label in choices %}<option value="{{ key }}"{% if operation == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</optgroup>
-      {% endfor %}
-    </select>
+{% if not operation %}
+{% for group,choices in operation_groups %}
+<details class="analysis-section">
+  <summary>{{ group }}</summary>
+  <div class="analysis-options">
+    {% for choice in choices %}<a href="?operation={{ choice.key }}" aria-labelledby="analysis-{{ choice.key }}-label" aria-describedby="analysis-{{ choice.key }}-description"><span><strong id="analysis-{{ choice.key }}-label">{{ choice.label }}</strong><small id="analysis-{{ choice.key }}-description">{{ choice.description }}</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}
   </div>
-  {% if not evidence %}<div class="field">
-    <label for="analysis-query">Find source titles</label>
+</details>
+{% endfor %}
+{% else %}
+{% if not evidence %}
+<form method="get" action="#analysis-selection" class="analysis-section analysis-picker" aria-label="Find evidence">
+  <input type="hidden" name="operation" value="{{ operation }}">
+  <div class="field">
+    <label for="analysis-query">Find evidence by title</label>
     <input type="search" id="analysis-query" name="q" maxlength="200" value="{{ query }}">
-  </div>{% endif %}
+  </div>
   <div class="form-actions">
-    <button class="button button-secondary" type="submit">Show sources</button>
+    <button class="button button-secondary" type="submit">Find evidence</button>
     {% if query %}<a class="button button-secondary" href="?operation={{ operation }}">Clear title filter</a>{% endif %}
   </div>
 </form>
+{% endif %}
 
 <form method="post" action="{% querystring %}" id="analysis-selection" class="analysis-section analysis-form" novalidate data-unsaved-form>
   {% csrf_token %}{{ form.operation }}{{ form.submission_id }}
@@ -37,9 +45,8 @@
     </ul>
   </div>
   {% endif %}
-  <h2>2. Select sources</h2>
-  <p><strong>{{ operation_label }}</strong><br>{{ result_guidance }}</p>
-  {% if input_guidance %}<p class="notice">{{ input_guidance }}</p>{% endif %}
+  <h2>Choose evidence</h2>
+  {% if input_guidance %}<details class="disclosure"{% if not source_options %} open{% endif %}><summary>Supported sources</summary><p>{{ input_guidance }}</p></details>{% endif %}
 
   <fieldset class="analysis-sources{% if form.sources.errors %} field-error{% endif %}" id="{{ form.sources.auto_id }}"{% if source_options %} aria-describedby="analysis-source-guidance"{% endif %} tabindex="-1">
     <legend class="sr-only">{{ form.sources.label }}</legend>
@@ -62,15 +69,23 @@
         <p>No eligible sources match “{{ query }}”.</p>
         <a class="button button-secondary" href="?operation={{ operation }}">Clear title filter</a>
         {% elif evidence %}
-        <p>Choose another analysis above, or open the evidence to check its retained content.</p>
+        <p>Choose another analysis, or open the evidence to check its retained content.</p>
         <a class="button button-secondary" href="{{ evidence_url }}">Back to evidence</a>
         {% else %}
-        <p>Add supported evidence to this case, or choose another analysis above.</p>
+        <p>Add supported evidence to this case, or choose another analysis.</p>
         <a class="button button-secondary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>
         {% endif %}
       </div>
     {% endif %}
   </fieldset>
+
+  {% if form.task_fields %}
+  <fieldset class="form-layout analysis-task-fields">
+    <legend>{% if operation == 'style_change' %}Choose the two samples{% elif operation == 'proximity' %}Choose an area{% else %}Describe the comparison{% endif %}</legend>
+    {% if operation == 'proximity' %}<p class="help-text">Enter the centre coordinates and radius, or supply an area boundary.</p>{% endif %}
+    {% for field in form.task_fields %}{% include 'ui/components/form_field.html' with field=field only %}{% endfor %}
+  </fieldset>
+  {% endif %}
 
   {% if operation == 'conversation_import' %}
   <fieldset class="form-layout">
@@ -85,7 +100,7 @@
   {% endif %}
 
   {% if form.assumptions %}<details class="analysis-assumptions"{% if form.errors %} open{% endif %}>
-    <summary>Analysis assumptions</summary>
+    <summary>Options</summary>
     <div class="form-layout">
       {% for field in form.assumptions %}
         {% include 'ui/components/form_field.html' with field=field only %}
@@ -96,11 +111,11 @@
   <div class="form-layout">
     {% if form.backend %}{% include 'ui/components/form_field.html' with field=form.backend only %}{% endif %}
     {% if form.external_processing.is_hidden %}{{ form.external_processing }}{% else %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}
-    {% if source_options %}<p class="muted" id="analysis-queue-operation">Selected analysis · <strong>{{ operation_label }}</strong></p>{% endif %}
     <div class="form-actions">
-      <button class="button button-primary" type="submit"{% if source_options %} aria-describedby="analysis-queue-operation"{% else %} disabled{% endif %}>Queue analysis</button>
+      <button class="button button-primary" type="submit"{% if not source_options %} disabled{% endif %}>Start analysis</button>
       <a class="button button-secondary" href="{% if evidence %}{{ evidence_url }}{% else %}{% url 'core:analysis:index' case.pk %}{% endif %}">Cancel</a>
     </div>
   </div>
 </form>
+{% endif %}
 {% endblock %}

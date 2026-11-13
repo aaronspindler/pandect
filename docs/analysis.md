@@ -1,9 +1,18 @@
 # Case analysis and extraction
 
-The case **Analysis** workspace keeps current-field reports separate from retained
-processing runs. Owners and editors can start/cancel processing and append reviews;
-viewers inspect authorized reports, originals, and results. The case boundary also
-applies to workers, search, result downloads, and inline recording playback.
+The case **Findings** workspace leads with automatic vehicle trips and recent
+source-linked results. Adding eligible evidence queues supported local checks;
+viewing results does not require review. Processing history, custom analysis,
+and reviews remain available in disclosures. Owners and editors can start or
+cancel processing and append reviews; viewers inspect authorized originals and
+results. Case permissions apply to workers, search, downloads and playback.
+
+The case highlights inspect the latest 40 published result runs, keep the latest
+result per operation and evidence/attachment, and show at most 12 findings.
+They revalidate sources and omit archived, unavailable, rejected, and weak OCR
+findings. This is a recent highlights view, not an exhaustive inventory; each
+evidence record retains its full results and history. Vehicle trips are computed
+from current observations on opening the page, including previously imported data.
 
 Result/provenance and retained geographic reference downloads keep their `.json`
 filenames and JSON content. They use `application/octet-stream` with attachment
@@ -29,7 +38,7 @@ page, considering at most ten matching passages per record. Each candidate must
 match its retained source, checksum, and call attachment. An unavailable newer
 run can fall back to an older valid candidate within that limit.
 
-Analysis reports cover call counts/durations/timing, vehicle observation coverage
+Analysis reports cover call counts/durations/timing, vehicle trips, observation coverage
 and receipt delays, reported speed/heading, and exact file-byte duplicates. Each
 report bounds its source selection to 500 records and discloses truncation,
 unknown values, archive/time filters, and contributing originals. Call audio uses
@@ -56,32 +65,23 @@ or recording is processed independently of earlier additions. Text checks after
 extraction use that exact retained extraction version. Unsupported formats and
 insufficient content appear as analysis outcomes.
 
-Open **Analysis** or **View analysis** on an evidence record to see source-linked
-findings. Images surface possible plate readings, OCR, capture time and GPS
-claims. Documents and text show extracted passages and identifiers with source
-positions. Audio and call findings identify the retained recording or transcript
-and show intervals where available. Communication records show reported participants
-and event time. Location records show reported position and observation time,
-associated people or vehicles, and the retained CSV row when applicable.
-Reviewed geographic estimates are labelled alongside the reported evidence.
-The tab shows up to three findings
-from the latest published result for each analysis type, with a maximum of
-twelve. Each highlight cites the open evidence and links to the exact finding,
-its sources, and review history. Review decisions and partial coverage appear
-alongside the values. Rejected findings and results are omitted from highlights.
+Open **Findings** on an evidence record for source-linked highlights. Images
+surface possible plate readings, OCR, capture time and GPS claims; documents and
+text show extracted passages and identifiers. Recording findings identify the
+retained recording or transcript. **Original details** keeps reported fields and
+CSV attribution accessible. Each record shows up to three findings from the latest
+published result per analysis type, up to twelve total. Rejected results and weak
+OCR are omitted; partial coverage remains visible. Reviews are optional details.
 
-**Run history** below the findings and analysis controls keeps all runs and
-processing outcomes, including earlier results and work still in progress.
-**View run history** jumps to that section. **Refresh status** appears while
-analysis for the evidence is queued or running.
-Owners and editors can **Analyze evidence** for a record without runs or **Run
-local analysis again** once the current checks finish. The Original/Analysis/Details
-navigation keeps collection filters, and run history paginates independently.
-Original bytes and earlier runs remain retained. Archived evidence can still be analyzed.
-Vehicle CSV and conversation imports use their dedicated review and processing
-flows without launching automatic checks for each imported row.
-If a save cannot be confirmed, retry the same upload submission so the original
-and its checks can be recovered together.
+**Processing history** retains every run and outcome. **Refresh status** appears
+while checks are queued or running. Owners/editors can open **Run checks again**
+to rerun supported checks. Original/Findings/Details preserves collection filters;
+history pagination is independent. Originals and earlier runs remain retained.
+Vehicle CSV imports still confirm timezone and vehicle associations before atomic
+publication. Trips then appear automatically, without per-row jobs, geocoding or
+finding review. Conversation imports retain their dedicated processing flow.
+Retry an uncertain save with its original submission to recover the same evidence
+and checks.
 
 Additional model processing is a deliberate choice. Select the operation and
 retained source, review its settings, and choose **Local** (the default) or
@@ -89,36 +89,39 @@ retained source, review its settings, and choose **Local** (the default) or
 local failure never triggers cloud fallback. Geographic services require external
 approval unless the operator explicitly designates the endpoint as local.
 Local keyword analysis does not enable an AI summary automatically.
-Use **Start analysis** for context-dependent comparisons, geographic lookup or
-context, and conversation imports. Choose sources and review assumptions before
-queueing. The separate Map workflow also supports local address lookups. See
-[Map address lookup](maps.md#local-address-lookup).
+Use **Additional analysis → Choose analysis** for context-dependent comparisons,
+geographic lookup/context, model processing, or conversation imports. Choose
+a task first, then sources and required context before starting. The separate Map workflow supports
+local address lookups; see [Map address lookup](maps.md#local-address-lookup).
 
-Case Analysis shows recent runs with their evidence types, source count and
-outcome. Open **Run filters** to filter by evidence type or status. **Back to analysis** from a run
-opened in that list returns to the same filters and page. Reports sit alongside
-the runs on wide screens and can be reached with **View reports** on smaller
-screens. Choose **Start analysis**, select a task, and choose **Show sources**
-to jump to the eligible sources. The form describes the result and identifies
-originals, additions, extraction versions and reviewed estimates. The selected
-operation appears beside **Queue analysis**.
+Case **Processing history** includes evidence types, source counts and outcomes.
+**Processing filters** narrows evidence type/status, and return links retain those
+filters and page. **Explore patterns** links to reports that update from current
+evidence. Additional analysis opens a grouped task chooser, then a dedicated
+configuration page with eligible originals, additions, extraction versions and
+reviewed estimates. Use **Change analysis** to return to the chooser, or
+**Start analysis** to queue the selected task.
 The picker shows at most 500 choices; use its title search to narrow larger cases.
 Select an exact extraction version to analyze derived text. Review grouping/time
 assumptions before starting an investigation workflow.
 Only the selected operation's settings are validated and saved. Operations without
-optional assumptions do not show an empty assumptions section. Report forms load
+optional settings do not show an empty **Options** section. Required comparison
+samples, geographic areas and claimed events stay outside that disclosure. Report forms load
 only the people or vehicle choices applicable to that report. **Report filters**
 starts collapsed for the default selection, leaving results visible first. It opens
 when filters are applied or a submitted selection needs correction. Reports show
-records before detailed totals, with **View records** and **View totals** links
-for jumping between them. Call and vehicle reports show chronological rows
+records before **About this report**, which contains fixed limitations and
+detailed totals. Truncated coverage and omitted-time warnings remain visible. Call and vehicle reports show chronological rows
 with UTC dates and source links. The duplicate report groups occurrences by
-file-byte checksum. Open **Selection and additional totals** for the remaining
-counts and coverage measures.
+file-byte checksum. Trip rows show departure and arrival observations and the
+observed time interval, with their full observation list available on request.
 
 ## Inspecting run results
 
-**Findings** shows output, source links and the latest review state on each page.
+**Findings** shows output and source links. Focused findings omit repeated run
+summaries and keep identifier normalization under **Value details**. Review state
+remains in optional disclosures. **Processing details** contains the exact selected
+sources, run status/time, result download, method, settings and rerun controls.
 Image metadata uses field-and-value tables by source, and embedded tags carry an
 unverified-claim label. Read OCR candidates alongside their retained image regions.
 Plate readings are grouped by region with their available crops and separate
@@ -142,9 +145,8 @@ findings, grouped within that page.
 Open a finding for its individual review and exact source context. A run with one
 finding opens it directly. **Back to findings** returns to
 the same page and finding. Source links include exact anchors where available.
-The run header links to findings, available review controls and run details.
-When a run uses a single evidence record, **View evidence analysis** opens its
-Analysis tab. A focused plate finding shows its available crop and marked image
+The run header links to findings and sources. When a run uses one evidence
+record, **All findings for this evidence** opens its Findings tab. A focused plate finding shows its available crop and marked image
 region together. Focused recording findings place playback beside the interval.
 Derived inputs link to their retained extraction and to the original. Findings
 with a low OCR engine score show a notice beside the reading.
@@ -156,8 +158,8 @@ can review the selected finding. Geocode reviews apply to individual candidates.
 Viewers can inspect output, sources and reviews. Saving returns to the same finding.
 If validation fails, the entered decision and reason stay available for correction.
 
-Open **Limitations** for the full result warnings and **Review history** for recorded
-finding and overall decisions. **Run details** groups processing totals, selected
+Open **Limitations** for the full result warnings and **Review and history** for recorded
+finding and overall decisions. **Processing details** groups processing totals, selected
 inputs, method and requester attribution. Where present, the coordinate map and
 retained map references can be opened on request. The links and disclosures work
 with a keyboard and without JavaScript.

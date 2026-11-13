@@ -1,11 +1,15 @@
 {% extends "ui/base.html" %}
-{% block title %}Bulk add files · {{ case.name }}{% endblock %}
+{% block title %}Add evidence · {{ case.name }}{% endblock %}
 {% block extra_js %}{% include 'core/evidence/assets.html' only %}{% endblock %}
 {% block content %}
 <div class="page-content">
   <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
-  <header class="page-header"><div><h1>Bulk add files</h1><p>Supported checks run locally after each file is saved. Exact duplicates pause for review.</p></div></header>
-  <p data-bulk-fallback class="notice">Bulk uploads need browser support and JavaScript. You can always <a href="{% url 'core:evidence:create' case_id=case.pk %}">add one file at a time</a>.</p>
+  <header class="page-header"><div><h1>Add evidence</h1><p>Add documents, images, or audio. Supported checks run automatically and results appear in Findings.</p></div></header>
+  <nav class="related-actions form-layout" aria-label="Other ways to add evidence">
+    <a class="record-link" href="{% url 'core:evidence:create' case_id=case.pk %}?kind=text">Add text</a>
+    <a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a>
+  </nav>
+  <p data-bulk-fallback class="notice">Bulk uploads need browser support and JavaScript. You can always <a href="{% url 'core:evidence:create' case_id=case.pk %}?kind=document">add one file at a time</a>.</p>
   <form method="post" action="{% url 'core:evidence:create' case_id=case.pk %}" enctype="multipart/form-data" class="form-layout bulk-upload-form" data-evidence-upload data-bulk-upload data-upload-url="{% url 'core:evidence:create' case_id=case.pk %}" data-max-file-bytes="{{ max_file_bytes }}" data-max-batch-files="{{ max_batch_files }}" data-kind="document" hidden>
     {% csrf_token %}
     <div class="field bulk-file-picker">
@@ -23,12 +27,18 @@
       {% endfor %}
     </fieldset>
     </details>
-    <section id="upload-queue" class="upload-queue" aria-labelledby="upload-queue-heading">
-      <div class="upload-queue-heading"><h2 id="upload-queue-heading">Files to add</h2><button type="button" class="button button-secondary" data-stop-uploads disabled>Stop after this file</button></div>
-      <p role="status" data-upload-status>No files selected. Choose files to build your queue.</p>
+    <section id="upload-queue" class="upload-queue" aria-labelledby="upload-queue-heading" hidden>
+      <div class="upload-queue-heading"><h2 id="upload-queue-heading">Files to add</h2><button type="button" class="button button-secondary" data-stop-uploads disabled hidden>Stop after this file</button></div>
+      <p role="status" data-upload-status>No files selected. Choose files to get started.</p>
       <div data-upload-entries></div>
     </section>
-    <div class="actions"><button class="button button-primary" type="submit" disabled>Upload files</button><a class="button button-secondary" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a><a class="button button-secondary" href="{% url 'core:evidence:bulk_create' case_id=case.pk %}" data-new-batch hidden>Start another batch</a></div>
+    <div class="actions" data-upload-actions hidden><button class="button button-primary" type="submit" disabled>Upload files</button><a class="button button-secondary" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a><a class="button button-secondary" href="{% url 'core:evidence:create' case_id=case.pk %}" data-new-batch hidden>Start another batch</a></div>
   </form>
+  <details class="disclosure form-layout">
+    <summary>More ways to add evidence</summary>
+    <div class="disclosure-body related-actions">
+      {% for kind,label in manual_kinds %}<a class="record-link" href="{% url 'core:evidence:create' case_id=case.pk %}?kind={{ kind }}">Add {{ label|lower }}</a>{% endfor %}
+    </div>
+  </details>
 </div>
 {% endblock %}

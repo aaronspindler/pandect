@@ -1,24 +1,60 @@
 {% extends 'core/analysis/base.html' %}
-{% block title %}Analysis · {{ case.name }}{% endblock %}
+{% block title %}Findings · {{ case.name }}{% endblock %}
 {% block content %}
 <header class="page-header">
-  <h1>Analysis</h1>
-  <div class="actions">
-    {% if can_edit %}<a class="button button-primary" href="{% url 'core:analysis:create' case.pk %}">Start analysis</a>{% endif %}
-    <a class="button button-secondary analysis-report-shortcut" href="#analysis-reports">View reports</a>
-  </div>
+  <div><h1>Findings</h1><p class="muted">Add evidence. Supported checks run automatically and useful results appear here.</p></div>
+  {% if can_edit %}<a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>{% endif %}
 </header>
+{% if processing_counts.queued or processing_counts.running %}
+<div class="notice analysis-pending"><p role="status">Checking evidence{% if processing_counts.running %} · {{ processing_counts.running }} running{% endif %}{% if processing_counts.queued %} · {{ processing_counts.queued }} queued{% endif %}</p><a class="record-link" href="">Refresh findings</a></div>
+{% endif %}
+{% if processing_counts.failed %}
+<p class="muted">{{ processing_counts.failed }} check{{ processing_counts.failed|pluralize }} could not finish. Open Processing history below to see recovery options.</p>
+{% endif %}
 
-<div class="analysis-overview">
-<section class="analysis-section" aria-labelledby="analysis-history-heading">
-  <div class="section-header">
-    <h2 id="analysis-history-heading">Recent analysis</h2>
-    {% if page_obj.paginator.count %}<span class="muted">{{ page_obj.paginator.count }} {% if history_filters %}matching {% endif %}run{{ page_obj.paginator.count|pluralize }}</span>{% endif %}
-  </div>
-  {% if not can_edit %}<p class="role-note">Your Viewer role lets you inspect authorized sources and results.</p>{% endif %}
+{% if trip_report.items %}
+<section class="analysis-section" aria-labelledby="vehicle-trips-heading">
+  <div class="section-header"><h2 id="vehicle-trips-heading">Vehicle trips</h2><a class="record-link" href="{% url 'core:analysis:report' case.pk 'vehicle-trips' %}">All vehicle trips</a></div>
+  {% include 'geo/analysis/trips.html' with trip_report=trip_report only %}
+</section>
+{% endif %}
+
+{% if highlights or pattern_findings or not trip_report.items %}
+<section class="analysis-highlights" aria-labelledby="case-findings-heading">
+<h2 id="case-findings-heading">Recent findings</h2>
+{% if pattern_findings or highlights %}
+<p class="muted">Highlights from recent checks. Each finding links to the evidence it came from.</p>
+<ul class="analysis-finding-rows">
+{% for item in pattern_findings %}
+<li><a class="analysis-finding-link" href="{% url 'core:analysis:report' case.pk item.name %}"><div><strong>{{ item.label }}</strong><small>{{ item.summary }}</small></div></a></li>
+{% endfor %}
+{% for item in highlights %}
+<li><a class="analysis-finding-link" href="{{ item.url }}"><div>
+{% if item.summary_text %}<strong>{{ item.summary_text }}</strong><small>{{ item.label }}</small>{% else %}<strong>{{ item.label }}</strong>{% endif %}
+{% if item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
+<small>{{ item.source_title }}{% if item.attachment_label %} · {{ item.attachment_label }}{% endif %}</small>
+</div>{% if item.partial %}<small>Partial coverage</small>{% endif %}</a></li>
+{% endfor %}
+</ul>
+{% else %}
+<div class="empty-state compact-empty"><h3>No findings yet</h3>
+{% if processing_counts.queued or processing_counts.running %}<p>Checks are still running. Refresh to see their results.</p>{% else %}<p>Add files, text or location records to look for useful details and patterns. Some evidence may not produce a finding.</p>{% endif %}
+<a class="record-link" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a></div>
+{% endif %}
+</section>
+{% endif %}
+
+<section class="analysis-section" id="analysis-reports" aria-labelledby="analysis-reports-heading">
+<h2 id="analysis-reports-heading">Explore patterns</h2>
+<p class="muted">These views update automatically from the current evidence.</p>
+<div class="analysis-options">{% for name,label,description in reports %}<a href="{% url 'core:analysis:report' case.pk name %}" aria-labelledby="report-{{ name }}-label" aria-describedby="report-{{ name }}-description"><span><strong id="report-{{ name }}-label">{{ label }}</strong><small id="report-{{ name }}-description">{{ description }}</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}</div>
+</section>
+
+<details class="analysis-section" id="processing-history"{% if history_filters or page_obj.number > 1 %} open{% endif %}>
+<summary>Processing history{% if page_obj.paginator.count %} · {{ page_obj.paginator.count }} check{{ page_obj.paginator.count|pluralize }}{% endif %}</summary>
   {% if page_obj.paginator.count or history_filters %}
   <details class="evidence-filters"{% if history_filters %} open{% endif %}>
-    <summary>Run filters{% if history_filters %} · Applied{% endif %}</summary>
+    <summary>Processing filters{% if history_filters %} · Applied{% endif %}</summary>
     <form method="get" class="analysis-history-filters" aria-label="Filter analysis runs">
       <div class="field"><label for="history-kind">Evidence type</label>
         <select name="kind" id="history-kind"><option value="">All evidence types</option>
@@ -51,12 +87,12 @@
     </div>
     {% else %}
     <div class="empty-state compact-empty">
-      <h3>No analysis yet</h3>
+      <h3>No processing history yet</h3>
       {% if can_edit %}
-      <p>Choose Start analysis to select sources, or open an evidence record to run its local checks.</p>
+      <p>Add evidence to start its supported checks automatically.</p>
       <a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a>
       {% else %}
-      <p>An owner or editor can start analysis. Reports are available for the current evidence.</p>
+      <p>Results appear here after an owner or editor adds evidence.</p>
       <a class="button button-secondary" href="#analysis-reports">Browse reports</a>
       {% endif %}
     </div>
@@ -69,11 +105,9 @@
     {% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring history_filters page=page_obj.next_page_number %}">Next</a>{% endif %}
   </nav>
   {% endif %}
-</section>
-<section class="analysis-section analysis-reports" id="analysis-reports" tabindex="-1" aria-labelledby="analysis-reports-heading">
-  <h2 id="analysis-reports-heading">Reports</h2>
-  <p class="muted">Reports use the case’s current evidence.</p>
-  <div class="analysis-options">{% for name,label,description in reports %}<a href="{% url 'core:analysis:report' case.pk name %}" aria-labelledby="report-{{ name }}-label" aria-describedby="report-{{ name }}-description"><span><strong id="report-{{ name }}-label">{{ label }}</strong><small id="report-{{ name }}-description">{{ description }}</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}</div>
-</section>
-</div>
+
+</details>
+{% if can_edit %}
+<details class="analysis-section"><summary>Additional analysis</summary><p>Choose specific sources, compare evidence, or use configured AI. External processing still requires approval.</p><a class="button button-secondary" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a></details>
+{% endif %}
 {% endblock %}

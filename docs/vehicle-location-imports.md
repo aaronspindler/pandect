@@ -16,12 +16,12 @@ no case-access bypass.
    timezone. Check the exporting account's preference, never infer it from an
    address. Supply an optional source name/citation and explicitly confirm that
    **Created Time** represents the reported observation time.
-2. **Retain CSV and review** saves the exact file as Document evidence with its
+2. **Upload CSV** saves the exact file as Document evidence with its
    SHA-256 and creates a retained import record. The CSV may have a UTF-8 BOM.
    The worker prepares the review in the background, with progress and a
    **Refresh status** link. No location observations exist yet. Leaving retains
-   the source; reopen its Document evidence and choose **Resume vehicle location
-   review**.
+   the source; reopen its Document evidence and choose **Continue vehicle location
+   import**.
 3. Inspect the paginated original values and interpreted UTC timestamps. The
    upload vehicle preselects every distinct `(Asset, Serial Number)` pair; change
    individual choices if needed, or select them all here if none was chosen.
@@ -45,13 +45,14 @@ file's uploader. The worker rechecks the requester's case edit access and
 verified email during preparation and publication. A verified owner or editor
 can retry if the original requester loses access or verification.
 
-The review keeps **Source and time interpretation** in a native disclosure.
-Source bytes, timezone and time semantics remain available without crowding the
-progress, row review or vehicle choices. A **Choose vehicles** link jumps directly
-to the required association form, including from long reviews. Individual imported observations show
-supplied location/time/speed; **Original CSV row and interpretation** reveals
-receipt time, asset labels, parser provenance and every original cell. Both
-sections support keyboard use without JavaScript.
+The import screen leads with progress and vehicle matching. **Source and time
+interpretation** and the paginated source-row preview are native disclosures;
+invalid rows open the preview for correction. On completion, **View findings**
+opens the case findings and trips, with raw observations in a disclosure. Trips
+use retained addresses/times without geocoding or review; see
+[automatic vehicle trips](analysis-locations.md#automatic-vehicle-trips).
+Individual observations retain **Original CSV row and interpretation**, including
+receipt time, source cells, asset labels and parser provenance.
 
 ## Supported columns and interpretation
 

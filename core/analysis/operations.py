@@ -211,6 +211,7 @@ OPERATIONS = {
         "Look up geographic coordinates or addresses",
         geocoding.geocode_locations,
         LOCATIONS,
+        version="2",
         additional_on_evidence=True,
     ),
 }

@@ -200,12 +200,16 @@ class BaseAnalysisForm(forms.Form):
     )
 
     operation_fields = {}
+    task_fields_by_operation = {}
 
     def __init__(self, *args, case, operation, query="", evidence=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.operation_name = operation
         self.parameter_names = self.operation_fields.get(operation, ())
-        self.assumption_names = self.parameter_names
+        self.task_field_names = self.task_fields_by_operation.get(operation, ())
+        self.assumption_names = tuple(
+            name for name in self.parameter_names if name not in self.task_field_names
+        )
         uses_model = requires_inference(
             operation, {"include_summary": True, "semantic_links": True}
         )
@@ -233,6 +237,10 @@ class BaseAnalysisForm(forms.Form):
     @property
     def assumptions(self):
         return [self[name] for name in self.assumption_names]
+
+    @property
+    def task_fields(self):
+        return [self[name] for name in self.task_field_names]
 
     def parameter_values(self):
         return {}

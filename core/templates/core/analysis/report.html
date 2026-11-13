@@ -1,17 +1,11 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}Report · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to analysis</a>
+<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to findings</a>
 <header class="page-header">
   <div>
-    <h1>{% if name == 'calls' %}Call patterns{% elif name == 'vehicle-coverage' %}Vehicle observation coverage{% elif name == 'vehicle-speed' %}Vehicle speed and heading{% else %}Exact file duplicates{% endif %}</h1>
+    <h1>{% if name == 'calls' %}Call patterns{% elif name == 'vehicle-trips' %}Vehicle trips{% elif name == 'vehicle-coverage' %}Vehicle observation coverage{% elif name == 'vehicle-speed' %}Vehicle speed and heading{% else %}Exact file duplicates{% endif %}</h1>
   </div>
-  {% if data.items %}
-  <nav class="actions" aria-label="Report sections">
-    <a class="record-link" href="#report-records">View records</a>
-    <a class="record-link" href="#report-totals">View totals</a>
-  </nav>
-  {% endif %}
 </header>
 <details class="disclosure report-filters"{% if filters_applied or form.errors %} open{% endif %}>
   <summary>Report filters{% if filters_applied %} · Applied{% endif %}</summary>
@@ -21,6 +15,10 @@
 </form>
 </details>
 {% if data %}
+{% if name == 'vehicle-trips' %}
+<h2>{{ data.summary }}</h2>
+{% include 'geo/analysis/trips.html' with trip_report=data only %}
+{% else %}
 <section class="analysis-section">
   <h2>{{ data.summary }}</h2>
   {% if data.warnings %}<ul class="notice analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
@@ -37,10 +35,13 @@
     <a class="button button-secondary" href="?">Reset selection</a>
   </div>
 {% endif %}
-<section class="analysis-section" aria-labelledby="report-totals">
+<details class="analysis-section disclosure">
+  <summary>About this report</summary>
+  {% if data.limitations %}<ul class="analysis-notes">{% for limitation in data.limitations %}<li>{{ limitation }}</li>{% endfor %}</ul>{% endif %}
   <h2 id="report-totals" tabindex="-1">Report totals</h2>
   {% if data.primary_measurements %}{% include 'core/analysis/measurements.html' with measurements=data.primary_measurements only %}{% endif %}
-  {% if data.measurements %}<details class="disclosure"><summary>Selection and additional totals</summary>{% include 'core/analysis/measurements.html' with measurements=data.measurements only %}</details>{% endif %}
-</section>
+  {% if data.measurements %}{% include 'core/analysis/measurements.html' with measurements=data.measurements only %}{% endif %}
+</details>
+{% endif %}
 {% endif %}
 {% endblock %}

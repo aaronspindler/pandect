@@ -94,6 +94,7 @@ class TextAnalysisForm(BaseAnalysisForm):
         ),
         "text_topics": ("include_summary",),
     }
+    task_fields_by_operation = {"style_change": ("group_a", "group_b")}
     field_order = [
         "sample_origin",
         "sample_language",
@@ -117,6 +118,7 @@ class TextAnalysisForm(BaseAnalysisForm):
         for name in ("group_a", "group_b"):
             if name in self.fields:
                 self.fields[name].choices = self.fields["sources"].choices
+                self.fields[name].required = True
 
     def parameter_values(self):
         parameters = {

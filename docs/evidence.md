@@ -24,34 +24,36 @@ imported vehicle observations keep exact CSV cells, receipt time, export timezon
 and parser version in **Original CSV row and interpretation**. The import link and
 source row remain visible beside the observation.
 
-On add forms, Title and original content remain visible. **Source details**
+On single-record forms, Title and original content remain visible. **Source details**
 holds the optional source name, URL, description of the source,
 collection time and any declared technical fields. It opens
 for edits and validation errors, preserving entered values. These native sections
 work without JavaScript. Collection **Filters** also opens automatically when
 a non-default type/state filter is applied.
 
-The reader orders its sections **Original**, **Analysis**, **Details**. Choose
-**View analysis** beside the original when checks are in progress or results
-exist. Owners and editors can choose **Analyze evidence** for records without
-runs. Download stays available beside it. File content type declarations
-open under **File details** in Details.
+The reader orders its sections **Original**, **Findings**, **Details**. Supported
+checks run when evidence is added; open Findings for results and progress.
+Optional reruns and processing history are collapsed below the findings.
+Download stays beside the original. File content type declarations open under
+**File details** in Details.
 
 ## Investigator workflow
 
-Inside a case, owners and editors choose **Add evidence** and select Document,
-Image, Audio, Text, Location, Person location, Vehicle location, Text message,
-Phone call, or FaceTime. File categories describe the
-submitted material; no parser verifies them. Enter a title, an optional
-**Source** name/citation, and optional source URL, source
-description, and collection time. Text captures one browser-submitted original;
-to preserve a text file's exact bytes, upload the file as a Document instead.
-Browser textareas may normalize line endings, but the server does not trim or
-normalize received original text.
+Inside a case, owners and editors choose **Add evidence** to select or drop
+documents, images, and audio together. **Add text** opens a text original;
+**Import vehicle locations** opens CSV intake. **More ways to add evidence**
+contains Location, Person location, Vehicle location, Text message, Phone call,
+and FaceTime. Single-record forms keep all ten types in **Change type**, using
+an explicit **Choose type** button that also works without JavaScript.
 
-Owners and editors can choose **Bulk add files** from the Add evidence form.
-Select or drop documents, images,
-and audio together, then review titles, suggested categories, and source details.
+File categories describe the submitted material; no parser verifies them. Text
+captures one browser-submitted original; to preserve a text file's exact bytes,
+upload the file as a Document instead. Browser textareas may normalize line
+endings, but the server does not trim or normalize received original text.
+
+After selecting files, review their titles, suggested categories, and optional
+source details before uploading. Queue and upload actions appear after selection;
+**Stop after this file** appears while uploading.
 **Add more files** appends to the queue without replacing entries or edits.
 Filenames supply initial titles; browser-declared image/audio types suggest a
 category, with Document as the fallback. These suggestions do not verify format.
@@ -64,12 +66,13 @@ unconfirmed originals keep their submitted details unchanged. Shared controls
 are disabled while uploading; file selection is also disabled while any save
 confirmation remains unresolved.
 
-The normal Add evidence form supports one record without JavaScript and retains
-its existing enhanced file queue. The bulk page links to that single-record
-fallback when browser support or JavaScript is unavailable. Defaults are 20 files
+When browser support or JavaScript is unavailable, Add evidence links to an
+explicit single-document form. Each single-record form works without JavaScript;
+its **Change type** selector provides the other evidence types. Defaults are 20 files
 per batch, 100 MiB per file, and 1 MiB of UTF-8 captured text. Saved entries count
 toward the bulk page's limit; **Start another batch** opens a fresh page after all
-entries are added or removed. Configured limits appear in the form; see
+remaining files are added. Removing every pending file returns to the empty
+picker. Configured limits appear in the form; see
 [configuration](development.md#configuration) for operator settings.
 
 Batch uploads send one file at a time and show uploading, saving, added, failure,
@@ -127,8 +130,8 @@ instead of disclosing or deleting foreign material.
 The same deletion is also available in the scoped Django admin, as described below.
 
 New evidence added through the investigator workflow queues applicable local
-checks. The **Analysis** tab shows source-linked findings first, with processing
-outcomes and earlier results in **Run history** below.
+checks. The **Findings** tab shows source-linked findings first, with processing
+outcomes and earlier results in the collapsed **Processing history** below.
 Owners and editors can also start local checks on existing evidence or retry them.
 See [analysis](analysis.md#retained-processing) for supported operations,
 processing choices, import exceptions, and recovery.
@@ -159,7 +162,7 @@ Current edit permission is rechecked on confirmation. Retrying an already-saved
 submission resolves that record before checking duplicates, including after an
 interrupted confirmation.
 
-This check applies to the product's Add evidence and Bulk add files workflows.
+This check applies to single-record and mixed-file evidence intake.
 Location/communication records, call attachments, CSV imports, Django admin, and
 trusted model callers retain their existing behavior. Duplicate checks compare
 the checksums of retained originals.

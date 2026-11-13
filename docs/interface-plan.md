@@ -10,6 +10,24 @@ Follow the [design standard](../DESIGN.md) and
 [screen specifications](interface-design.md). The selected direction is the
 compact three-pane workspace, refined to show more evidence at once.
 
+## Current workflow refinement
+
+The current workflow is **add evidence → automatic checks → Findings**. The
+Findings destination and evidence tab lead with results. Manual configuration,
+rerunning checks, processing history, and result reviews remain available in
+native disclosures rather than dominating routine use. Add evidence opens the
+mixed-file picker directly, with text and vehicle-location CSV import beside it.
+Additional analysis separates choosing a task from selecting its sources and
+required context. Report totals and methods stay behind results; CSV import leads with vehicle
+mapping and keeps its row preview secondary. Source links, uncertainty, original
+retention, case authorization, and explicit external-processing approval remain
+required. See [the current specification](interface-design.md) for implemented
+interaction details and [case analysis](analysis.md) for supported operations.
+
+The six increments below describe the original foundation, not a new request to
+remove capabilities added afterward. Their completion gates are requirements;
+they do not record a successful test or deployment.
+
 ## Delivery sequence
 
 The implementation follows these six increments. Keep follow-up changes focused

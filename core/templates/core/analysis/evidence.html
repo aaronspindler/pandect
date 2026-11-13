@@ -1,5 +1,5 @@
 {% extends 'core/analysis/base.html' %}
-{% block title %}Evidence analysis · {{ evidence.title }}{% endblock %}
+{% block title %}Findings · {{ evidence.title }}{% endblock %}
 {% block content %}
 <a class="back-link" href="{% url 'core:evidence:detail' case.pk kind evidence.pk %}{{ list_suffix }}">Back to evidence</a>
 <header class="evidence-reader-header">
@@ -7,36 +7,17 @@
 </header>
 {% include 'core/evidence/sections.html' with item=evidence section='analysis' %}
 
-{% if page_obj %}
-<nav class="analysis-jump-links" aria-label="Evidence analysis navigation">
-  {% if can_edit and not local_analysis_pending %}<a class="record-link" href="#evidence-analysis-actions">Run local checks</a>{% endif %}
-  <a class="record-link" href="#evidence-history-heading">View run history</a>
-</nav>
-{% endif %}
-
 {% if analysis_pending %}
 <div class="notice analysis-pending">
-  <p role="status">Analysis is in progress.</p>
+  <p role="status">Checking this evidence. Findings will appear here.</p>
   <a class="record-link" href="">Refresh status</a>
 </div>
-{% endif %}
-
-{% if source_fields %}
-<section class="analysis-evidence-context" aria-labelledby="reported-evidence-heading">
-  <h2 id="reported-evidence-heading">Reported evidence</h2>
-  <dl class="analysis-measurements">
-    {% for label,value in source_fields %}
-    <div><dt>{{ label }}</dt><dd>{% if value == None %}Unknown{% elif label == "Observation time" or label == "Receipt time" or label == "Reported event time" %}{{ value|date:'d M Y, H:i:s' }} UTC{% else %}{{ value }}{% endif %}</dd></div>
-    {% endfor %}
-  </dl>
-  {% if import_source %}<a class="record-link" href="{{ import_source.url }}">{{ import_source.label }}</a>{% endif %}
-</section>
 {% endif %}
 
 <section class="analysis-highlights" aria-labelledby="evidence-findings-heading">
   <div class="section-header"><h2 id="evidence-findings-heading">Findings</h2></div>
   {% if highlights %}
-  <p class="muted">Highlights from the latest results. Open a finding to inspect its sources and review history.</p>
+  <p class="muted">Results from the latest checks. Open a finding to see the supporting evidence.</p>
   <ul class="analysis-finding-rows">
     {% for item in highlights %}
     <li>
@@ -49,17 +30,29 @@
           {% if item.low_ocr_score %}<small>Low OCR score</small>{% endif %}
           {% if item.plate_score != None %}<small>Plate-likeness: {{ item.plate_score }}/100 · Heuristic</small>{% endif %}
         </div>
-        <small>{% if item.latest_review %}{{ item.latest_review.get_decision_display }}{% else %}Awaiting review{% endif %}{% if item.partial %} · Partial coverage{% endif %}</small>
+        {% if item.partial %}<small>Partial coverage</small>{% endif %}
       </a>
     </li>
     {% endfor %}
   </ul>
   {% elif page_obj and not analysis_pending %}
-  <p class="muted">No findings to highlight yet. See <a href="#evidence-history-heading">run history</a> for processing outcomes and limitations.</p>
+  <p class="muted">No findings to highlight yet. Open Processing history below to see completed checks and any limitations.</p>
   {% elif not page_obj %}
-  <p class="muted">No analysis yet. {% if can_edit %}Run local checks to look for findings in this evidence.{% else %}An owner or editor can run analysis for this evidence.{% endif %}</p>
+  <p class="muted">No checks have run yet. {% if can_edit %}Open Run checks below to analyze this evidence.{% else %}An owner or editor can run checks for this evidence.{% endif %}</p>
   {% endif %}
 </section>
+
+{% if source_fields %}
+<details class="analysis-section disclosure">
+  <summary>Original details</summary>
+  <dl class="analysis-measurements">
+    {% for label,value in source_fields %}
+    <div><dt>{{ label }}</dt><dd>{% if value == None %}Unknown{% elif label == "Observation time" or label == "Receipt time" or label == "Reported event time" %}{{ value|date:'d M Y, H:i:s' }} UTC{% else %}{{ value }}{% endif %}</dd></div>
+    {% endfor %}
+  </dl>
+  {% if import_source %}<a class="record-link" href="{{ import_source.url }}">{{ import_source.label }}</a>{% endif %}
+</details>
+{% endif %}
 
 {% if recent_additions %}
 <details class="analysis-section disclosure">
@@ -79,17 +72,20 @@
 {% endif %}
 
 {% if can_edit and not local_analysis_pending or form.errors %}
+<details class="analysis-section disclosure"{% if form.errors %} open{% endif %}>
+  <summary>{% if has_local_analysis %}Run checks again{% else %}Run checks{% endif %}</summary>
 <form method="post" class="analysis-start" novalidate>
   {% csrf_token %}{{ form.submission_id }}
   {% if form.errors %}<div class="error-summary" role="alert" tabindex="-1" data-error-summary><h2>Analysis could not start</h2>{{ form.non_field_errors }}{{ form.submission_id.errors }}</div>{% endif %}
-  <div><h2 id="evidence-analysis-actions" tabindex="-1">Analyze this evidence</h2><details class="analysis-coverage"><summary>What will be analyzed?</summary><p>Local checks can extract supported text, search images for possible vehicle plates, find identifiers and keywords, inspect media metadata, or check a recorded location. After image or document text extraction, text checks use that exact version. Unsupported formats and insufficient content are recorded with each result.</p></details></div>
-  <button class="button button-primary" type="submit">{% if has_local_analysis %}Run local analysis again{% else %}Analyze evidence{% endif %}</button>
+  <div><h2 id="evidence-analysis-actions" tabindex="-1">Local checks</h2><details class="analysis-coverage"><summary>What will be checked?</summary><p>Local checks can extract supported text, search images for possible vehicle plates, find identifiers and keywords, inspect media metadata, or check a recorded location. After image or document text extraction, text checks use that exact version. Unsupported formats and insufficient content are recorded with each result.</p></details></div>
+  <button class="button button-primary" type="submit">{% if has_local_analysis %}Run checks again{% else %}Run checks{% endif %}</button>
 </form>
-{% elif not can_edit %}<p class="role-note">Your Viewer role lets you inspect analysis and its sources.</p>{% endif %}
+</details>
+{% elif not can_edit %}<p class="role-note">Your Viewer role lets you inspect findings and their sources.</p>{% endif %}
 
 {% if page_obj %}
-<section class="analysis-section" aria-labelledby="evidence-history-heading">
-  <div class="section-header"><h2 id="evidence-history-heading" tabindex="-1">Run history</h2></div>
+<details class="analysis-section disclosure"{% if request.GET.results_page %} open{% endif %}>
+  <summary id="evidence-history-heading">Processing history</summary>
   {% for run in page_obj %}
   <a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}">
     <div><strong>{{ run.label }}</strong><p class="muted">{{ run.created_at|date:'d M Y, H:i' }} UTC{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}</p></div>
@@ -97,11 +93,14 @@
   </a>
   {% endfor %}
   {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Run history pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="?results_page={{ page_obj.previous_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="?results_page={{ page_obj.next_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Next</a>{% endif %}</nav>{% endif %}
-</section>
+</details>
 {% endif %}
 
 {% if can_edit %}
-{% if additional_operations %}<details class="analysis-section"><summary>Additional analysis</summary><p>AI uses this server or its private network by default. External processing requires your approval; a local failure never switches to an external service.</p><div class="analysis-options">{% for key,spec in additional_operations %}<a href="{% url 'core:analysis:external_evidence' case.pk kind evidence.pk %}?operation={{ key }}">{{ spec.label }} {% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}</div></details>{% endif %}
-<details class="analysis-section"><summary>Comparisons and custom analysis</summary><p>Compare sources, choose an area or event, or import a conversation.</p><a class="button button-secondary" href="{% url 'core:analysis:create' case.pk %}">Choose sources and assumptions</a></details>
+<details class="analysis-section"><summary>Additional analysis</summary>
+<p>Choose a focused check for this evidence or compare it with other sources.</p>
+{% if additional_operations %}<div class="analysis-options">{% for key,spec in additional_operations %}<a href="{% url 'core:analysis:external_evidence' case.pk kind evidence.pk %}?operation={{ key }}">{{ spec.label }} {% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}</div>{% endif %}
+<a class="record-link" href="{% url 'core:analysis:create' case.pk %}">Compare evidence or choose another analysis</a>
+</details>
 {% endif %}
 {% endblock %}

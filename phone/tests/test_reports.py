@@ -154,3 +154,5 @@ class CallReportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(result["metrics"]["Selected records"], 1)
         self.assertTrue(result["metrics"]["Truncated"])
         self.assertIn("Only the first 1 of 2", result["warnings"][0])
+        self.assertEqual(len(result["warnings"]), 1)
+        self.assertIn("not network-verified", " ".join(result["limitations"]))

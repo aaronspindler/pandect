@@ -97,7 +97,10 @@ class EvidenceForm(BaseEvidenceForm):
             self.fields["submission_id"].required = True
         if "file" in self.fields:
             self.fields["file"].label = "Original file"
-            self.fields["file"].help_text = "You can analyze the file after uploading."
+            self.fields["file"].help_text = (
+                "Supported checks run automatically after upload. "
+                "Results appear in Findings."
+            )
         if "body" in self.fields:
             self.fields["body"].strip = False
             self.fields["body"].label = "Original text"

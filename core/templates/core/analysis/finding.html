@@ -1,9 +1,7 @@
 {% load l10n %}
 <article class="analysis-finding" id="finding-{{ item.number }}" tabindex="-1" aria-labelledby="finding-heading-{{ item.number }}">
   <header class="analysis-finding-heading">
-    {% if focused_finding %}<p class="eyebrow">Finding {{ item.number }}</p>{% endif %}
-    <h3 id="finding-heading-{{ item.number }}">{% if focused_finding %}{{ item.label }}{% else %}{% include 'core/analysis/finding_link.html' %}{% endif %}</h3>
-    {% if not focused_finding %}<p class="muted">{% if item.latest_review %}{{ item.latest_review.get_decision_display }}{% else %}Awaiting review{% endif %}</p>{% endif %}
+    {% if focused_finding %}<h2 id="finding-heading-{{ item.number }}">{{ item.label }}</h2>{% else %}<h3 id="finding-heading-{{ item.number }}">{% include 'core/analysis/finding_link.html' %}</h3>{% endif %}
   </header>
   {% if item.audio_url %}
   <p class="analysis-recording-time">
@@ -56,25 +54,24 @@
     </div>
     {% endif %}
     {% if item.measurements %}
-      {% if item.primary_measurements and item.media_details %}<details class="disclosure"><summary>Processing details</summary>{% endif %}
+      {% if run.operation == 'entities' %}<details class="disclosure"><summary>Value details</summary>{% elif item.primary_measurements and item.media_details %}<details class="disclosure"><summary>Processing details</summary>{% endif %}
       {% include 'core/analysis/measurements.html' with measurements=item.measurements only %}
-      {% if item.primary_measurements and item.media_details %}</details>{% endif %}
+      {% if run.operation == 'entities' or item.primary_measurements and item.media_details %}</details>{% endif %}
     {% endif %}
   {% endif %}
 
   {% if item.sources %}
-  <h4 class="analysis-finding-sources-heading">Sources</h4>
+  {% if focused_finding %}<h3 class="analysis-finding-sources-heading">Sources</h3>{% else %}<h4 class="analysis-finding-sources-heading">Sources</h4>{% endif %}
   <div{% if item.comparison_sources %} class="analysis-source-comparison"{% endif %}>
     {% include 'core/analysis/finding_sources.html' %}
   </div>
   {% endif %}
 
   {% if focused_finding %}
-  <div class="analysis-finding-review">
+  <details class="analysis-finding-review disclosure">
+    <summary id="review-finding">Review this finding</summary>
     <p class="muted">Finding review: <strong>{% if item.latest_review %}{{ item.latest_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if item.latest_review %} · {{ item.latest_review.reviewed_by }} · {{ item.latest_review.created_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
     {% if can_edit %}
-    <details class="finding-review">
-      <summary id="review-finding">Review this finding</summary>
       <form class="analysis-review-form form-layout" method="post" aria-label="Review {{ item.label }}" action="{% url 'core:analysis:review' case.pk run.pk %}{{ run_suffix }}" data-unsaved-form>
         {% csrf_token %}<input type="hidden" name="item_index" value="{{ item.index }}">
         <div class="field">
@@ -87,9 +84,8 @@
         </div>
         <div class="form-actions"><button class="button button-primary" type="submit">Record finding review</button></div>
       </form>
-    </details>
     {% endif %}
-  </div>
+  </details>
   {% endif %}
   {% if item.reference_snapshot %}<p><a class="record-link" href="{% url 'core:analysis:artifact' case.pk run.pk item.reference_snapshot.pk %}">Download the reference response for this finding</a></p>{% endif %}
 </article>

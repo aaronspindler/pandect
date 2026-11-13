@@ -10,6 +10,7 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
+from core.analysis.reports import report
 from core.evidence.queries import same_case_evidence
 from vehicle.forms import VehicleDeleteForm, VehicleForm
 from vehicle.models import Vehicle
@@ -62,12 +63,17 @@ def vehicle_list(request, case_id):
 def vehicle_detail(request, case_id, vehicle_id):
     case = get_case(request.user, case_id)
     vehicle = get_object_or_404(Vehicle, case=case, pk=vehicle_id)
+    trip_report = report(case, "vehicle-trips", vehicle_id=vehicle.pk)
+    more_trips = len(trip_report["items"]) > 5
+    trip_report["items"] = trip_report["items"][:5]
     return render(
         request,
         "vehicle/detail.html",
         {
             **case_context(case, request.user),
             "vehicle": vehicle,
+            "trip_report": trip_report,
+            "more_trips": more_trips,
             "locations": same_case_evidence(
                 vehicle.location_evidence.filter(case=case)
             ).order_by("-observed_at", "-created_at")[:25],

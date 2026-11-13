@@ -147,19 +147,18 @@ class ContextBrowserTests(BrowserTestCase):
         return run.parameters
 
     def _choose(self, page, operation):
-        page.goto(self.url("core:analysis:create", case_id=self.case.pk))
-        page.get_by_label("Analysis", exact=True).select_option(operation)
-        page.get_by_role("button", name="Show sources", exact=True).click()
-        summary = page.locator("summary").filter(
-            has_text=re.compile(r"^Analysis assumptions$")
+        page.goto(
+            self.url("core:analysis:create", case_id=self.case.pk)
+            + f"?operation={operation}"
         )
+        summary = page.locator(".analysis-assumptions > summary")
         summary.focus()
         expect(summary).to_be_focused()
         summary.press("Space")
 
     def _approve_and_finish(self, page, operation):
         if operation != "ocr":
-            page.get_by_role("button", name="Queue analysis", exact=True).click()
+            page.get_by_role("button", name="Start analysis", exact=True).click()
             expect(page.locator("[data-error-summary]")).to_be_visible()
             expect(
                 page.get_by_text(
@@ -181,16 +180,20 @@ class ContextBrowserTests(BrowserTestCase):
                     name="I approve external processing of the selected evidence",
                 )
             ).to_have_count(0)
-        page.get_by_role("button", name="Queue analysis", exact=True).click()
+        page.get_by_role("button", name="Start analysis", exact=True).click()
         expect(
             page.get_by_role("status").filter(has_text=re.compile(r"^Queued$"))
         ).to_be_visible()
         run_id = UUID(page.url.rstrip("/").split("/")[-1])
         parameters = self.db(self._complete, run_id, operation)
         page.get_by_role("link", name="Refresh status", exact=True).click()
-        expect(
-            page.get_by_role("status").filter(has_text=re.compile(r"^Complete$"))
-        ).to_be_visible()
+        completion = page.locator(".analysis-run-details").get_by_text(
+            re.compile(r"^Complete ·")
+        )
+        expect(completion).to_be_hidden()
+        page.locator("#run-details").press("Enter")
+        expect(completion).to_be_visible()
+        page.locator("#run-details").press("Enter")
         return run_id, parameters
 
     def _capture_layouts(self, page, engine, name):
@@ -266,6 +269,7 @@ class ContextBrowserTests(BrowserTestCase):
                         exact=True,
                     )
                 ).to_be_visible()
+                page.get_by_text("Processing details", exact=True).press("Enter")
                 summary = page.locator("summary").filter(has_text="Processing summary")
                 summary.focus()
                 expect(summary).to_be_focused()
@@ -452,6 +456,7 @@ class ContextBrowserTests(BrowserTestCase):
                         .first
                     )
                     expect(finding.get_by_text(relation, exact=True)).to_be_visible()
+                page.get_by_text("Processing details", exact=True).press("Enter")
                 page.locator("summary").filter(
                     has_text=re.compile(r"^Processing summary$")
                 ).click()

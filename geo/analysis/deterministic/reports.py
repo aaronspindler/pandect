@@ -209,19 +209,17 @@ def vehicle_report(case, state, vehicle_id, start, end, limit):
             "Changes between known reported headings": direction_changes,
         }
     )
-    warnings.extend(
-        [
-            "An observation gap means unavailable reporting, not inactivity. The "
-            "30-minute threshold describes selected observations only; it does "
-            "not infer visits, parking, engine state, or a driver.",
-            "Speeds are retained telemetry, not distance/time estimates or "
-            "speeding findings. Trigger and Time Summary remain uninterpreted. "
-            "Receipt, observation, collection, and upload times "
-            "have different meanings.",
-            "CSV ordering checks compare timed rows within each selected import "
-            "and vehicle. No source order is asserted for manual observations.",
-        ]
-    )
+    limitations = [
+        "An observation gap means unavailable reporting, not inactivity. The "
+        "30-minute threshold describes selected observations only; it does "
+        "not infer visits, parking, engine state, or a driver.",
+        "Speeds are retained telemetry, not distance/time estimates or "
+        "speeding findings. Trigger and Time Summary remain uninterpreted. "
+        "Receipt, observation, collection, and upload times "
+        "have different meanings.",
+        "CSV ordering checks compare timed rows within each selected import "
+        "and vehicle. No source order is asserted for manual observations.",
+    ]
     if (start is not None or end is not None) and missing_times:
         warnings.append(
             "Observations without an event time are excluded by the selected period."
@@ -234,4 +232,5 @@ def vehicle_report(case, state, vehicle_id, start, end, limit):
         "metrics": metrics,
         "items": items,
         "warnings": warnings,
+        "limitations": limitations,
     }

@@ -1,72 +1,32 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}{{ operation_label }} · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{{ back_to_analysis }}">Back to analysis</a>
+<a class="back-link" href="{{ back_to_analysis }}">Back to all findings</a>
 <header class="page-header analysis-result-header">
-  <div><h1>{{ operation_label }}</h1><p class="muted">{{ run.created_at|date:'d M Y, H:i' }} UTC</p></div>
-  <div class="actions"><span class="badge" role="status">{% if source_unavailable %}Result withheld{% else %}{{ run.get_status_display }}{% endif %}</span>{% if result %}<a class="record-link" href="{% url 'core:analysis:download' case.pk run.pk %}">Download results</a>{% endif %}</div>
+  <div><h1>{{ operation_label }}</h1></div>
+  {% if source_unavailable or run.status != 'complete' %}<span class="badge" role="status">{% if source_unavailable %}Result withheld{% else %}{{ run.get_status_display }}{% endif %}</span>{% endif %}
 </header>
-{% if evidence_analysis_url or result %}
-<nav class="analysis-jump-links" aria-label="Run navigation">
-  {% if evidence_analysis_url %}<a class="record-link" href="{{ evidence_analysis_url }}">View evidence analysis</a>{% endif %}
-  {% if items %}<a class="record-link" href="#analysis-findings-heading">Findings</a>{% endif %}
-  {% if focused_finding and can_edit %}<a class="record-link" href="#review-finding">Review finding</a>{% endif %}
-  {% if result %}
-    {% if can_review_result %}
-    <a class="record-link" href="#investigator-review">Review result</a>
-    {% elif reviews %}
-    <a class="record-link" href="#investigator-review">Investigator review</a>
-    {% endif %}
-    <a class="record-link" href="#run-details">Run details</a>
-  {% endif %}
-</nav>
-{% endif %}
-{% if sources %}
-<details class="analysis-run-sources disclosure">
-  <summary>Selected sources · {{ sources.0.item.title }}{% if sources|length > 1 %} and {{ sources|length|add:"-1" }} more{% endif %}</summary>
-  <ul class="source-list">
-    {% for source in sources %}
-    <li>
-      <a href="{{ source.url }}">{{ source.item.title }}</a>
-      {% if source.attachment %} · {{ source.attachment }}{% endif %}
-      {% if source.derived_result_id %}
-        · {% if source.derived_coordinates != None %}Selected geographic estimate{% else %}Exact extraction version{% endif %}
-        · <a href="{{ source.original_url }}">Original evidence</a>
-      {% endif %}
-      {% if source.item.latitude != None %} · Reported coordinates {{ source.item.latitude }}, {{ source.item.longitude }}{% endif %}
-      {% if source.derived_coordinates != None %} · Reviewed estimate {{ source.derived_coordinates.0 }}, {{ source.derived_coordinates.1 }}{% endif %}
-      {% if source.item.is_archived %} · Archived{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-</details>
-{% endif %}
 
 {% if run.status == 'queued' or run.status == 'running' %}
 <section class="analysis-section">
   <h2>Processing {{ run.progress }}%</h2>
   <progress class="work-progress" value="{{ run.progress }}" max="100" aria-label="Analysis progress">{{ run.progress }}%</progress>
-  <p>Refresh to see progress. Queued work waits for the operator's worker.</p>
+  <p>Checks run in the background. Refresh to see the latest progress.</p>
   <div class="actions">
     <a class="button button-secondary" href="">Refresh status</a>
     {% if can_edit %}<form method="post" action="{% url 'core:analysis:cancel' case.pk run.pk %}{{ history_suffix }}">{% csrf_token %}<button class="button button-secondary" type="submit">Cancel processing</button></form>{% endif %}
   </div>
 </section>
 {% endif %}
-{% if run.status == 'failed' %}<p class="notice">Processing could not finish. {{ error_message }} {% if can_edit %}Review the supported inputs and operator configuration, then start another attempt.{% endif %} Earlier evidence is retained.</p>{% endif %}
+{% if run.status == 'failed' %}<p class="notice">Processing could not finish. {{ error_message }} {% if can_edit %}Open Processing details below to try again.{% endif %} Earlier evidence is retained.</p>{% endif %}
 {% if source_review_changed %}<p class="notice">A geographic estimate used by this run has a different current review. This retained result preserves the earlier accepted estimate and its review attribution. New processing requires current acceptance.</p>{% endif %}
 {% if source_unavailable %}<p class="notice">A selected source is unavailable or changed. The result is withheld until its exact retained inputs can be verified.</p>{% endif %}
 {% if run.previous_run %}<p>Earlier run: <a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">{{ run.previous_run.created_at|date:'d M Y, H:i:s' }} UTC</a></p>{% endif %}
 
-{% if result %}
+{% if result and show_result_overview %}
 <section class="analysis-result-overview" aria-labelledby="analysis-result-summary">
   <h2 id="analysis-result-summary">{{ data.summary }}</h2>
   <div class="analysis-result-meta">
-    {% if run.operation == 'geocode_locations' %}
-    <p class="muted">Review applies to individual candidates.</p>
-    {% else %}
-    <p class="muted">Result review: <strong>{% if latest_result_review %}{{ latest_result_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if latest_result_review %} · {{ latest_result_review.reviewed_by }} · {{ latest_result_review.created_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
-    {% endif %}
     {% if data.warnings %}
     <details class="analysis-result-limits"{% if not items %} open{% endif %}>
       <summary>Limitations</summary>
@@ -74,6 +34,10 @@
     </details>
     {% endif %}
   </div>
+
+</section>
+{% endif %}
+
   {% if run.operation == 'ocr' and items %}
   <p class="muted">OCR can miss text. Compare candidates with the original.</p>
   {% endif %}
@@ -81,15 +45,13 @@
   <p class="muted">{% if show_weak_regions %}Showing {{ weak_region_count }} weak region{{ weak_region_count|pluralize }}. <a href="{% querystring run_query weak=None %}">Hide weak regions</a>{% else %}{{ weak_region_count }} weak region{{ weak_region_count|pluralize }} hidden by the plate-likeness filter. <a href="{% querystring run_query weak=1 %}">Show weak regions</a>{% endif %}</p>
   {% if not items %}<p>No regions met the plate filter. Inspect the original or show weak regions.</p>{% endif %}
   {% endif %}
-</section>
-{% endif %}
 
 {% if items %}
-<section class="analysis-findings" aria-labelledby="analysis-findings-heading">
-  <div class="analysis-findings-header">
+<section class="analysis-findings" aria-labelledby="{% if focused_finding %}finding-heading-{{ items.0.number }}{% else %}analysis-findings-heading{% endif %}">
+  {% if not focused_finding %}<div class="analysis-findings-header">
     <h2 id="analysis-findings-heading" tabindex="-1">Findings</h2>
-    <p class="muted">{{ reviewed_count }} of {{ finding_page.paginator.count }} reviewed</p>
-  </div>
+    <p class="muted">{{ finding_page.paginator.count }} finding{{ finding_page.paginator.count|pluralize }}</p>
+  </div>{% endif %}
   {% if focused_finding and finding_page.paginator.count > 1 %}
   {% with item=items.0 %}
   <a class="back-link analysis-finding-back" href="{% querystring run_query page=finding_page.number %}#finding-link-{{ item.number }}">Back to findings</a>
@@ -104,6 +66,7 @@
   {% else %}
     {% include result_template %}
   {% endif %}
+  {% if not show_result_overview and data.warnings %}<details class="analysis-result-limits"><summary>Limitations</summary><ul class="analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></details>{% endif %}
   {% if not focused_finding and finding_page.has_other_pages %}
   {% include 'core/analysis/finding_pages.html' with label='Finding pages at end of results' %}
   {% endif %}
@@ -133,8 +96,14 @@
 
 {% if result %}
 {% if reviews or can_review_result %}
-<section class="analysis-section">
-  <h2 id="investigator-review" tabindex="-1">Investigator review</h2>
+<details class="analysis-section disclosure">
+  <summary id="investigator-review">Review and history</summary>
+    {% if run.operation == 'geocode_locations' %}
+    <p class="muted">Review applies to individual candidates.</p>
+    {% else %}
+    <p class="muted">Result review: <strong>{% if latest_result_review %}{{ latest_result_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if latest_result_review %} · {{ latest_result_review.reviewed_by }} · {{ latest_result_review.created_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
+    {% endif %}
+
   {% if reviews %}<details class="disclosure">
     <summary>Review history · {{ reviews|length }} review{{ reviews|length|pluralize }}</summary>
   <div class="analysis-review-history">
@@ -158,19 +127,42 @@
   </form>
   </details>
   {% endif %}
-</section>
+</details>
 {% endif %}
 {% endif %}
 
-<section class="analysis-section analysis-run-details">
-  <h2 id="run-details" tabindex="-1">Run details</h2>
+<details class="analysis-section analysis-run-details"{% if run.status == 'failed' %} open{% endif %}>
+  <summary id="run-details">Processing details</summary>
+  {% if evidence_analysis_url %}<p><a class="record-link" href="{{ evidence_analysis_url }}">All findings for this evidence</a></p>{% endif %}
+  <p class="muted">{{ run.get_status_display }} · {{ run.created_at|date:'d M Y, H:i' }} UTC</p>
+  {% if result and not show_result_overview %}<p>{{ data.summary }}</p>{% endif %}
+  {% if result %}<a class="record-link" href="{% url 'core:analysis:download' case.pk run.pk %}">Download results</a>{% endif %}
+{% if sources %}
+<details class="analysis-run-sources disclosure">
+  <summary>Selected sources · {{ sources.0.item.title }}{% if sources|length > 1 %} and {{ sources|length|add:"-1" }} more{% endif %}</summary>
+  <ul class="source-list">
+    {% for source in sources %}
+    <li>
+      <a href="{{ source.url }}">{{ source.item.title }}</a>
+      {% if source.attachment %} · {{ source.attachment }}{% endif %}
+      {% if source.derived_result_id %}
+        · {% if source.derived_coordinates != None %}Selected geographic estimate{% else %}Exact extraction version{% endif %}
+        · <a href="{{ source.original_url }}">Original evidence</a>
+      {% endif %}
+      {% if source.item.latitude != None %} · Reported coordinates {{ source.item.latitude }}, {{ source.item.longitude }}{% endif %}
+      {% if source.derived_coordinates != None %} · Reviewed estimate {{ source.derived_coordinates.0 }}, {{ source.derived_coordinates.1 }}{% endif %}
+      {% if source.item.is_archived %} · Archived{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
   {% if metrics %}<details class="disclosure"><summary>Processing summary</summary>{% include 'core/analysis/measurements.html' with measurements=metrics only %}</details>{% endif %}
   <details class="disclosure">
     <summary>Method and settings</summary>
     <p class="muted">Requested by {{ run.requested_by }} · {{ run.created_at|date:'d M Y, H:i:s' }} UTC</p>
     <h3>Method and assumptions</h3><p>Method version: {{ run.method_version }}. {{ processing.label }}.{% if processing.legacy %} This run predates execution pinning; its original approval is retained.{% endif %}</p>{% if processing.model %}<p>Model: {{ processing.model }}{% if processing.runtime %} · Runtime: {{ processing.runtime }}{% endif %}</p>{% endif %}{% include 'core/analysis/measurements.html' with measurements=assumptions only %}
   </details>
-</section>
 {% if can_edit and can_retry %}
 <form class="form-layout" method="post" action="{% url 'core:analysis:retry' case.pk run.pk %}{{ history_suffix }}">
   {% csrf_token %}<input type="hidden" name="submission_id" value="{{ retry_submission_id }}">
@@ -185,4 +177,5 @@
   <button class="button button-secondary" type="submit">Start another run with these inputs</button>
 </form>
 {% endif %}
+</details>
 {% endblock %}

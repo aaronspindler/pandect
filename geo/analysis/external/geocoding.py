@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
@@ -15,6 +16,19 @@ from geo.analysis.deterministic.locations import _item, _selected, coordinate
 
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_LOOKUPS = 25
+
+
+def _search_query(address):
+    """Express an imported Canadian country code as a Nominatim filter."""
+    parts = address.split(",")
+    if (
+        len(parts) >= 5
+        and all(part.strip() for part in parts)
+        and parts[-2].strip().upper() == "CAN"
+        and re.fullmatch(r"[A-Z][0-9][A-Z] ?[0-9][A-Z][0-9]", parts[-1].strip().upper())
+    ):
+        return {"q": ",".join(parts[:-2] + parts[-1:]), "countrycodes": "ca"}
+    return {"q": address}
 
 
 class GeocodingError(ValueError):
@@ -63,7 +77,7 @@ class Geocoder:
                 or len(address) > 2_000
             ):
                 raise GeocodingError("unsupported_address")
-            query |= {"q": address, "limit": 5}
+            query |= _search_query(address) | {"limit": 5}
             path = "search"
         else:
             lat, lon = coordinate(*coordinates)
@@ -188,6 +202,23 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
         # Caller rechecks the current requesting actor and case immediately here.
         authorize()
         timestamp = timezone.now().isoformat()
+        lookup = {
+            "Lookup direction": direction,
+            "Lookup query": str(query),
+            "Lookup time": timestamp,
+        }
+        if direction == "search":
+            search = _search_query(query)
+            lookup["Lookup query"] = search["q"]
+            if "countrycodes" in search:
+                lookup |= {
+                    "Original address": query,
+                    "Country filter": search["countrycodes"],
+                    "Query adjustment": (
+                        "The reported CAN country code is submitted as a "
+                        "Canada-only country filter; other address fields are retained."
+                    ),
+                }
         try:
             candidates = client.lookup(
                 **(
@@ -206,7 +237,8 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
                         "usable candidates. Retry through a new authorized run."
                     ),
                     members,
-                    **{"Failure code": exc.code, "Lookup time": timestamp},
+                    **lookup,
+                    **{"Failure code": exc.code},
                 )
             )
             continue
@@ -218,8 +250,8 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
                     "No candidate returned. "
                     "The original address/coordinates remain unchanged.",
                     members,
+                    **lookup,
                     **{
-                        "Lookup time": timestamp,
                         "Lookup source": client.name,
                         "Reference version": client.version,
                     },
@@ -237,10 +269,8 @@ def geocode_locations(sources, parameters, *, client=None, authorize=None):
                     ),
                     members,
                     **candidate,
+                    **lookup,
                     **{
-                        "Lookup direction": direction,
-                        "Lookup query": str(query),
-                        "Lookup time": timestamp,
                         "Lookup source": client.name,
                         "Reference version": client.version,
                         "Attribution": client.attribution,

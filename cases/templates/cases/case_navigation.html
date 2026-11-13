@@ -1,7 +1,7 @@
 {% with route=request.resolver_match %}
 <nav aria-label="Investigation">
   <a class="nav-link" href="{% url 'core:evidence:list' case.pk %}" {% if nav_section == 'evidence' or route.namespace == 'core:evidence' %}aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='files' %} Evidence</a>
-  <a class="nav-link" href="{% url 'core:analysis:index' case.pk %}" {% if route.namespace == 'core:analysis' and nav_section != 'evidence' %}aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='file-text' %} Analysis</a>
+  <a class="nav-link" href="{% url 'core:analysis:index' case.pk %}" {% if route.namespace == 'core:analysis' and nav_section != 'evidence' %}aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='file-text' %} Findings</a>
   <details class="case-tools"{% if route.namespace == 'cases' or route.namespace == 'people' or route.namespace == 'vehicle' or route.namespace == 'geo' or route.namespace == 'socialmedia' %} open{% endif %}>
     <summary>Case tools</summary>
     <div class="case-tools-links">

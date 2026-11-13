@@ -171,6 +171,15 @@ class GeoAnalysisForm(BaseAnalysisForm):
         "location_conflicts": ("event_label",),
         "geocode_locations": ("reverse",),
     }
+    task_fields_by_operation = {
+        "proximity": (
+            "reference_latitude",
+            "reference_longitude",
+            "radius_m",
+            "polygon",
+        ),
+        "location_conflicts": ("event_label",),
+    }
     field_order = [
         "context_radius_m",
         "context_as_of",
@@ -199,6 +208,8 @@ class GeoAnalysisForm(BaseAnalysisForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.operation_name == "location_conflicts":
+            self.fields["event_label"].required = True
         if self.operation_name in {"location_quality", "travel_discrepancies"}:
             self.fields[
                 "distance_m"

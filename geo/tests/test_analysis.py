@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
 from django.test import SimpleTestCase, override_settings
@@ -683,6 +684,152 @@ class GeocoderTests(SimpleTestCase):
         self.assertIn("/search?", request.full_url)
         self.assertIn("q=1+Main+St", request.full_url)
         self.assertEqual(client.opener.open.call_args.kwargs["timeout"], 10)
+
+    def test_can_country_component_becomes_filter_preserving_other_address_fields(self):
+        for original, submitted in (
+            (
+                "12 Example St, Testville, Ontario, CAN, K1A 0B1",
+                "12 Example St, Testville, Ontario, K1A 0B1",
+            ),
+            (
+                " 12 Example St , Testville , Ontario , can , k1a0b1 ",
+                " 12 Example St , Testville , Ontario , k1a0b1 ",
+            ),
+            (
+                "Unit 4, 12 Example St, Testville, Ontario, CAN, K1A0B1",
+                "Unit 4, 12 Example St, Testville, Ontario, K1A0B1",
+            ),
+        ):
+            with self.subTest(original=original):
+                client = self.client_with_response([])
+                self.assertEqual(client.lookup(address=original), [])
+                client.opener.open.assert_called_once()
+                request = client.opener.open.call_args.args[0]
+                query = parse_qs(urlsplit(request.full_url).query)
+                self.assertEqual(query["q"], [submitted])
+                self.assertEqual(query["countrycodes"], ["ca"])
+                self.assertEqual(query["limit"], ["5"])
+
+    def test_other_address_formats_are_submitted_without_reinterpretation(self):
+        for address in (
+            "12 CAN St, Testville, Ontario, Canada, K1A 0B1",
+            "12 Example St, Testville, Ontario, Canada, K1A 0B1",
+            "12 Example St, Testville, Ontario, USA, K1A 0B1",
+            "12 Example St, Testville, Ontario, CAN, unknown",
+            "12 Example St, Testville, CAN, K1A 0B1",
+            "12 Example St, , Ontario, CAN, K1A 0B1",
+            "CAN, 12 Example St, Testville, Ontario, K1A 0B1",
+        ):
+            with self.subTest(address=address):
+                client = self.client_with_response([])
+                client.lookup(address=address)
+                request = client.opener.open.call_args.args[0]
+                query = parse_qs(urlsplit(request.full_url).query)
+                self.assertEqual(query["q"], [address])
+                self.assertNotIn("countrycodes", query)
+                client.opener.open.assert_called_once()
+
+    def test_adjusted_query_and_original_are_retained_for_every_lookup_outcome(self):
+        original = "12 Example St, Testville, Ontario, CAN, K1A 0B1"
+        submitted = "12 Example St, Testville, Ontario, K1A 0B1"
+        candidate = {
+            "lat": "43.65",
+            "lon": "-79.38",
+            "display_name": "12 Example Street, Testville, Canada",
+            "addresstype": "building",
+        }
+        for outcome in ("candidate", "no_match", "unavailable"):
+            with self.subTest(outcome=outcome):
+                observation = source(1, address=original, sha256="retained-checksum")
+                client = self.client_with_response(
+                    [candidate] if outcome == "candidate" else []
+                )
+                if outcome == "unavailable":
+                    client.opener.open.side_effect = HTTPError(
+                        "https://geocoder.example.test/search",
+                        503,
+                        "failure",
+                        {},
+                        io.BytesIO(b"Private upstream body"),
+                    )
+                result = geocode_locations(
+                    [observation],
+                    {"external_processing": True},
+                    client=client,
+                    authorize=Mock(),
+                )
+                values = result["items"][0]["values"]
+                self.assertEqual(values["Lookup direction"], "search")
+                self.assertEqual(values["Lookup query"], submitted)
+                self.assertEqual(values["Original address"], original)
+                self.assertEqual(values["Country filter"], "ca")
+                self.assertTrue(values["Query adjustment"])
+                self.assertEqual(observation.item.address, original)
+                self.assertEqual(observation.item.sha256, "retained-checksum")
+                client.opener.open.assert_called_once()
+                if outcome == "candidate":
+                    self.assertEqual(values["Review"], "Unresolved")
+                elif outcome == "unavailable":
+                    self.assertEqual(values["Failure code"], "geocoder_unavailable")
+                    self.assertEqual(result["outcome"], "partial")
+                else:
+                    self.assertEqual(result["items"][0]["label"], "No geocode match")
+
+    def test_reverse_lookup_does_not_adapt_the_original_address(self):
+        client = self.client_with_response(
+            {"lat": "43.65", "lon": "-79.38", "display_name": "Synthetic place"}
+        )
+        observation = source(
+            1, address="12 Example St, Testville, Ontario, CAN, K1A 0B1"
+        )
+        result = geocode_locations(
+            [observation],
+            {"external_processing": True, "reverse": True},
+            client=client,
+            authorize=Mock(),
+        )
+        request = client.opener.open.call_args.args[0]
+        query = parse_qs(urlsplit(request.full_url).query)
+        self.assertEqual(urlsplit(request.full_url).path, "/reverse")
+        self.assertEqual(query["lat"], ["43.65"])
+        self.assertEqual(query["lon"], ["-79.38"])
+        self.assertNotIn("q", query)
+        self.assertNotIn("countrycodes", query)
+        values = result["items"][0]["values"]
+        self.assertEqual(values["Lookup direction"], "reverse")
+        self.assertEqual(values["Lookup query"], str(observation.coordinates))
+        self.assertNotIn("Original address", values)
+        self.assertNotIn("Country filter", values)
+
+    def test_adjustment_keeps_distinct_original_queries_and_repeated_source_links(self):
+        original = "12 Example St, Testville, Ontario, CAN, K1A 0B1"
+        variant = original.replace(", CAN,", ", can,")
+        client = self.client_with_response([])
+        observations = [
+            source(1, address=original),
+            source(2, address=original),
+            source(3, address=variant),
+        ]
+        result = geocode_locations(
+            observations,
+            {"external_processing": True},
+            client=client,
+            authorize=Mock(),
+        )
+        self.assertEqual(result["metrics"]["Unique lookups"], 2)
+        self.assertEqual(client.opener.open.call_count, 2)
+        self.assertEqual(
+            [item["source_ids"] for item in result["items"]],
+            [[observations[0].id, observations[1].id], [observations[2].id]],
+        )
+        self.assertEqual(
+            [item["values"]["Original address"] for item in result["items"]],
+            [original, variant],
+        )
+        self.assertEqual(
+            result["items"][0]["values"]["Lookup query"],
+            result["items"][1]["values"]["Lookup query"],
+        )
 
     def test_no_public_default_and_no_unconfigured_lookup(self):
         with override_settings(PANDECT_GEOCODER_URL=""):

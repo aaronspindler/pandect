@@ -582,7 +582,7 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             403,
         )
         self.login("editor")
-        self.assertContains(self.client.get(self.review_url(batch)), "Prepare review")
+        self.assertContains(self.client.get(self.review_url(batch)), "Prepare import")
         batch.refresh_from_db()
         self.assertEqual(batch.status, "pending")
         self.assertEqual(

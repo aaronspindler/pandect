@@ -133,11 +133,11 @@ def call_report(case, state, participant_id, other_participant_id, start, end, l
             or "No calls",
         }
     )
-    warnings.append(
+    limitations = [
         "Counts describe retained records, not network-verified activity. Unknown "
         "duration differs from zero; these records do not report answered/missed "
         "status or verify who participated or appeared on camera."
-    )
+    ]
     if (start is not None or end is not None) and missing_times:
         warnings.append(
             "Calls without an event time are excluded by the selected period."
@@ -150,4 +150,5 @@ def call_report(case, state, participant_id, other_participant_id, start, end, l
         "metrics": metrics,
         "items": items,
         "warnings": warnings,
+        "limitations": limitations,
     }

@@ -236,11 +236,33 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         self.capture(page, engine, f"refined-{name}-{width}x{height}")
 
                 page.goto(self.url("core:evidence:create", case_id=self.case.pk))
+                expect(
+                    page.get_by_role("heading", name="Add evidence", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role(
+                        "link", name="Import vehicle locations", exact=True
+                    )
+                ).to_be_visible()
+                more = page.get_by_text("More ways to add evidence", exact=True)
+                expect(
+                    page.get_by_role("link", name="Add location", exact=True)
+                ).to_be_hidden()
+                more.press("Enter")
+                expect(
+                    page.get_by_role("link", name="Add location", exact=True)
+                ).to_be_visible()
+                page.get_by_role("link", name="Add text", exact=True).press("Enter")
+                expect(page.get_by_label("Original text", exact=True)).to_be_visible()
                 for kind, label in (
                     ("text", "Original text"),
                     ("location", "Address"),
                     ("phone-call", "Sender"),
                 ):
+                    expect(
+                        page.get_by_label("Evidence type", exact=True)
+                    ).to_be_hidden()
+                    page.get_by_text("Change type", exact=True).press("Enter")
                     page.get_by_label("Evidence type", exact=True).select_option(kind)
                     page.get_by_role("button", name="Choose type", exact=True).click()
                     expect(page.get_by_label(label, exact=True)).to_be_visible()
@@ -361,11 +383,17 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 )
                 expect(page.get_by_text("Record history", exact=True)).to_have_count(0)
                 expect(
-                    page.get_by_text("Analysis is in progress.", exact=True)
+                    page.get_by_text(
+                        "Checking this evidence. Results will appear in Findings.",
+                        exact=True,
+                    )
                 ).to_be_visible()
-                analyze = page.get_by_role("link", name="View analysis", exact=True)
+                analyze = page.get_by_role(
+                    "navigation", name="Evidence sections"
+                ).get_by_role("link", name="Findings", exact=True)
                 analyze.focus()
                 analyze.press("Enter")
+                page.get_by_text("Processing history", exact=True).press("Enter")
                 expect(
                     page.get_by_role(
                         "link",
@@ -646,12 +674,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.get_by_label(
                     "Use Created Time as the reported observation time"
                 ).check()
-                page.get_by_role("button", name="Retain CSV and review").click()
+                page.get_by_role("button", name="Upload CSV").click()
                 expect(
-                    page.get_by_role("heading", name="Review vehicle locations")
+                    page.get_by_role("heading", name="Import vehicle locations")
                 ).to_be_visible()
                 expect(
-                    page.get_by_role("heading", name="Preparing the review")
+                    page.get_by_role("heading", name="Preparing locations")
                 ).to_be_visible()
                 self.capture(page, engine, "vehicle-import-preparing")
                 for width in (390, 320):
@@ -681,6 +709,11 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator("select[name=vehicle_0]")).to_have_value(
                     str(vehicle.pk)
                 )
+                preview = page.locator("summary").filter(
+                    has_text=re.compile(r"^1 source row · Preview$")
+                )
+                expect(page.locator(".import-observation summary")).to_be_hidden()
+                preview.press("Enter")
                 page.locator(".import-observation summary").focus()
                 page.locator(".import-observation summary").press("Enter")
                 expect(
@@ -715,12 +748,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 confirmation.focus()
                 confirmation.press("Space")
                 expect(confirmation).to_be_checked()
-                page.get_by_role(
-                    "button", name="Import observations", exact=True
-                ).focus()
-                page.get_by_role(
-                    "button", name="Import observations", exact=True
-                ).press("Enter")
+                page.get_by_role("button", name="Import locations", exact=True).focus()
+                page.get_by_role("button", name="Import locations", exact=True).press(
+                    "Enter"
+                )
                 expect(
                     page.get_by_role("heading", name="Importing observations")
                 ).to_be_visible()
@@ -734,6 +765,8 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Vehicle locations imported")
                 ).to_be_visible()
                 self.capture(page, engine, "vehicle-import-complete")
+                expect(page.get_by_role("link", name="View findings")).to_be_visible()
+                page.get_by_text("Imported observations", exact=True).press("Enter")
                 page.locator(".import-results a").click()
                 expect(
                     page.get_by_role("heading", name="Reported location")
@@ -890,10 +923,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     confirmation.focus()
                     confirmation.press("Space")
                     page.get_by_role(
-                        "button", name="Import observations", exact=True
+                        "button", name="Import locations", exact=True
                     ).focus()
                     page.get_by_role(
-                        "button", name="Import observations", exact=True
+                        "button", name="Import locations", exact=True
                     ).press("Enter")
                     expect(
                         page.get_by_role("heading", name="Importing observations")
@@ -1489,7 +1522,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator(".evidence-row")).to_have_count(1)
                 expect(page.locator(".evidence-row")).to_contain_text(title)
 
-                page.goto(self.url("core:evidence:create", case_id=case.pk))
+                page.goto(
+                    self.url("core:evidence:create", case_id=case.pk) + "?kind=document"
+                )
                 files = [
                     {
                         "name": f"synthetic-{index}.txt",
@@ -1647,16 +1682,20 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("core:evidence:bulk_create", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:create", case_id=self.case.pk))
                 expect(page.locator("[data-bulk-fallback]")).to_be_visible()
                 expect(page.locator("[data-bulk-upload]")).to_be_hidden()
                 page.get_by_role("link", name="add one file at a time").click()
+                expect(page).to_have_url(
+                    self.url("core:evidence:create", case_id=self.case.pk)
+                    + "?kind=document"
+                )
                 page.get_by_label("Title", exact=True).fill("Keep this proposed title")
                 page.get_by_role("button", name="Upload file", exact=True).click()
                 expect(page.locator("#id_title")).to_have_value(
                     "Keep this proposed title"
                 )
-                expect(page.get_by_role("heading", name="Add evidence")).to_be_visible()
+                expect(page.get_by_role("heading", name="Add document")).to_be_visible()
                 content = (
                     f"Synthetic source file {engine}.\r\n"
                     "Preserve these original bytes.\n"
@@ -1686,7 +1725,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 self.assertEqual(document.byte_size, len(content))
                 self.capture(page, engine, "no-javascript-document")
 
-                page.goto(self.url("core:evidence:create", case_id=self.case.pk))
+                page.goto(
+                    self.url("core:evidence:create", case_id=self.case.pk)
+                    + "?kind=document"
+                )
                 page.get_by_label("Title", exact=True).fill(f"Separate copy {engine}")
                 duplicate_file = {
                     "name": "renamed.txt",
@@ -2057,8 +2099,32 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.locator(".evidence-list-heading").get_by_role(
                     "link", name="Add evidence", exact=True
                 ).click()
-                page.get_by_role("link", name="Bulk add files", exact=True).click()
+                expect(page).to_have_url(
+                    self.url("core:evidence:create", case_id=self.case.pk)
+                )
+                expect(
+                    page.get_by_role("heading", name="Add evidence", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Add text", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role(
+                        "link", name="Import vehicle locations", exact=True
+                    )
+                ).to_be_visible()
                 expect(page.locator("[data-bulk-fallback]")).to_be_hidden()
+                expect(page.locator("#upload-queue")).to_be_hidden()
+                expect(page.locator("[data-upload-actions]")).to_be_hidden()
+                expect(page.locator("[data-stop-uploads]")).to_be_hidden()
+                picker = page.locator("#id_file")
+                picker.set_input_files(files + files[:2])
+                expect(page.locator(".upload-entry")).to_have_count(0)
+                expect(page.locator("[data-upload-status]")).to_be_visible()
+                expect(page.locator("[data-upload-status]")).to_contain_text(
+                    "room for 4 more files"
+                )
+                expect(page.locator("[data-upload-actions]")).to_be_hidden()
                 shared = page.locator("[data-shared-details]")
                 page.locator(".bulk-shared-details>summary").click()
                 shared.get_by_label("Source", exact=True).fill("Batch source")
@@ -2071,10 +2137,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 shared.get_by_label("Source collected at (UTC)").fill(
                     "2026-10-26T12:30"
                 )
-                picker = page.locator("#id_file")
                 picker.set_input_files(files[:2])
                 entries = page.locator(".upload-entry")
                 expect(entries).to_have_count(2)
+                expect(page.locator("#upload-queue")).to_be_visible()
+                expect(page.locator("[data-upload-actions]")).to_be_visible()
+                expect(page.locator("[data-stop-uploads]")).to_be_hidden()
                 first, second = entries.nth(0), entries.nth(1)
                 first.get_by_text("Source details", exact=True).click()
                 first.get_by_label("Source", exact=True).fill("Individual witness")
@@ -2235,7 +2303,8 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     )
                 page.get_by_role("link", name="Start another batch").click()
                 expect(page.locator(".upload-entry")).to_have_count(0)
-                expect(page.get_by_role("button", name="Upload files")).to_be_disabled()
+                expect(page.locator("#upload-queue")).to_be_hidden()
+                expect(page.locator("[data-upload-actions]")).to_be_hidden()
 
     @override_settings(PANDECT_MAX_FILE_BYTES=16)
     def test_bulk_invalid_files_removal_and_access_removed_between_uploads(self):
@@ -2271,6 +2340,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         "button", name="Remove from queue"
                     ).click()
                 expect(entries).to_have_count(0)
+                expect(page.locator("#upload-queue")).to_be_hidden()
+                expect(page.locator("[data-upload-actions]")).to_be_hidden()
+                expect(picker).to_be_focused()
                 picker.set_input_files(
                     [
                         {

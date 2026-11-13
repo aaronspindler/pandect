@@ -1,10 +1,17 @@
 {% extends "ui/base.html" %}
+{% load static %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'geo/trips.css' %}">{% endblock %}
 {% block title %}{{ vehicle }} · {{ case }}{% endblock %}
 {% block content %}
 <div class="detail-layout">
 <p class="breadcrumb"><a href="{% url 'vehicle:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to vehicles</a></p>
 <div class="page-header"><div><p class="eyebrow">Vehicle</p><h1>{{ vehicle }}</h1><p class="help-text">Identifiers and associations unverified</p></div>{% if can_edit %}<a class="button button-primary" href="{% url 'vehicle:edit' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit vehicle</a>{% endif %}</div>
 {% if not can_edit %}<p class="notice">You have viewer access to this vehicle record.</p>{% endif %}
+<section class="content-section" aria-labelledby="trips-heading">
+<div class="section-header"><h2 id="trips-heading">Trips</h2><a class="record-link" href="{% url 'core:analysis:report' case.pk 'vehicle-trips' %}?vehicle_id={{ vehicle.pk }}">{% if more_trips %}See all trips{% else %}Choose dates{% endif %}</a></div>
+{% if more_trips %}<p class="muted">Showing the five most recent possible trips.</p>{% endif %}
+{% include 'geo/analysis/trips.html' with hide_vehicle=True %}
+</section>
 {% if vehicle.color or vehicle.license_plate or vehicle.vin %}
 <section class="content-section" aria-labelledby="vehicle-heading"><h2 id="vehicle-heading">Vehicle details</h2>
   <dl class="metadata-grid">
@@ -18,7 +25,7 @@
 
 <section class="content-section" aria-labelledby="locations-heading"><div class="section-header"><h2 id="locations-heading">Reported locations</h2>
 {% if can_edit %}<div class="actions"><a class="button button-secondary" href="{% url 'core:evidence:create' case_id=case.pk %}?kind=vehicle-location">Add a location</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}</div>
-{% if locations %}<p class="muted">Up to 25 recent observations, including archived evidence.</p><ul class="record-list">{% for location in locations %}<li class="record-row"><a class="record-link" href="{% url 'core:evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=location.pk %}">{{ location.title }}</a>{% if location.is_archived %}<span class="status">Archived</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">No locations have been recorded for this vehicle.</p>{% endif %}
+{% if locations %}<details class="disclosure"><summary>Show observations</summary><p class="muted">Up to 25 recent observations, including archived evidence.</p><ul class="record-list">{% for location in locations %}<li class="record-row"><a class="record-link" href="{% url 'core:evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=location.pk %}">{{ location.title }}</a>{% if location.is_archived %}<span class="status">Archived</span>{% endif %}</li>{% endfor %}</ul></details>{% else %}<p class="muted">No locations have been recorded for this vehicle.</p>{% endif %}
 </section>
 <details class="disclosure">
 <summary>Record details</summary>

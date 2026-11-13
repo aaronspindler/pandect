@@ -107,3 +107,12 @@ Use a new database and queue; no data conversion or runtime upgrade is included.
 
 Person/vehicle relationships, external vehicle lookups, and public APIs remain
 planned. Geographic analysis of retained vehicle locations is implemented in `geo`.
+
+## Automatic trips
+
+Vehicle details lead with five recent possible trips derived from retained timed
+locations. Raw location records remain available under **Show observations**. **See all trips** or **Choose dates** opens the complete report selection.
+CSV address-only imports work without geocoding or review. Stops and gaps separate
+trips; each endpoint and contributing observation links to its source. Reports
+inspect the latest 500 matching observations and disclose incomplete coverage;
+use vehicle/date filters for older intervals. See [location analysis](analysis-locations.md).

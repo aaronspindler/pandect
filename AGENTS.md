@@ -17,7 +17,7 @@ and relationship analysis, timelines, maps, annotations, and reporting. These ar
 capabilities to build incrementally, not claims about what already exists.
 
 - Design around an investigator's task and next useful action.
-- Open cases to Evidence and keep Analysis beside it. Group supporting case tools
+- Open cases to Evidence and keep Findings beside it. Group supporting case tools
   separately. Keep optional source metadata and saved legacy notes available on
   request. Retire freeform note authoring while preserving source attribution and
   finding review reasons.
