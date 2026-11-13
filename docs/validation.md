@@ -35,88 +35,21 @@ when a separate test database configuration is needed. Static regression tests
 exercise real manifest collection and cache headers independently; the Compose
 smoke also checks the non-debug build.
 
-Tests cover the custom user, password hashing, sign-in failure, email verification,
-registration, CSRF, sign-out semantics, staff access, and database readiness and
-failure. Case tests cover required ownership, stable creation timestamps,
-collaborator roles and constraints, protected owners, and membership cleanup.
-Identifier tests cover independent UUIDv4 defaults on every Pandect model and
-native PostgreSQL UUID columns for their keys and all referencing foreign keys,
-including Django/allauth and automatically generated join tables.
-Admin tests cover model-permission gates, scoped lists and direct URLs (including
-history and deletion), owner-only changes, unrelated superusers, revoked access,
-CSRF, and forged ownership, membership IDs, parent cases, and roles.
-Evidence tests cover all material types, required cases/uploaders, exact original
-bytes and checksums, metadata bounds, immutable originals, historical attribution,
-private storage paths, committed deletion cleanup, rollback, and storage failures.
-Location coverage includes paired/ranged coordinates, original JSON/checksum
-stability, same-case person selection, retained person links, whole-case deletion,
-and source creation/edit/search across every evidence type.
-Evidence admin coverage includes all ten evidence registrations, role/model-permission
-gates, scoped searches and direct/history URLs, forged originals and attribution,
-same-case person links, upload limits, archive attribution, superuser-only confirmed
-individual deletion with original/call/derived-file cleanup, rollback, storage
-failures, downstream analysis, import-source protection, and permission-checked
-whole-case cleanup.
-Communication coverage includes same-case sender/recipient links, immutable
-message/time/duration originals, all initial call-content combinations, appended
-transcripts/recordings, independent hashes, parent-scoped private downloads,
-retry IDs, upload/storage failures, access revocation, person-deletion protection,
-case cascade/rollback, and read-only admin attachments.
-Product-view tests additionally cover current role gates and cross-case UUID
-requests, private downloads, metadata conflicts, archive/restore, bounded uploads,
-and idempotent retries after uncertain confirmation. In-app superuser deletion
-covers current role/verification checks, all evidence types, retained call and
-generated files, explicit confirmation, private pages, preserved navigation, CSRF,
-case isolation, complete imported-source cascades, corrupt-link blocks, paginated
-inventories/private downloads, stale or tampered confirmations, worker publication
-after deletion, and rollback of every derived row and file. Duplicate-upload
-coverage
-checks exact hashes across file categories and captured text, archived matches,
-case isolation, current edit access, bounded private match lists, explicit
-confirmation, unchanged storage after warnings, and the full-page fallback.
-Case/invitation tests cover
-verified recipients, token rotation/replay/expiry, mail failure, preserved member
-roles, confirmed deletion, and reviewed stale-edit resubmission.
-They use synthetic content and temporary storage, without external services.
-Background coverage checks the real PostgreSQL task backend in debug mode,
-execution and recorded failure, same-transaction commit/rollback and visibility
-from a second database connection, diagnostic success/failure/mismatch/timeout,
-safe worker logs, and denial of global task admin access even to superusers.
-Person tests cover partial identities, contact validation, case linkage and
-deletion, timestamps, duplicate contacts, scoped lists/search/history, owner and
-editor writes, read-only viewers, forged case selections, revoked/downgraded
-memberships, model permissions, CSRF, and case-deletion permission requirements.
-Vehicle tests cover partial identifiers, year/identity database constraints,
-duplicate identifiers, scoped searches, role gates, forged case choices,
-revocation, reviewed stale edits, deletion, and admin model permissions.
-Vehicle-location CSV coverage includes source retention and checksum/provenance,
-explicit timezone conversion and DST rejection, format/resource bounds, same-case
-vehicle mappings, current roles and CSRF, exact retries, possible duplicate review,
-atomic rollback, corrupted/unavailable sources, and retained-link deletion rules.
-Background import coverage exercises a CSV larger than the former 1 MiB/250-row
-limits, paginated review/results, upload vehicle defaults and forged choices,
-queued processing and retries, current permissions, and atomic publication.
-Duplicate coverage includes optional retention, skipping within and between
-exports (including archived matches), new matches after review, all-skipped
-completion, unchanged retained sources, and duplicate-safe confirmation retries.
+The suite uses synthetic content and temporary storage. It covers account and
+case roles, revoked access and cross-case requests, UUID/schema constraints,
+immutable originals and provenance, private downloads, edit conflicts, confirmed
+deletion and rollback, duplicate-safe submissions, bounded imports, and worker
+publication/recovery. Tests live with their owning apps; see the domain guides
+for the behavior those tests protect.
 
-`make compose-smoke` needs Docker only. It creates a unique project with temporary
-synthetic configuration, random loopback ports, and fresh volumes. It builds the
-runtime image, checks initial migrations and HTTP readiness, creates a synthetic
-owner, collaborator, case, membership, person, vehicle, and evidence of all ten types,
-including a retained vehicle-location import and its source and call transcripts/audio, stops and
-restarts the stack, and verifies records and original file bytes persist. It also
-uploads a synthetic document through **Add evidence** and checks that the worker
-completes its automatically queued native text extraction. It
-verifies worker execution through the diagnostic, queues a probe with the worker
-stopped, restarts the database/web while keeping the worker stopped, checks the
-probe is still queued, and starts the worker to verify completion exactly once
-in this controlled run. This does not claim exactly-once delivery after crashes.
-It also checks that the production image serves its collected application assets with
-debug disabled. Its exit trap removes only that project's containers and volumes. It never uses your `.env`
-or data.
-The smoke script clears inherited `PANDECT_` settings before applying its synthetic
-configuration, including private-runtime endpoints, credentials and upload limits.
+`make compose-smoke` needs Docker only. It builds a unique disposable project with
+synthetic configuration, random loopback ports, and fresh volumes. It checks
+migrations, production static delivery, retained records/original bytes, automatic
+native extraction, local OCR/plate search, and queue persistence/execution across
+restarts. A probe completes once in the controlled run; this does not establish
+exactly-once delivery after crashes. The script clears inherited `PANDECT_`
+settings and never uses your `.env` or data. Its exit trap removes only its own
+containers and volumes.
 
 `make security-check` exports the hash-locked dependency graph, including developer
 tools, and runs pip-audit against it without re-resolving dependencies. It requires
@@ -135,80 +68,47 @@ uv run --locked --env-file .env make browser-check
 
 On Linux, install browser OS dependencies as required by Playwright (CI uses
 `playwright install --with-deps chromium webkit`). `make browser-check` runs
-`python manage.py test --settings=config.test_settings config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser image.browser geo.map_browser --noinput`; it is
-separate from the ordinary
-unit suite. Browser fixtures use synthetic accounts/material and temporary
-private file storage. Never run competing Django test processes against the same
+the six modules listed below through Django with `config.test_settings`, separately
+from the ordinary unit suite. Browser fixtures use synthetic accounts/material
+and temporary private file storage. Never run competing Django test processes against the same
 test database, or point the suite at an investigation database.
 
 `PANDECT_BROWSER_ENGINES` selects `chromium`, `webkit`, or both (comma-separated;
-default both). `PANDECT_BROWSER_ARTIFACTS` overrides the screenshot destination,
-which defaults to ignored `data/validation/browser`. Browser artifacts are local
-validation output. Do not replace the synthetic fixtures with real investigation
-material.
+default both). `PANDECT_BROWSER_ARTIFACTS` overrides captures for the shared
+harness and marketing; map captures always use `data/validation/maps`. Defaults
+are listed below. Artifacts are ignored local output; keep fixtures synthetic.
 
-The public [marketing-page checks](marketing.md#validation) run alongside the core
-suite, with their own captures in `data/validation/marketing-browser`. They cover
-navigation and FAQ disclosures without JavaScript, responsive reflow, enlarged
-text, keyboard focus, and appearance preferences.
+The suites cover current roles and access removal, JavaScript upload recovery,
+no-JavaScript workflows, keyboard focus, responsive reflow, enlarged text,
+light/dark appearance, reduced motion, and forced colors. The core journeys include
+confirmed deletion/import inventories, duplicate review, and the evidence reader.
+Long originals remain complete, findings follow the original, and header **Info**
+and **More** panels stay keyboard accessible. Info holds metadata and processing
+history; More holds editing, archive/deletion, and additional analysis. Checks
+cover panel dismissal/focus return, plus focused check-submission errors without
+JavaScript.
 
-The suite exercises account/case/people/vehicle/evidence/collaboration workflows,
-JavaScript uploads and recovery, no-JavaScript file creation/download, keyboard
-navigation, light/dark/reduced-motion/forced-colors behavior, responsive reflow,
-evidence admin creation/editing, superuser deletion with keyboard/no-JavaScript
-confirmation and cancellation, in-app superuser deletion from Details with
-confirmation, cancellation, imported-source inventories and no-JavaScript
-submission, archive controls and authorized downloads,
-location/person-location forms and private JSON downloads, communication forms,
-later call attachments, private audio/record downloads, and read-only viewer access, vehicle-location CSV
-upload/review/confirmation and source JSON, source fields in file
-batches, bulk mixed-file uploads with shared-field inheritance/overrides/reset,
-append limits, invalid-file removal, pause/retry, access removal between files,
-safe interrupted-confirmation retry, duplicate review across categories and within
-a batch, keyboard confirmation, and dense desktop record visibility.
-The page-layout journey also captures cases, evidence, settings, people, vehicles,
-details, and account settings at all five design viewport sizes. The disclosure journey
-checks collapsed evidence filters, retained filter URLs, keyboard/no-JavaScript
-access to optional source fields, and automatic opening with preserved values
-after a server validation error. It also opens analysis from the evidence reader
-and confirms notes remain accessible in record details. CSV original captures show the compact location
-and keyboard access to its retained receipt/source interpretation. It checks page
-reflow and uses the evidence-type chooser without JavaScript to open text,
-location, and call forms.
-Vehicle journeys also capture forms, lists, and details at desktop/mobile sizes,
-check keyboard focus and conflict review, and exercise creation, read-only viewer
-access, and confirmed owner deletion without JavaScript.
-CSV journeys capture desktop, tablet, mobile, 320px reflow, dark, and forced-colors
-layouts in both engines; they exercise native disclosure and confirmation controls
-by keyboard, the America/Toronto default and upload vehicle selection, queued
-progress and explicit refresh, read-only viewer access, and
-private JSON downloads without JavaScript.
-Duplicate journeys exercise both skipping and keeping matching rows, keyboard
-submission with the keep checkbox unchecked, and imported/skipped result counts.
-Bulk captures include desktop, tablet, mobile, 320px reflow, enlarged text, dark,
-reduced-motion, and forced-colors layouts. Visual targets are 12 complete ordinary
-rows at 1440×900 and 14 at 1440×1024, retaining readable text and accessible hit
-areas. Manual screen-reader testing is optional during development and does not
-block delivery; operator deployment checks remain separate validation activities.
-A successful build or HTTP readiness response is not a
-substitute for these browser interactions and captures.
+| Suite | Main scope | Default captures |
+| --- | --- | --- |
+| `config.tests.browser` | Accounts, cases, collaborators, people/vehicles, evidence and imports | `data/validation/browser` |
+| `marketing.browser` | Public navigation and FAQ disclosures | `data/validation/marketing-browser` |
+| `core.analysis.browser` | Extraction, reports, source links and review | `data/validation/analysis-browser` |
+| `core.analysis.context_browser` | Local OCR and retained geographic context | `data/validation/context-browser` |
+| `image.browser` | Synthetic plate search and private crops | `data/validation/plate-browser` |
+| `geo.map_browser` | Map, POIs and keyboard source navigation | `data/validation/maps` |
+
+Inspect captures at the viewport sizes and density targets in [DESIGN.md](../DESIGN.md).
+Manual screen-reader testing is optional and does not block delivery. Successful
+builds or HTTP readiness do not establish these interactions, full accessibility
+compliance, recognition accuracy, or live deployment health.
 
 ## Person POI validation
 
-POI coverage in `make check` exercises Home/Work/custom creation, required labels,
-finite/ranged coordinates and database constraints, creator attribution, same-case
-person choices, current owner/editor/viewer roles, unrelated superusers, revoked
-access, CSRF, stale edits, confirmed deletion and person/case cascades. Map tests
-cover private HTML/JSON, escaped labels, bounded independent POI pagination,
-shared search, polar positions, and changed asynchronous snapshots.
-
-`geo.map_browser` (included in `make browser-check`) exercises pointer-prefilled
-creation, keyboard selection and saving, validation recovery, custom-label edits,
-and no-JavaScript person-linked creation/deletion in Chromium and WebKit.
-Synthetic captures in `data/validation/maps` include POI forms and maps at the
-five design viewports, mobile landscape, enlarged text, dark appearance,
-reduced motion, and Chromium forced colors. Tile requests are mocked. These
-checks do not establish physical location accuracy or full accessibility compliance.
+`make check` covers POI validation, same-case links, roles, stale edits, deletion,
+and bounded private map results. `geo.map_browser` exercises pointer/keyboard
+creation, validation recovery, editing, and no-JavaScript person-linked workflows
+in both engines. Tile responses are mocked; tests do not establish physical
+location accuracy or live tile-service coverage.
 
 ## Image preview validation
 
@@ -222,30 +122,17 @@ uv run --locked --env-file .env python manage.py test --settings=config.test_set
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
 ```
 
-The preview browser journey checks Chromium and WebKit with and without page
-JavaScript, keyboard downloads, all five design viewport sizes, dark appearance,
-reduced motion, and forced colors where supported. Captures use the core browser
-artifact directory.
-
-Image regressions include synthetic 48 MP progressive `.jpeg` exports and
-multi-picture JPEGs, original-byte preservation, and rejection above 50 million
-pixels. The preview browser journey uses a multi-picture JPEG; the context browser
-OCR journey uses a 48 MP JPEG with real local recognition. These fixtures exercise
-the supported profiles without qualifying an individual photo or native RAW input.
+The preview journey uses a synthetic multi-picture JPEG. Regressions also cover
+48 MP progressive JPEGs, unchanged original bytes, and rejection above 50 million
+pixels. The context browser uses a 48 MP JPEG with real local OCR. These fixtures
+do not qualify arbitrary photos or native RAW files.
 
 ## Analysis validation
 
-Run the ordinary checks for retained-content search, current-field reports,
-processing/review history, case-scoped inference, native imports, text/style,
-conversation, and location calculations:
-
-```sh
-uv run --locked --env-file .env make check
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.browser --noinput
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.context_browser --noinput
-make compose-smoke
-make security-check
-```
+`make check` includes retained-content search, reports, processing/review history,
+native imports, text/conversation/location methods, and inference boundaries.
+The analysis and context journeys are included in `make browser-check`; run a
+focused suite by passing its module to the same Django test command.
 
 Processing unit tests live with their domain apps; shared execution, access,
 publication, and result integration tests remain in `core.analysis.tests`.
@@ -255,51 +142,12 @@ For a focused parser check, run:
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_parser_dispatch document.tests.test_analysis image.tests.test_analysis image.tests.test_ocr image.tests.test_plates core.analysis.tests.test_plates audio.tests.test_analysis geo.tests.test_geographic_context --noinput
 ```
 
-These checks exercise real isolated parser dispatch, imports without Django,
-native document extraction, image metadata/previews/OCR, audio decoding, and
-geographic conversion. Inference calls remain mocked in ordinary tests.
-
-`image.browser` runs real local plate search on a synthetic angled plate, checks
-private processed crops and original bytes, and captures desktop/mobile/reflow,
-dark and forced-colors layouts with keyboard-operated region disclosure. These
-fixtures do not establish general plate-detection or recognition accuracy.
-
-The focused analysis browser suite is also included in `make browser-check` and
-uses Chromium and WebKit with synthetic
-material, no JavaScript, all five design viewport sizes, keyboard focus,
-light/dark/forced colors, extraction, source-grouped metadata tables and
-recording intervals, current-record report tables, reviews, downloads, and access
-revocation.
-Captures default to ignored `data/validation/analysis-browser`. When running a
-focused suite, do not run another PostgreSQL test process at the same time;
-`PANDECT_BROWSER_ENGINES` and
-`PANDECT_BROWSER_ARTIFACTS` have the same meaning as in the core suite.
-
-The context browser suite, also included in `make browser-check`, exercises local printed-text profile
-selection, searchable OCR regions/private previews and original
-downloads, plus historical geographic context, exact retained reference JSON,
-viewer access and revocation. It uses real local Tesseract OCR and mocked map
-responses with real bounded parsing and processing. Chromium/WebKit captures cover the five design
-viewports, keyboard controls, no-JavaScript operation, dark and forced colours,
-and reduced motion; output defaults to ignored `data/validation/context-browser`.
-These checks do not establish general OCR accuracy or map-service coverage.
-
-Processing tests include real same-database worker dispatch and concurrent
-idempotent submissions. Inference/geocoding tests mock HTTP; parser tests decode
-synthetic files in real bounded child processes, including real local printed OCR.
-Host validation requires Tesseract and English data; see
-[development](development.md#run-python-on-the-host). These establish handling and
-provenance, not general recognition accuracy. The isolated Compose smoke
-also queues native extraction, local printed-image OCR and synthetic plate search
-while its worker is stopped, restarts the stack,
-then verifies retained extraction/search output after worker recovery.
-
-Regression coverage includes bounded extraction-search queries, shared source
-validation, stale and misattributed passages, operation-specific form settings,
-review correction and finding navigation, HTML source offsets, and signed-zero
-checksum stability after PostgreSQL reload. Admin and case-summary tests reject
-inconsistent related-case associations while deletion counts describe all retained
-records that will be removed.
+Parser tests use real bounded child processes with synthetic documents, images,
+audio, geographic data, and local printed OCR. Host validation requires Tesseract
+and English data; see [development](development.md#run-python-on-the-host).
+Inference and geographic HTTP responses are mocked in ordinary tests. Worker
+checks exercise same-database dispatch, concurrent idempotent submissions,
+publication and provenance; they do not establish general OCR/model accuracy.
 
 ## Local inference validation
 
@@ -330,9 +178,7 @@ permitting the private services. Do not use public map capacity in routine tests
   Linux amd64 and arm64. uv reads `.python-version` and installs from `uv.lock`.
 - A separate Linux amd64 browser job installs Chromium/WebKit and runs
   `make browser-check` for core, marketing, analysis, geographic context and map
-  journeys with synthetic configuration and PostgreSQL. Package setup uses
-  Ubuntu's primary mirrors instead of the runner's Azure mirror to avoid stalled
-  OCR/browser dependency downloads.
+  journeys with synthetic configuration and PostgreSQL.
 - A separate CI job audits locked dependencies without database credentials.
 - After those checks pass for a `main` push in the Pandect operator repository,
   CI publishes the Linux amd64 web and worker image targets to GHCR. CD resolves
@@ -342,9 +188,8 @@ permitting the private services. Do not use public map capacity in routine tests
   pass verification, a dependent job publishes a GitHub release for the tested
   commit. Stale skips and failed deployments do not publish.
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
-- **CodeQL** analyzes Python on pushes, pull requests, and a weekly schedule. The
-  existing public-repository guard remains: private repositories skip this job
-  unless the project deliberately configures an eligible code-scanning plan.
+- **CodeQL** analyzes Python on pushes, pull requests, and a weekly schedule;
+  the workflow guard skips private repositories.
 
 Workflows use pinned action commits and default to read-only contents permissions.
 Only CI's production image jobs receive package-write permission; CD's deploy job
@@ -360,13 +205,9 @@ credentials, network access, or a database:
 uv run --locked python -m unittest config.tests.test_dokploy_deploy config.tests.test_github_release
 ```
 
-They cover stale CI skips, immutable image validation, worker-before-web ordering,
-native provider updates, active and failed deployments, redirect rejection,
-sanitized transport failures, exact running task digests, release markers, and
-readiness stability. They also cover the completion output, exact release commit
-target, existing-release reruns, tag conflicts, interrupted publication, and API
-failures. GitHub token permissions, tag rules, release publication, GHCR access,
-and Dokploy resources require separate live verification.
+These tests cover immutable deployment identity, worker-before-web ordering,
+bounded failures, stale skips, release reruns and tag conflicts. GitHub permissions,
+GHCR/Dokploy access, and actual release publication require live verification.
 
 Local checks do not prove hosted workflow execution or deployed behavior. Hosted
 checks run only after changes reach GitHub.

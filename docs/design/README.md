@@ -10,6 +10,11 @@ the standalone arch.
 
 ## Interface references
 
+- [Quiet workspace](quiet-evidence-reference.png): selected on 2026-11-13 for the
+  evidence rebuild. It emphasizes the original and source-linked findings, a
+  compact rail, one Info inspector, and a More menu. The implementation shows real
+  processing output rather than reproducing illustrative findings.
+
 The planning reference images were generated with the built-in Image
 Generation tool on 2026-10-25. They are visual references, not application assets
 or evidence of a running interface. No private investigation material was used.
@@ -25,10 +30,10 @@ or evidence of a running interface. No private investigation material was used.
 The [screen specification](../interface-design.md) takes precedence over
 incidental mockup copy or pixel measurements.
 
-## Implemented interface captures
+## Retained implementation captures
 
-The following are real browser captures of the Django implementation using a
-synthetic case, not generated mockups:
+These earlier browser captures use a synthetic case. They document a past
+implementation, not the current layout or a new validation run:
 
 - [Desktop](implementation-desktop.png), at 1487 × 1058 CSS pixels.
 - [Mobile](implementation-mobile.png), at 390 × 844 CSS pixels.
@@ -39,27 +44,3 @@ synthetic case, not generated mockups:
 See [browser validation](../validation.md#browser-checks) for density checks,
 test coverage, and validation limits. Additional synthetic browser-test captures
 are written to ignored `data/validation/browser/`.
-
-## Final refinement prompt
-
-The final image edits the first density revision of selected option 3 using this
-prompt:
-
-> Refine the attached Pandect UI mockup, preserving its existing visual style and
-> three-pane arrangement. Output ONE desktop web-app screenshot target1440x1024.
-> Fix ONLY these visible layout issues: 1) The evidence list's last row 'Source
-> email' is partly overlapped by the pagination. Make FOURTEEN complete, readable
-> rows fit between the list toolbar and footer, with no overlap/clipping. Compact
-> the toolbar to156px total: heading/Add56px, search44px, filter44px plus12px
-> spacing. Evidence rows56px minimum,16px title14px metadata,44px or larger hit
-> area. Pagination footer44px in its own space. Preserve all14titles; no tiny
-> fonts. 2) The selected text record metadata should say 'Text' rather than 'Text
-> document'. 3) Investigator description should be normal read-only prose, not an
-> editable bordered text field; remove the duplicate lower Edit details button,
-> keeping the top Edit details button. 4) The footer range is '1–25 of 38',
-> because25 records are loaded on this page and14 fit in the viewport; show a
-> subtle scroll indicator so additional rows are discoverable. Everything else
-> remains the same: sidebar, readable original text, compact source strip,
-> collapsed Integrity details, no delete action. Remove any accidental overlaps,
-> preserve clear font rendering and contrast. All dates on/before25Oct2026 and
-> synthetic content. Output screen only.

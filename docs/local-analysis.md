@@ -8,8 +8,9 @@ sends evidence to the cloud automatically.
 
 Printed-English OCR, native document text, metadata inspection, rule-based
 identifiers, keywords, writing comparisons, conversation timing and spatial
-calculations already run locally. **Analyze evidence** keeps its existing
-deterministic/OCR batch; it does not automatically add LLM analysis or transcription.
+calculations run locally. The automatic checks and **Run checks**/**Run checks
+again** use the [local batch](analysis.md#retained-processing); LLM analysis and
+transcription remain deliberate.
 
 ## Current methods and limits
 
@@ -195,12 +196,10 @@ service has verified historical coverage. Current OSM data cannot reconstruct ol
 map states or establish real-world conditions. Pandect retains reference snapshots
 and geocode reviews independently of service availability.
 
-Background tiles are separate from analysis. An empty `PANDECT_MAP_TILE_URL`
-disables the basemap. Operators may configure a private or public HTTPS raster
-template. All configured tiles load automatically when the map opens, without a
-consent step; the provider receives the browser's IP/site origin and viewed tile
-areas. Evidence files, titles and source details stay in Pandect. Markers and the
-accessible location list remain available without tiles. See [maps](maps.md).
+Background tiles are separate from analysis and load automatically when configured,
+including public tiles. See [map configuration and privacy](maps.md#external-tiles-and-privacy)
+before an egress-blocked qualification; leave `PANDECT_MAP_TILE_URL` empty or use a
+private tile provider.
 
 ## Qualification and recovery
 
@@ -224,10 +223,8 @@ audio uses the existing PCM parser and chunk/timeline path. Its JSON includes
 expected distinctions, actual validated output, usage and elapsed time, without
 assigning an unsupported quality grade. Keep audio/output appropriately private.
 
-1. Exercise all seven paths. Confirm external AI and geographic processing require
-   the appropriate separate choice/approval. Disable the basemap or configure a
-   private tile provider for an egress-blocked qualification; configured public
-   tiles load automatically when viewing the map.
+1. Exercise all listed paths and confirm external AI/geographic processing require
+   the appropriate choice/approval. Control basemap egress as described above.
 2. Transcribe known speech with names, accents, overlap and non-speech. Inspect
    word errors, omissions and original-timeline intervals. Score against the
    retained transcript; unavailable confidence scores stay unknown.
@@ -277,11 +274,9 @@ trials used the warm runtime. Runtimes were evaluated serially; combined-service
 memory was not qualified. These observations do not establish production
 throughput, maximum-context capacity, accuracy rates or remote-model parity.
 
-The completed execution paths are usable for operator qualification and reviewed
-suggestions. The 8B model is not qualified for dependable interpretation or
-semantic linking. Keep ambiguous references unresolved and reject unsupported
-specificity even when quotation anchors validate. Larger/different models and
-GPU execution need their own evaluation.
+The 8B model remains unqualified for dependable interpretation or semantic linking.
+Reject unsupported specificity even when quotations validate. Different models and
+GPU execution require separate evaluation.
 
 Raw synthetic results are retained locally in ignored
 `data/validation/local-analysis/2026-10-29-qualification.json`; verified model

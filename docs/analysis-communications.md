@@ -14,9 +14,7 @@ meaning, ownership, names, and free-form addresses remain unresolved. URL host
 and email-domain case normalization preserves paths and email local parts. This
 rule-based subset works without Gateway credentials. Bare domains require ASCII
 labels of at most 63 characters, at most 253 characters overall, and a suffix in
-the conservative supported set: com, org, net, edu, gov, mil, int, io, ai, co, uk,
-ca, au, de, fr, nl, ch, se, es, it, jp, info, biz, app, dev, me, tv, us, eu, nz,
-za, in, br, mx, sg, hk, ie, be, dk, no, fi, pl, test, example, invalid, or onion.
+the conservative allowlist in [`text/analysis/deterministic.py`](../text/analysis/deterministic.py).
 This rejects common file extensions and dotted prose. Other suffixes and IDNs
 remain unsupported; domain appearances inside an extracted email or URL are
 already represented by that occurrence, rather than duplicated as bare domains.
@@ -160,7 +158,7 @@ shared content path: at most 16,000 characters per chunk and 20 chunks per run.
 Every summary states its chunk/source selection. A missing or oversized chunk
 must not silently become an apparently complete history. These concepts adapt
 [iMessageLLM's documented workflow](https://github.com/aaronspindler/iMessageLLM)
-without its two-person reduction or local-provider inference path.
+without its two-person reduction or bypassing Pandect's shared inference boundary.
 
 ## Retained iMessage HTML import
 

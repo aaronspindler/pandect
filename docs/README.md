@@ -1,124 +1,72 @@
 # Pandect documentation
 
-## Application foundation
+[AGENTS.md](../AGENTS.md) owns contributor requirements;
+[DESIGN.md](../DESIGN.md) owns durable interface standards. The guides below own
+current behavior and procedures. Planning documents and dated reviews are not
+proof of implementation or live deployment.
 
-- [Local development, configuration, and uv](development.md)
-- [Architecture and implemented scope](architecture.md)
-- [Background-worker setup, diagnostics, and recovery](background-tasks.md)
-- [Case analysis, reports, processing, and AI configuration](analysis.md)
-- [Local inference setup, model qualification, and private map services](local-analysis.md)
-- [Automatic geographic context and retained map references](analysis-geographic-context.md)
-- [Case workflows, invitations, collaboration, and Django admin](cases.md)
-- [Investigation map, OpenStreetMap tiles, and location coverage](maps.md)
-- [People, contact details, and case-scoped administration](people.md)
-- [Vehicles, identifying details, and case-scoped administration](vehicles.md)
-- [Evidence, communications, retained call material, and private downloads](evidence.md)
+## Setup and operation
+
+- [Development, configuration, and uv](development.md)
+- [Architecture, runtime versions, app ownership, and migration baseline](architecture.md)
+- [Background workers, diagnostics, and recovery](background-tasks.md)
+- [Operations, storage, backup, and recovery](operations.md)
+- [Dokploy deployment](operations.md#first-dokploy-deployment)
+- [Validation, browser checks, CI, and Dependabot](validation.md)
+
+## Investigation workflows
+
+- [Cases, invitations, permissions, and scoped administration](cases.md)
+- [People](people.md) and [vehicles](vehicles.md)
+- [Evidence, communications, retention, and private downloads](evidence.md)
 - [Vehicle locations and Asset Location CSV imports](vehicle-location-imports.md)
-- [Validation, CI, and Dependabot](validation.md)
-- [November 2026 code review catalogue and validation](code-review-2026-11.md)
-- [October 2026 code review catalogue and validation](code-review-2026-10.md)
-- [Compose operation, backup, and recovery](operations.md)
-- [First Dokploy deployment on openpandect.com](operations.md#first-dokploy-deployment)
+- [Analysis, reports, review, and Gateway configuration](analysis.md)
+- [Local inference, model qualification, and private geographic services](local-analysis.md)
+- [Geographic context and retained map references](analysis-geographic-context.md)
+- [Investigation maps and location coverage](maps.md)
 
-The Django project was generated from the repository root using
-`python -m django startproject config .`. Its configuration lives in `config/`:
+## Design and planning
 
-| Configuration | Module path |
-| --- | --- |
-| `DJANGO_SETTINGS_MODULE` in `manage.py`, WSGI, and ASGI | `config.settings` |
-| `ROOT_URLCONF` | `config.urls` |
-| `WSGI_APPLICATION` | `config.wsgi.application` |
-| `ASGI_APPLICATION` | `config.asgi.application` |
-| WSGI server entry point | `config.wsgi:application` |
-| ASGI server entry point | `config.asgi:application` |
-
-The initial migrations use `accounts.User`; application and integration tests use
-PostgreSQL. Account screens, case management, email invitations, viewer/editor
-collaboration, people and vehicle management, and retained evidence uploads/downloads
-are implemented alongside scoped operator administration and bounded vehicle-location
-CSV imports. Bounded extraction and investigation workflows are documented in
-[case analysis](analysis.md); the broader catalogue remains a planning reference.
-
-## Product planning
-
-- [Evidence analysis and extraction catalogue (proposed capabilities)](evidence-analysis.md)
-- [Evidence analysis implementation roadmap (proposed priorities)](evidence-analysis-roadmap.md)
-
-## Interface design and delivery
-
-- [Project design standard](../DESIGN.md)
-- [Public marketing pages and hosted-service messaging](marketing.md)
-- [Investigator screens, workflows, and density specification](interface-design.md)
-- [Interface implementation plan and acceptance criteria](interface-plan.md)
-- [Browser validation and local captures](validation.md#browser-checks)
-
-The implemented interface follows the compact three-pane investigation workspace.
-The design documents remain the reference for behavior and acceptance criteria;
-validation results must be reported separately from implementation status.
+- [Investigator screens and workflows](interface-design.md)
+- [Interface delivery gates](interface-plan.md)
+- [Design references and assets](design/README.md)
+- [Public marketing pages](marketing.md)
+- [Project descriptions and reusable marketing copy](marketing-copy.md)
+- [Analysis catalogue](evidence-analysis.md) and [roadmap](evidence-analysis-roadmap.md)
+- Historical code reviews: [October 2026](code-review-2026-10.md),
+  [November 2026](code-review-2026-11.md)
 
 ## Codex project configuration
 
-The project defaults live in [`.codex/config.toml`](../.codex/config.toml).
-Open a new Codex session in this repository to load them. Codex must trust the
-project before it loads project configuration; explicit session overrides and
-managed requirements can take precedence.
+[`.codex/config.toml`](../.codex/config.toml) is the source of project defaults.
+Start a new trusted Codex session to load it; session overrides and managed
+requirements may take precedence. See the official
+[configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+and [configuration layering](https://learn.chatgpt.com/docs/config-file/config-basic).
 
-| Setting | Project default |
-| --- | --- |
-| Implementation model | GPT-6.1 Sol (`gpt-6.1-sol`) |
-| Implementation reasoning | `xhigh` |
-| Response verbosity | Low (concise answers) |
-| Plan mode reasoning | `ultra` |
-| Speed | Fast (`service_tier = "fast"`) |
-| Change approvals | Automatic review (`auto_review`) |
-| Sandbox | `workspace-write` |
-| Internet documentation | Live built-in web search |
+The planning preference is GPT-6 Astra with Ultra reasoning; implementation uses
+GPT-6.1 Sol with Extra high reasoning. Select the model explicitly when changing
+modes: `plan_mode_reasoning_effort` sets effort only. In the CLI, use `/model`,
+then `/plan`; after leaving Plan mode, select the implementation model again.
+Keep Fast enabled for both. Model/effort availability depends on the client and
+account; project defaults do not change an already-running conversation.
 
-The intended planning model is GPT-6 Astra (`gpt-6-astra`). Codex CLI 0.164.0
-supports a separate Plan mode reasoning setting, but has no project setting
-that automatically selects a different model for Plan mode. Select Astra when
-entering Plan mode, and select Sol 6.1 with `xhigh` effort before implementation.
-Keep Fast enabled for both.
-
-In the CLI, start with `codex`, use `/model` to choose Astra and Ultra, then enter
-`/plan`. Before implementing, leave Plan mode and use `/model` to choose Sol 6.1
-and Extra high. Fast is enabled by the project config; `/fast` controls it in
-the CLI. Merely leaving Plan mode does not configure a model switch back to Sol.
-
-Automatic review routes approval requests to Codex's reviewer. Actions permitted
-by the sandbox can proceed directly; automatic review may deny other requests.
-Live documentation lookup uses built-in web search without enabling unrestricted
-network access for shell commands.
-
-Configuration was checked against the installed Codex CLI 0.164.0 and its bundled
-model catalog. These settings do not change an already-running conversation.
+Automatic review handles eligible approval requests, not all actions. Sandbox
+permissions and shell network restrictions still apply; built-in live web search
+does not grant unrestricted shell networking.
 
 ### Simplicity review
 
-The shared Agentics agent
-[`simplicity_reviewer`](https://github.com/aaronspindler/agentics) checks the final
-task changes for overengineering and unnecessary bloat before handoff. It
-inherits the parent model and reasoning settings and is instructed to inspect
-without making edits. Its permissions still come from the parent session.
+Use the shared Agentics
+[`simplicity_reviewer`](https://github.com/aaronspindler/agentics) for the
+[required handoff review](../AGENTS.md#simplicity-and-maintainability). It inherits
+the parent model/reasoning and stays read-only within the parent permissions.
+Supply task requirements, the final scoped diff including new files, and the
+relevant Pandect safeguards. Exclude unrelated changes. Wait for findings, resolve
+material issues, and rerun affected checks/review after substantive fixes.
 
-As required by [the contributor guide](../AGENTS.md#simplicity-and-maintainability),
-the implementing agent supplies the requirements and final scoped diff (including
-new files), waits for the review, and resolves material findings before handing
-back changes. The reviewer identifies concrete maintenance costs and simpler
-alternatives while preserving the project's correctness and integrity requirements.
-Substantive fixes require affected checks and another review.
-
-Install the reviewer globally with `agentics install --agent simplicity_reviewer`
-using the [Agentics toolkit](https://github.com/aaronspindler/agentics). Codex loads
-it from `${CODEX_HOME:-~/.codex}/agents/`. Open a new trusted Codex session after
-installation. You can request it explicitly: "Have simplicity_reviewer review
-the final changes for this task." Supply Pandect's Django conventions, case
-isolation, immutable originals and provenance, accessibility, resource bounds,
-recoverable failures, and meaningful tests from `AGENTS.md` with the review.
-The handoff requirement is an agent instruction, not a Git or CI hook. If the
-client cannot load custom agents, delegate the shared reviewer instructions and
-disclose that fallback.
-
-References: [OpenAI configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
-[configuration layering and profiles](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles),
-and [custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents#custom-agents).
+Install with `agentics install --agent simplicity_reviewer`; Codex loads the
+reviewer from `${CODEX_HOME:-~/.codex}/agents/` in a new session. If the client
+cannot load custom agents, delegate the shared reviewer instructions and disclose
+the fallback. This is an agent handoff requirement, not a Git or CI hook. See
+[custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents#custom-agents).

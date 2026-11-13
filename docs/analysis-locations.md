@@ -181,12 +181,6 @@ This is candidate inspection, not acceptance for location analysis. Every
 unrejected alternative remains visible, accepted candidates are labelled, and
 the original observation is preserved. The map never invokes an external geocoder.
 
-These choices follow the distinction between observed samples and inferred
-trajectory interpretations discussed in Microsoft's
-[trajectory-data mining research](https://www.microsoft.com/en-us/research/project/trajectory-data-mining/).
-Road-network reconstruction and inferred transport modes require additional
-inputs and evaluation beyond these methods.
-
 ## Automatic vehicle trips
 
 Vehicle pages and the **Vehicle trips** report calculate possible trips from the

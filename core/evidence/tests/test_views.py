@@ -1,5 +1,6 @@
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier
@@ -20,6 +21,13 @@ from cases.models import Case, CaseMembership
 from core.evidence.types import FILE_KINDS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
+from geo.models import VehicleLocationEvidence
+from phone.models import (
+    CallEvidenceAttachment,
+    CommunicationContext,
+    PhoneCallEvidence,
+    TextMessageEvidence,
+)
 from text.models import TextEvidence
 
 
@@ -152,7 +160,22 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(response.status_code, 302)
                 detail = self.client.get(response["Location"])
                 self.assertEqual(detail.status_code, 200)
+                item = detail.context["item"]
                 self.assertContains(detail, "New source")
+                self.assertContains(detail, 'id="evidence-findings-heading"')
+                self.assertContains(detail, 'id="evidence-details-heading"')
+                self.assertNotContains(detail, 'aria-label="Evidence sections"')
+                self.assertContains(detail, "Synthetic witness")
+                self.assertContains(detail, "Synthetic source")
+                self.assertContains(detail, item.sha256)
+                if kind == "text":
+                    self.assertContains(detail, "Original café")
+                elif kind in FILE_KINDS:
+                    self.assertContains(detail, "original.bin")
+                elif kind in LOCATION_KINDS:
+                    self.assertContains(detail, "Synthetic harbour office")
+                else:
+                    self.assertContains(detail, "Synthetic person")
                 cache_directives = detail["Cache-Control"].split(", ")
                 self.assertIn("private", cache_directives)
                 self.assertIn("no-store", cache_directives)
@@ -302,17 +325,35 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             404,
         )
 
-    def test_details_actions_follow_case_roles_and_keep_collection_context(self):
+    def test_info_and_record_actions_follow_case_roles_and_keep_collection_context(
+        self,
+    ):
         item = self.text()
         for role in ("owner", "editor", "viewer"):
             self.login(role)
-            response = self.client.get(self.url("detail", item), {"section": "details"})
-            if role == "viewer":
-                self.assertNotContains(response, "Edit details")
-                self.assertNotContains(response, self.url("archive", item))
-            else:
-                self.assertContains(response, "Edit details")
-                self.assertContains(response, self.url("archive", item))
+            for params, info_open in (
+                ({}, False),
+                ({"info": "0"}, False),
+                ({"info": "1"}, True),
+                ({"section": "details"}, True),
+                ({"results_page": "1"}, True),
+            ):
+                with self.subTest(role=role, params=params):
+                    response = self.client.get(self.url("detail", item), params)
+                    self.assertEqual(response.context["info_open"], info_open)
+                    self.assertContains(response, "Original café")
+                    self.assertContains(response, 'id="evidence-findings-heading"')
+                    self.assertContains(response, 'id="evidence-details-heading"')
+                    self.assertContains(response, item.sha256)
+                    if role == "viewer":
+                        self.assertNotContains(response, "Edit details")
+                        self.assertNotContains(response, self.url("archive", item))
+                    else:
+                        self.assertContains(response, "Edit details")
+                        self.assertContains(response, self.url("archive", item))
+            self.assertEqual(
+                self.client.post(self.url("detail", item), {}).status_code, 405
+            )
         self.login("editor")
         for action in ("archive", "restore"):
             response = self.client.post(
@@ -320,8 +361,86 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             )
             self.assertRedirects(
                 response,
-                self.url("detail", item) + "?q=notes&state=all&section=details",
+                self.url("detail", item)
+                + "?q=notes&state=all&info=1#evidence-details-heading",
             )
+
+    def test_combined_reader_retains_call_attachments_and_message_import_context(self):
+        call = PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Retained call",
+            sender=self.person,
+            recipient=self.person,
+        )
+        attachment = CallEvidenceAttachment.objects.create(
+            case=self.case,
+            phone_call=call,
+            uploaded_by=self.users["owner"],
+            transcript="Complete retained call transcript.",
+        )
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Retained message export",
+            file=SimpleUploadedFile("messages.txt", b"Synthetic export"),
+        )
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Imported message",
+            sender=self.person,
+            recipient=self.person,
+            body="Complete imported message.",
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=message,
+            source_document=document,
+            source_sha256=document.sha256,
+            source_row=1,
+            source_start=0,
+            source_end=1,
+            parser_version="synthetic-1",
+            timezone="UTC",
+            raw_sender="Retained account label",
+        )
+        self.login("viewer")
+        for params in ({}, {"section": "details"}):
+            with self.subTest(params=params):
+                response = self.client.get(
+                    self.url("detail", call, kind="phone-call"), params
+                )
+                self.assertContains(response, "Complete retained call transcript.")
+                self.assertContains(response, f'id="attachment-{attachment.pk}"')
+                self.assertContains(response, call.sha256)
+                self.assertNotContains(response, "Add transcript or audio")
+                response = self.client.get(
+                    self.url("detail", message, kind="text-message"), params
+                )
+                self.assertContains(response, "Complete imported message.")
+                self.assertContains(response, "Imported source context")
+                self.assertContains(response, "Retained account label")
+                self.assertContains(
+                    response, self.url("detail", document, kind="document")
+                )
+
+    def test_vehicle_receipt_time_is_retained_without_an_import(self):
+        observation = VehicleLocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            vehicle=self.vehicle,
+            title="Reported vehicle observation",
+            address="Reported depot",
+            received_at=datetime(2026, 11, 13, 12, 34, 56, tzinfo=UTC),
+        )
+        self.login("viewer")
+        response = self.client.get(
+            self.url("detail", observation, kind="vehicle-location")
+        )
+        self.assertContains(response, "Reported depot")
+        self.assertContains(response, "13 Nov 2026, 12:34:56 UTC")
+        self.assertContains(response, 'id="evidence-findings-heading"')
 
     def test_archive_restore_is_idempotent_and_preserves_original(self):
         item = self.text()
@@ -398,6 +517,32 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.login("outsider")
         self.assertEqual(self.client.get(details_url).status_code, 404)
+
+    def test_metadata_edit_returns_to_info_with_collection_context(self):
+        item = self.text()
+        original = (item.body, item.sha256)
+        self.login("editor")
+        suffix = "?q=notes&type=text&state=all&page=2"
+        return_url = (
+            self.url("detail", item) + suffix + "&info=1#evidence-details-heading"
+        )
+        response = self.client.get(self.url("edit", item) + suffix)
+        self.assertEqual(response.context["cancel_url"], return_url)
+        self.assertContains(response, return_url.replace("&", "&amp;"))
+        response = self.client.post(
+            self.url("edit", item) + suffix,
+            {
+                "kind": "text",
+                "title": "Revised interview title",
+                "source": "Corrected source citation",
+                "expected_edited_at": item.edited_at.isoformat(),
+            },
+        )
+        self.assertRedirects(response, return_url)
+        item.refresh_from_db()
+        self.assertEqual(item.title, "Revised interview title")
+        self.assertEqual(item.source, "Corrected source citation")
+        self.assertEqual((item.body, item.sha256), original)
 
     def test_metadata_and_empty_original_validation_keeps_entered_values(self):
         self.login("owner")

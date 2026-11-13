@@ -1,3 +1,1 @@
-<div class="file-original"><h2>{{ item.original_filename }}</h2><p>{{ item.byte_size|filesizeformat }}</p>
-  <p>Download this file to read or listen to it.{% if can_edit %} Open <a href="{% url 'core:analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}">Analysis</a> to extract supported content.{% endif %}</p>
-</div>
+<div class="file-original"><h3>{{ item.original_filename }}</h3><p class="muted">{{ item.byte_size|filesizeformat }}</p></div>

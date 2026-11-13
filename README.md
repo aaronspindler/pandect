@@ -5,63 +5,73 @@
   <img src="ui/static/ui/brand/logo-oxblood.png" alt="Pandect logo" width="432">
 </picture>
 
-Pandect is a self-hostable investigation and intelligence platform designed to
-make open-source intelligence (OSINT) approachable. Investigators can collect
-original evidence, run analysis, and inspect the source behind each finding
-in one case workspace.
+**A self-hostable investigation workspace.**
 
-Investigators should be able to understand where information came from, preserve
-uncertainty, and collaborate without losing control of their case material.
-Pandect is built with Django and PostgreSQL, with one codebase for self-hosting
-and operator-hosted deployments.
+Pandect brings the material you have gathered into private cases. Keep original
+files, messages, and location observations together, search within a case, and
+review findings alongside the sources behind them. Invite collaborators to
+inspect the evidence or contribute to the investigation.
 
-**Status:** Pandect is in active development. The current application provides
-the core case, collaboration, people, vehicle, and evidence workflows described below.
-Analysis and visualization capabilities are being built incrementally.
+Pandect is for organizing and examining collected material, including open-source
+intelligence (OSINT). It is built with Django and PostgreSQL and runs on your own
+infrastructure with Docker Compose.
 
-## Features
+**In active development:** The workflows below are implemented. Some analysis
+needs separately configured services; unified timelines, relationship graphs,
+and case-wide summaries are planned. A managed hosting service is also planned.
 
-- **Case management:** Create investigations with their own people, evidence, and
-  access permissions. Search your cases and filter owned or shared work.
-- **Collaboration:** Invite people by email, grant viewer or editor access, and
-  manage collaborators from case settings. Each case has one owner.
-- **People records:** Capture names and contact details
-  within a case, including partial or uncertain identities.
-- **Vehicle records:** Capture make, model, year, color, plate, and VIN within a
-  case, including partial or uncertain identifiers.
-- **Evidence collection:** Upload images, audio, and documents, or capture original
-  text. Queue multiple files and record source details and collection times.
-- **Communication evidence:** Capture individual text messages, phone calls, and
-  FaceTime calls between case people, with optional event times/call durations.
-  Add retained transcripts and recordings when available, including later additions.
-- **Location observations:** Record addresses or coordinates, optionally linked to
-  a person or vehicle in the same case, with source details and an observation time. These
-  capture reported information rather than verified whereabouts.
-- **Vehicle location imports:** Review Asset Location CSV exports, explicitly select
-  their timezone and case vehicles, and retain source rows and telemetry alongside
-  the original CSV. A background worker prepares and publishes imports up to
-  100,000 data rows and 100 MiB, subject to the deployment's upload limit.
-- **Original preservation:** Retain originals with SHA-256 checksums. Edit
-  descriptive details separately, archive or restore evidence, and download files
-  through case-authorized routes. Case owners can confirm whole-case deletion.
-  Superusers with current case access can review and confirm individual evidence
-  deletion, including its dependent records and files.
-- **Investigator workspace:** Search and filter evidence in a responsive interface
-  with a three-pane desktop layout, mobile views, and keyboard navigation.
-- **Case analysis:** Adding evidence queues applicable local checks. Inspect
-  call, vehicle, and duplicate reports, search retained and extracted text, and review
-  source-linked conversation, writing-style, visit and journey candidates with
-  retained processing history. See [supported inputs and configuration](docs/analysis.md).
-- **Self-hosting:** Run locally with Docker Compose. Ordinary case management
-  requires no AI credentials or hosted Pandect subscription.
+## What you can use today
 
-### Planned capabilities
+- **Private cases and collaboration.** Create cases, invite collaborators by
+  email, and grant viewer or editor access. Each case has one owner who manages
+  access. Evidence and file downloads require current case permission.
+- **Evidence collection and preservation.** Upload documents, images, and audio;
+  capture text, messages, calls, and locations; and retain call transcripts and
+  recordings. Keep originals with checksums and source details, then archive or
+  restore evidence without replacing the original.
+- **People, vehicles, and maps.** Maintain case people, contact details, social
+  account records, and vehicle identifiers. Map recorded coordinates and
+  person-linked points of interest. Reported details remain distinct from
+  verified identity or presence.
+- **Search and source-linked findings.** Search retained text and supported
+  extraction within a case. Eligible new evidence receives local checks for
+  native PDF/UTF-8 text, printed English in JPEG/PNG images, possible vehicle
+  plates, supported media metadata, and identifiers, dates, and keywords in
+  available text. Findings link back to source records, passages, or image regions.
+- **Imports and pattern review.** Review Asset Location CSV exports before
+  importing vehicle observations, or import the supported iMessage HTML profile.
+  Inspect possible vehicle trips, call activity, observation coverage, and exact
+  file duplicates. Deliberately selected comparisons cover wording, writing
+  patterns, conversation timing, and reported locations.
+- **Self-hosting.** Run the application, PostgreSQL, and worker with Docker
+  Compose. Core case work and the local checks above need no external AI service
+  or hosted Pandect subscription.
 
-The longer-term direction includes broader extraction and specialist analysis,
-search across accessible cases, entity and relationship exploration, graphs,
-unified timelines, annotations, and case-report synthesis. The
-[analysis catalogue](docs/evidence-analysis.md) describes possibilities beyond the
-current supported workflows.
+Formats, resource bounds, and coverage vary by method. Native PDF extraction
+does not read scanned pages; local image text recognition supports printed
+English, not handwriting. Possible trips and plate readings are leads to inspect,
+not verified routes, drivers, or identities. See the [supported analysis
+guide](docs/analysis.md) for inputs and limits.
+
+### Available with additional configuration
+
+English speech transcription, topic and claim suggestions, conversation summaries,
+and semantic conversation comparisons need an operator-configured private model
+runtime. External AI is a separate, explicitly selected and approved route through
+Cloudflare AI Gateway; a local failure never triggers cloud fallback.
+
+Address lookup and geographic context need configured geographic services. Map
+backgrounds also use an operator-configured tile provider. See [local analysis
+setup](docs/local-analysis.md) and [map configuration](docs/maps.md).
+
+### Planned and exploratory
+
+Planned work includes a unified case timeline, candidate links across records,
+relationship exploration, and source-cited case-wide synthesis. Broader goals
+include search across accessible cases. Semantic passage retrieval, near-duplicate
+image comparison, structured table extraction, and other specialist tools remain
+exploratory. These are not available features or a promised release schedule;
+see the [analysis roadmap](docs/evidence-analysis-roadmap.md).
 
 ## Getting started
 
@@ -108,7 +118,7 @@ verification:
 
 1. Choose **All cases → Create case**.
 2. In **Evidence**, choose **Add evidence** to upload files or capture text and locations.
-3. Open **Analysis** to see progress and source-linked results.
+3. Open **Findings** to see progress and source-linked results.
 4. Use **Case tools** for Map, People, Vehicles, or **Settings → Invite collaborator**.
 
 Ordinary investigators do not need staff or administrator permissions.
@@ -124,14 +134,11 @@ deployment.
 
 - [Documentation index](docs/README.md)
 - [Local setup and configuration](docs/development.md)
-- [Cases, invitations, and permissions](docs/cases.md)
-- [People records](docs/people.md)
-- [Vehicle records](docs/vehicles.md)
-- [Evidence handling and retention](docs/evidence.md)
-- [Vehicle locations and CSV imports](docs/vehicle-location-imports.md)
-- [Architecture and implemented scope](docs/architecture.md)
+- [Investigation workflows and permissions](docs/cases.md)
+- [Evidence and analysis](docs/analysis.md)
 - [Operations, backup, and recovery](docs/operations.md)
 - [Validation and CI](docs/validation.md)
+- [Project descriptions and reusable marketing copy](docs/marketing-copy.md)
 
 ## Contributing
 
@@ -161,6 +168,14 @@ requests.
 
 ## License
 
-A project-wide license has yet to be selected for the rebuilt application.
+Copyright (C) 2026 Aaron Spindler.
+
+Pandect is licensed under the [GNU Affero General Public License, version 3
+only (AGPL-3.0-only)](LICENSE).
+
+See the license for source-sharing requirements, including modified versions
+offered over a network, and warranty terms. It covers the software, not rights
+to investigation data or uploaded evidence.
+
 Bundled third-party assets retain their own licenses, including [Tabler
 icons](ui/static/ui/icons/LICENSE) and [Leaflet](geo/static/geo/vendor/leaflet/LICENSE).

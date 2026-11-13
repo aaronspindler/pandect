@@ -10,7 +10,7 @@ vanilla JavaScript for the sequential upload queue and interface enhancements.
 
 ## Runtime decisions
 
-The validated runtime and lockfile currently use:
+The committed runtime pins and lockfile use:
 
 - Python **3.14.9**, Django **6.1.3**, and django-allauth **65.21.1**.
   The project stays on Python 3.14 until a separate upgrade validates the full
@@ -114,10 +114,10 @@ allauth, and queue migrations are unchanged.
 
 Use a new PostgreSQL database and empty queue for this baseline. Do not apply it
 on top of an old installation's migration history or use `--fake` to bridge the
-schemas. Existing pre-release data is disposable by design; this change contains
-no data conversion and no automatic database or media deletion. Validate with
-an isolated database before deliberately replacing any installation. Web and
-worker processes must use the same revision and the new database.
+schemas. No data conversion is provided. Retain existing databases and media
+until an operator deliberately authorizes their replacement or removal; startup
+never resets them. Validate with an isolated database first. Web and worker
+processes must use the same revision and the new database.
 
 ### Dependency boundaries
 
@@ -169,20 +169,15 @@ access logging redacts invitation, email confirmation, and password reset keys
 and query strings. Deployment proxies
 need matching treatment. See [operations](operations.md).
 
-## Planned work
+## Capability boundaries
 
-Bounded Asset Location CSV parsing into retained vehicle-location observations is
-implemented; see [vehicle-location imports](vehicle-location-imports.md).
-Case-scoped analysis adds bounded extraction, direct reports, conversation/text/
-location workflows, durable processing history, and centralized local/Gateway
-inference adapters;
-see [implemented analysis and supported inputs](analysis.md). The same PostgreSQL
-queue executes UUID-only processing jobs. Cross-case/global search, graphs, unified
-timelines, and broader specialist analyses remain planned. Core management and
-deterministic analyses do not require an external AI service.
-Private text/transcription runtimes are optional, separately bounded Compose
-services with pinned native source revisions and operator-provisioned model
-files. Their network has no internet route. See [local analysis](local-analysis.md)
-for identity checks, explicit cloud selection and model qualification.
-Ownership transfer and self-service account deletion are not implemented.
-There is deliberately no public evidence/media route.
+Implemented analysis and inputs are listed in [analysis](analysis.md) and
+[vehicle-location imports](vehicle-location-imports.md). Optional private
+text/transcription services have separate resource bounds, pinned native engines,
+and operator-provisioned models on an internal network; setup and qualification
+belong to [local analysis](local-analysis.md). Core management and deterministic
+analysis do not require an external AI service.
+
+Cross-case/global search, graphs, unified timelines, broader specialist analysis,
+ownership transfer, and self-service account deletion remain unimplemented.
+There is no public evidence/media route.

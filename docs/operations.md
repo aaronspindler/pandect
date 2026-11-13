@@ -128,12 +128,10 @@ lifecycle and failed cleanup recovery](evidence.md#private-storage-and-deletion)
 
 ## Local image text extraction
 
-Rebuild the application image after upgrading to local OCR. The web/worker image
-includes Tesseract and English language data. Host-based workers must install
-these system packages as described in [development](development.md#run-python-on-the-host).
-No AI credentials are required for image OCR. `PANDECT_AI_VISION_MODEL` is retired
-and ignored; there is no remote fallback. Old OCR results stay readable; queued
-older method versions need a new run. Do not reset or delete their history.
+The application image includes Tesseract and English data. Host workers need the
+[development packages](development.md#run-python-on-the-host). OCR requires no AI
+credentials or remote fallback; supported profiles and version recovery are in
+[extraction](analysis-extraction.md).
 
 ## Upgrades and hosted deployment
 
@@ -146,14 +144,10 @@ docker compose run --rm web python manage.py migrate --noinput
 docker compose up --wait
 ```
 
-The image's default Gunicorn entry point serves the application and public
-application assets through WhiteNoise. `collectstatic` runs at image build time;
-rebuild the image when templates/static assets change. A host-based production
-installation must run `python manage.py collectstatic --noinput` before serving.
-Non-debug pages reference content-hashed asset filenames so a browser cannot reuse
-an older stylesheet or script for a new release. Deploy the templates and their
-collected manifest together. Debug mode also uses WhiteNoise, with immediate
-cache revalidation for source assets.
+Gunicorn serves the application and WhiteNoise serves public assets collected
+at image build time. Rebuild after template/static changes and deploy templates
+with their matching hashed-asset manifest. Host production installations must run
+`python manage.py collectstatic --noinput` before serving.
 Private evidence remains separate from collected static files and must never be
 published by the proxy or a public storage bucket.
 
@@ -162,17 +156,13 @@ The default `compose.yaml` remains a local development configuration. Use the
 deployments must explicitly configure HTTPS, allowed hosts,
 secure secret storage, SMTP, a matching `PANDECT_PUBLIC_ORIGIN`, private persistent
 storage, database backups, and a separate migration step before starting web or
-worker replicas. Queue tables are added by the dependency's migrations; no
-Pandect domain migration or data reset is needed for the worker foundation.
-Debug is disabled by default; session/CSRF cookies require HTTPS in that mode.
+worker replicas. Debug is disabled by default; session/CSRF cookies require HTTPS
+in that mode.
 Run `python manage.py check --deploy` with the actual deployment configuration and
 resolve its findings. Trusted proxy headers must only be configured for a
-controlled reverse proxy. This pre-release app reorganization is an exception to ordinary additive
-upgrades: provision a fresh database and empty queue, migrate them, and configure
-both web and worker to use that new baseline. Do not apply the rewritten initial
-migrations to an old database or fake its history. See the
-[fresh baseline](architecture.md#primary-keys-and-the-initial-schema). Runtime
-database/media deletion is a separate deliberate operator action.
+controlled reverse proxy. Installations predating the domain-app reorganization
+require the [fresh baseline](architecture.md#primary-keys-and-the-initial-schema),
+not an additive migration or faked history. Retain their old database and media.
 
 ## First Dokploy deployment
 
@@ -355,29 +345,19 @@ and take backups before schema upgrades.
 
 ## Upload limits and request handling
 
-The application streams one file per request and enforces
-`PANDECT_MAX_FILE_BYTES` before retaining an original. The browser may queue up to
-`PANDECT_MAX_BATCH_FILES`, sending entries sequentially; it does not submit one
-large multipart batch. `PANDECT_MAX_TEXT_BYTES` bounds captured UTF-8 text,
-including message bodies and supplied call transcripts. Phone-call and FaceTime
-recordings use the same per-file limit and private storage as other originals.
-Backups must include call/attachment rows, transcript text, and the corresponding
-private audio files. Attachments follow the existing after-commit deletion
-cleanup and manual orphan-reconciliation procedures; rollback does not remove
-retained files. Transcription is separately selected case analysis, defaulting to
-a private runtime; the ordinary upload path does not submit recordings for AI.
-Optional inference services and model-file backup/recovery are described in
-[local analysis](local-analysis.md). They use an isolated internal network, pinned
-native engines and operator-provisioned read-only models. External AI remains
-separately selected and approved through Cloudflare.
+The application streams one file per request, bounded by `PANDECT_MAX_FILE_BYTES`.
+The browser queues up to `PANDECT_MAX_BATCH_FILES` sequential requests;
+`PANDECT_MAX_TEXT_BYTES` bounds captured text, messages, and call transcripts.
 Django's upload memory threshold controls temporary storage, not maximum file size.
-Asset Location CSV imports accept up to 100 MiB and 100,000 data rows,
-respecting a smaller operator file limit. Their route streams with the smaller
-byte limit. Parsing and publication run in the existing worker with bounded
-chunks and a paginated review; publication commits all observations together.
-Original CSV documents, import interpretations, staged review rows, progress,
-and source-row provenance must be included in coordinated
-database/private-file backups. See [vehicle-location imports](vehicle-location-imports.md).
+Call audio uses the normal file limit/private storage. Uploading it does not
+request transcription; inference is a separate [analysis operation](analysis.md).
+
+Vehicle CSV imports accept up to 100 MiB and 100,000 data rows, respecting any
+smaller operator file limit. Worker parsing, paginated review, and atomic
+publication are described in [vehicle-location imports](vehicle-location-imports.md).
+Back up source documents, staged rows, interpretations, progress, and provenance
+with the rest of the database and private files. File cleanup and orphan recovery
+follow the [evidence lifecycle](evidence.md#private-storage-and-deletion).
 
 Configure the serving proxy/CDN to limit the entire request body as well. With the
 default 100 MiB file limit, use a 102 MiB request cap to leave room for ordinary

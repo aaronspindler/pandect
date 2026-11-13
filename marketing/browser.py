@@ -4,6 +4,7 @@ import os
 import sys
 from itertools import pairwise
 from pathlib import Path
+from urllib.parse import unquote
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.urls import reverse
@@ -18,6 +19,16 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
             ),
             f"Horizontal overflow at {page.viewport_size}: {page.url}",
         )
+
+    def assert_control_sizes(self, page):
+        undersized = page.locator(
+            "header a, footer a, .marketing-button, .text-link, .page-links a, summary"
+        ).evaluate_all(
+            "elements => elements.flatMap(element => { const rect = "
+            "element.getBoundingClientRect(); return rect.width < 44 || "
+            "rect.height < 44 ? [element.textContent.trim()] : []; })"
+        )
+        self.assertEqual(undersized, [], f"Small controls on {page.url}")
 
     def test_public_pages_without_javascript(self):
         engines = tuple(
@@ -80,6 +91,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         for width, height in viewports:
                             page.set_viewport_size({"width": width, "height": height})
                             self.assert_reflow(page)
+                            self.assert_control_sizes(page)
                             page.screenshot(
                                 path=str(
                                     artifacts / f"{engine}-{name}-{width}x{height}.png"
@@ -94,10 +106,23 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             path=str(artifacts / f"{engine}-{name}-text-200.png"),
                             full_page=True,
                         )
+                        page.locator("html").evaluate(
+                            "element => element.style.removeProperty('font-size')"
+                        )
 
-                    for href in local_links:
-                        response = context.request.get(self.live_server_url + href)
+                    for href in sorted(local_links):
+                        path, _, fragment = href.partition("#")
+                        response = context.request.get(self.live_server_url + path)
                         self.assertLess(response.status, 400, href)
+                        if fragment:
+                            page.goto(self.live_server_url + href)
+                            self.assertTrue(
+                                page.evaluate(
+                                    "id => document.getElementById(id) !== null",
+                                    unquote(fragment),
+                                ),
+                                href,
+                            )
 
                     page.set_viewport_size({"width": 390, "height": 844})
                     page.goto(self.live_server_url + reverse("marketing:home"))
@@ -123,13 +148,29 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         ("header", "Roadmap", reverse("marketing:roadmap")),
                         ("header", "Hosting", reverse("marketing:hosting")),
                         ("header", "Sign in", reverse("account_login")),
+                        (
+                            "main",
+                            "See available features",
+                            reverse("marketing:product"),
+                        ),
+                        (
+                            "main",
+                            "Explore current features",
+                            reverse("marketing:product") + "#available",
+                        ),
+                        (
+                            "main",
+                            "See service requirements",
+                            reverse("marketing:product") + "#configured-services",
+                        ),
+                        ("main", "Read the roadmap", reverse("marketing:roadmap")),
                         ("main", "See analysis examples", analysis_url),
                     ):
                         page.goto(self.live_server_url + reverse("marketing:home"))
                         link = page.locator(scope).get_by_role(
                             "link", name=name, exact=True
                         )
-                        for _ in range(12):
+                        for _ in range(page.get_by_role("link").count() + 1):
                             page.keyboard.press(tab_key)
                             if link.evaluate(
                                 "element => element === document.activeElement"
@@ -144,6 +185,8 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         )
                         page.keyboard.press("Enter")
                         expect(page).to_have_url(self.live_server_url + href)
+                        if "#" in href:
+                            expect(page.locator(":target")).to_be_in_viewport()
                     expect(page.locator("#analysis:target")).to_be_in_viewport()
 
                     page.goto(self.live_server_url + reverse("marketing:hosting"))

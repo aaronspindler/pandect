@@ -34,13 +34,6 @@ Apple touch icons use the arch symbol on ivory at 32 and 180 pixels respectively
 These web files are proportionally resized derivatives of the final PNGs above.
 Their source relationships and hashes are recorded in `provenance.json`.
 
-Local integration validation on 2026-10-26 passed `make check` (261 application
-tests), ten browser checks covering Chromium and WebKit, and the isolated Compose
-smoke workflow. Logo review covered desktop/tablet/mobile layouts down to 320
-pixels, light/dark images, keyboard activation and focus, 200% text sizing, and
-Chromium forced-colors fallback. The production image served all four optimized
-brand files through WhiteNoise with the expected PNG type and file hashes.
-
 ## Provenance and verification
 
 Built-in Image Generation produced the approved artwork and faithful transparent edits. Deterministic browser rendering preserves the generated alpha masks while normalizing clear space, output dimensions, and exact solid ink colors. Original generation files and the approved reference are retained under [source/](source/).

@@ -1,0 +1,33 @@
+{% load static %}
+<aside class="evidence-navigation evidence-rail" aria-label="Case navigation">
+  <a class="evidence-rail-brand" href="{% url 'cases:case_list' %}" aria-label="Pandect" title="Pandect">
+    <picture><source srcset="{% static 'ui/brand/symbol-ivory.png' %}" media="(prefers-color-scheme: dark)"><img src="{% static 'ui/brand/symbol-oxblood.png' %}" alt="" width="32" height="48"></picture>
+    <span class="wordmark-fallback" aria-hidden="true">Pandect</span>
+  </a>
+  <nav class="evidence-rail-links" aria-label="Investigation">
+    <a class="evidence-rail-link" href="{% url 'cases:case_list' %}" aria-label="All cases" title="All cases">{% include 'ui/components/icon.html' with name='folder' %}<span class="visually-hidden">All cases</span></a>
+    <a class="evidence-rail-link" href="{% url 'core:evidence:list' case.pk %}" aria-label="Evidence" title="Evidence" aria-current="page">{% include 'ui/components/icon.html' with name='files' %}<span class="visually-hidden">Evidence</span></a>
+    <a class="evidence-rail-link" href="{% url 'core:analysis:index' case.pk %}" aria-label="Findings" title="Findings">{% include 'ui/components/icon.html' with name='file-text' %}<span class="visually-hidden">Findings</span></a>
+    <details class="case-tools evidence-rail-tools" data-evidence-disclosure>
+      <summary class="evidence-rail-link" aria-label="Case tools" title="Case tools">{% include 'ui/components/icon.html' with name='stack' %}<span class="visually-hidden">Case tools</span></summary>
+      <div class="evidence-rail-panel">
+        <div class="evidence-info-header"><h2>Case tools</h2><button class="button button-secondary icon-button" type="button" aria-label="Close case tools" data-close-disclosure hidden>{% include 'ui/components/icon.html' with name='x' %}</button></div>
+        <a class="nav-link" href="{% url 'geo:case_map' case.pk %}">{% include 'ui/components/icon.html' with name='map' %} Map</a>
+        <a class="nav-link" href="{% url 'people:list' case.pk %}">{% include 'ui/components/icon.html' with name='users' %} People</a>
+        <a class="nav-link" href="{% url 'vehicle:list' case.pk %}">{% include 'ui/components/icon.html' with name='car' %} Vehicles</a>
+        {% if is_owner %}<a class="nav-link" href="{% url 'cases:case_settings' case.pk %}">{% include 'ui/components/icon.html' with name='settings' %} Settings</a>{% endif %}
+        <section class="case-details-body evidence-info-section" aria-labelledby="rail-case-details-heading">
+          <h3 id="rail-case-details-heading">Case details</h3>
+          <p><strong>{{ case.name|default:case }}</strong></p>
+          <dl>
+            <div><dt>Owner</dt><dd>{{ case.owner.get_username }}</dd></div>
+            <div><dt>Created</dt><dd><time datetime="{{ case.created_at|date:'c' }}">{{ case.created_at|date:'j M Y, H:i' }} UTC</time></dd></div>
+            <div><dt>Updated</dt><dd><time datetime="{{ case.updated_at|date:'c' }}">{{ case.updated_at|date:'j M Y, H:i' }} UTC</time></dd></div>
+          </dl>
+          {% if case.description %}<div class="prose"><h3>Case description</h3>{{ case.description|linebreaks }}</div>{% endif %}
+        </section>
+      </div>
+    </details>
+  </nav>
+  <a class="evidence-rail-link evidence-rail-account" href="{% url 'account_email' %}" aria-label="Account" title="{{ user.get_full_name|default:user.username }} · {{ case_role|capfirst }}"><span class="avatar" aria-hidden="true">{{ user.username|slice:':2'|upper }}</span><span class="visually-hidden">Account</span></a>
+</aside>

@@ -27,8 +27,9 @@ from django.views.decorators.http import (
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
-from core.analysis.automatic import evidence_runs, start_added_evidence_analysis
+from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.errors import AnalysisError
+from core.analysis.findings import evidence_findings_context
 from core.analysis.search import derived_content_condition, derived_text_matches
 from core.evidence.deletion import (
     CHANGED,
@@ -79,6 +80,17 @@ def _detail_url(case, kind, item):
     return reverse(
         "core:evidence:detail",
         kwargs={"case_id": case.pk, "kind": kind, "evidence_id": item.pk},
+    )
+
+
+def _info_url(request, case, kind, item):
+    params = list_params(request)
+    params["info"] = "1"
+    return (
+        _detail_url(case, kind, item)
+        + "?"
+        + params.urlencode()
+        + "#evidence-details-heading"
     )
 
 
@@ -208,8 +220,12 @@ def evidence_list(request, case_id):
 def detail(request, case_id, kind, evidence_id):
     case = get_case(request.user, case_id)
     item = get_evidence(case, kind, evidence_id)
+    return render_detail(request, case, kind, item)
+
+
+def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
+    """Render the complete reader for an already-authorized case and original."""
     context = case_context(case, request.user) | _list_context(request, case)
-    section = "details" if request.GET.get("section") == "details" else "original"
     technical = [
         (item._meta.get_field(name).verbose_name.capitalize(), getattr(item, name))
         for name in TYPE_FIELDS[kind]
@@ -222,29 +238,34 @@ def detail(request, case_id, kind, evidence_id):
             "kind_label": KIND_LABELS[kind],
             "reader_template": READER_TEMPLATES[kind],
             "technical_details": technical,
-            "section": section,
             "nav_section": "evidence",
             "is_location": kind in LOCATION_KINDS,
             "is_communication": kind in COMMUNICATION_KINDS,
             "is_call": kind in CALL_KINDS,
             "can_delete_evidence": request.user.is_superuser,
+            "info_open": request.GET.get("info") == "1"
+            or request.GET.get("section") == "details"
+            or "results_page" in request.GET,
         }
     )
-    if section == "original":
-        runs = evidence_runs(case, kind, item.pk)
-        context["analysis_pending"] = runs.filter(
-            status__in=("queued", "running")
-        ).exists()
-        context["has_analysis"] = context["analysis_pending"] or runs.exists()
-        if kind in COMMUNICATION_KINDS:
-            from phone.presentation import reader_context
+    context.update(
+        evidence_findings_context(
+            case,
+            kind,
+            item,
+            form=analysis_form,
+            results_page=request.GET.get("results_page"),
+        )
+    )
+    if kind in COMMUNICATION_KINDS:
+        from phone.presentation import reader_context
 
-            context.update(reader_context(case, kind, item))
+        context.update(reader_context(case, kind, item))
     if kind == "document":
         context["vehicle_import"] = VehicleLocationImport.objects.filter(
             case=case, document=item
         ).first()
-    return render(request, "core/evidence/workspace.html", context)
+    return render(request, "core/evidence/workspace.html", context, status=status)
 
 
 def _created_response(request, case, kind, item, *, created):
@@ -528,7 +549,7 @@ def edit(request, case_id, kind, evidence_id):
                 messages.success(
                     request, "Evidence details saved. The original is unchanged."
                 )
-                return redirect(_detail_url(case, kind, item) + query_suffix(request))
+                return redirect(_info_url(request, case, kind, item))
         elif is_post:
             status = 400
         context = case_context(case, request.user) | {
@@ -540,6 +561,7 @@ def edit(request, case_id, kind, evidence_id):
             "editing": True,
             "nav_section": "evidence",
             "list_suffix": query_suffix(request),
+            "cancel_url": _info_url(request, case, kind, item),
             "conflict": conflict,
             "latest_details": latest_details if conflict else [],
         }
@@ -651,11 +673,7 @@ def _set_archive(request, case_id, kind, evidence_id, archived):
         if archived
         else "Evidence restored to the active collection.",
     )
-    params = list_params(request)
-    if request.GET.get("section") == "details":
-        params["section"] = "details"
-    suffix = "?" + params.urlencode() if params else ""
-    return redirect(_detail_url(case, kind, item) + suffix)
+    return redirect(_info_url(request, case, kind, item))
 
 
 @product_login_required
@@ -700,8 +718,6 @@ def delete(request, case_id, kind, evidence_id):
             form.data.pop("confirm", None)
             if plan.blocker:
                 status = 409
-    params = list_params(request)
-    params["section"] = "details"
     review_context = deletion_review_context(request, plan)
     if review_context["inventory_changed"]:
         status = 409
@@ -715,7 +731,7 @@ def delete(request, case_id, kind, evidence_id):
             "deletion_blocker": plan.blocker,
             "analysis_count": plan.analysis_count,
             **review_context,
-            "cancel_url": _detail_url(case, kind, item) + "?" + params.urlencode(),
+            "cancel_url": _info_url(request, case, kind, item),
             "nav_section": "evidence",
         },
         status=status,

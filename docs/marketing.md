@@ -1,29 +1,32 @@
 # Public marketing pages
 
-Pandect's public pages introduce the investigation workspace and the planned
-hosted service at **openpandect.com**. They are served by the existing Django
-application, with no separate frontend build or marketing service.
+Pandect's public pages explain the self-hostable investigation workspace, show
+what investigators can use today, and distinguish optional configured analysis
+from planned work. They are served by the existing Django application, with no
+separate frontend build or marketing service. The
+[reusable copy kit](marketing-copy.md) supplies project descriptions and
+announcement copy with the same availability boundaries.
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Product introduction and illustrative investigation workspace. |
-| `/product/` | Evidence, case collaboration, and supported analysis workflows with result examples at `#analysis`. |
+| `/` | Plain-language introduction, fictional workspace, current capabilities, and planned-work signposting. |
+| `/product/` | Available evidence, search, collaboration, map, import, and findings workflows; analysis examples at `#analysis`; separately configured services. |
 | `/trust/` | Case access, original preservation, analysis approval, and map tile privacy. |
-| `/roadmap/` | Available capabilities, next priorities, and exploratory ideas. |
+| `/roadmap/` | Available capabilities, planned work, and exploratory ideas without a release schedule. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
 
 Anonymous visitors can read every page. Signed-in visitors opening `/` retain
 the shortcut to **All cases**; the other public pages show **Open workspace**.
 The existing sign-in and email-verification checks still protect case material.
-Public pages never query or display an investigator's cases or evidence. The home
-page includes a fictional case preview that pairs captured text with observed
-keywords. Narrow layouts show the evidence reader first. Home links to fictional
-examples of printed-English OCR, a call report, and a candidate visit on Product.
-The examples show how to trace a result to its sources and
-interpret its limits. Product distinguishes automatic local checks on eligible
-new evidence, investigator-started comparisons, case reports, and analysis that
-needs a configured service. Trust explains preservation, access, external AI
-approval, and what [external map tile providers receive](maps.md#external-tiles-and-privacy).
+Public pages never query or display an investigator's cases or evidence.
+Illustrations use a labelled fictional case and current Evidence/Findings
+navigation. Product explains collection, case-scoped search, supported imports,
+automatic local checks, deliberately selected comparisons, and reports. Examples
+show source links and the limits of a candidate finding. Transcription,
+model-assisted analysis, and geographic services are grouped under their
+configuration requirements. Trust explains preservation, case access, external
+processing approval, and what
+[external map tile providers receive](maps.md#external-tiles-and-privacy).
 
 The pages use `marketing/templates/marketing/` and `marketing/static/marketing/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links
@@ -39,14 +42,25 @@ security certification, or availability guarantees. Existing account routes
 belong to the running installation; they are not a hosted-service purchase flow.
 Publishing these source changes does not configure DNS or deploy openpandect.com.
 
-Keep product claims aligned with implemented behavior documented in
-[cases](cases.md), [evidence](evidence.md), and [analysis](analysis.md). The public
-roadmap summarizes the [proposed analysis priorities](evidence-analysis-roadmap.md)
-and separates them from what is available. Keep future items provisional and
-review the roadmap when capabilities ship or priorities change. Original
-preservation and checksums do not prove truth, and analysis suggestions require
-review. Hosting copy does not replace operator configuration or legal policies for
-a live service.
+Use **Available**, **Requires configuration**, **Planned**, and **Exploring**
+consistently. Keep product claims aligned with implemented behavior documented in
+[cases](cases.md), [evidence](evidence.md), [analysis](analysis.md), and
+[maps](maps.md). Search means search within a case. Native PDF text extraction,
+printed-English JPEG/PNG recognition, and the supported WAV and import profiles
+have specific coverage limits; avoid implying support for every uploaded format.
+
+The public roadmap summarizes the
+[proposed analysis priorities](evidence-analysis-roadmap.md) and separates them
+from available tools. Unified timelines, candidate links across records,
+relationship exploration, and case-wide synthesis remain planned. Semantic
+passage retrieval, near-duplicate image comparison, and structured table
+extraction remain exploratory. Keep future items provisional and review the
+roadmap and copy kit when capabilities ship or priorities change.
+
+Possible trips, plate readings, and model suggestions stay distinguishable from
+verified facts. Original preservation and checksums describe integrity, not truth.
+Hosting copy does not replace operator configuration or legal policies for a live
+service.
 
 ## Validation
 

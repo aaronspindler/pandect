@@ -86,7 +86,7 @@ class PlateBrowserTests(BrowserTestCase):
                 )
                 expect(
                     page.get_by_text("Processing history", exact=True)
-                ).to_be_visible()
+                ).to_be_hidden()
                 expect(page.locator(".analysis-history-row:visible")).to_have_count(0)
                 for width, height in ((1440, 900), (390, 844), (320, 844)):
                     page.set_viewport_size({"width": width, "height": height})

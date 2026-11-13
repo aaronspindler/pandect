@@ -617,15 +617,14 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         )
         fragment = (
             response.content.decode()
-            .split("<summary>Imported source context</summary>", 1)[1]
-            .split("</details>", 1)[0]
+            .split("<h3>Imported source context</h3>", 1)[1]
+            .split("</section>", 1)[0]
         )
         self.assertIn(self.url("detail", target, kind="text-message"), fragment)
         self.assertIn(self.url("detail", duplicate, kind="text-message"), fragment)
         self.assertNotIn(str(unrelated.pk), fragment)
         self.assertNotIn(str(private.pk), fragment)
-        self.assertContains(response, "Multiple matching native IDs remain candidates")
-        self.assertContains(response, "no target is chosen automatically")
+        self.assertContains(response, "Multiple matches remain candidates.")
         self.assertEqual(
             CommunicationContext.objects.filter(
                 source_document=document, native_message_id="m1"

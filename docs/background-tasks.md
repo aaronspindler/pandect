@@ -39,15 +39,6 @@ executes the task itself and refuses an inline backend. A timeout leaves the
 probe queued or running for later inspection; it does not cancel it. Probe rows
 remain until pruned.
 
-The former standalone `background` app is removed. This consolidation adds no
-schema migration: the app had no models, and queue storage still belongs to
-`django_tasks_db`. Before replacing workers, let any queued
-`background.tasks.worker_probe` diagnostics finish on the previous code; that old
-task path has no compatibility alias. After upgrading, rerun `check_task_worker`
-to create a probe with the new path. Failed probes remain available for inspection;
-abandoned queued or running probes still require deliberate review. Do not reset
-the database or the queue for this change.
-
 `docker compose up --wait` confirms HTTP/database readiness and that the worker
 container is running. `/health/` remains a web/database check; only the diagnostic
 above verifies that a worker actually processes this queue. Run it after startup
@@ -67,7 +58,7 @@ uv run --locked --env-file .env python manage.py check_task_worker --timeout 30
 Task state is `READY`, `RUNNING`, `SUCCESSFUL`, or `FAILED`. The backend's task
 rows and UUIDs are operational records, not case authorization. Its upstream
 global admin registration is disabled by `core.admin`, including for superusers.
-The case Analysis workspace exposes its own case-scoped processing status;
+The case Findings page exposes case-scoped processing history;
 operational task rows are never the product authorization boundary.
 
 Use the operator shell for a metadata-only summary:
@@ -102,7 +93,7 @@ There are no automatic task retries or stale-task reclamation. `READY` work wait
 while workers are stopped and can run after restart. A crash or forced shutdown
 can leave work `RUNNING`, even if some effects already completed; elapsed time
 alone does not prove a worker is dead. Confirm the original worker has stopped,
-review effects, and follow the future task's own idempotent recovery procedure
+review effects, and follow the operation's documented idempotent recovery procedure
 before enqueueing replacement work. Do not blindly reset running rows or create a
 generic retry loop. For the harmless probe, correct the problem and rerun the
 diagnostic. Failed and abandoned rows remain available for inspection.
@@ -118,9 +109,9 @@ docker compose exec web python manage.py prune_db_task_results \
 ```
 
 There is no automatic housekeeping schedule. Pruning removes finished task
-results only; queued and running rows need deliberate review. Future evidence
-provenance and processing history must live in case-scoped domain records,
-independent of this disposable operational history.
+results only; queued and running rows need deliberate review. Evidence provenance
+and processing history live in case-scoped domain records, independent of
+disposable operational history.
 
 ## Adding a future task
 
@@ -155,12 +146,8 @@ before further processing or publication. Bound time, input sizes, external
 requests, and concurrency; make effects idempotent and publish complete results
 atomically. Preserve originals and processing provenance. Sanitize errors and
 implement visible progress and a bounded recovery policy for that operation.
-Image OCR runs locally with Tesseract as documented in [extraction](analysis-extraction.md).
-Other inference defaults to pinned private runtimes through the shared backend
-integration. External inference uses Cloudflare AI Gateway only when explicitly
-selected and approved. Local failure never triggers cloud fallback. Inference
-runtime limits are separate from these parser limits; see
-[local analysis](local-analysis.md) for setup, identity checks and recovery.
+Follow [local analysis](local-analysis.md) for inference routing and separate runtime
+limits; [extraction](analysis-extraction.md) owns local OCR support and limits.
 The queue itself supplies none of these domain safeguards.
 
 See [operations](operations.md) for coordinated backup and upgrades and

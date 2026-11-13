@@ -1,7 +1,5 @@
 """Location results use the recorded positions and measurements on the page."""
 
-from django.urls import reverse
-
 from core.analysis.presentation import prioritize_measurements, table_rows
 
 PRIMARY_FIELDS = {
@@ -148,33 +146,6 @@ def map_points(operation, items):
         }
         for (lat, lon), label, url, kind in points.values()
     ]
-
-
-def evidence_context(item, kind):
-    position = (
-        f"{item.latitude}, {item.longitude}" if item.latitude is not None else None
-    )
-    fields = [
-        ("Reported address", item.address or None),
-        ("Reported coordinates", position),
-        ("Observation time", item.observed_at),
-    ]
-    if kind == "person-location":
-        fields.insert(0, ("Reported person", item.person))
-    if kind == "vehicle-location":
-        fields.insert(0, ("Reported vehicle", item.vehicle))
-        fields.append(("Receipt time", item.received_at))
-        if item.import_batch_id:
-            batch = item.import_batch
-            fields.append(("Source CSV row", item.source_row))
-            return fields, {
-                "label": batch.document.title,
-                "url": reverse(
-                    "core:evidence:detail",
-                    args=[item.case_id, "document", batch.document_id],
-                ),
-            }
-    return fields, None
 
 
 def report_table(data, name):

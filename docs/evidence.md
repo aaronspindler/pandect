@@ -15,27 +15,22 @@ The registered `video` app is a placeholder and adds no evidence category yet.
 
 ## Reading and editing evidence
 
-The Original tab keeps the retained content and, when supplied, a concise source
-line visible. Saved read-only descriptions, full uploader/time attribution, checksums,
-and editable source metadata are in Details. Record history and integrity open on
-request. Unrecorded optional fields do not fill the reader with placeholders.
-Location originals omit empty optional values and group coordinates together;
-imported vehicle observations keep exact CSV cells, receipt time, export timezone
-and parser version in **Original CSV row and interpretation**. The import link and
-source row remain visible beside the observation.
+The reader shows the original followed by **Findings**. Its header keeps
+**Download original**, **Info**, and permitted **More** actions together. **Info**
+opens source metadata, saved read-only descriptions, attribution, integrity,
+attachment manifests, CSV interpretation, and paginated processing history.
+**More** holds Edit details, Archive/Restore, additional analysis, and authorized
+deletion. Empty optional values are omitted; imported observations keep the
+source-row/import link beside the original. These disclosures work without JavaScript.
 
-On single-record forms, Title and original content remain visible. **Source details**
-holds the optional source name, URL, description of the source,
-collection time and any declared technical fields. It opens
-for edits and validation errors, preserving entered values. These native sections
-work without JavaScript. Collection **Filters** also opens automatically when
-a non-default type/state filter is applied.
-
-The reader orders its sections **Original**, **Findings**, **Details**. Supported
-checks run when evidence is added; open Findings for results and progress.
-Optional reruns and processing history are collapsed below the findings.
-Download stays beside the original. File content type declarations open under
-**File details** in Details.
+Single-record forms keep title/content visible. Optional provenance and technical
+fields are in **Source details**, opened for edits and validation errors. Collection
+**Filters** opens for nondefault type/state choices. These controls work without
+JavaScript. Applicable local checks run on investigator additions; findings and
+progress appear below the original. **Run checks** appears beside empty findings;
+checks for populated findings are in **More**. Processing history is available in
+**Info** and case Findings.
+See [analysis](analysis.md#retained-processing) for supported checks and exceptions.
 
 ## Investigator workflow
 
@@ -85,10 +80,10 @@ reloading may require file reselection, and uploads are not resumable.
 The Evidence collection searches title, descriptions, source name/details/URL,
 original filenames, location addresses, and linked person names/contact details,
 with type and Active/Archived/All filters. It uses 25 records per page. Wide
-screens keep the record list beside the selected original/details; smaller
+screens keep the record list beside the selected evidence reader; smaller
 screens use the same canonical detail pages and browser navigation. Text
 originals are shown as escaped read-only text. Image evidence shows a resized
-preview in the Original tab, including for archived images. Previews support
+preview in the Original section, including for archived images. Previews support
 JPEG (`.jpg` and `.jpeg`) and single-frame PNG files up to 16 MiB and 50 million
 pixels, including 48 MP iPhone RAW exports saved as JPEG. Multi-picture JPEGs
 display only the primary image; auxiliary pictures are retained in the original.
@@ -105,36 +100,12 @@ URLs. No preview files or analysis results are stored. Files are downloaded thro
 currently authorized attachment routes; this release does not embed documents
 or play audio.
 
-In the **Details** tab, owners/editors can **Edit details** without replacing the
-original. Conflicting
-metadata edits display newer saved values alongside the retained draft for an
-explicit **Save reviewed changes**. **Archive** and **Restore**, also in Details,
-organize retained
-material; current case members can still inspect/download archived evidence.
-Ordinary investigators have no individual evidence delete or purge route.
-Superusers with current case access can choose **Delete evidence** in the
-**Details** tab. The in-app confirmation names the record, explains original and
-derived-file removal, and requires an explicit checkbox before **Permanently
-delete evidence**. **Cancel** returns to Details with collection filters retained;
-success returns to the filtered collection. It works without JavaScript and does
-not require staff status or opening Django admin. The confirmation inventories
-the source, imported evidence and review records,
-analysis, and stored files, with record identifiers and filenames/checksums.
-Inventories show 50 entries per page and offer a complete private JSON download.
-The download uses `application/octet-stream` with its `.json` filename so browsers
-save the inventory consistently instead of displaying it inline.
-The signed confirmation is bound to the current user, case, target, and inventory;
-new imports, results, or files require reviewing the refreshed inventory and
-checking confirmation again. Inconsistent case links show a recovery message
-instead of disclosing or deleting foreign material.
-The same deletion is also available in the scoped Django admin, as described below.
-
-New evidence added through the investigator workflow queues applicable local
-checks. The **Findings** tab shows source-linked findings first, with processing
-outcomes and earlier results in the collapsed **Processing history** below.
-Owners and editors can also start local checks on existing evidence or retry them.
-See [analysis](analysis.md#retained-processing) for supported operations,
-processing choices, import exceptions, and recovery.
+Owners/editors choose **More → Edit details** to correct metadata. Stale edits
+preserve the draft beside newer values and require **Save reviewed changes**.
+**Archive**/**Restore** organize evidence without removing original access.
+Individual deletion is reserved for superusers with current case access through
+the [confirmed deletion workflow](#permanent-deletion); ordinary investigators
+retain evidence until owner-confirmed whole-case deletion.
 
 ### Duplicate checks
 
@@ -206,12 +177,10 @@ explicitly. It is a claim, not a verified format. Numeric metadata defaults to
 `NULL` (unknown); supplied counts and dimensions must be positive and duration
 must be nonnegative. A zero duration is distinct from an unknown duration.
 
-Optional [case analysis](analysis.md) extracts bounded document/image/audio content
-and retains derived metadata, OCR, and transcripts separately. Image originals
-continue to use `FileField`; parsing never replaces supplied metadata. Text files may be stored as documents; `TextEvidence.body`
-holds pasted original text. Source descriptions and declared technical metadata
-record supplied context. Processing results are retained separately. File
-checksums establish byte integrity.
+[Case analysis](analysis.md) retains derived metadata, OCR, and transcripts
+separately from originals and supplied metadata. `TextEvidence.body` holds captured
+text; text files may be retained as Documents. File checksums establish byte
+integrity, not authenticity.
 
 ## Communications and retained call material
 
@@ -259,7 +228,7 @@ original call record and stay unchanged as content is added.
 
 Each addition independently hashes a `pandect.call-attachment.v1` JSON record
 containing the case/parent identity, transcript, and optional audio metadata and
-byte checksum. Attachment integrity details expose this record for download;
+byte checksum. **Info** exposes this record for download;
 **Download transcript** returns its exact UTF-8 text, and **Download audio** returns
 its original bytes as an attachment. All routes recheck current access and parent
 membership and use private/no-store caching and `nosniff`; storage URLs stay private.
@@ -320,6 +289,42 @@ whole-case deletion still cascades to both the evidence and its person. There is
 no separate shared location table. Individual deletion is restricted to the
 superuser workflows described here.
 
+## Permanent deletion
+
+Superusers with current case access can choose **More → Delete evidence**.
+The product route requires no staff status; scoped admin deletion additionally
+requires active staff. Ordinary staff/model permissions do not grant this ability,
+and superusers cannot inspect or delete inaccessible cases.
+
+The confirmation names the record, explains original/derived-file removal, and
+requires an explicit checkbox and CSRF-protected POST. It works without JavaScript;
+Cancel returns to the evidence reader and success to the collection, preserving filters.
+The inventory lists every affected source, derivative, import/review record,
+analysis, and stored file with identifiers and filenames/checksums. It shows 50
+entries per page and offers a complete private JSON attachment. The signed
+confirmation binds user, case, target, and inventory; changes require another
+review and confirmation. GET never deletes.
+
+Deletion removes original/call content, all runs selecting it (including attachment
+sources), results/reviews/search text/generated files, and downstream dependent
+analysis. Multi-source runs are removed in full; other source originals, people,
+vehicles, and unrelated analysis remain. Source-document deletion also includes
+imported vehicle observations/messages, import batches, staged rows, and
+communication context, including archived derivatives. References from retained
+runs to removed prior runs are cleared and listed as inventory updates.
+
+`core.evidence.deletion` checks the full cascade before displaying private names
+and again under the case lock; inconsistent cross-case links block deletion
+without exposing foreign material. Product/admin use the same service and record
+deletion in Django admin history. Database deletion is atomic, and unplanned ORM
+deletes remain subject to model `RESTRICT` links.
+
+The case lock serializes deletion with analysis/import publication. Removed queued
+jobs become no-ops; running jobs cannot recreate sources or publish derivatives.
+File cleanup waits for commit: rollback retains files, and storage failures use
+[manual recovery](#private-storage-and-deletion). Application deletion does not
+remove operator backups or external-provider retention.
+
 ## Django admin
 
 Vehicle location originals and the bounded Asset Location CSV import flow are
@@ -328,9 +333,8 @@ Source CSVs remain retained Document evidence. Imported telemetry and associatio
 are immutable. Source edits leave them intact.
 
 All ten concrete evidence models are available under **Evidence** at `/admin/`.
-Active staff status and the corresponding Django model permission are required
-in addition to current case access. Lists, searches, history, and direct record
-URLs include only cases the operator owns or shares, including for superusers.
+The [shared admin gates](cases.md#django-admin) apply. Lists, searches, history,
+and direct URLs include only cases the operator owns or shares.
 Admin and product readers share the same relationship checks. Linked people,
 vehicles, import batches, and source documents must belong to the
 evidence's case. Inconsistent records created through trusted maintenance writes
@@ -374,41 +378,8 @@ private download workflow, which requires verified email as well as current case
 access. Admin adds and edits appear in Django admin history; this is not a
 versioned evidence journal.
 
-Active staff superusers with current case access can open an admin evidence
-record and choose **Delete**. The confirmation names the evidence and lists its
-dependent records.
-Confirming permanently removes the original, any retained call transcripts/audio,
-and all analysis runs that selected it (including attachment sources), their
-results, reviews, extracted search text, and generated preview/reference files.
-Multi-source analysis is removed in full; downstream analysis depending on its
-results is also removed. Other source originals, people, vehicles, and unrelated
-analysis remain. Both active and archived evidence can be deleted. GET only
-shows the confirmation; deletion requires a CSRF-protected POST. Both the
-product and admin workflows use the same inventory, record the deletion in Django
-admin history, and use the same authorized, case-locked deletion service. Staff model permissions alone
-never grant this ability.
-Superusers still cannot discover or delete material from cases they cannot access.
-Bulk actions remain disabled. The complete deletion cascade is checked before
-private names are displayed and again under the case lock. Inconsistent case links
-in attachments or analysis records block deletion without exposing foreign material.
-
-Superusers can also confirm deletion of source documents used by vehicle-location
-CSV imports or communication exports. The explicit deletion plan includes every
-imported observation/message, import batch, staged review row, communication
-context, and dependent analysis result/file. Archived derivatives are included.
-People, vehicles, and unrelated source originals are retained, even when they
-contributed to a multi-source analysis being removed. References from retained
-analysis to removed prior runs are cleared and listed as updates in the inventory.
-The source and all included dependents are deleted in one database transaction;
-existing model-level RESTRICT links still protect unplanned maintenance deletes.
-`core.evidence.deletion` owns this cross-domain inventory and transaction.
-
-Deletion serializes with analysis publication using the case lock. Queued jobs
-for removed runs become harmless no-ops, and a running job cannot publish a new
-result after deletion. Original and generated files use the existing post-commit
-storage cleanup: rollback preserves them, and storage failures log exact generated
-keys for manual retry (see below). This removes current application storage;
-operators must separately manage backups and external-provider retention.
+Admin **Delete** uses the [shared permanent-deletion workflow](#permanent-deletion).
+Bulk actions remain disabled.
 
 Owner-confirmed whole-case deletion in admin requires `cases.delete_case`, the
 `delete_<model>` permission
@@ -543,15 +514,10 @@ delete files merely because an upload or transaction reported an error.
 
 ## Migration and backup
 
-Evidence tables now belong to their domain apps; shared processing tables belong
-to `core`. This pre-release reorganization uses a
-[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema),
-without data conversion or old app-label aliases. Start with a fresh PostgreSQL
-database and queue rather than applying it to an old migration history.
-Back up before upgrades. Database backups include text/location/communication
-originals, transcripts, and file metadata; file originals require a matching
-private storage backup. See
-[operations](operations.md).
+Domain apps own evidence tables; `core` owns shared processing tables. Use the
+[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema).
+Back up PostgreSQL and private storage together before upgrades: database-only
+backups omit file originals. See [operations](operations.md).
 
 References: [Django abstract models](https://docs.djangoproject.com/en/6.1/topics/db/models/#abstract-base-classes),
 [file storage](https://docs.djangoproject.com/en/6.1/topics/files/), and

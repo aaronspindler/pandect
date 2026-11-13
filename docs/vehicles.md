@@ -23,20 +23,15 @@ record, the form preserves the draft and displays all latest saved details.
 **Save reviewed changes** explicitly resubmits it. A deleted record is never
 recreated by a stale form. Case reassignment is not supported.
 
-The detail page keeps identifiers and reported locations visible. **Record
-details** reveals saved read-only notes, the separate make/model/year values,
-timestamps, and the owner's **Delete vehicle** action. Empty notes and values
-already shown in the title do not occupy the main reading area. Only populated
-identifiers and color appear; one short message handles a record without those
-details. A concise caption keeps the unverified nature of identifiers and
-associations visible beside the title.
+The detail page shows reported identifiers, locations, and an unverified-record
+caption. **Record details** holds saved read-only notes, component fields,
+timestamps, and the owner's **Delete vehicle** action.
 
 Only the case owner can delete an individual vehicle after a separate named-target
-confirmation. This retains evidence, people, other vehicles, login accounts, and
-the case. Whole-case deletion also removes its vehicles, and its confirmation
-shows the vehicle count. Ordinary investigators do not need staff permissions.
-Retained vehicle-location observations, including archived evidence, prevent
-individual vehicle deletion. Whole-case deletion removes both together.
+confirmation. Retained vehicle-location observations, including archived evidence,
+block individual deletion. Deleting an unlinked vehicle retains the case, people,
+other vehicles, and login accounts. Whole-case deletion removes vehicles and their
+observations together. Product users need no staff permissions.
 
 The vehicle detail page lists up to 25 recent reported locations. Owners and
 editors can add **Vehicle location** evidence or choose **Import vehicle
@@ -77,7 +72,7 @@ Open **Vehicles → Add vehicle** in `/admin/`. Creation allows only owned or
 editor-access cases. Existing case and timestamp fields are read-only, even when
 another case is owned by the same user. Bulk actions are disabled.
 
-Active staff status and Django model permissions apply in addition to case access:
+The [shared admin gates](cases.md#django-admin) apply with these permissions:
 
 | Operation | Case requirement | Global permission |
 | --- | --- | --- |
@@ -101,9 +96,8 @@ permissions themselves.
 ## Migration and scope
 
 `vehicle` owns the vehicle table and constraints; `geo` owns vehicle-location
-evidence and CSV import tables. The app split uses the
+evidence and CSV import tables. Use the
 [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema).
-Use a new database and queue; no data conversion or runtime upgrade is included.
 
 Person/vehicle relationships, external vehicle lookups, and public APIs remain
 planned. Geographic analysis of retained vehicle locations is implemented in `geo`.

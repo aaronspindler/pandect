@@ -4,8 +4,8 @@ model_reasoning_effort = "xhigh"
 model_verbosity = "low"
 service_tier = "fast"
 
-# Select GPT-6 Astra when entering Plan mode; Codex 0.164.0 has no
-# plan-specific model setting. See docs/README.md for the workflow.
+# Planning preference: select GPT-6 Astra explicitly; this sets effort only.
+# See docs/README.md for the model-switching workflow.
 plan_mode_reasoning_effort = "ultra"
 
 # Route approval requests to automatic review.

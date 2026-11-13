@@ -57,19 +57,11 @@ builds use content-hashed filenames from `collectstatic`. Rebuild with `make run
 after changing templates or static assets in the container workflow. Host-based
 debug development picks up source asset changes without collecting them.
 
-After verification, **All cases → Create case** creates a case owned by you.
-The case opens to **Evidence**. Use **Add evidence** to upload files, capture
-original text, or record locations and communications. **Case tools** groups
-People, Vehicles, and owner-only Settings. Choose **Settings → Invite collaborator**
-to grant Viewer or Editor access. See
-[cases](cases.md), [evidence](evidence.md), [people](people.md), and
-[vehicles](vehicles.md) for workflow
-details and limits. Ordinary investigators do not need staff permissions.
-For Asset Location CSV exports, choose **Case tools → Vehicles → Import vehicle locations**,
-then choose a case vehicle and check the export timezone (initially
-`America/Toronto`). Preparation and confirmed imports run in the worker; refresh
-the review to see progress and review case-vehicle mappings before confirming.
-See [vehicle-location imports](vehicle-location-imports.md).
+After verification, create a case from **All cases**, then use **Add evidence**.
+**Case tools** groups People, Vehicles, and owner-only Settings, including
+collaborator invitations. Ordinary investigators do not need staff permissions.
+See [case workflows](cases.md), [evidence](evidence.md), and
+[vehicle-location imports](vehicle-location-imports.md) for task-specific guidance.
 
 The optional `createsuperuser` command creates an operator for `/admin/`. Staff
 permissions remain separate from product access; even superusers can inspect only
@@ -118,6 +110,7 @@ setup, explicit cloud selection, capacity measurement and model qualification.
 | `DJANGO_SECRET_KEY` | Required in every mode; generate a unique secret. |
 | `DJANGO_DEBUG` | Defaults to `false`; `.env.example` enables local debug and console email. |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts; defaults to loopback names only. |
+| `PANDECT_ALLOW_SIGNUPS` | Defaults to `true`; disable public registration with `false`. This also blocks registration by new invitees. |
 | `PANDECT_TRUSTED_PROXY_COUNT` | Proxy hops trusted by allauth for client IP detection. Defaults to `0`. Set only behind a [controlled proxy chain](operations.md#first-dokploy-deployment). |
 | `POSTGRES_DB`, `POSTGRES_USER` | Default to `pandect`. |
 | `POSTGRES_PASSWORD` | Required by Compose; use a generated local password. |
@@ -140,8 +133,7 @@ when changing the externally visible web port. The containers always use 5432 an
 8000 internally. Compose is a local development configuration and passes only
 the variables it declares; hosted configuration is supplied directly to Django.
 
-Keep `.env`, databases, uploads, and backups out of Git. Existing legacy runtime
-data is neither imported nor changed by this setup.
+Keep `.env`, databases, uploads, and backups out of Git.
 
 ## Manage dependencies
 

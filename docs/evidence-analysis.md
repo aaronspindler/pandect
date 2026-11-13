@@ -1,54 +1,25 @@
 # Evidence analysis and extraction catalogue
 
-This catalogue describes possibilities for product planning, grounded in
-Pandect's working tree on **2026-10-26**. It is not an implementation roadmap or
-a claim that these analyses are available. It selects no model, provider,
-accuracy target, or delivery order.
-
-Pandect retains originals, provenance, supplied metadata, and case associations.
-Its bounded Asset Location CSV importer already extracts vehicle-location
-observations. This planning snapshot predates the bounded processing and
-investigation workflows described in [case analysis](analysis.md). The catalogue
-is not a claim that every listed feature is implemented. See
-[implemented evidence behavior](evidence.md) and
-[vehicle-location imports](vehicle-location-imports.md).
-
-For proposed implementation sequencing, see the
-[evidence analysis roadmap](evidence-analysis-roadmap.md).
+This planning catalogue was scored on **2026-10-27** against the working tree of
+**2026-10-26**. Scores retain that historical baseline; they are not current
+estimates or availability claims. Some bounded capabilities have since shipped.
+Use [case analysis](analysis.md) for supported operations and
+[the roadmap](evidence-analysis-roadmap.md) for proposed priorities.
 
 ## Current evidence inventory
 
-| Evidence type | Retained inputs available today |
-| --- | --- |
-| Image | Original file, filename, size, declared content type, checksum; optional supplied width/height. |
-| Audio | Original file and file metadata; optional supplied duration, sample rate, and channel count. |
-| Document | Original file and file metadata; optional supplied page count. Includes text files and source CSVs. |
-| Text | Original browser-submitted text and optional supplied language tag. |
-| Location | Address and/or coordinate pair; optional reported observation time. No person or vehicle association. |
-| Person location | Location content plus a required same-case person association. |
-| Vehicle location | Location content plus a required same-case vehicle association. Imports also retain source rows, normalized speed, receipt time, and import provenance. |
-| Text message | One message body, same-case sender and recipient, and optional reported event time. |
-| Phone call | Same-case sender and recipient; optional reported start time and duration; optional retained transcript/audio additions. |
-| FaceTime | The same call-record and transcript/audio inputs as phone calls. No video field. |
-
-All ten types carry case/uploader attribution, title, checksum, and optional
-source name/citation, URL, descriptions, and collection time. Supplied metadata
-and person/vehicle associations are source or investigator claims, not
-automatically extracted or verified facts.
-
-`CallEvidenceAttachment` is a supporting input, **not an eleventh evidence
-type**. Each append-only addition belongs to one call, retains transcript text,
-audio, or both, and has independent attribution and integrity metadata. A later
-transcript does not replace an earlier one. Analysis must identify the additions
-it used.
+The ten retained types and append-only call additions are documented in
+[evidence](evidence.md). Call additions are inputs to their parent Phone call or
+FaceTime record, not another evidence type; each analysis identifies the additions
+it uses. The [vehicle-location importer](vehicle-location-imports.md) retains
+source rows and requires explicit vehicle/timezone interpretation.
 
 ## Scoring: investigative value and implementation ease
 
-Scores assessed on **2026-10-27**. Every capability row has two independent
-scores from **1 to 5**: **higher value means more investigative benefit; higher
-ease means easier implementation**. These are qualitative product/engineering
-judgments, not measured accuracy, validated user research, effort estimates, or
-probabilities. A one-point difference is approximate, not a precise ranking.
+Each row has independent **value** and **ease** scores from 1–5; higher means
+more investigative benefit or easier implementation. These are approximate
+product/engineering judgments, not measured accuracy, user research, probabilities,
+or effort estimates. Do not multiply them into a composite ranking.
 
 | Score | Investigative value | Implementation ease |
 | --- | --- | --- |
@@ -58,74 +29,23 @@ probabilities. A one-point difference is approximate, not a precise ranking.
 | **2** | Situational: narrower usefulness or substantial ambiguity limits dependable investigative benefit. | Hard: several missing prerequisites, substantial data/relationship work, or difficult reliability evaluation. |
 | **1** | Limited: little dependable incremental benefit in a general investigation; potentially useful in exceptional cases. | Hardest: a new modality or research-sensitive reliability problem with substantial implementation uncertainty. |
 
-**Value baseline.** Judge a general investigation containing the relevant kind
-of evidence and sufficient usable inputs, including review time saved and
-downstream capabilities enabled. A high score does not mean every case needs
-the feature. Low ease does not lower value automatically, and high value does
-not mean the result is stronger proof. Missing inputs may make a capability
-inapplicable to a particular case rather than intrinsically low-value.
+Value assumes a general investigation with usable relevant inputs. Ease covers the
+whole row, including missing ingestion, provenance, case permissions, recovery,
+and validation. The scoring baseline had no shared retained results, Gateway
+client, or geocoder, and its worker ran diagnostics only. Shared foundations can
+make later work easier; overlapping rows and scores are not additive.
 
-**Ease baseline.** Judge a bounded, investigator-usable implementation of the
-whole row from today's Pandect, including missing ingestion, derived results,
-provenance, case permissions, review, failure handling, and relevant validation.
-Use established libraries/services where suitable; do not assume training a
-model from scratch. At the scoring baseline, the app had no shared retained
-results, Gateway client, or geocoder and its worker ran diagnostics only.
-Implemented support is now documented separately in [case analysis](analysis.md).
-These features therefore carry common setup work. Shared foundations can make later features
-easier; the scores are not additive estimates of total project effort.
-
-Scope matters: a combined exact/near-duplicate row includes visual comparison,
-not just a hash query; document text plus OCR includes scanned material; and
-face grouping is more than detecting a face. Full voice, face, and authorship
-comparison includes quality checks, false matches, and inconclusive outcomes.
-Rows requiring richer native conversations or video include their absent
-ingestion/data support. Statistical reports can use existing retained fields
-without first building an AI pipeline.
-
-The existing input/output/limits columns explain the main score drivers.
-Repeated capabilities in the dedicated sections are elaborations, not extra
-benefits to count twice. Scores can differ when an aggregate row includes more
-steps: supplied-transcript extraction is easier than transcription plus content
-extraction; call counts are easier than counts plus cross-channel linking.
-No composite score or delivery order is assigned.
-
-For example, native PDF text extraction and scanned-page OCR need different
-handling, and extraction can require resource bounds; see the
-[pypdf extraction guidance](https://pypdf.readthedocs.io/en/stable/user/extract-text.html).
-Any ML integration must still satisfy Pandect's Gateway requirement; the
-[Gateway provider documentation](https://developers.cloudflare.com/ai-gateway/usage/providers/)
-does not establish support for every model/task listed here. The face and
-stylometry sources below inform validation difficulty, not the numerical scores.
-
-## Reading the catalogue
-
-Every capability below is **proposed**, except explicitly identified existing
-retention/import behavior. Inputs distinguish single-item extraction,
-collection-level analysis, and work needing new ingestion or reference data.
-“Candidate” means a suggestion for investigation, not an established fact.
-
-- [Scoring: investigative value and implementation ease](#scoring-investigative-value-and-implementation-ease)
-- [Image](#image)
-- [Audio](#audio)
-- [Document](#document)
-- [Text](#text)
-- [Location](#location)
-- [Person location](#person-location)
-- [Vehicle location](#vehicle-location)
-- [Text message](#text-message)
-- [Phone call](#phone-call)
-- [FaceTime](#facetime)
-- [Writing styles and candidate authorship](#writing-styles-and-candidate-authorship)
-- [Conversation extraction and linking](#conversation-extraction-and-linking)
-- [Interpreting locations, drives, and frequent places](#interpreting-locations-drives-and-frequent-places)
-- [Analysis across evidence](#analysis-across-evidence)
-- [Shared requirements for future analysis](#shared-requirements-for-future-analysis)
+Combined rows include their harder parts: near-duplicate comparison is more than
+hash grouping, document OCR includes scans, and face comparison needs quality,
+false-match, and inconclusive-outcome evaluation. Every output remains a candidate
+unless independently established. The tables describe proposed scope; current
+support is documented separately.
 
 ## Image
 
-The original file is available; Pandect does not currently decode images,
-extract EXIF, or verify supplied dimensions.
+Current decoding, metadata, OCR, and plate input profiles are in
+[document and media extraction](analysis-extraction.md). The broader scope below
+is a planning reference.
 
 | Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
 | --- | --- | --- | --- | --- | --- |
@@ -138,7 +58,7 @@ extract EXIF, or verify supplied dimensions.
 | Landmark/place clues: suggest locations | 3 | 1 | Image and supplied reference imagery or an explicitly selected lookup source | Candidate landmarks/places and matching visual features | Generic architecture and outdated references mislead; weak resemblance cannot establish coordinates. |
 | QR/barcode decoding: recover identifiers | 3 | 4 | Sufficiently clear code region | Raw decoded value, code type, region, parsed URL/identifier | Decoded content remains untrusted; do not automatically visit links or execute content. |
 | Screenshot/photographed-document extraction: recover visible structure | 4 | 2 | Chat screenshot, receipt, form, or photographed page | Text blocks, tables, apparent messages, visible participant/time labels | Cropped context, spoofed interfaces, and missing metadata prevent native thread reconstruction. |
-| Duplicate/near-duplicate detection: find reused imagery | 4 | 3 | Multiple case images | Exact-byte groups, visual similarity candidates, crop/resize/recompression relationships | Original hashes already exist; comparison is proposed. Similar images need not be the same capture. |
+| Duplicate/near-duplicate detection: find reused imagery | 4 | 3 | Multiple case images | Exact-byte groups, visual similarity candidates, crop/resize/recompression relationships | Exact-byte grouping is implemented; visual comparison remains proposed. Similar images need not be the same capture. |
 | Quality/manipulation triage: prioritize inspection | 2 | 1 | Original file; optional comparison versions | Blur/exposure flags, metadata inconsistencies, suspected edits or compositing regions | Editing and compression can create similar artifacts; neither an alert nor its absence establishes authenticity. Enhanced pixels remain derivatives. |
 
 Face comparison needs task-specific evaluation. NIST distinguishes false matches
@@ -148,8 +68,9 @@ another. See [NIST FRTE 1:1 Verification](https://pages.nist.gov/frvt/html/frvt1
 
 ## Audio
 
-These methods also apply to identified audio additions on phone calls and
-FaceTime records. Current audio files have not been parsed or transcribed.
+These methods also apply to identified audio additions on Phone call and
+FaceTime records; see [extraction](analysis-extraction.md) for supported WAV and
+transcription profiles.
 
 | Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
 | --- | --- | --- | --- | --- | --- |
@@ -165,9 +86,8 @@ FaceTime records. Current audio files have not been parsed or transcribed.
 
 ## Document
 
-Document evidence retains files without interpreting their formats. The bounded
-vehicle-location CSV parser is a specific existing extraction path, not a general
-document parser.
+Native text/PDF extraction and the vehicle-location CSV parser have bounded
+profiles. Broader formats and document structure below require separate support.
 
 | Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
 | --- | --- | --- | --- | --- | --- |
@@ -205,7 +125,7 @@ or timeline must not turn them into a person's or vehicle's journey.
 | Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
 | --- | --- | --- | --- | --- | --- |
 | Address normalization/place matching: group equivalent descriptions | 4 | 3 | Addresses; reference data where needed | Parsed components, normalized derivatives, candidate equivalent places | Keep originals; units, aliases, and historical addresses can distinguish similar locations. |
-| Geocoding/reverse geocoding: connect addresses and coordinates | 4 | 3 | Address or coordinates plus an explicitly selected geocoder/dataset | Candidate coordinates/addresses, match granularity, lookup provenance | No geocoder exists yet. A centroid is not an observed coordinate; external queries disclose location data. |
+| Geocoding/reverse geocoding: connect addresses and coordinates | 4 | 3 | Address or coordinates plus an explicitly selected geocoder/dataset | Candidate coordinates/addresses, match granularity, lookup provenance | A centroid is not an observed coordinate; external queries disclose location data. See [configured geocoding](analysis-locations.md#geocoding-configuration-and-review). |
 | Time/coordinate quality checks: surface interpretation problems | 4 | 3 | Observations and source context | Missing-time flags, address/coordinate disagreements, duplicate candidates, time ambiguities | Basic ranges are already validated; decimal precision does not establish accuracy. Unknown event times stay unknown. |
 | Spatial grouping/geographic context: organize places | 3 | 3 | Coordinates/reviewed geocodes; relevant reference layers | Candidate clusters, neighbourhood/road/venue context, spatial summaries | Maps and boundaries change; a shared building can contain unrelated occupants. Clusters do not establish visits by a common subject. |
 | Proximity/geofence queries: find relevant observations | 4 | 4 | Coordinates, area/reference point, explicit distance assumptions | Distance estimates, candidate inside/near/outside observations | Boundary decisions depend on uncertain positions; missing accuracy information must remain visible. |
@@ -246,13 +166,14 @@ sources containing coordinates.
 
 ## Text message
 
-Current records hold one message and two case-person links. There is no native
-conversation importer, platform/account identifier, upstream message ID,
-reply-to field, group-participant model, or message-attachment link.
+Records hold one message and two reported case-person links. The bounded
+[iMessage import](analysis-communications.md#retained-imessage-html-import) retains
+source-native context when supplied. Richer native relationships need supported
+source inputs; missing fields must stay unknown.
 
 | Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
 | --- | --- | --- | --- | --- | --- |
-| Source-format extraction: retain message context | 5 | 2 | Supported exports/screenshots; new source-specific ingestion | Bodies, raw account/participant labels, event times/timezones, source anchors | Richer ingestion/storage is proposed. Screenshot labels are not equivalent to native metadata. |
+| Source-format extraction: retain message context | 5 | 2 | Supported exports/screenshots; new source-specific ingestion | Bodies, raw account/participant labels, event times/timezones, source anchors | Broader ingestion needs supported source profiles. Screenshot labels are not equivalent to native metadata. |
 | Native thread/reply reconstruction: recover explicit structure | 5 | 2 | Source thread/message/reply IDs, group membership, attachments where available | Explicit thread, reply, attachment, participant links | Needs new inputs/model support; missing identifiers must not become asserted relationships. |
 | Session segmentation: make streams navigable | 4 | 3 | Multiple messages with participants, times, content | Candidate session boundaries with reasons | Heuristics may split one exchange or combine several; retain alternatives and reviewer adjustments. |
 | Topic continuation/reference linking: connect exchanges | 4 | 2 | Messages across sessions/channels with context | Candidate references, continued topics, shared entities, earlier-message links | Phrases such as “that place” can have several referents; the same topic need not mean the same event. |
@@ -360,7 +281,7 @@ Trip segmentation, stay-point detection, route matching, and pattern mining are
 established trajectory-analysis topics. Movement between discrete observations
 remains uncertain. The [Microsoft Research trajectory overview](https://www.microsoft.com/en-us/research/project/trajectory-data-mining/)
 provides background; the following are proposed interpretation requirements,
-not validated processing already available in Pandect.
+not an expansion of the bounded methods documented in [location analysis](analysis-locations.md).
 
 1. **Establish coverage first.** Separate event, receipt, collection, and upload
    times. Show timezone interpretation, windows, gaps, duplicates, geocoding
@@ -401,51 +322,21 @@ relationship, shared value, proximity, or model similarity.
 | Claim corroboration/conflict review: compare assertions | 5 | 2 | Attributed claims and relevant observations/documents | Supporting/conflicting excerpts, incompatible values, unresolved alternatives | Agreement does not establish truth; absence is not a contradiction without justified coverage expectations. |
 | Source-backed case summaries: assemble reviewable findings | 5 | 2 | Explicit evidence/result selection | Cited summaries, open questions, candidate leads, chronology, gaps | Separate observations, suggestions, and investigator conclusions; include contrary material and coverage limits. |
 
-### Synthetic examples
-
-- A message proposes “meet at North Quay at six.” Nearby vehicle observations
-  and an image with a partial plate produce a candidate connection with
-  alternative readings and time uncertainty, not a claim that the sender drove
-  there or that a meeting occurred.
-- An anonymous note and attributed messages share unusual punctuation and a
-  phrase. Show features, contrary examples, sample sizes, and possible copying;
-  provide an inconclusive outcome instead of establishing authorship.
-- A call transcript describes a Tuesday purchase, while a receipt appears dated
-  Wednesday. Link the audio/transcript interval and document region, retain
-  relative-date/timezone ambiguity, and present the discrepancy for review.
-- Sixty vehicle reports near one depot during an hour become a candidate visit
-  under disclosed gap/distance assumptions, not sixty visits in the frequency count.
-
 ## Shared requirements for future analysis
 
-These requirements follow [the contributor guide](../AGENTS.md) and current
-case/evidence boundaries without prescribing a schema or processing framework.
+Follow [AGENTS.md](../AGENTS.md) for original preservation, case authorization,
+uncertainty, processing bounds, and failure handling. Additional analysis must:
 
-- **Preserve originals and history.** Keep extracted values, translations, crops,
-  enhancements, summaries, and corrections separate. Retain reruns with input
-  evidence/attachment IDs, original checksums, selections, relevant parameters,
-  and processing/tool/model versions. New results must not overwrite originals.
-- **Make results inspectable.** Anchor text to spans/messages, documents to
-  pages/regions, images to boxes, audio to intervals, and imported observations
-  to rows. Findings cite supporting/conflicting inputs, coverage, and exclusions.
-- **Separate kinds of knowledge.** Label source assertions, deterministic
-  extraction/calculation, model suggestions, and investigator conclusions.
-  Record accepted/rejected/unresolved reviews without rewriting observations.
-  Similarity scores are not probabilities of identity, truth, causation, or ownership.
-- **Enforce current access.** Inputs, results, indexes, caches, downloads, exports,
-  and background jobs remain case-scoped. Permission changes affect subsequent
-  access and processing; retention does not authorize use across cases.
-- **Respect processing boundaries.** Future ML/LLM inference uses the centralized
-  backend Cloudflare AI Gateway integration. Disclose external processing,
-  minimize submitted material, configure retention deliberately, and keep
-  credentials/payloads out of routine logs. Traditional parsing/calculation need
-  not require AI; ordinary case work remains usable without AI configuration.
-- **Make failure visible.** Long operations need bounded background work,
-  progress, retry limits, and recoverable failures. Distinguish not run,
-  unsupported, failed, insufficient evidence, and no candidate found. Partial
-  results must not appear complete. Imported content and model responses remain
-  data, never executable instructions.
-- **Validate each task.** Future implementation needs synthetic/sanitized
-  evaluation material, permission/failure coverage, and relevant extraction or
-  matching error measurements before accuracy claims. This catalogue alone
-  establishes neither method suitability nor accuracy.
+- Retain input/attachment IDs, checksums, selections, parameters, and processing
+  versions across reruns. Derived values never replace originals.
+- Anchor text to spans/messages, documents to pages/regions, images to boxes,
+  audio to intervals, and imported observations to rows. Expose supporting and
+  conflicting inputs, coverage, and exclusions.
+- Keep source assertions, calculations, model suggestions, and investigator
+  conclusions distinguishable. Similarity is not a probability of identity,
+  truth, causation, or ownership.
+- Use the shared inference boundary: configured private runtimes by default,
+  external inference only through separately approved Cloudflare AI Gateway,
+  and no automatic fallback. Local OCR remains local. See [local analysis](local-analysis.md).
+- Validate representative supported inputs and failures before quality claims.
+  This catalogue does not establish suitability or accuracy.

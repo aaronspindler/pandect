@@ -119,7 +119,7 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         self.assertIn("confirm", response.context["form"].errors)
         self.assertEqual(
             response.context["cancel_url"],
-            self.url(item, "detail") + suffix + "&section=details",
+            self.url(item, "detail") + suffix + "&info=1#evidence-details-heading",
         )
         self.assertTrue(item.file.storage.exists(item.file.name))
         with self.captureOnCommitCallbacks(execute=True):

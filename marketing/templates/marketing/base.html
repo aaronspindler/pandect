@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>{% block title %}A clearer view of your investigation{% endblock %} · Pandect</title>
-  <meta name="description" content="{% block description %}Pandect is a self-hostable investigation workspace. Collect, search, and analyze evidence in a private case you can share with your team.{% endblock %}">
+  <title>{% block title %}A self-hostable investigation workspace{% endblock %} · Pandect</title>
+  <meta name="description" content="{% block description %}Pandect is a self-hostable investigation workspace. Organize gathered evidence in private cases, search within a case, and review source-linked findings with collaborators. In active development.{% endblock %}">
   <link rel="icon" type="image/png" sizes="32x32" href="{% static 'ui/brand/favicon.png' %}">
   <link rel="apple-touch-icon" sizes="180x180" href="{% static 'ui/brand/apple-touch-icon.png' %}">
   <link rel="stylesheet" href="{% static 'ui/primitives.css' %}">
@@ -32,7 +32,10 @@
     {% block content %}{% endblock %}
   </main>
   <footer class="marketing-footer wrap">
-    <a class="wordmark" href="{% url 'marketing:home' %}" aria-label="Pandect">{% include 'ui/components/brand.html' %}</a>
+    <div class="footer-brand">
+      <a class="wordmark" href="{% url 'marketing:home' %}" aria-label="Pandect">{% include 'ui/components/brand.html' %}</a>
+      <p>A self-hostable investigation workspace.<br>In active development.</p>
+    </div>
     <nav aria-label="Footer navigation">
       <a href="{% url 'marketing:product' %}">Product</a>
       <a href="{% url 'marketing:trust' %}">Trust</a>

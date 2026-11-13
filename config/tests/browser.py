@@ -283,26 +283,22 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 page.goto(self.url("core:evidence:list", case_id=self.case.pk))
                 page.set_viewport_size({"width": 390, "height": 844})
-                mobile_navigation = page.locator(".case-navigation")
-                expect(page.locator('nav[aria-label="Investigation"]')).to_have_count(1)
-                # The single native menu is usable with no page JavaScript.
-                expect(mobile_navigation.get_by_role("navigation")).to_be_visible()
-                case_tools = mobile_navigation.locator(".case-tools")
+                navigation = page.get_by_role("navigation", name="Investigation")
+                expect(navigation).to_have_count(1)
+                expect(
+                    navigation.get_by_role("link", name="Evidence", exact=True)
+                ).to_have_attribute("aria-current", "page")
+                case_tools = navigation.locator(".case-tools")
                 tools_summary = case_tools.locator(":scope > summary")
                 map_link = case_tools.get_by_role("link", name="Map", exact=True)
                 expect(map_link).to_be_hidden()
                 tools_summary.focus()
                 tools_summary.press("Enter")
                 expect(map_link).to_be_visible()
-                case_details = case_tools.locator(".case-details")
-                saved_description = case_details.get_by_text(
-                    self.case.description, exact=True
-                )
-                expect(saved_description).to_be_hidden()
-                details_summary = case_details.locator(":scope > summary")
-                details_summary.focus()
-                details_summary.press("Enter")
-                expect(saved_description).to_be_visible()
+                case_details = case_tools.locator(".case-details-body")
+                expect(
+                    case_details.get_by_text(self.case.description, exact=True)
+                ).to_be_visible()
                 expect(
                     case_details.get_by_text(self.owner.username, exact=True)
                 ).to_be_visible()
@@ -310,28 +306,19 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(case_details.locator("input, textarea")).to_have_count(0)
                 self.capture(page, engine, "case-tools-390x844")
                 tools_summary.press("Enter")
-                navigation_summary = mobile_navigation.locator(":scope > summary")
-                navigation_summary.focus()
-                navigation_summary.press("Enter")
-                expect(mobile_navigation.get_by_role("navigation")).to_be_hidden()
+                expect(map_link).to_be_hidden()
                 page.set_viewport_size({"width": 1440, "height": 900})
-                # A closed mobile menu must remain reopenable after resizing.
-                expect(navigation_summary).to_be_visible()
-                navigation_summary.press("Enter")
-                expect(
-                    mobile_navigation.get_by_role("link", name="Evidence", exact=True)
-                ).to_have_attribute("aria-current", "page")
-                expect(navigation_summary).to_be_hidden()
+                # The same compact control remains available after resizing.
+                expect(tools_summary).to_be_visible()
                 filters = page.locator(".evidence-filters")
-                expect(page.get_by_label("Evidence state", exact=True)).to_be_hidden()
+                expect(page.get_by_label("State", exact=True)).to_be_hidden()
                 filters.locator("summary").focus()
                 filters.locator("summary").press("Enter")
-                page.get_by_label("Evidence state", exact=True).select_option("all")
+                page.get_by_label("State", exact=True).select_option("all")
                 page.get_by_role("button", name="Apply filters", exact=True).click()
                 expect(page.locator(".evidence-filters")).to_have_attribute("open", "")
-                expect(page.get_by_label("Evidence state", exact=True)).to_have_value(
-                    "all"
-                )
+                expect(page.get_by_label("State", exact=True)).to_have_value("all")
+                page.locator(".evidence-filters > summary").press("Enter")
                 page.locator(".evidence-row").first.click()
                 self.assertIn("state=all", page.url)
 
@@ -381,19 +368,21 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator(".original-text")).to_have_text(
                     f"Synthetic original {engine}"
                 )
-                expect(page.get_by_text("Record history", exact=True)).to_have_count(0)
+                expect(page.locator(".evidence-info-panel")).to_be_hidden()
+                expect(page.get_by_text("Added by", exact=True)).to_be_hidden()
                 expect(
-                    page.get_by_text(
-                        "Checking this evidence. Results will appear in Findings.",
-                        exact=True,
-                    )
+                    page.get_by_role("heading", name="Findings", exact=True)
                 ).to_be_visible()
-                analyze = page.get_by_role(
-                    "navigation", name="Evidence sections"
-                ).get_by_role("link", name="Findings", exact=True)
-                analyze.focus()
-                analyze.press("Enter")
-                page.get_by_text("Processing history", exact=True).press("Enter")
+                expect(page.get_by_role("link", name="Jump to findings")).to_have_count(
+                    0
+                )
+                expect(page.get_by_text("Checking…", exact=True)).to_be_visible()
+                self.open_evidence_panel(page, "info")
+                expect(page.get_by_text("Record history", exact=True)).to_be_visible()
+                expect(page.get_by_text("Added by", exact=True)).to_be_visible()
+                expect(
+                    page.get_by_text("Processing history", exact=True)
+                ).to_be_visible()
                 expect(
                     page.get_by_role(
                         "link",
@@ -407,12 +396,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 )
                 self.capture(page, engine, "automatic-analysis-390x844")
                 page.set_viewport_size({"width": 1440, "height": 900})
-                page.get_by_role("navigation", name="Evidence sections").get_by_role(
-                    "link", name="Details", exact=True
-                ).click()
                 expect(
                     page.get_by_text("Synthetic source context", exact=True)
                 ).to_be_visible()
+                self.open_evidence_panel(page, "more")
                 page.get_by_role("link", name="Edit details", exact=True).click()
                 expect(extra).to_have_attribute("open", "")
                 expect(page.get_by_label("Source URL", exact=True)).to_have_value(
@@ -423,6 +410,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
         sender = Person.objects.create(case=self.case, first_name="Alex Sender")
         recipient = Person.objects.create(case=self.case, first_name="Jordan Recipient")
         viewer = self.make_user("communications-viewer")
+        audio_filename = "synthetic-" + "recording" * 16 + ".wav"
         CaseMembership.objects.create(case=self.case, user=viewer)
         for engine in self.engines:
             for kind in ("text-message", "phone-call", "facetime"):
@@ -505,7 +493,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     if kind != "text-message":
                         expect(
                             page.get_by_text(
-                                "No transcript or audio has been added to this call.",
+                                "No transcript or audio.",
                                 exact=False,
                             )
                         ).to_be_visible()
@@ -521,7 +509,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         )
                         page.get_by_label("Audio file", exact=True).set_input_files(
                             {
-                                "name": "synthetic-call.wav",
+                                "name": audio_filename,
                                 "mimeType": "audio/wav",
                                 "buffer": b"Synthetic audio\x00\r\n",
                             }
@@ -530,11 +518,16 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         page.get_by_role(
                             "button", name="Add transcript or audio", exact=True
                         ).click()
-                        expect(
-                            page.get_by_role(
-                                "heading", name="synthetic-call.wav", exact=True
-                            )
-                        ).to_be_visible()
+                        filename_heading = page.get_by_role(
+                            "heading", name=audio_filename, exact=True
+                        )
+                        expect(filename_heading).to_be_visible()
+                        page.set_viewport_size({"width": 320, "height": 844})
+                        filename_heading.scroll_into_view_if_needed()
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"), 321
+                        )
+                        self.capture(page, engine, f"{kind}-long-filename-320")
                         with page.expect_download() as event:
                             page.get_by_role(
                                 "link", name="Download audio", exact=True
@@ -543,6 +536,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             Path(event.value.path()).read_bytes(),
                             b"Synthetic audio\x00\r\n",
                         )
+                        self.assertEqual(event.value.suggested_filename, audio_filename)
                         with page.expect_download() as transcript:
                             page.get_by_role(
                                 "link", name="Download transcript", exact=True
@@ -552,7 +546,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             # Native forms submit textarea line endings as CRLF.
                             b"  Supplied synthetic transcript <source>\r\n  ",
                         )
-                        page.get_by_text("Attachment details", exact=True).click()
+                        self.open_evidence_panel(page, "info")
                         with page.expect_download() as manifest:
                             page.get_by_role(
                                 "link", name="Download attachment record", exact=True
@@ -563,6 +557,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             ],
                             "pandect.call-attachment.v1",
                         )
+                        page.locator(".evidence-info > summary").press("Enter")
                         page.get_by_role(
                             "link", name="Add transcript or audio", exact=True
                         ).click()
@@ -576,13 +571,11 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             page.get_by_text("Later retained correction", exact=True)
                         ).to_be_visible()
                         expect(
-                            page.get_by_role(
-                                "heading", name="synthetic-call.wav", exact=True
-                            )
+                            page.get_by_role("heading", name=audio_filename, exact=True)
                         ).to_be_visible()
                     with page.expect_download() as event:
                         page.get_by_role(
-                            "link", name="Download communication record", exact=True
+                            "link", name="Download original", exact=True
                         ).click()
                     data = json.loads(Path(event.value.path()).read_bytes())
                     self.assertEqual(data["sender_id"], str(sender.pk))
@@ -774,13 +767,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.get_by_text("0.000 km/h", exact=True)).to_be_visible()
                 receipt = page.get_by_text("Source receipt time", exact=True)
                 expect(receipt).to_be_hidden()
-                source_summary = page.get_by_text(
-                    "Original CSV row and interpretation", exact=True
-                )
-                source_summary.focus()
-                source_summary.press("Enter")
+                self.open_evidence_panel(page, "info")
+                expect(
+                    page.get_by_text("Original CSV row and interpretation", exact=True)
+                ).to_be_visible()
                 expect(receipt).to_be_visible()
-                source_summary.press("Enter")
+                page.locator(".evidence-info > summary").press("Enter")
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -815,9 +807,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 ):
                     self.sign_in(viewer_page, viewer)
                     viewer_page.goto(detail_url)
-                    expect(
-                        viewer_page.get_by_text("You have Viewer access.", exact=False)
-                    ).to_be_visible()
+                    info = self.open_evidence_panel(viewer_page, "info")
+                    expect(info.get_by_text("Your access", exact=True)).to_be_visible()
+                    expect(info.get_by_text("Viewer", exact=True)).to_be_visible()
+                    viewer_page.locator(".evidence-info > summary").press("Enter")
                     expect(
                         viewer_page.get_by_role("link", name="Edit details")
                     ).to_have_count(0)
@@ -1321,9 +1314,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             width + 1,
                         )
                         self.capture(page, engine, f"{kind}-original-{width}x{height}")
-                    page.get_by_role(
-                        "navigation", name="Evidence sections"
-                    ).get_by_role("link", name="Details", exact=True).click()
+                    self.open_evidence_panel(page, "more")
                     page.get_by_role("link", name="Edit details", exact=True).click()
                     expect(page.locator("#id_address")).to_have_count(0)
                     page.get_by_label("Source", exact=True).fill(
@@ -1455,7 +1446,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Evidence", exact=True)
                 ).to_be_visible()
-                expect(page.locator(".case-identity").get_by_text(name)).to_be_visible()
+                expect(
+                    page.locator(".evidence-case-switch").get_by_text(name)
+                ).to_be_visible()
 
                 page.goto(self.url("people:create", case_id=case.pk))
                 page.get_by_label("First name", exact=True).fill("Alex")
@@ -1497,20 +1490,19 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator(".original-text")).to_have_text(original)
                 record = self.db(TextEvidence.objects.get, case=case, title=title)
                 checksum = record.sha256
-                page.get_by_role("navigation", name="Evidence sections").get_by_role(
-                    "link", name="Details", exact=True
-                ).click()
+                self.open_evidence_panel(page, "more")
                 page.get_by_role("button", name="Archive", exact=True).click()
+                self.open_evidence_panel(page, "more")
                 expect(
                     page.get_by_role("button", name="Restore", exact=True)
                 ).to_be_visible()
                 page.get_by_role("button", name="Restore", exact=True).click()
+                self.open_evidence_panel(page, "more")
                 expect(
                     page.get_by_role("button", name="Archive", exact=True)
                 ).to_be_visible()
-                page.get_by_role("navigation", name="Evidence sections").get_by_role(
-                    "link", name="Original", exact=True
-                ).click()
+                page.locator(".evidence-more > summary").press("Enter")
+                page.locator(".original-text").scroll_into_view_if_needed()
                 expect(page.locator(".original-text")).to_have_text(original)
                 self.db(record.refresh_from_db)
                 self.assertFalse(record.is_archived)
@@ -1518,7 +1510,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
 
                 page.goto(self.url("core:evidence:list", case_id=case.pk))
                 page.get_by_label("Search evidence", exact=True).fill("captured source")
-                page.get_by_role("button", name="Search", exact=True).click()
+                page.get_by_label("Search evidence", exact=True).press("Enter")
                 expect(page.locator(".evidence-row")).to_have_count(1)
                 expect(page.locator(".evidence-row")).to_contain_text(title)
 
@@ -1633,7 +1625,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         guest_page.get_by_role("heading", name="Evidence", exact=True)
                     ).to_be_visible()
                     expect(
-                        guest_page.locator(".case-identity").get_by_text(name)
+                        guest_page.locator(".evidence-case-switch").get_by_text(name)
                     ).to_be_visible()
                     self.assertEqual(
                         self.db(CaseMembership.objects.get, case=case, user=guest).role,
@@ -1757,7 +1749,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 record = self.records[-1]
                 page.goto(self.evidence_url(record))
                 with page.expect_download() as text_original:
-                    page.get_by_role("link", name="Download text", exact=True).click()
+                    page.get_by_role(
+                        "link", name="Download original", exact=True
+                    ).click()
                 self.assertEqual(
                     text_original.value.suggested_filename, f"evidence-{record.pk}.txt"
                 )
@@ -2385,19 +2379,18 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 page.goto(self.evidence_url())
-                navigation = page.locator(".case-navigation")
-                navigation_summary = navigation.locator(":scope > summary")
-                expect(page.locator('nav[aria-label="Investigation"]')).to_have_count(1)
+                navigation = page.get_by_role("navigation", name="Investigation")
+                expect(navigation).to_have_count(1)
                 for width in (390, 1440, 768, 2616):
                     page.set_viewport_size({"width": width, "height": 900})
+                    expect(
+                        navigation.get_by_role("link", name="Evidence", exact=True)
+                    ).to_be_visible()
+                    expect(navigation.locator(".case-tools > summary")).to_be_visible()
                     if width < 1024:
-                        expect(navigation.get_by_role("navigation")).to_be_hidden()
-                        navigation_summary.focus()
-                        navigation_summary.press("Enter")
-                    expect(navigation.get_by_role("navigation")).to_be_visible()
-                    if width < 1024:
-                        navigation_summary.press("Enter")
-                        expect(navigation.get_by_role("navigation")).to_be_hidden()
+                        self.assertLessEqual(
+                            page.locator(".evidence-rail").bounding_box()["height"], 80
+                        )
                 self.capture(page, engine, "workspace-ultrawide")
                 expect(page.locator(".evidence-row")).to_have_count(25)
                 for height, minimum in ((900, 12), (1024, 14)):
@@ -2471,9 +2464,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.emulate_media(forced_colors="none")
                 page.emulate_media(color_scheme="light", reduced_motion="no-preference")
 
-                page.get_by_role("navigation", name="Evidence sections").get_by_role(
-                    "link", name="Details", exact=True
-                ).click()
+                self.open_evidence_panel(page, "more")
                 edit = page.get_by_role("link", name="Edit details", exact=True)
                 edit.focus()
                 expect(edit).to_be_focused()
@@ -2527,6 +2518,229 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     meta_box["y"], title_box["y"] + title_box["height"] - 1
                 )
                 self.capture(page, engine, "workspace-200-percent-text")
+
+    def test_long_original_keeps_findings_and_info_reachable(self):
+        original = "\n\n".join(
+            f"Synthetic source paragraph {number}. "
+            "Retain the complete original while keeping the findings and "
+            "source details reachable with a keyboard."
+            for number in range(1, 81)
+        )
+        record = TextEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Long synthetic retained source",
+            body=original,
+            source="Synthetic long-source fixture",
+        )
+        url = self.url(
+            "core:evidence:detail",
+            case_id=self.case.pk,
+            kind="text",
+            evidence_id=record.pk,
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(url)
+                expect(page.locator(".original-text")).to_have_text(original)
+                expect(page.locator("h1")).to_have_count(1)
+                expect(page.get_by_role("link", name="Jump to findings")).to_have_count(
+                    0
+                )
+                expect(page.locator(".evidence-info-panel")).to_be_hidden()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.goto(url)
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"quiet-long-original-{width}x{height}")
+                    page.locator(
+                        "#evidence-findings-heading"
+                    ).scroll_into_view_if_needed()
+                    self.capture(page, engine, f"quiet-long-findings-{width}x{height}")
+                    self.open_evidence_panel(page, "info")
+                    expect(page.get_by_text("Added by", exact=True)).to_be_visible()
+                    expect(
+                        page.get_by_text("Record history", exact=True)
+                    ).to_be_visible()
+                    expect(page.locator(".original-text")).to_have_text(original)
+                    self.capture(page, engine, f"quiet-long-info-{width}x{height}")
+                    page.locator(".evidence-info > summary").press("Enter")
+                page.locator('input[name="submission_id"]').evaluate(
+                    "input => { input.value = 'invalid'; }"
+                )
+                page.get_by_role("button", name="Run checks", exact=True).press("Enter")
+                error = page.locator("#evidence-analysis-error")
+                expect(error).to_contain_text("Checks could not start")
+                expect(error).to_be_in_viewport()
+                expect(error).to_be_focused()
+                expect(page.locator(".original-text")).to_have_text(original)
+                expect(page.locator(".evidence-info-panel")).to_be_hidden()
+                self.capture(page, engine, "quiet-long-original-check-error")
+
+    def test_quiet_evidence_workspace_panels_and_visual_target(self):
+        from datetime import UTC, datetime
+
+        from core.analysis.services import process_run, start_run
+        from core.analysis.testing import image_bytes
+        from phone.models import PhoneCallEvidence
+
+        case = Case.objects.create(owner=self.owner, name="Harbour records")
+        caller = Person.objects.create(case=case, first_name="Synthetic witness")
+        recipient = Person.objects.create(
+            case=case, first_name="Synthetic receptionist"
+        )
+        title = "Interview — Harbour office"
+        original = (
+            "The harbour office was closed when I arrived at 16:30 on 12 November. "
+            "A blue van was parked by the east gate. I called the number on the door, "
+            "416-555-0142, but no one answered. I returned the following morning "
+            "and spoke with the receptionist."
+        )
+        titles = (
+            "East gate photograph",
+            "Vehicle locations.csv",
+            "Gatehouse call",
+            title,
+            "Reception follow-up",
+            "Harbour address",
+            "Office exterior",
+            "Call transcript",
+            "Site notes",
+            "Delivery receipt",
+            "West entrance",
+            "Morning observations",
+            "North gate notes",
+            "Loading bay observations",
+        )
+        for source_title in reversed(titles):
+            values = {
+                "case": case,
+                "uploaded_by": self.owner,
+                "title": source_title,
+                "collected_at": datetime(2026, 11, 12, 16, 30, tzinfo=UTC),
+            }
+            if source_title in {
+                "East gate photograph",
+                "Office exterior",
+                "West entrance",
+            }:
+                ImageEvidence.objects.create(
+                    **values,
+                    file=SimpleUploadedFile("gate.png", image_bytes(), "image/png"),
+                )
+            elif source_title == "Vehicle locations.csv":
+                DocumentEvidence.objects.create(
+                    **values,
+                    file=SimpleUploadedFile(
+                        "locations.csv", b"address,time\nHarbour,16:30\n", "text/csv"
+                    ),
+                )
+            elif source_title == "Gatehouse call":
+                PhoneCallEvidence.objects.create(
+                    **values, sender=caller, recipient=recipient
+                )
+            elif source_title == "Harbour address":
+                LocationEvidence.objects.create(**values, address="Harbour office")
+            else:
+                record = TextEvidence.objects.create(
+                    **values,
+                    body=original
+                    if source_title == title
+                    else "Synthetic retained source.",
+                    source="Witness interview" if source_title == title else "",
+                )
+                if source_title == title:
+                    selected = record
+        run, _ = start_run(
+            self.owner, case.pk, "entities", [{"kind": "text", "id": str(selected.pk)}]
+        )
+        process_run(run.pk)
+        url = self.url(
+            "core:evidence:detail",
+            case_id=case.pk,
+            kind="text",
+            evidence_id=selected.pk,
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(url)
+                expect(page.locator(".original-text")).to_have_text(original)
+                expect(
+                    page.locator(".analysis-finding-rows > li").first
+                ).to_be_visible()
+                expect(page.locator(".evidence-info-panel")).to_be_hidden()
+                expect(page.locator(".evidence-more-panel")).to_be_hidden()
+                expect(page.get_by_role("link", name="Jump to findings")).to_have_count(
+                    0
+                )
+                for width, height in (
+                    (1440, 1024),
+                    (1440, 900),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    page.locator("h1").scroll_into_view_if_needed()
+                    self.capture(page, engine, f"quiet-evidence-{width}x{height}")
+                    info = self.open_evidence_panel(page, "info")
+                    expect(info.locator(".evidence-info-panel")).to_be_visible()
+                    expect(
+                        info.get_by_text("Processing history", exact=True)
+                    ).to_be_visible()
+                    expect(info.get_by_text("Added by", exact=True)).to_be_visible()
+                    self.capture(page, engine, f"quiet-evidence-info-{width}x{height}")
+                    page.keyboard.press("Escape")
+                    expect(info).not_to_have_attribute("open", "")
+                    expect(info.locator(":scope > summary")).to_be_focused()
+                    more = self.open_evidence_panel(page, "more")
+                    expect(
+                        more.get_by_role("link", name="Edit details")
+                    ).to_be_visible()
+                    expect(
+                        more.get_by_role("button", name="Archive", exact=True)
+                    ).to_be_visible()
+                    self.capture(page, engine, f"quiet-evidence-more-{width}x{height}")
+                    page.keyboard.press("Escape")
+                    expect(more).not_to_have_attribute("open", "")
+                    expect(more.locator(":scope > summary")).to_be_focused()
+                    for summary in (
+                        info.locator(":scope > summary"),
+                        more.locator(":scope > summary"),
+                    ):
+                        self.assertGreaterEqual(summary.bounding_box()["height"], 44)
+                page.set_viewport_size({"width": 1440, "height": 1024})
+                info = self.open_evidence_panel(page, "info")
+                page.locator("h1").click()
+                expect(info).not_to_have_attribute("open", "")
+                more = self.open_evidence_panel(page, "more")
+                page.locator("h1").click()
+                expect(more).not_to_have_attribute("open", "")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "quiet-evidence-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(page, engine, "quiet-evidence-forced-colors")
+                page.emulate_media(color_scheme="light", forced_colors="none")
+                page.locator(".analysis-finding-link").first.press("Enter")
+                expect(page).not_to_have_url(url)
+                expect(page.locator(".analysis-finding").first).to_be_visible()
 
     def test_superuser_evidence_deletion(self):
         self.owner.is_staff = self.owner.is_superuser = True
@@ -2641,9 +2855,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 page.goto(detail_url + suffix)
-                page.get_by_role("navigation", name="Evidence sections").get_by_role(
-                    "link", name="Details", exact=True
-                ).click()
+                self.open_evidence_panel(page, "more")
                 delete_link = page.get_by_role(
                     "link", name="Delete evidence", exact=True
                 )
@@ -2654,6 +2866,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     "none",
                 )
                 self.capture(page, engine, "product-evidence-delete-details-desktop")
+                self.open_evidence_panel(page, "more")
                 delete_link.click()
                 expect(
                     page.get_by_role("heading", name=f"Delete {document.title}?")
@@ -2674,7 +2887,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.get_by_role("link", name="Cancel", exact=True)
                 ).to_be_focused()
                 page.get_by_role("link", name="Cancel", exact=True).press("Enter")
-                expect(page).to_have_url(detail_url + suffix + "&section=details")
+                expect(page).to_have_url(
+                    detail_url + suffix + "&info=1#evidence-details-heading"
+                )
+                self.open_evidence_panel(page, "more")
                 delete_link.click()
                 confirm = page.get_by_role("button", name="Permanently delete evidence")
                 for width, height in (
@@ -2714,6 +2930,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     )
                     + "?section=details"
                 )
+                self.open_evidence_panel(page, "more")
                 page.get_by_role("link", name="Delete evidence", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Exactly what will be removed")
@@ -2726,16 +2943,20 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 ).to_be_visible()
             with self.browser_page(engine, java_script_enabled=False) as (_, page):
                 self.sign_in(page)
-                page.goto(detail_url + suffix + "&section=details")
+                page.goto(detail_url + suffix + "&info=1#evidence-details-heading")
                 page.set_viewport_size({"width": 390, "height": 844})
                 delete_link = page.get_by_role(
                     "link", name="Delete evidence", exact=True
                 )
+                self.open_evidence_panel(page, "more")
                 delete_link.focus()
                 self.capture(page, engine, "product-evidence-delete-details-mobile")
                 delete_link.press("Enter")
                 page.get_by_role("link", name="Cancel", exact=True).click()
-                expect(page).to_have_url(detail_url + suffix + "&section=details")
+                expect(page).to_have_url(
+                    detail_url + suffix + "&info=1#evidence-details-heading"
+                )
+                self.open_evidence_panel(page, "more")
                 delete_link.click()
                 page.get_by_role("checkbox").check()
                 page.get_by_role("button", name="Permanently delete evidence").press(
@@ -2842,6 +3063,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 page.goto(url + "?section=details")
+                self.open_evidence_panel(page, "more")
                 page.get_by_role("link", name="Delete evidence", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Exactly what will be removed")
@@ -2909,7 +3131,8 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.get_by_role("link", name="Cancel", exact=True)
                 ).to_be_focused()
                 page.get_by_role("link", name="Cancel", exact=True).press("Enter")
-                expect(page).to_have_url(url + "?section=details")
+                expect(page).to_have_url(url + "?info=1#evidence-details-heading")
+                self.open_evidence_panel(page, "more")
                 page.get_by_role("link", name="Delete evidence", exact=True).click()
 
                 def add_late_observation(vehicle=vehicle, batch=batch):
@@ -2938,6 +3161,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.goto(url + "?section=details")
+                self.open_evidence_panel(page, "more")
                 page.get_by_role("link", name="Delete evidence", exact=True).click()
                 page.get_by_role("link", name="Next inventory page").click()
                 page.get_by_role("checkbox").check()

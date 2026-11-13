@@ -1,471 +1,236 @@
 # Investigator interface specification
 
-**Status: core interfaces implemented; validation results are reported separately.**
-The selected visual direction is option 3, refined to show more evidence in the
-same viewport. This document remains the behavioral and visual acceptance
-specification; the mockups are references rather than proof of rendered behavior. Follow [the design standard](../DESIGN.md) for durable visual,
-accessibility, and interaction requirements. See the
-[delivery plan](interface-plan.md) for implementation order and validation.
-
-## Confirmed product decisions
-
-- Deliver core workflows: account access, cases, people, vehicles, the ten
-  retained evidence types, invitations, and collaborator management. Implemented
-  extraction, reports, and processing review are described in [case analysis](analysis.md).
-- Retain individual evidence records and their originals. Owners and editors can
-  archive and restore them; current case members can still inspect/download them.
-  Permanent deletion requires authorized, explicit confirmation.
-- Support everyday batches through sequential uploads, visible outcomes, and
-  individual retry. Do not require a queue service for bounded original storage.
-- Use the existing Django/allauth/PostgreSQL foundation, explicit UUID primary
-  keys, and current case roles. No ordinary user needs staff access.
-- Broader graphs, unified timelines, identity resolution, ownership transfer,
-  and self-service account deletion remain later work. Only implemented
-  capabilities belong in navigation.
-
-## Shared interface refinements
-
-Routine screens show the material and next action first. Native disclosures hold
-secondary record timestamps, import interpretation, analysis measurements and
-processing/review history. These sections work by keyboard and without JavaScript.
-Case and record details keep their source/uncertainty context visible; blank
-optional metadata and repeated list timestamps are omitted where they add no value.
-
-Evidence search stays visible; **Filters** opens type and archive-state selectors,
-with an explicit **Apply filters** submit. Non-default filters reopen on navigation
-and stay in record URLs. Repeated ingestion dates are omitted from collection
-rows; exact dates remain in record history. **Add evidence** opens mixed-file
-upload directly, with **Add text** and **Import vehicle locations** alongside it.
-Manual location and communication forms live under **More ways to add evidence**.
-
-Location originals show the linked person/vehicle, supplied address or coordinates,
-observation time and available speed. **Original CSV row and interpretation** holds
-receipt time, asset labels, timezone, parser version and exact source cells, while
-**View import and observations** remains beside the observation. Attribution lives
-in **Details**, with a concise source line beside the original when supplied.
-Long source descriptions link to their full text in Details. Source metadata and
-declared technical fields on add forms open on request, on edit, and after
-validation errors. Required original fields remain visible.
-
-Management screens use consistent section dividers, readable detail and form
-widths, aligned actions, and explicit filter recovery. A single **Case navigation**
-menu serves every viewport. Evidence and Findings are its primary destinations.
-Map, People, Vehicles, owner-only Settings, and **Case details** belong under
-**Case tools**.
-On small screens it starts closed when JavaScript is available. Without JavaScript
-it starts open and can be collapsed; if resized while closed, its toggle remains
-available. Controls and actions wrap with the content.
-Account navigation identifies the current settings page. Email settings show
-address status and applicable actions, with removal behind a named confirmation.
-Operator forms disclose optional source metadata, permission pickers, and record
-dates while retaining core fields and access flags. Field errors reveal their
-containing group.
-
-Single-record forms identify their evidence type in the page title. **Change type**
-contains a labelled selector and explicit **Choose type** button that works without
-JavaScript. All ten types remain available. Required title and original material
-stay visible; **Source details** holds optional metadata. The mixed-file uploader
-links to an explicit single-document form when JavaScript is unavailable. Adding eligible evidence queues bounded local checks, with
-status and results in the evidence's Findings tab.
-
-The evidence reader keeps its contents within `60rem`, with metadata within
-`42rem`, so wide monitors do not separate labels from related information.
-Downloads remain beside the evidence title for every case role. **Details** holds
-saved read-only descriptions, record history, integrity, editing and archive/restore
-controls. **Findings** leads with source-linked results and partial-coverage labels.
-Original details, rerunning checks, processing history, and additional analysis
-are collapsed native disclosures. Additional checks and comparisons share one
-entry point. Review state and forms remain available on
-individual results, without an “Awaiting review” label on every highlight.
-Original, Findings, and Details use the same section navigation and evidence title.
-Collection filters survive this round trip; evidence findings use `results_page`
-separately from the collection's `page` parameter. Validation errors open their
-containing controls, and paginated processing history stays open on navigation.
-
-The case Findings screen leads with useful results and vehicle trips. Processing
-history retains evidence-type and outcome filters and source-linked run rows,
-but remains secondary to the results. Current-evidence reports and deliberate
-additional analysis remain available. Additional analysis first offers tasks in
-groups; choosing a task opens its own source-selection form. Required sample,
-area and claimed-event inputs stay visible. **Options** contains optional tuning
-and opens after errors. Source versions and additions remain explicit. External
-processing still requires approval.
-
-Vehicle-location CSV import asks for the vehicle mapping before its collapsed
-source-row preview. Invalid rows open the preview; possible-duplicate counts stay
-visible beside the mapping form. Import completion links to Findings and keeps
-individual observations in a disclosure. The original CSV and all attribution
-remain accessible throughout.
-
-Analysis selection, assumptions, external-processing approval, and review fields
-use the same field rendering as other forms, including help and error links.
-Optional settings open after validation errors, and enhanced error links reveal any
-containing disclosure before focusing the field. Processing progress has a native
-progress indicator. Findings show source links and limitations with the output.
-Review and processing details are collapsed, with retry controls exposed after
-a processing failure.
-Use metadata tables, retained image regions and crops, recording intervals,
-paired passages and sample values, message sequences, and observation maps where
-the operation supplies those records. Reports place chronological or grouped
-source rows after a concise summary. Coverage warnings remain visible, while
-**About this report** holds fixed limitations and totals. Narrow report rows stack
-while retaining field labels. Trip rows show dates, endpoints and observed duration;
-source observations open on request. Vehicle pages omit the repeated vehicle name
-from each trip. Focused findings show their output and sources before processing
-metadata; identifier normalization remains available in **Value details**.
-
-These refinements preserve the three-pane evidence layout and its row-density
-targets. Validation commands and capture locations are in
-[browser checks](validation.md#browser-checks).
-
-## Visual reference and density
-
-The [selected initial reference](design/evidence-workspace-reference.png) establishes
-the three-pane layout. The [density refinement](design/evidence-workspace-dense.png)
-reduces list padding and repeated headers while preserving the reading pane.
-These are synthetic design mockups, not implementation screenshots. Current
-browser captures are generated separately during validation. Behavior and
-accessibility requirements in this specification take precedence
-over incidental mockup text or rendering details.
-
-![Refined evidence workspace](design/evidence-workspace-dense.png)
-
-| Region | Desktop specification |
-| --- | --- |
-| Case navigation | `13rem` wide, with the case name, All cases, Evidence, Findings, Case tools, and account link. |
-| Evidence list | `20rem` wide; heading and Add evidence, search, then a Filters disclosure. |
-| List chrome | At most `164px` for heading/search/filters, with a `44px` pagination footer at default zoom. |
-| Evidence row | At least `56px` high: `16px` title and `14px` type line; one whole-row link. |
-| Reading pane | Flexible width, compact heading/actions, readable original, concise source line, optional details. |
-| Visible rows | At least 12 at `1440 × 900`, and 14 at `1440 × 1024`, for ordinary titles at default zoom. |
-
-The row target is a visual acceptance criterion, not a pagination size or fixed
-height. Use 25 records per page. Larger text and wrapped titles increase row
-height. Keep secondary row actions in the reading pane. Do not shrink body text,
-hide focus, or crop record names to make another item fit.
-
-Use a split workspace at `80rem` and above. Between `64rem` and `80rem`, use the
-case sidebar plus a list or detail page. Below `64rem`, use compact top navigation
-and one content page. On mobile the list opens a separate detail page with a
-clear Back to evidence link; three narrow columns must never be squeezed together.
-At short viewport heights and high zoom, prefer normal document scrolling.
+**Status: core interfaces implemented; validation results are separate.**
+This specification owns screen-specific behavior. [DESIGN.md](../DESIGN.md) owns
+shared visual, accessibility, and interaction rules; [delivery and acceptance](interface-plan.md)
+owns follow-up gates. Generated mockups are references, not rendered evidence.
 
 ## Navigation and screens
 
-The authenticated landing page is **All cases**. Anonymous users go to sign-in;
-authenticated users without a verified email go through allauth verification.
-Preserve safe local return destinations through sign-in and verification.
+Cases open to **Evidence**, with **Findings** beside it. **Case tools** groups
+Map, People, Vehicles, owner-only Settings, and Case details. Normal investigators
+need no staff access. Graphs, a unified timeline, ownership transfer, and
+self-service account deletion remain planned; show only implemented destinations.
+
+Evidence uses named navigation links and a **Case tools** disclosure. Other case
+screens use the shared **Case navigation** disclosure: initially closed on small
+screens with JavaScript, open without it, and always collapsible. Its toggle
+remains available after resizing.
 
 | Screen | Content and primary action |
 | --- | --- |
-| All cases | Searchable owned/shared case list and role; **Create case**. |
-| Create case | Required case name and **Create case**. Opens Evidence. |
-| Evidence | Case landing page with active records by default, query/type/archive-state filters, pagination, and **Add evidence** for owners/editors. |
-| Evidence detail | Original content, findings, and downloads. Source metadata, saved read-only descriptions, editing, and archive/restore are in Details. |
-| Add evidence | Choose files or captured text, then clear input-specific fields; **Upload files** or **Save text**. |
-| Edit evidence details | Title, optional source details, declared metadata, and **Save changes**. |
-| People | Searchable case list; **Add person** for owners/editors. |
-| Person detail/edit | Contact details, social accounts, and POIs, with saved read-only notes and history in Record details. Owners and editors can **Edit person** and manage accounts. |
-| Case settings | Owner-only name editing, collaborator access, pending invitations, and separate delete section. |
-| Invitation acceptance | Named invitation after authentication and recipient verification; **Accept invitation**. |
-| Account | Styled allauth email/password management and POST sign-out; account creation/recovery/verification use the same design language. |
+| All cases | Searchable owned/shared cases with roles; **Create case**. |
+| Case Evidence | Active records, search and disclosed filters; **Add evidence** for owners/editors. |
+| Evidence reader | Original and Findings together; downloads, Info, and authorized More actions beside the title. |
+| Findings | Source-linked results and possible vehicle trips; reports and additional analysis on request. |
+| People / Vehicles | Searchable case records; owner/editor creation and editing, viewer inspection. |
+| Case settings | Owner-only name/access management and a separate delete section. |
+| Case details | Owner, timestamps, role, and saved read-only description for all case members. |
+| Invitation | Named recipient confirmation after authentication and email verification; **Accept invitation**. |
+| Account | Allauth email/password management and POST sign-out, with the shared shell. |
 
-Use **Settings** only for case owners. Every member can read the owner,
-timestamps, and saved description under **Case tools → Case details** and see
-their role in context. On read-only
-screens show a concise Viewer explanation where it helps. Do not show disabled
-edit actions throughout the interface.
+The public `/` page serves marketing to anonymous visitors and sends signed-in
+visitors to All cases. Product routes require an active authenticated account
+with a verified email. Preserve safe local return destinations through sign-in
+and verification. Email settings identify the current address/status and put
+removal behind a named confirmation.
 
-### Cases
+## Visual reference and density
 
-Case names are required, up to 255 characters. Assign the current user as owner
-on the server. Ownership is not a form field. Existing
-cases receive a name based on their current `Case #<UUID>` representation through
-an additive migration; the interface can prompt owners to choose a clearer name.
-Updating a case records an update timestamp; initialize that timestamp from the
-original creation time when backfilling existing cases.
+The selected [quiet workspace reference](design/quiet-evidence-reference.png)
+guides the evidence rail, collection, and focused reader. It is a synthetic mockup;
+actual processing output takes precedence over illustrative findings. Earlier
+references remain historical design context.
 
-The All cases search is limited to currently accessible case names/descriptions.
-Use owned/shared filters and newest-updated ordering, with a deterministic
-creation/UUID tie-breaker. An empty first visit explains cases and offers Create
-case. An empty filtered result offers Clear filters.
+![Quiet evidence workspace](design/quiet-evidence-reference.png)
 
-Deletion is a separate full-page owner confirmation showing the case name and
-counts of people, vehicles, active evidence, archived evidence, and collaborators. Explain
-that originals and case records are removed, accounts are retained, and this has
-no in-app undo. Require an explicit acknowledgement and a final **Permanently
-delete case** POST. Report case deletion without promising verified erasure from
-storage or operator backups; existing storage-cleanup limitations still apply.
+Use [DESIGN.md](../DESIGN.md#layout-and-density) for pane dimensions, responsive
+breakpoints, row sizes, and visible-row targets. Keep the heading/Add action,
+search, and Filters compact; target at most `164px` for this chrome and `44px`
+for pagination at default zoom. Original text uses a comfortable reading measure
+of about `65ch`; supporting metadata is grouped in the Info inspector.
 
-### Evidence browsing and reading
+Use 25 records per page and one whole-row link. Longer titles and larger text
+can expand rows; never crop the accessible name to fit another row. Mobile
+selection opens the canonical detail page with Back to evidence. At short
+heights or high zoom, use ordinary document scrolling.
 
-Use ordinary links for records, with the selected link marked `aria-current`.
-Do not implement the collection as a custom ARIA listbox. On detail pages the
-evidence title is the single page `h1`; the list heading is a lower-level heading.
-When no evidence is selected, Evidence is the page heading.
+## Cases and investigative records
 
-Each selected record has a canonical URL carrying its case UUID, evidence type,
-and evidence UUID. The type is resolved through a fixed allowlist, never an
-arbitrary model name. Preserve query, type, state, and page when moving through
-records or returning to the list. Search operates on title, description, source
-description, source URL, and original filename where applicable; it does not
-claim to search extracted content. Query input is capped at 200 characters.
+Case creation asks for a name and assigns the current user as owner on the
+server. Search covers accessible case names/descriptions, with owned/shared
+filters and stable newest-updated ordering. Empty cases offer the next action;
+empty filtered results offer Clear filters. Only owners edit case metadata or
+manage collaborators. Saved descriptions remain read-only.
 
-Default filters are all types and Active. State options are Active, Archived,
-and All. Archived search results and details have a textual Archived label.
-Archive/restore is an explicit POST with a persistent confirmation message. When
-archiving a selected item, keep its detail visible with the Archived label and
-Restore action; remove it from the Active list without unexpectedly selecting a
-different record. Moving to the next item follows normal record navigation.
+People allow partial identities, requiring at least one name, phone number, or
+email. Vehicles require at least a make, model, plate, or VIN. Owners/editors
+create and edit; viewers inspect; owners alone delete through a named-target
+confirmation. Case membership and login accounts are separate. Duplicate contact
+or vehicle identifiers do not merge records or verify identity/ownership.
 
-The reading pane contains:
+Person details include reported social accounts and POIs. Owners/editors manage
+social accounts with confirmed removal; viewers read them. Search includes
+platform/usernames. Saved notes and history are disclosed as read-only details.
+See [people](people.md) and [vehicles](vehicles.md) for field and deletion rules,
+including retained location links that can block individual deletion.
 
-1. A compact title and an authorized download. Editing and
-   archive/restore controls live in Details.
-2. **Original**, **Findings**, and **Details** links with full-page navigation and
-   collection filters preserved. Ordinary links work without JavaScript.
-3. A concise source line when supplied. Full attribution, collection time, and
-   source metadata are in Details.
-4. Escaped read-only text or a supported image preview on Original. Files show
-   their name, size, and download action; document/audio content can be extracted
-   through Findings when supported. File format declarations are in Details.
-5. Saved descriptions and source context as read-only prose in Details.
-   Record history, declared technical values, and full SHA-256 open on request.
-   Checksums have a copy action with a selectable text fallback.
+Case deletion is a separate owner confirmation naming the case and inventory,
+including people, vehicles, active/archived evidence, collaborators, and pending
+invitations. Require an acknowledgement and **Permanently delete case** POST.
+Explain that accounts remain, there is no in-app undo, and storage/backups may
+retain copies; do not promise verified erasure.
 
-An unavailable stored original shows a useful error and retry/contact-owner
-guidance while preserving access to its metadata. It never discloses storage
-paths, exception details, or a public media URL.
+## Evidence browsing and reading
 
-### Evidence creation and batch uploads
+Use ordinary record links with `aria-current`, rather than a custom listbox.
+The selected title is the page's single `h1`; the collection heading is lower
+level. Each record has a canonical URL containing its case, allowlisted evidence
+type, and UUID. Preserve query, type, archive state, and collection page when
+moving between records or returning to the list.
 
-**Files** accepts images, audio, and documents using the existing file models.
-**Text** accepts one pasted original at a time. **Location** captures an address
-or coordinate pair with an optional observation time. **Person location** adds a
-required person from the same case. All types include a Source name/citation,
-source URL, source description, and collection time. Location originals and person
-associations remain read-only after creation, with private JSON downloads.
-A normal single-item HTML form is the complete fallback. JavaScript enhances
-file selection into a local batch;
-it is not required to add any supported evidence type.
+Search stays visible and is capped at 200 characters. It searches metadata,
+captured text/messages, supplied call transcripts, and supported completed
+extraction text. Matching excerpts lead to the relevant original or retained
+result; this is literal search, not semantic retrieval. See [analysis](analysis.md)
+for extraction coverage. **Filters** contains type and Active/Archived/All,
+with an explicit **Apply filters** submit. Non-default filters reopen on
+navigation. Rows omit repeated ingestion dates; exact dates remain in history.
 
-**Add evidence** opens the mixed-file uploader. Its picker and drag/drop append files without replacing pending edits. Shared source name,
-URL, description, and collection time live in an optional disclosure. They follow
-pending entries per field until individually overridden, including by a blank
-value. **Use shared details** resets an entry's source overrides. Frozen and
-saved entries keep their submitted values. Disable shared controls while uploading,
-and block file additions while
-running or any confirmation is unresolved. Saved entries count toward the page's
-queue limit. Queue and upload actions appear after selection; removing every
-pending file returns to the empty picker. After every remaining entry is added,
-**Start another batch** opens a fresh page. If enhanced upload support is unavailable, explain the limitation
-and link to the ordinary single-file form.
+The reader has one header with the title, concise type/source/collection metadata,
+archive state, and authorized download. Original content and source-linked
+Findings appear together below it, without separate tabs or jump navigation.
+Findings show coverage and status. **Run checks** appears beside empty findings;
+reruns for populated findings are in More. Detailed reviews belong to individual results rather than a repeated “Awaiting review”
+label on every highlight.
 
-Default bounded limits are 20 entries per browser batch, 100 MiB per file, and
-1 MiB of UTF-8 for captured text. Make these operator-configurable and display
-the configured values. A batch is a sequence of individual requests, not a
-single 2 GiB multipart request. Deployment body limits must permit one file plus
-bounded metadata. Enforce file limits during streaming and validate received
-size server-side; memory thresholds alone are not upload-size limits.
+Header disclosures keep supporting material available:
 
-The batch screen uses a compact list with filename, editable title, evidence
-category, and status. Filename provides the initial title. Browser
-MIME/extension hints may suggest Image or Audio; otherwise default to Document.
-The user can correct the category; this suggestion is not verification. A
-Details disclosure on each pending entry contains source name, source URL,
-source description, and collection time. Optional type-specific
-technical claims can be entered on the ordinary create/detail form and remain
-editable after upload.
+- **Info** holds full source metadata, file details, saved descriptions, declared
+  technical fields, record/integrity history, imported source context, retained
+  attachment attribution, and processing history. History uses `results_page`
+  independently of the collection's `page`; pagination keeps Info open.
+- **More** holds permitted edits, archive/restore, additional analysis, and
+  superuser deletion. Viewers can still open Info and download originals.
 
-| Entry state | Behavior |
+Use native disclosures with keyboard and no-JavaScript access. Validation errors
+reveal their containing controls before focus moves to a field.
+
+Show a private download for every case role. Escape text and never embed
+untrusted documents as application HTML. Missing originals show a safe recovery
+message while retaining access to metadata. Checksums have full selectable text
+and an optional copy action. Editing details never changes original content;
+a changed original is new evidence.
+
+Archive/restore are explicit owner/editor POSTs. Archiving keeps the selected
+detail visible, with Archived and **More → Restore**, while removing it from
+the Active list. Current members can still inspect/download archived material. Individual
+permanent deletion is reserved for superusers with current case access; show
+originals, imported derivatives, analysis, and retained files in a complete,
+paginated inventory with a full download. Bind confirmation to that inventory
+and require another review if it changes. Cancellation preserves list context;
+inconsistent cross-case links block deletion without exposing foreign records.
+See [evidence](evidence.md) for the deletion and private-storage contract.
+
+## Evidence creation and batch uploads
+
+**Add evidence** opens mixed-file upload, with **Add text** and **Import vehicle
+locations** alongside it. **More ways to add evidence** holds location and
+communication forms. Single-record forms name their type in the title and offer
+a labelled **Change type** disclosure with **Choose type** submit. All ten types
+remain available without JavaScript. A single-file document form is the upload
+fallback.
+
+Required title/original fields stay visible. Optional source and declared
+technical fields open on request, when editing, or after validation errors.
+Saved freeform descriptions/notes remain readable; new note authoring is retired.
+Source citation and finding review reasons remain available.
+
+The default limits are 20 batch entries, 100 MiB per file, and 1 MiB UTF-8 captured
+text; show configured operator limits. Each file is a separate request. A batch
+row shows filename, editable title/type, source overrides, and state. Browser type
+hints are suggestions, not verification. Shared source fields follow pending
+entries until individually overridden, including by blank values; **Use shared
+details** resets an override. Saved/frozen entries retain submitted values.
+
+| State | Behavior |
 | --- | --- |
-| Ready | Editable details; remove from queue; validation before send. |
-| Uploading | Freeze file/type/details; show transferred-byte progress and keep the next entries queued. |
-| Saving | Uploaded bytes reached the server; show indeterminate saving until the record is confirmed. |
-| Added | Link to the saved record; do not resubmit it when retrying the batch. |
-| Failed | Explain validation/storage failure; retain values and permit retry or removal. After a confirmed noncommitting validation failure, allow correction and a fresh submission ID. |
-| Outcome unknown | Explain interrupted confirmation; retry with the same submission ID to resolve the saved result before editing, removing, or replacing the entry. |
-| Access removed | Stop queued writes and explain loss of access; do not continue blind retries. |
+| Ready | Edit or remove before sending. |
+| Uploading / Saving | Freeze submitted values; show byte progress, then saving until confirmed. |
+| Added | Link to the retained record; never resubmit a confirmed success. |
+| Failed | Preserve values and offer retry/removal; confirmed noncommitting validation errors permit correction with a fresh submission ID. |
+| Outcome unknown | Resolve the original frozen submission ID/payload before editing or removing it. |
+| Access removed | Stop queued writes and explain the loss of access. |
 
-Show **Stop after this file** while uploading. It stops pending entries without claiming to
-cancel a request already saving. Warn before leaving an unfinished queue. Keep
-queue contents only in page memory; do not persist investigation material to
-browser storage. A reload may require file reselection. Successful items stay
-saved. In a no-JavaScript form, explain when a browser file input needs reselection
-after validation and preserve the other entered values.
+Pickers and drag/drop append files without replacing pending edits. Block new
+files and shared edits while uploading or awaiting confirmation. Saved entries
+count toward the queue limit; removing all pending files restores the empty
+picker. **Stop after this file** stops pending work without claiming to cancel a
+request already saving. Keep queue state in memory, warn before leaving, and
+explain file reselection after reload/validation. **Start another batch** opens
+a fresh page after completion.
 
-Assign a fresh UUID submission ID per intentional item. Ambiguous retries reuse
-that ID and return the existing record after checking current case access. A
-deliberately repeated file receives a new ID and remains a separate record;
-checksums do not trigger automatic deduplication. Retrying an archived item must
-not create a new active copy.
+Pasted text preserves browser-submitted content without trimming or normalization;
+offer document upload for exact file bytes. Adding eligible evidence queues
+bounded local checks and exposes status/results in Findings. Do not imply every
+file has a supported extraction profile.
 
-Unchanged retries keep the same submission ID. If the server definitely rejected
-the entry without committing a record, return it to Ready for corrections and
-assign a fresh ID when submitting the changed payload. An ambiguous response must
-be reconciled using the original frozen payload/ID before allowing corrections;
-do not treat a timeout as proof that nothing was saved.
+Vehicle-location CSV review leads with vehicle mapping and possible-duplicate
+counts. Source-row preview is collapsed unless invalid rows need attention.
+Completion links to Findings and discloses individual observations; the original
+CSV and attribution remain accessible. See [imports](vehicle-location-imports.md).
 
-The text form uses a required title and original-text field with `strip=False`,
-`wrap="soft"`, and browser autocorrection/capitalization disabled. Never trim or
-normalize the received original. Explain that the checksum covers captured,
-browser-submitted text; upload the source text file as a Document to preserve
-its exact original bytes. Render saved text as escaped text with wrapping.
+## Findings and additional analysis
 
-### Editing details
+Case Findings leads with useful results and possible vehicle trips. Source-linked
+processing history is secondary, retaining evidence-type/outcome filters.
+Additional analysis first groups tasks; selecting one opens its source/context
+form. Required samples, areas, and claimed-event inputs stay visible. **Options**
+holds optional tuning and opens after errors. Source versions remain explicit,
+and external processing requires approval.
 
-Owners and editors can edit evidence title, source name, URL and description,
-collection time, and optional type metadata. Group provenance and
-technical claims under clear headings/disclosures. Original content, case,
-uploader, upload timestamp, original filename, byte size, declared content type,
-and checksum are read-only. There is no Replace original action.
+Use the shared field renderer for labels, help, errors, approvals, and reviews.
+Progress uses a native indicator; failures expose retry/recovery controls. Results
+lead with output and sources before processing metadata. Use retained image
+regions/crops, recording intervals, paired passages, message sequences, and
+observation maps when supplied by the operation. Identifier normalization lives
+in **Value details**.
 
-Detect stale case/person/vehicle/evidence edit forms using their saved update timestamp.
-On conflict, retain proposed values, explain that saved details changed, and
-provide a way to reload/review before explicitly resubmitting. Do not silently
-overwrite another investigator's changes or automatically merge their assertions.
+Reports put a concise summary before chronological/grouped source rows. Keep
+coverage warnings visible; **About this report** holds fixed methods and totals.
+Narrow rows stack with labels intact. Trip rows show dates, endpoints, observed
+duration, and disclosed source observations; vehicle pages omit repeated names.
+These display rules do not imply exhaustive coverage or verified journeys.
 
-### People
+## Collaboration and request behavior
 
-Offer first and last name, phone number, email, and address. Explain that at
-least one name, phone, or email is required. Display saved notes as read-only.
-Matching contacts do not merge or verify identities.
+Owners manage a compact owner/collaborator/pending-invitation table. Viewer is
+the default invitation role; ownership is fixed. Role changes are explicit saves;
+removal has a named confirmation and affects subsequent operations. Invitations
+show pending, accepted, expired, revoked, and delivery-failed states honestly.
+Resend/role change rotates tokens; links expire after the configured period
+(default seven days). See [cases](cases.md) for the complete acceptance contract.
 
-Owners and editors can create/edit people. Only owners can delete a person,
-through a separate named-target confirmation. This deletes the person record,
-not evidence or another person with matching contact details. Case membership
-and user accounts are separate from these investigative records. Case cannot
-be changed through the person form.
+Acceptance uses GET confirmation then POST from an authenticated account with a
+matching verified email. Preserve the link through registration/verification and
+offer wrong-account recovery. Expired/revoked links explain how to contact the
+owner; failed mail leaves a retryable pending invitation. Replay cannot create
+another membership or change its role.
 
-Show reported social accounts on the person detail page. Each account has a
-platform, username, and optional source citation. Owners and editors can add,
-edit, and confirm removal of accounts. Viewers can read them. Include platform
-and username in case People search, and disclose the account cascade before
-person or case deletion.
-
-### Vehicles
-
-The implemented vehicle workflow follows People with make, model, year, color,
-license plate, and VIN. Require at least a make, model, plate, or VIN and allow
-partial identifiers. Display saved notes as read-only.
-Owners/editors create and edit; viewers inspect; only owners delete after a
-named-target confirmation. Case is fixed after creation. Matching identifiers
-do not establish ownership or link vehicles to people. Lists preserve search and
-pagination context, and stale edits require reviewed resubmission. See
-[vehicles](vehicles.md) for fields, routes, and administration.
-
-### Collaboration and invitations
-
-The owner sees a compact access table: owner (fixed), current collaborators with
-Viewer/Editor roles, and pending invitations. Describe Viewer as able to inspect
-material and Editor as additionally able to add/edit people, vehicles, and evidence and
-archive/restore evidence. Changing a collaborator's role is an explicit save;
-removal has a named confirmation and takes effect on subsequent requests.
-
-Invite by email with Viewer as the default role. Show pending, accepted,
-expired, revoked, and delivery-failed outcomes accurately. Owners can resend or
-revoke pending invitations and change a pending role. Resend/role change rotates
-the token; links expire after seven days. Do not offer ownership as an invite role.
-Reject invitations to the owner or an existing collaborator and direct the owner
-to the current member's role controls. Do not expose an account directory.
-
-Acceptance is a separate GET confirmation followed by POST. Require an
-authenticated account with a verified allauth email matching the recipient. The
-flow supports both new registration and existing accounts, preserves the invite
-through verification, and gives wrong-account users a clear sign-out/sign-in
-recovery path. Do not automatically treat the invite as email verification.
-
-Expired/revoked links offer a request-to-owner explanation. An SMTP failure leaves
-a pending invitation with an honest retry state. Invitation creation/resend in the running application sends mail through the
-configured development console or production SMTP mailer. Accepting an already-used
-link must not create another membership or change a current member's role.
-
-## Permissions and request interfaces
-
-| Action | Owner | Editor | Viewer |
-| --- | --- | --- | --- |
-| Inspect case, people, vehicles, active/archived evidence; download originals | Yes | Yes | Yes |
-| Add/edit people, vehicles, and evidence | Yes | Yes | No |
-| Archive/restore evidence | Yes | Yes | No |
-| Edit case metadata/manage access/delete case | Yes | No | No |
-| Delete a person or vehicle | Yes | No | No |
-| Permanently delete individual evidence | Superusers only | Superusers only | Superusers only |
-
-Every operation requires current case access and an object belonging to that
-case. Resolve parents and children together; UUID knowledge is not authorization.
-Do not use staff/model permissions as the product access gate or allow a
-superuser to bypass case isolation. Superusers with current case access may
-choose **Delete evidence** from Details, then review original/derived-file
-consequences and explicitly confirm permanent deletion. Staff status and opening
-Django admin are not required. Preserve filters on cancellation and return to the
-collection on success. Source-document deletion includes imported derivatives;
-show exact record/file inventories with pagination and a complete download. Bind
-the confirmation to this inventory and refresh it if the graph changes. Inconsistent
-case links block deletion without disclosing foreign material.
-
-Use named Django routes with these shapes; retain existing allauth and operator
-admin routes. All mutations use CSRF-protected POST, never GET.
-
-| Route shape | Purpose |
-| --- | --- |
-| `/cases/`, `/cases/new/` | Authorized list; create. |
-| `/cases/<uuid:case_id>/` | Authorized redirect to Evidence. |
-| `/cases/<uuid:case_id>/settings/`, `.../delete/` | Owner metadata/access settings; delete confirmation and POST. |
-| `/cases/<uuid:case_id>/evidence/`, `.../new/` | Filtered collection; create one typed record per request. |
-| `.../evidence/bulk/` | Owner/editor bulk-file review page; uploads use the existing creation endpoint. |
-| `.../evidence/<type>/<uuid:evidence_id>/` | Original/details view, with preserved list query and `section=original\|details`. |
-| `.../evidence/<type>/<uuid:evidence_id>/edit/` | Edit title, source details, and type metadata. |
-| `.../evidence/<type>/<uuid:evidence_id>/download/` | Authorized attachment, including captured UTF-8 text. |
-| `.../evidence/<type>/<uuid:evidence_id>/archive/`, `.../restore/` | Idempotent lifecycle POSTs. |
-| `.../evidence/<type>/<uuid:evidence_id>/delete/` | Superuser-only confirmation GET and checkbox-confirmed deletion POST. |
-| `/cases/<uuid:case_id>/people/`, `.../new/` | Scoped list; create. |
-| `.../people/<uuid:person_id>/`, `.../edit/`, `.../delete/` | Scoped inspect, edit, owner delete confirmation and POST. |
-| `.../people/<uuid:person_id>/social-accounts/new/`, `.../social-accounts/<uuid:account_id>/edit/`, `.../social-accounts/<uuid:account_id>/delete/` | Scoped owner/editor account creation, edit, and removal confirmation. |
-| `/cases/<uuid:case_id>/vehicles/`, `.../new/` | Scoped list; create. |
-| `.../vehicles/<uuid:vehicle_id>/`, `.../edit/`, `.../delete/` | Scoped inspect, edit, owner delete confirmation and POST. |
-| `.../invitations/new/`, `.../invitations/<uuid:invitation_id>/resend/`, `.../revoke/`, `.../edit/` | Owner invitation creation/delivery/role management. |
-| `.../memberships/<uuid:membership_id>/edit/`, `.../remove/` | Owner role management and removal. |
-| `/invitations/<opaque-token>/` | Recipient confirmation and POST acceptance. |
-
-Out-of-scope records return a generic not-found response without confirming
-existence. A current viewer submitting a prohibited mutation receives a useful
-permission-denied response. An enhanced request whose session or membership
-expires gets a structured authentication/access error rather than login HTML
-being mistaken for a successful upload.
-
-Case-material responses and invitation pages use private/no-store caching.
-Invitation pages also use `Referrer-Policy: same-origin`. Redact invitation-token
-path segments and investigation search queries from application, Gunicorn, and
-proxy access logs; do not assume using a token digest in the database protects
-the raw token in an ordinary request log.
-
-Ordinary form submissions use validation pages and POST/redirect/GET. Enhanced
-single-item upload requests ask for JSON and use the same authorization/forms:
-success returns the saved `type`, UUID `id`, and canonical `detail_url`; failure
-returns a stable `code`, safe message, and field-error mapping. Use `201` for a
-new item, `200` for an idempotent retry, `400` for validation, `401/403` for
-authentication/permission, `404` for inaccessible/missing parents, `409` for a
-conflict, `413` for size limits, and `503` for temporary storage failure. Bound
-metadata size as well as file bytes, and render safe errors when an upstream
-body limit rejects a request before Django can format it.
+All mutations use CSRF-protected POST and current server-side case/object access.
+Superusers receive no case bypass. Inaccessible objects return generic not-found
+responses; prohibited viewer writes return permission-denied. Enhanced uploads
+must distinguish structured authentication/access errors from successful JSON.
+Use the same forms and authorization as ordinary submissions, with safe field
+errors, idempotent retries, and no secret-bearing exception text.
 
 ## Accessibility and acceptance
 
-- Core account, case, person, evidence, archive/restore, and invitation tasks work
-  through full-page forms without JavaScript. Enhanced batching improves throughput.
-- At desktop widths, list and reader are labeled regions, with skip links to
-  each; independently scrolling regions must be keyboard reachable. Partial
-  navigation updates history and announces selection without stealing focus.
-- At mobile widths, filters and actions wrap without horizontal page scrolling;
-  selecting an item opens its canonical page and Back preserves list context.
-- Test empty/new case, no search results, missing fields, unavailable storage,
-  denied/revoked access, expired invitation, stale edits, partial batch success,
-  and uncertain upload confirmation alongside ordinary success.
-- Verify light/dark, reduced motion, forced colors, keyboard-only use, and
-  `320`-pixel reflow/zoom. Measure record
-  density from rendered screenshots, not the generated reference alone.
-
-References: [Django file uploads](https://docs.djangoproject.com/en/6.1/topics/http/file-uploads/),
-[Django upload settings](https://docs.djangoproject.com/en/6.1/ref/settings/#file-upload-max-memory-size),
-[allauth invitation integration](https://docs.allauth.org/en/latest/account/advanced.html#invitations),
-and [HTML textarea behavior](https://html.spec.whatwg.org/multipage/form-elements.html#the-textarea-element).
+Apply [DESIGN.md](../DESIGN.md#completion-and-design-review) and the
+[delivery gates](interface-plan.md#verification-gates). Core forms work without
+JavaScript. At desktop widths label list/reader regions and make scrolling
+keyboard reachable; at mobile widths preserve Back/filter context and avoid
+horizontal page scrolling. Exercise empty states, missing fields/storage,
+revoked access, stale edits, expired invitations, partial batches, and uncertain
+confirmation. Use [browser checks](validation.md#browser-checks) for executable
+commands and synthetic capture locations.

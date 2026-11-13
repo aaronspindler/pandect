@@ -147,26 +147,24 @@ CSV records are bounded to 64 Ki characters, including quoted multiline cells.
 Each processing phase has a ten-minute deadline, with sixty-second database
 statement and ten-second lock limits; split files if these bounds are reached.
 
-Preparation and publication use the existing Django Tasks/PostgreSQL worker,
-with queue insertion in the same transaction as the originating domain change.
-The worker rechecks current edit permission and source integrity. Publication
-locks the case and import, validates mappings, and commits every observation and
-completion in one transaction, using bounded bulk inserts. Original JSON and
-checksums retain the existing imported-observation schema. No observations from a partial
-publication become visible. Repeated task delivery and confirmation do not create
-another set of observations.
+Preparation/publication use the [PostgreSQL worker](background-tasks.md), with
+atomic domain/queue insertion. Publication locks the case/import, rechecks edit
+access, source integrity and mappings, then commits bounded inserts and completion
+together. Repeated delivery/confirmation cannot duplicate observations; partial
+publication never becomes visible.
 
 Keep the worker running as described in [background tasks](background-tasks.md).
 Queued work waits safely while it is stopped. Failures display a sanitized reason
 and permit up to three attempts per phase. Retry after fixing the reported
 problem; malformed source rows require a corrected new CSV. Recovery of work
 left running requires confirmation that the original worker stopped, rather than
-assuming elapsed time means it is dead. The app reorganization requires the
+assuming elapsed time means it is dead. Use the
 [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
-and an empty queue. Do not mix old and new web/worker revisions or reuse old
-queued task paths. No application command automatically resets runtime data.
+and matching web/worker revisions; old queued task paths are incompatible. No
+application command automatically resets runtime data.
 
-There is no external lookup, geocoding, AI, tracking verification, map, or timeline
-in this feature. The sample format alone does not establish a vendor's timestamp,
-event, duration, or identifier semantics. The importer records the investigator's
-explicit time/vehicle interpretation alongside source claims.
+The importer makes no external lookup or AI request and does not verify tracking
+claims. Imported observations can feed the [Map](maps.md) and
+[automatic trip reports](analysis-locations.md#automatic-vehicle-trips).
+The CSV format alone establishes no vendor timestamp, event, duration, or identifier
+semantics; the import retains the investigator's explicit interpretation.

@@ -1,33 +1,26 @@
 {% extends 'marketing/base.html' %}
-{% block title %}Product roadmap{% endblock %}
-{% block description %}See what Pandect supports today and explore proposed timelines, connections, and case summaries.{% endblock %}
+{% block title %}Available now and planned{% endblock %}
+{% block description %}Separate Pandect’s current capabilities from planned work: timelines, relationship exploration, cross-case search, case-wide synthesis, and a managed service.{% endblock %}
 {% block content %}
 <section class="marketing-hero wrap page-intro">
-  <h1>Product roadmap</h1>
-  <p class="lead">See what you can use today and where Pandect is headed. Priorities may change as the project develops.</p>
+  <p class="section-label">Project roadmap</p>
+  <h1>What’s here.<br><em>What’s ahead.</em></h1>
+  <p class="lead">Pandect is being built incrementally. The workspace already supports real case workflows; the wider investigation platform is still developing.</p>
+  <p class="intro-note">Plans describe direction, with no committed release dates. Priorities and scope may change.</p>
 </section>
-
-<div class="wrap feature-rows">
-  <section class="feature-row">
-    <h2>Available today</h2>
-    <div>
-      <p>Collect and search evidence in private cases, invite collaborators, and map recorded locations. Supported analysis links back to the evidence so you can review each result.</p>
-      <a class="text-link" href="{% url 'marketing:product' %}">Explore the product <span aria-hidden="true">→</span></a>
-    </div>
+<div class="wrap roadmap-sections">
+  <section class="feature-row" aria-labelledby="current-heading">
+    <div><p class="status-label">Available now</p><h2 id="current-heading">The working foundation</h2><p>Implemented in the current application.</p></div>
+    <div><ul class="feature-list"><li><strong>Cases and collaboration.</strong> Owner-managed access, viewers, and editors.</li><li><strong>Evidence and search.</strong> Retained originals, source details, and search within a case.</li><li><strong>Findings and reports.</strong> Supported local extraction, metadata, text checks, possible plate readings, vehicle trips, call patterns, and duplicate files.</li><li><strong>Maps and imports.</strong> Recorded locations, person points of interest, supported vehicle CSV and iMessage HTML imports.</li><li><strong>Optional services.</strong> Transcription, model suggestions, and geographic lookups with separate configuration.</li><li><strong>Self-hosting.</strong> Docker Compose setup and operator documentation.</li></ul><a class="text-link" href="{% url 'marketing:product' %}">Current features and their limits <span aria-hidden="true">→</span></a></div>
   </section>
-
-  <section class="feature-row">
-    <h2>Next priorities</h2>
-    <ul class="feature-list">
-      <li><strong>Case timeline.</strong> Put events from different sources in order.</li>
-      <li><strong>Possible connections.</strong> Review links across records, starting with matching phone numbers or email addresses.</li>
-      <li><strong>Case summaries.</strong> Trace each point back to the evidence it cites.</li>
-    </ul>
+  <section class="feature-row" aria-labelledby="planned-heading">
+    <div><p class="status-label">Planned · Not yet available</p><h2 id="planned-heading">Connect the wider case</h2><p>The next product direction, rather than a release commitment.</p></div>
+    <ul class="feature-list"><li><strong>Unified case timeline.</strong> Review events from different sources in one chronological view.</li><li><strong>Relationships and graphs.</strong> Explore possible links between records and inspect the evidence behind each connection.</li><li><strong>Cross-case evidence search.</strong> Search material across cases you can access.</li><li><strong>Case-wide synthesis.</strong> Build a broader case summary with claims traceable to their sources.</li><li><strong>Managed hosting.</strong> A planned service at openpandect.com. Launch timing and pricing are unannounced.</li></ul>
   </section>
-
-  <section class="feature-row">
-    <h2>Exploring</h2>
-    <p>Find related passages by meaning, extract data from tables, and flag similar images for review.</p>
+  <section class="feature-row" aria-labelledby="exploring-heading">
+    <div><p class="status-label">Exploring · Not yet available</p><h2 id="exploring-heading">Extend supported analysis</h2><p>Ideas that need further design and evaluation.</p></div>
+    <ul class="feature-list"><li><strong>Related passages.</strong> Retrieve text by meaning alongside existing text search.</li><li><strong>Structured documents.</strong> Extract tables and forms while preserving their structure and source locations.</li><li><strong>Similar images.</strong> Flag visual near-duplicates for review, beyond today’s exact-file matching.</li><li><strong>Broader media support.</strong> Extend supported formats and evaluate video processing.</li></ul>
   </section>
 </div>
+<section class="trust-strip"><div class="wrap split-section"><h2>Help shape the next useful tool.</h2><div><p>Have a concrete workflow, a reproducible issue, or an improvement to suggest? Share synthetic or sanitized examples with the project.</p><a class="text-link" href="https://github.com/aaronspindler/pandect/issues">Join the discussion on GitHub <span aria-hidden="true">↗</span></a></div></div></section>
 {% endblock %}

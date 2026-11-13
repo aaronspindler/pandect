@@ -135,24 +135,6 @@ def present(operation, items, formatter):
     ]
 
 
-def evidence_context(item):
-    return [
-        ("Reported sender", item.sender),
-        ("Reported recipient", item.recipient),
-        ("Reported event time", item.occurred_at),
-        *(
-            [
-                (
-                    "Reported call duration",
-                    str(item.duration) if item.duration is not None else None,
-                )
-            ]
-            if hasattr(item, "duration")
-            else []
-        ),
-    ]
-
-
 def report_table(data):
     items = sorted(
         data["items"], key=lambda item: item["values"]["Recorded call time (UTC)"]

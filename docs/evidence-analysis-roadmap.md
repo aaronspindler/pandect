@@ -1,268 +1,97 @@
 # Evidence analysis implementation roadmap
 
-This roadmap sequences work from the [scored analysis catalogue](evidence-analysis.md).
-See [case analysis](analysis.md) for current capabilities and supported inputs.
+This roadmap prioritizes future work from the [analysis catalogue](evidence-analysis.md).
+The catalogue's October 2026 scores are historical qualitative judgments, not
+current effort estimates or accuracy measurements. There are no delivery dates
+or committed capacity assumptions.
 
-The next product milestone connects evidence and surfaces source-backed insights.
-Start with exact shared identifiers and explicit links across distinct records.
-Follow with cited AI insights on selected evidence. The earlier sections capture
-the extraction and analysis foundations for that work.
+## Implemented foundations
 
-## How priorities were chosen
+Literal retained-content search, bounded file extraction, local OCR/plate
+candidates, configured transcription, current-evidence reports, conversation
+imports/comparisons, descriptive writing profiles, and location comparisons now
+exist for documented input profiles. Possible vehicle trips also appear from
+current observations without an analysis run. These foundations are no longer a
+future delivery sequence; [case analysis](analysis.md) and its focused guides own
+current capabilities, limits, and configuration.
 
-Investigative value, ease, prerequisites, and reuse determine the order. The
-catalogue's two scores remain separate: multiplying them would obscure a
-high-value feature's dependency on a smaller enabling feature. Its 88 entries
-also include overlapping capabilities; implement shared methods once.
+## Next: connect evidence and synthesize findings
 
-The default assumes a general investigation workload, without measured evidence
-volumes or a committed team capacity. There are no calendar estimates. Ship
-bounded parts of large catalogue rows: native PDF text before broad document
-OCR, and printed-text OCR before handwriting. The full-row scores below are
-context, not new estimates for those smaller parts.
-
-| Priority | Investigator outcome | Main work | Why this position |
-| --- | --- | --- | --- |
-| **1. Search and inspect existing material** | Find relevant text and understand recorded activity immediately. | Existing-text/transcript search; call statistics; vehicle coverage/receipt delays; exact-file duplicate candidates. | Uses retained data and the existing interface. Call statistics and receipt-delay analysis are **value 4 / ease 5**. |
-| **2. Extract searchable file content** | Search documents, images, and recordings with links to the original passage. | Minimal retained results and background processing; native document text and media metadata; Gateway integration, transcription, then printed-text OCR. | Unlocks later workflows. Transcription is **5/3**; the full document/OCR capabilities are **5/2**. |
-| **3. Build investigation workflows** | Understand conversations, candidate drives/visits, and observable writing patterns. | Parallel conversation, location, and descriptive writing-style tracks. | Native conversations are **5/2**, sessions **4/3**, drives/visits **4/2**, descriptive style **3/3**. Each track starts when its own inputs are ready. |
-| **4. Connect evidence and synthesize findings** | Follow identifiers and events across sources, then ask questions with inspectable answers. | Candidate entity links, source-backed timeline, semantic retrieval, duplicate-source review, cited summaries and claim comparisons. | Links, timelines, and source-backed synthesis score **5/2**, but need dependable inputs and provenance first. |
-| **5. Add targeted specialist tools** | Resolve particular visual, document, or audio review problems. | Plates, near-duplicate images, structured tables/transactions, and selectively face grouping/comparison, translation, or speaker separation. | Add the tools that fit observed case needs. Plates/faces are **4/2**; image duplicate comparison is **4/3**. |
-| **6. Keep research-sensitive work conditional** | Explore difficult attribution or new modalities with demonstrated limits. | Candidate authorship, reference-voice comparison, signature comparison, landmark inference, manipulation triage, and video. | Evaluation or missing inputs dominate; these should not delay useful core investigation tools. |
-
-Priorities are a default order, not a chain of global blockers. In particular,
-the location and writing tracks can proceed while transcription/OCR coverage
-expands. Specialist plate analysis can move earlier for a vehicle-heavy case
-once image processing and source-region support exist.
-
-## 1. Search and inspect existing material
-
-**Search retained text in the case Evidence collection.** Search Text bodies,
-Text message bodies, and all supplied transcripts on Phone call and FaceTime
-attachments. Preserve case scoping,
-type/archive filters, pagination, and private responses. Return each call once
-even if several additions match, and identify the matching transcript addition.
-
-This is literal content search. Uploaded file contents become searchable as
-supported text extraction is retained.
-
-Read-only reports use existing fields:
-
-- Call counts, reported-duration distributions, and recorded timing patterns.
-- Vehicle-observation coverage, missing/out-of-order observations, receipt delays,
-  and reported-speed summaries. Show source rows and coverage windows.
-- Exact-file duplicate candidates using file-byte checksums, including retained
-  call audio where appropriate. Communication-record and attachment-record
-  checksums have different meanings; use the audio-byte checksum for audio.
-
-Keep these as queries over current records. Introduce stored results when an
-extraction or retained analytical finding actually needs them. Repeated addresses
-are not visits, missing observations are not inactivity, and unknown durations
-or speeds are not zero.
-
-**Complete when:** an investigator can find a phrase in every retained text
-source, open the matching original/addition, and inspect the records behind a
-report. Access revocation, archived material, duplicate attachment matches, and
-HTML-like input are covered without exposing another case's content.
-
-## 2. Extract searchable file content
-
-Deliver this in three useful increments, building shared support alongside the
-first extractor that needs it.
-
-1. **Native document text and media metadata.** Start with an explicitly bounded
-   UTF-8 text/PDF input set, then image metadata and audio technical metadata.
-   Retain derived values separately from supplied values and originals. Add
-   page/text anchors, private result access, processing versions, and rerun
-   history. Add a worker and recoverable jobs with the first lengthy parser;
-   bound bytes, pages, processing time, and decompression resources.
-2. **Timestamped audio transcription.** Add the centralized Gateway integration,
-   explicit external-processing disclosure, limits, accounting, failure states,
-   and operator configuration. Support standalone audio and identified call
-   attachments through the same processing path. Retain uncertain intervals;
-   supplied transcripts remain separate retained sources.
-3. **Printed-text OCR.** Support an evaluated image/scanned-page subset with
-   source regions and reading order. Preserve uncertain characters. Broader
-   layouts, formats, languages, and handwriting require their own evaluation
-   before being advertised as supported.
-
-Feed each completed extraction into case-scoped content search. Start with
-PostgreSQL-backed lexical search and exact identifier lookup; add semantic
-retrieval in priority 4 when there is useful extracted content to retrieve.
-Add bounded email, phone, URL/domain, and explicit-date extraction with original
-spans; keep ambiguous normalization and dates unresolved.
-
-**Complete when:** an investigator can search a supported document, recording,
-or image and inspect the original page, audio interval, or image region. Reruns
-preserve history; unsupported, failed, partial, and empty extraction outcomes
-are distinct. Revoked access prevents new processing/publication, and retries
-do not duplicate completed results.
-
-Native PDF text extraction does not handle scanned text by itself, and parser
-resource consumption needs bounds; see [pypdf's extraction guidance](https://pypdf.readthedocs.io/en/stable/user/extract-text.html).
-PostgreSQL supplies [text-search, ranking, and highlighting facilities](https://www.postgresql.org/docs/current/textsearch.html),
-making it the starting choice within the existing stack. For inference, verify
-the selected endpoint and its [Gateway authentication requirements](https://developers.cloudflare.com/ai-gateway/configuration/authentication/);
-provider/model choice remains an implementation decision, not a claim of support.
-
-## 3. Build investigation workflows
-
-These are independent tracks. Share result/provenance handling from priority 2,
-but do not require every media extractor before starting them.
-
-### 3A. Conversations first by default
-
-Use existing messages for an ordered conversation reader, explicitly inferred
-sessions, timing/turn-taking statistics, and copied-phrase review. Add a bounded
-source-specific importer, starting with the documented iMessage HTML profile
-examined in the catalogue. Retain the original export and source anchors.
-
-Preserve participant/account labels, message/thread IDs, replies, groups, and
-attachments when a source actually supplies them, adding the required context
-support deliberately. The iMessage HTML profile must not be assumed to contain
-all of them. Keep uncertain person mapping reviewable and retry imports safely.
-Native relationships and inferred sessions remain distinguishable.
-
-Then add source-linked entities, plans, commitments, questions/answers, topic
-continuation, and per-session summaries. Use the Gateway path for model-based
-work. Whole-case questions and synthesis follow in priority 4.
-
-**Complete when:** an investigator can move from a proposed session or extracted
-commitment to its exact messages, see how grouping was inferred, and retain
-unresolved participant/reference ambiguity. Import retries and partial failures
-preserve source integrity without silently creating duplicate messages.
-
-### 3B. Locations, drives, and frequently visited places
-
-Build on priority 1's coverage checks. Start spatial work on retained coordinates;
-for address-only vehicle imports, add reviewable address normalization and
-geocoding with match granularity and source attribution. Disclose external lookup
-use. Keep geocodes separate from observations and retain ambiguous matches.
-
-Then deliver candidate stop/visit segmentation, frequent-place counts, dwell
-bounds, and candidate trips. Show observations and gaps alongside the inferred
-result. Begin with an accessible ordered list/table and supporting map; the map
-must not turn gaps into asserted routes. Add recurring place pairs and simple
-proximity checks before road-network route reconstruction or advanced co-location.
-
-**Complete when:** repeated stationary samples yield defensible candidate visit
-counts under visible assumptions, gaps remain visible, and every trip/visit
-links to its observations. The feature never infers the driver, verifies a
-person's presence, or silently labels a frequent place as home/work.
-
-### 3C. Descriptive writing styles
-
-Start on original Text and Text message evidence with known source context;
-this track does not need OCR, transcription, or native conversation imports.
-Deliver sample selection, quoted/copied-text exclusions, descriptive feature
-profiles, and comparison over time/channel. Explain punctuation, word choice,
-message length, repeated wording, and the amount of usable material.
-
-**Complete when:** differences are backed by examples and sample coverage,
-OCR/transcriber artifacts are excluded or labelled, and insufficient material
-can produce no conclusion. Named-author attribution is outside this increment.
-
-## 4. Connect evidence and synthesize findings
-
-Start as soon as the relevant extracted inputs are ready; completion of all
-three priority-3 tracks is not required.
+The next milestone connects distinct records through inspectable source-backed
+leads. Deliver useful bounded increments:
 
 1. **Connect explicit values and events.** Start with reviewable exact-identifier
-   matches and explicit links across distinct records. Show the retained source
-   anchor on both sides, identify copied material, and present matches as leads.
-   Later, a unified timeline can distinguish recorded event time, extracted dates,
-   planned events, reported events, and upload time.
-2. **Synthesize selected evidence.** Use explicitly selected evidence to generate
-   cited AI insights, with supporting and conflicting passages, unknowns, and
-   abstention when the sources cannot support a claim. Default to an explicitly
-   configured private runtime. External processing requires separate approval
-   through the gateway. Keep insights reviewable and linked to source anchors.
+   matches and explicit links across distinct records. Show an anchor on both
+   sides, identify copied material, and explain the reason for each link. Shared
+   values remain leads, not verified identity or ownership. A later unified
+   timeline should distinguish recorded times, extracted dates, plans, reported
+   events, and upload time.
+2. **Synthesize selected evidence.** Generate cited insights from an explicit
+   selection, including supporting/conflicting passages, unknowns, and abstention
+   when sources cannot support a claim. Use the configured private runtime by
+   default; external inference needs separate approval through Cloudflare AI
+   Gateway. Keep suggestions reviewable and linked to retained source anchors.
 3. **Retrieve related passages.** Add case-scoped semantic retrieval alongside
-   lexical search. Evaluate relevant and irrelevant hits, enforce access at
-   query/result time, and preserve the source selection and index provenance.
+   literal search when evaluation demonstrates useful results. Preserve index
+   provenance and source selection, check access at query/result time, and test
+   irrelevant as well as relevant hits.
 
-**Complete when:** every candidate link, timeline entry, or summary claim can be
-inspected against sources; unsupported assertions can be rejected without
-changing originals; and unavailable evidence cannot leak through search or
-generated answers. A visually elaborate graph is not required for this milestone.
+**Complete when:** investigators can inspect every candidate link or summary
+claim against its sources and reject suggestions without changing originals.
+Unavailable evidence cannot leak through retrieval or generated answers. A graph
+visualization is optional; dependable source navigation is required.
 
-## 5. Add targeted specialist tools
+## Then: targeted specialist tools
 
-Default order within this tier is plate extraction and image near-duplicates,
-then structured document extraction, then evaluated face grouping/reference
-comparison. Select supported conditions explicitly and preserve alternatives.
+Extend existing methods for observed case needs instead of treating every
+catalogue row as a release commitment.
 
-- **Plates and image comparison:** use existing image decoding, region anchors,
-  OCR, and review controls. Retain ambiguous plate strings and image similarity
-  reasons. Candidate sightings do not establish vehicle ownership or drivers.
-- **Tables, forms, and transactions:** extend the supported document set after
-  text/page provenance works. Preserve units, row/column meaning, subtotals,
-  and document-type distinctions before aggregation.
-- **Face grouping/reference comparison:** add quality screening, reference
-  attribution, false-match evaluation, no-match outcomes, and review before
-  release. Gateway compatibility for the selected inference path is a
-  prerequisite, not something to bypass for convenience.
-- **Demand-led additions:** translation for multilingual cases, speaker
-  separation for overlapping/multi-speaker recordings, QR/barcode decoding,
-  document classification, and object/scene labels. Bring translation or speaker
-  separation into priority 2 when they are necessary to make its target inputs usable.
+- **Images and plates:** improve supported plate conditions and add evaluated
+  near-duplicate comparison. Retain ambiguous readings, source regions, and
+  alternative explanations; similarity does not establish the same capture,
+  vehicle owner, or driver.
+- **Structured documents:** add tables, forms, and transactions after defining
+  supported formats. Preserve units, headers, row/column meaning, subtotals, and
+  document type before aggregation. Native PDF text is not scanned-page OCR.
+- **Face grouping/reference comparison:** require quality screening, attributed
+  references, false-match evaluation, no-match outcomes, and review. A compatible
+  configured inference route is a prerequisite.
+- **Demand-led additions:** translation, speaker separation, QR/barcode decoding,
+  document classification, and object/scene labels. Move these earlier only when
+  they are necessary for a concrete supported workflow.
 
-**Complete when:** the selected tool demonstrably reduces review work on
-representative supported material while exposing errors, alternatives, and
-source regions. Its acceptance criteria cover negative examples, not just
-successful demonstrations.
+**Complete when:** a tool reduces review work on representative supported
+material and exposes errors, alternatives, and source anchors. Evaluate negative
+examples and resource limits before making quality claims.
 
-## 6. Keep research-sensitive work conditional
+## Conditional research backlog
 
-This is an evaluated backlog, not a promised release bundle. Candidate-author
-attribution, handwriting/signature comparison, and visual landmark inference
-are **3/1** in the catalogue; manipulation triage is **2/1**, and new video is
-**4/1**. Reference-voice comparison is **4/2**, but follows a dependable audio
-pipeline and a demonstrated speaker-comparison need.
+Candidate authorship, reference-voice comparison, handwriting/signature
+comparison, visual landmark inference, manipulation triage, and video need a
+concrete use, suitable reference/evaluation material, a compatible processing
+path, and a useful outcome that can abstain. They should not delay the next
+source-linking milestone.
 
-Advance one of these only when there is a concrete investigation use, suitable
-reference/evaluation material, a compatible processing path, and an agreed
-useful outcome that can abstain. Evaluate topic/channel confounding for
-authorship and false matches for biometric comparison. Video additionally needs
-retention, decoding, frame/time provenance, and operational limits; current
-FaceTime records do not contain video.
-
-Cross-case matching remains outside this roadmap's case-scoped assumptions.
-Revisit advanced route inference and broad semantic linking only after their
-basic observation and relationship workflows are dependable.
-
-## Foundation delivery sequence
-
-1. **Search retained text and transcripts** in the Evidence collection.
-2. **Add call and vehicle-observation reports**, plus exact-file duplicate
-   candidates, with source links and missing-value/coverage explanations.
-3. **Deliver bounded native-document text extraction** with the minimum durable
-   results, source anchors, background execution, and recovery it needs. Extend
-   the search from increment 1 to those results.
-
-Then add Gateway-backed transcription and local printed-text OCR, while starting the
-conversation/location/style tracks as their dependencies become available.
-Build the shared support with these features rather than scheduling a separate
-open-ended platform project.
+Evaluate topic/channel confounding for authorship and false matches for
+biometric comparison. New video support also needs retention, decoding,
+frame/time provenance, and operational bounds; FaceTime records do not retain
+video. Cross-case matching remains outside this roadmap. Advanced road-route
+inference and broad semantic linking require separate evaluation beyond
+observation grouping.
 
 ## Completion criteria for every release
 
-Each release needs the original/provenance, uncertainty, permission, and failure
-handling described in the [catalogue](evidence-analysis.md#shared-requirements-for-future-analysis).
-Owners/editors initiate processing and review; viewers inspect authorized
-results. Background work rechecks current authorization before execution,
-external submission, retries, and publication. Already dispatched external
-requests cannot be recalled; document the resulting cancellation/publication
-behavior instead of implying retroactive revocation.
+Follow [AGENTS.md](../AGENTS.md) for case isolation, immutable originals,
+provenance, uncertainty, and inference boundaries. Owners/editors initiate
+processing and review; viewers inspect authorized results. Recheck current
+access before execution, external submission, retries, and publication. Already
+submitted external requests cannot be recalled.
 
-Validate with synthetic/sanitized fixtures and representative failure cases.
-Follow [the existing validation workflow](validation.md): PostgreSQL-backed
-checks, mocked inference failures, migration validation, and isolated Compose
-smoke tests when infrastructure changes. Visible features also need the
-desktop/mobile/keyboard review in [DESIGN.md](../DESIGN.md). Complete the required
-simplicity review on each scoped implementation.
+Use the [validation workflow](validation.md), with synthetic/sanitized fixtures,
+relevant permission/failure cases, mocked inference, and migration/Compose checks
+where affected. Visible changes need the [design review](../DESIGN.md#completion-and-design-review)
+and every scoped implementation needs the required simplicity review.
 
-Evaluate useful task completion and inspectable correctness before expanding
-scope: can investigators find the source, understand uncertainty, and recover
-from failure? Set feature-specific quality and resource bounds during design;
-do not invent accuracy percentages or delivery dates from the planning scores.
+Feature-specific acceptance should establish that investigators can find the
+source, understand coverage and uncertainty, and recover from failure. Planning
+scores alone establish neither method suitability nor accuracy.

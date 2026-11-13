@@ -1,6 +1,6 @@
 # Document and media extraction
 
-The case Analysis workflow retains derived findings separately from originals.
+The case Findings workflow retains derived results separately from originals.
 Select a document/image/audio source, or the particular retained audio addition
 on a Phone call or FaceTime record. A metadata-only call has no recording to
 decode or transcribe. Supplied transcripts remain independent retained material.
@@ -18,9 +18,9 @@ decode or transcribe. Supplied transcripts remain independent retained material.
 
 OCR uses the installed Tesseract engine and English language data entirely on the
 worker host. It needs no AI credentials, makes no network request and never falls
-back to external processing. The ordinary image **Analyze evidence** action queues
-OCR, image metadata and plate search; successful ordinary OCR then queues identifier/date and keyword
-analysis against that exact retained extraction. JPEG/PNG page images stored as
+back to external processing. Image uploads and **Run checks again** queue
+OCR, image metadata, and plate search. Successful ordinary OCR then queues
+identifier/date and keyword analysis against that exact retained extraction. JPEG/PNG page images stored as
 documents can use **Read text in images** in manual analysis.
 
 JPEG support includes `.jpg` and `.jpeg` files, including 48 MP iPhone RAW
@@ -30,10 +30,9 @@ reports partial coverage and warns that additional embedded pictures were not
 analyzed; the complete original remains available for download. Animated PNG
 remains unsupported. Native RAW files are not decoded.
 
-Only **Printed English** is offered. Handwriting and mixed-text recognition from
-the earlier remote implementation are no longer supported; earlier results remain
-readable. The current image metadata method (version 3) and OCR method (version 5)
-include the larger JPEG profile and primary-image handling. Metadata interpretation
+Only **Printed English** is offered; earlier results remain readable. Image
+metadata method version 3 and OCR version 5 include the larger JPEG profile and
+primary-image handling. Metadata interpretation
 ignores terminal NUL bytes in XMP packets, records their count, and retains the
 unaltered raw XMP claim. Malformed XML and DTD/entity-bearing packets remain
 uninterpreted. OCR summaries count recognized text regions separately from
@@ -61,9 +60,9 @@ selected and approved option. Routine tests mock inference; see
 
 ### Vehicle plate candidates
 
-Image uploads and **Run local analysis again** queue **Find vehicle plates** with
-the other local checks. To run it alone, choose it in **Additional analysis** or
-the case's **Start analysis** picker. Select one original image per run. Earlier
+Image uploads and **Run checks again** queue **Find vehicle plates** with
+the other local checks. To run it alone, choose it in the case's
+**Additional analysis** picker. Select one original image per run. Earlier
 results are retained; no original or vehicle record is changed.
 
 Method version 2 uses headless OpenCV to find convex, approximately horizontal
@@ -121,8 +120,7 @@ beside the text; **Show region on source image** reveals the original-region
 preview. Crops use the existing case-authorized private artifact routes and
 immutable result history. Up to 1 MiB of processed crop previews is returned by
 the parser, subject to the existing cumulative 2 MiB retained-preview budget;
-omissions are disclosed without dropping readings or provenance. No cloud call,
-character substitution, jurisdiction-specific guessing or automatic conflict
+omissions are disclosed without dropping readings or provenance. No character substitution, jurisdiction-specific guessing, or automatic conflict
 resolution is performed. Multi-picture JPEGs search only the primary picture.
 
 ### Other extraction anchors

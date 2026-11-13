@@ -20,12 +20,9 @@ shows newer saved values alongside the preserved draft and requires explicit
 form. Case reassignment, identity verification, and automatic merging are not
 supported.
 
-The detail page keeps contact details, social accounts, and POIs visible.
-**Record details** reveals saved read-only notes, name components, timestamps, and the owner's
-**Delete person** action. Empty notes and repeated name fields do not occupy the
-main reading area. Contact details show only populated values; when none are
-recorded, a single message replaces the empty field labels. A concise caption
-keeps the record's unverified status visible beside its title.
+The detail page shows populated contacts, social accounts, and POIs, with an
+unverified-record caption. **Record details** holds saved read-only notes, name
+components, timestamps, and the owner's **Delete person** action.
 
 Only the owner can delete an individual person, after a separate named-target
 confirmation. Deleting an unlinked person retains evidence, login accounts, and
@@ -59,28 +56,14 @@ accounts through the person relationship.
 
 ### Points of interest
 
-On a person detail page, choose **Add POI** to record a **Home**, **Work**, or
-custom-labelled place. The person is preselected; latitude/longitude are
-required, while address and source/citation are optional. Existing POI notes
-remain readable on the POI detail page.
-The case map also offers **Add POI** and pointer-based position selection.
-POIs remain separate from the person's contact address and retained location
-evidence. A label is an investigator assertion, not verified residence,
-employment, or presence.
+Choose **Add POI** on a person to preselect that person in the coordinate form.
+Home, Work, and custom labels are investigator assertions, separate from contact
+addresses and retained location evidence. The map offers pointer placement and a
+keyboard/form alternative. See [maps](maps.md#person-points-of-interest) for
+fields, permissions, pagination, deletion consequences, and privacy.
 
-Owners and editors can inspect, edit, and confirm deletion of POIs. Viewers have
-read-only access. Edits detect newer saved changes and preserve the proposed
-values for explicit review. Each person has a paginated POI list (25 per page);
-the case map plots its current POI page with distinct diamond markers. POIs
-retain creator and creation/update times, but no versioned history. On a POI
-detail page, **Record details** reveals those timestamps and the editor's
-**Delete POI** action. Deleting
-a person also deletes their POIs; the confirmation explains this consequence.
-They do not add another restriction on person deletion.
-
-`geo.PointOfInterest` owns points of interest, with forms, views, templates, and
-tests in `geo`. People retain their own contact fields and management workflows. See [the map workflow](maps.md#person-points-of-interest)
-for coordinate bounds, search, permissions, privacy, and fallbacks.
+`geo.PointOfInterest` owns POIs. Deleting a person removes their POIs but remains
+blocked by retained evidence links; POIs impose no additional deletion restriction.
 
 ## Fields and validation
 
@@ -114,14 +97,9 @@ not a versioned evidence or identity-assertion history.
 
 ## Django admin
 
-After creating a case, open `/admin/` and choose **People → Add person**. Choose
-an owned case or one where you are an editor, enter at least one identifying
-field, and save. Existing records have read-only case and timestamp fields. **Record dates** is
-an expandable Django admin fieldset. Case
-reassignment is not supported in admin, including to another case you own.
-
-Active staff status and ordinary Django model permissions are required in addition
-to current case access:
+Open **People → Add person** in `/admin/` and select an owned/editor-access case.
+Case, notes, and timestamps are read-only on existing records; case reassignment
+is unsupported. The [shared admin gates](cases.md#django-admin) also apply:
 
 | Operation | Case requirement | Global permission |
 | --- | --- | --- |
@@ -130,29 +108,16 @@ to current case access:
 | Edit a person | Owner or editor | `people.change_person` |
 | Delete a person | Owner only | `people.delete_person` |
 
-Assign permissions through Django's user/group administration. Case model
-permissions alone do not grant person permissions. An editor can edit people
-without being allowed to change case metadata or manage collaborators. Users
-without an editable case cannot open the person creation form. Ordinary non-staff
-collaborators use the product interface described above.
-
-Lists and searches include only accessible cases. Direct object, history, and
-deletion URLs use the same case boundary. Submitted case choices are restricted
-on the server, bulk actions are disabled, and removing or downgrading a membership
-affects subsequent requests in existing sessions. Superusers have no case-access
-bypass.
-
-Deleting a case cascades to its people. Django admin also requires
-`people.delete_person` when a case contains people, in addition to
-`cases.delete_case`; the confirmation screen lists missing permissions. Deleting
-an individual person leaves its case and other people intact.
+Case permissions do not grant person permissions. Lists, searches, submitted
+case choices, direct/history/deletion URLs remain scoped server-side. Bulk actions
+are disabled. Revocation/downgrades affect subsequent requests; superusers have no
+case-access bypass. Case deletion in admin also needs `people.delete_person`.
 
 ## Migration and scope
 
 `people` owns the UUID person table, while `socialmedia` and `geo` own linked
-social accounts and POIs. Apply the
-[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
-to a new database and queue. No data conversion or runtime upgrades are included.
+social accounts and POIs. Use the
+[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema).
 
 Authorization is enforced by both product and admin entry points, not
 automatically by ORM queries. Future exports, background jobs, and integrations

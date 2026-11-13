@@ -4,6 +4,7 @@ import io
 import json
 import wave
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.conf import settings
@@ -13,6 +14,7 @@ from django.urls import reverse
 
 from audio.models import AudioEvidence
 from cases.models import CaseMembership
+from core.analysis.errors import AnalysisError
 from core.analysis.form_base import source_choices
 from core.analysis.navigation import finding_url
 from core.analysis.services import process_run, start_run
@@ -319,9 +321,9 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(self.client.get(url).status_code, 302)
         for role, expected in (
-            ("owner", 200),
-            ("editor", 200),
-            ("viewer", 200),
+            ("owner", 302),
+            ("editor", 302),
+            ("viewer", 302),
             ("outsider", 404),
         ):
             self.login(role)
@@ -329,15 +331,22 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
                 detail = self.client.get(self.url("detail", self.note))
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, expected)
-                if expected == 200:
-                    self.assert_private(response)
-                    self.assertContains(detail, f'href="{url}"')
-                    self.assertContains(response, 'aria-current="page">Findings</a>')
+                if expected == 302:
+                    self.assertRedirects(
+                        response,
+                        self.url("detail", self.note) + "#evidence-findings-heading",
+                    )
+                    self.assert_private(detail)
+                    self.assertContains(detail, 'id="evidence-findings-heading"')
+                    self.assertNotContains(detail, 'aria-label="Evidence sections"')
                     if role == "viewer":
-                        self.assertNotContains(response, "External analysis")
-                        self.assertNotContains(response, ">Run checks</button>")
+                        self.assertNotContains(detail, "Additional analysis")
+                        self.assertNotContains(detail, ">Run checks</button>")
                     else:
-                        self.assertContains(response, ">Run checks</button>")
+                        self.assertContains(
+                            detail, f'action="{url}#evidence-analysis-error"'
+                        )
+                        self.assertContains(detail, ">Run checks</button>")
                 if role in {"viewer", "outsider"}:
                     self.assertEqual(
                         self.client.post(url, self.payload()).status_code,
@@ -359,14 +368,60 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             "process_evidence", kind="text", evidence_id=self.note.pk
         )
         suffix = "?q=Selected&type=text&state=all&page=2"
-        response = self.client.get(url + suffix + "&results_page=99")
-        self.assertEqual(response.context["page_obj"].number, 1)
-        self.assertContains(response, f'href="{url}{suffix.replace("&", "&amp;")}"')
         original = self.url("detail", self.note) + suffix
-        self.assertContains(response, f'href="{original.replace("&", "&amp;")}"')
         self.assertRedirects(
-            self.client.post(url + suffix, {"submission_id": str(uuid4())}),
-            url + suffix,
+            self.client.get(url + suffix + "&results_page=99"),
+            original + "&results_page=99#evidence-findings-heading",
+        )
+        selected = self.analysis_run(complete=False)
+        TextEvidence.objects.bulk_create(
+            [
+                TextEvidence(
+                    case=self.case,
+                    uploaded_by=self.users["owner"],
+                    title=f"Selected source {number}",
+                    body="Synthetic retained source.",
+                    sha256="a" * 64,
+                )
+                for number in range(30)
+            ]
+        )
+        AnalysisRun.objects.bulk_create(
+            [
+                AnalysisRun(
+                    case=self.case,
+                    requested_by=self.users["owner"],
+                    operation=selected.operation,
+                    method_version=selected.method_version,
+                    inputs=selected.inputs,
+                )
+                for _ in range(25)
+            ]
+        )
+        response = self.client.get(original + "&results_page=2")
+        self.assertTrue(response.context["info_open"])
+        self.assertEqual(response.context["page_obj"].number, 2)
+        self.assertEqual(response.context["page_obj"].paginator.count, 31)
+        self.assertEqual(response.context["analysis_page_obj"].number, 2)
+        self.assertEqual(response.context["analysis_page_obj"].paginator.count, 26)
+        self.assertEqual(
+            [run.pk for run in response.context["analysis_page_obj"]], [selected.pk]
+        )
+        self.assertContains(
+            response,
+            f'action="{(url + suffix).replace("&", "&amp;")}#evidence-analysis-error"',
+        )
+        self.assertContains(response, 'aria-label="Run history pages"')
+        self.assertContains(
+            response,
+            'href="?info=1&amp;results_page=1&amp;q=Selected&amp;type=text&amp;state=all'
+            '&amp;page=2#evidence-history-heading"',
+        )
+        self.assertRedirects(
+            self.client.post(
+                url + suffix + "&results_page=2", {"submission_id": str(uuid4())}
+            ),
+            original + "#evidence-findings-heading",
         )
 
     def test_evidence_analysis_uses_url_source_and_ignores_forged_operation_settings(
@@ -377,18 +432,22 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         url = self.analysis_url(
             "process_evidence", kind="text", evidence_id=self.note.pk
         )
-        response = self.client.get(url)
-        self.assertEqual(set(response.context["form"].fields), {"submission_id"})
+        response = self.client.get(self.url("detail", self.note))
+        self.assertEqual(
+            set(response.context["analysis_form"].fields), {"submission_id"}
+        )
         self.assertNotContains(response, "Find source titles")
         self.assertNotContains(response, self.foreign.title)
-        self.assertNotContains(response, other.title)
         payload = self.payload(
             operation="content_events",
             sources=[f"text:{self.foreign.pk}", f"text:{other.pk}"],
             external_processing="on",
             include_summary="on",
         )
-        self.assertRedirects(self.client.post(url, payload), url)
+        self.assertRedirects(
+            self.client.post(url, payload),
+            self.url("detail", self.note) + "#evidence-findings-heading",
+        )
         runs = list(AnalysisRun.objects.all())
         self.assertEqual(
             {run.operation for run in runs},
@@ -419,13 +478,15 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         url = self.analysis_url(
             "process_evidence", kind="text", evidence_id=self.note.pk
         )
-        self.assertContains(self.client.get(url), "Archived")
+        self.assertContains(self.client.get(self.url("detail", self.note)), "Archived")
         payload = {"submission_id": str(uuid4())}
         first = self.client.post(url, payload)
         first_ids = set(AnalysisRun.objects.values_list("pk", flat=True))
         self.assertEqual(len(first_ids), 2)
         repeated = self.client.post(url, payload)
-        self.assertRedirects(first, url)
+        self.assertRedirects(
+            first, self.url("detail", self.note) + "#evidence-findings-heading"
+        )
         self.assertEqual(first["Location"], repeated["Location"])
         self.assertEqual(
             set(AnalysisRun.objects.values_list("pk", flat=True)), first_ids
@@ -444,17 +505,55 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         url = self.analysis_url(
             "process_evidence", kind="text", evidence_id=self.note.pk
         )
-        response = self.client.get(url)
+        response = self.client.get(self.url("detail", self.note))
         self.assertEqual(
-            [run.pk for run in response.context["page_obj"]], [selected.pk]
+            [run.pk for run in response.context["analysis_page_obj"]], [selected.pk]
         )
         self.assertNotContains(response, self.analysis_url("detail", run=other))
         invalid = self.client.post(url, {"submission_id": "invalid"})
-        self.assertContains(invalid, "Analysis could not start", status_code=400)
+        self.assertContains(invalid, "Checks could not start", status_code=400)
+        self.assertTemplateUsed(invalid, "core/evidence/workspace.html")
+        self.assertTrue(invalid.context["analysis_form"].is_bound)
+        self.assertEqual(
+            invalid.context["analysis_form"]["submission_id"].value(), "invalid"
+        )
+        self.assertContains(invalid, "source@example.test", status_code=400)
+        self.assertContains(invalid, 'id="evidence-details-heading"', status_code=400)
+        self.assertContains(invalid, "data-error-summary", status_code=400)
+        self.assertContains(invalid, 'id="evidence-analysis-error"', status_code=400)
         self.assertEqual(AnalysisRun.objects.count(), 2)
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(url, self.payload()).status_code, 403)
+
+    def test_evidence_analysis_start_failure_keeps_the_complete_reader_and_submission(
+        self,
+    ):
+        self.login("editor")
+        url = self.analysis_url(
+            "process_evidence", kind="text", evidence_id=self.note.pk
+        )
+        submission_id = str(uuid4())
+        with patch(
+            "core.analysis.views.start_evidence_analysis",
+            side_effect=AnalysisError("source_changed"),
+        ):
+            response = self.client.post(
+                url + "?q=Selected&state=all", {"submission_id": submission_id}
+            )
+        self.assertContains(
+            response, "A retained source is unavailable or changed", status_code=400
+        )
+        self.assertTemplateUsed(response, "core/evidence/workspace.html")
+        self.assertEqual(
+            response.context["analysis_form"]["submission_id"].value(), submission_id
+        )
+        self.assertContains(response, "source@example.test", status_code=400)
+        self.assertContains(response, 'id="evidence-details-heading"', status_code=400)
+        self.assertContains(response, 'id="evidence-analysis-error"', status_code=400)
+        self.assertEqual(response.context["query"], "Selected")
+        self.assertEqual(response.context["state"], "all")
+        self.assertFalse(AnalysisRun.objects.exists())
 
     def test_evidence_highlights_use_latest_result_and_current_finding_reviews(self):
         earlier = self.analysis_run()
@@ -497,14 +596,12 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             ]
         )
         self.login("viewer")
-        url = self.analysis_url(
-            "process_evidence", kind="text", evidence_id=self.note.pk
-        )
+        url = self.url("detail", self.note)
         response = self.client.get(url)
         self.assertNotContains(
             response, f'href="{self.analysis_url("detail", run=run)}"'
         )
-        self.assertContains(response, "source@example.test", count=1)
+        self.assertContains(response, "source@example.test", count=2)
         self.assertNotContains(response, "other@example.test")
         self.assertEqual(
             response.context["highlights"][0]["latest_review"].decision, "accepted"
@@ -514,7 +611,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, target.replace("&", "&amp;"))
         self.assertContains(self.client.get(target), "source@example.test")
         second_page = self.client.get(url, {"results_page": 2})
-        self.assertContains(second_page, "source@example.test", count=1)
+        self.assertContains(second_page, "source@example.test", count=2)
         self.assertContains(second_page, self.analysis_url("detail", run=earlier))
         self.assertContains(second_page, target.replace("&", "&amp;"))
 
@@ -526,7 +623,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             decision="rejected",
         )
         response = self.client.get(url)
-        self.assertNotContains(response, "source@example.test")
+        self.assertEqual(response.context["highlights"], [])
+        self.assertContains(response, "source@example.test", count=1)
         self.assertNotContains(response, target.replace("&", "&amp;"))
 
     def test_evidence_highlights_show_embedded_capture_time_until_source_changes(self):
@@ -544,7 +642,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         process_run(run.pk)
         self.login("owner")
-        url = self.analysis_url("process_evidence", kind="image", evidence_id=image.pk)
+        url = self.url("detail", image, kind="image")
         response = self.client.get(url)
         self.assertContains(response, "Capture time candidate")
         self.assertContains(response, "2026-10-27T12:34:56")

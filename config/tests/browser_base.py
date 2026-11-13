@@ -154,6 +154,19 @@ class BrowserTestCase(StaticLiveServerTestCase):
             page.get_by_role("heading", name="All cases", exact=True)
         ).to_be_visible()
 
+    def open_evidence_panel(self, page, name):
+        """Open the record's native Info or More panel using the keyboard."""
+        other_name = "more" if name == "info" else "info"
+        other = page.locator(f".evidence-{other_name}")
+        if other.count() and other.get_attribute("open") is not None:
+            other.locator(":scope > summary").press("Enter")
+        panel = page.locator(f".evidence-{name}")
+        if panel.get_attribute("open") is None:
+            summary = panel.locator(":scope > summary")
+            summary.focus()
+            summary.press("Enter")
+        return panel
+
     def capture(self, page, engine, name):
         logo = page.locator(".wordmark picture img")
         if logo.count() and logo.is_visible():

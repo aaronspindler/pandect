@@ -2,16 +2,17 @@
 
 The case **Findings** workspace leads with automatic vehicle trips and recent
 source-linked results. Adding eligible evidence queues supported local checks;
-viewing results does not require review. Processing history, custom analysis,
-and reviews remain available in disclosures. Owners and editors can start or
+viewing results does not require review. Case Findings keeps processing history
+and additional analysis in disclosures; reviews remain alongside results.
+Owners and editors can start or
 cancel processing and append reviews; viewers inspect authorized originals and
 results. Case permissions apply to workers, search, downloads and playback.
 
-The case highlights inspect the latest 40 published result runs, keep the latest
+The case highlights inspect the latest 40 eligible published result runs, keep the latest
 result per operation and evidence/attachment, and show at most 12 findings.
 They revalidate sources and omit archived, unavailable, rejected, and weak OCR
-findings. This is a recent highlights view, not an exhaustive inventory; each
-evidence record retains its full results and history. Vehicle trips are computed
+findings. This is a recent highlights view, not an exhaustive inventory; full
+retained runs remain accessible through processing history. Vehicle trips are computed
 from current observations on opening the page, including previously imported data.
 
 Result/provenance and retained geographic reference downloads keep their `.json`
@@ -65,104 +66,70 @@ or recording is processed independently of earlier additions. Text checks after
 extraction use that exact retained extraction version. Unsupported formats and
 insufficient content appear as analysis outcomes.
 
-Open **Findings** on an evidence record for source-linked highlights. Images
-surface possible plate readings, OCR, capture time and GPS claims; documents and
-text show extracted passages and identifiers. Recording findings identify the
-retained recording or transcript. **Original details** keeps reported fields and
-CSV attribution accessible. Each record shows up to three findings from the latest
-published result per analysis type, up to twelve total. Rejected results and weak
-OCR are omitted; partial coverage remains visible. Reviews are optional details.
+An evidence reader's **Findings** section shows up to three highlights per latest
+published operation, twelve total. Rejected results and weak OCR are omitted;
+partial coverage remains visible. Originals, retained additions, and the CSV
+source-row link stay above the findings; full CSV interpretation is in **Info**.
+**Run checks** sits beside empty findings for owners/editors; reruns for populated
+findings are in **More**. **Refresh status** appears while work is pending. **Info → Processing
+history** lists retained runs with pagination independent of the evidence list.
+Case **Findings → Processing history** provides history across evidence.
+CSV imports still require timezone/vehicle confirmation before atomic publication.
+Trips then appear without per-row jobs, geocoding, or review. Conversation imports
+retain their dedicated flow. An uncertain save retried with its original submission
+recovers the same evidence and checks.
 
-**Processing history** retains every run and outcome. **Refresh status** appears
-while checks are queued or running. Owners/editors can open **Run checks again**
-to rerun supported checks. Original/Findings/Details preserves collection filters;
-history pagination is independent. Originals and earlier runs remain retained.
-Vehicle CSV imports still confirm timezone and vehicle associations before atomic
-publication. Trips then appear automatically, without per-row jobs, geocoding or
-finding review. Conversation imports retain their dedicated processing flow.
-Retry an uncertain save with its original submission to recover the same evidence
-and checks.
+Use case **Additional analysis → Choose analysis**, or an evidence reader's
+**More → Additional analysis**, for comparisons, geographic lookups, model
+processing, or conversation imports. Choose a task, exact retained sources
+(including extraction versions), and required context before **Start analysis**.
+The source picker shows at most 500 choices; title search narrows larger cases.
+**Change analysis** returns to the task chooser. Only the chosen operation's
+settings are validated/saved. Required samples, areas, and claimed events remain
+visible; optional settings use disclosures.
 
-Additional model processing is a deliberate choice. Select the operation and
-retained source, review its settings, and choose **Local** (the default) or
-**Cloudflare AI Gateway**. Cloud processing requires explicit submission approval;
-local failure never triggers cloud fallback. Geographic services require external
-approval unless the operator explicitly designates the endpoint as local.
-Local keyword analysis does not enable an AI summary automatically.
-Use **Additional analysis → Choose analysis** for context-dependent comparisons,
-geographic lookup/context, model processing, or conversation imports. Choose
-a task first, then sources and required context before starting. The separate Map workflow supports
-local address lookups; see [Map address lookup](maps.md#local-address-lookup).
+Model processing is deliberate: **Local** is the default; **Cloudflare AI Gateway**
+requires explicit external-processing approval. Local failure never causes cloud
+fallback. Geographic services require approval unless the operator designates the
+endpoint local. Keyword checks do not implicitly request AI summaries. The Map's
+separate [local address lookup](maps.md#local-address-lookup) follows its own flow.
 
-Case **Processing history** includes evidence types, source counts and outcomes.
-**Processing filters** narrows evidence type/status, and return links retain those
-filters and page. **Explore patterns** links to reports that update from current
-evidence. Additional analysis opens a grouped task chooser, then a dedicated
-configuration page with eligible originals, additions, extraction versions and
-reviewed estimates. Use **Change analysis** to return to the chooser, or
-**Start analysis** to queue the selected task.
-The picker shows at most 500 choices; use its title search to narrow larger cases.
-Select an exact extraction version to analyze derived text. Review grouping/time
-assumptions before starting an investigation workflow.
-Only the selected operation's settings are validated and saved. Operations without
-optional settings do not show an empty **Options** section. Required comparison
-samples, geographic areas and claimed events stay outside that disclosure. Report forms load
-only the people or vehicle choices applicable to that report. **Report filters**
-starts collapsed for the default selection, leaving results visible first. It opens
-when filters are applied or a submitted selection needs correction. Reports show
-records before **About this report**, which contains fixed limitations and
-detailed totals. Truncated coverage and omitted-time warnings remain visible. Call and vehicle reports show chronological rows
-with UTC dates and source links. The duplicate report groups occurrences by
-file-byte checksum. Trip rows show departure and arrival observations and the
-observed time interval, with their full observation list available on request.
+Case **Processing history** filters by evidence type/status and preserves return
+URLs. **Explore patterns** opens reports based on current evidence. Report filters
+start collapsed for defaults and open for applied filters/errors. Results precede
+**About this report**; truncation and missing-time warnings stay visible. Call and
+vehicle reports use chronological UTC rows with source links. Duplicate reports
+group file-byte checksums; trip rows link departure/arrival and disclose their full
+observation list.
 
 ## Inspecting run results
 
-**Findings** shows output and source links. Focused findings omit repeated run
-summaries and keep identifier normalization under **Value details**. Review state
-remains in optional disclosures. **Processing details** contains the exact selected
-sources, run status/time, result download, method, settings and rerun controls.
-Image metadata uses field-and-value tables by source, and embedded tags carry an
-unverified-claim label. Read OCR candidates alongside their retained image regions.
-Plate readings are grouped by region with their available crops and separate
-plate-likeness and OCR scores. Document text carries native page or line anchors.
+**Findings** leads with output and exact source links. **Processing details**
+contains selected inputs, status/time, method/settings, requester, result download,
+and rerun controls. **Limitations** holds full warnings; **Review and history**
+holds finding/overall decisions. Disclosures and links work without JavaScript.
 
-Recording results show properties and timed intervals by retained recording,
-with a player and links to individual intervals. Identifier and keyword tables
-include source citations. Wording comparisons show paired quotations, and writing
-comparisons show measurements for both samples. Model suggestions identify their
-supporting passages. Conversation results show timing and participants alongside
-the source messages or calls. iMessage results show raw source labels, mapped
-participants and time, and the reason for each unresolved row.
+- Image metadata distinguishes embedded claims from supplied metadata. OCR/plate
+  findings show retained image regions/crops, separate plate-likeness and OCR
+  scores, and low-score notices. Identifier normalization is in **Value details**.
+- Document text retains native page/line anchors. Recording findings pair timed
+  intervals with playback of the selected recording/transcript.
+- Wording/style comparisons show both samples; model suggestions cite supporting
+  passages. Conversation/import findings preserve participants, source labels,
+  timing, and reasons for unresolved rows.
+- Location schematics distinguish reported positions, reviewed estimates, and
+  lookup candidates. Measurements and retained map references link to sources.
 
-Location analysis shows a schematic of positions linked to findings on the page.
-Markers distinguish reported positions, reviewed estimates and lookup candidates.
-Rows show the measurements that matter for the operation, such as sampling gaps,
-time and distance differences, or period coverage. Geographic context findings
-link to their retained map reference. A findings page contains up to 50 retained
-findings, grouped within that page.
+A run page shows up to 50 findings. Opening a finding preserves exact context and
+**Back to findings** returns to its page/position. Single-finding runs open directly;
+single-evidence runs link back to the combined reader's Findings section. Derived
+inputs link to both the retained extraction and original.
 
-Open a finding for its individual review and exact source context. A run with one
-finding opens it directly. **Back to findings** returns to
-the same page and finding. Source links include exact anchors where available.
-The run header links to findings and sources. When a run uses one evidence
-record, **All findings for this evidence** opens its Findings tab. A focused plate finding shows its available crop and marked image
-region together. Focused recording findings place playback beside the interval.
-Derived inputs link to their retained extraction and to the original. Findings
-with a low OCR engine score show a notice beside the reading.
-
-The processing outcome, count of findings with recorded reviews, and overall
-result review are separate. **Awaiting review** means there is no recorded decision
-at that scope. **Unresolved** is a decision a reviewer can record. Owners and editors
-can review the selected finding. Geocode reviews apply to individual candidates.
-Viewers can inspect output, sources and reviews. Saving returns to the same finding.
-If validation fails, the entered decision and reason stay available for correction.
-
-Open **Limitations** for the full result warnings and **Review and history** for recorded
-finding and overall decisions. **Processing details** groups processing totals, selected
-inputs, method and requester attribution. Where present, the coordinate map and
-retained map references can be opened on request. The links and disclosures work
-with a keyboard and without JavaScript.
+Processing outcome, reviewed-finding count, and overall review are distinct.
+**Awaiting review** means no decision is recorded; **Unresolved** is a review
+choice. Owners/editors can append individual and overall reviews; geocode reviews
+apply per candidate. Viewers can inspect them. Saving returns to the finding;
+validation errors preserve the decision/reason for correction.
 
 **Download results** saves private JSON containing the result, selected sources,
 and processing provenance. If an exact retained input is unavailable or changed,
@@ -280,12 +247,10 @@ advertising broader supported conditions.
 
 ## Data and code boundaries
 
-`core.evidence.types` is the shared ten-type registry; `core.evidence.queries` enforces
-same-case relationships. `core.analysis.reports` validates and dispatches current-field
-reports; call calculations live in `phone.analysis.deterministic.reports` and vehicle
-calculations in `geo.analysis.deterministic.reports`. Cross-type duplicate reports
-remain in `core.analysis.deterministic.reports` with neutral report helpers in
-`core.analysis.reporting`.
+`core.evidence.types` registers the ten evidence types; `core.evidence.queries`
+checks same-case relationships. `core.analysis.reports` dispatches reports to
+phone/geo implementations; cross-type duplicate reports and neutral helpers stay
+in `core`.
 
 Concrete operations live in each domain's `analysis/` package:
 
@@ -296,27 +261,17 @@ Concrete operations live in each domain's `analysis/` package:
 | `ai` | Local image OCR, audio transcription, text suggestions and summaries, and semantic conversation analysis |
 | `external` | Geographic coordinate/address and map-context service lookups |
 
-Only implemented categories have modules. AI includes model processing on local,
-private, or approved gateway routes; External includes service lookups on private
-or public routes. Categories do not determine consent or network destination.
-They organize code only: analysis choices, forms, and automatic checks are unchanged.
-`text.analysis.workflows` and `phone.analysis.workflows` compose the existing optional
-AI branches with deterministic results. Communication import parsing and publication
-live in `phone.analysis.deterministic.imports`; geographic adapters live in
-`geo.analysis.external.geocoding` and `geo.analysis.external.geographic_context`.
-`core.analysis.services` owns authorization, input snapshots, publication, and reviews.
-`core.analysis.operations` lists concrete callables; the worker passes authorization
-and inference dependencies explicitly for the operations that use them.
-`core.analysis.tasks` is a thin UUID-only queue entrypoint. Durable runs/results/reviews
-and extraction search passages survive operational queue housekeeping.
+Categories organize code, not processing location or approval: local OCR is AI,
+while private geographic lookups are External. Only implemented categories exist.
+Domain `workflows.py` modules compose mixed operations. `core.analysis.services`
+owns authorization, source snapshots, publication, and reviews;
+`core.analysis.operations` dispatches concrete callables with explicit dependencies.
+The UUID-only task entrypoint keeps durable runs/results/reviews and search text
+separate from disposable queue records.
 
-The `analysis_form` factory in `core.analysis.forms` selects ordinary Django form
-subclasses from the domain `analysis_forms` modules. Image, geographic, communication,
-and text assumptions retain their own fields, validation, and parameter serialization.
-`core.analysis.form_base` owns shared source selection, submissions, processing location,
-and external-processing approval.
-The `report_form` factory similarly selects phone/geo report filters while
-`core.analysis.report_forms` owns common archive and period fields.
+Shared form factories select ordinary domain form subclasses; shared bases own
+source selection, submission, processing location/approval, archive and period
+fields. Domain forms retain operation-specific validation and serialization.
 
 `core.parsers` owns verified file reads and the bounded subprocess transport.
 Its fixed operation allowlist dispatches to the domain `parsers` modules in
@@ -334,26 +289,16 @@ pass. Search similarly validates a shared run once per request. External request
 and publication still perform fresh authorization and source checks, so this
 reuse does not preserve access or acceptance after it changes.
 
-The shared processing models belong to `core`; concrete processors belong to
-the domain apps. Use the [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
-for this pre-release refactor. Back up PostgreSQL and private storage together. Whole-case
-deletion removes its analysis/context alongside evidence. No global analysis admin
-or public result storage endpoint is registered.
-
+Shared processing models belong to `core`; concrete processors belong to domain
+apps. Use the [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema).
+Back up PostgreSQL and private storage together. No global analysis admin or public
+result-storage endpoint is registered.
 
 ## Deleting an imported source
 
-A superuser with current case access can delete a retained source document from
-Evidence Details. The confirmation lists its imported messages/vehicle-location
-observations, source context and review rows, and all dependent analysis, reviews,
-extracted text, and generated files. Multi-source runs and downstream results are
-removed as a whole; unrelated originals, people, and vehicles remain. The same
-exact inventory is used in Django admin. It is paginated with a complete private
-JSON download, and a changed inventory requires another confirmation.
-
-Deletion locks the case against new import and analysis publication. Queued jobs
-for removed runs/imports become unavailable; running jobs cannot recreate deleted
-sources or publish new derivatives after deletion. Row deletion is atomic and
-stored-file cleanup waits for commit. Storage failures retain the existing
-private-key logging and manual retry policy in
-[evidence](evidence.md#private-storage-and-deletion).
+Superusers with current case access can confirm source deletion from an evidence
+reader's **More → Delete evidence** or scoped admin. The [evidence deletion workflow](evidence.md#permanent-deletion)
+owns the complete inventory, stale-confirmation checks, dependent analysis/import
+cascade, publication locking, and post-commit file cleanup. Whole-case deletion
+also removes analysis/context. Deletion does not remove unrelated originals,
+people, or vehicles.

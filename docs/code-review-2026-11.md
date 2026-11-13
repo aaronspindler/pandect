@@ -1,5 +1,9 @@
 # Pandect code review — 11 November 2026
 
+Historical review of the dated snapshot. Paths, counts, and validation results
+below describe that review, not the current checkout. Use [validation](validation.md)
+for current commands and [architecture](architecture.md) for current ownership.
+
 The review covered first-party Django apps, worker and inference boundaries,
 investigator and public templates and scripts, tests, Compose, and CI/CD.
 Vendored code was reviewed at its integration points. The starting worktree
