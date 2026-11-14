@@ -573,13 +573,8 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         expect(
                             page.get_by_role("heading", name=audio_filename, exact=True)
                         ).to_be_visible()
-                    with page.expect_download() as event:
-                        page.get_by_role(
-                            "link", name="Download original", exact=True
-                        ).click()
-                    data = json.loads(Path(event.value.path()).read_bytes())
-                    self.assertEqual(data["sender_id"], str(sender.pk))
-                    self.assertEqual(data["recipient_id"], str(recipient.pk))
+                    # Capture before attachment navigation, which can leave Linux
+                    # WebKit waiting for font readiness after a download.
                     for width, height in ((1440, 900), (390, 844), (320, 844)):
                         page.set_viewport_size({"width": width, "height": height})
                         self.assertLessEqual(
@@ -598,6 +593,13 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         reduced_motion="reduce",
                     )
                     self.capture(page, engine, f"{kind}-forced-colors")
+                    with page.expect_download() as event:
+                        page.get_by_role(
+                            "link", name="Download original", exact=True
+                        ).click()
+                    data = json.loads(Path(event.value.path()).read_bytes())
+                    self.assertEqual(data["sender_id"], str(sender.pk))
+                    self.assertEqual(data["recipient_id"], str(recipient.pk))
                     with self.browser_page(engine, java_script_enabled=False) as (
                         _,
                         page,
@@ -1297,6 +1299,13 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     ).to_be_visible()
                     record = self.db(model.objects.get, case=self.case, title=title)
                     self.assertEqual(record.source, "Synthetic harbour witness")
+                    for width, height in ((1440, 900), (390, 844), (320, 844)):
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                        )
+                        self.capture(page, engine, f"{kind}-original-{width}x{height}")
                     with page.expect_download() as event:
                         page.get_by_role(
                             "link", name="Download original", exact=True
@@ -1307,13 +1316,6 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     )
                     self.assertEqual(hashlib.sha256(content).hexdigest(), record.sha256)
                     self.assertEqual(json.loads(content)["latitude"], "0.000000")
-                    for width, height in ((1440, 900), (390, 844), (320, 844)):
-                        page.set_viewport_size({"width": width, "height": height})
-                        self.assertLessEqual(
-                            page.evaluate("document.documentElement.scrollWidth"),
-                            width + 1,
-                        )
-                        self.capture(page, engine, f"{kind}-original-{width}x{height}")
                     self.open_evidence_panel(page, "more")
                     page.get_by_role("link", name="Edit details", exact=True).click()
                     expect(page.locator("#id_address")).to_have_count(0)
@@ -1705,6 +1707,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name=title, exact=True)
                 ).to_be_visible()
+                self.capture(page, engine, "no-javascript-document")
                 with page.expect_download() as event:
                     page.get_by_role(
                         "link", name="Download original", exact=True
@@ -1715,7 +1718,6 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     DocumentEvidence.objects.get, case=self.case, title=title
                 )
                 self.assertEqual(document.byte_size, len(content))
-                self.capture(page, engine, "no-javascript-document")
 
                 page.goto(
                     self.url("core:evidence:create", case_id=self.case.pk)

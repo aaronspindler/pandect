@@ -356,8 +356,9 @@ class ContextBrowserTests(BrowserTestCase):
                 self.assertEqual(response.headers["content-type"], "image/jpeg")
                 self._capture_layouts(page, engine, "local-ocr-result")
                 page.goto(self.url("core:evidence:list", case_id=self.case.pk))
-                page.get_by_label("Search evidence", exact=True).fill("printed pickup")
-                page.get_by_role("button", name="Search", exact=True).click()
+                search = page.get_by_label("Search evidence", exact=True)
+                search.fill("printed pickup")
+                search.press("Enter")
                 row = page.locator(".evidence-row").filter(
                     has_text="Synthetic OCR page"
                 )
