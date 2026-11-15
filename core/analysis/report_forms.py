@@ -2,6 +2,8 @@
 
 from django import forms
 
+from ui.forms import localize_datetime_labels
+
 
 class BaseReportForm(forms.Form):
     state = forms.ChoiceField(
@@ -25,6 +27,7 @@ class BaseReportForm(forms.Form):
 
     def __init__(self, *args, case, **kwargs):
         super().__init__(*args, **kwargs)
+        localize_datetime_labels(self)
 
     def clean(self):
         data = super().clean()

@@ -29,11 +29,24 @@ records and archived evidence. There is no in-app undo. User accounts remain;
 
 ## Account settings
 
-Choose the Account icon in the shared navigation to manage email addresses or
-passwords.
+Choose the Account icon in the shared navigation to manage email addresses,
+passwords, or your timezone.
 Verified secondary addresses offer **Make primary**. Removing secondary addresses
 requires confirmation; unverified addresses offer **Resend verification**.
 Address changes follow django-allauth's verification and authorization rules.
+
+Times and date/time fields use the device's IANA timezone by default. JavaScript
+detects it and stores a `pandect_timezone` browser cookie; **Account → Timezone**
+can instead save an explicit timezone on your account, including when JavaScript
+is disabled. An account preference applies across devices. **Automatic** resumes
+device detection. Until a timezone is available, pages use UTC. Timezone labels
+follow the date's daylight-saving offset; ambiguous or nonexistent local form
+times are rejected for review.
+
+This changes presentation and form interpretation, not stored instants, retained
+originals, or source-export timezone choices. Downloads retain their recorded
+timestamps, and analysis statistics explicitly grouped by UTC hour/weekday keep
+that basis.
 
 ## Invitations
 

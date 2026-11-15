@@ -12,8 +12,10 @@ record acquires no assumed person or vehicle association.
 
 The deterministic methods use reported coordinates or an explicitly selected,
 reviewed geocode. Address-only vehicle CSV rows need that spatial interpretation
-before distance or movement analysis can use them. Derived coordinates never
-replace reported coordinates. A comparison can retain both and flag disagreement.
+before distance or retained coordinate-based movement analysis can use them;
+the [automatic vehicle trips](#automatic-vehicle-trips) report also works directly
+from reported addresses. Derived coordinates never replace reported coordinates.
+A comparison can retain both and flag disagreement.
 No method verifies a person's presence, identifies a driver or infers an engine
 state from zero reported speed.
 
@@ -24,7 +26,7 @@ state from zero reported speed.
 | Compare address wording | Retains raw text and conservative Unicode/whitespace derivatives, a leading street number when recognizable, and explicit unit identifiers. Limited street-suffix aliases can propose equivalent wording; units and unrecognized international formats remain distinguishable. Common street names do not establish geographic equivalence. |
 | Review location quality | Separates event, receipt, collection and upload times. Shows source export timezone, absent event time/position, repeated-observation candidates, negative receipt delays, and event times reversed in retained export-row order. Selection order alone is not chronology. |
 | Group nearby observations | Creates deterministic anchor-radius candidate groups. Each group exposes its anchor and original members; nearby groups do not establish visits, meetings or occupancy. There is no external road/building reference layer in this method. |
-| Compare distance or geofence | Compares each usable coordinate with a selected reference observation, manual reference point, radius or polygon. Shows inside/outside candidate classifications and an explicit near-boundary ambiguity band. Missing coordinates remain excluded with a count. |
+| Compare distance or geofence | The investigator enters a centre latitude/longitude and radius, or a polygon boundary. Compares each usable coordinate with that area and shows inside/outside candidate classifications and an explicit near-boundary ambiguity band. Missing coordinates remain excluded with a count. |
 | Find candidate visits | Segments each retained subject association separately. Consecutive nearby samples must meet the minimum observed span; long gaps split candidates. Counts visits separately from samples, with first/last observed bounds and UTC visit-start patterns. Each excluded large gap is a separate finding linking its endpoint observations and actual elapsed interval. Frequent places are never automatically labelled home/work. |
 | Find candidate journeys | Uses timed, associated observations, candidate stationary intervals and the maximum gap to delimit journeys. Links every included sample and exposes endpoints, largest sampling interval, elapsed time and straight-segment distance sum. Each excluded large gap exposes its last/next observations and actual elapsed interval. A straight segment is not a road route. |
 | Compare movement patterns | Groups directed origin/destination pairs among the candidate journeys. Shows supporting samples, observed durations, UTC departure distributions and monthly counts with observation coverage. Explicit two-period comparisons expose denominators, pair shares, observed changes and interior-sample corridor candidates. Reversed pairs remain separate; missing periods and changing reporting density limit comparison. |
@@ -36,12 +38,12 @@ Coordinates have decimal precision but no retained measured accuracy. A reviewed
 geocode may represent a venue, street or broad area. Candidate proximity and
 boundary classifications therefore remain uncertain even when the arithmetic is
 precise. Offline grouping uses coordinates alone. The separate
-[automatic geographic-context operation](analysis-geographic-context.md) adds
+[geographic-context lookup](analysis-geographic-context.md) adds
 retained map references with source, date, attribution and visible coverage limits.
 
 ## Parameters and bounds
 
-| Parameter | Default | Supported range |
+| Parameter | Investigator form default | Supported range |
 | --- | --- | --- |
 | Nearby/stop distance | 100 m | 1–100,000 m |
 | Coordinate discrepancy threshold (location quality and equal-time travel checks) | 100 m | 1–100,000 m |
@@ -49,13 +51,19 @@ retained map references with source, date, attribution and visible coverage limi
 | Minimum observed span for candidate visits | 5 min | 0–1,440 min; at least two samples still required |
 | Co-location time tolerance | 10 min | 0–1,440 min |
 | Rapid-transition screening threshold | 300 km/h | 1–3,000 km/h |
-| Proximity query radius | 1,000 m | 1–500,000 m |
+| Proximity query radius | 100 m | 1–500,000 m |
 | Near-boundary ambiguity band | 10 m | 0–10,000 m |
 
 Each form exposes only the assumptions its method uses. Location quality compares
 reported and reviewed coordinates against the discrepancy threshold; travel checks
 also use it for equal-time positions. Same-event comparison presents the selected
 claims directly and has no distance or time tolerance setting.
+
+The proximity processor uses a 1,000 m radius when `radius_m` is omitted,
+including when the optional form field is cleared. Its internal
+`reference_source_id` parameter can use a selected coordinate-bearing observation
+as the centre, but the investigator form exposes only manual centre coordinates
+or a polygon; it does not offer a reference-observation selector.
 
 Distances use a spherical Earth approximation, including observations near the
 poles and dateline. Polygon inside/outside classification uses latitude/longitude
@@ -191,8 +199,12 @@ review is needed. The existing coordinate-based retained journey operation remai
 available for a deliberately selected, versioned analysis.
 
 The current-evidence report uses at most the latest 500 matching observations by
-reported observation time and shows its coverage. Vehicle and UTC date filters let
-investigators inspect another period; archived observations are excluded by default.
+reported observation time and shows its coverage. Vehicle and date/time filters let
+investigators inspect another period. Filter inputs and report rows use the active
+account timezone, or the device timezone when the account uses automatic detection,
+with UTC as the fallback. The form labels identify that timezone. Retained source
+times and explicitly labelled UTC statistical distributions remain unchanged.
+Archived observations are excluded by default.
 Vehicle pages show the five most recent possible trips and link to the full report.
 Untimed observations cannot form trips. Each vehicle is segmented independently,
 using only evidence whose vehicle and import provenance remain in the same case.

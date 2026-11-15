@@ -37,13 +37,18 @@ remain available without JavaScript. Decorative icons beside text need no toolti
 | Case settings | Owner-only name/access management and a separate delete section. |
 | Case details | Owner, timestamps, role, and saved read-only description for all case members. |
 | Invitation | Named recipient confirmation after authentication and email verification; **Accept invitation**. |
-| Account | Allauth email/password management and POST sign-out, with the shared shell. |
+| Account | Allauth email/password management, timezone preference, and POST sign-out, with the shared shell. |
 
 The public `/` page serves marketing to anonymous visitors and sends signed-in
 visitors to All cases. Product routes require an active authenticated account
 with a verified email. Preserve safe local return destinations through sign-in
 and verification. Email settings identify the current address/status and put
 removal behind a named confirmation.
+
+Display timestamps and date/time fields in the user's timezone, detected from the
+device by default or explicitly chosen under **Account → Timezone**. Show the
+applicable timezone beside times and use local dates at midnight boundaries.
+Source-export timezone choices remain explicit and independent of display settings.
 
 ## Visual reference and density
 

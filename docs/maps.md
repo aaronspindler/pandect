@@ -121,6 +121,8 @@ limit, deduplicated within its selected sources. A page has at most 100 observat
 new batches, with up to 200 status checks three seconds apart. Polling updates
 only the current authorized page. Lookup failures and no matches stop automatic
 retries; use **Look up addresses locally** to start another retained attempt.
+Observations are paginated before checking retained lookup history, so only
+eligible addresses on the current page resolve their latest local run.
 If records or their details change while lookups run, updates stop and ask for a
 refresh rather than attaching new marker numbers to a stale location list.
 Addresses over 2,000 characters remain unsupported. Each lookup retains up to

@@ -10,6 +10,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="{% static 'ui/brand/apple-touch-icon.png' %}">
   <link rel="stylesheet" href="{% static 'ui/primitives.css' %}">
   <link rel="stylesheet" href="{% static 'ui/app.css' %}">
+  <script src="{% static 'ui/timezone.js' %}" data-automatic="{% if user.timezone %}false{% else %}true{% endif %}" data-method="{{ request.method }}"></script>
   <script src="{% static 'ui/app.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>

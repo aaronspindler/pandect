@@ -1,4 +1,3 @@
-{% load tz %}
 {% if table.title %}<h3>{{ table.title }}</h3>{% endif %}
 {% if table.checksum %}<p class="analysis-report-checksum"><span class="muted">File SHA-256</span> <code>{{ table.checksum }}</code></p>{% endif %}
 <table role="table" class="analysis-metadata-table analysis-report-table" aria-label="{{ table.title|default:'Report records' }}">
@@ -21,13 +20,9 @@
         <dl>
           {% for row in cell %}
           <div>
-            <dt>{{ row.label }}</dt>
+            <dt>{{ row.display_label|default:row.label }}</dt>
             <dd>
-              {% if row.timestamp %}
-              {% with stamp=row.timestamp|utc %}<time datetime="{{ row.text }}">{{ stamp|date:"j M Y" }} {{ stamp|date:"H:i:s" }}{% if stamp.microsecond %}.{{ stamp|date:"u" }}{% endif %}</time>{% endwith %}
-              {% else %}
               {% include 'core/analysis/measurement_value.html' with row=row only %}
-              {% endif %}
             </dd>
           </div>
           {% endfor %}

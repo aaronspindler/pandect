@@ -5,6 +5,8 @@ from uuid import uuid4
 from django import forms
 from django.conf import settings
 
+from ui.forms import localize_datetime_labels
+
 SOURCE_FIELDS = ("source", "source_url", "source_description", "collected_at")
 COMMON_FIELDS = ("title", *SOURCE_FIELDS)
 
@@ -125,6 +127,7 @@ class EvidenceForm(BaseEvidenceForm):
             )
             self.fields["submission_id"].required = True
         self.configure_original_fields(kind)
+        localize_datetime_labels(self)
         # Start with the material being captured, then its optional context.
         self.order_fields(
             ("title", *self.original_fields, "transcript", "file", *COMMON_FIELDS)

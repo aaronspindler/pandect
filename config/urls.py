@@ -3,6 +3,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from accounts.views import timezone_settings
 from cases.views import invitation_accept
 
 from .views import health
@@ -10,6 +11,7 @@ from .views import health
 urlpatterns = [
     path("", include("marketing.urls")),
     path("health/", health, name="health"),
+    path("accounts/timezone/", timezone_settings, name="account_timezone"),
     path("accounts/", include("allauth.urls")),
     path("cases/", include("cases.urls")),
     path("cases/<uuid:case_id>/people/", include("people.urls")),

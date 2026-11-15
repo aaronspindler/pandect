@@ -70,7 +70,7 @@
   {% if focused_finding %}
   <details class="analysis-finding-review disclosure">
     <summary id="review-finding">Review this finding</summary>
-    <p class="muted">Finding review: <strong>{% if item.latest_review %}{{ item.latest_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if item.latest_review %} · {{ item.latest_review.reviewed_by }} · {{ item.latest_review.created_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
+    <p class="muted">Finding review: <strong>{% if item.latest_review %}{{ item.latest_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if item.latest_review %} · {{ item.latest_review.reviewed_by }} · {{ item.latest_review.created_at|date:'d M Y, H:i:s T' }}{% endif %}</p>
     {% if can_edit %}
       <form class="analysis-review-form form-layout" method="post" aria-label="Review {{ item.label }}" action="{% url 'core:analysis:review' case.pk run.pk %}{{ run_suffix }}" data-unsaved-form>
         {% csrf_token %}<input type="hidden" name="item_index" value="{{ item.index }}">

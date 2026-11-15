@@ -4,6 +4,7 @@ import json
 import re
 
 from django.utils.dateparse import parse_datetime
+from django.utils.timezone import is_aware
 
 from people.models import Person
 from vehicle.models import Vehicle
@@ -32,6 +33,35 @@ TECHNICAL = {
     "audio sha-256",
     "record sha-256",
 }
+
+
+def measurement_timestamp(key, value):
+    """Interpret structured time fields, preserving quoted and raw source values."""
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    if not (
+        "(utc" in key
+        or key.endswith(("_at", "_time", "_observed", "_as_of"))
+        or key
+        in {
+            "period_a_start",
+            "period_a_end",
+            "period_b_start",
+            "period_b_end",
+            "first_usable_observation",
+            "last_usable_observation",
+            "last_usable_observation_before_gap",
+            "first_usable_observation_after_gap",
+            "window_start_(inclusive)",
+            "window_end_(exclusive)",
+        }
+    ):
+        return None
+    try:
+        stamp = parse_datetime(value)
+    except ValueError:
+        return None
+    return stamp if stamp is not None and is_aware(stamp) else None
 
 
 def label(value):
@@ -102,6 +132,9 @@ def measurement_formatter(data, *, case, sources=()):
                 }
                 display_key = names.get(str(key), key) if reference_keys else key
                 row = {"label": label(display_key)}
+                row["display_label"] = (
+                    row["label"].replace(" (UTC)", "").replace("UTC, ", "")
+                )
                 if depth >= 5:
                     row["text"] = "See the downloaded result for the complete detail."
                 elif isinstance(value, dict):
@@ -160,6 +193,7 @@ def measurement_formatter(data, *, case, sources=()):
                         )
                 else:
                     row["text"] = scalar(value, reference=reference)
+                    row["timestamp"] = measurement_timestamp(normalized, value)
                 if row.get("children") == []:
                     row["text"] = "No additional recorded values"
                 result.append(row)
@@ -203,13 +237,8 @@ def prioritize_measurements(item, *labels):
 def table_rows(items, columns):
     """Reports use an explicit list of retained keys in each column."""
     displayed = {key for _, keys in columns for key in keys}
-    timestamp_labels = {label for label in displayed if label.endswith(" (UTC)")}
     for item in items:
         measurements = {row["label"]: row for row in item["measurements"]}
-        for label in timestamp_labels & measurements.keys():
-            row = measurements[label]
-            if stamp := parse_datetime(row["text"]):
-                row["timestamp"] = stamp
         item["cells"] = [
             [measurements[key] for key in keys if key in measurements]
             for _, keys in columns

@@ -145,7 +145,7 @@ def call_report(case, state, participant_id, other_participant_id, start, end, l
     return {
         "summary": (
             f"{len(rows)} selected call records, with {len(known)} known "
-            "reported durations. All times are UTC."
+            "reported durations. Recorded hour counts use UTC."
         ),
         "metrics": metrics,
         "items": items,

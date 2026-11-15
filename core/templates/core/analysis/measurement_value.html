@@ -1,4 +1,4 @@
-{% if row.text != None %}{{ row.text }}{% endif %}
+{% if row.timestamp %}<time datetime="{{ row.text }}">{{ row.timestamp|date:'j M Y, H:i:s' }}{% if row.timestamp.microsecond %}.{{ row.timestamp|date:'u' }}{% endif %} {{ row.timestamp|date:'T' }}</time>{% elif row.text != None %}{{ row.text }}{% endif %}
 {% if row.children %}
   {% include 'core/analysis/measurements.html' with measurements=row.children only %}
 {% endif %}

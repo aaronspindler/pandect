@@ -97,6 +97,12 @@ The source picker shows at most 500 choices; title search narrows larger cases.
 settings are validated/saved. Required samples, areas, and claimed events remain
 visible; optional settings use disclosures.
 
+**Read inferred message sessions**, **Inspect message timing**, and **Summarize
+message sessions** select Text messages only. For retained call transcripts, use
+**Inspect keywords and topics** or **Suggest claims and commitments**; **Compare
+exchanges across channels** still accepts messages, phone calls and FaceTime.
+Earlier runs retain their original selections and results.
+
 Model processing is deliberate: **Local** is the default; **Cloudflare AI Gateway**
 requires explicit external-processing approval. Local failure never causes cloud
 fallback. Geographic services require approval unless the operator designates the
@@ -107,7 +113,9 @@ Case **Processing history** filters by evidence type/status and preserves return
 URLs. **Explore patterns** opens reports based on current evidence. Report filters
 start collapsed for defaults and open for applied filters/errors. Results precede
 **About this report**; truncation and missing-time warnings stay visible. Call and
-vehicle reports use chronological UTC rows with source links. Duplicate reports
+vehicle reports use chronological rows in the user's timezone with source links.
+Their filters use the same timezone; recorded UTC hour counts retain their stated
+analysis basis. Duplicate reports
 group file-byte checksums; trip rows link departure/arrival and disclose their full
 observation list.
 
@@ -186,7 +194,7 @@ visible warning.
 - [Locations, journeys, visits, and geographic lookup](analysis-locations.md)
   describes grouping assumptions, gaps, observed dwell bounds, proximity,
   co-location, geographic estimates, and source-specific limits.
-- [Automatic geographic context and retained reference snapshots](analysis-geographic-context.md)
+- [Geographic context and retained reference snapshots](analysis-geographic-context.md)
   describes road, venue, building and neighbourhood candidates, historical map
   snapshots, private reference downloads and operator configuration.
 

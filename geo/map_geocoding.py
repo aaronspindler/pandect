@@ -9,6 +9,7 @@ from django.db.models.functions import Cast, JSONObject
 
 from core.analysis.navigation import finding_url
 from core.analysis.services import start_run
+from core.evidence.queries import scoped_evidence
 from core.models import AnalysisReview, AnalysisRun
 from geo.analysis.deterministic.locations import coordinate
 from geo.analysis.external.geocoding import MAX_LOOKUPS, Geocoder
@@ -25,7 +26,7 @@ def local_geocoder_ready():
 
 
 def latest_local_run(case, kind):
-    """Correlate source ID/checksum in the page query, rather than per-row reads."""
+    """Correlate source ID/checksum for already paginated address observations."""
     source = JSONObject(
         kind=Value(kind),
         evidence_id=Cast(OuterRef("id"), CharField()),
@@ -48,10 +49,11 @@ def latest_local_run(case, kind):
 def address_estimates(case, rows):
     """Resolve at most one latest local run per visible immutable original.
 
-    The page query selects run IDs without loading historical result JSON.
-    Shared results/reviews are loaded once, and released after their rows are read.
+    Paginate before correlating analysis history so off-page observations never
+    scan lookup runs. Shared results/reviews are loaded once for visible rows.
     """
     by_run = {}
+    by_kind = defaultdict(list)
     for row in rows:
         if row["latitude"] is not None:
             continue
@@ -66,11 +68,22 @@ def address_estimates(case, rows):
         if not row["address"].strip() or len(row["address"]) > 2_000:
             row["geocode"]["label"] = "Address is unsupported for lookup"
             continue
-        run_id = row["geocode_run_id"]
-        if run_id:
-            by_run.setdefault(run_id, []).append(row)
-        else:
-            row["geocode"]["new"] = True
+        by_kind[row["kind"]].append(row)
+    for kind, sources in by_kind.items():
+        run_ids = {
+            (source_id, checksum): run_id
+            for source_id, checksum, run_id in scoped_evidence(case, kind)
+            .filter(pk__in=[row["id"] for row in sources])
+            .order_by()
+            .annotate(geocode_run_id=latest_local_run(case, kind))
+            .values_list("pk", "sha256", "geocode_run_id")
+        }
+        for row in sources:
+            run_id = run_ids.get((row["id"], row["sha256"]))
+            if run_id:
+                by_run.setdefault(run_id, []).append(row)
+            else:
+                row["geocode"]["new"] = True
     reviews_by_result = defaultdict(dict)
     reviews = (
         AnalysisReview.objects.filter(

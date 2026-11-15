@@ -1,5 +1,15 @@
 from django import forms
 from django.core import signing
+from django.utils import timezone
+
+
+def localize_datetime_labels(form):
+    """Keep date/time input labels aligned with Django's active timezone."""
+    for field in form.fields.values():
+        if isinstance(field, forms.DateTimeField) and field.label:
+            field.label = field.label.replace(
+                "(UTC", f"({timezone.get_current_timezone_name()}"
+            )
 
 
 class SignedRevisionForm(forms.ModelForm):

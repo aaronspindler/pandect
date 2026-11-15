@@ -73,8 +73,21 @@ INPUT_GUIDANCE = {
     ),
     "conversation_import": (
         "The documented iMessage HTML export profile, up to 2 MiB/500 rows. "
-        "Map the exact source account labels to case people and select the "
+        "Map two exact source account labels to case people and select the "
         "export timezone. Unmapped labels stay unresolved."
+    ),
+    "sessions": (
+        "Retained text messages, grouped by reported participants and message "
+        "times. Session boundaries are inferred and can be adjusted."
+    ),
+    "comm_patterns": (
+        "Retained text messages with reported participants and message times. "
+        "Use Call patterns under Explore patterns for call counts and durations."
+    ),
+    "session_summaries": (
+        "Retained text messages, summarized in inferred session groups. For "
+        "call transcripts, choose Inspect keywords and topics with a "
+        "source-cited topic summary."
     ),
 }
 
@@ -132,21 +145,21 @@ OPERATIONS = {
         additional_on_evidence=True,
     ),
     "session_summaries": Operation(
-        "Summarize selected conversations",
+        "Summarize message sessions",
         phone_ai.session_summaries,
-        COMMUNICATIONS,
+        ("text-message",),
         additional_on_evidence=True,
         version="2",
     ),
     "sessions": Operation(
-        "Read inferred conversation sessions",
+        "Read inferred message sessions",
         conversations.conversation_sessions,
-        COMMUNICATIONS,
+        ("text-message",),
     ),
     "comm_patterns": Operation(
-        "Inspect communication timing",
+        "Inspect message timing",
         conversations.interaction_patterns,
-        COMMUNICATIONS,
+        ("text-message",),
     ),
     "conversation_link": Operation(
         "Compare exchanges across channels",
@@ -254,7 +267,7 @@ OPERATION_GROUPS = {
     },
     "Inspect communications": {
         "sessions": (
-            "Read inferred sessions with reported participants and event times."
+            "Read inferred message sessions with reported participants and event times."
         ),
         "comm_patterns": (
             "Compare recorded message counts, intervals and selected periods."
@@ -262,7 +275,9 @@ OPERATION_GROUPS = {
         "conversation_link": (
             "Compare exchanges across channels using reported timing and wording."
         ),
-        "session_summaries": "Review source-cited suggestions about selected sessions.",
+        "session_summaries": (
+            "Review source-cited summaries of selected message sessions."
+        ),
         "conversation_import": (
             "Import mapped message rows and identify rows that need correction."
         ),

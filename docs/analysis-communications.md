@@ -111,14 +111,23 @@ Unknown or overlapping periods produce no interval.
 
 ## Conversation sessions and interaction
 
+**Read inferred message sessions**, **Inspect message timing**, and **Summarize
+message sessions** accept Text message evidence. Phone calls, FaceTime
+records, and their transcripts are not message-session inputs. To summarize or
+inspect claims in supplied call transcripts or retained transcriptions, select
+their exact retained sources in **Inspect keywords and topics** or **Suggest
+claims and commitments**. Cross-channel comparison below also accepts calls.
+
 `sessions` orders selected messages by reported event time, breaking equal-time
 ties by retained message/source IDs. Missing-time messages form unresolved
 singletons and never bridge timed exchanges. Source-native participant context,
 when present, remains scoped to its retained export. Otherwise same-case reported
 participant pairs determine a comparison stream; these links do not verify
-identity. The default gap boundary is 120 minutes; `gap_minutes` supports
-1–10,080 minutes. A greeting after a farewell and at least five observed minutes
-is an optional disclosed content boundary (`greeting_boundaries`).
+identity. The investigator form starts with a 60-minute gap boundary and accepts
+1–10,080 minutes. If `gap_minutes` is omitted, including when the optional field
+is cleared, the processor uses 120 minutes. A greeting after a farewell and at
+least five observed minutes is a disclosed content boundary, enabled by default;
+the internal `greeting_boundaries` parameter is not an investigator form control.
 
 The session reader retains original messages, order, boundary reasons, reported
 participant associations, native message/thread/reply references when supplied,
@@ -142,8 +151,11 @@ initiation; it reports a fragment of the same disclosed session. Unknown-time
 sessions have unknown spans. Missing export periods are unknown coverage.
 
 `conversation_link` proposes adjacent exchanges across messages, Phone calls,
-and FaceTime using recorded participant/time context. `window_minutes` defaults
-to 180 and supports 0–10,080; zero compares only equal recorded times. Content wording overlap is labelled as a separate
+and FaceTime using recorded participant/time context. The investigator form starts
+with a 10-minute comparison window and accepts 0–1,440 minutes, saved as
+`time_window_minutes`. If no window is supplied, the processor uses 180 minutes;
+its internal `window_minutes` parameter supports 0–10,080 minutes. Zero compares
+only equal recorded times. Content wording overlap is labelled as a separate
 weak cue. Metadata-only calls supply ordering, not invented speech. Optional
 `semantic_links` uses model-based two-sided quotation citations to propose
 continued topics, events, and earlier references. A completed semantic candidate
@@ -153,8 +165,8 @@ link. Temporal adjacency and shared topics do not prove the same event or
 causation; “that place” can retain several possible referents. Temporal output is
 limited to 250 candidates with omitted counts and partial coverage disclosed.
 
-`session_summaries` sends only inferred-session/message-boundary chunks to the
-shared content path: at most 16,000 characters per chunk and 20 chunks per run.
+`session_summaries` sends only selected Text messages in inferred-session chunks
+to the shared content path: at most 16,000 characters per chunk and 20 chunks per run.
 Every summary states its chunk/source selection. A missing or oversized chunk
 must not silently become an apparently complete history. These concepts adapt
 [iMessageLLM's documented workflow](https://github.com/aaronspindler/iMessageLLM)
@@ -177,14 +189,19 @@ selected zone. Ambiguous or nonexistent daylight-saving times, timestamps over
 255 characters, and malformed rows remain unresolved. Missing times remain
 unknown.
 
-`sender_map` explicitly maps each raw source label to an existing same-case
-Person UUID. `recipient_map` explicitly maps each sender label to its selected
-recipient Person UUID when the source lacks a recipient field. Optional
-`span.recipient` uses its own explicitly mapped source label. No label is reduced
-to “Them,” and no person or recipient is guessed from “Me,” a display name,
-timing, or a two-person assumption. Group labels retain full source context;
-the existing two-person message relationship is a reported selected association,
-not an assertion that the source had only two members.
+The investigator form exposes **two source account labels**, initially `Me` and
+`Them`. Enter the exact labels used by the export and select an existing same-case
+person for each. The form creates a `sender_map` for those two labels and a
+reciprocal `recipient_map`: when a row lacks an explicit recipient, the person
+selected for the other label is its reported recipient. An optional
+`span.recipient` must name one of the mapped labels. Other sender or recipient
+labels remain unresolved; the UI does not expose an arbitrary multi-account map.
+
+The processor accepts broader explicit `sender_map` and `recipient_map`
+dictionaries internally. That capability does not expand the investigator form.
+No person is guessed from a label, display name, or timing. Group labels retain
+full source context; the selected sender/recipient association does not assert
+that the source had only two members.
 
 The tested optional context extension preserves only what the source supplies:
 
@@ -200,7 +217,9 @@ Missing fields stay unknown. An edit/deletion marker does not recover earlier
 or deleted content. Attachment references are not private file access or verified
 availability. No arbitrary path is opened and no public storage URL is created.
 
-Preparation writes no messages. At current-authorized atomic publication,
+**Start analysis** queues parsing and publication with the selected mapping and
+timezone. There is no separate row-preview confirmation step as in vehicle CSV
+imports. Preparation writes no messages. At current-authorized atomic publication,
 `apply_import` creates each mapped message and immutable `CommunicationContext`
 with the retained document, checksum, parser version, timezone, row and exact
 HTML character range. Unresolved rows stay visible in the partial result for
@@ -210,6 +229,10 @@ interpretation is rejected for review instead of replacing the earlier original.
 Each mapped body is stored once in the retained result as the finding text used
 for publication. The shared analysis result limit still applies to the complete
 result.
+
+Imported messages do not individually queue automatic local checks. Select them
+for additional analysis or use case **Rerun all analysis** after import to queue
+the supported local checks.
 
 Import method version `3` uses parser `imessage-html-v3` with the same supported
 HTML profile. It handles valueless optional attributes, flags oversized timestamps

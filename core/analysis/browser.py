@@ -103,6 +103,107 @@ class AnalysisBrowserTests(BrowserTestCase):
         self._complete(run.pk)
         return run.pk
 
+    def test_message_analysis_sources_and_keyboard_flow_without_javascript(self):
+        person = Person.objects.get(case=self.case)
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic message for session analysis",
+            sender=person,
+            recipient=person,
+            occurred_at=datetime(2026, 11, 15, 12, tzinfo=UTC),
+            body="The proposed meeting is at noon.",
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                chooser = self.url("core:analysis:create", case_id=self.case.pk)
+                for label in (
+                    "Read inferred message sessions",
+                    "Inspect message timing",
+                    "Summarize message sessions",
+                ):
+                    page.goto(chooser)
+                    group = page.locator(".analysis-section > summary").filter(
+                        has_text="Inspect communications"
+                    )
+                    group.focus()
+                    group.press("Enter")
+                    link = page.get_by_role("link", name=label, exact=True)
+                    link.focus()
+                    expect(link).to_be_focused()
+                    link.press("Enter")
+                    expect(page.get_by_role("heading", name=label)).to_be_visible()
+                    choices = page.locator('input[name="sources"]')
+                    expect(choices).to_have_count(1)
+                    expect(choices).to_have_value(f"text-message:{message.pk}")
+                    expect(
+                        page.get_by_text("Synthetic metadata-only call")
+                    ).to_have_count(0)
+                    expect(page.get_by_text(self.text.title)).to_have_count(0)
+                    guidance = page.locator(".disclosure").filter(
+                        has_text="Supported sources"
+                    )
+                    guidance.locator("summary").press("Enter")
+                    expect(guidance.locator("p")).to_be_visible()
+
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (1440, 1024, "tall-desktop"),
+                    (768, 1024, "tablet"),
+                    (390, 844, "mobile"),
+                    (320, 844, "reflow"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"message-analysis-{label}")
+                    if label in {"desktop", "mobile", "reflow"}:
+                        page.screenshot(
+                            path=str(
+                                self.artifacts
+                                / f"{engine}-message-guidance-{label}.png"
+                            ),
+                            full_page=True,
+                        )
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self._assert_reflow(page)
+                self.capture(page, engine, "message-analysis-large-text")
+                page.reload()
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "message-analysis-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "message-analysis-forced-colors")
+                page.emulate_media(forced_colors="none")
+
+                page.goto(chooser + "?operation=sessions")
+                source = page.get_by_label(
+                    f"Text message · {message.title}", exact=True
+                )
+                source.focus()
+                expect(source).to_be_focused()
+                self.assertNotEqual(
+                    source.evaluate("node => getComputedStyle(node).outlineStyle"),
+                    "none",
+                )
+                source.press("Space")
+                button = page.get_by_role("button", name="Start analysis", exact=True)
+                button.focus()
+                button.press("Enter")
+                expect(
+                    page.get_by_role("status").filter(has_text=re.compile(r"^Queued$"))
+                ).to_be_visible()
+                run_id = UUID(page.url.rstrip("/").split("/")[-1])
+                self.db(self._complete, run_id)
+                page.get_by_role("link", name="Refresh status", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Inferred session 1", exact=True)
+                ).to_be_visible()
+                expect(page.get_by_text(message.body, exact=True)).to_be_visible()
+
     def test_rerun_all_with_keyboard_without_javascript(self):
         def finish_preparation():
             batch = CaseAnalysisBatch.objects.filter(case=self.case).first()

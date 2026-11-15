@@ -21,7 +21,7 @@
 {% if run.status == 'failed' %}<p class="notice">Processing could not finish. {{ error_message }} {% if can_edit %}Open Processing details below to try again.{% endif %} Earlier evidence is retained.</p>{% endif %}
 {% if source_review_changed %}<p class="notice">A geographic estimate used by this run has a different current review. This retained result preserves the earlier accepted estimate and its review attribution. New processing requires current acceptance.</p>{% endif %}
 {% if source_unavailable %}<p class="notice">A selected source is unavailable or changed. The result is withheld until its exact retained inputs can be verified.</p>{% endif %}
-{% if run.previous_run %}<p>Earlier run: <a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">{{ run.previous_run.created_at|date:'d M Y, H:i:s' }} UTC</a></p>{% endif %}
+{% if run.previous_run %}<p>Earlier run: <a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">{{ run.previous_run.created_at|date:'d M Y, H:i:s T' }}</a></p>{% endif %}
 
 {% if result and show_result_overview %}
 <section class="analysis-result-overview" aria-labelledby="analysis-result-summary">
@@ -101,7 +101,7 @@
     {% if run.operation == 'geocode_locations' %}
     <p class="muted">Review applies to individual candidates.</p>
     {% else %}
-    <p class="muted">Result review: <strong>{% if latest_result_review %}{{ latest_result_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if latest_result_review %} · {{ latest_result_review.reviewed_by }} · {{ latest_result_review.created_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
+    <p class="muted">Result review: <strong>{% if latest_result_review %}{{ latest_result_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if latest_result_review %} · {{ latest_result_review.reviewed_by }} · {{ latest_result_review.created_at|date:'d M Y, H:i:s T' }}{% endif %}</p>
     {% endif %}
 
   {% if reviews %}<details class="disclosure">
@@ -110,7 +110,7 @@
     {% for review in reviews %}
     <article>
       <h3>{{ review.get_decision_display }}{% if review.item_index != None %} · Finding {{ review.item_index|add:1 }}{% endif %}</h3>
-      <p class="muted">{{ review.reviewed_by }} · {{ review.created_at|date:'d M Y, H:i:s' }} UTC</p>
+      <p class="muted">{{ review.reviewed_by }} · {{ review.created_at|date:'d M Y, H:i:s T' }}</p>
       <div class="original-text">{{ review.comment }}</div>
     </article>
     {% endfor %}
@@ -134,7 +134,7 @@
 <details class="analysis-section analysis-run-details"{% if run.status == 'failed' %} open{% endif %}>
   <summary id="run-details">Processing details</summary>
   {% if evidence_analysis_url %}<p><a class="record-link" href="{{ evidence_analysis_url }}">All findings for this evidence</a></p>{% endif %}
-  <p class="muted">{{ run.get_status_display }} · {{ run.created_at|date:'d M Y, H:i' }} UTC</p>
+  <p class="muted">{{ run.get_status_display }} · {{ run.created_at|date:'d M Y, H:i T' }}</p>
   {% if result and not show_result_overview %}<p>{{ data.summary }}</p>{% endif %}
   {% if result %}<a class="record-link" href="{% url 'core:analysis:download' case.pk run.pk %}">Download results</a>{% endif %}
 {% if sources %}
@@ -160,7 +160,7 @@
   {% if metrics %}<details class="disclosure"><summary>Processing summary</summary>{% include 'core/analysis/measurements.html' with measurements=metrics only %}</details>{% endif %}
   <details class="disclosure">
     <summary>Method and settings</summary>
-    <p class="muted">Requested by {{ run.requested_by }} · {{ run.created_at|date:'d M Y, H:i:s' }} UTC</p>
+    <p class="muted">Requested by {{ run.requested_by }} · {{ run.created_at|date:'d M Y, H:i:s T' }}</p>
     <h3>Method and assumptions</h3><p>Method version: {{ run.method_version }}. {{ processing.label }}.{% if processing.legacy %} This run predates execution pinning; its original approval is retained.{% endif %}</p>{% if processing.model %}<p>Model: {{ processing.model }}{% if processing.runtime %} · Runtime: {{ processing.runtime }}{% endif %}</p>{% endif %}{% include 'core/analysis/measurements.html' with measurements=assumptions only %}
   </details>
 {% if can_edit and can_retry %}

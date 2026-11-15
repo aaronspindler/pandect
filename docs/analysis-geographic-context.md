@@ -1,10 +1,12 @@
-# Automatic geographic context
+# Geographic context lookup
 
 **Look up geographic context** obtains road, venue, building and neighbourhood
 candidates around selected location observations. It is separate from the local
 **Group nearby observations** operation, which still needs no external service.
 The same methods accept Location, Person location and Vehicle location evidence.
 They do not assign unlinked observations to a person or identify a driver.
+Investigators deliberately select this lookup; adding evidence does not queue it
+among the automatic local checks.
 
 ## From miTrail records to context
 

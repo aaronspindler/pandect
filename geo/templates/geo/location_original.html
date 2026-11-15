@@ -4,8 +4,8 @@
     {% if kind == 'person-location' %}<div><dt>Reported person</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.person_id %}">{{ item.person }}</a></dd></div>{% elif kind == 'vehicle-location' %}<div><dt>Reported vehicle</dt><dd><a href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=item.vehicle_id %}">{{ item.vehicle }}</a></dd></div>{% endif %}
     {% if item.address %}<div><dt>Address</dt><dd>{{ item.address|linebreaksbr }}</dd></div>{% endif %}
     {% if item.latitude is not None %}<div><dt>Coordinates (latitude, longitude)</dt><dd>{{ item.latitude }}, {{ item.longitude }}</dd></div>{% endif %}
-    {% if item.observed_at %}<div><dt>Observed at</dt><dd>{{ item.observed_at|date:"d M Y, H:i:s" }} UTC</dd></div>{% endif %}
-    {% if kind == 'vehicle-location' and item.received_at %}<div><dt>Receipt time</dt><dd>{{ item.received_at|date:"d M Y, H:i:s" }} UTC</dd></div>{% endif %}
+    {% if item.observed_at %}<div><dt>Observed at</dt><dd>{{ item.observed_at|date:"d M Y, H:i:s T" }}</dd></div>{% endif %}
+    {% if kind == 'vehicle-location' and item.received_at %}<div><dt>Receipt time</dt><dd>{{ item.received_at|date:"d M Y, H:i:s T" }}</dd></div>{% endif %}
     {% if kind == 'vehicle-location' and item.speed_kmh is not None %}<div><dt>Speed</dt><dd>{{ item.speed_kmh }} km/h</dd></div>{% endif %}
   </dl>
   {% if item.import_batch_id %}

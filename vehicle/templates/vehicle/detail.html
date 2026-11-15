@@ -36,7 +36,7 @@
 {% if vehicle.model %}<div><dt>Model</dt><dd>{{ vehicle.model }}</dd></div>{% endif %}
 {% if vehicle.year %}<div><dt>Year</dt><dd>{{ vehicle.year }}</dd></div>{% endif %}
 </dl>{% endif %}
-<dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ vehicle.created_at|date:'c' }}">{{ vehicle.created_at|date:"j M Y, H:i" }} UTC</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ vehicle.updated_at|date:'c' }}">{{ vehicle.updated_at|date:"j M Y, H:i" }} UTC</time></dd></div></dl>
+<dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ vehicle.created_at|date:'c' }}">{{ vehicle.created_at|date:"j M Y, H:i T" }}</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ vehicle.updated_at|date:'c' }}">{{ vehicle.updated_at|date:"j M Y, H:i T" }}</time></dd></div></dl>
 {% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'vehicle:delete' case_id=case.pk vehicle_id=vehicle.pk %}">Delete vehicle</a></div>{% endif %}
 </div>
 </details>

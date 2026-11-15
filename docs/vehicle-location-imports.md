@@ -22,7 +22,9 @@ no case-access bypass.
    **Refresh status** link. No location observations exist yet. Leaving retains
    the source; reopen its Document evidence and choose **Continue vehicle location
    import**.
-3. Inspect the paginated original values and interpreted UTC timestamps. The
+3. Inspect the paginated original values and interpreted timestamps, displayed in
+   your [account/device timezone](cases.md#account-settings). The selected export
+   timezone still determines how the CSV is interpreted. The
    upload vehicle preselects every distinct `(Asset, Serial Number)` pair; change
    individual choices if needed, or select them all here if none was chosen.
    Assets do not automatically create vehicles or overwrite vehicle details.

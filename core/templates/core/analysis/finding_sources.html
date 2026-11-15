@@ -8,7 +8,7 @@
       {% if source.derived %}<span class="muted">{{ source.derived_label }}</span><a href="{{ source.original_url }}">Open original</a>{% endif %}
     </div>
     {% if source.coordinates %}
-    <p class="muted">{{ source.coordinate_label }} · {{ source.coordinates.0 }}, {{ source.coordinates.1 }}{% if source.observed_at %} · {{ source.observed_at|date:'d M Y, H:i:s' }} UTC{% endif %}</p>
+    <p class="muted">{{ source.coordinate_label }} · {{ source.coordinates.0 }}, {{ source.coordinates.1 }}{% if source.observed_at %} · {{ source.observed_at|date:'d M Y, H:i:s T' }}{% endif %}</p>
     {% endif %}
     {% if source.reviewed_coordinates %}
     <p class="muted">Reviewed estimate · {{ source.reviewed_coordinates.0 }}, {{ source.reviewed_coordinates.1 }}</p>

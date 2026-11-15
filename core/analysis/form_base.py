@@ -3,12 +3,14 @@
 from uuid import uuid4
 
 from django import forms
+from django.utils import timezone
 
 from core.analysis.execution import processing_external, requires_inference
 from core.analysis.operations import OPERATIONS, get_operation
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.models import AnalysisResult
+from ui.forms import localize_datetime_labels
 
 SOURCE_CHOICE_LIMIT = 500
 EXTRACTIONS_BY_KIND = {
@@ -68,7 +70,7 @@ def source_choices(case, operation, query="", *, evidence=None):
                         (
                             f"{kind}:{item.pk}:{x.pk}",
                             f"{caption} · Supplied transcript "
-                            f"{x.created_at:%d %b %Y %H:%M} UTC",
+                            f"{timezone.localtime(x.created_at):%d %b %Y %H:%M %Z}",
                         )
                         for x in additions[
                             : min(50, SOURCE_CHOICE_LIMIT - len(choices))
@@ -104,7 +106,7 @@ def source_choices(case, operation, query="", *, evidence=None):
                     prefix = f"{kind}:{item.pk}:{attachment}:{result.pk}"
                     label = (
                         f"{caption} · {get_operation(result.run.operation).label} · "
-                        f"{result.created_at:%d %b %Y %H:%M} UTC"
+                        f"{timezone.localtime(result.created_at):%d %b %Y %H:%M %Z}"
                     )
                     if result.run.operation == "geocode_locations":
                         if result.pk not in geocode_candidates:
@@ -233,6 +235,7 @@ class BaseAnalysisForm(forms.Form):
         self.fields["sources"].choices = choices
         if evidence is not None and choices:
             self.initial["sources"] = [choices[0][0]]
+        localize_datetime_labels(self)
 
     @property
     def assumptions(self):

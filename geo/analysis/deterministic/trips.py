@@ -211,6 +211,6 @@ def vehicle_trip_report(case, state, vehicle_id, start, end, limit):
         "warnings": warnings,
         "coverage": (
             f"Based on {len(records)} of {available} matching observations. "
-            "Times are UTC."
+            "Times reflect reported observations."
         ),
     }

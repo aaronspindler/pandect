@@ -14,8 +14,8 @@
           <p><strong>{{ case.name|default:case }}</strong></p>
           <dl>
             <div><dt>Owner</dt><dd>{{ case.owner.get_username }}</dd></div>
-            <div><dt>Created</dt><dd><time datetime="{{ case.created_at|date:'c' }}">{{ case.created_at|date:'j M Y, H:i' }} UTC</time></dd></div>
-            <div><dt>Updated</dt><dd><time datetime="{{ case.updated_at|date:'c' }}">{{ case.updated_at|date:'j M Y, H:i' }} UTC</time></dd></div>
+            <div><dt>Created</dt><dd><time datetime="{{ case.created_at|date:'c' }}">{{ case.created_at|date:'j M Y, H:i T' }}</time></dd></div>
+            <div><dt>Updated</dt><dd><time datetime="{{ case.updated_at|date:'c' }}">{{ case.updated_at|date:'j M Y, H:i T' }}</time></dd></div>
           </dl>
           {% if case.description %}<div class="prose"><h3>Case description</h3>{{ case.description|linebreaks }}</div>{% endif %}
         </section>

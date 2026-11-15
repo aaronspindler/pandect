@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sys
+from datetime import UTC, datetime
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
@@ -63,6 +64,112 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             )
             for number in range(1, 26)
         ]
+
+    def test_device_timezone_and_account_override(self):
+        item = self.records[0]
+        item.collected_at = datetime(2026, 7, 1, 0, 30, tzinfo=UTC)
+        item.save()
+        detail_url = self.url(
+            "core:evidence:detail",
+            case_id=self.case.pk,
+            kind="text",
+            evidence_id=item.pk,
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, timezone_id="America/Toronto") as (
+                    context,
+                    page,
+                ),
+            ):
+                self.sign_in(page)
+                self.assertTrue(
+                    any(
+                        cookie["name"] == "pandect_timezone"
+                        and cookie["value"] == "America/Toronto"
+                        for cookie in context.cookies()
+                    )
+                )
+                page.goto(detail_url)
+                info = self.open_evidence_panel(page, "info")
+                expect(info).to_contain_text("30 Jun 2026, 20:30 EDT")
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (1440, 1024, "tall-desktop"),
+                    (768, 1024, "tablet"),
+                    (390, 844, "mobile"),
+                    (320, 844, "reflow"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"timezone-evidence-{label}")
+                page.goto(self.url("account_timezone"))
+                expect(page.locator("main")).to_contain_text("America/Toronto")
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (1440, 1024, "tall-desktop"),
+                    (768, 1024, "tablet"),
+                    (390, 844, "mobile"),
+                    (320, 844, "reflow"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"timezone-settings-{label}")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 321
+                )
+                self.capture(page, engine, "timezone-settings-large-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "timezone-settings-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "timezone-settings-forced-colors")
+                page.emulate_media(forced_colors="none")
+                field = page.get_by_label("Timezone", exact=True)
+                field.focus()
+                expect(field).to_be_focused()
+                field.select_option("Asia/Kolkata")
+                page.get_by_role("button", name="Save changes").press("Enter")
+                expect(page.get_by_role("status")).to_contain_text("Timezone saved")
+                expect(page.locator("main")).to_contain_text("Asia/Kolkata")
+                page.goto(detail_url)
+                info = self.open_evidence_panel(page, "info")
+                expect(info).to_contain_text("01 Jul 2026, 06:00 IST")
+                # Restore automatic mode before testing the next browser engine.
+                page.goto(self.url("account_timezone"))
+                page.get_by_label("Timezone", exact=True).select_option("")
+                page.get_by_role("button", name="Save changes").click()
+                expect(page.locator("main")).to_contain_text("America/Toronto")
+
+    def test_timezone_setting_works_without_javascript(self):
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("account_timezone"))
+                page.get_by_label("Timezone", exact=True).select_option(
+                    "America/Toronto"
+                )
+                page.get_by_role("button", name="Save changes").press("Enter")
+                expect(page.locator("main")).to_contain_text("America/Toronto")
+                page.goto(
+                    self.url("core:evidence:create", case_id=self.case.pk)
+                    + "?kind=text"
+                )
+                page.locator("[data-additional-evidence-details] > summary").press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_label("Source collected at (America/Toronto)")
+                ).to_be_visible()
 
     def test_shared_workspace_navigation_and_icon_tooltips(self):
         Person.objects.create(case=self.case, first_name="Synthetic contact")

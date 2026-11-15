@@ -188,10 +188,14 @@ Choose **Text message**, **Phone call**, or **FaceTime** inside the case's Add
 evidence workflow. Sender and recipient are required existing people in that
 case; they may be the same person. Add people first when the case has none.
 A message captures exactly one original message, not a conversation thread.
-Optional **Sent at (UTC)** or **Call started at (UTC)** records reported event
+Optional **Sent at** or **Call started at** records reported event
 time, separately from source collection and upload time. Calls also accept an
 optional reported duration such as `00:01:30`; zero is valid and blank is unknown.
 No time, duration, or identity is inferred.
+
+Date/time fields and displayed timestamps use your [account/device timezone](cases.md#account-settings),
+shown in the field label. Stored instants and canonical event timestamps in
+original downloads remain UTC.
 
 Participants, reported time/duration, and message text are immutable originals.
 Names shown in the reader follow current person records, while retained UUIDs
@@ -254,7 +258,7 @@ An address can contain up to 20,000 characters and is preserved without
 trimming. Coordinates use WGS 84 decimal degrees with up to six decimal places.
 Supply both latitude (-90 to 90) and longitude (-180 to 180), or neither. At
 least a non-whitespace address or a coordinate pair is required. Zero is a valid
-coordinate. Optional **Observed at (UTC)** records the time reported by the
+coordinate. Optional **Observed at** records the time reported by the
 source, separately from source collection time and the time the record was
 added. Unknown values remain unknown. The map and location analysis distinguish
 reported coordinates from derived estimates.

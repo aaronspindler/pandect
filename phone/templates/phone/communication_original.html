@@ -3,7 +3,7 @@
   <dl class="metadata-grid">
     <div><dt>Sender</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.sender_id %}">{{ item.sender }}</a></dd></div>
     <div><dt>Recipient</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.recipient_id %}">{{ item.recipient }}</a></dd></div>
-    <div><dt>{% if is_call %}Call started at{% else %}Sent at{% endif %}</dt><dd>{% if item.occurred_at %}{{ item.occurred_at|date:"d M Y, H:i:s" }} UTC{% else %}Not recorded{% endif %}</dd></div>
+    <div><dt>{% if is_call %}Call started at{% else %}Sent at{% endif %}</dt><dd>{% if item.occurred_at %}{{ item.occurred_at|date:"d M Y, H:i:s T" }}{% else %}Not recorded{% endif %}</dd></div>
     {% if is_call %}<div><dt>Reported duration</dt><dd>{{ item.duration|default_if_none:"Not recorded" }}</dd></div>{% endif %}
   </dl>
   {% if not is_call %}<h3>Original message</h3><div class="original-text">{{ item.body }}</div>{% endif %}

@@ -11,7 +11,7 @@
 <summary>Record details</summary>
 <div class="disclosure-body">
 {% if poi.notes %}<h2>Saved notes</h2><div class="prose">{{ poi.notes|linebreaks }}</div>{% endif %}
-<dl class="metadata-grid"><div><dt>Added by</dt><dd>{{ poi.created_by }}</dd></div><div><dt>Created</dt><dd>{{ poi.created_at|date:"j M Y, H:i" }} UTC</dd></div><div><dt>Updated</dt><dd>{{ poi.updated_at|date:"j M Y, H:i" }} UTC</dd></div></dl>
+<dl class="metadata-grid"><div><dt>Added by</dt><dd>{{ poi.created_by }}</dd></div><div><dt>Created</dt><dd>{{ poi.created_at|date:"j M Y, H:i T" }}</dd></div><div><dt>Updated</dt><dd>{{ poi.updated_at|date:"j M Y, H:i T" }}</dd></div></dl>
 {% if can_edit %}<div class="danger-section"><a class="button button-danger" href="{% url 'geo:poi_delete' case.pk poi.pk %}">Delete POI</a></div>{% endif %}
 </div>
 </details>

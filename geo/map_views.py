@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Case, CharField, Q, Value, When
+from django.db.models import CharField, Q, Value
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -18,7 +18,6 @@ from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS, LOCATION_KINDS
 from geo.map_geocoding import (
     address_estimates,
-    latest_local_run,
     local_geocoder_ready,
     queue_addresses,
 )
@@ -49,12 +48,6 @@ def map_page(request, case):
         queries.append(
             queryset.annotate(
                 kind=Value(location_kind, output_field=CharField()),
-                geocode_run_id=Case(
-                    When(
-                        latitude__isnull=True,
-                        then=latest_local_run(case, location_kind),
-                    )
-                ),
             ).values(
                 "id",
                 "kind",
@@ -67,7 +60,6 @@ def map_page(request, case):
                 "is_archived",
                 "created_at",
                 "sha256",
-                "geocode_run_id",
                 "edited_at",
             )
         )

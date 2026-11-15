@@ -52,7 +52,7 @@
     {% for item in page_obj %}
     <li id="location-{{ item.number }}" data-location-row="{{ item.number }}">
       <div class="map-location-heading"><a class="record-link" href="{{ item.url }}">{{ item.title }}</a><button type="button" class="button button-secondary" data-map-show="{{ item.number }}" aria-label="Show {{ item.title }} on map" hidden>Show on map</button></div>
-      <p class="muted">{{ item.kind_label }}{% if item.is_archived %} · Archived{% endif %} · {% if item.observed_at %}{{ item.observed_at|date:'j M Y, H:i:s' }} UTC{% else %}Time unknown{% endif %}</p>
+      <p class="muted">{{ item.kind_label }}{% if item.is_archived %} · Archived{% endif %} · {% if item.observed_at %}{{ item.observed_at|date:'j M Y, H:i:s T' }}{% else %}Time unknown{% endif %}</p>
       {% if item.address %}<p>{{ item.address }}</p>{% endif %}
       <p>{% if item.latitude != None %}<span class="map-coordinates">{{ item.latitude }}, {{ item.longitude }}</span>{% if not item.plottable %} · Outside map display range{% endif %}{% else %}Address only · <span data-geocode-label>{{ item.geocode.label }}</span> <a href="{{ item.geocode.url }}" data-geocode-review {% if not item.geocode.url %}hidden{% endif %}>Review lookup</a>{% endif %}</p>
       {% if item.source %}<p class="muted">Source: {{ item.source }}</p>{% endif %}

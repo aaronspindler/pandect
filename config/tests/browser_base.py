@@ -104,7 +104,7 @@ class BrowserTestCase(StaticLiveServerTestCase):
             context = self.browsers[engine].new_context(
                 viewport={"width": 1440, "height": 900},
                 locale="en-US",
-                timezone_id="UTC",
+                timezone_id=options.pop("timezone_id", "UTC"),
                 color_scheme="light",
                 accept_downloads=True,
                 **options,

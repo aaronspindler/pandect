@@ -4,6 +4,7 @@ from copy import deepcopy
 
 from django.template.loader import render_to_string
 from django.test import TestCase
+from django.utils import timezone
 
 from core.analysis.presentation import measurement_formatter
 from core.analysis.sources import Source, source_id
@@ -84,3 +85,30 @@ class AnalysisPresentationTests(EvidenceViewTestMixin, TestCase):
         content = self.show({"Recorded intervals": list(range(205))})
         self.assertIn("First 200 values shown", content)
         self.assertIn("download retains all values", content)
+
+    def test_structured_instants_are_localized_without_rewriting_source_values(self):
+        values = {
+            "Observed at (UTC)": "2026-07-01T00:30:00.123456+00:00",
+            "first_recorded_at": "2026-01-01T00:30:00+00:00",
+            "Raw": "2026-07-01T00:30:00+00:00",
+            "Text": "2026-07-01T00:30:00+00:00",
+            "Event time": "2026-02-30T00:30:00+00:00",
+            "Last observed": "2026-07-01T00:30:00",  # No timezone was supplied.
+            "Coverage": {
+                "Window start (inclusive)": "2026-07-01T01:00:00+00:00",
+                "Window end (exclusive)": "2026-07-01T02:00:00+00:00",
+            },
+        }
+        before = deepcopy(values)
+        with timezone.override("America/Toronto"):
+            content = self.show(values)
+        self.assertIn("30 Jun 2026, 20:30:00.123456 EDT", content)
+        self.assertIn("31 Dec 2025, 19:30:00 EST", content)
+        self.assertIn("30 Jun 2026, 21:00:00 EDT", content)
+        self.assertIn("30 Jun 2026, 22:00:00 EDT", content)
+        self.assertIn('datetime="2026-07-01T00:30:00.123456+00:00"', content)
+        self.assertNotIn("Observed at (UTC)", content)
+        self.assertIn("2026-07-01T00:30:00+00:00", content)
+        self.assertIn("2026-02-30T00:30:00+00:00", content)
+        self.assertIn("2026-07-01T00:30:00", content)
+        self.assertEqual(values, before)

@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.db import connection
-from django.test import Client, TestCase, override_settings
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -12,6 +12,7 @@ from cases.models import CaseMembership
 from core.analysis.services import process_run
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun, GatewayRequest
 from geo.analysis.external.geocoding import Geocoder, GeocodingError
+from geo.map_views import map_data, map_page
 from geo.models import LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence
 from geo.testing import LOCAL_GEOCODER, MapCaseFixtures
 from people.models import Person
@@ -272,6 +273,71 @@ class LocalMapGeocodingTests(MapCaseFixtures, TestCase):
             [point["label"] for point in data["points"] if point.get("derived")],
             ["Reviewed address estimate"],
         )
+
+    def test_lookup_history_is_resolved_only_after_paginating_observations(self):
+        self.run_lookup()
+        for index in range(102):
+            LocationEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=f"Address observation {index}",
+                address=f"{index} Synthetic road",
+            )
+        request = RequestFactory().get(self.url, {"q": "Address observation"})
+        with CaptureQueriesContext(connection) as queries:
+            page, *_ = map_page(request, self.case)
+        self.assertEqual(page.paginator.count, 103)
+        self.assertEqual(len(page), 100)
+        self.assertFalse(
+            any(AnalysisRun._meta.db_table in query["sql"] for query in queries)
+        )
+        with CaptureQueriesContext(connection) as queries:
+            data = map_data(self.case, page)
+        history_queries = [
+            query["sql"]
+            for query in queries
+            if AnalysisRun._meta.db_table in query["sql"]
+        ]
+        self.assertEqual(len(history_queries), 1)
+        history_sql = history_queries[0].replace("-", "")
+        for row in page:
+            self.assertIn(row["id"].hex, history_sql)
+        self.assertNotIn(self.address.pk.hex, history_sql)
+        self.assertEqual(data["points"], [])
+        self.assertTrue(data["new_addresses"])
+
+        request = RequestFactory().get(
+            self.url, {"q": "Address observation", "page": 2}
+        )
+        page, *_ = map_page(request, self.case)
+        data = map_data(self.case, page)
+        self.assertEqual(len(page), 3)
+        self.assertEqual(data["points"][0]["number"], 103)
+        self.assertEqual(data["points"][0]["title"], self.address.title)
+
+    def test_latest_eligible_local_lookup_takes_precedence(self):
+        older = self.run_lookup()
+        common = {
+            "case": self.case,
+            "requested_by": self.owner,
+            "operation": older.operation,
+            "method_version": older.method_version,
+            "parameters": older.parameters,
+            "inputs": older.inputs,
+        }
+        latest = AnalysisRun.objects.create(**common)
+        AnalysisRun.objects.create(**common, external_processing=True)
+        AnalysisRun.objects.create(
+            **(common | {"parameters": older.parameters | {"reverse": True}})
+        )
+        AnalysisRun.objects.create(
+            **(common | {"inputs": [older.inputs[0] | {"sha256": "0" * 64}]})
+        )
+        data = self.client.get(self.url, HTTP_ACCEPT="application/json").json()
+        self.assertTrue(data["pending"])
+        self.assertFalse(any(point.get("derived") for point in data["points"]))
+        address = next(location for location in data["locations"] if location["url"])
+        self.assertIn(str(latest.pk), address["url"])
 
     def test_no_match_failure_and_explicit_retry(self):
         self.locate()
