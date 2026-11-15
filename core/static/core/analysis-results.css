@@ -585,3 +585,15 @@
     padding-block: 0;
   }
 }
+
+.case-tool-grid, .case-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 2rem;
+}
+.case-tool-grid > .analysis-section { margin-block: 0; }
+.case-tool-grid h2 { margin-bottom: .5rem; }
+.case-tool-grid .record-row { padding-block: .75rem; }
+@media (max-width: 48rem) {
+  .case-tool-grid, .case-report-grid { grid-template-columns: minmax(0, 1fr); }
+}

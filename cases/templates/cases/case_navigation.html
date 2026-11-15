@@ -1,24 +1,5 @@
 {% with route=request.resolver_match %}
-    <a class="app-rail-link" href="{% url 'core:evidence:list' case.pk %}" aria-label="Evidence" data-tooltip="Evidence" title="Evidence"{% if nav_section == 'evidence' or route.namespace == 'core:evidence' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='files' %}<span class="visually-hidden">Evidence</span></a>
-    <a class="app-rail-link" href="{% url 'core:analysis:index' case.pk %}" aria-label="Findings" data-tooltip="Findings" title="Findings"{% if route.namespace == 'core:analysis' and nav_section != 'evidence' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='file-text' %}<span class="visually-hidden">Findings</span></a>
-    <details class="case-tools app-rail-tools" data-disclosure>
-      <summary aria-label="Case tools" data-tooltip="Case tools" title="Case tools"{% if route.namespace == 'cases' or route.namespace == 'people' or route.namespace == 'vehicle' or route.namespace == 'geo' or route.namespace == 'socialmedia' %} class="app-rail-link is-current" aria-current="true"{% else %} class="app-rail-link"{% endif %}>{% include 'ui/components/icon.html' with name='stack' %}<span class="visually-hidden">Case tools</span></summary>
-      <div class="app-rail-panel">
-        <div class="section-header"><h2>Case tools</h2><button class="button button-secondary icon-button" type="button" aria-label="Close case tools" data-tooltip="Close case tools" title="Close case tools" data-close-disclosure hidden>{% include 'ui/components/icon.html' with name='x' %}</button></div>
-        <a class="nav-link" href="{% url 'geo:case_map' case.pk %}"{% if route.url_name == 'case_map' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='map' %} Map</a>
-        <a class="nav-link" href="{% url 'people:list' case.pk %}"{% if route.namespace == 'people' or route.namespace == 'socialmedia' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='users' %} People</a>
-        <a class="nav-link" href="{% url 'vehicle:list' case.pk %}"{% if route.namespace == 'vehicle' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='car' %} Vehicles</a>
-        {% if is_owner %}<a class="nav-link" href="{% url 'cases:case_settings' case.pk %}"{% if route.namespace == 'cases' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='settings' %} Settings</a>{% endif %}
-        <section class="case-details-body rail-details" aria-labelledby="rail-case-details-heading">
-          <h3 id="rail-case-details-heading">Case details</h3>
-          <p><strong>{{ case.name|default:case }}</strong></p>
-          <dl>
-            <div><dt>Owner</dt><dd>{{ case.owner.get_username }}</dd></div>
-            <div><dt>Created</dt><dd><time datetime="{{ case.created_at|date:'c' }}">{{ case.created_at|date:'j M Y, H:i T' }}</time></dd></div>
-            <div><dt>Updated</dt><dd><time datetime="{{ case.updated_at|date:'c' }}">{{ case.updated_at|date:'j M Y, H:i T' }}</time></dd></div>
-          </dl>
-          {% if case.description %}<div class="prose"><h3>Case description</h3>{{ case.description|linebreaks }}</div>{% endif %}
-        </section>
-      </div>
-    </details>
+    <a class="app-rail-link" href="{% url 'core:analysis:index' case.pk %}" aria-label="Case Tools" data-tooltip="Case Tools" title="Case Tools"{% if nav_section != 'evidence' and nav_section != 'processing' and route.namespace != 'core:evidence' or nav_section == 'chronology' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='stack' %}<span class="visually-hidden">Case Tools</span></a>
+    <a class="app-rail-link" href="{% url 'core:evidence:list' case.pk %}" aria-label="Evidence" data-tooltip="Evidence" title="Evidence"{% if nav_section == 'evidence' or route.namespace == 'core:evidence' and nav_section != 'chronology' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='files' %}<span class="visually-hidden">Evidence</span></a>
+    <a class="app-rail-link" href="{% url 'core:analysis:processing' case.pk %}" aria-label="Processing" data-tooltip="Processing" title="Processing"{% if nav_section == 'processing' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='settings' %}<span class="visually-hidden">Processing</span></a>
 {% endwith %}

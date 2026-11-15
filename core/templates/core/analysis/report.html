@@ -1,7 +1,7 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}Report · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to findings</a>
+<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to Case Tools</a>
 <header class="page-header">
   <div>
     <h1>{% if name == 'calls' %}Call patterns{% elif name == 'vehicle-trips' %}Vehicle trips{% elif name == 'vehicle-coverage' %}Vehicle observation coverage{% elif name == 'vehicle-speed' %}Vehicle speed and heading{% else %}Exact file duplicates{% endif %}</h1>

@@ -5,11 +5,15 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.db.models.deletion import RestrictedError
+from django.http import QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
+from core.analysis.catalogue import catalogue_page
+from core.evidence.collection import collection_context
 from people.forms import PersonDeleteForm, PersonForm
 from people.models import Person
 from socialmedia.models import SocialAccount
@@ -63,6 +67,20 @@ def person_list(request, case_id):
 def person_detail(request, case_id, person_id):
     case = get_case(request.user, case_id)
     person = get_object_or_404(Person, case=case, pk=person_id)
+    evidence_params = QueryDict(mutable=True)
+    evidence_params.update({"person": str(person.pk), "state": "all"})
+    evidence_url = (
+        reverse("core:evidence:list", args=[case.pk])
+        + "?"
+        + evidence_params.urlencode()
+    )
+    evidence_params["page"] = request.GET.get("evidence_page", "1")
+    related_evidence = collection_context(case, evidence_params)
+    finding_params = QueryDict(mutable=True)
+    finding_params["findings_page"] = request.GET.get("findings_page", "1")
+    related_findings = catalogue_page(
+        case, finding_params, person=person, page_parameter="findings_page"
+    )
     return render(
         request,
         "people/detail.html",
@@ -70,6 +88,12 @@ def person_detail(request, case_id, person_id):
             **case_context(case, request.user),
             "person": person,
             "social_accounts": person.social_accounts.all(),
+            "related_evidence": related_evidence,
+            "related_findings": related_findings,
+            "related_evidence_url": evidence_url,
+            "related_findings_url": reverse("core:analysis:browse", args=[case.pk])
+            + "?"
+            + urlencode({"person": str(person.pk)}),
             "poi_page": Paginator(person.points_of_interest.all(), 25).get_page(
                 request.GET.get("poi_page")
             ),

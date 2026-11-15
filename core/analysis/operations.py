@@ -17,11 +17,12 @@ from image.analysis import metadata as image_metadata
 from image.analysis.plates import plate_ocr
 from phone.analysis import ai as phone_ai
 from phone.analysis import workflows as phone_workflows
-from phone.analysis.deterministic import conversations
+from phone.analysis.deterministic import conversations, imazing
 from phone.analysis.deterministic import imports as communication_imports
 from text.analysis import ai as text_ai
 from text.analysis import deterministic as text
 from text.analysis import workflows as text_workflows
+from text.analysis.synthesis import synthesize
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ INPUT_GUIDANCE = {
     ),
     "conversation_import": (
         "The documented iMessage HTML export profile, up to 2 MiB/500 rows. "
-        "Map two exact source account labels to case people and select the "
+        "Map exact source account labels to case people and select the "
         "export timezone. Unmapped labels stay unresolved."
     ),
     "sessions": (
@@ -92,6 +93,9 @@ INPUT_GUIDANCE = {
 }
 
 OPERATIONS = {
+    "question_synthesis": Operation(
+        "Answer a question from selected material", synthesize, (*TEXT, *LOCATIONS)
+    ),
     "native_text": Operation(
         "Extract document text", documents.native_text, ("document",)
     ),
@@ -171,6 +175,9 @@ OPERATIONS = {
         communication_imports.prepare_import,
         ("document",),
         version="3",
+    ),
+    "imazing_import": Operation(
+        "Import iMazing messages", imazing.prepare_import, ("document",), version="2"
     ),
     "normalize_addresses": Operation(
         "Compare recorded addresses",
@@ -253,6 +260,9 @@ OPERATION_GROUPS = {
         ),
     },
     "Read and compare text": {
+        "question_synthesis": (
+            "Ask a question using a shared selection of text and findings."
+        ),
         "entities": "Find identifiers and dates with the exact wording they came from.",
         "style_profiles": "Inspect descriptive writing measurements and examples.",
         "style_change": "Compare two writing samples and their coverage.",

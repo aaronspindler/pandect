@@ -73,7 +73,7 @@ def present(operation, items, formatter):
                 "Shared words",
                 "Basis",
             )
-        elif operation == "conversation_import":
+        elif operation in {"conversation_import", "imazing_import"}:
             mapped = values.get("import_message")
             prioritize_measurements(
                 item,

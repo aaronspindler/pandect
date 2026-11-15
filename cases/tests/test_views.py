@@ -95,16 +95,14 @@ class CaseInterfaceTests(TestCase):
                 self.assertEqual(case.current_role, expected.pop(case.pk))
         self.assertFalse(expected)
 
-    def test_case_links_and_legacy_case_url_open_evidence(self):
-        evidence_url = reverse("core:evidence:list", args=(self.case.pk,))
+    def test_case_links_and_legacy_case_url_open_case_tools(self):
+        home_url = reverse("core:analysis:index", args=(self.case.pk,))
         for user in (self.owner, self.editor, self.viewer):
             with self.subTest(user=user):
                 self.login(user)
                 response = self.client.get(reverse("cases:case_list"))
-                self.assertContains(response, f'href="{evidence_url}"')
-                self.assertRedirects(
-                    self.client.get(self.url("case_detail")), evidence_url
-                )
+                self.assertContains(response, f'href="{self.url("case_detail")}"')
+                self.assertRedirects(self.client.get(self.url("case_detail")), home_url)
 
     def test_settings_keeps_actionable_invitations_outside_history(self):
         now = timezone.now()
@@ -243,7 +241,7 @@ class CaseInterfaceTests(TestCase):
         case = Case.objects.get(name="New investigation")
         self.assertEqual(case.owner, self.viewer)
         self.assertEqual(case.description, "")
-        self.assertRedirects(response, reverse("core:evidence:list", args=(case.pk,)))
+        self.assertRedirects(response, reverse("core:analysis:index", args=(case.pk,)))
         response = self.client.post(reverse("cases:case_create"), {"name": "   "})
         self.assertEqual(response.status_code, 200)
         self.assertIn("name", response.context["form"].errors)

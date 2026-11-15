@@ -49,6 +49,24 @@ print("Verified synthetic project and scoped disposable volumes:", project)
 compose up --build --wait --wait-timeout 180
 compose exec -T web python manage.py migrate --check
 compose exec -T web python manage.py check_task_worker --timeout 30
+compose exec -T web python manage.py shell <<'PY'
+import base64
+import io
+
+from PIL import Image
+from pypdf import PdfWriter
+from core.parsers import run_parser
+
+writer = PdfWriter()
+writer.add_blank_page(width=200, height=200)
+content = io.BytesIO()
+writer.write(content)
+preview = run_parser("document_preview", content.getvalue(), options={"page": 1, "render": True})
+assert preview["status"] == "complete" and preview["page_count"] == 1
+with Image.open(io.BytesIO(base64.b64decode(preview["image"]))) as image:
+    assert image.format == "JPEG" and image.size == (400, 400)
+print("Bounded PDF rendering in the production container: OK")
+PY
 compose stop worker
 compose exec -T web python manage.py shell <<'PY'
 from core.tasks import worker_probe

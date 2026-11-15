@@ -12,7 +12,7 @@ from core.parser_contract import MAX_BYTES, ParserFailure
 MAX_AUDIO_SECONDS = 1800
 
 
-def _audio(content):
+def _audio(content, *, inspect_only=False):
     try:
         with wave.open(io.BytesIO(content), "rb") as recording:
             channels = recording.getnchannels()
@@ -43,6 +43,9 @@ def _audio(content):
                 data = recording.readframes(count)
                 if len(data) != count * width * channels:
                     raise ParserFailure("truncated_audio")
+                if inspect_only:
+                    offset += count
+                    continue
                 samples = [value[0] for value in struct.iter_unpack("<h", data)]
                 clipping = sum(abs(value) >= 32760 for value in samples) / len(samples)
                 zeros = sum(value == 0 for value in samples)
@@ -71,8 +74,10 @@ def _audio(content):
                 "sample_rate": rate,
                 "frames": frames,
                 "duration_seconds": duration,
-                "rms_sample_amplitude": math.sqrt(square_sum / sample_count),
-                "digital_zero": zero_samples == sample_count,
+                "rms_sample_amplitude": math.sqrt(square_sum / sample_count)
+                if sample_count
+                else None,
+                "digital_zero": zero_samples == sample_count if sample_count else None,
                 "quality_intervals": intervals,
             }
     except wave.Error:
@@ -117,4 +122,4 @@ def _audio_chunk(content, options):
 def parse(operation, content, options):
     if operation == "audio_chunk":
         return _audio_chunk(content, options)
-    return _audio(content)
+    return _audio(content, inspect_only=operation == "audio_preview")

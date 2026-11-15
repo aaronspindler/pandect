@@ -1,0 +1,15 @@
+<section id="document-preview" aria-label="Document preview">
+  {% if error %}<p class="notice">{{ error }} The original download remains available.</p>
+  {% elif preview.format == 'UTF-8' %}
+    <p class="muted">Decoded UTF-8 display{% if preview.bom %}; the byte-order mark is omitted{% endif %}. Download original preserves the exact file bytes.</p>
+    <div class="original-text" tabindex="0" role="region" aria-label="Decoded document text">{{ preview.text }}</div>
+  {% elif preview.format == 'PDF' %}
+    <nav class="actions" aria-label="Document pages">
+      {% if previous %}<a class="button button-secondary" href="{{ previous }}">Previous page</a>{% endif %}
+      <span>Page {{ number }} of {{ preview.page_count }}</span>
+      {% if next %}<a class="button button-secondary" href="{{ next }}">Next page</a>{% endif %}
+    </nav>
+    <p class="muted">Local page preview. Download original preserves the PDF.</p>
+    <img src="{% url 'core:evidence:document_page' case_id=case.pk evidence_id=item.pk page=number %}" alt="Page {{ number }} of {{ item.title }}" loading="lazy">
+  {% endif %}
+</section>

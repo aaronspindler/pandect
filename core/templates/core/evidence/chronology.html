@@ -1,0 +1,26 @@
+{% extends 'ui/base.html' %}
+{% load static %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endblock %}
+{% load tz %}
+{% block title %}Chronology · {{ case }} · Pandect{% endblock %}
+{% block content %}
+<div class="detail-layout">
+  <div class="page-header"><div><p class="eyebrow">Case tools</p><h1>Chronology</h1><p class="help-text">Explicit timestamps from retained evidence. Displayed in {{ display_timezone }}.</p></div></div>
+  <details class="disclosure"{% if filters_open %} open{% endif %}><summary>Filter chronology</summary><div class="disclosure-body">
+  <form method="get" class="filter-form" aria-label="Filter chronology">
+    {% include 'ui/components/form_fields.html' %}
+    <div class="actions"><button class="button button-primary" type="submit">Apply filters</button><a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}">Clear filters</a></div>
+  </form></div></details>
+  <section class="content-section" aria-labelledby="chronology-events">
+    <h2 id="chronology-events">{% if form.cleaned_data.category == 'acquired' %}Acquisition times{% else %}Recorded chronology{% endif %}</h2>
+    <p class="help-text">Observed times describe source records. Collected times describe acquisition; neither establishes that a reported event occurred.</p>
+    <ul class="record-list">
+      {% for row in rows %}<li class="record-row"><div><a class="record-link" href="{{ row.url }}">{{ row.title }}</a><p>{{ row.event_label }} <time datetime="{{ row.event_at|date:'c' }}">{{ row.event_at|date:'d M Y H:i:s T' }}</time> · {{ row.label }}{% if row.is_archived %} · Archived{% endif %}</p><p class="muted">Recorded UTC: {{ row.event_at|utc|date:'Y-m-d H:i:s T' }}. Inspect the original for source timestamp and import interpretation.</p></div></li>{% empty %}<li class="empty-state"><p>No retained timestamps match these filters. Undated evidence remains available in Evidence.</p><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Browse evidence</a></li>{% endfor %}
+    </ul>
+    {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Chronology pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#chronology-events">Previous events</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#chronology-events">Next events</a>{% endif %}</nav>{% endif %}
+  </section>
+  {% if unplaced %}<section class="content-section" aria-labelledby="unplaced-dates"><h2 id="unplaced-dates">Unplaced date references</h2><p class="help-text">Extracted date strings are not events. They remain unplaced without a definite interpretation and are not filtered by the date range above.</p>{% include 'core/analysis/_catalogue_rows.html' with rows=unplaced.rows %}
+    {% with page=unplaced.page_obj %}{% if page.has_other_pages %}<nav class="pagination" aria-label="Unplaced date pages">{% if page.has_previous %}<a class="button button-secondary" href="{% querystring unplaced_page=page.previous_page_number %}#unplaced-dates">Previous references</a>{% endif %}<span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="button button-secondary" href="{% querystring unplaced_page=page.next_page_number %}#unplaced-dates">Next references</a>{% endif %}</nav>{% endif %}{% endwith %}
+  </section>{% endif %}
+</div>
+{% endblock %}

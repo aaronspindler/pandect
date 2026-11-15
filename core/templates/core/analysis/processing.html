@@ -1,0 +1,74 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Processing · {{ case.name }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>Processing</h1><p class="muted">Follow work in progress and revisit earlier results.</p></div>
+  <a class="button button-secondary" href="{% querystring %}">Refresh progress</a>
+</header>
+
+<section class="analysis-section" aria-labelledby="in-progress-heading">
+  <div class="section-header"><h2 id="in-progress-heading">In progress</h2>{% if active_runs.paginator.count %}<span class="muted">{{ active_runs.paginator.count }} check{{ active_runs.paginator.count|pluralize }}</span>{% endif %}</div>
+  {% if active_batches.paginator.count %}
+  <h3>Preparing checks</h3>
+  {% for item in active_batches %}
+  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>Preparing local checks</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p></div></a>
+  {% endfor %}
+  {% if active_batches.has_other_pages %}<nav class="pagination" aria-label="Preparation in progress pages">{% if active_batches.has_previous %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_batches.number }} of {{ active_batches.paginator.num_pages }}</span>{% if active_batches.has_next %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
+  {% endif %}
+  {% for run in active_runs %}{% include 'core/analysis/processing_run.html' with history_suffix='' %}{% endfor %}
+  {% if active_runs.has_other_pages %}<nav class="pagination" aria-label="Checks in progress pages">{% if active_runs.has_previous %}<a class="button button-secondary" href="{% querystring active_page=active_runs.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_runs.number }} of {{ active_runs.paginator.num_pages }}</span>{% if active_runs.has_next %}<a class="button button-secondary" href="{% querystring active_page=active_runs.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
+  {% if active_imports.paginator.count %}
+  <h3>Vehicle location imports</h3>
+  {% for item in active_imports %}{% include 'core/analysis/processing_import.html' %}{% endfor %}
+  {% if active_imports.has_other_pages %}<nav class="pagination" aria-label="Imports in progress pages">{% if active_imports.has_previous %}<a class="button button-secondary" href="{% querystring active_imports_page=active_imports.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_imports.number }} of {{ active_imports.paginator.num_pages }}</span>{% if active_imports.has_next %}<a class="button button-secondary" href="{% querystring active_imports_page=active_imports.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
+  {% endif %}
+  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count %}<p class="muted" role="status">Nothing is being processed right now.</p>{% endif %}
+</section>
+
+<section class="analysis-section" id="processing-history" aria-labelledby="processing-history-heading">
+  <div class="section-header"><h2 id="processing-history-heading">History</h2><a class="record-link" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a></div>
+  {% if batch %}
+  <div class="notice"><p><strong>Selected batch · {{ batch.get_status_display }}</strong></p><p>Requested {{ batch.created_at|date:'j M Y, H:i T' }} · {{ batch.processed_sources }} sources prepared · {{ batch.queued_runs }} initial checks queued.</p>
+  {% if batch.status == 'queued' %}<p role="status">Checks are still being prepared. Queued checks may continue after preparation finishes.</p>{% elif batch.status == 'failed' %}<p role="status">Preparation stopped. {% if batch.error_code == 'access_removed' %}The requester no longer has the required access.{% else %}Review the checks below before making another request.{% endif %}</p>{% endif %}
+  {% if batch.status == 'complete' and not batch.processed_sources %}<p>No active evidence was available for local checks.</p>{% endif %}
+  {% if batch.unavailable_sources %}<details><summary>{{ batch.unavailable_sources }} source{{ batch.unavailable_sources|pluralize }} could not be prepared</summary><ul>{% for failure in batch.preparation_errors %}<li><a href="{% url 'core:evidence:detail' case.pk failure.kind failure.evidence_id %}">Open {{ failure.kind }} source</a> · {{ failure.message }}</li>{% endfor %}</ul></details>{% endif %}
+  <a class="record-link" href="{% url 'core:analysis:processing' case.pk %}#processing-history">All processing history</a></div>
+  {% endif %}
+  {% if page_obj.paginator.count or history_filters %}
+  <details class="evidence-filters"{% if history_filters %} open{% endif %}>
+    <summary>Filter history{% if history_filters %} · Applied{% endif %}</summary>
+    <form method="get" action="#processing-history" class="analysis-history-filters" aria-label="Filter processing history">
+      <div class="field"><label for="processing-kind">Evidence type</label><select id="processing-kind" name="kind"><option value="">All evidence types</option>{% for key,label in evidence_kinds %}<option value="{{ key }}"{% if history_filters.kind == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="processing-status">Status</label><select id="processing-status" name="status"><option value="">All statuses</option>{% for key,label in statuses %}<option value="{{ key }}"{% if history_filters.status == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      {% if batch %}<input type="hidden" name="batch" value="{{ batch.pk }}">{% endif %}
+      <div class="actions"><button class="button button-secondary" type="submit">Filter history</button>{% if history_filters %}<a class="record-link" href="{% url 'core:analysis:processing' case.pk %}{% if batch %}?batch={{ batch.pk }}{% endif %}#processing-history">Clear filters</a>{% endif %}</div>
+    </form>
+  </details>
+  {% endif %}
+  {% for run in page_obj %}{% include 'core/analysis/processing_run.html' %}{% empty %}<p class="muted">{% if history_filters %}No checks match these filters.{% else %}No processing history yet. Supported checks start when evidence is added.{% endif %}</p>{% endfor %}
+  {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Processing pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#processing-history">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#processing-history">Next</a>{% endif %}</nav>{% endif %}
+</section>
+
+{% if import_history.paginator.count %}
+<details class="analysis-section" id="import-history"{% if request.GET.imports_page %} open{% endif %}>
+  <summary>Vehicle import history · {{ import_history.paginator.count }}</summary>
+  {% for item in import_history %}{% include 'core/analysis/processing_import.html' %}{% endfor %}
+  {% if import_history.has_other_pages %}<nav class="pagination" aria-label="Vehicle import history pages">{% if import_history.has_previous %}<a class="button button-secondary" href="{% querystring imports_page=import_history.previous_page_number %}#import-history">Previous</a>{% endif %}<span>Page {{ import_history.number }} of {{ import_history.paginator.num_pages }}</span>{% if import_history.has_next %}<a class="button button-secondary" href="{% querystring imports_page=import_history.next_page_number %}#import-history">Next</a>{% endif %}</nav>{% endif %}
+</details>
+{% endif %}
+{% if batches.paginator.count %}
+<details class="analysis-section" id="batch-history"{% if request.GET.batches_page %} open{% endif %}>
+  <summary>Preparation history · {{ batches.paginator.count }}</summary>
+  <p class="muted">Preparation queues checks. Open a batch to follow the checks and their outcomes.</p>
+  {% for item in batches %}<a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>{{ item.get_status_display }}</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} sources · {{ item.queued_runs }} initial checks queued</p></div></a>{% endfor %}
+  {% if batches.has_other_pages %}<nav class="pagination" aria-label="Batch pages">{% if batches.has_previous %}<a class="button button-secondary" href="{% querystring batches_page=batches.previous_page_number %}#batch-history">Previous</a>{% endif %}<span>Page {{ batches.number }} of {{ batches.paginator.num_pages }}</span>{% if batches.has_next %}<a class="button button-secondary" href="{% querystring batches_page=batches.next_page_number %}#batch-history">Next</a>{% endif %}</nav>{% endif %}
+</details>
+{% endif %}
+{% if can_edit %}
+<details class="analysis-section">
+  <summary>Run more checks</summary>
+  <p class="muted" id="rerun-all-help">Rerun supported local checks on all active evidence. Earlier results are kept.</p>
+  <div class="actions"><form method="post" action="{% url 'core:analysis:rerun_all' case.pk %}">{% csrf_token %}{{ case_analysis_form.submission_id }}<button class="button button-secondary" type="submit" aria-describedby="rerun-all-help">Rerun all analysis</button></form><a class="button button-secondary" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a></div>
+</details>
+{% endif %}
+{% endblock %}

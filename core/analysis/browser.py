@@ -222,8 +222,9 @@ class AnalysisBrowserTests(BrowserTestCase):
             ):
                 self.db(CaseAnalysisBatch.objects.filter(case=self.case).delete)
                 self.sign_in(page)
-                index_url = self.url("core:analysis:index", case_id=self.case.pk)
+                index_url = self.url("core:analysis:processing", case_id=self.case.pk)
                 page.goto(index_url)
+                page.get_by_text("Run more checks", exact=True).press("Enter")
                 button = page.get_by_role(
                     "button", name="Rerun all analysis", exact=True
                 )
@@ -244,6 +245,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self._assert_reflow(page)
                 self.capture(page, engine, "rerun-all-large-text")
                 page.reload()
+                page.get_by_text("Run more checks", exact=True).press("Enter")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
                 self.capture(page, engine, "rerun-all-dark")
@@ -254,17 +256,23 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(button).to_be_focused()
                 button.press("Enter")
                 expect(
-                    page.get_by_role("status").filter(has_text="Preparing analysis")
+                    page.get_by_role("link", name="Preparing local checks", exact=False)
                 ).to_be_visible()
                 self.assertEqual(
                     self.db(CaseAnalysisBatch.objects.filter(case=self.case).count), 1
                 )
                 self.capture(page, engine, "rerun-all-preparing")
                 self.db(finish_preparation)
-                page.reload()
-                expect(
-                    page.get_by_role("status").filter(has_text="All-evidence analysis")
-                ).to_contain_text("3 checks queued from 2 sources")
+                batch_id = self.db(
+                    lambda: CaseAnalysisBatch.objects.filter(case=self.case).first().pk
+                )
+                page.goto(index_url + f"?batch={batch_id}")
+                expect(page.locator("#processing-history .notice")).to_contain_text(
+                    "Selected batch · Checks queued"
+                )
+                expect(page.locator("#processing-history .notice")).to_contain_text(
+                    "2 sources prepared · 3 initial checks queued"
+                )
                 self.capture(page, engine, "rerun-all-queued")
             with self.browser_page(engine, java_script_enabled=False) as (_, page):
                 self.sign_in(page, self.viewer)
@@ -292,21 +300,45 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(page.locator(".analysis-highlights")).to_contain_text(
                     "contact-01@example.test"
                 )
-                expect(page.locator(".analysis-history-row")).to_be_hidden()
-                page.locator("#processing-history > summary").press("Enter")
-                expect(page.locator(".analysis-history-row")).to_contain_text(
-                    self.text.title
-                )
-                expect(page.locator(".analysis-options a")).to_have_count(5)
-                run_filters = page.get_by_text("Processing filters", exact=True)
-                expect(page.get_by_label("Status", exact=True)).to_be_hidden()
-                run_filters.press("Enter")
-                page.get_by_label("Status", exact=True).select_option("cancelled")
-                page.get_by_role("button", name="Filter runs").press("Enter")
                 expect(
-                    page.get_by_role("heading", name="No runs match these filters")
+                    page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
-                page.get_by_role("link", name="Clear filters").press("Enter")
+                expect(page.locator("#processing-history")).to_have_count(0)
+                expect(
+                    page.get_by_role("button", name="Rerun all analysis", exact=True)
+                ).to_have_count(0)
+                expect(
+                    page.locator("#analysis-reports .analysis-options a")
+                ).to_have_count(5)
+                navigation = page.get_by_role("navigation", name="Investigation")
+                navigation.get_by_role("link", name="Processing", exact=True).press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("heading", name="History", exact=True)
+                ).to_be_visible()
+                page.locator("#processing-history summary").filter(
+                    has_text="Filter history"
+                ).press("Enter")
+                page.get_by_label("Status", exact=True).select_option("cancelled")
+                page.get_by_role("button", name="Filter history", exact=True).press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_text("No checks match these filters.", exact=True)
+                ).to_be_visible()
+                page.get_by_role("link", name="Clear filters", exact=True).press(
+                    "Enter"
+                )
+                expect(
+                    page.locator("#processing-history .analysis-history-row").first
+                ).to_contain_text(self.text.title)
+                navigation.get_by_role("link", name="Case Tools", exact=True).press(
+                    "Enter"
+                )
                 for width, height, label in (
                     (1440, 900, "desktop"),
                     (1440, 1024, "tall-desktop"),
@@ -354,8 +386,8 @@ class AnalysisBrowserTests(BrowserTestCase):
                     reduced_motion="no-preference",
                 )
                 page.goto(index_url)
-                page.get_by_text("Additional analysis", exact=True).press("Enter")
-                page.get_by_role("link", name="Choose analysis", exact=True).click()
+                page.get_by_text("More tools", exact=True).press("Enter")
+                page.get_by_role("link", name="Additional analysis", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Choose an analysis")
                 ).to_be_visible()
@@ -804,10 +836,10 @@ class AnalysisBrowserTests(BrowserTestCase):
                             .first
                         ).to_be_visible()
                     if name == "vehicle-coverage":
-                        observed = page.locator(
-                            'time[datetime="2026-10-27T12:00:00+00:00"]'
-                        )
-                        expect(observed).to_have_text("27 Oct 2026 12:00:00")
+                        observed = page.get_by_role(
+                            "table", name="Report records"
+                        ).locator('time[datetime="2026-10-27T12:00:00+00:00"]')
+                        expect(observed).to_have_text("27 Oct 2026, 12:00:00 UTC")
                         expect(page.locator("#report-totals")).to_be_hidden()
                         page.get_by_text("About this report", exact=True).press("Enter")
                         expect(page.locator("#report-totals")).to_be_visible()
@@ -854,12 +886,14 @@ class AnalysisBrowserTests(BrowserTestCase):
             ):
                 self.sign_in(page)
                 page.goto(self.url("core:evidence:list", case_id=self.case.pk))
-                page.get_by_role("link", name="Findings", exact=True).click()
+                page.get_by_role("navigation", name="Investigation").get_by_role(
+                    "link", name="Case Tools", exact=True
+                ).click()
                 expect(
-                    page.get_by_role("heading", name="Findings", exact=True)
+                    page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
-                page.get_by_text("Additional analysis", exact=True).press("Enter")
-                page.get_by_role("link", name="Choose analysis", exact=True).click()
+                page.get_by_text("More tools", exact=True).press("Enter")
+                page.get_by_role("link", name="Additional analysis", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Choose an analysis", exact=True)
                 ).to_be_visible()
@@ -1206,7 +1240,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.sign_in(page, self.viewer)
                 page.goto(self.url("core:analysis:index", case_id=self.case.pk))
                 expect(
-                    page.get_by_role("link", name="Choose analysis", exact=True)
+                    page.get_by_role("link", name="Additional analysis", exact=True)
                 ).to_have_count(0)
                 page.get_by_role("link", name="Call patterns", exact=True).click()
                 expect(

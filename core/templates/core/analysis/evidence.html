@@ -40,4 +40,5 @@
   <p class="muted">No checks yet.</p>
   {% endif %}
 
+  <a class="record-link" href="{% url 'core:analysis:browse' case.pk %}?kind={{ kind }}&amp;evidence={{ evidence.pk }}">All findings from this evidence</a>
 </section>

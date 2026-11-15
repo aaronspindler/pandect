@@ -6,4 +6,5 @@
   {% if anchor.end_seconds != None %}<span>{{ anchor.start_seconds }}–{{ anchor.end_seconds }} seconds</span>{% endif %}
   {% if anchor.end != None %}<span>Characters {{ anchor.start }}–{{ anchor.end }}</span>{% endif %}
   {% if anchor.html_end != None %}<span>HTML characters {{ anchor.html_start }}–{{ anchor.html_end }}</span>{% endif %}
+  {% if anchor.csv_end != None %}<span>CSV characters {{ anchor.csv_start }}–{{ anchor.csv_end }}</span>{% endif %}
 {% endfor %}

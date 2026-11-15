@@ -408,6 +408,7 @@ def apply_import(run, data, sources):
         for context in contexts.filter(scope).select_related("message").order_by()
     }
     created = 0
+    data["import_publication_version"] = 1
     for item in data.get("items", []):
         values = item.get("values", {})
         prepared = values.get("import_message")
@@ -450,6 +451,8 @@ def apply_import(run, data, sources):
                     "conflicting interpretation. Review the retained "
                     "message; do not replace it."
                 )
+            values["import_disposition"] = "already_retained"
+            values["message_id"] = str(message.pk)
             continue
         submission_id = uuid5(
             NAMESPACE_URL, f"pandect:imessage:{source.item.pk}:{values['source_row']}"
@@ -473,6 +476,8 @@ def apply_import(run, data, sources):
         )
         message.full_clean()
         message.save()
+        values["import_disposition"] = "created"
+        values["message_id"] = str(message.pk)
         fields = {
             name: values[name]
             for name in (

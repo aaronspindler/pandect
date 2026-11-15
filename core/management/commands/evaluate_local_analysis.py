@@ -71,6 +71,7 @@ class Command(BaseCommand):
                 "session_summaries",
                 "content_events",
                 "conversation_link",
+                "question_synthesis",
                 "transcription",
             ),
             help="Evaluate only this method; repeat to select several methods.",
@@ -118,6 +119,19 @@ class Command(BaseCommand):
             ("session_summaries", {}),
             ("content_events", {}),
             ("conversation_link", {"semantic_links": True}),
+            (
+                "question_synthesis",
+                {
+                    "question": (
+                        "Was the Friday meeting agreed or observed, "
+                        "and what remains unknown?"
+                    ),
+                    "text_source_ids": [
+                        source.id for source in sources if source.kind == "text-message"
+                    ],
+                    "finding_refs": [],
+                },
+            ),
         ):
             if selected and name not in selected:
                 report["methods"][name] = {

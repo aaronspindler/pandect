@@ -45,7 +45,7 @@ for the behavior those tests protect.
 `make compose-smoke` needs Docker only. It builds a unique disposable project with
 synthetic configuration, random loopback ports, and fresh volumes. It checks
 migrations, production static delivery, retained records/original bytes, automatic
-native extraction, local OCR/plate search, and queue persistence/execution across
+native extraction, bounded PDF rendering, local OCR/plate search, and queue persistence/execution across
 restarts. A probe completes once in the controlled run; this does not establish
 exactly-once delivery after crashes. The script clears inherited `PANDECT_`
 settings and never uses your `.env` or data. Its exit trap removes only its own
@@ -68,7 +68,7 @@ uv run --locked --env-file .env make browser-check
 
 On Linux, install browser OS dependencies as required by Playwright (CI uses
 `playwright install --with-deps chromium webkit`). `make browser-check` runs
-the six modules listed below through Django with `config.test_settings`, separately
+the browser modules listed below through Django with `config.test_settings`, separately
 from the ordinary unit suite. Browser fixtures use synthetic accounts/material
 and temporary private file storage. Never run competing Django test processes against the same
 test database, or point the suite at an investigation database.
@@ -86,16 +86,21 @@ Long originals remain complete, findings follow the original, and header **Info*
 and **More** panels stay keyboard accessible. Info holds metadata and processing
 history; More holds editing, archive/deletion, and additional analysis. Checks
 cover panel dismissal/focus return, plus focused check-submission errors without
-JavaScript. Shared-shell checks cover Cases, People, Vehicles, Findings, Settings,
-and Account at desktop/mobile sizes, tooltip hover/focus/Escape behavior, enlarged
-text, dark appearance, and forced colors.
+JavaScript. Shared-shell checks cover Cases, Case Tools, Evidence, Processing,
+People, Vehicles, Findings, Settings, and Account at desktop/mobile sizes, tooltip
+hover/focus/Escape behavior, enlarged text, dark appearance, and forced colors.
 
 | Suite | Main scope | Default captures |
 | --- | --- | --- |
 | `config.tests.browser` | Accounts, cases, collaborators, people/vehicles, evidence and imports | `data/validation/browser` |
+| `phone.imazing_browser` | iMazing CSV preparation, reviewed people, publication and no-JavaScript import | `data/validation/imazing-browser` |
 | `marketing.browser` | Public navigation and FAQ disclosures | `data/validation/marketing-browser` |
-| `core.analysis.browser` | Extraction, reports, source links and review | `data/validation/analysis-browser` |
+| `core.analysis.browser` | Case Tools, Processing, extraction, reports, source links and review | `data/validation/analysis-browser` |
 | `core.analysis.context_browser` | Local OCR and retained geographic context | `data/validation/context-browser` |
+| `core.analysis.workflow_browser` | Complete findings, person links, connections, chronology and processing | `/private/tmp/pandect-workflow-browser` when explicitly configured |
+| `core.analysis.selection_browser` | Shared selections, portable briefs and mocked question synthesis | Shared browser artifact directory |
+| `document.browser` | UTF-8/PDF originals and private recording playback | Shared browser artifact directory |
+| `phone.browser` | Multi-account iMessage mapping without JavaScript | Shared browser artifact directory |
 | `image.browser` | Synthetic plate search and private crops | `data/validation/plate-browser` |
 | `geo.map_browser` | Map, POIs and keyboard source navigation | `data/validation/maps` |
 
@@ -103,6 +108,29 @@ Inspect captures at the viewport sizes and density targets in [DESIGN.md](../DES
 Manual screen-reader testing is optional and does not block delivery. Successful
 builds or HTTP readiness do not establish these interactions, full accessibility
 compliance, recognition accuracy, or live deployment health.
+
+## Investigation workflow boundaries
+
+The ordinary PostgreSQL suite covers latest-equivalent finding selection,
+independent finding/result reviews, person attribution, exact shared selections,
+import membership, processing recovery, chronology, conservative identifier keys,
+and source/prior-finding synthesis quotations. Inference is mocked in routine
+tests; use [separate runtime qualification](local-analysis.md)
+for model/runtime evidence.
+
+To reproduce the findings resource benchmark and populated-database backfill check:
+
+```sh
+uv run --locked --env-file .env python manage.py test core.analysis.tests.test_catalogue_bounds core.analysis.tests.test_catalogue_migrations --settings=config.test_settings --noinput
+```
+
+The benchmark exercises 25 displayed runs with 500 file inputs each, reports time
+and query/file-check counts, and rejects full result-payload reads. The migration
+check starts with retained populated and empty results, applies the additive
+catalogue migrations, and verifies preservation without opening originals. The
+catalogue unit tests separately cover interrupted backfill recovery. Selection
+tests exercise 500 findings from one large result and multiple large extraction
+members to prevent repeated loads or retained unused payloads.
 
 ## Person POI validation
 

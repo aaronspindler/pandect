@@ -31,6 +31,31 @@ def present(operation, items, formatter):
                 item, "Usable words", "Sentences", "Vocabulary ratio"
             )
 
+    if operation == "question_synthesis":
+        groups = [
+            {
+                "title": title,
+                "items": [
+                    item
+                    for item in items
+                    if item.get("values", {}).get("section") == section
+                ],
+            }
+            for section, title in (
+                ("supported", "Supported observations · AI suggestions"),
+                ("contrary", "Contrary evidence · AI suggestions"),
+            )
+        ]
+        unclassified = [
+            item
+            for item in items
+            if item.get("values", {}).get("section") not in {"supported", "contrary"}
+        ]
+        if unclassified:
+            groups.append(
+                {"title": "Other retained suggestions", "items": unclassified}
+            )
+        return groups
     if operation == "text_topics":
         keywords = [item for item in items if "occurrences" in item.get("values", {})]
         suggestions = [

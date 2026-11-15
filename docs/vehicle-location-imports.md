@@ -170,3 +170,11 @@ claims. Imported observations can feed the [Map](maps.md) and
 [automatic trip reports](analysis-locations.md#automatic-vehicle-trips).
 The CSV format alone establishes no vendor timestamp, event, duration, or identifier
 semantics; the import retains the investigator's explicit interpretation.
+
+## Checking published observations
+
+After completion, **Run local checks on imported evidence** queues bounded local
+quality/address checks for this import's retained observations. Skipped duplicate
+rows are excluded. The linked Processing batch separates preparation from execution;
+no model, external lookup, or per-row batch is started. Vehicle trip reports remain
+available independently. See [processing](background-tasks.md#investigator-progress-and-completed-imports).

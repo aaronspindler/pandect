@@ -1,6 +1,8 @@
 """Pure bounded UTF-8 and native PDF parsing."""
 
+import base64
 import io
+import math
 import sys
 
 from core.parser_contract import MAX_BYTES, MAX_TEXT, ParserFailure
@@ -9,7 +11,7 @@ MAX_PAGES = 100
 MAX_STREAM_BYTES = 4 * 1024 * 1024
 
 
-def _pdf(content):
+def _pdf_reader(content):
     import pypdf
     from pypdf import PdfReader
 
@@ -25,7 +27,13 @@ def _pdf(content):
         page_tree_maximum_depth=20,
         jbig2dec_binary=None,
     )
-    reader = PdfReader(io.BytesIO(content), strict=True)
+    return PdfReader(io.BytesIO(content), strict=True)
+
+
+def _pdf(content):
+    import pypdf
+
+    reader = _pdf_reader(content)
     if reader.is_encrypted:
         return {"status": "unsupported", "reason": "encrypted_pdf", "pages": []}
     page_count = len(reader.pages)
@@ -81,5 +89,54 @@ def _document(content):
     }
 
 
+def _preview(content, options):
+    if not content.startswith(b"%PDF-"):
+        return _document(content)
+    reader = _pdf_reader(content)
+    if reader.is_encrypted:
+        return {"status": "unsupported", "reason": "encrypted_pdf"}
+    count = len(reader.pages)
+    if not 0 < count <= MAX_PAGES:
+        raise ParserFailure("document_page_limit")
+    number = options.get("page", 1)
+    if type(number) is not int or not 1 <= number <= count:
+        raise ParserFailure("invalid_document_page")
+    result = {"status": "complete", "format": "PDF", "page_count": count}
+    if not options.get("render", False):
+        return result
+
+    import pypdfium2 as pdfium
+
+    with pdfium.PdfDocument(content) as document:
+        page = document[number - 1]
+        try:
+            width, height = page.get_size()
+            if not all(
+                math.isfinite(x) and 0 < x <= 1_000_000 for x in (width, height)
+            ):
+                raise ParserFailure("document_page_size_limit")
+            scale = min(2, 2048 / max(width, height))
+            if math.ceil(width * scale) * math.ceil(height * scale) > 2048**2:
+                raise ParserFailure("document_page_size_limit")
+            bitmap = page.render(scale=scale, fill_color=(255, 255, 255, 255))
+            try:
+                with bitmap.to_pil() as image:
+                    with image.convert("RGB") as rgb:
+                        output = io.BytesIO()
+                        rgb.save(output, format="JPEG", quality=85)
+            finally:
+                bitmap.close()
+        finally:
+            page.close()
+    return result | {
+        "image": base64.b64encode(output.getvalue()).decode("ascii"),
+        "version": str(pdfium.PYPDFIUM_INFO),
+    }
+
+
 def parse(operation, content, options):
-    return _document(content)
+    return (
+        _preview(content, options)
+        if operation == "document_preview"
+        else _document(content)
+    )

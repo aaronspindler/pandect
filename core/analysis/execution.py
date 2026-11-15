@@ -18,7 +18,7 @@ def requires_inference(operation, parameters):
     if operation == "transcription":
         return "transcription"
     if (
-        operation in {"content_events", "session_summaries"}
+        operation in {"content_events", "session_summaries", "question_synthesis"}
         or (operation == "text_topics" and parameters.get("include_summary", True))
         or (
             operation == "conversation_link" and parameters.get("semantic_links", False)

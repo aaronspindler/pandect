@@ -216,8 +216,9 @@ uv run --locked --env-file .env python manage.py evaluate_local_analysis --audio
 uv run --locked --env-file .env python manage.py evaluate_local_analysis --method transcription --audio /absolute/synthetic.wav > /tmp/local-transcription.json
 ```
 
-The command runs all four text modes through the real local adapters and existing
-citation validators on fixed synthetic messages. It writes no database records,
+The command runs all five text modes (including question synthesis) through the
+real local adapters and existing citation validators on fixed synthetic messages.
+It writes no database records,
 makes no Gateway calls, and exits nonzero if any selected method fails. Optional
 audio uses the existing PCM parser and chunk/timeline path. Its JSON includes
 expected distinctions, actual validated output, usage and elapsed time, without
@@ -249,8 +250,10 @@ any disabled or experimental modes.
 
 ### Recorded synthetic qualification, 2026-10-29
 
-All five inference paths completed against the real pinned engines and verified
-model files. Forward/reverse geocoding and geographic context also completed
+The four text paths and transcription listed below completed against the real
+pinned engines and verified model files. This historical qualification predates
+question synthesis and does not qualify that method. Forward/reverse geocoding
+and geographic context also completed
 against a synthetic private HTTP service, including real geometry parsing and a
 validated retained reference. The Docker network was internal; an external TCP
 probe failed. No investigation records or Gateway requests were created.

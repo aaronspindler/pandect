@@ -189,19 +189,21 @@ selected zone. Ambiguous or nonexistent daylight-saving times, timestamps over
 255 characters, and malformed rows remain unresolved. Missing times remain
 unknown.
 
-The investigator form exposes **two source account labels**, initially `Me` and
-`Them`. Enter the exact labels used by the export and select an existing same-case
-person for each. The form creates a `sender_map` for those two labels and a
-reciprocal `recipient_map`: when a row lacks an explicit recipient, the person
-selected for the other label is its reported recipient. An optional
-`span.recipient` must name one of the mapped labels. Other sender or recipient
-labels remain unresolved; the UI does not expose an arbitrary multi-account map.
+The investigator form supports **1–100 source account labels**, initially `Me`
+and `Them`. Add or remove mapping rows without JavaScript; these actions preserve
+the selected document and entered values without queuing analysis. Enter each
+exact label once and choose an existing same-case person. Each label may also
+have an explicit **Recipient when the source omits one**. Leaving that selection
+blank keeps recipient-less rows unresolved; another mapped person is never
+automatically chosen.
 
-The processor accepts broader explicit `sender_map` and `recipient_map`
-dictionaries internally. That capability does not expand the investigator form.
-No person is guessed from a label, display name, or timing. Group labels retain
-full source context; the selected sender/recipient association does not assert
-that the source had only two members.
+The form creates the retained `sender_map` and explicit per-sender
+`recipient_map`. An optional `span.recipient` uses its own label's person mapping;
+unmapped explicit recipients remain unresolved even when a fallback is selected.
+No person is guessed from a label, display name, or timing. Each imported message
+still has one sender and one recipient. Group labels retain full source context
+without asserting that those are the group's only members. Existing parser
+versions and retained interpretation/idempotency checks are unchanged.
 
 The tested optional context extension preserves only what the source supplies:
 
@@ -230,9 +232,18 @@ Each mapped body is stored once in the retained result as the finding text used
 for publication. The shared analysis result limit still applies to the complete
 result.
 
-Imported messages do not individually queue automatic local checks. Select them
-for additional analysis or use case **Rerun all analysis** after import to queue
-the supported local checks.
+Imported messages do not individually queue automatic local checks. A completed
+import offers **Run local checks on imported evidence**, with its eligible count
+and a link to the resulting Processing batch. Atomic publication records each
+row's exact message ID and whether it was newly created or already retained.
+Only newly created rows enter that import's checks; unresolved and skipped
+duplicate rows do not. Independent entity and keyword checks use bounded groups;
+session, relationship and movement analysis remain deliberate whole-population
+choices. Repeated submission of the same request does not enqueue another batch.
+
+Historical results without publication membership retain an explanatory message
+instead of guessing which rows were new. Their messages remain available for
+individual analysis or case **Rerun all analysis**.
 
 Import method version `3` uses parser `imessage-html-v3` with the same supported
 HTML profile. It handles valueless optional attributes, flags oversized timestamps
@@ -245,3 +256,74 @@ Finish queued imports with the old worker before upgrading when possible. Queued
 method `1` or `2` runs otherwise report that their method version is unavailable.
 Start a new run with the same source and settings. The upgrade requires no data
 migration.
+
+## iMazing CSV message imports
+
+Choose **Add evidence → More ways to add evidence → Import messages · iMazing
+CSV**, or use the same action in a retained Document's **More** menu. Upload one
+CSV or choose a retained Document and explicitly select its export timezone.
+The supported profile is the 18-column iMazing message export, from **Chat
+Session** through **Attachment type**, in any column order. UTF-8 with an optional
+BOM, quoted commas, and quoted multiline text are supported. There is no
+message-row limit. The normal configured upload limit applies (100 MiB by
+default), with 131,072 characters per field and the configured message-text byte
+limit. CSV preparation, review, and publication read rows incrementally rather
+than collecting the entire conversation in an analysis result.
+
+Preparation runs in the background and creates no people or messages. The review
+shows the source contact labels, message counts, reported times, text, and excluded
+rows with reasons. Select existing same-case people or explicitly create missing
+people for **Export account** and **Other participant**. Source names and numbers
+are suggestions, not verified identities or automatic matches; names are not
+automatically split. A person may be identified by a name, phone number, or email.
+The account's phone number is not required when selecting an existing person.
+
+Confirm that this is one direct conversation. Multiple chat sessions or incoming
+sender identifiers are rejected; group and mixed-chat imports are unsupported.
+The displayed chat label alone cannot establish who participated. Outgoing
+messages use the export account as sender and the other person as recipient;
+incoming messages reverse those associations. Changing the timezone prepares a
+new review. Missing event times remain unknown; malformed, ambiguous, or
+nonexistent local event times are excluded. Attachment-only rows and unsupported
+directions are also excluded. Confirming imports the valid text rows while
+retaining excluded material in the CSV and preview.
+
+Confirmation queues publication through `imazing_import` method `2`. The preview
+and confirmed import are separate immutable analysis runs. Publication rechecks
+current editing access and source integrity, then creates requested people,
+messages, immutable source contexts, and the result atomically. Repeated
+confirmation and worker retries do not create another set of people or messages.
+An already imported source row with a different interpretation is a conflict;
+earlier originals are never replaced. As with HTML imports, document/row identity
+does not deduplicate distinct retained exports using native message IDs.
+
+Method `2` retains a compact summary and a digest of the reviewed row
+interpretation. Review pages read 25 rows at a time from the checksum-verified
+original using the retained timezone and text limit; the first three rows supply
+visible excerpts. Changes to row eligibility or time interpretation require a
+new review. The general analysis-result item and byte ceilings do not truncate
+imports because messages are not stored as individual result items. Publication
+uses bounded groups inside one transaction and rolls back the whole import on a
+conflict or failure. Completed message links are paginated too.
+
+Newly created message contexts retain their publishing run through the nullable
+`CommunicationContext.import_run` link. Apply its additive migration before
+starting the updated web and worker processes. Existing imported messages and
+source contexts are not rewritten. Historical method `1` results and local-check
+membership remain readable; prepare a new review from the retained CSV before
+confirming an old preview. Queued method `1` runs require a new method `2` run
+after upgrading.
+
+Each message preserves the decoded **Text** without trimming and links to its
+source row and exact character range. The original CSV retains its exact bytes.
+**Message ID** and **Replying to** remain source-native references. **Chat Session**
+remains a label, not an asserted native thread ID. **Info → Imported source
+context** exposes service, direction, source contact details, subject, status,
+delivery/read/edit/delete dates, reactions, and attachment references. These are
+source claims; reactions do not become separate messages and edit/deletion
+markers do not recover missing history. Attachment paths are never opened or
+fetched, and referenced files are not ingested.
+
+Completed CSV imports offer **Run local checks on imported evidence** for exactly
+the messages newly created by that import. Checks remain deliberate. The existing
+HTML import operation and its recorded parser versions are unchanged.

@@ -1,9 +1,21 @@
 from django.urls import path
 
-from phone import views
+from audio.views import play_attachment
+from phone import imazing_views, views
 
 app_name = "phone"
 urlpatterns = [
+    path("imazing/new/", imazing_views.imazing_upload, name="imazing_upload"),
+    path(
+        "imazing/<uuid:run_id>/",
+        imazing_views.imazing_review,
+        name="imazing_review",
+    ),
+    path(
+        "<str:kind>/<uuid:evidence_id>/attachments/<uuid:attachment_id>/play/",
+        play_attachment,
+        name="attachment_play",
+    ),
     path(
         "<str:kind>/<uuid:evidence_id>/attachments/new/",
         views.add_attachment,

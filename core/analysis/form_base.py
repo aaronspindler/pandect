@@ -233,6 +233,10 @@ class BaseAnalysisForm(forms.Form):
         self.fields["operation"].initial = operation
         choices = source_choices(case, operation, query, evidence=evidence)
         self.fields["sources"].choices = choices
+        from core.analysis.readiness import configuration_readiness, source_readiness
+
+        self.readiness = source_readiness(case, operation, choices)
+        self.configuration_readiness = configuration_readiness(operation)
         if evidence is not None and choices:
             self.initial["sources"] = [choices[0][0]]
         localize_datetime_labels(self)
@@ -256,6 +260,18 @@ class BaseAnalysisForm(forms.Form):
 
     def clean(self):
         data = super().clean()
+        blocked = [
+            self.readiness[value]["label"]
+            for value in data.get("sources", [])
+            if self.readiness.get(value, {}).get("blocking")
+        ]
+        if blocked:
+            self.add_error(
+                "sources",
+                "Resolve the selected sources before analysis: "
+                + ", ".join(dict.fromkeys(blocked))
+                + ". No sources were dropped from your selection.",
+            )
         external = processing_external(
             data.get("operation", "native_text"),
             data,

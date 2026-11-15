@@ -11,9 +11,7 @@ from django.core.exceptions import (
     SuspiciousFileOperation,
     ValidationError,
 )
-from django.core.paginator import Paginator
 from django.db import DatabaseError, IntegrityError, transaction
-from django.db.models import CharField, Q, Value
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -30,7 +28,7 @@ from config.access import product_login_required, wants_json
 from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.errors import AnalysisError
 from core.analysis.findings import evidence_findings_context
-from core.analysis.search import derived_content_condition, derived_text_matches
+from core.evidence.collection import collection_context
 from core.evidence.deletion import (
     CHANGED,
     deletion_manifest_response,
@@ -41,8 +39,7 @@ from core.evidence.deletion import (
 from core.evidence.form_registry import TYPE_FIELDS, evidence_form
 from core.evidence.forms import COMMON_FIELDS, SOURCE_FIELDS, EvidenceDeleteForm
 from core.evidence.navigation import list_params, query_suffix
-from core.evidence.queries import duplicate_matches, get_evidence, scoped_evidence
-from core.evidence.search import retained_content_condition, retained_text_matches
+from core.evidence.queries import duplicate_matches, get_evidence
 from core.evidence.types import (
     CALL_KINDS,
     COMMUNICATION_KINDS,
@@ -95,115 +92,7 @@ def _info_url(request, case, kind, item):
 
 
 def _list_context(request, case):
-    query = request.GET.get("q", "")[:200].strip()
-    selected_kind = request.GET.get("type", "")
-    if selected_kind not in KINDS:
-        selected_kind = ""
-    state = request.GET.get("state", "active")
-    if state not in {"active", "archived", "all"}:
-        state = "active"
-    queries = []
-    for kind in KINDS:
-        if selected_kind and kind != selected_kind:
-            continue
-        queryset = scoped_evidence(case, kind)
-        if state != "all":
-            queryset = queryset.filter(is_archived=state == "archived")
-        if query:
-            condition = (
-                Q(title__icontains=query)
-                | Q(description__icontains=query)
-                | Q(source__icontains=query)
-                | Q(source_description__icontains=query)
-                | Q(source_url__icontains=query)
-            )
-            if kind in FILE_KINDS:
-                condition |= Q(original_filename__icontains=query)
-            if kind in LOCATION_KINDS:
-                condition |= Q(address__icontains=query)
-            if kind in COMMUNICATION_KINDS:
-                for participant in ("sender", "recipient"):
-                    for field in ("first_name", "last_name", "email", "phone_number"):
-                        condition |= Q(**{f"{participant}__{field}__icontains": query})
-            queryset, content_condition = retained_content_condition(
-                queryset, case=case, kind=kind, query=query
-            )
-            condition |= content_condition
-            queryset, extracted_condition = derived_content_condition(
-                queryset, case=case, kind=kind, query=query
-            )
-            condition |= extracted_condition
-            if kind == "person-location":
-                condition |= (
-                    Q(person__first_name__icontains=query)
-                    | Q(person__last_name__icontains=query)
-                    | Q(person__email__icontains=query)
-                    | Q(person__phone_number__icontains=query)
-                )
-            if kind == "vehicle-location":
-                condition |= (
-                    Q(vehicle__make__icontains=query)
-                    | Q(vehicle__model__icontains=query)
-                    | Q(vehicle__license_plate__icontains=query)
-                    | Q(vehicle__vin__icontains=query)
-                    | Q(raw_row__Asset__icontains=query)
-                    | Q(**{"raw_row__Serial Number__icontains": query})
-                )
-            queryset = queryset.filter(condition)
-        queries.append(
-            queryset.order_by()
-            .annotate(kind=Value(kind, output_field=CharField()))
-            .values("id", "title", "created_at", "is_archived", "kind", "sha256")
-        )
-    combined = (
-        queries[0].union(*queries[1:], all=True).order_by("-created_at", "kind", "id")
-    )
-    page = Paginator(combined, 25).get_page(request.GET.get("page"))
-    params = list_params(request)
-    suffix = query_suffix(request)
-    rows = []
-    for row in page.object_list:
-        row["label"] = KIND_LABELS[row["kind"]]
-        row["url"] = (
-            reverse(
-                "core:evidence:detail",
-                kwargs={
-                    "case_id": case.pk,
-                    "kind": row["kind"],
-                    "evidence_id": row["id"],
-                },
-            )
-            + suffix
-        )
-        rows.append(row)
-    matches = derived_text_matches(case=case, rows=rows, query=query)
-    matches.update(retained_text_matches(case=case, rows=rows, query=query))
-    for row in rows:
-        row["content_match"] = matches.get((row["kind"], row["id"]))
-        if row["content_match"] and row["content_match"].get("url"):
-            row["url"] = row["content_match"]["url"]
-        if row["content_match"] and row["content_match"].get("anchor"):
-            row["url"] += "#" + row["content_match"]["anchor"]
-    pagination = {}
-    for name, number in (
-        ("previous", page.previous_page_number() if page.has_previous() else None),
-        ("next", page.next_page_number() if page.has_next() else None),
-    ):
-        if number is not None:
-            page_params = params.copy()
-            page_params["page"] = number
-            pagination[name] = "?" + page_params.urlencode()
-    return {
-        "rows": rows,
-        "page_obj": page,
-        "pagination": pagination,
-        "query": query,
-        "selected_kind": selected_kind,
-        "state": state,
-        "kind_choices": KIND_LABELS.items(),
-        "list_suffix": suffix,
-        "list_url": reverse("core:evidence:list", kwargs={"case_id": case.pk}) + suffix,
-    }
+    return collection_context(case, request.GET)
 
 
 @product_login_required

@@ -1,130 +1,62 @@
 {% extends 'core/analysis/base.html' %}
-{% block title %}Findings · {{ case.name }}{% endblock %}
+{% block title %}Case Tools · {{ case.name }}{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><h1>Findings</h1><p class="muted">Add evidence. Supported checks run automatically and useful results appear here.</p></div>
-  {% if can_edit %}<div class="actions">
-    <form method="post" action="{% url 'core:analysis:rerun_all' case.pk %}">
-      {% csrf_token %}{{ case_analysis_form.submission_id }}
-      <button class="button button-secondary" type="submit" aria-describedby="rerun-all-help">Rerun all analysis</button>
-    </form>
-    <a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>
-  </div>{% endif %}
+  <div><h1>Case Tools</h1><p class="muted">Explore your evidence and see what it reveals.</p></div>
+  {% if can_edit %}<a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>{% endif %}
 </header>
-{% if can_edit %}<p class="muted" id="rerun-all-help">Rerun supported local checks on all active evidence. Earlier results are kept.</p>{% endif %}
-{% if case_analysis_batch %}
-<div class="notice"><p role="status">
-{% if case_analysis_batch.status == 'queued' %}Preparing analysis for all active evidence · {{ case_analysis_batch.processed_sources }} source{{ case_analysis_batch.processed_sources|pluralize }} checked so far.
-{% elif case_analysis_batch.status == 'failed' %}Analysis preparation stopped. {% if case_analysis_batch.error_code == 'access_removed' %}The requester’s editing access or verified account is no longer available.{% else %}Please rerun all analysis to try again. Previously queued checks are kept.{% endif %}
-{% elif not case_analysis_batch.processed_sources %}No active evidence is available for local checks.
-{% else %}All-evidence analysis · {{ case_analysis_batch.queued_runs }} check{{ case_analysis_batch.queued_runs|pluralize }} queued from {{ case_analysis_batch.processed_sources }} source{{ case_analysis_batch.processed_sources|pluralize }}.
-{% endif %}
-{% if case_analysis_batch.unavailable_sources %} {{ case_analysis_batch.unavailable_sources }} source{{ case_analysis_batch.unavailable_sources|pluralize }} could not be queued. Open the evidence to check its retained content and retry.{% endif %}
-</p>{% if case_analysis_batch.status == 'queued' %}<a class="record-link" href="">Refresh findings</a>{% endif %}</div>
-{% endif %}
-{% if processing_counts.queued or processing_counts.running %}
-<div class="notice analysis-pending"><p role="status">Checking evidence{% if processing_counts.running %} · {{ processing_counts.running }} running{% endif %}{% if processing_counts.queued %} · {{ processing_counts.queued }} queued{% endif %}</p><a class="record-link" href="">Refresh findings</a></div>
-{% endif %}
-{% if processing_counts.failed %}
-<p class="muted">{{ processing_counts.failed }} check{{ processing_counts.failed|pluralize }} could not finish. Open Processing history below to see recovery options.</p>
-{% endif %}
 
-{% if trip_report.items %}
-<section class="analysis-section" aria-labelledby="vehicle-trips-heading">
-  <div class="section-header"><h2 id="vehicle-trips-heading">Vehicle trips</h2><a class="record-link" href="{% url 'core:analysis:report' case.pk 'vehicle-trips' %}">All vehicle trips</a></div>
-  {% include 'geo/analysis/trips.html' with trip_report=trip_report only %}
-</section>
-{% endif %}
+<nav class="case-tool-grid" aria-label="Explore case">
+  <section class="analysis-section" aria-labelledby="explore-evidence-heading">
+    <h2 id="explore-evidence-heading">Explore the evidence</h2>
+    <div class="analysis-options">
+      <a href="{% url 'core:analysis:browse' case.pk %}" aria-labelledby="tool-findings-label" aria-describedby="tool-findings-description"><span><strong id="tool-findings-label">Browse all findings</strong><small id="tool-findings-description">Search analysis results and follow them back to their sources.</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>
+      <a href="{% url 'geo:case_map' case.pk %}" aria-labelledby="tool-map-label" aria-describedby="tool-map-description"><span><strong id="tool-map-label">Map</strong><small id="tool-map-description">See reported locations and geographic context.</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>
+      <a href="{% url 'core:evidence:chronology' case.pk %}" aria-labelledby="tool-chronology-label" aria-describedby="tool-chronology-description"><span><strong id="tool-chronology-label">Chronology</strong><small id="tool-chronology-description">Browse recorded dates and times across the case.</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>
+      <a href="{% url 'core:analysis:connections' case.pk %}" aria-labelledby="tool-connections-label" aria-describedby="tool-connections-description"><span><strong id="tool-connections-label">Connections</strong><small id="tool-connections-description">Find exact identifiers shared by different sources.</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>
+    </div>
+  </section>
+  <section class="analysis-section" aria-labelledby="case-work-heading">
+    <h2 id="case-work-heading">Organize your work</h2>
+    <div class="analysis-options">
+      <a href="{% url 'people:list' case.pk %}" aria-labelledby="tool-people-label" aria-describedby="tool-people-description"><span><strong id="tool-people-label">People</strong><small id="tool-people-description">Explore people and the evidence linked to them.</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>
+      <a href="{% url 'vehicle:list' case.pk %}" aria-labelledby="tool-vehicles-label" aria-describedby="tool-vehicles-description"><span><strong id="tool-vehicles-label">Vehicles</strong><small id="tool-vehicles-description">Review vehicle details and linked observations.</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>
+      <a href="{% url 'core:analysis:selection_list' case.pk %}" aria-labelledby="tool-selections-label" aria-describedby="tool-selections-description"><span><strong id="tool-selections-label">Selections</strong><small id="tool-selections-description">Bring sources and findings together for a shared brief.</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>
+    </div>
+  </section>
+</nav>
 
-{% if highlights or pattern_findings or not trip_report.items %}
-<section class="analysis-highlights" aria-labelledby="case-findings-heading">
-<h2 id="case-findings-heading">Recent findings</h2>
-{% if pattern_findings or highlights %}
-<p class="muted">Highlights from recent checks. Each finding links to the evidence it came from.</p>
-<ul class="analysis-finding-rows">
-{% for item in pattern_findings %}
-<li><a class="analysis-finding-link" href="{% url 'core:analysis:report' case.pk item.name %}"><div><strong>{{ item.label }}</strong><small>{{ item.summary }}</small></div></a></li>
-{% endfor %}
-{% for item in highlights %}
-<li><a class="analysis-finding-link" href="{{ item.url }}"><div>
-{% if item.summary_text %}<strong>{{ item.summary_text }}</strong><small>{{ item.label }}</small>{% else %}<strong>{{ item.label }}</strong>{% endif %}
-{% if item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
-<small>{{ item.source_title }}{% if item.attachment_label %} · {{ item.attachment_label }}{% endif %}</small>
-</div>{% if item.partial %}<small>Partial coverage</small>{% endif %}</a></li>
-{% endfor %}
-</ul>
-{% else %}
-<div class="empty-state compact-empty"><h3>No findings yet</h3>
-{% if processing_counts.queued or processing_counts.running %}<p>Checks are still running. Refresh to see their results.</p>{% else %}<p>Add files, text or location records to look for useful details and patterns. Some evidence may not produce a finding.</p>{% endif %}
-<a class="record-link" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a></div>
-{% endif %}
-</section>
-{% endif %}
+<div class="case-tool-grid">
+  <section class="analysis-section analysis-highlights" aria-labelledby="case-findings-heading">
+    <div class="section-header"><h2 id="case-findings-heading">Recent findings</h2></div>
+    {% if highlights %}
+    <ul class="analysis-finding-rows">
+      {% for item in highlights %}
+      <li><a class="analysis-finding-link" href="{{ item.url }}"><div>
+        <strong>{{ item.summary_text|default:item.label }}</strong>
+        <small>{% if item.summary_text %}{{ item.label }} · {% endif %}{{ item.source_title }}{% if item.attachment_label %} · {{ item.attachment_label }}{% endif %}</small>
+        {% if item.partial %}<small>Partial coverage</small>{% endif %}
+      </div>{% include 'ui/components/icon.html' with name='chevron-right' %}</a></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty-state compact-empty"><h3>No findings yet</h3><p>Results from supported evidence checks appear here. Open Processing to follow their progress.</p><a class="record-link" href="{% url 'core:analysis:processing' case.pk %}">View processing</a></div>{% endif %}
+  </section>
+  <section class="analysis-section" aria-labelledby="recent-evidence-heading">
+    <div class="section-header"><h2 id="recent-evidence-heading">Recent evidence</h2><a class="record-link" href="{% url 'core:evidence:list' case.pk %}">All evidence{% if evidence_count %} · {{ evidence_count }}{% endif %}</a></div>
+    {% for item in recent_evidence %}<a class="record-row" href="{{ item.url }}"><div><strong>{{ item.title }}</strong><p>{{ item.label }}</p></div></a>
+    {% empty %}<div class="empty-state compact-empty"><h3>No evidence yet</h3><p>{% if can_edit %}Add files, text or records to begin exploring this case.{% else %}Evidence appears here when an owner or editor adds it.{% endif %}</p>{% if can_edit %}<a class="record-link" href="{% url 'core:evidence:create' case.pk %}">Add your first evidence</a>{% endif %}</div>{% endfor %}
+  </section>
+</div>
 
 <section class="analysis-section" id="analysis-reports" aria-labelledby="analysis-reports-heading">
-<h2 id="analysis-reports-heading">Explore patterns</h2>
-<p class="muted">These views update automatically from the current evidence.</p>
-<div class="analysis-options">{% for name,label,description in reports %}<a href="{% url 'core:analysis:report' case.pk name %}" aria-labelledby="report-{{ name }}-label" aria-describedby="report-{{ name }}-description"><span><strong id="report-{{ name }}-label">{{ label }}</strong><small id="report-{{ name }}-description">{{ description }}</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}</div>
+  <h2 id="analysis-reports-heading">Explore patterns</h2>
+  <div class="analysis-options case-report-grid">{% for name,label,description in reports %}<a href="{% url 'core:analysis:report' case.pk name %}" aria-labelledby="report-{{ name }}-label" aria-describedby="report-{{ name }}-description"><span><strong id="report-{{ name }}-label">{{ label }}</strong><small id="report-{{ name }}-description">{{ description }}</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}</div>
 </section>
 
-<details class="analysis-section" id="processing-history"{% if history_filters or page_obj.number > 1 %} open{% endif %}>
-<summary>Processing history{% if page_obj.paginator.count %} · {{ page_obj.paginator.count }} check{{ page_obj.paginator.count|pluralize }}{% endif %}</summary>
-  {% if page_obj.paginator.count or history_filters %}
-  <details class="evidence-filters"{% if history_filters %} open{% endif %}>
-    <summary>Processing filters{% if history_filters %} · Applied{% endif %}</summary>
-    <form method="get" class="analysis-history-filters" aria-label="Filter analysis runs">
-      <div class="field"><label for="history-kind">Evidence type</label>
-        <select name="kind" id="history-kind"><option value="">All evidence types</option>
-          {% for key,label in evidence_kinds %}<option value="{{ key }}"{% if history_filters.kind == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
-        </select>
-      </div>
-      <div class="field"><label for="history-status">Status</label>
-        <select name="status" id="history-status"><option value="">All statuses</option>
-          {% for key,label in run_statuses %}<option value="{{ key }}"{% if history_filters.status == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
-        </select>
-      </div>
-      <div class="actions">
-        <button class="button button-secondary" type="submit">Filter runs</button>
-        {% if history_filters and page_obj.paginator.count %}<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Clear filters</a>{% endif %}
-      </div>
-    </form>
-  </details>
-  {% endif %}
-  {% for run in page_obj %}
-    <a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}{{ history_suffix }}">
-      <div><strong>{{ run.label }}</strong><p>{{ run.source_title }}{% if run.additional_sources %} · +{{ run.additional_sources }} source{{ run.additional_sources|pluralize }}{% endif %}</p><p class="muted">{% if run.source_kinds %}{{ run.source_kinds }} · {% endif %}{{ run.created_at|date:'d M Y, H:i T' }}{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}</p></div>
-      <span class="badge">{{ run.get_status_display }}</span>
-    </a>
-  {% empty %}
-    {% if history_filters %}
-    <div class="empty-state compact-empty">
-      <h3>No runs match these filters</h3>
-      <p>Choose another evidence type or status, or clear the filters to see all runs.</p>
-      <a class="button button-secondary" href="{% url 'core:analysis:index' case.pk %}">Clear filters</a>
-    </div>
-    {% else %}
-    <div class="empty-state compact-empty">
-      <h3>No processing history yet</h3>
-      {% if can_edit %}
-      <p>Add evidence to start its supported checks automatically.</p>
-      <a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a>
-      {% else %}
-      <p>Results appear here after an owner or editor adds evidence.</p>
-      <a class="button button-secondary" href="#analysis-reports">Browse reports</a>
-      {% endif %}
-    </div>
-    {% endif %}
-  {% endfor %}
-  {% if page_obj.paginator.num_pages > 1 %}
-  <nav class="pagination" aria-label="Analysis pages">
-    {% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring history_filters page=page_obj.previous_page_number %}">Previous</a>{% endif %}
-    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-    {% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring history_filters page=page_obj.next_page_number %}">Next</a>{% endif %}
-  </nav>
-  {% endif %}
-
+{% if can_edit %}<details class="analysis-section"><summary>More tools</summary><p>Choose specific sources for additional analysis.</p><a class="button button-secondary" href="{% url 'core:analysis:create' case.pk %}">Additional analysis</a></details>{% endif %}
+<details class="analysis-section case-details-body"><summary>Case details</summary>
+  <dl class="metadata-grid"><div><dt>Owner</dt><dd>{{ case.owner.get_username }}</dd></div><div><dt>Your role</dt><dd>{{ case_role|capfirst }}</dd></div><div><dt>Created</dt><dd><time datetime="{{ case.created_at|date:'c' }}">{{ case.created_at|date:'j M Y, H:i T' }}</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ case.updated_at|date:'c' }}">{{ case.updated_at|date:'j M Y, H:i T' }}</time></dd></div></dl>
+  {% if case.description %}<div class="prose"><h2>Case description</h2>{{ case.description|linebreaks }}</div>{% endif %}
+  {% if is_owner %}<a class="button button-secondary" href="{% url 'cases:case_settings' case.pk %}">Settings</a>{% endif %}
 </details>
-{% if can_edit %}
-<details class="analysis-section"><summary>Additional analysis</summary><p>Choose specific sources, compare evidence, or use configured AI. External processing still requires approval.</p><a class="button button-secondary" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a></details>
-{% endif %}
 {% endblock %}

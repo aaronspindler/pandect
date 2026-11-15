@@ -17,6 +17,47 @@ from core.analysis.http import NoRedirect
 from core.analysis.inference_payloads import decode_json, encode_json, evidence_messages
 
 
+def validate_local_configuration(config):
+    if not isinstance(config, dict):
+        raise AnalysisError("local_ai_not_configured")
+    url = config.get("url", "")
+    try:
+        parsed = urlsplit(url)
+        valid = (
+            config.get("backend") == "local"
+            and config.get("purpose") in {"text", "transcription"}
+            and parsed.scheme in {"http", "https"}
+            and parsed.hostname
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.query
+            and not parsed.fragment
+            and not any(character.isspace() for character in url)
+            and re.fullmatch(r"[a-fA-F0-9]{64}", config.get("sha256", ""))
+            and isinstance(config.get("model"), str)
+            and 0 < len(config["model"]) <= 255
+            and isinstance(config.get("runtime"), str)
+            and 0 < len(config["runtime"]) <= 128
+        )
+        for name in (
+            "timeout",
+            "max_request_bytes",
+            "max_response_bytes",
+            "max_output_tokens",
+        ):
+            valid = valid and type(config.get(name)) is int and config[name] > 0
+        if config.get("purpose") == "text":
+            valid = (
+                valid
+                and type(config.get("context_tokens")) is int
+                and config["context_tokens"] > config["max_output_tokens"]
+            )
+    except ValueError, TypeError, KeyError:
+        valid = False
+    if not valid:
+        raise AnalysisError("local_ai_not_configured")
+
+
 class LocalClient:
     """Use the run's retained execution identity, with no external fallback."""
 
@@ -34,45 +75,7 @@ class LocalClient:
         self._validate_configuration()
 
     def _validate_configuration(self):
-        config = self.execution
-        if not isinstance(config, dict):
-            raise AnalysisError("local_ai_not_configured")
-        url = config.get("url", "")
-        try:
-            parsed = urlsplit(url)
-            valid = (
-                config.get("backend") == "local"
-                and config.get("purpose") in {"text", "transcription"}
-                and parsed.scheme in {"http", "https"}
-                and parsed.hostname
-                and parsed.username is None
-                and parsed.password is None
-                and not parsed.query
-                and not parsed.fragment
-                and not any(character.isspace() for character in url)
-                and re.fullmatch(r"[a-fA-F0-9]{64}", config.get("sha256", ""))
-                and isinstance(config.get("model"), str)
-                and 0 < len(config["model"]) <= 255
-                and isinstance(config.get("runtime"), str)
-                and 0 < len(config["runtime"]) <= 128
-            )
-            for name in (
-                "timeout",
-                "max_request_bytes",
-                "max_response_bytes",
-                "max_output_tokens",
-            ):
-                valid = valid and type(config.get(name)) is int and config[name] > 0
-            if config.get("purpose") == "text":
-                valid = (
-                    valid
-                    and type(config.get("context_tokens")) is int
-                    and config["context_tokens"] > config["max_output_tokens"]
-                )
-        except ValueError, TypeError, KeyError:
-            valid = False
-        if not valid:
-            raise AnalysisError("local_ai_not_configured")
+        validate_local_configuration(self.execution)
 
     def _request(self, path, payload=None, *, content_type="application/json"):
         config = self.execution

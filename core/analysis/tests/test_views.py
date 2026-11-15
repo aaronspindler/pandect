@@ -210,7 +210,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         # Inconsistent historical references must not reveal another case's title.
         AnalysisRun.objects.filter(pk=foreign.pk).update(case=self.case)
         self.login("owner")
-        response = self.client.get(self.analysis_url("index"))
+        response = self.client.get(self.analysis_url("processing"))
         self.assertContains(response, "Selected &lt;script&gt;source&lt;/script&gt;")
         self.assertNotContains(response, self.foreign.title)
         labels = {run.pk: run.source_title for run in response.context["page_obj"]}
@@ -1251,12 +1251,18 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         payload = self.payload(
             operation="conversation_import",
             sources=[f"document:{document.pk}"],
-            me_label=account,
-            them_label="Other account",
-            me=str(self.person.pk),
-            them=str(other.pk),
             timezone="UTC",
         )
+        payload |= {
+            "participants-TOTAL_FORMS": "2",
+            "participants-INITIAL_FORMS": "2",
+            "participants-0-source_label": account,
+            "participants-0-person": str(self.person.pk),
+            "participants-0-fallback_recipient": str(other.pk),
+            "participants-1-source_label": "Other account",
+            "participants-1-person": str(other.pk),
+            "participants-1-fallback_recipient": str(self.person.pk),
+        }
         self.assertEqual(
             self.client.post(self.analysis_url("create"), payload).status_code, 302
         )

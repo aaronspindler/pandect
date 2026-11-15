@@ -1,4 +1,6 @@
 {% extends "ui/base.html" %}
+{% load static %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endblock %}
 {% block title %}{{ person }} · {{ case }} · Pandect{% endblock %}
 {% block content %}
 <div class="detail-layout">
@@ -15,6 +17,17 @@
 </section>
 {% else %}<p class="muted">No contact details recorded.</p>{% endif %}
 
+<section class="content-section" aria-labelledby="related-evidence">
+  <div class="section-header"><h2 id="related-evidence">Related evidence</h2><a class="button button-secondary" href="{{ related_evidence_url }}">Browse related evidence</a></div>
+  <p class="help-text">Explicit person links, including archived evidence. These associations do not establish identity or presence.</p>
+  {% for row in related_evidence.rows %}{% include 'core/evidence/row.html' %}{% empty %}<p class="muted">No evidence explicitly linked to this person.</p>{% endfor %}
+  {% with page=related_evidence.page_obj %}{% if page.has_other_pages %}<nav class="pagination" aria-label="Related evidence pages">{% if page.has_previous %}<a class="button button-secondary" href="{% querystring evidence_page=page.previous_page_number %}#related-evidence">Previous evidence</a>{% endif %}<span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="button button-secondary" href="{% querystring evidence_page=page.next_page_number %}#related-evidence">Next evidence</a>{% endif %}</nav>{% endif %}{% endwith %}
+</section>
+<section class="content-section" aria-labelledby="related-findings">
+  <div class="section-header"><h2 id="related-findings">Related findings</h2><a class="button button-secondary" href="{{ related_findings_url }}">Browse related findings</a></div>
+  {% include 'core/analysis/_catalogue_rows.html' with rows=related_findings.rows %}
+  {% with page=related_findings.page_obj %}{% if page.has_other_pages %}<nav class="pagination" aria-label="Related findings pages">{% if page.has_previous %}<a class="button button-secondary" href="{% querystring findings_page=page.previous_page_number %}#related-findings">Previous findings</a>{% endif %}<span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="button button-secondary" href="{% querystring findings_page=page.next_page_number %}#related-findings">Next findings</a>{% endif %}</nav>{% endif %}{% endwith %}
+</section>
 <section class="content-section" aria-labelledby="social-accounts">
   <div class="section-header">
     <h2 id="social-accounts">Social accounts</h2>

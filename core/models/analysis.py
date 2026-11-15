@@ -27,6 +27,8 @@ class CaseAnalysisBatch(models.Model):
     unavailable_sources = models.PositiveIntegerField(default=0)
     queued_runs = models.PositiveIntegerField(default=0)
     error_code = models.CharField(max_length=64, blank=True)
+    preparation_errors = models.JSONField(default=list)
+    scope = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -55,6 +57,16 @@ class AnalysisRun(models.Model):
     method_version = models.CharField(max_length=64)
     parameters = models.JSONField(default=dict)
     inputs = models.JSONField(default=list)
+    equivalence_key = models.CharField(
+        max_length=64, default="", db_index=True, editable=False
+    )
+    batch = models.ForeignKey(
+        CaseAnalysisBatch,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="runs",
+    )
     submission_id = models.UUIDField(default=uuid4, unique=True, editable=False)
     previous_run = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL
@@ -85,6 +97,8 @@ class AnalysisRun(models.Model):
     def save(self, *args, **kwargs):
         if self.previous_run_id and self.previous_run.case_id != self.case_id:
             raise ValidationError("Earlier processing must belong to the same case.")
+        if self.batch_id and self.batch.case_id != self.case_id:
+            raise ValidationError("The analysis batch must belong to the same case.")
         if not self._state.adding:
             prior = type(self).objects.get(pk=self.pk)
             immutable = (
@@ -98,12 +112,17 @@ class AnalysisRun(models.Model):
                 "submission_id",
                 "previous_run_id",
                 "external_processing",
+                "equivalence_key",
+                "batch_id",
             )
             if any(getattr(self, name) != getattr(prior, name) for name in immutable):
                 raise ValidationError(
                     "Inputs and attribution are retained. Start another run."
                 )
         if self._state.adding:
+            from core.analysis.projection import equivalence_key
+
+            self.equivalence_key = equivalence_key(self)
             kwargs["force_insert"] = True
         return super().save(*args, **kwargs)
 
@@ -135,6 +154,78 @@ class AnalysisResult(models.Model):
         super().clean()
         if self.run_id and self.run.case_id != self.case_id:
             raise ValidationError("The result must belong to its processing case.")
+
+
+class AnalysisFinding(models.Model):
+    """Searchable projection; the result item remains the authoritative record."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    result = models.ForeignKey(
+        AnalysisResult, on_delete=models.CASCADE, related_name="findings"
+    )
+    item_index = models.PositiveIntegerField()
+    label = models.TextField()
+    preview = models.CharField(max_length=300, blank=True)
+    search_text = models.TextField()
+    weak = models.BooleanField(default=False)
+    match_kind = models.CharField(max_length=16, blank=True)
+    match_key = models.TextField(blank=True)
+    match_digest = models.CharField(max_length=64, blank=True)
+    match_version = models.CharField(max_length=32, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["result", "item_index"], name="analysis_finding_item_unique"
+            )
+        ]
+        indexes = [models.Index(fields=["case", "match_kind", "match_digest"])]
+
+    def __str__(self):
+        return f"Finding {self.pk}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Finding projections are retained with their result.")
+        if self.result.case_id != self.case_id:
+            raise ValidationError("Finding and result must belong to the same case.")
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+
+class AnalysisFindingSource(models.Model):
+    """Only original identities actually cited by an individual finding."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    finding = models.ForeignKey(
+        AnalysisFinding, on_delete=models.CASCADE, related_name="sources"
+    )
+    source_id = models.UUIDField()
+    kind = models.CharField(max_length=32)
+    evidence_id = models.UUIDField()
+    attachment_id = models.UUIDField(null=True, blank=True)
+    source_sha256 = models.CharField(max_length=64)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["finding", "source_id"], name="analysis_finding_source_unique"
+            )
+        ]
+        indexes = [models.Index(fields=["case", "kind", "evidence_id"])]
+
+    def __str__(self):
+        return f"Finding source {self.pk}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Finding sources are retained with their result.")
+        if self.finding.case_id != self.case_id:
+            raise ValidationError("Finding source and finding must share a case.")
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
 
 
 class AnalysisReview(models.Model):

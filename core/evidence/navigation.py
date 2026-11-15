@@ -2,9 +2,13 @@
 
 
 def list_params(request):
-    params = request.GET.copy()
+    return collection_params(request.GET)
+
+
+def collection_params(values):
+    params = values.copy()
     for key in list(params):
-        if key not in {"q", "type", "state", "page"}:
+        if key not in {"q", "type", "state", "page", "person"}:
             del params[key]
     if "q" in params:
         params["q"] = params["q"][:200]

@@ -13,10 +13,11 @@ open-source release. Make careful investigative work approachable through clear
 language, thoughtful defaults, progressive disclosure, and polished accessibility.
 Design around the investigator's task and next useful action.
 
-Read [DESIGN.md](DESIGN.md) before visible changes. Open cases to Evidence, keep
-Findings beside it, and group supporting destinations under Case tools. Preserve
-source attribution, saved legacy notes, and finding review reasons; do not restore
-freeform note authoring. Broader search, graphs, unified timelines, and specialist
+Read [DESIGN.md](DESIGN.md) before visible changes. Open cases to Case Tools, the
+main workspace for exploring evidence and results. Keep Evidence and Processing
+directly available; separate active work and processing history from case insights.
+Preserve source attribution, saved legacy notes, and finding review reasons;
+do not restore freeform note authoring. Semantic retrieval, inferred event timelines, graphs, and specialist
 analysis are incremental product goals, not claims of implemented capability.
 
 ## Simplicity and maintainability

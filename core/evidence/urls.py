@@ -1,6 +1,9 @@
 from django.urls import path
 
+from audio.views import play as audio_play
 from core.evidence import views
+from core.evidence.chronology import chronology
+from document.views import page as document_page
 
 app_name = "evidence"
 
@@ -8,6 +11,13 @@ urlpatterns = [
     path("", views.evidence_list, name="list"),
     path("new/", views.create, name="create"),
     path("bulk/", views.bulk_create, name="bulk_create"),
+    path("chronology/", chronology, name="chronology"),
+    path(
+        "document/<uuid:evidence_id>/pages/<int:page>/",
+        document_page,
+        name="document_page",
+    ),
+    path("audio/<uuid:evidence_id>/play/", audio_play, name="audio_play"),
     path("<str:kind>/<uuid:evidence_id>/", views.detail, name="detail"),
     path("<str:kind>/<uuid:evidence_id>/edit/", views.edit, name="edit"),
     path("<str:kind>/<uuid:evidence_id>/delete/", views.delete, name="delete"),

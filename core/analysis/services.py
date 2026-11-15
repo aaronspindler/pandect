@@ -12,7 +12,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
-from django.db.models import OuterRef, Subquery
+from django.db.models import CharField, F, Func, OuterRef, Subquery, Value
 from django.http import Http404
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
@@ -32,8 +32,8 @@ from core.analysis.execution import (
 )
 from core.analysis.operations import get_operation
 from core.analysis.sources import Source, source_id
-from core.evidence.queries import get_evidence
-from core.evidence.types import CALL_KINDS
+from core.evidence.queries import get_evidence, scoped_evidence
+from core.evidence.types import CALL_KINDS, KINDS
 from core.models import (
     AnalysisArtifact,
     AnalysisResult,
@@ -68,29 +68,120 @@ def _attachment(case, kind, item, attachment_id):
         raise Http404("Source not found.") from None
 
 
-def resolve_inputs(run, case, *, require_current_review=True):
-    sources = []
-    originals = {}
-    attachments = {}
-    prior_results = {}
-    validated_originals = set()
+class SourceResolutionCache:
+    """Request-local source lookups; display readers need no complete text bodies."""
 
-    def original(selected):
-        key = (selected["kind"], selected["evidence_id"])
-        if key not in originals:
-            originals[key] = get_evidence(case, *key)
-        item = originals[key]
+    def __init__(self, case, *, with_content=True):
+        self.case = case
+        self.with_content = with_content
+        self.originals = {}
+        self.attachments = {}
+        self.prior_results = {}
+        self.validated_originals = set()
+        self.finding_results = {}
+        self.finding_dependency_heights = {}
+        self.finding_dependency_stack = set()
+
+    def prepare(self, selections):
+        by_kind = {}
+        for selected in selections:
+            if (
+                not isinstance(selected, dict)
+                or not selected.get("kind")
+                or not selected.get("evidence_id")
+            ):
+                continue
+            key = (selected["kind"], selected["evidence_id"])
+            if key not in self.originals:
+                by_kind.setdefault(key[0], set()).add(key[1])
+        for kind, ids in by_kind.items():
+            if kind not in KINDS:
+                continue
+            for chunk in batched(ids, 500, strict=False):
+                query = scoped_evidence(self.case, kind).filter(pk__in=chunk)
+                if not self.with_content and kind in {"text", "text-message"}:
+                    query = query.defer("body")
+                    if kind == "text":
+                        query = query.annotate(
+                            content_sha256=Func(
+                                Func(
+                                    Func(
+                                        F("body"), Value("UTF8"), function="convert_to"
+                                    ),
+                                    function="sha256",
+                                ),
+                                Value("hex"),
+                                function="encode",
+                                output_field=CharField(),
+                            )
+                        )
+                self.originals.update({(kind, key): None for key in chunk})
+                self.originals.update({(kind, str(item.pk)): item for item in query})
+        additions = {
+            selected["attachment_id"]
+            for selected in selections
+            if isinstance(selected, dict)
+            and selected.get("attachment_id")
+            and selected["attachment_id"] not in self.attachments
+        }
+        for chunk in batched(additions, 500, strict=False):
+            query = CallEvidenceAttachment.objects.filter(case=self.case, pk__in=chunk)
+            if not self.with_content:
+                query = query.defer("transcript")
+            self.attachments.update(dict.fromkeys(chunk))
+            self.attachments.update({str(item.pk): item for item in query})
+
+    def original(self, selected):
+        item = self.originals.get((selected["kind"], selected["evidence_id"]))
+        if item is None:
+            raise Http404("Source not found.")
         attachment_id = selected.get("attachment_id")
         if not attachment_id:
             return item, None
-        attachment_key = (*key, attachment_id)
-        if attachment_key not in attachments:
-            attachments[attachment_key] = _attachment(
-                case, selected["kind"], item, attachment_id
-            )
-        return item, attachments[attachment_key]
+        attachment = self.attachments.get(attachment_id)
+        parent = {"phone-call": "phone_call_id", "facetime": "facetime_id"}.get(
+            selected["kind"]
+        )
+        if not parent or attachment is None or getattr(attachment, parent) != item.pk:
+            raise Http404("Source not found.")
+        return item, attachment
 
-    for selected in run.inputs:
+
+def resolve_inputs(
+    run, case, *, require_current_review=True, cache=None, finding_depth=0
+):
+    cache = cache or SourceResolutionCache(case)
+    sources = resolve_snapshots(
+        run.inputs,
+        case,
+        run_id=run.pk,
+        require_current_review=require_current_review,
+        cache=cache,
+    )
+    if run.operation == "question_synthesis":
+        from text.analysis.synthesis import validate_references
+
+        validate_references(run, sources, case, cache=cache, depth=finding_depth)
+    return sources
+
+
+def resolve_snapshots(
+    inputs, case, *, run_id=None, require_current_review=True, cache=None
+):
+    """Resolve exact retained references without constructing a fictitious run."""
+    sources = []
+    cache = cache or SourceResolutionCache(case)
+    if cache.case.pk != case.pk:
+        raise AnalysisError("source_unavailable")
+    try:
+        cache.prepare(inputs)
+    except Http404, ValueError, KeyError, ValidationError:
+        raise AnalysisError("source_unavailable") from None
+    original = cache.original
+    prior_results = cache.prior_results
+    validated_originals = cache.validated_originals
+
+    for selected in inputs:
         try:
             item, attachment = original(selected)
         except Http404, ValueError, KeyError, ValidationError:
@@ -116,7 +207,11 @@ def resolve_inputs(run, case, *, require_current_review=True):
                     raise AnalysisError("source_unavailable")
             if (
                 selected["kind"] == "text"
-                and hashlib.sha256(item.body.encode()).hexdigest() != checksum
+                and (
+                    getattr(item, "content_sha256", None)
+                    or hashlib.sha256(item.body.encode()).hexdigest()
+                )
+                != checksum
             ):
                 raise AnalysisError("source_changed")
             validated_originals.add(identity)
@@ -129,16 +224,23 @@ def resolve_inputs(run, case, *, require_current_review=True):
             result_id = selected["result_id"]
             if result_id not in prior_results:
                 try:
-                    prior = AnalysisResult.objects.select_related("run").get(
-                        pk=result_id,
-                        case=case,
-                        run__case=case,
-                        run__status__in=("complete", "partial", "empty"),
+                    prior = (
+                        AnalysisResult.objects.select_related("run")
+                        .defer(
+                            "provenance", *(["data"] if not cache.with_content else [])
+                        )
+                        .get(
+                            pk=result_id,
+                            case=case,
+                            run__case=case,
+                            run__status__in=("complete", "partial", "empty"),
+                        )
                     )
-                    if prior.run.pk == run.pk:
+                    if prior.run.pk == run_id:
                         raise AnalysisError("invalid_source_chain")
                     # Check each retained source once per resolution, including
                     # sources not selected by this downstream run.
+                    cache.prepare(prior.run.inputs)
                     for previous in prior.run.inputs:
                         old, old_attachment = original(previous)
                         if (
@@ -155,6 +257,8 @@ def resolve_inputs(run, case, *, require_current_review=True):
                     raise AnalysisError("source_unavailable") from None
                 prior_results[result_id] = prior
             prior = prior_results[result_id]
+            if prior.run.pk == run_id:
+                raise AnalysisError("invalid_source_chain")
             matching = {
                 x["id"]
                 for x in prior.run.inputs
@@ -167,7 +271,9 @@ def resolve_inputs(run, case, *, require_current_review=True):
                 raise AnalysisError("source_changed")
             pieces = []
             cursor = 0
-            for index, piece in enumerate(prior.data.get("items", [])):
+            for index, piece in enumerate(
+                prior.data.get("items", []) if cache.with_content else []
+            ):
                 if not matching.intersection(piece.get("source_ids", [])):
                     continue
                 value = piece.get("text", "")
@@ -273,50 +379,15 @@ def authorize_run(run, *, lock=False):
     return case
 
 
-@transaction.atomic
-def start_run(
-    actor,
-    case_id,
-    operation,
-    selections,
-    *,
-    parameters=None,
-    submission_id=None,
-    external_processing=False,
-    previous_run=None,
-    retry_confirmation="",
-):
-    case = get_case(actor, case_id, edit=True, lock=True)
-    specification = get_operation(operation)
-    parameters = {} if parameters is None else parameters
-    try:
-        valid_parameters = (
-            isinstance(parameters, dict)
-            and len(json.dumps(parameters, allow_nan=False).encode()) <= 32768
-        )
-    except ValueError, TypeError:
-        valid_parameters = False
-    if not valid_parameters:
-        raise ValidationError("Analysis settings exceed the supported limit.")
-    # Execution settings are operator-owned, never accepted from a form or rerun.
-    parameters = {
-        key: value for key, value in parameters.items() if key != "_execution"
-    }
-    execution = snapshot_execution(operation, parameters)
-    external = bool(execution and execution["location"] == "external")
-    if external and not external_processing:
-        if previous_run:
-            raise AnalysisError("retry_approval_required")
-        raise ValidationError("Approve external processing for this operation.")
-    external_processing = external
+def snapshot_sources(case, selections, *, allowed_kinds=None):
+    """Validate and freeze a bounded source selection for runs or saved collections."""
     if not 1 <= len(selections) <= settings.PANDECT_ANALYSIS_MAX_SOURCES:
         raise ValidationError("Select between 1 and 500 retained sources.")
-    submission_id = UUID(_uuid(submission_id or uuid4()))
     snapshots = []
     seen = set()
     for choice in selections:
         kind = choice["kind"]
-        if kind not in specification.kinds:
+        if kind not in (allowed_kinds if allowed_kinds is not None else KINDS):
             raise ValidationError(
                 "This evidence type is not supported by the selected analysis."
             )
@@ -379,6 +450,61 @@ def start_run(
                 "sha256": attachment.sha256 if attachment else item.sha256,
             }
         )
+    resolve_snapshots(snapshots, case)
+    return snapshots
+
+
+@transaction.atomic
+def start_run(
+    actor,
+    case_id,
+    operation,
+    selections,
+    *,
+    parameters=None,
+    submission_id=None,
+    external_processing=False,
+    previous_run=None,
+    retry_confirmation="",
+    batch=None,
+):
+    case = get_case(actor, case_id, edit=True, lock=True)
+    if previous_run:
+        if previous_run.case_id != case.pk:
+            raise Http404("Processing not found.")
+        if batch is None:
+            batch = previous_run.batch
+    if batch and (
+        batch.case_id != case.pk
+        or (
+            batch.requested_by_id != actor.pk
+            and not (previous_run and previous_run.batch_id == batch.pk)
+        )
+    ):
+        raise ValidationError("Choose an analysis batch requested by you in this case.")
+    specification = get_operation(operation)
+    parameters = {} if parameters is None else parameters
+    try:
+        valid_parameters = isinstance(parameters, dict) and len(
+            json.dumps(parameters, allow_nan=False).encode()
+        ) <= (65536 if operation == "question_synthesis" else 32768)
+    except ValueError, TypeError:
+        valid_parameters = False
+    if not valid_parameters:
+        raise ValidationError("Analysis settings exceed the supported limit.")
+    # Execution settings are operator-owned, never accepted from a form or rerun.
+    parameters = {
+        key: value for key, value in parameters.items() if key != "_execution"
+    }
+    execution = snapshot_execution(operation, parameters)
+    external = bool(execution and execution["location"] == "external")
+    if external and not external_processing:
+        if previous_run:
+            raise AnalysisError("retry_approval_required")
+        raise ValidationError("Approve external processing for this operation.")
+    external_processing = external
+    snapshots = snapshot_sources(case, selections, allowed_kinds=specification.kinds)
+    submission_id = UUID(_uuid(submission_id or uuid4()))
     existing = AnalysisRun.objects.filter(submission_id=submission_id).first()
     if existing:
 
@@ -398,6 +524,7 @@ def start_run(
             or comparable(existing.inputs) != comparable(snapshots)
             or existing.external_processing != external_processing
             or existing.previous_run_id != (previous_run.pk if previous_run else None)
+            or existing.batch_id != (batch.pk if batch else None)
         ):
             raise ValidationError(
                 "This submission was already used for different analysis settings."
@@ -415,7 +542,9 @@ def start_run(
             raise AnalysisError("retry_approval_required")
     if execution is not None:
         parameters = parameters | {"_execution": execution}
-    if len(json.dumps(parameters, allow_nan=False).encode()) > 32768:
+    if len(json.dumps(parameters, allow_nan=False).encode()) > (
+        65536 if operation == "question_synthesis" else 32768
+    ):
         raise ValidationError("Analysis settings exceed the supported limit.")
     run = AnalysisRun(
         case=case,
@@ -427,8 +556,13 @@ def start_run(
         submission_id=submission_id,
         external_processing=external_processing,
         previous_run=previous_run,
+        batch=batch,
     )
-    resolve_inputs(run, case)
+    resolved = resolve_inputs(run, case)
+    if operation == "question_synthesis":
+        from text.analysis.synthesis import records_for_selection
+
+        records_for_selection(resolved, run.parameters)
     try:
         with transaction.atomic():
             run.save()
@@ -618,6 +752,16 @@ def process_run(run_id):
                 from phone.analysis.deterministic.imports import apply_import
 
                 apply_import(run, data, sources)
+                data = validate_output(data, sources)
+            elif (
+                run.operation == "imazing_import"
+                and run.parameters.get("phase") == "import"
+            ):
+                from phone.analysis.deterministic.imazing import apply_import
+
+                apply_import(run, data, sources)
+                # Publication adds exact message membership; it shares the result bound.
+                data = validate_output(data, sources)
             result = AnalysisResult.objects.create(
                 case=case,
                 run=run,
@@ -637,6 +781,9 @@ def process_run(run_id):
                     ),
                 },
             )
+            from core.analysis.catalogue import project_result
+
+            project_result(result)
             totals = {kind: 0 for kind in AnalysisArtifact.Kind.values}
             reference_keys = set()
             prepared_findings = set()

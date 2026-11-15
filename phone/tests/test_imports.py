@@ -1,3 +1,6 @@
+import json
+from dataclasses import replace
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
@@ -8,7 +11,11 @@ from django.test import TestCase
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
-from core.analysis.services import process_run, start_run
+from core.analysis.bulk import prepare_case_analysis_batch, start_case_analysis
+from core.analysis.errors import AnalysisError
+from core.analysis.import_checks import imported_sources
+from core.analysis.operations import get_operation
+from core.analysis.services import process_run, resolve_inputs, start_run
 from core.analysis.sources import Source
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
@@ -196,6 +203,96 @@ class CommunicationImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.status, "failed")
         self.assertEqual(run.error_code, "processing_version_unavailable")
         self.assertFalse(TextMessageEvidence.objects.exists())
+        self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
+
+    def test_local_checks_scope_only_new_rows_from_exact_import_publication(self):
+        source = self.document(self.row() + self.row(sender="Later mapped"))
+
+        def import_rows(parameters):
+            run, _ = start_run(
+                self.users["owner"],
+                self.case.pk,
+                "conversation_import",
+                [{"kind": "document", "id": str(source.item.pk)}],
+                parameters=parameters,
+            )
+            process_run(run.pk)
+            run.refresh_from_db()
+            self.assertIn(run.status, {"complete", "partial"}, run.error_code)
+            return run, {"type": "messages", "id": str(run.pk)}
+
+        first, first_scope = import_rows(self.parameters())
+        later_parameters = self.parameters()
+        later_parameters["sender_map"]["Later mapped"] = str(self.person.pk)
+        later_parameters["recipient_map"]["Later mapped"] = str(self.other_person.pk)
+        second, second_scope = import_rows(later_parameters)
+        _, duplicate_scope = import_rows(later_parameters)
+        first_rows = imported_sources(self.case, first_scope)[1]
+        second_rows = imported_sources(self.case, second_scope)[1]
+        self.assertEqual(first_rows.count(), 1)
+        self.assertEqual(second_rows.count(), 1)
+        self.assertNotEqual(first_rows.get().pk, second_rows.get().pk)
+        self.assertFalse(imported_sources(self.case, duplicate_scope)[1].exists())
+        with self.assertRaisesMessage(ValidationError, "no newly added evidence"):
+            start_case_analysis(
+                self.users["owner"],
+                self.case.pk,
+                submission_id=uuid4(),
+                scope=duplicate_scope,
+            )
+        batch, _ = start_case_analysis(
+            self.users["owner"], self.case.pk, submission_id=uuid4(), scope=first_scope
+        )
+        prepare_case_analysis_batch(batch.pk)
+        self.assertEqual(batch.runs.count(), 2)
+        for check in batch.runs.all():
+            self.assertEqual(
+                [item["evidence_id"] for item in check.inputs],
+                [str(first_rows.get().pk)],
+            )
+            self.assertFalse(check.external_processing)
+        self.login("owner")
+        detail = self.client.get(
+            reverse("core:analysis:detail", args=[self.case.pk, first.pk]),
+            {"finding": 1},
+        )
+        self.assertContains(detail, "1 imported record")
+        self.assertContains(detail, "Run local checks on imported evidence")
+        historical = dict(second.result.data)
+        historical.pop("import_publication_version")
+        AnalysisResult.objects.filter(run=second).update(data=historical)
+        with self.assertRaises(AnalysisError) as error:
+            imported_sources(self.case, second_scope)
+        self.assertEqual(error.exception.code, "import_membership_unknown")
+        detail = self.client.get(
+            reverse("core:analysis:detail", args=[self.case.pk, second.pk])
+        )
+        self.assertContains(detail, "historical import does not record")
+        self.assertNotContains(detail, "Run local checks on imported evidence")
+
+    def test_added_publication_metadata_obeys_result_bound_and_rolls_back(self):
+        source = self.document(self.row())
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "conversation_import",
+            [{"kind": "document", "id": str(source.item.pk)}],
+            parameters=self.parameters(),
+        )
+        data = prepare_import(resolve_inputs(run, self.case), self.parameters())
+        data["padding"] = ""
+        remaining = 4 * 1024 * 1024 - len(json.dumps(data).encode()) - 1
+        data["padding"] = "x" * remaining
+        operation = replace(
+            get_operation("conversation_import"), function=lambda *_: data
+        )
+        with patch("core.analysis.services.get_operation", return_value=operation):
+            process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(run.error_code, "result_limit")
+        self.assertFalse(TextMessageEvidence.objects.filter(case=self.case).exists())
+        self.assertFalse(CommunicationContext.objects.exists())
         self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
 
     def test_new_parser_runs_preserve_previously_imported_context(self):

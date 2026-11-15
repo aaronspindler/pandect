@@ -323,6 +323,14 @@ class CommunicationContext(models.Model):
         on_delete=models.RESTRICT,
         related_name="communication_contexts",
     )
+    import_run = models.ForeignKey(
+        "core.AnalysisRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        related_name="imported_message_contexts",
+    )
     source_sha256 = models.CharField(max_length=64)
     source_row = models.PositiveIntegerField()
     source_start = models.PositiveIntegerField()
@@ -343,6 +351,11 @@ class CommunicationContext(models.Model):
 
     class Meta:
         ordering = ("source_document_id", "source_row")
+        indexes = [
+            models.Index(
+                fields=("import_run", "source_row"), name="communication_import_row"
+            )
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=("source_document", "source_row"),
@@ -386,6 +399,20 @@ class CommunicationContext(models.Model):
             raise ValidationError(
                 "The retained export is unavailable or belongs to another case."
             )
+        if self.import_run_id:
+            run = self.import_run
+            if (
+                run.case_id != self.case_id
+                or run.operation != "imazing_import"
+                or run.parameters.get("phase") != "import"
+                or len(run.inputs) != 1
+                or run.inputs[0].get("kind") != "document"
+                or run.inputs[0].get("evidence_id") != str(self.source_document_id)
+                or run.inputs[0].get("sha256") != self.source_sha256
+            ):
+                raise ValidationError(
+                    "Import membership must belong to this case and retained export."
+                )
         for field in ("participants", "attachments"):
             if not isinstance(getattr(self, field), list):
                 raise ValidationError({field: "Source context must contain a list."})

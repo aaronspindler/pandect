@@ -57,9 +57,11 @@ builds use content-hashed filenames from `collectstatic`. Rebuild with `make run
 after changing templates or static assets in the container workflow. Host-based
 debug development picks up source asset changes without collecting them.
 
-After verification, create a case from **All cases**, then use **Add evidence**.
-**Case tools** groups People, Vehicles, and owner-only Settings, including
-collaborator invitations. Ordinary investigators do not need staff permissions.
+After verification, create a case from **All cases** to open **Case Tools**, then
+use **Add evidence**. The shared navigation keeps **Evidence** and **Processing**
+directly available. Case Tools links to findings, supporting views, People,
+Vehicles, and owner-only Settings, including collaborator invitations. Ordinary
+investigators do not need staff permissions.
 See [case workflows](cases.md), [evidence](evidence.md), and
 [vehicle-location imports](vehicle-location-imports.md) for task-specific guidance.
 

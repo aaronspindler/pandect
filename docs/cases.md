@@ -3,17 +3,19 @@
 `cases.Case` is the investigation and access boundary. Every evidence record
 requires a case; see [evidence storage](evidence.md). `cases` owns ownership,
 collaboration, invitations, settings, authorization, and case navigation. `core`
-owns Evidence and Findings; `geo` owns maps and POIs.
+owns Evidence, Processing, and the Case Tools workspace; `geo` owns maps and POIs.
 
 ## Investigator workflow
 
 Sign in with a verified account and choose **All cases → Create case**. Enter a
 name; the signed-in user becomes owner. Opening, creating, or joining a case
-opens **Evidence**, with **Findings** beside it. Saved case URLs also open Evidence
-after checking access. **Case tools** groups Map, People, Vehicles, and owner-only
-Settings. **Case details** shows ownership, timestamps, and any saved read-only
-description. All cases searches accessible names/descriptions and filters
-owned/shared cases.
+opens **Case Tools** after checking access. Saved case URLs open the same home.
+The shared navigation links directly to **Case Tools**, **Evidence**, and
+**Processing**. Case Tools provides recent evidence and source-linked findings,
+plus Map, Chronology, Connections, People, Vehicles, Selections, and reports.
+A **Case details** disclosure retains ownership, timestamps, your role, and any
+saved read-only description; it also contains owner-only Settings.
+All cases searches accessible names/descriptions and filters owned/shared cases.
 
 Viewers can inspect case material and download originals. Editors can also add or
 edit investigative records and archive/restore evidence. Owners manage access and

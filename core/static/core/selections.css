@@ -1,0 +1,3 @@
+/* Keep member actions readable beside long excerpts and review warnings. */
+.selection-members .record-row > div { flex: 1; }
+.selection-members .record-row > .button { flex: none; }

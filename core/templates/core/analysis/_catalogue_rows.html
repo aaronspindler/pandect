@@ -1,0 +1,21 @@
+<div class="analysis-highlights"><ul class="analysis-finding-rows">
+{% for item in rows %}
+<li>
+  <div class="analysis-finding-link">
+    <div>
+      <a class="record-link" href="{{ item.url }}"><strong>{{ item.label }}</strong></a>
+      {% if item.unavailable %}<p class="muted">A retained source is unavailable or has changed. Open the result for details.</p>
+      {% else %}<p>{{ item.excerpt }}</p>{% endif %}
+      <small>{{ item.method }} · {{ item.created_at|date:'d M Y, H:i T' }}</small>
+      <small>Finding review: {{ item.review|capfirst }}{% if item.result_review %} · Whole result: {{ item.result_review|capfirst }}{% endif %}</small>
+      {% if can_edit and not item.unavailable %}<a class="record-link" href="{% url 'core:analysis:selection_pick' case.pk %}?result={{ item.result_id }}&amp;item={{ item.item_index }}">Save to selection<span class="visually-hidden">: {{ item.label }}</span></a>{% endif %}
+      {% if item.partial %}<small>Partial coverage</small>{% endif %}
+      {% if item.weak %}<small>Weak plate region</small>{% endif %}
+      {% if item.warning %}<small>{{ item.warning }}</small>{% endif %}
+      {% for source in item.sources|slice:':3' %}<small><a class="record-link" href="{{ source.url }}">{{ source.title }}</a> · {{ source.kind }}{% if source.archived %} · Archived{% endif %}</small>{% endfor %}
+      {% if item.additional_sources and not item.unavailable %}<small>{{ item.additional_sources }} more source{{ item.additional_sources|pluralize }} · Open the finding for all citations.</small>{% endif %}
+    </div>
+  </div>
+</li>
+{% empty %}<li><p class="muted">No findings match this selection.</p></li>{% endfor %}
+</ul></div>

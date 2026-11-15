@@ -118,17 +118,24 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
         self.assertIn("backend", invalid.errors)
 
     def test_geo_approval_depends_on_explicit_operator_trust(self):
+        location = LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Observed location",
+            latitude="43.000000",
+            longitude="-79.000000",
+        )
         for operation, setting in (
             ("geocode_locations", "PANDECT_GEOCODER_LOCAL"),
             ("geographic_context", "PANDECT_MAP_CONTEXT_LOCAL"),
         ):
             with self.subTest(operation=operation):
                 with override_settings(**{setting: False}):
-                    untrusted = self.form(operation, "location", self.location)
+                    untrusted = self.form(operation, "location", location)
                     self.assertFalse(untrusted.is_valid())
                     self.assertIn("external_processing", untrusted.errors)
                 with override_settings(**{setting: True}):
-                    private = self.form(operation, "location", self.location)
+                    private = self.form(operation, "location", location)
                     self.assertTrue(private.is_valid(), private.errors)
                     self.assertFalse(private.cleaned_data["external_processing"])
                     self.assertTrue(

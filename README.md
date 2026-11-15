@@ -17,8 +17,9 @@ intelligence (OSINT). It is built with Django and PostgreSQL and runs on your ow
 infrastructure with Docker Compose.
 
 **In active development:** The workflows below are implemented. Some analysis
-needs separately configured services; unified timelines, relationship graphs,
-and case-wide summaries are planned. A managed hosting service is also planned.
+needs separately configured services; inferred event timelines, relationship
+graphs, and broader evidence discovery remain planned. A managed hosting service
+is also planned.
 
 ## What you can use today
 
@@ -28,21 +29,32 @@ and case-wide summaries are planned. A managed hosting service is also planned.
 - **Evidence collection and preservation.** Upload documents, images, and audio;
   capture text, messages, calls, and locations; and retain call transcripts and
   recordings. Keep originals with checksums and source details, then archive or
-  restore evidence without replacing the original.
+  restore evidence without replacing the original. Read supported UTF-8 text and
+  PDF page previews, and play supported WAV recordings through private readers.
 - **People, vehicles, and maps.** Maintain case people, contact details, social
   account records, and vehicle identifiers. Map recorded coordinates and
-  person-linked points of interest. Reported details remain distinct from
-  verified identity or presence.
+  person-linked points of interest. Open evidence and findings explicitly linked
+  to a person. Reported details remain distinct from verified identity or presence.
 - **Search and source-linked findings.** Search retained text and supported
   extraction within a case. Eligible new evidence receives local checks for
   native PDF/UTF-8 text, printed English in JPEG/PNG images, possible vehicle
   plates, supported media metadata, and identifiers, dates, and keywords in
-  available text. Findings link back to source records, passages, or image regions.
+  available text. Browse all retained findings with search, filters, review states,
+  and earlier run versions. Findings link back to their exact sources.
+- **Connections and chronology.** Inspect repeated identifier candidates in
+  analyzed material and follow recorded communication/location times in one
+  chronology. Matching strings do not establish identity; uncertain extracted
+  dates stay separate from recorded events.
+- **Shared selections and briefs.** Save exact evidence and finding references
+  with collaborators. Export a printable HTML brief with citations, review
+  decisions, and a downloadable provenance manifest.
 - **Imports and pattern review.** Review Asset Location CSV exports before
   importing vehicle observations, or import the supported iMessage HTML profile.
   Inspect possible vehicle trips, call activity, observation coverage, and exact
   file duplicates. Deliberately selected comparisons cover wording, writing
   patterns, conversation timing, and reported locations.
+  Processing separates queued work from completed results and offers recovery
+  actions. Completed imports offer deliberate local checks on imported records.
 - **Self-hosting.** Run the application, PostgreSQL, and worker with Docker
   Compose. Core case work and the local checks above need no external AI service
   or hosted Pandect subscription.
@@ -56,8 +68,11 @@ guide](docs/analysis.md) for inputs and limits.
 ### Available with additional configuration
 
 English speech transcription, topic and claim suggestions, conversation summaries,
-and semantic conversation comparisons need an operator-configured private model
-runtime. External AI is a separate, explicitly selected and approved route through
+semantic conversation comparisons, and question-driven synthesis need an
+operator-configured private model runtime. Synthesis uses explicitly selected
+text and findings, with source citations, contrary evidence, and unresolved
+questions; it does not automatically search the whole case. External AI is a
+separate, explicitly selected and approved route through
 Cloudflare AI Gateway; a local failure never triggers cloud fallback.
 
 Address lookup and geographic context need configured geographic services. Map
@@ -66,9 +81,9 @@ setup](docs/local-analysis.md) and [map configuration](docs/maps.md).
 
 ### Planned and exploratory
 
-Planned work includes a unified case timeline, candidate links across records,
-relationship exploration, and source-cited case-wide synthesis. Broader goals
-include search across accessible cases. Semantic passage retrieval, near-duplicate
+Planned work includes inferred event timelines, relationship graphs, and broader
+evidence discovery for synthesis beyond explicitly selected material. Broader
+goals include search across accessible cases. Semantic passage retrieval, near-duplicate
 image comparison, structured table extraction, and other specialist tools remain
 exploratory. These are not available features or a promised release schedule;
 see the [analysis roadmap](docs/evidence-analysis-roadmap.md).
@@ -117,9 +132,11 @@ Keep these logs private because they contain account and invitation links. After
 verification:
 
 1. Choose **All cases → Create case**.
-2. In **Evidence**, choose **Add evidence** to upload files or capture text and locations.
-3. Open **Findings** to see progress and source-linked results.
-4. Use **Case tools** for Map, People, Vehicles, or **Settings → Invite collaborator**.
+2. The case opens to **Case Tools**, with recent evidence, findings, and links to
+   maps, chronology, connections, people, vehicles, selections, and reports.
+3. Choose **Evidence → Add evidence** to upload files or capture text and locations.
+4. Open **Processing** to follow active checks/imports and their history. Use
+   **Case Tools → Case details → Settings** to invite collaborators.
 
 Ordinary investigators do not need staff or administrator permissions.
 

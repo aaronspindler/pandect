@@ -19,12 +19,47 @@ Each preparation task queues local runs for at most 25 active sources and commit
 the cursor, those runs and the next task atomically. Calls are traversed by retained
 addition, so large call histories do not exceed per-run source limits. Each step
 rechecks the requester's current editing access and verified account; individual
-analysis workers recheck access again. Unavailable originals are counted and
-skipped. Preparation failures stop the batch with a safe message; investigators
-can make a fresh request from Findings. Previously committed runs remain retained.
+analysis workers recheck access again. Unavailable originals are counted and skipped; up to 100 source-specific safe
+preparation errors are retained. Preparation failures stop the batch with a safe message; investigators
+can make a fresh request from Processing. Previously committed runs remain retained.
 As with other tasks, abrupt worker loss can leave preparation pending. Confirm the
 old worker has stopped before making a fresh request; the queue does not reclaim
 stale work automatically.
+
+## Investigator progress and completed imports
+
+The main **Processing** screen separates active work from retained history, and
+batch preparation from run execution. A batch marked **Checks queued** has
+finished preparing work; its runs and extraction follow-ups may still be queued
+or running. New runs carry an explicit parent-batch
+reference. Retries and their automatic follow-ups preserve that reference, including
+when another authorized editor requests the retry. Historical runs without that
+reference are not assigned a guessed batch.
+
+Active work remains visible independently of history filters. History retains all
+check outcomes with evidence-type and outcome filters, pagination, and links to
+exact sources, results, timestamps, retry, and cancellation actions. Vehicle-location
+CSV imports have separate progress/history and review links; imports ready for
+review remain with current work until that step is completed. Owners and editors
+can request **Run more checks → Rerun all analysis** here; additional analysis
+remains deliberate. Refresh provides in-app completion feedback; no notification
+scheduler is added.
+
+Completed vehicle and iMessage imports offer **Run local checks on imported
+evidence** deliberately. Scope comes from retained import relationships (and the
+published iMessage IDs and source rows for historical results, or the publishing
+run on new iMazing message contexts), never browser-supplied evidence IDs. Each step
+queues independent local checks for at most 500 sources or the configured lower
+source limit; text groups also respect the one-million-character analysis bound.
+Skipped duplicate rows are absent. This does not run models, transcription,
+external lookups, or split context-dependent movement/conversation analyses.
+Duplicate submissions recover the same batch. Each continuation rechecks access;
+preparation and run failures remain recoverable through existing workflows.
+
+iMazing CSV imports have no row-count ceiling. They stream within the configured
+file and per-message limits, retain compact analysis summaries, and paginate
+source review and completed messages. Publication still commits all messages and
+requested new people atomically; internal processing groups are not import limits.
 
 ## Startup and diagnostics
 
@@ -70,7 +105,7 @@ uv run --locked --env-file .env python manage.py check_task_worker --timeout 30
 Task state is `READY`, `RUNNING`, `SUCCESSFUL`, or `FAILED`. The backend's task
 rows and UUIDs are operational records, not case authorization. Its upstream
 global admin registration is disabled by `core.admin`, including for superusers.
-The case Findings page exposes case-scoped processing history;
+The case Processing screen exposes case-scoped processing history;
 operational task rows are never the product authorization boundary.
 
 Use the operator shell for a metadata-only summary:

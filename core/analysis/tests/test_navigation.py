@@ -430,7 +430,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             ]
         )
         self.login("editor")
-        index = reverse("core:analysis:index", args=[self.case.pk])
+        index = reverse("core:analysis:processing", args=[self.case.pk])
         filters = {"kind": "text", "status": "complete", "page": 2}
         history = self.client.get(index, filters)
         self.assertEqual(history.context["page_obj"].paginator.count, 26)

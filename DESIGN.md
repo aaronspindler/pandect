@@ -14,9 +14,11 @@ in [validation](docs/validation.md).
 - Give each screen a clear task, title, and primary action. Keep controls beside
   the material they affect, choose sensible defaults, and ask only for necessary
   decisions. Simplify confusing interactions before adding explanations.
-- Open cases to Evidence, keep Findings beside it, and group supporting
-  destinations under **Case tools**. Disclose optional metadata, saved notes,
-  and history through a compact Info control on evidence readers.
+- Open cases to **Case Tools**, with clear routes into evidence, findings, and
+  supporting views. Keep **Evidence** and **Processing** directly available. Put
+  active work, processing history, and rerun controls in Processing. Disclose
+  optional metadata, saved notes, and history through a compact Info control on
+  evidence readers.
 - Use compact navigation, aligned rows, and progressive disclosure. Prioritize
   useful material, readable text, and generous hit targets over decoration.
 - Follow web conventions: real links, native forms, predictable Back and

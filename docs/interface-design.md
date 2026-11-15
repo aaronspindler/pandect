@@ -7,18 +7,20 @@ owns follow-up gates. Generated mockups are references, not rendered evidence.
 
 ## Navigation and screens
 
-Cases open to **Evidence**, with **Findings** beside it. **Case tools** groups
-Map, People, Vehicles, owner-only Settings, and Case details. Normal investigators
-need no staff access. Graphs, a unified timeline, ownership transfer, and
-self-service account deletion remain planned; show only implemented destinations.
+Cases open to **Case Tools**, a home for exploring evidence and results. It
+links to the Findings catalogue, Map, Chronology, Connections, People, Vehicles,
+Selections, and reports, with concise recent evidence and source-linked findings.
+A native **Case details** disclosure keeps supporting information and owner-only
+Settings available. Normal investigators need no staff access. Graphs, an
+inferred event timeline, ownership transfer, and self-service account deletion
+remain planned; show only implemented destinations.
 
-All investigator screens share the Evidence navigation rail and shared controls,
-including All cases and account settings. At narrow widths the rail becomes a
-compact top bar. Case screens keep Evidence and Findings directly available;
-**Case tools** opens Map, People, Vehicles, owner-only Settings, and Case details.
-The current destination is marked; supporting pages also show a linked case name.
-Disclosures work without JavaScript. With JavaScript, Escape/outside clicks close
-the panel, and its Close control returns focus to the toggle.
+All investigator screens share the navigation rail and shared controls, including
+All cases and account settings. Case screens have direct, labelled links to
+**Case Tools**, **Evidence**, and **Processing**. At narrow widths the rail becomes
+a compact top bar. The current destination is marked; supporting pages also show
+a linked case name. Case Tools is a full page, rather than a navigation popup.
+Disclosures work without JavaScript.
 
 Cases, People, Vehicles, and Evidence use shared whole-row links with readable
 titles and secondary metadata. Detail pages and forms share the reader's heading,
@@ -30,9 +32,11 @@ remain available without JavaScript. Decorative icons beside text need no toolti
 | Screen | Content and primary action |
 | --- | --- |
 | All cases | Searchable owned/shared cases with roles; **Create case**. |
-| Case Evidence | Active records, search and disclosed filters; **Add evidence** for owners/editors. |
+| Case Tools | Default case home; recent evidence and findings, supporting views, reports, and **Add evidence** for owners/editors. |
+| Evidence | Active records, search and disclosed filters; **Add evidence** for owners/editors. |
+| Processing | Active checks and imports, paginated history, recovery links, and owner/editor **Rerun all analysis**. |
 | Evidence reader | Original and Findings together; downloads, Info, and authorized More actions beside the title. |
-| Findings | Source-linked results and possible vehicle trips; reports and additional analysis on request. |
+| Findings catalogue | Searchable retained source-linked results, with filters and separate review states. |
 | People / Vehicles | Searchable case records; owner/editor creation and editing, viewer inspection. |
 | Case settings | Owner-only name/access management and a separate delete section. |
 | Case details | Owner, timestamps, role, and saved read-only description for all case members. |
@@ -149,10 +153,11 @@ See [evidence](evidence.md) for the deletion and private-storage contract.
 
 ## Evidence creation and batch uploads
 
-**Add evidence** opens mixed-file upload, with **Add text** and **Import vehicle
-locations** alongside it. **More ways to add evidence** holds location and
-communication forms. Single-record forms name their type in the title and offer
-a labelled **Change type** disclosure with **Choose type** submit. All ten types
+**Add evidence** starts with mixed-file upload under **Upload files**, followed by
+always-visible **Add a record** links for text, locations, and communications and
+**Import records** links for vehicle locations and iMazing messages. Single-record
+forms name their type in the title and offer a labelled **Change type** disclosure
+with **Choose type** submit. All ten types
 remain available without JavaScript. A single-file document form is the upload
 fallback.
 
@@ -187,25 +192,38 @@ a fresh page after completion.
 
 Pasted text preserves browser-submitted content without trimming or normalization;
 offer document upload for exact file bytes. Adding eligible evidence queues
-bounded local checks and exposes status/results in Findings. Do not imply every
-file has a supported extraction profile.
+bounded local checks; follow their status in Processing and results from Case
+Tools or the evidence reader. Do not imply every file has a supported extraction
+profile.
 
 Vehicle-location CSV review leads with vehicle mapping and possible-duplicate
 counts. Source-row preview is collapsed unless invalid rows need attention.
-Completion links to Findings and discloses individual observations; the original
+Completion links to Case Tools and discloses individual observations; the original
 CSV and attribution remain accessible. See [imports](vehicle-location-imports.md).
 
-## Findings and additional analysis
+## Case Tools, Processing, and additional analysis
 
-Owners and editors have a single **Rerun all analysis** button in the case Findings
-header. It starts supported local checks across active evidence, preserves earlier
-results, and reports background preparation progress. Additional AI and external
-operations remain in the deliberate analysis flow.
+Case Tools leads with useful destinations, up to five recent findings, and up to
+five recent active evidence records. Five **Explore patterns** links open the
+current reports. The home links to full findings and reports instead of expanding
+technical measurements or processing history. Source attribution remains visible
+on recent findings; exact results, review controls, coverage, and uncertainty remain
+in the linked readers and reports.
 
-Case Findings leads with useful results and possible vehicle trips. Source-linked
-processing history is secondary, retaining evidence-type/outcome filters.
-Additional analysis first groups tasks; selecting one opens its source/context
-form. Required samples, areas, and claimed-event inputs stay visible. **Options**
+Processing separates **In progress** from paginated **History**, which retains all
+check outcomes and has evidence-type and outcome filters. Those filters do not
+hide current work. Vehicle-location CSV imports retain their own progress and
+review links; imports ready for review remain with current work. Preparation and
+vehicle-import histories use separate native disclosures. Preparation batches stay
+distinct from execution: **Checks queued** does not mean those checks have finished.
+Owners and editors have **Run more checks → Rerun all analysis** here; it starts
+supported local checks across active evidence, preserves earlier results, and
+reports background preparation progress.
+Additional AI and external operations remain in the deliberate analysis flow.
+
+**Case Tools → More tools → Additional analysis** and **Processing → Run more
+checks → Choose analysis** open deliberate analysis. It first groups tasks;
+selecting one opens its source/context form. Required samples, areas, and claimed-event inputs stay visible. **Options**
 holds optional tuning and opens after errors. Source versions remain explicit,
 and external processing requires approval.
 

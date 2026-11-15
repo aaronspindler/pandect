@@ -256,7 +256,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
             ("outsider", 404),
         ):
             self.login(role)
-            index = self.client.get(self.url("index"))
+            index = self.client.get(self.url("processing"))
             if role in {"owner", "editor"}:
                 self.assertContains(index, "Rerun all analysis")
                 submission_id = str(
@@ -300,7 +300,10 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.drain(batch)
         self.assertEqual(batch.processed_sources, 0)
         self.login("owner")
-        self.assertContains(self.client.get(self.url("index")), "No active evidence")
+        self.assertContains(
+            self.client.get(self.url("processing"), {"batch": batch.pk}),
+            "No active evidence",
+        )
         with patch(
             "core.analysis.tasks.prepare_case_analysis",
             **{"enqueue.side_effect": OperationalError("Private connection details")},

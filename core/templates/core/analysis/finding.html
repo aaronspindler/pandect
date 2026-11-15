@@ -2,6 +2,7 @@
 <article class="analysis-finding" id="finding-{{ item.number }}" tabindex="-1" aria-labelledby="finding-heading-{{ item.number }}">
   <header class="analysis-finding-heading">
     {% if focused_finding %}<h2 id="finding-heading-{{ item.number }}">{{ item.label }}</h2>{% else %}<h3 id="finding-heading-{{ item.number }}">{% include 'core/analysis/finding_link.html' %}</h3>{% endif %}
+    {% if can_edit and result.pk %}<a class="record-link" href="{% url 'core:analysis:selection_pick' case.pk %}?result={{ result.pk }}&amp;item={{ item.index }}">Save to selection</a>{% endif %}
   </header>
   {% if item.audio_url %}
   <p class="analysis-recording-time">
@@ -61,6 +62,7 @@
   {% endif %}
 
   {% if item.sources %}
+  {% if item.prior_finding_links %}<h3>Quoted prior findings</h3><p class="muted">These quotations are from derived findings, not original evidence.</p>{% for citation in item.prior_finding_links %}<blockquote>{{ citation.quote }}</blockquote><p><a href="{{ citation.url }}">Open exact prior finding</a> · Review when processed: {{ citation.review_at_execution }}</p>{% endfor %}{% endif %}
   {% if focused_finding %}<h3 class="analysis-finding-sources-heading">Sources</h3>{% else %}<h4 class="analysis-finding-sources-heading">Sources</h4>{% endif %}
   <div{% if item.comparison_sources %} class="analysis-source-comparison"{% endif %}>
     {% include 'core/analysis/finding_sources.html' %}

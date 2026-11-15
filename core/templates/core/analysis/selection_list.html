@@ -1,0 +1,8 @@
+{% extends 'ui/base.html' %}
+{% block title %}Selections · {{ case }} · Pandect{% endblock %}
+{% block content %}<div class="detail-layout">
+<div class="page-header"><div><p class="eyebrow">Case tools</p><h1>Selections</h1><p class="help-text">Shared collections of exact sources and findings.</p></div>{% if can_edit %}<a class="button button-primary" href="{% url 'core:analysis:selection_create' case.pk %}">Create selection</a>{% endif %}</div>
+<form method="get" role="search"><label for="selection-search">Search selections</label><input type="search" id="selection-search" name="q" maxlength="200" value="{{ query }}"><button class="button button-secondary" type="submit">Search</button></form>
+<ul class="record-list">{% for selection in page_obj %}<li class="record-row"><div><a class="record-link" href="{% url 'core:analysis:selection_detail' case.pk selection.pk %}">{{ selection.name }}</a><p class="muted">{{ selection.members|length }} members · Updated {{ selection.updated_at|date:'d M Y H:i T' }} · Revision {{ selection.revision }}</p></div></li>{% empty %}<li class="empty-state">No selections match. An owner or editor can create a shared selection.</li>{% endfor %}</ul>
+{% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Selection pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
+</div>{% endblock %}

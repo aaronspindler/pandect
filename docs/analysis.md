@@ -1,19 +1,70 @@
 # Case analysis and extraction
 
-The case **Findings** workspace leads with automatic vehicle trips and recent
-source-linked results. Adding eligible evidence queues supported local checks;
-viewing results does not require review. Case Findings keeps processing history
-and additional analysis in disclosures; reviews remain alongside results.
-Owners and editors can start or
-cancel processing and append reviews; viewers inspect authorized originals and
-results. Case permissions apply to workers, search, downloads and playback.
+**Case Tools** is the default case home, with concise recent evidence and
+source-linked findings plus links to the Findings catalogue, maps, chronology,
+connections, people, vehicles, selections, and reports. **Evidence** holds the
+original material; **Processing** shows active work and retained history. Adding
+eligible evidence queues supported local checks; viewing results does not require
+review. Reviews remain alongside results. Owners and editors can start or cancel
+processing and append reviews; viewers inspect authorized originals and results.
+Case permissions apply to workers, search, downloads and playback.
 
 The case highlights inspect the latest 40 eligible published result runs, keep the latest
 result per operation and evidence/attachment, and show at most 12 findings.
 They revalidate sources and omit archived, unavailable, rejected, and weak OCR
-findings. This is a recent highlights view, not an exhaustive inventory; full
-retained runs remain accessible through processing history. Vehicle trips are computed
-from current observations on opening the page, including previously imported data.
+findings. This is a recent highlights view; **Browse all findings** provides the
+complete retained collection. Case Tools shows at most five of those highlights
+without expanded measurements, alongside up to five recent active evidence records.
+Finding labels and source titles remain visible. Full runs remain accessible
+through Processing history. The Vehicle trips report is computed from current
+observations on opening the report, including previously imported data.
+
+**Browse all findings** searches complete retained labels, text and measurement
+values, with 25 findings per page and filters for method, evidence type, specific
+evidence, explicitly related person, and finding-review state. An evidence reader's
+**All findings from this evidence** link applies the exact source filter; its title
+and a clear-filter action appear above the results. Archived sources,
+weak plate regions, and all review states remain visible with labels. Whole-result
+review is displayed separately and does not accept individual findings.
+
+The default selects the newest requested successful equivalent run before applying
+search/review filters. Equivalence includes method/version, execution configuration,
+meaningful parameters, and ordered exact source versions/checksums; automatic-check
+bookkeeping and requester identity do not distinguish equivalent work. A successful
+empty run supersedes older findings; failed, unsupported, insufficient, cancelled,
+and pending runs do not. **All retained runs** exposes earlier versions. Different
+model settings or extraction versions remain distinct. Missing or changed sources
+retain an unavailable row without exposing finding content. Historical geocode
+decisions remain inspectable, with a warning if current review has changed.
+
+Person filters use only explicitly linked person-location observations and
+communication sender/recipient records actually cited by each finding. Other
+sources in the same run, matching names, and contact strings do not establish a
+person association. Person detail links to this collection and related evidence.
+
+The finding catalogue is a relational projection published in the same transaction
+as each immutable result. Its additive backfill reads saved JSON only, commits one
+run at a time, and resumes completed work; it neither reruns analysis nor reads
+original files. Stop old writers/workers before migrating and restart updated
+services afterward. Projections are never rebuilt during application startup.
+
+**Case Tools → Connections** groups exact candidate strings found in retained
+analysis: emails, phone candidates, complete URLs, bare domains, explicit
+identifier candidates, and non-weak plate-text candidates. Email local-part case,
+phone international-prefix status, URL paths, and identifier case are preserved;
+domains/URL hosts are lowercased. Plate text is compared as uppercase ASCII letters
+and digits. Complete URLs and bare domains are separate kinds. These comparisons
+do not establish identity, ownership, association, or independent corroboration.
+
+Groups count distinct original/attachment references, collapsing repeated runs and
+extraction versions. Matching checksums warn about possible copies. Counts describe
+retained references; opening the group validates the current page's sources, with
+unavailable rows retained. A group identifier is shown only after validating its
+representative finding's sources. Review states and partial coverage remain visible.
+Coverage depends on completed extraction/checks and their limits: for example,
+identifier extraction can stop after 2,000 occurrences. An empty Connections view
+does not establish that no connection exists. Use the linked extraction and
+identifier checks to extend coverage.
 
 Result/provenance and retained geographic reference downloads keep their `.json`
 filenames and JSON content. They use `application/octet-stream` with attachment
@@ -73,8 +124,16 @@ source-row link stay above the findings; full CSV interpretation is in **Info**.
 **Run checks** sits beside empty findings for owners/editors; reruns for populated
 findings are in **More**. **Refresh status** appears while work is pending. **Info → Processing
 history** lists retained runs with pagination independent of the evidence list.
-Case **Findings → Processing history** provides history across evidence.
-Owners and editors can use **Rerun all analysis** at the top of case Findings to
+The main **Processing** screen provides history across evidence, with all outcomes
+retained alongside a separate **In progress** section. Evidence-type and outcome
+filters affect check history while current work remains visible. Preparation is
+separate from execution; batch membership includes extraction follow-ups, and
+failed checks link to existing recovery actions. Vehicle-location CSV imports
+appear with progress and links to their review workflow. Imports ready for review
+remain in **In progress** until investigators finish that deliberate step. Queued
+counts are not completion counts.
+
+Owners and editors can use **Processing → Run more checks → Rerun all analysis** to
 queue the same supported local checks for all active evidence, including every
 retained call transcript/recording. Archived evidence and material added after the
 request are excluded. Preparation runs in background steps of at most 25 sources;
@@ -88,9 +147,26 @@ Trips then appear without per-row jobs, geocoding, or review. Conversation impor
 retain their dedicated flow. An uncertain save retried with its original submission
 recovers the same evidence and checks.
 
-Use case **Additional analysis → Choose analysis**, or an evidence reader's
-**More → Additional analysis**, for comparisons, geographic lookups, model
-processing, or conversation imports. Choose a task, exact retained sources
+Completed vehicle and iMessage imports offer a deliberate **Run local checks on
+imported evidence** action. Independent checks use bounded groups rather than one
+batch per imported row; skipped duplicates are excluded. See
+[background tasks](background-tasks.md#investigator-progress-and-completed-imports).
+
+Source choices display prerequisites and retained inspection status. A source may
+need exact extraction, a transcript, or accepted coordinates. Unknown file support
+is **Not yet inspected**, not a successful parser claim. Configuration readiness
+uses local validation only; live runtime connectivity and identity are checked
+when processing starts. Selections are never silently reduced to compatible rows.
+
+[Shared selections](shared-selections.md) preserve exact references for repeat
+analysis and printable briefs. [Question-driven synthesis](synthesis.md) uses
+selected text and explicitly chosen findings, with separate quotation types.
+[Chronology](chronology.md) keeps observed and acquired times distinct.
+[Original previews](original-previews.md) provide private PDF/text/WAV reading.
+
+Use **Case Tools → More tools → Additional analysis**, **Processing → Run more
+checks → Choose analysis**, or an evidence reader's **More → Additional analysis**
+for comparisons, geographic lookups, model processing, or conversation imports. Choose a task, exact retained sources
 (including extraction versions), and required context before **Start analysis**.
 The source picker shows at most 500 choices; title search narrows larger cases.
 **Change analysis** returns to the task chooser. Only the chosen operation's
@@ -109,9 +185,9 @@ fallback. Geographic services require approval unless the operator designates th
 endpoint local. Keyword checks do not implicitly request AI summaries. The Map's
 separate [local address lookup](maps.md#local-address-lookup) follows its own flow.
 
-Case **Processing history** filters by evidence type/status and preserves return
-URLs. **Explore patterns** opens reports based on current evidence. Report filters
-start collapsed for defaults and open for applied filters/errors. Results precede
+**Processing → History** filters by evidence type/status and preserves return
+URLs when opening checks. Case Tools links to reports based on current evidence.
+Report filters start collapsed for defaults and open for applied filters/errors. Results precede
 **About this report**; truncation and missing-time warnings stay visible. Call and
 vehicle reports use chronological rows in the user's timezone with source links.
 Their filters use the same timezone; recorded UTC hour counts retain their stated
@@ -134,11 +210,17 @@ holds finding/overall decisions. Disclosures and links work without JavaScript.
 - Wording/style comparisons show both samples; model suggestions cite supporting
   passages. Conversation/import findings preserve participants, source labels,
   timing, and reasons for unresolved rows.
+- [iMazing CSV imports](analysis-communications.md#imazing-csv-message-imports)
+  prepare a separate review before publishing messages and any confirmed new
+  people. A completed preview means the review is ready, not that messages were
+  imported.
 - Location schematics distinguish reported positions, reviewed estimates, and
   lookup candidates. Measurements and retained map references link to sources.
 
-A run page shows up to 50 findings. Opening a finding preserves exact context and
-**Back to findings** returns to its page/position. Single-finding runs open directly;
+A run page shows up to 50 findings. Its top **Back to Processing** link returns
+to processing history, preserving supplied history filters and page. Within a
+run, opening a finding preserves exact context and **Back to findings** returns
+to that run's finding page/position. Single-finding runs open directly;
 single-evidence runs link back to the combined reader's Findings section. Derived
 inputs link to both the retained extraction and original.
 

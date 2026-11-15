@@ -1,10 +1,12 @@
 """One same-case evidence boundary for readers, search, reports and workers."""
 
+from django.core.exceptions import ValidationError
 from django.db.models import CharField, F, Q, Value
 from django.http import Http404
 
 from core.evidence.types import FILE_KINDS, KINDS
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
+from people.models import Person
 from phone.models import CommunicationEvidence
 
 
@@ -59,3 +61,23 @@ def get_evidence(case, kind, evidence_id, *, lock=False):
         return queryset.get(pk=evidence_id)
     except KINDS[kind].DoesNotExist, ValueError:
         raise Http404("Evidence not found.") from None
+
+
+def selected_person(case, value):
+    """A supplied person filter must name a person in the authorized case."""
+    if not value:
+        return None
+    try:
+        return Person.objects.get(case=case, pk=value)
+    except Person.DoesNotExist, ValueError, ValidationError:
+        raise Http404("Person not found.") from None
+
+
+def person_evidence(queryset, person):
+    """Explicit relationships only; name/contact matches never imply identity."""
+    queryset = same_case_evidence(queryset).filter(case_id=person.case_id)
+    if issubclass(queryset.model, CommunicationEvidence):
+        return queryset.filter(Q(sender=person) | Q(recipient=person))
+    if issubclass(queryset.model, PersonLocationEvidence):
+        return queryset.filter(person=person)
+    return queryset.none()

@@ -1,1 +1,3 @@
+{% load audio_reader %}
 <div class="file-original"><h3>{{ item.original_filename }}</h3><p class="muted">{{ item.byte_size|filesizeformat }}</p></div>
+{% audio_reader item %}

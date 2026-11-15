@@ -135,7 +135,16 @@ credentials or remote fallback; supported profiles and version recovery are in
 
 ## Upgrades and hosted deployment
 
-Back up before upgrades. After reviewing dependency/runtime compatibility:
+Back up before upgrades. The additive findings catalogue migrations backfill
+retained JSON/input snapshots in bounded, per-result transactions. Stop old web
+writers and workers before migration; interrupted backfill is resumable. It does
+not read originals, rerun analysis, contact providers, rewrite result/review JSON,
+or rebuild at application startup. Migration time grows with retained findings.
+Use these additive migrations only on the current baseline described in
+[architecture](architecture.md); they do not provide migration from older rewritten
+pre-release baselines. The PDF renderer is pinned in the application lockfile.
+
+After reviewing dependency/runtime compatibility:
 
 ```sh
 docker compose stop web worker

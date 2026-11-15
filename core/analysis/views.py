@@ -9,8 +9,8 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import DatabaseError
-from django.db.models import Count, Q
-from django.http import FileResponse, Http404, HttpResponse
+from django.db.models import Q
+from django.http import FileResponse, Http404, HttpResponse, QueryDict
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import (
@@ -65,11 +65,12 @@ from core.analysis.services import (
     review_result,
     start_run,
 )
+from core.evidence.collection import collection_context
 from core.evidence.navigation import list_params
-from core.evidence.queries import get_evidence, scoped_evidence
-from core.evidence.types import KIND_LABELS, KINDS
+from core.evidence.queries import get_evidence
+from core.evidence.types import KIND_LABELS
 from core.evidence.views import render_detail
-from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun, CaseAnalysisBatch
+from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
 from geo.analysis import presentation as geo_presentation
 from phone.analysis import presentation as phone_presentation
 
@@ -126,77 +127,20 @@ def _processing_details(run):
 @require_safe
 def index(request, case_id):
     case = get_case(request.user, case_id)
-    filters = history_filters(request.GET)
-    all_runs = AnalysisRun.objects.filter(case=case)
-    runs = all_runs
-    if "kind" in filters:
-        runs = runs.filter(inputs__contains=[{"kind": filters["kind"]}])
-    if "status" in filters:
-        runs = runs.filter(status=filters["status"])
-    page = Paginator(runs, 25).get_page(request.GET.get("page"))
-    titles = {}
-    for kind in KINDS:
-        ids = {
-            run.inputs[0]["evidence_id"]
-            for run in page
-            if run.inputs and run.inputs[0]["kind"] == kind
-        }
-        if ids:
-            titles.update(
-                ((kind, str(pk)), title)
-                for pk, title in scoped_evidence(case, kind)
-                .filter(pk__in=ids)
-                .values_list("pk", "title")
-            )
-    for run in page:
-        run.label = get_operation(run.operation).label
-        run.processing_label = _processing_details(run)["label"]
-        first = run.inputs[0] if run.inputs else {}
-        run.source_kinds = ", ".join(
-            dict.fromkeys(
-                KIND_LABELS[entry["kind"]]
-                for entry in run.inputs
-                if entry.get("kind") in KIND_LABELS
-            )
-        )
-        run.source_title = titles.get(
-            (first.get("kind"), first.get("evidence_id")), "Source unavailable"
-        )
-        run.additional_sources = max(0, len(run.inputs) - 1)
-    trips = report(case, "vehicle-trips")
-    trips["items"] = trips["items"][:3]
-    trips["gaps"] = []
-    pattern_findings = []
-    for name, label in (("calls", "Call patterns"), ("duplicates", "Repeated files")):
-        current = report(case, name)
-        if current["items"] and (name != "calls" or len(current["items"]) > 1):
-            pattern_findings.append(
-                {"name": name, "label": label, "summary": current["summary"]}
-            )
+    evidence = collection_context(case, QueryDict())
     return render(
         request,
         "core/analysis/index.html",
         _context(request, case)
         | {
-            "page_obj": page,
-            "case_analysis_form": EvidenceAnalysisForm(),
-            "case_analysis_batch": CaseAnalysisBatch.objects.filter(case=case).first(),
-            "history_filters": filters,
-            "history_suffix": analysis_query_suffix(
-                filters | ({"history_page": page.number} if page.number > 1 else {})
-            ),
-            "evidence_kinds": KIND_LABELS.items(),
-            "run_statuses": AnalysisRun.Status.choices,
-            "highlights": case_highlights(all_runs, case),
-            "processing_counts": {
-                row["status"]: row["total"]
-                for row in all_runs.values("status").annotate(total=Count("pk"))
-            },
-            "trip_report": trips,
-            "pattern_findings": pattern_findings,
+            "highlights": case_highlights(AnalysisRun.objects.filter(case=case), case)[
+                :5
+            ],
+            "recent_evidence": evidence["rows"][:5],
+            "evidence_count": evidence["page_obj"].paginator.count,
             "reports": (
-                ("vehicle-trips", "Vehicle trips", "Journeys, stops and gaps"),
-                ("calls", "Call patterns", "Counts, duration and timing"),
+                ("vehicle-trips", "Vehicle trips", "Possible journeys and stops"),
+                ("calls", "Call patterns", "Who called whom, when and how often"),
                 (
                     "vehicle-coverage",
                     "Vehicle observation coverage",
@@ -243,7 +187,7 @@ def rerun_all(request, case_id):
             )
     else:
         messages.error(request, "This request expired. Please try again.")
-    return redirect("core:analysis:index", case_id=case.pk)
+    return redirect("core:analysis:processing", case_id=case.pk)
 
 
 @product_login_required
@@ -404,7 +348,12 @@ def create(request, case_id, kind=None, evidence_id=None):
     case = get_case(request.user, case_id, edit=True)
     evidence = None
     evidence_url = ""
-    operations = OPERATIONS
+    focused_source = request.GET.get("source", "")
+    operations = {
+        name: spec
+        for name, spec in OPERATIONS.items()
+        if name not in {"question_synthesis", "imazing_import"}
+    }
     if evidence_id is not None:
         item = get_evidence(case, kind, evidence_id)
         evidence = (kind, item)
@@ -413,6 +362,21 @@ def create(request, case_id, kind=None, evidence_id=None):
             kwargs={"case_id": case.pk, "kind": kind, "evidence_id": item.pk},
         )
         operations = additional_operations(kind)
+    elif focused_source:
+        try:
+            if (
+                len(focused_source) > 500
+                or not 2 <= len(focused_source.split(":")) <= 5
+            ):
+                raise ValueError
+            focused = selection(focused_source)
+            item = get_evidence(case, focused["kind"], focused["id"])
+        except ValueError, IndexError, ValidationError:
+            raise Http404("Source not found.") from None
+        evidence = (focused["kind"], item)
+        evidence_url = reverse(
+            "core:evidence:detail", args=[case.pk, focused["kind"], item.pk]
+        )
     chooser_context = _context(request, case) | {
         "operation_groups": [
             (
@@ -454,7 +418,16 @@ def create(request, case_id, kind=None, evidence_id=None):
     form.fields["operation"].choices = [
         (key, spec.label) for key, spec in operations.items()
     ]
-    if request.method == "POST" and form.is_valid():
+    if focused_source:
+        if focused_source not in dict(form.fields["sources"].choices):
+            raise Http404("Source not available for this analysis.")
+        if request.method == "GET":
+            form.initial["sources"] = [focused_source]
+    if (
+        request.method == "POST"
+        and not getattr(form, "is_mapping_edit", False)
+        and form.is_valid()
+    ):
         try:
             run, created = start_run(
                 request.user,
@@ -485,7 +458,11 @@ def create(request, case_id, kind=None, evidence_id=None):
         | {
             "form": form,
             "source_options": [
-                (choice, str(choice.data["value"]).count(":") == 1)
+                (
+                    choice,
+                    str(choice.data["value"]).count(":") == 1,
+                    form.readiness.get(str(choice.data["value"])),
+                )
                 for choice in form["sources"]
             ],
             "operation": operation,
@@ -502,9 +479,19 @@ def create(request, case_id, kind=None, evidence_id=None):
 
 
 def _finding_detail(
-    finding, row, source_map, case, run, formatter, previews, references
+    finding, row, source_map, case, run, formatter, previews, references, prior_runs
 ):
     item = finding | row
+    item["prior_finding_links"] = [
+        citation
+        | {
+            "url": finding_url(
+                case.pk, prior_runs[citation["result_id"]], citation["item_index"]
+            )
+        }
+        for citation in finding.get("finding_citations", [])
+        if citation.get("result_id") in prior_runs
+    ]
     values = item.get("values", {})
     item["measurements"] = formatter(values, duplicate_text=item.get("text", ""))
     item["plate_candidate"] = run.operation == "plate_ocr"
@@ -672,15 +659,18 @@ def _retry_destination(execution):
 def detail(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
+    if run.operation == "imazing_import" and request.GET.get("processing") != "1":
+        return redirect("phone:imazing_review", case_id=case.pk, run_id=run.pk)
     history = history_query(request.GET)
     history_page = history.get("history_page")
     history_back = history_filters(history) | (
         {"page": history_page} if history_page else {}
     )
     context = _context(request, case) | {
+        "nav_section": "processing",
         "run": run,
         "history_suffix": analysis_query_suffix(history),
-        "back_to_analysis": reverse("core:analysis:index", args=[case.pk])
+        "back_to_analysis": reverse("core:analysis:processing", args=[case.pk])
         + analysis_query_suffix(history_back),
         "operation_label": get_operation(run.operation).label,
         "retry_submission_id": uuid4(),
@@ -792,6 +782,17 @@ def detail(request, case_id, run_id):
                 snapshot.metadata.get("reference_key"): snapshot
                 for snapshot in snapshots
             }
+            prior_runs = {
+                str(pk): run_id
+                for pk, run_id in AnalysisResult.objects.filter(
+                    case=case,
+                    run__case=case,
+                    pk__in=[
+                        ref["result_id"]
+                        for ref in run.parameters.get("finding_refs", [])
+                    ],
+                ).values_list("pk", "run_id")
+            }
             items = [
                 _finding_detail(
                     finding,
@@ -810,6 +811,7 @@ def detail(request, case_id, run_id):
                     formatter,
                     previews,
                     references,
+                    prior_runs,
                 )
                 for index, finding in entries
             ]

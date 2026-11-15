@@ -180,7 +180,8 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             ("cases:case_list", {}, "cases"),
             ("people:list", {"case_id": self.case.pk}, "people"),
             ("vehicle:list", {"case_id": self.case.pk}, "vehicles"),
-            ("core:analysis:index", {"case_id": self.case.pk}, "findings"),
+            ("core:analysis:index", {"case_id": self.case.pk}, "case-tools"),
+            ("core:analysis:processing", {"case_id": self.case.pk}, "processing"),
             ("cases:case_settings", {"case_id": self.case.pk}, "settings"),
             ("account_email", {}, "account"),
         )
@@ -237,20 +238,22 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         self.assertGreaterEqual(row.bounding_box()["height"], 56)
                         expect(row.locator(".collection-row-meta")).to_be_visible()
                     if kwargs:
-                        tools = page.locator(".case-tools")
-                        tools.locator(":scope > summary").click()
-                        expect(
-                            tools.get_by_role("link", name="Vehicles")
-                        ).to_be_visible()
-                        close = tools.get_by_role("button", name="Close case tools")
-                        close.focus()
-                        expect(tip).to_have_text("Close case tools")
-                        close.press("Escape")
-                        expect(tip).to_be_hidden()
-                        expect(tools).to_have_attribute("open", "")
-                        close.press("Escape")
-                        expect(tools).not_to_have_attribute("open", "")
-                        expect(tools.locator(":scope > summary")).to_be_focused()
+                        navigation = page.get_by_role(
+                            "navigation", name="Investigation"
+                        )
+                        for label, target in (
+                            ("Case Tools", "core:analysis:index"),
+                            ("Evidence", "core:evidence:list"),
+                            ("Processing", "core:analysis:processing"),
+                        ):
+                            link = navigation.get_by_role(
+                                "link", name=label, exact=True
+                            )
+                            expect(link).to_be_visible()
+                            expect(link).to_have_attribute(
+                                "href", reverse(target, args=[self.case.pk])
+                            )
+                        expect(navigation.locator("details")).to_have_count(0)
                     page.emulate_media(color_scheme="dark", reduced_motion="reduce")
                     self.capture(page, engine, f"shared-{name}-dark-mobile")
                     if engine == "chromium":
@@ -461,20 +464,65 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Add evidence", exact=True)
                 ).to_be_visible()
-                expect(
-                    page.get_by_role(
-                        "link", name="Import vehicle locations", exact=True
+                for heading in ("Upload files", "Add a record", "Import records"):
+                    expect(
+                        page.get_by_role("heading", name=heading, exact=True)
+                    ).to_be_visible()
+                methods = (
+                    "Add text",
+                    "Add location",
+                    "Add person location",
+                    "Add vehicle location",
+                    "Add text message",
+                    "Add phone call",
+                    "Add facetime",
+                    "Import messages · iMazing CSV",
+                    "Import vehicle locations",
+                )
+                for label in methods:
+                    link = page.get_by_role("link", name=label, exact=True)
+                    expect(
+                        link.locator("xpath=ancestor::details[not(@open)]")
+                    ).to_have_count(0)
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    for label in methods:
+                        expect(
+                            page.get_by_role("link", name=label, exact=True)
+                        ).to_be_visible()
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"),
+                        width + 1,
+                        f"{engine}: add evidence overflow at {width}px",
                     )
-                ).to_be_visible()
-                more = page.get_by_text("More ways to add evidence", exact=True)
+                    self.capture(page, engine, f"refined-add-evidence-{width}x{height}")
+                text_link = page.get_by_role("link", name="Add text", exact=True)
+                text_link.focus()
+                text_link.press(
+                    "Alt+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Tab"
+                )
                 expect(
                     page.get_by_role("link", name="Add location", exact=True)
-                ).to_be_hidden()
-                more.press("Enter")
-                expect(
-                    page.get_by_role("link", name="Add location", exact=True)
-                ).to_be_visible()
-                page.get_by_role("link", name="Add text", exact=True).press("Enter")
+                ).to_be_focused()
+                page.keyboard.press(
+                    "Alt+Shift+Tab"
+                    if engine == "webkit" and sys.platform == "darwin"
+                    else "Shift+Tab"
+                )
+                expect(text_link).to_be_focused()
+                self.assertNotEqual(
+                    text_link.evaluate("node => getComputedStyle(node).outlineStyle"),
+                    "none",
+                )
+                text_link.press("Enter")
                 expect(page.get_by_label("Original text", exact=True)).to_be_visible()
                 for kind, label in (
                     ("text", "Original text"),
@@ -510,14 +558,25 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     navigation.get_by_role("link", name="Evidence", exact=True)
                 ).to_have_attribute("aria-current", "page")
-                case_tools = navigation.locator(".case-tools")
-                tools_summary = case_tools.locator(":scope > summary")
-                map_link = case_tools.get_by_role("link", name="Map", exact=True)
-                expect(map_link).to_be_hidden()
-                tools_summary.focus()
-                tools_summary.press("Enter")
-                expect(map_link).to_be_visible()
-                case_details = case_tools.locator(".case-details-body")
+                tools_link = navigation.get_by_role(
+                    "link", name="Case Tools", exact=True
+                )
+                tools_link.focus()
+                tools_link.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Case Tools", exact=True)
+                ).to_be_visible()
+                explore = page.get_by_role("navigation", name="Explore case")
+                expect(
+                    explore.get_by_role("link", name="Map", exact=True)
+                ).to_be_visible()
+                case_details = page.locator(".case-details-body")
+                details_summary = case_details.locator(":scope > summary")
+                expect(
+                    case_details.get_by_text(self.case.description, exact=True)
+                ).to_be_hidden()
+                details_summary.focus()
+                details_summary.press("Enter")
                 expect(
                     case_details.get_by_text(self.case.description, exact=True)
                 ).to_be_visible()
@@ -527,11 +586,19 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(case_details.locator("time")).to_have_count(2)
                 expect(case_details.locator("input, textarea")).to_have_count(0)
                 self.capture(page, engine, "case-tools-390x844")
-                tools_summary.press("Enter")
-                expect(map_link).to_be_hidden()
+                details_summary.press("Enter")
+                expect(
+                    case_details.get_by_text(self.case.description, exact=True)
+                ).to_be_hidden()
+                page.get_by_role("navigation", name="Investigation").get_by_role(
+                    "link", name="Evidence", exact=True
+                ).press("Enter")
                 page.set_viewport_size({"width": 1440, "height": 900})
-                # The same compact control remains available after resizing.
-                expect(tools_summary).to_be_visible()
+                expect(
+                    page.get_by_role("navigation", name="Investigation").get_by_role(
+                        "link", name="Case Tools", exact=True
+                    )
+                ).to_be_visible()
                 filters = page.locator(".evidence-filters")
                 expect(page.get_by_label("State", exact=True)).to_be_hidden()
                 filters.locator("summary").focus()
@@ -1186,25 +1253,19 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 page.goto(self.url("cases:case_detail", case_id=self.case.pk))
                 expect(page).to_have_url(
-                    self.url("core:evidence:list", case_id=self.case.pk)
+                    self.url("core:analysis:index", case_id=self.case.pk)
                 )
-                case_tools = page.locator(".case-tools")
-                vehicles_link = case_tools.get_by_role(
-                    "link", name="Vehicles", exact=True
-                )
-                expect(vehicles_link).to_be_hidden()
-                case_tools.locator(":scope > summary").click()
-                vehicles_link.click()
-                expect(case_tools).not_to_have_attribute("open", "")
-                expect(case_tools.locator(":scope > summary")).to_have_class(
-                    re.compile("is-current")
-                )
-                case_tools.locator(":scope > summary").click()
                 expect(
-                    page.get_by_role("navigation", name="Investigation").locator(
-                        '[aria-current="page"]'
+                    page.get_by_role("heading", name="Case Tools", exact=True)
+                ).to_be_visible()
+                page.get_by_role("navigation", name="Explore case").get_by_role(
+                    "link", name="Vehicles", exact=True
+                ).click()
+                expect(
+                    page.get_by_role("navigation", name="Investigation").get_by_role(
+                        "link", name="Case Tools", exact=True
                     )
-                ).to_have_text("Vehicles")
+                ).to_have_attribute("aria-current", "page")
                 if engine == self.engines[0]:
                     expect(
                         page.get_by_role(
@@ -1662,14 +1723,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.get_by_role("button", name="Create case", exact=True).click()
                 case = self.db(Case.objects.get, name=name, owner=self.owner)
                 expect(page).to_have_url(
-                    self.url("core:evidence:list", case_id=case.pk)
+                    self.url("core:analysis:index", case_id=case.pk)
                 )
                 expect(
-                    page.get_by_role("heading", name="Evidence", exact=True)
+                    page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
-                expect(
-                    page.locator(".evidence-case-switch").get_by_text(name)
-                ).to_be_visible()
+                expect(page.locator(".case-context")).to_have_text("Case " + name)
 
                 page.goto(self.url("people:create", case_id=case.pk))
                 page.get_by_label("First name", exact=True).fill("Alex")
@@ -1840,14 +1899,14 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         "button", name="Accept invitation", exact=True
                     ).click()
                     expect(guest_page).to_have_url(
-                        self.url("core:evidence:list", case_id=case.pk)
+                        self.url("core:analysis:index", case_id=case.pk)
                     )
                     expect(
-                        guest_page.get_by_role("heading", name="Evidence", exact=True)
+                        guest_page.get_by_role("heading", name="Case Tools", exact=True)
                     ).to_be_visible()
-                    expect(
-                        guest_page.locator(".evidence-case-switch").get_by_text(name)
-                    ).to_be_visible()
+                    expect(guest_page.locator(".case-context")).to_have_text(
+                        "Case " + name
+                    )
                     self.assertEqual(
                         self.db(CaseMembership.objects.get, case=case, user=guest).role,
                         "editor",
@@ -2332,6 +2391,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator("#upload-queue")).to_be_hidden()
                 expect(page.locator("[data-upload-actions]")).to_be_hidden()
                 expect(page.locator("[data-stop-uploads]")).to_be_hidden()
+                self.capture(page, engine, "add-evidence-empty")
                 picker = page.locator("#id_file")
                 picker.set_input_files(files + files[:2])
                 expect(page.locator(".upload-entry")).to_have_count(0)
@@ -2607,7 +2667,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     expect(
                         navigation.get_by_role("link", name="Evidence", exact=True)
                     ).to_be_visible()
-                    expect(navigation.locator(".case-tools > summary")).to_be_visible()
+                    for label in ("Case Tools", "Processing"):
+                        expect(
+                            navigation.get_by_role("link", name=label, exact=True)
+                        ).to_be_visible()
                     if width < 1024:
                         self.assertLessEqual(
                             page.locator(".app-navigation").bounding_box()["height"], 80

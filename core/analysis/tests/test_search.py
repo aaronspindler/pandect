@@ -80,8 +80,8 @@ class ExtractedSearchTests(EvidenceViewTestMixin, TestCase):
                 matches = self.matches(selection)
             self.assertEqual(len(matches), len(selection))
             self.assertEqual(resolve.call_count, 1)
-            # One bounded passage query and one original lookup per run input.
-            self.assertEqual(len(queries), 1 + len(documents))
+            # One bounded passage query and one batched original lookup.
+            self.assertEqual(len(queries), 2)
             candidate_sql = queries[0]["sql"]
             self.assertNotIn(f'"{AnalysisResult._meta.db_table}"."data"', candidate_sql)
             self.assertNotIn(

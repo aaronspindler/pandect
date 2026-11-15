@@ -20,7 +20,8 @@ shows newer saved values alongside the preserved draft and requires explicit
 form. Case reassignment, identity verification, and automatic merging are not
 supported.
 
-The detail page shows populated contacts, social accounts, and POIs, with an
+The detail page shows related evidence and findings, populated contacts, social
+accounts, and POIs, with an
 unverified-record caption. **Record details** holds saved read-only notes, name
 components, timestamps, and the owner's **Delete person** action.
 
@@ -32,6 +33,22 @@ cannot be deleted individually, even if the evidence is
 archived. Whole-case deletion still removes both together; see [location
 observations](evidence.md#location-observations). Ordinary investigators do not
 need Django admin access.
+
+### Related evidence and findings
+
+Person detail shows 25 related evidence records and 25 findings per page, with
+independent pagination from POIs and the People list. Browse links open the full
+collections with the person filter retained. Archived evidence remains included.
+Sender, Recipient, Both, and Location labels describe explicit relationships:
+text messages, phone calls, FaceTime records, and person-location observations.
+A self-message appears once. Call additions and retained extractions keep their
+parent association and exact source links.
+
+Only sources actually cited by a finding determine whether that finding relates
+to the person; another source in the same analysis run is insufficient. Findings
+use the same latest-equivalent-run and review rules as the full collection.
+Matching names or contacts, imported participant labels, source export files,
+vehicle observations, and POIs do not create these evidence associations.
 
 ### Social accounts
 

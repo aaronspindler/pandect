@@ -1179,6 +1179,22 @@ dd {
   border-radius:.5rem
 }
 
+.evidence-entry-methods {
+  margin-top:1.5rem;
+  padding-top:1rem
+}
+
+.evidence-entry-methods h2 {
+  margin:0
+}
+
+.evidence-entry-methods .related-actions {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr));
+  gap:.25rem 1.5rem;
+  margin:.5rem 0 0
+}
+
 .bulk-upload-form .upload-queue-heading {
   flex-wrap:wrap
 }

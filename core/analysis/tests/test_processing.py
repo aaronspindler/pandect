@@ -476,7 +476,8 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             case=self.case,
             inputs=[entry | {"result_id": result_id} for entry in prior.inputs],
         )
-        with self.assertNumQueries(len(originals) + 1):
+        # Original records are loaded together; the retained result is loaded once.
+        with self.assertNumQueries(2):
             resolved = resolve_inputs(current, self.case)
         self.assertEqual(len(resolved), len(originals))
         self.assertTrue(all(source.extracted_text for source in resolved))

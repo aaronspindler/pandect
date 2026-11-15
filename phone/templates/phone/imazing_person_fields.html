@@ -1,0 +1,11 @@
+{% include 'ui/components/form_field.html' with field=person_form.mode only %}
+{% include 'ui/components/form_field.html' with field=person_form.person only %}
+<details class="disclosure"{% if person_form.mode.value == 'create' or person_form.errors %} open{% endif %}>
+  <summary>New person details</summary>
+  <div class="form-layout">
+    {% include 'ui/components/form_field.html' with field=person_form.first_name only %}
+    {% include 'ui/components/form_field.html' with field=person_form.last_name only %}
+    {% include 'ui/components/form_field.html' with field=person_form.phone_number only %}
+    {% include 'ui/components/form_field.html' with field=person_form.email only %}
+  </div>
+</details>

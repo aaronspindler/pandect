@@ -62,6 +62,7 @@ def derived_text_matches(*, case, rows, query):
             "item_index",
             "result__run__inputs",
             "result__run__status",
+            "result__run__operation",
         )
         .order_by("-result__created_at", "pk")
     )

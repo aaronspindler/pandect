@@ -14,6 +14,25 @@ FaceTime record, not another evidence type; each analysis identifies the additio
 it uses. The [vehicle-location importer](vehicle-location-imports.md) retains
 source rows and requires explicit vehicle/timezone interpretation.
 
+## Current investigation workflows
+
+These delivered workflows are separate from the historical scored proposals below.
+Owning guides describe the exact supported profiles, permissions and limits.
+
+| Investigator story | Current workflow |
+| --- | --- |
+| Find every retained observation and distinguish reruns | [Browse findings](analysis.md): search, filters, individual reviews and exact-source links; latest equivalent successful runs by default, retained history on request. |
+| See material explicitly connected to a person | [Person detail](people.md): paginated evidence/findings, sender/recipient/location attribution and full filtered collections. |
+| Understand what a method needs before starting | [Analysis readiness](analysis.md): actionable extraction, transcript, format and location-review prerequisites; runtime configuration is distinct from a verified connection. |
+| Inspect an original without completing analysis | [Original previews](original-previews.md): escaped UTF-8, bounded private PDF page images and supported WAV playback/seeking. |
+| Follow work and recover a failed check | [Processing](background-tasks.md): separate preparation/execution, source-specific errors, retained batch membership, explicit retry and cancellation. |
+| Check imported evidence deliberately | [Vehicle imports](vehicle-location-imports.md) and [iMessage imports](analysis-communications.md): bounded local checks over newly published rows, excluding skipped duplicates. |
+| Map more than two source account labels | [iMessage mapping](analysis-communications.md): up to 100 explicit label/person mappings and optional explicit fallback recipients; unresolved rows remain unresolved. |
+| Compare repeated exact identifiers | [Connections](analysis.md): conservative typed matching, duplicate-original warnings, reviews and disclosed analysis coverage. |
+| Follow structured observed times | [Chronology](chronology.md): communication/location events, distinct optional acquisition times and separately unplaced date references. |
+| Share exact material and produce a reviewable brief | [Shared selections](shared-selections.md): case-shared revisioned references, compatible source analysis, bounded printable HTML and an identical downloadable provenance manifest. |
+| Ask a question of selected evidence and findings | [Question synthesis](synthesis.md): deliberate private inference with exact original/prior-finding quotations, contrary evidence, unresolved questions and preserved review state. |
+
 ## Scoring: investigative value and implementation ease
 
 Each row has independent **value** and **ease** scores from 1–5; higher means
@@ -308,7 +327,13 @@ not an expansion of the bounded methods documented in [location analysis](analys
 
 ## Analysis across evidence
 
-These proposals operate within one authorized case. Cross-case matching is not
+Bounded exact-identifier Connections, structured Chronology, shared selections,
+printable briefs, and question-driven synthesis are now implemented; see
+[case analysis](analysis.md), [chronology](chronology.md),
+[selections](shared-selections.md), and [synthesis](synthesis.md) for their limits.
+The broader capabilities and historical scores below remain proposals, including
+entity resolution, inferred event ordering, semantic retrieval, and graphs.
+These workflows operate within one authorized case. Cross-case matching is not
 assumed. Explain whether a proposed link comes from an explicit source
 relationship, shared value, proximity, or model similarity.
 

@@ -1,0 +1,20 @@
+{% extends 'ui/base.html' %}
+{% block title %}Import iMazing messages · {{ case.name }}{% endblock %}
+{% block content %}
+<div class="page-content">
+  <a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>
+  <header class="page-header"><div><h1>Import iMazing messages</h1><p>Retain a CSV, review its messages, then choose the two people in this conversation.</p></div></header>
+  <p>One direct conversation. The configured upload limit is {{ max_bytes|filesizeformat }}; there is no message-row limit. Message timestamps need the export's timezone.</p>
+  <form method="post" enctype="multipart/form-data" class="form-layout" data-unsaved-form>
+    {% csrf_token %}{{ form.submission_id }}
+    {% include 'ui/components/form_errors.html' with form=form %}
+    {% include 'ui/components/form_field.html' with field=form.file only %}
+    {% include 'ui/components/form_field.html' with field=form.document only %}
+    {% include 'ui/components/form_field.html' with field=form.timezone only %}
+    {% include 'ui/components/form_field.html' with field=form.confirm_timezone only %}
+    <details class="disclosure"{% if form.title.value or form.source.value or form.title.errors or form.source.errors %} open{% endif %}><summary>Source details for a new CSV</summary><div class="form-layout">{% include 'ui/components/form_field.html' with field=form.title only %}{% include 'ui/components/form_field.html' with field=form.source only %}</div></details>
+    <p class="muted">The exact CSV stays in your evidence. This step creates no messages or people. After a file error, select the file again; other entered values remain.</p>
+    <div class="actions"><button class="button button-primary" type="submit">Prepare message review</button><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Cancel</a></div>
+  </form>
+</div>
+{% endblock %}

@@ -1,5 +1,7 @@
 from .analysis import (
     AnalysisArtifact,
+    AnalysisFinding,
+    AnalysisFindingSource,
     AnalysisResult,
     AnalysisReview,
     AnalysisRun,
@@ -8,8 +10,10 @@ from .analysis import (
     GatewayRequest,
 )
 from .evidence import Evidence, FileEvidence
+from .selection import SavedSelection
 
 __all__ = [
+    "SavedSelection",
     "Evidence",
     "FileEvidence",
     "AnalysisRun",
@@ -19,4 +23,6 @@ __all__ = [
     "GatewayRequest",
     "ExtractedPassage",
     "AnalysisArtifact",
+    "AnalysisFinding",
+    "AnalysisFindingSource",
 ]

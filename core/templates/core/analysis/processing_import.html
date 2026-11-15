@@ -1,0 +1,4 @@
+<a class="record-row analysis-history-row" href="{% url 'geo:vehicle_import_review' case.pk item.pk %}">
+  <div><strong>{{ item.document.title }}</strong><p>{% if item.phase == 'publish' %}Import vehicle locations{% else %}Prepare vehicle location review{% endif %}{% if item.status == 'running' and item.row_count %} · {{ item.processed_rows }} of {{ item.row_count }} rows{% endif %}</p><p class="muted">{{ item.created_at|date:'j M Y, H:i T' }}</p></div>
+  <span class="badge">{{ item.get_status_display }}</span>
+</a>

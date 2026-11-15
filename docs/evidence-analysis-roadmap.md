@@ -15,31 +15,36 @@ current observations without an analysis run. These foundations are no longer a
 future delivery sequence; [case analysis](analysis.md) and its focused guides own
 current capabilities, limits, and configuration.
 
-## Next: connect evidence and synthesize findings
+## Implemented investigation workflows
 
-The next milestone connects distinct records through inspectable source-backed
-leads. Deliver useful bounded increments:
+Complete findings browsing now covers retained result items with latest-equivalent
+and historical views, source validation, and review filters. Person-related
+evidence/findings follow explicit case relationships. Connections compare exact
+identifier candidates in analyzed material; Chronology combines explicit observed
+and acquisition times while leaving extracted date strings unplaced. Shared
+selections preserve exact versions and generate printable provenance-linked briefs.
+Question-driven synthesis accepts selected text and findings through configured
+private inference or explicit Gateway approval. Original PDF/text/WAV inspection,
+source readiness, processing progress, deliberate post-import checks, and expanded
+iMessage account mapping complete these bounded workflows. See the
+[documentation index](README.md#investigation-workflows) for behavior and limits.
 
-1. **Connect explicit values and events.** Start with reviewable exact-identifier
-   matches and explicit links across distinct records. Show an anchor on both
-   sides, identify copied material, and explain the reason for each link. Shared
-   values remain leads, not verified identity or ownership. A later unified
-   timeline should distinguish recorded times, extracted dates, plans, reported
-   events, and upload time.
-2. **Synthesize selected evidence.** Generate cited insights from an explicit
-   selection, including supporting/conflicting passages, unknowns, and abstention
-   when sources cannot support a claim. Use the configured private runtime by
-   default; external inference needs separate approval through Cloudflare AI
-   Gateway. Keep suggestions reviewable and linked to retained source anchors.
-3. **Retrieve related passages.** Add case-scoped semantic retrieval alongside
-   literal search when evaluation demonstrates useful results. Preserve index
-   provenance and source selection, check access at query/result time, and test
-   irrelevant as well as relevant hits.
+## Next: qualify interpretation and retrieve related passages
+
+Synthesis implementation and mocked citation tests do not establish model quality.
+Evaluate supporting/contrary passages, negation, cancellation, hearsay, ambiguous
+references, unknowns, and abstention on representative sanitized selections.
+Retain model/runtime identities and measure interpretation separately from exact
+quotation agreement.
+
+Add case-scoped semantic retrieval alongside literal search when evaluation
+demonstrates useful results. Preserve index provenance and source selection, check
+access at query/result time, and test irrelevant as well as relevant hits. Inferred
+event timelines, entity resolution, and graph exploration remain future work.
 
 **Complete when:** investigators can inspect every candidate link or summary
 claim against its sources and reject suggestions without changing originals.
-Unavailable evidence cannot leak through retrieval or generated answers. A graph
-visualization is optional; dependable source navigation is required.
+Unavailable evidence cannot leak through retrieval or generated answers.
 
 ## Then: targeted specialist tools
 

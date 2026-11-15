@@ -100,7 +100,7 @@ def start_added_evidence_analysis(
 
 @transaction.atomic
 def start_evidence_analysis(
-    actor, case_id, kind, evidence_id, *, submission_id, attachment_id=None
+    actor, case_id, kind, evidence_id, *, submission_id, attachment_id=None, batch=None
 ):
     """Atomically enqueue a local batch, or return the original batch on retry."""
     case = get_case(actor, case_id, edit=True, lock=True)
@@ -114,6 +114,7 @@ def start_evidence_analysis(
         if (
             existing.case_id != case.pk
             or existing.requested_by_id != actor.pk
+            or existing.batch_id != getattr(batch, "pk", None)
             or existing.parameters.get("automatic_batch") != str(batch_id)
             or not existing.inputs
             or any(
@@ -147,6 +148,7 @@ def start_evidence_analysis(
             selections,
             parameters=parameters | {"automatic_batch": str(batch_id)},
             submission_id=batch_id if index == 0 else uuid5(batch_id, operation),
+            batch=batch,
         )
         runs.append(run)
     return runs, bool(runs)
@@ -180,4 +182,5 @@ def follow_up_extraction(run, result):
             parameters=parameters | {"automatic_batch": batch},
             submission_id=uuid5(run.pk, name),
             previous_run=run,
+            batch=run.batch,
         )

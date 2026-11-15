@@ -7,10 +7,11 @@ must be reported separately from implementation status.
 
 ## Current workflow refinement
 
-The main workflow is **add evidence → automatic checks → Findings**. Keep routine
-results visible and disclose manual configuration, reruns, processing history,
-and reviews on request. Evidence readers show the original and Findings together,
-with supporting details/history in header **Info** and permitted actions in
+The case opens to **Case Tools**, the main workspace for exploring evidence and
+results. **Evidence** holds originals; **Processing** separates active work from
+retained history and owns case-wide rerun controls. Keep routine results visible
+and disclose manual configuration and reviews on request. Evidence readers show
+the original and Findings together, with supporting details/history in header **Info** and permitted actions in
 **More**. Additional analysis separates choosing a task from selecting its
 sources and required context. See [case analysis](analysis.md) for supported
 operations.

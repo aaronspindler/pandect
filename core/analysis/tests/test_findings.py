@@ -58,7 +58,11 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         source = TextEvidence.objects.get(pk=added.json()["id"])
         pending, highlights = self.findings()
         self.assertEqual(highlights, [])
-        self.assertContains(pending, "Checking evidence")
+        self.assertContains(pending, "Case Tools")
+        self.assertNotContains(pending, "Rerun all analysis")
+        self.assertContains(
+            pending, reverse("core:analysis:processing", args=[self.case.pk])
+        )
         for run in AnalysisRun.objects.filter(case=self.case):
             process_run(run.pk)
             run.refresh_from_db()
@@ -219,20 +223,23 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             "recipient": self.person,
         }
         PhoneCallEvidence.objects.create(title="First call", **fields)
-        self.assertEqual(self.findings()[0].context["pattern_findings"], [])
+        self.assertContains(self.findings()[0], "Call patterns")
         second = PhoneCallEvidence.objects.create(title="Second call", **fields)
         response, _ = self.findings()
-        self.assertEqual(response.context["pattern_findings"][0]["name"], "calls")
-        self.assertContains(response, "2 selected call records")
+        self.assertContains(response, "Call patterns")
+        report_url = reverse("core:analysis:report", args=[self.case.pk, "calls"])
+        self.assertContains(self.client.get(report_url), "2 selected call records")
         self.assertFalse(AnalysisRun.objects.exists())
         PhoneCallEvidence.objects.filter(pk=second.pk).update(
             is_archived=True,
             archive_changed_at=timezone.now(),
             archive_changed_by=self.users["owner"],
         )
-        self.assertEqual(self.findings()[0].context["pattern_findings"], [])
+        self.assertContains(self.client.get(report_url), "1 selected call record")
 
-    def test_completed_csv_trip_appears_on_findings_without_a_processing_run(self):
+    def test_completed_csv_trip_is_available_from_case_tools_without_a_processing_run(
+        self,
+    ):
         first = parse_csv(csv_content(), "UTC")[0].raw
         content = csv_content(
             first,
@@ -267,10 +274,50 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         self.login("viewer")
         response, highlights = self.findings()
         self.assertEqual(highlights, [])
-        self.assertEqual(len(response.context["trip_report"]["items"]), 1)
+        report_url = reverse(
+            "core:analysis:report", args=[self.case.pk, "vehicle-trips"]
+        )
+        self.assertContains(response, report_url)
+        response = self.client.get(report_url)
         self.assertContains(response, "Vehicle trips")
         self.assertContains(response, "Possible trip")
         for observation in batch.observations.all():
             self.assertContains(
                 response, self.url("detail", observation, "vehicle-location")
             )
+
+    def test_case_tools_previews_and_controls_respect_case_and_role(
+        self,
+    ):
+        active = [self.source(title=f"Active source {index}") for index in range(28)]
+        archived = self.source(title="Archived source")
+        TextEvidence.objects.filter(pk=archived.pk).update(
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
+        self.source(title="Foreign source", case=self.other_case)
+        for role in ("owner", "editor", "viewer"):
+            self.login(role)
+            response, _ = self.findings()
+            self.assertEqual(response.context["evidence_count"], 28)
+            self.assertEqual(len(response.context["recent_evidence"]), 5)
+            self.assertEqual(
+                response.context["recent_evidence"][0]["id"], active[-1].pk
+            )
+            self.assertNotContains(response, "Archived source")
+            self.assertNotContains(response, "Foreign source")
+            self.assertNotContains(response, 'id="processing-history"')
+            self.assertNotContains(response, "Rerun all analysis")
+            self.assertContains(response, 'aria-label="Case Tools"')
+            self.assertContains(response, 'aria-label="Processing"')
+            settings = reverse("cases:case_settings", args=[self.case.pk])
+            if role == "owner":
+                self.assertContains(response, settings)
+            else:
+                self.assertNotContains(response, settings)
+            analysis = reverse("core:analysis:create", args=[self.case.pk])
+            if role == "viewer":
+                self.assertNotContains(response, analysis)
+            else:
+                self.assertContains(response, analysis)

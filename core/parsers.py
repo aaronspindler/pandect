@@ -26,11 +26,13 @@ from core.parser_contract import MAX_BYTES, MAX_OUTPUT, ParserFailure
 PARSER_SECONDS = 20
 PARSER_MODULES = {
     "document": "document.parsers",
+    "document_preview": "document.parsers",
     "image": "image.parsers",
     "ocr": "image.analysis.ai_parser",
     "plate_ocr": "image.analysis.plate_parser",
     "image_preview": "image.parsers",
     "audio": "audio.parsers",
+    "audio_preview": "audio.parsers",
     "audio_chunk": "audio.parsers",
     "geographic_context": "geo.parsers",
 }

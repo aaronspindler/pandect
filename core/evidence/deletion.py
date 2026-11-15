@@ -34,6 +34,8 @@ CHANGED = (
 SALT = "core.evidence.deletion-inventory"
 MODEL_KINDS = {model: kind for kind, model in KINDS.items()}
 INVENTORY_LABELS = {
+    "analysisfinding": "Searchable finding",
+    "analysisfindingsource": "Finding source reference",
     "analysisartifact": "Generated file record",
     "extractedpassage": "Extracted text",
     "gatewayrequest": "Processing usage",
@@ -79,8 +81,8 @@ def _analysis_runs(case_id, selections):
     result_ids = {}
     dependents = defaultdict(set)
     ids = set()
-    for run_id, inputs, result_id in runs.values_list(
-        "pk", "inputs", "result__pk"
+    for run_id, inputs, parameters, result_id in runs.values_list(
+        "pk", "inputs", "parameters", "result__pk"
     ).iterator():
         if result_id is not None:
             result_ids[run_id] = str(result_id)
@@ -88,6 +90,9 @@ def _analysis_runs(case_id, selections):
             if (source.get("kind"), source.get("evidence_id")) in selections:
                 ids.add(run_id)
             if upstream := source.get("result_id"):
+                dependents[upstream].add(run_id)
+        for ref in parameters.get("finding_refs", []):
+            if isinstance(ref, dict) and (upstream := ref.get("result_id")):
                 dependents[upstream].add(run_id)
     pending = deque(ids)
     while pending:
@@ -303,6 +308,28 @@ def plan_deletion(item, kind):
                 plan.counts["files"] += 1
     plan.entries.extend(updates)
     plan.counts["updates"] = len(updates)
+    from core.analysis.selections import selection_deletion_impacts
+
+    impacts = selection_deletion_impacts(
+        item.case_id,
+        {
+            (root_kind, str(obj.pk))
+            for root_kind, objects in roots.items()
+            for obj in objects
+        },
+        runs.values_list("result__pk", flat=True),
+    )
+    for impact in impacts:
+        plan.entries.append(
+            {
+                "action": "Retain unavailable references",
+                "type": "Shared selection",
+                "name": impact["name"],
+                "id": impact["id"],
+                "revision": impact["revision"],
+                "members": impact["members"],
+            }
+        )
     plan.entries.sort(
         key=lambda row: (row["action"], row["type"], row["id"], row["name"])
     )

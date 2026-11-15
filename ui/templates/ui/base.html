@@ -22,7 +22,7 @@
   <header class="global-header"><a class="wordmark" href="{% url 'marketing:home' %}" aria-label="Pandect">{% include 'ui/components/brand.html' %}</a><nav aria-label="Main navigation"><a href="{% url 'account_login' %}">Sign in</a>{% if allow_signups %}<a href="{% url 'account_signup' %}">Create account</a>{% endif %}</nav></header>
   {% endif %}
   <main id="main-content" class="main-content" tabindex="-1">
-    {% block case_context %}{% if case %}<a class="case-context" href="{% url 'core:evidence:list' case.pk %}"><span class="muted">Case</span> <span class="case-context-name">{{ case.name|default:case }}</span></a>{% endif %}{% endblock %}
+    {% block case_context %}{% if case %}<a class="case-context" href="{% url 'core:analysis:index' case.pk %}"><span class="muted">Case</span> <span class="case-context-name">{{ case.name|default:case }}</span></a>{% endif %}{% endblock %}
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}" {% if message.level >= 40 %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block before_content %}{% endblock %}
     {% block content %}{% endblock %}

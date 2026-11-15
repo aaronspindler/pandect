@@ -35,10 +35,15 @@ See [analysis](analysis.md#retained-processing) for supported checks and excepti
 ## Investigator workflow
 
 Inside a case, owners and editors choose **Add evidence** to select or drop
-documents, images, and audio together. **Add text** opens a text original;
-**Import vehicle locations** opens CSV intake. **More ways to add evidence**
-contains Location, Person location, Vehicle location, Text message, Phone call,
-and FaceTime. Single-record forms keep all ten types in **Change type**, using
+documents, images, and audio together under **Upload files**. The always-visible
+**Add a record** section links to Text, Location, Person location, Vehicle
+location, Text message, Phone call, and FaceTime forms. **Import records** links
+to **Import vehicle locations** and **Import messages · iMazing CSV**. These
+choices also work without JavaScript. The message importer retains the
+CSV, prepares a background review, and requires confirmed people and timezone
+before creating valid text-message rows. See
+[iMazing imports](analysis-communications.md#imazing-csv-message-imports).
+Single-record forms keep all ten types in **Change type**, using
 an explicit **Choose type** button that also works without JavaScript.
 
 File categories describe the submitted material; no parser verifies them. Text
@@ -79,7 +84,11 @@ reloading may require file reselection, and uploads are not resumable.
 
 The Evidence collection searches title, descriptions, source name/details/URL,
 original filenames, location addresses, and linked person names/contact details,
-with type and Active/Archived/All filters. It uses 25 records per page. Wide
+with type, explicit related-person, and Active/Archived/All filters. A person
+filter includes person-location observations and communications where that person
+is sender or recipient, with role labels. It never infers a link from a matching
+name or contact. Invalid or foreign-case person filters are rejected. Filters
+remain in reader navigation. It uses 25 records per page. Wide
 screens keep the record list beside the selected evidence reader; smaller
 screens use the same canonical detail pages and browser navigation. Text
 originals are shown as escaped read-only text. Image evidence shows a resized
@@ -97,8 +106,8 @@ Preview requests recheck current case access, verify the retained bytes against
 their checksum, and use private/no-store caching and `nosniff`. They use local
 processing without AI credentials, external services, or publicly exposed storage
 URLs. No preview files or analysis results are stored. Files are downloaded through
-currently authorized attachment routes; this release does not embed documents
-or play audio.
+currently authorized attachment routes. Supported PDF/text documents and WAV
+recordings also have [private in-product readers](original-previews.md).
 
 Owners/editors choose **More → Edit details** to correct metadata. Stale edits
 preserve the draft beside newer values and require **Save reviewed changes**.

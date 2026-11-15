@@ -10,7 +10,7 @@ announcement copy with the same availability boundaries.
 | Route | Purpose |
 | --- | --- |
 | `/` | Plain-language introduction, fictional workspace, current capabilities, and planned-work signposting. |
-| `/product/` | Available evidence, search, collaboration, map, import, and findings workflows; analysis examples at `#analysis`; separately configured services. |
+| `/product/` | Available evidence, findings, exact connections, chronology, shared briefs, collaboration, map and import workflows; analysis examples at `#analysis`; separately configured services. |
 | `/trust/` | Case access, original preservation, analysis approval, and map tile privacy. |
 | `/roadmap/` | Available capabilities, planned work, and exploratory ideas without a release schedule. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
@@ -21,9 +21,11 @@ The existing sign-in and email-verification checks still protect case material.
 Public pages never query or display an investigator's cases or evidence.
 Illustrations use a labelled fictional case and current Evidence/Findings
 navigation. Product explains collection, case-scoped search, supported imports,
-automatic local checks, deliberately selected comparisons, and reports. Examples
-show source links and the limits of a candidate finding. Transcription,
-model-assisted analysis, and geographic services are grouped under their
+automatic local checks, complete findings browsing, exact identifier connections,
+structured chronology, shared selections/briefs, private original previews, and
+reports. Examples show source links and the limits of a candidate finding.
+Transcription, model-assisted analysis including question-driven synthesis of
+explicitly selected text/findings, and geographic services are grouped under their
 configuration requirements. Trust explains preservation, case access, external
 processing approval, and what
 [external map tile providers receive](maps.md#external-tiles-and-privacy).
@@ -51,14 +53,19 @@ have specific coverage limits; avoid implying support for every uploaded format.
 
 The public roadmap summarizes the
 [proposed analysis priorities](evidence-analysis-roadmap.md) and separates them
-from available tools. Unified timelines, candidate links across records,
-relationship exploration, and case-wide synthesis remain planned. Semantic
+from available tools. Structured chronology and exact identifier connections are
+available; inferred event timelines and relationship graphs remain planned.
+Question-driven synthesis of selected text/findings requires a configured model;
+automatic case-wide discovery for synthesis remains future work. Semantic
 passage retrieval, near-duplicate image comparison, and structured table
 extraction remain exploratory. Keep future items provisional and review the
 roadmap and copy kit when capabilities ship or priorities change.
 
-Possible trips, plate readings, and model suggestions stay distinguishable from
-verified facts. Original preservation and checksums describe integrity, not truth.
+Possible trips, plate readings, exact identifier matches, and model suggestions
+stay distinguishable from verified facts. Chronology displays recorded times,
+with uncertain extracted dates kept separate. Shared briefs preserve exact source
+versions and review decisions. Original preservation and checksums describe
+integrity, not truth.
 Hosting copy does not replace operator configuration or legal policies for a live
 service.
 

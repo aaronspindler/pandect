@@ -56,7 +56,7 @@ class LocalQualificationTests(SimpleTestCase):
             )
         report = json.loads(output.getvalue())
         self.assertEqual(report["summary"]["completed"], ["transcription"])
-        self.assertEqual(len(report["summary"]["not_run"]), 4)
+        self.assertEqual(len(report["summary"]["not_run"]), 5)
         self.assertEqual(client.call_count, 1)
         client.return_value.infer.assert_not_called()
         audio.assert_called_once_with("/synthetic.wav", client.return_value)
@@ -73,7 +73,7 @@ class LocalQualificationTests(SimpleTestCase):
         client.assert_not_called()
         self.assertEqual(output.getvalue(), "")
 
-    def test_all_four_text_operations_run_without_database_or_gateway(self):
+    def test_all_five_text_operations_run_without_database_or_gateway(self):
         output = StringIO()
         with (
             patch(
@@ -81,14 +81,14 @@ class LocalQualificationTests(SimpleTestCase):
             ) as client,
             patch("core.analysis.gateway.GatewayClient.request") as gateway,
         ):
-            client.return_value.infer.return_value = {"items": []}
+            client.return_value.infer.return_value = {"items": [], "unknowns": []}
             client.return_value.usage = {"request_count": 1, "output_tokens": 5}
             call_command("evaluate_local_analysis", stdout=output)
         report = json.loads(output.getvalue())
-        self.assertEqual(len(report["summary"]["completed"]), 4)
+        self.assertEqual(len(report["summary"]["completed"]), 5)
         self.assertEqual(report["summary"]["failed"], [])
         self.assertEqual(report["summary"]["not_run"], ["transcription"])
-        self.assertEqual(client.return_value.infer.call_count, 4)
+        self.assertEqual(client.return_value.infer.call_count, 5)
         self.assertEqual(len(report["expected_distinctions"]), 5)
         self.assertEqual(len(report["sources"]), 6)
         self.assertIn("cancel", json.dumps(report["sources"]).lower())
@@ -112,7 +112,7 @@ class LocalQualificationTests(SimpleTestCase):
             with self.assertRaisesMessage(CommandError, "qualification failures"):
                 call_command("evaluate_local_analysis", stdout=output)
         report = json.loads(output.getvalue())
-        self.assertEqual(len(report["summary"]["failed"]), 4)
+        self.assertEqual(len(report["summary"]["failed"]), 5)
         for name in report["summary"]["failed"]:
             self.assertEqual(
                 report["methods"][name]["error_code"], "local_ai_unavailable"
@@ -130,6 +130,7 @@ class LocalQualificationTests(SimpleTestCase):
                 "items": [
                     {
                         "kind": "Claim",
+                        "section": "supported",
                         "text": "Unsupported meaning",
                         "citations": [
                             {
@@ -138,13 +139,14 @@ class LocalQualificationTests(SimpleTestCase):
                             }
                         ],
                     }
-                ]
+                ],
+                "unknowns": [],
             }
             client.return_value.usage = {"request_count": 1}
             with self.assertRaisesMessage(CommandError, "qualification failures"):
                 call_command("evaluate_local_analysis", stdout=output)
         report = json.loads(output.getvalue())
-        self.assertEqual(len(report["summary"]["failed"]), 4)
+        self.assertEqual(len(report["summary"]["failed"]), 5)
         for name in report["summary"]["failed"]:
             self.assertEqual(
                 report["methods"][name]["error_code"], "citation_validation_rejected"
@@ -159,7 +161,7 @@ class LocalQualificationTests(SimpleTestCase):
             with patch(
                 "core.management.commands.evaluate_local_analysis.LocalClient"
             ) as client:
-                client.return_value.infer.return_value = {"items": []}
+                client.return_value.infer.return_value = {"items": [], "unknowns": []}
                 client.return_value.usage = {"request_count": 1}
                 client.return_value.request.return_value = {
                     "text": "Synthetic speech candidate",
@@ -181,7 +183,7 @@ class LocalQualificationTests(SimpleTestCase):
         with patch(
             "core.management.commands.evaluate_local_analysis.LocalClient"
         ) as client:
-            client.return_value.infer.return_value = {"items": []}
+            client.return_value.infer.return_value = {"items": [], "unknowns": []}
             client.return_value.usage = {}
             with self.assertRaisesMessage(CommandError, "qualification failures"):
                 call_command(

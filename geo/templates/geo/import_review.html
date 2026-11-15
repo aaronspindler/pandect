@@ -28,6 +28,7 @@
     {% if can_retry %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="retry"><button class="button button-primary" type="submit">Retry import</button></form>{% elif can_edit %}<p>This import has reached its retry limit. Review the source and upload a corrected CSV, or ask the operator for help.</p>{% endif %}
   {% endif %}
   {% if batch.completed_at %}
+    {% load import_checks %}{% import_checks 'vehicle' batch.pk %}
     <p role="status">{{ imported_count }} observation{{ imported_count|pluralize }} imported.{% if skipped_count %} {{ skipped_count }} possible duplicate row{{ skipped_count|pluralize }} skipped.{% endif %} The original CSV stays saved.</p>
     <p><a class="button button-primary" href="{% url 'core:analysis:index' case.pk %}">View findings</a></p>
     <details class="disclosure"{% if request.GET.page %} open{% endif %}><summary>Imported observations</summary>
