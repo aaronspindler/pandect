@@ -1,0 +1,12 @@
+{% load static %}
+<aside class="app-navigation" aria-label="{% if case %}Case navigation{% else %}Application navigation{% endif %}">
+  <a class="app-rail-brand" href="{% url 'cases:case_list' %}" aria-label="Pandect" data-tooltip="Pandect" title="Pandect">
+    <picture><source srcset="{% static 'ui/brand/symbol-ivory.png' %}" media="(prefers-color-scheme: dark)"><img src="{% static 'ui/brand/symbol-oxblood.png' %}" alt="" width="32" height="48"></picture>
+    <span class="wordmark-fallback" aria-hidden="true">Pandect</span>
+  </a>
+  <nav class="app-rail-links" aria-label="Investigation">
+    <a class="app-rail-link" href="{% url 'cases:case_list' %}" aria-label="All cases" data-tooltip="All cases" title="All cases"{% if not case and request.resolver_match.namespace == 'cases' %} aria-current="page"{% endif %}>{% include 'ui/components/icon.html' with name='folder' %}<span class="visually-hidden">All cases</span></a>
+    {% if case %}{% include "cases/case_navigation.html" %}{% endif %}
+  </nav>
+  <a class="app-rail-link app-rail-account" href="{% url 'account_email' %}" aria-label="Account" {% if request.resolver_match.url_name == 'account_email' or request.resolver_match.url_name == 'account_change_password' or request.resolver_match.url_name == 'account_logout' %}aria-current="page" {% endif %}data-tooltip="Account · {{ user.get_full_name|default:user.username }}{% if case_role %} · {{ case_role|capfirst }}{% endif %}" title="Account · {{ user.get_full_name|default:user.username }}{% if case_role %} · {{ case_role|capfirst }}{% endif %}"><span class="avatar" aria-hidden="true">{{ user.username|slice:':2'|upper }}</span><span class="visually-hidden">Account</span></a>
+</aside>

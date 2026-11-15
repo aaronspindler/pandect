@@ -495,13 +495,22 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     expect(
                         page.get_by_role("heading", name="Map", exact=True)
                     ).to_be_visible()
+                    tools = page.locator(".case-tools")
+                    tools.locator(":scope > summary").click()
                     expect(
-                        page.get_by_role("link", name="Map", exact=True)
+                        tools.get_by_role("link", name="Map", exact=True)
                     ).to_have_attribute("aria-current", "page")
+                    tools.get_by_role("button", name="Close case tools").click()
                     expect(page.locator("[data-map-status]")).to_contain_text(
                         "Map loaded"
                     )
                     expect(page.locator("[data-map-load]")).to_have_count(0)
+                    zoom_in = page.locator(".leaflet-control-zoom-in")
+                    zoom_in.focus()
+                    expect(page.get_by_role("tooltip")).to_have_text("Zoom in")
+                    zoom_in.press("Escape")
+                    expect(page.get_by_role("tooltip")).to_be_hidden()
+                    expect(zoom_in).to_be_focused()
                     expect(page.locator("#investigation-map")).not_to_be_focused()
                     page.locator("[data-case-map] .actions a").first.focus()
                     page.keyboard.press("Enter")

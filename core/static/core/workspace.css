@@ -1,80 +1,9 @@
 /* The quiet evidence workspace shares the application's tokens and controls. */
-.workspace-page .main-content {
-  margin-left:4rem;
-}
-
-.evidence-navigation {
-  position:fixed;
-  inset:0 auto 0 0;
-  z-index:20;
-  width:4rem;
-  padding:.75rem .5rem;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:1.5rem;
-  border-right:1px solid var(--divider);
-  background:var(--background);
-}
-
-.evidence-rail-brand,.evidence-rail-link {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  width:44px;
-  min-height:44px;
-  padding:.5rem;
-  border-radius:var(--radius);
-  color:var(--text);
-  text-decoration:none;
-}
-
-.evidence-rail-brand {
-  padding:0;
-}
-
-.evidence-rail-brand img {
-  display:block;
-  width:auto;
-  max-width:40px;
-  height:44px;
-}
-
-.evidence-rail-brand picture {
-  display:block;
-}
-
-.evidence-rail-links {
-  display:grid;
-  gap:.75rem;
-}
-
-.evidence-rail-link:hover {
-  background:var(--selected);
-}
-
-.evidence-rail-link[aria-current] {
-  background:var(--selected);
-  color:var(--accent);
-}
-
-.evidence-rail-tools {
-  position:relative;
-}
-
-.evidence-rail-tools>summary {
-  padding:.5rem;
-  color:var(--text);
-}
-
-.evidence-rail-tools>summary::-webkit-details-marker,
 .evidence-info>summary::-webkit-details-marker,
 .evidence-more>summary::-webkit-details-marker,
-.evidence-filters>summary::-webkit-details-marker {
-  display:none;
-}
+.evidence-filters>summary::-webkit-details-marker { display:none; }
 
-.evidence-rail-panel,.evidence-info-panel,.evidence-more-panel,.evidence-filter-panel {
+.evidence-info-panel,.evidence-more-panel,.evidence-filter-panel {
   position:absolute;
   z-index:30;
   min-width:0;
@@ -85,35 +14,6 @@
   border-radius:.75rem;
   background:var(--surface);
   box-shadow:0 .5rem 1.5rem rgb(0 0 0 / .12);
-}
-
-.evidence-rail-panel {
-  inset:0 auto auto calc(100% + .75rem);
-  width:19rem;
-  max-width:calc(100vw - 5rem);
-  max-height:calc(100dvh - 4rem);
-}
-
-.evidence-rail-panel .case-details-body {
-  padding:1rem .25rem 0;
-}
-
-.evidence-rail-panel h2 {
-  font-size:1rem;
-}
-
-.evidence-rail-panel dd {
-  overflow-wrap:anywhere;
-}
-
-.evidence-rail-account {
-  margin-top:auto;
-}
-
-.evidence-rail-account .avatar {
-  width:2rem;
-  height:2rem;
-  font-size:.75rem;
 }
 
 .workspace-page .evidence-workspace {
@@ -233,16 +133,6 @@
 
 .workspace-page .evidence-records {
   padding:0 .75rem;
-}
-
-.workspace-page .evidence-row {
-  gap:.75rem;
-  padding:.5rem .625rem;
-  min-height:56px;
-}
-
-.workspace-page .evidence-row-title {
-  font-size:1rem;
 }
 
 .workspace-page .evidence-reader {
@@ -538,12 +428,6 @@
 }
 
 @media(min-width:80rem) {
-  .evidence-navigation {
-    width:5rem;
-  }
-  .workspace-page .main-content {
-    margin-left:5rem;
-  }
   .workspace-page .evidence-workspace {
     grid-template-columns:21rem minmax(0,1fr);
   }
@@ -600,31 +484,6 @@
 }
 
 @media(max-width:63.999rem) {
-  .evidence-navigation {
-    position:relative;
-    inset:auto;
-    width:auto;
-    min-height:60px;
-    padding:.5rem;
-    flex-direction:row;
-    justify-content:space-between;
-    gap:.25rem;
-    border-right:0;
-    border-bottom:1px solid var(--divider);
-  }
-  .evidence-rail-links {
-    display:flex;
-    gap:.25rem;
-  }
-  .evidence-rail-account {
-    margin:0;
-  }
-  .evidence-rail-panel {
-    position:fixed;
-    inset:4rem .5rem auto auto;
-    max-width:calc(100vw - 1rem);
-    max-height:calc(100dvh - 5rem);
-  }
   .workspace-page .main-content {
     margin-left:0;
     min-height:0;
@@ -686,19 +545,7 @@
 }
 
 @media(forced-colors:active) {
-  .evidence-rail-brand img {
-    display:none;
-  }
-  .evidence-rail-brand .wordmark-fallback {
-    display:block;
-    font-size:.625rem;
-    overflow-wrap:anywhere;
-  }
-  .evidence-rail-link[aria-current] {
-    outline:2px solid Highlight;
-    outline-offset:-2px;
-  }
-  .evidence-rail-panel,.evidence-info[open],.evidence-info-panel,.evidence-more-panel,.evidence-filter-panel {
+  .evidence-info[open],.evidence-info-panel,.evidence-more-panel,.evidence-filter-panel {
     box-shadow:none;
   }
 }

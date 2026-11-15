@@ -16,35 +16,6 @@
       }
     });
   });
-  const disclosures = Array.from(document.querySelectorAll("[data-evidence-disclosure]"));
-  const closeDisclosure = (details, restoreFocus = false) => {
-    details.open = false;
-    if (restoreFocus) details.querySelector(":scope > summary")?.focus();
-  };
-  disclosures.forEach((details) => {
-    details.addEventListener("toggle", () => {
-      if (details.open) disclosures.forEach((other) => {
-        if (other !== details) closeDisclosure(other);
-      });
-    });
-    details.querySelectorAll("[data-close-disclosure]").forEach((button) => {
-      button.hidden = false;
-      button.addEventListener("click", () => closeDisclosure(details, true));
-    });
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    const open = disclosures.find((details) => details.open);
-    if (open) {
-      event.preventDefault();
-      closeDisclosure(open, true);
-    }
-  });
-  document.addEventListener("pointerdown", (event) => {
-    disclosures.forEach((details) => {
-      if (details.open && !details.contains(event.target)) closeDisclosure(details);
-    });
-  });
   const revealInfoAnchor = () => {
     const target = document.getElementById(location.hash.slice(1));
     const details = target?.closest(".evidence-info");

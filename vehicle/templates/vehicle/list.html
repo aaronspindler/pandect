@@ -11,14 +11,14 @@
 </form>
 {% if page_obj.object_list %}
 <p class="result-count secondary">{{ page_obj.paginator.count }} vehicle record{{ page_obj.paginator.count|pluralize }}</p>
-<div class="table-wrap"><table class="record-table vehicle-table">
-  <caption class="visually-hidden">Vehicles in {{ case }}</caption>
-  <thead><tr><th scope="col">Vehicle</th><th scope="col">License plate</th><th scope="col">Color</th></tr></thead>
-  <tbody>{% for vehicle in page_obj %}<tr>
-    <td><a class="record-link" href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ vehicle }}</a></td>
-    <td{% if not vehicle.license_plate %} class="empty-metadata"{% endif %}>{{ vehicle.license_plate|default:"—" }}</td><td{% if not vehicle.color %} class="empty-metadata"{% endif %}>{{ vehicle.color|default:"—" }}</td>
-  </tr>{% endfor %}</tbody>
-</table></div>
+<div class="record-list" aria-label="Vehicles in {{ case }}">
+{% for vehicle in page_obj %}
+<a class="collection-row" aria-labelledby="vehicle-{{ vehicle.pk }}-title" aria-describedby="vehicle-{{ vehicle.pk }}-meta" href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">
+  {% include 'ui/components/icon.html' with name='car' %}
+  <span class="collection-row-content"><strong class="collection-row-title" id="vehicle-{{ vehicle.pk }}-title">{{ vehicle }}</strong><span class="collection-row-meta" id="vehicle-{{ vehicle.pk }}-meta">{% if vehicle.license_plate %}License plate: {{ vehicle.license_plate }}{% endif %}{% if vehicle.license_plate and vehicle.color %} · {% endif %}{% if vehicle.color %}Color: {{ vehicle.color }}{% endif %}{% if not vehicle.license_plate and not vehicle.color %}No plate or color recorded{% endif %}</span></span>
+</a>
+{% endfor %}
+</div>
 {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Vehicles pages">
   {% if page_obj.has_previous %}<a class="button button-secondary" href="?{% if search_query %}{{ search_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
   <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>

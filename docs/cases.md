@@ -29,7 +29,8 @@ records and archived evidence. There is no in-app undo. User accounts remain;
 
 ## Account settings
 
-Choose your account in the sidebar to manage email addresses or passwords.
+Choose the Account icon in the shared navigation to manage email addresses or
+passwords.
 Verified secondary addresses offer **Make primary**. Removing secondary addresses
 requires confirmation; unverified addresses offer **Resend verification**.
 Address changes follow django-allauth's verification and authorization rules.

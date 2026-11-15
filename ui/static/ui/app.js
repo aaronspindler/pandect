@@ -1,12 +1,115 @@
 (() => {
   "use strict";
-  const caseNavigation = document.querySelector(".case-navigation");
-  if (caseNavigation) {
-    const compactNavigation = window.matchMedia("(max-width: 63.999rem)");
-    const resizeNavigation = () => { caseNavigation.open = !compactNavigation.matches; };
-    resizeNavigation();
-    compactNavigation.addEventListener("change", resizeNavigation);
-  }
+  // One tooltip layer avoids clipping inside scrolling lists and disclosures.
+  const tooltip = document.createElement("div");
+  tooltip.id = "ui-tooltip";
+  tooltip.className = "ui-tooltip";
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.hidden = true;
+  document.body.append(tooltip);
+  const tooltipSelector = "[data-tooltip], .leaflet-control-zoom a[title], .leaflet-popup-close-button[aria-label], .leaflet-marker-icon[aria-label]";
+  document.querySelectorAll("[data-tooltip]").forEach((control) => control.removeAttribute("title"));
+  let tooltipControl = null;
+  let tooltipTimer;
+  const hideTooltip = () => {
+    clearTimeout(tooltipTimer);
+    if (tooltipControl) {
+      const descriptions = (tooltipControl.getAttribute("aria-describedby") || "").split(/\s+/).filter((id) => id && id !== tooltip.id);
+      if (descriptions.length) tooltipControl.setAttribute("aria-describedby", descriptions.join(" "));
+      else tooltipControl.removeAttribute("aria-describedby");
+    }
+    tooltip.hidden = true;
+    tooltipControl = null;
+  };
+  const positionTooltip = () => {
+    if (!tooltipControl) return;
+    const anchor = tooltipControl.getBoundingClientRect();
+    if (anchor.bottom <= 0 || anchor.top >= innerHeight || anchor.right <= 0 || anchor.left >= innerWidth) { hideTooltip(); return; }
+    const box = tooltip.getBoundingClientRect();
+    const rail = tooltipControl.closest(".app-navigation") && matchMedia("(min-width: 64rem)").matches;
+    const left = rail ? anchor.right + 8 : anchor.left + (anchor.width - box.width) / 2;
+    let top = rail ? anchor.top + (anchor.height - box.height) / 2 : anchor.bottom + 8;
+    if (!rail && top + box.height > innerHeight - 8) top = anchor.top - box.height - 8;
+    tooltip.style.left = `${Math.max(8, Math.min(left, innerWidth - box.width - 8))}px`;
+    tooltip.style.top = `${Math.max(8, Math.min(top, innerHeight - box.height - 8))}px`;
+  };
+  const showTooltip = (control) => {
+    clearTimeout(tooltipTimer);
+    if (tooltipControl === control) return;
+    hideTooltip();
+    const label = control.dataset.tooltip || control.getAttribute("aria-label") || control.title;
+    if (!label) return;
+    // Retain native title tooltips as the no-JavaScript fallback only.
+    control.dataset.tooltip = label;
+    control.removeAttribute("title");
+    tooltipControl = control;
+    tooltip.textContent = label;
+    tooltip.hidden = false;
+    tooltip.style.left = "0px";
+    tooltip.style.top = "0px";
+    positionTooltip();
+    const descriptions = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+    control.setAttribute("aria-describedby", [...descriptions, tooltip.id].join(" "));
+  };
+  const scheduleTooltipHide = () => {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = setTimeout(hideTooltip, 120);
+  };
+  document.addEventListener("pointerover", (event) => {
+    if (event.pointerType === "touch") return;
+    const control = event.target.closest(tooltipSelector);
+    if (control) showTooltip(control);
+  });
+  document.addEventListener("pointerout", (event) => {
+    if (tooltipControl && tooltipControl.contains(event.target) && !tooltipControl.contains(event.relatedTarget) && tooltipControl !== document.activeElement) scheduleTooltipHide();
+  });
+  document.addEventListener("focusin", (event) => {
+    const control = event.target.closest(tooltipSelector);
+    if (control) showTooltip(control);
+    else hideTooltip();
+  });
+  document.addEventListener("focusout", scheduleTooltipHide);
+  tooltip.addEventListener("pointerenter", () => clearTimeout(tooltipTimer));
+  tooltip.addEventListener("pointerleave", scheduleTooltipHide);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !tooltip.hidden) {
+      hideTooltip();
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  });
+  document.addEventListener("click", hideTooltip);
+  document.addEventListener("scroll", (event) => { if (!tooltip.contains(event.target)) positionTooltip(); }, true);
+  window.addEventListener("resize", positionTooltip);
+  const disclosures = Array.from(document.querySelectorAll("[data-disclosure]"));
+  const closeDisclosure = (details, restoreFocus = false) => {
+    details.open = false;
+    if (restoreFocus) details.querySelector(":scope > summary")?.focus();
+  };
+  disclosures.forEach((details) => {
+    details.addEventListener("toggle", () => {
+      if (details.open) disclosures.forEach((other) => {
+        if (other !== details) closeDisclosure(other);
+      });
+    });
+    details.querySelectorAll("[data-close-disclosure]").forEach((button) => {
+      button.hidden = false;
+      button.addEventListener("click", () => closeDisclosure(details, true));
+    });
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const open = disclosures.find((details) => details.open);
+    if (open) {
+      event.preventDefault();
+      closeDisclosure(open, true);
+    }
+  });
+  document.addEventListener("pointerdown", (event) => {
+    disclosures.forEach((details) => {
+      if (details.open && !details.contains(event.target)) closeDisclosure(details);
+    });
+  });
   document.querySelector("[data-error-summary]")?.focus();
   document.querySelectorAll("[data-error-summary] a").forEach((link) => {
     link.addEventListener("click", () => {

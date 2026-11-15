@@ -8,6 +8,7 @@ from uuid import uuid4
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db import DatabaseError
 from django.db.models import Count, Q
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import redirect, render
@@ -22,6 +23,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.artifacts import MAX_ARTIFACT_BYTES
 from core.analysis.automatic import start_evidence_analysis
+from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
     requires_inference,
@@ -67,7 +69,7 @@ from core.evidence.navigation import list_params
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import KIND_LABELS, KINDS
 from core.evidence.views import render_detail
-from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
+from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from geo.analysis import presentation as geo_presentation
 from phone.analysis import presentation as phone_presentation
 
@@ -177,6 +179,8 @@ def index(request, case_id):
         _context(request, case)
         | {
             "page_obj": page,
+            "case_analysis_form": EvidenceAnalysisForm(),
+            "case_analysis_batch": CaseAnalysisBatch.objects.filter(case=case).first(),
             "history_filters": filters,
             "history_suffix": analysis_query_suffix(
                 filters | ({"history_page": page.number} if page.number > 1 else {})
@@ -211,6 +215,35 @@ def index(request, case_id):
             ),
         },
     )
+
+
+@product_login_required
+@require_POST
+def rerun_all(request, case_id):
+    case = get_case(request.user, case_id, edit=True)
+    form = EvidenceAnalysisForm(request.POST)
+    if form.is_valid():
+        try:
+            _, created = start_case_analysis(
+                request.user, case.pk, submission_id=form.cleaned_data["submission_id"]
+            )
+        except ValidationError:
+            messages.error(
+                request, "This request could not be used. Try rerunning analysis again."
+            )
+        except DatabaseError:
+            messages.error(request, "Analysis could not be queued. Please try again.")
+        else:
+            messages.success(
+                request,
+                "Analysis requested for all active evidence. "
+                "Refresh to follow its progress."
+                if created
+                else "This analysis request has already been queued.",
+            )
+    else:
+        messages.error(request, "This request expired. Please try again.")
+    return redirect("core:analysis:index", case_id=case.pk)
 
 
 @product_login_required

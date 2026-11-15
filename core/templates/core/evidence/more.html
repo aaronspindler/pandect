@@ -1,5 +1,5 @@
-<details class="evidence-more" data-evidence-disclosure>
-  <summary class="button button-secondary" aria-label="More">{% include 'ui/components/icon.html' with name='dots' %}<span class="evidence-toolbar-label">More</span></summary>
+<details class="evidence-more" data-disclosure>
+  <summary class="button button-secondary" aria-label="More" data-tooltip="More" title="More">{% include 'ui/components/icon.html' with name='dots' %}<span class="evidence-toolbar-label">More</span></summary>
   <div class="evidence-more-panel">
     {% if can_edit %}
     <a class="record-link" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">{% include 'ui/components/icon.html' with name='pencil' %} Edit details</a>

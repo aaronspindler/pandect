@@ -57,7 +57,10 @@ error, and disabled states. Decorative dividers cannot identify input boundaries
 - Prefer grouping and fine dividers to nested cards. Reserve shadows for overlays;
   avoid glass effects, decorative gradients, and giant rounded panels.
 - Use one locally served, licensed outline icon set. Label actions with text and
-  hide decorative icons from assistive tools.
+  hide decorative icons from assistive tools. Icon-only controls, including labels
+  hidden at narrow widths, need accessible names and hover/focus tooltips. Tooltips
+  must stay within the viewport, remain hoverable, dismiss with Escape, and never
+  replace the accessible name. Retain native title tooltips without JavaScript.
 
 Use the [approved gothic arch identity](docs/design/brand/pandect-arch/README.md)
 from `ui/static/ui/brand/`: oxblood on light surfaces, ivory on dark. Preserve
@@ -73,9 +76,9 @@ in an editorial layout; its introductory headings may scale from `2rem` to `4rem
 Label workspace illustrations as fictional and show only implemented capabilities.
 
 - At `80rem` and above, evidence uses a `5rem` navigation rail, `21rem` record
-  list, and flexible reader across the available viewport. Other case tools retain
-  their `13rem` sidebar. From `64rem` to `80rem`, retain the rail with a full-width
-  list or detail page. Below `64rem`, use compact top navigation;
+  list, and flexible reader across the available viewport. All investigator screens
+  share this compact rail, including case tools, All cases, and account screens.
+  From `64rem` to `80rem`, retain the rail with a full-width list or detail page. Below `64rem`, use compact top navigation;
   below `48rem`, stack fields and supporting metadata.
 - Desktop evidence rows have a `3.5rem` minimum height, a readable title link
   covering the row, and one metadata line. Keep secondary actions in the detail

@@ -14,6 +14,18 @@ through the existing PostgreSQL queue. Original retention, invitations, and file
 cleanup are synchronous. Other lengthy ingestion must add its own
 authorization, idempotency, and recovery before using this foundation.
 
+Case-wide **Rerun all analysis** retains a case-scoped `CaseAnalysisBatch` cursor.
+Each preparation task queues local runs for at most 25 active sources and commits
+the cursor, those runs and the next task atomically. Calls are traversed by retained
+addition, so large call histories do not exceed per-run source limits. Each step
+rechecks the requester's current editing access and verified account; individual
+analysis workers recheck access again. Unavailable originals are counted and
+skipped. Preparation failures stop the batch with a safe message; investigators
+can make a fresh request from Findings. Previously committed runs remain retained.
+As with other tasks, abrupt worker loss can leave preparation pending. Confirm the
+old worker has stopped before making a fresh request; the queue does not reclaim
+stale work automatically.
+
 ## Startup and diagnostics
 
 Complete [local setup](development.md), then start the stack:

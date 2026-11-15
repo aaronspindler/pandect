@@ -64,6 +64,119 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             for number in range(1, 26)
         ]
 
+    def test_shared_workspace_navigation_and_icon_tooltips(self):
+        Person.objects.create(case=self.case, first_name="Synthetic contact")
+        Vehicle.objects.create(
+            case=self.case, make="Synthetic van", license_plate="TEST"
+        )
+        screens = (
+            ("cases:case_list", {}, "cases"),
+            ("people:list", {"case_id": self.case.pk}, "people"),
+            ("vehicle:list", {"case_id": self.case.pk}, "vehicles"),
+            ("core:analysis:index", {"case_id": self.case.pk}, "findings"),
+            ("cases:case_settings", {"case_id": self.case.pk}, "settings"),
+            ("account_email", {}, "account"),
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                for route, kwargs, name in screens:
+                    page.goto(self.url(route, **kwargs))
+                    expect(page.locator(".app-navigation")).to_have_count(1)
+                    if kwargs:
+                        expect(page.locator(".case-context")).to_have_text(
+                            "Case " + self.case.name
+                        )
+                    for width, height in (
+                        (1440, 900),
+                        (1440, 1024),
+                        (768, 1024),
+                        (390, 844),
+                        (320, 844),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        page.evaluate("new Promise(requestAnimationFrame)")
+                        control = page.get_by_role("link", name="All cases", exact=True)
+                        control.evaluate("node => node.blur()")
+                        control.focus()
+                        tip = page.get_by_role("tooltip")
+                        expect(tip).to_have_text("All cases")
+                        expect(tip).to_be_visible()
+                        box = tip.bounding_box()
+                        self.assertGreaterEqual(box["x"], 0)
+                        self.assertLessEqual(box["x"] + box["width"], width)
+                        self.assertGreaterEqual(box["y"], 0)
+                        self.assertLessEqual(box["y"] + box["height"], height)
+                        control.press("Escape")
+                        expect(tip).to_be_hidden()
+                        expect(control).to_be_focused()
+                        expect(control).not_to_have_attribute("aria-describedby")
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            width + 1,
+                        )
+                        self.capture(page, engine, f"shared-{name}-{width}x{height}")
+                    page.locator("h1").evaluate(
+                        "node => { node.tabIndex = -1; node.focus(); }"
+                    )
+                    control.hover()
+                    expect(tip).to_be_visible()
+                    tip.hover()
+                    expect(tip).to_be_visible()
+                    page.mouse.move(310, 800)
+                    expect(tip).to_be_hidden()
+                    if name in {"people", "vehicles"}:
+                        row = page.locator(".collection-row").first
+                        self.assertGreaterEqual(row.bounding_box()["height"], 56)
+                        expect(row.locator(".collection-row-meta")).to_be_visible()
+                    if kwargs:
+                        tools = page.locator(".case-tools")
+                        tools.locator(":scope > summary").click()
+                        expect(
+                            tools.get_by_role("link", name="Vehicles")
+                        ).to_be_visible()
+                        close = tools.get_by_role("button", name="Close case tools")
+                        close.focus()
+                        expect(tip).to_have_text("Close case tools")
+                        close.press("Escape")
+                        expect(tip).to_be_hidden()
+                        expect(tools).to_have_attribute("open", "")
+                        close.press("Escape")
+                        expect(tools).not_to_have_attribute("open", "")
+                        expect(tools.locator(":scope > summary")).to_be_focused()
+                    page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                    self.capture(page, engine, f"shared-{name}-dark-mobile")
+                    if engine == "chromium":
+                        page.emulate_media(forced_colors="active")
+                        control.focus()
+                        expect(tip).to_be_visible()
+                        self.capture(page, engine, f"shared-{name}-forced-colors")
+                        page.emulate_media(forced_colors="none")
+                    page.set_viewport_size({"width": 1440, "height": 900})
+                    page.evaluate("document.documentElement.style.fontSize = '200%'")
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), 1441
+                    )
+                    for icon in page.locator(".app-navigation .icon").all():
+                        if icon.is_visible():
+                            self.assertGreaterEqual(icon.bounding_box()["width"], 24)
+                    self.capture(page, engine, f"shared-{name}-200-percent-text")
+                    page.emulate_media(color_scheme="light")
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.goto(self.evidence_url())
+                for name in ("Info", "More"):
+                    control = page.locator(f".evidence-{name.lower()} > summary")
+                    control.focus()
+                    expect(page.get_by_role("tooltip")).to_have_text(name)
+                    self.capture(
+                        page, engine, f"shared-evidence-tooltip-{name.lower()}"
+                    )
+                    control.press("Escape")
+                page.goto(self.url("core:evidence:list", case_id=self.case.pk))
+                page.locator(".evidence-filters > summary").focus()
+                expect(page.get_by_role("tooltip")).to_have_text("Filters")
+
     def test_image_evidence_preview_and_download(self):
         import io
 
@@ -220,6 +333,8 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 for route, kwargs, name in screens:
                     page.goto(self.url(route, **kwargs))
+                    for control in page.locator("[data-tooltip]").all():
+                        self.assertTrue(control.get_attribute("title"))
                     for width, height in (
                         (1440, 900),
                         (1440, 1024),
@@ -973,10 +1088,11 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(vehicles_link).to_be_hidden()
                 case_tools.locator(":scope > summary").click()
                 vehicles_link.click()
-                expect(case_tools).to_have_attribute("open", "")
-                expect(case_tools.locator(".case-details")).not_to_have_attribute(
-                    "open", ""
+                expect(case_tools).not_to_have_attribute("open", "")
+                expect(case_tools.locator(":scope > summary")).to_have_class(
+                    re.compile("is-current")
                 )
+                case_tools.locator(":scope > summary").click()
                 expect(
                     page.get_by_role("navigation", name="Investigation").locator(
                         '[aria-current="page"]'
@@ -1070,15 +1186,11 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
-                    if width <= 390:
-                        self.assertEqual(
-                            page.locator(
-                                ".vehicle-table td:nth-child(2)"
-                            ).first.evaluate(
-                                "node => getComputedStyle(node, '::before').content"
-                            ),
-                            '"License plate: "',
+                    expect(
+                        page.get_by_role("link", name=title, exact=True).locator(
+                            ".collection-row-meta"
                         )
+                    ).to_contain_text(f"License plate: SYN-{engine}")
                     self.capture(page, engine, f"vehicle-list-{width}-{height}")
                 page.get_by_role("link", name=title, exact=True).click()
                 page.get_by_role("link", name="Edit vehicle").click()
@@ -2391,7 +2503,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     expect(navigation.locator(".case-tools > summary")).to_be_visible()
                     if width < 1024:
                         self.assertLessEqual(
-                            page.locator(".evidence-rail").bounding_box()["height"], 80
+                            page.locator(".app-navigation").bounding_box()["height"], 80
                         )
                 self.capture(page, engine, "workspace-ultrawide")
                 expect(page.locator(".evidence-row")).to_have_count(25)

@@ -3,8 +3,25 @@
 {% block content %}
 <header class="page-header">
   <div><h1>Findings</h1><p class="muted">Add evidence. Supported checks run automatically and useful results appear here.</p></div>
-  {% if can_edit %}<a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>{% endif %}
+  {% if can_edit %}<div class="actions">
+    <form method="post" action="{% url 'core:analysis:rerun_all' case.pk %}">
+      {% csrf_token %}{{ case_analysis_form.submission_id }}
+      <button class="button button-secondary" type="submit" aria-describedby="rerun-all-help">Rerun all analysis</button>
+    </form>
+    <a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>
+  </div>{% endif %}
 </header>
+{% if can_edit %}<p class="muted" id="rerun-all-help">Rerun supported local checks on all active evidence. Earlier results are kept.</p>{% endif %}
+{% if case_analysis_batch %}
+<div class="notice"><p role="status">
+{% if case_analysis_batch.status == 'queued' %}Preparing analysis for all active evidence · {{ case_analysis_batch.processed_sources }} source{{ case_analysis_batch.processed_sources|pluralize }} checked so far.
+{% elif case_analysis_batch.status == 'failed' %}Analysis preparation stopped. {% if case_analysis_batch.error_code == 'access_removed' %}The requester’s editing access or verified account is no longer available.{% else %}Please rerun all analysis to try again. Previously queued checks are kept.{% endif %}
+{% elif not case_analysis_batch.processed_sources %}No active evidence is available for local checks.
+{% else %}All-evidence analysis · {{ case_analysis_batch.queued_runs }} check{{ case_analysis_batch.queued_runs|pluralize }} queued from {{ case_analysis_batch.processed_sources }} source{{ case_analysis_batch.processed_sources|pluralize }}.
+{% endif %}
+{% if case_analysis_batch.unavailable_sources %} {{ case_analysis_batch.unavailable_sources }} source{{ case_analysis_batch.unavailable_sources|pluralize }} could not be queued. Open the evidence to check its retained content and retry.{% endif %}
+</p>{% if case_analysis_batch.status == 'queued' %}<a class="record-link" href="">Refresh findings</a>{% endif %}</div>
+{% endif %}
 {% if processing_counts.queued or processing_counts.running %}
 <div class="notice analysis-pending"><p role="status">Checking evidence{% if processing_counts.running %} · {{ processing_counts.running }} running{% endif %}{% if processing_counts.queued %} · {{ processing_counts.queued }} queued{% endif %}</p><a class="record-link" href="">Refresh findings</a></div>
 {% endif %}

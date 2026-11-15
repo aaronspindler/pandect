@@ -18,9 +18,10 @@ from playwright.sync_api import expect
 from audio.models import AudioEvidence
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.services import cancel_run, process_run, start_run
 from core.analysis.testing import wav_bytes
-from core.models import AnalysisReview, AnalysisRun
+from core.models import AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from image.models import ImageEvidence
@@ -101,6 +102,75 @@ class AnalysisBrowserTests(BrowserTestCase):
         )
         self._complete(run.pk)
         return run.pk
+
+    def test_rerun_all_with_keyboard_without_javascript(self):
+        def finish_preparation():
+            batch = CaseAnalysisBatch.objects.filter(case=self.case).first()
+            for _ in range(20):
+                prepare_case_analysis_batch(str(batch.pk))
+                batch.refresh_from_db()
+                if batch.status != "queued":
+                    break
+            self.assertEqual(batch.status, "complete")
+            self.assertEqual(batch.queued_runs, 3)
+
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.db(CaseAnalysisBatch.objects.filter(case=self.case).delete)
+                self.sign_in(page)
+                index_url = self.url("core:analysis:index", case_id=self.case.pk)
+                page.goto(index_url)
+                button = page.get_by_role(
+                    "button", name="Rerun all analysis", exact=True
+                )
+                expect(button).to_have_count(1)
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (1440, 1024, "tall-desktop"),
+                    (768, 1024, "tablet"),
+                    (390, 844, "mobile"),
+                    (320, 844, "reflow"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    expect(button).to_be_visible()
+                    self.assertGreaterEqual(button.bounding_box()["height"], 44)
+                    self.capture(page, engine, f"rerun-all-{label}")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self._assert_reflow(page)
+                self.capture(page, engine, "rerun-all-large-text")
+                page.reload()
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "rerun-all-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "rerun-all-forced-colors")
+                page.emulate_media(forced_colors="none")
+                button.focus()
+                expect(button).to_be_focused()
+                button.press("Enter")
+                expect(
+                    page.get_by_role("status").filter(has_text="Preparing analysis")
+                ).to_be_visible()
+                self.assertEqual(
+                    self.db(CaseAnalysisBatch.objects.filter(case=self.case).count), 1
+                )
+                self.capture(page, engine, "rerun-all-preparing")
+                self.db(finish_preparation)
+                page.reload()
+                expect(
+                    page.get_by_role("status").filter(has_text="All-evidence analysis")
+                ).to_contain_text("3 checks queued from 2 sources")
+                self.capture(page, engine, "rerun-all-queued")
+            with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(index_url)
+                expect(
+                    page.get_by_role("button", name="Rerun all analysis", exact=True)
+                ).to_have_count(0)
 
     def test_analysis_overview_reports_and_responsive_layout(self):
         for engine in self.engines:
@@ -219,12 +289,12 @@ class AnalysisBrowserTests(BrowserTestCase):
                     88,
                 )
                 self.assertGreater(
-                    page.locator(".case-identity").bounding_box()["width"],
+                    page.locator(".case-context").bounding_box()["width"],
                     page.viewport_size["width"] / 2,
                 )
-                self.assertGreaterEqual(
-                    page.locator(".wordmark img").bounding_box()["width"], 80
-                )
+                brand = page.locator(".app-rail-brand")
+                self.assertGreaterEqual(brand.bounding_box()["width"], 44)
+                self.assertGreaterEqual(brand.bounding_box()["height"], 44)
                 self.assertLessEqual(
                     page.get_by_role("navigation", name="Investigation")
                     .get_by_role("link", name="Evidence", exact=True)

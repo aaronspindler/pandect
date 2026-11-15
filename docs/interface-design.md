@@ -12,10 +12,20 @@ Map, People, Vehicles, owner-only Settings, and Case details. Normal investigato
 need no staff access. Graphs, a unified timeline, ownership transfer, and
 self-service account deletion remain planned; show only implemented destinations.
 
-Evidence uses named navigation links and a **Case tools** disclosure. Other case
-screens use the shared **Case navigation** disclosure: initially closed on small
-screens with JavaScript, open without it, and always collapsible. Its toggle
-remains available after resizing.
+All investigator screens share the Evidence navigation rail and shared controls,
+including All cases and account settings. At narrow widths the rail becomes a
+compact top bar. Case screens keep Evidence and Findings directly available;
+**Case tools** opens Map, People, Vehicles, owner-only Settings, and Case details.
+The current destination is marked; supporting pages also show a linked case name.
+Disclosures work without JavaScript. With JavaScript, Escape/outside clicks close
+the panel, and its Close control returns focus to the toggle.
+
+Cases, People, Vehicles, and Evidence use shared whole-row links with readable
+titles and secondary metadata. Detail pages and forms share the reader's heading,
+action, divider, and spacing styles. Icon-only actions use shared hover/focus
+tooltips, including Info/More when their words disappear on mobile. Tooltips can
+be hovered and dismissed with Escape without moving focus. Native title tooltips
+remain available without JavaScript. Decorative icons beside text need no tooltip.
 
 | Screen | Content and primary action |
 | --- | --- |
@@ -181,6 +191,11 @@ Completion links to Findings and discloses individual observations; the original
 CSV and attribution remain accessible. See [imports](vehicle-location-imports.md).
 
 ## Findings and additional analysis
+
+Owners and editors have a single **Rerun all analysis** button in the case Findings
+header. It starts supported local checks across active evidence, preserves earlier
+results, and reports background preparation progress. Additional AI and external
+operations remain in the deliberate analysis flow.
 
 Case Findings leads with useful results and possible vehicle trips. Source-linked
 processing history is secondary, retaining evidence-type/outcome filters.

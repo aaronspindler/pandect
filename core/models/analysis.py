@@ -9,6 +9,33 @@ from django.db import models
 from core.storage import original_upload_path
 
 
+class CaseAnalysisBatch(models.Model):
+    """Durable cursor for preparing bounded, case-wide local checks."""
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Preparing checks"
+        COMPLETE = "complete", "Checks queued"
+        FAILED = "failed", "Preparation stopped"
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    status = models.CharField(max_length=16, choices=Status, default=Status.QUEUED)
+    source_kind = models.CharField(max_length=32, blank=True)
+    source_cursor = models.UUIDField(null=True, blank=True)
+    processed_sources = models.PositiveIntegerField(default=0)
+    unavailable_sources = models.PositiveIntegerField(default=0)
+    queued_runs = models.PositiveIntegerField(default=0)
+    error_code = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+
+    def __str__(self):
+        return f"Case analysis {self.pk}"
+
+
 class AnalysisRun(models.Model):
     class Status(models.TextChoices):
         QUEUED = "queued", "Queued"

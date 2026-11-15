@@ -86,7 +86,9 @@ Long originals remain complete, findings follow the original, and header **Info*
 and **More** panels stay keyboard accessible. Info holds metadata and processing
 history; More holds editing, archive/deletion, and additional analysis. Checks
 cover panel dismissal/focus return, plus focused check-submission errors without
-JavaScript.
+JavaScript. Shared-shell checks cover Cases, People, Vehicles, Findings, Settings,
+and Account at desktop/mobile sizes, tooltip hover/focus/Escape behavior, enlarged
+text, dark appearance, and forced colors.
 
 | Suite | Main scope | Default captures |
 | --- | --- | --- |

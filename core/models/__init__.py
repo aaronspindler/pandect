@@ -3,6 +3,7 @@ from .analysis import (
     AnalysisResult,
     AnalysisReview,
     AnalysisRun,
+    CaseAnalysisBatch,
     ExtractedPassage,
     GatewayRequest,
 )
@@ -12,6 +13,7 @@ __all__ = [
     "Evidence",
     "FileEvidence",
     "AnalysisRun",
+    "CaseAnalysisBatch",
     "AnalysisResult",
     "AnalysisReview",
     "GatewayRequest",

@@ -74,6 +74,15 @@ source-row link stay above the findings; full CSV interpretation is in **Info**.
 findings are in **More**. **Refresh status** appears while work is pending. **Info → Processing
 history** lists retained runs with pagination independent of the evidence list.
 Case **Findings → Processing history** provides history across evidence.
+Owners and editors can use **Rerun all analysis** at the top of case Findings to
+queue the same supported local checks for all active evidence, including every
+retained call transcript/recording. Archived evidence and material added after the
+request are excluded. Preparation runs in background steps of at most 25 sources;
+the page shows preparation progress, unavailable-source counts and queued checks.
+Refreshing or resubmitting the same request does not duplicate it. A new click
+after refreshing deliberately starts another batch, preserving earlier results
+and reviews. AI inference, transcription and external lookups still require their
+existing deliberate analysis flows. Empty calls have no retained content to check.
 CSV imports still require timezone/vehicle confirmation before atomic publication.
 Trips then appear without per-row jobs, geocoding, or review. Conversation imports
 retain their dedicated flow. An uncertain save retried with its original submission

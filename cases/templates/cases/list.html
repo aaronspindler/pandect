@@ -29,8 +29,8 @@
 <p class="result-count muted">{{ page_obj.paginator.count }} case{{ page_obj.paginator.count|pluralize }}</p>
 <div class="record-list">
 {% for item in page_obj %}
-<a class="record-row" href="{% url 'core:evidence:list' item.pk %}">
-<strong>{{ item.name }}</strong>
+<a class="collection-row" href="{% url 'core:evidence:list' item.pk %}">
+{% include 'ui/components/icon.html' with name='folder' %}<span class="collection-row-content"><strong class="collection-row-title">{{ item.name }}</strong></span>
 <span class="status">{{ item.current_role|title }}</span>
 </a>
 {% endfor %}
