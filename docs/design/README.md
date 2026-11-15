@@ -42,5 +42,6 @@ implementation, not the current layout or a new validation run:
   [focused evidence list comparison](comparison-evidence-list.png).
 
 See [browser validation](../validation.md#browser-checks) for density checks,
-test coverage, and validation limits. Additional synthetic browser-test captures
-are written to ignored `data/validation/browser/`.
+capture locations, and validation limits. The [quiet workspace QA report](../archive/quiet-evidence-qa.md)
+is retained as historical evidence; new captures belong in the ignored locations
+documented by the validation guide.

@@ -19,16 +19,9 @@ Anonymous visitors can read every page. Signed-in visitors opening `/` retain
 the shortcut to **All cases**; the other public pages show **Open workspace**.
 The existing sign-in and email-verification checks still protect case material.
 Public pages never query or display an investigator's cases or evidence.
-Illustrations use a labelled fictional case and current Evidence/Findings
-navigation. Product explains collection, case-scoped search, supported imports,
-automatic local checks, complete findings browsing, exact identifier connections,
-structured chronology, shared selections/briefs, private original previews, and
-reports. Examples show source links and the limits of a candidate finding.
-Transcription, model-assisted analysis including question-driven synthesis of
-explicitly selected text/findings, and geographic services are grouped under their
-configuration requirements. Trust explains preservation, case access, external
-processing approval, and what
-[external map tile providers receive](maps.md#external-tiles-and-privacy).
+Illustrations use a labelled fictional case. Examples show source links and
+candidate-finding limits; configuration-dependent analysis is identified beside
+the claim. Trust includes [external tile-provider privacy](maps.md#external-tiles-and-privacy).
 
 The pages use `marketing/templates/marketing/` and `marketing/static/marketing/marketing.css`, sharing
 the approved brand artwork. Navigation and calls to action are ordinary links
@@ -51,15 +44,10 @@ consistently. Keep product claims aligned with implemented behavior documented i
 printed-English JPEG/PNG recognition, and the supported WAV and import profiles
 have specific coverage limits; avoid implying support for every uploaded format.
 
-The public roadmap summarizes the
-[proposed analysis priorities](evidence-analysis-roadmap.md) and separates them
-from available tools. Structured chronology and exact identifier connections are
-available; inferred event timelines and relationship graphs remain planned.
-Question-driven synthesis of selected text/findings requires a configured model;
-automatic case-wide discovery for synthesis remains future work. Semantic
-passage retrieval, near-duplicate image comparison, and structured table
-extraction remain exploratory. Keep future items provisional and review the
-roadmap and copy kit when capabilities ship or priorities change.
+The public roadmap summarizes the [proposed priorities](evidence-analysis-roadmap.md).
+Use that guide for future scope and the [current analysis guide](analysis.md) for
+implemented behavior. Review the public pages and copy kit when capabilities ship
+or priorities change.
 
 Possible trips, plate readings, exact identifier matches, and model suggestions
 stay distinguishable from verified facts. Chronology displays recorded times,
@@ -79,14 +67,7 @@ uv run --locked --env-file .env python manage.py test --settings=config.test_set
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.browser --noinput
 ```
 
-The browser suite uses the installed Chromium and WebKit engines, with
-JavaScript disabled. It checks local links and fragment targets, public
-navigation, keyboard access to the analysis examples and FAQ disclosures,
-visible focus, single page headings, loaded images, and horizontal reflow at
-the five design viewport sizes and 200% text sizing. It captures dark appearance
-on Home and Product, reduced motion on Home, and forced colors on both pages in
-Chromium. Screenshots go to ignored `data/validation/marketing-browser`. Use
-`PANDECT_BROWSER_ENGINES` and `PANDECT_BROWSER_ARTIFACTS` to override the defaults.
-
-Review the captures as part of delivery. Browser checks do not establish full
-accessibility compliance or validate a live hosted deployment.
+Use [browser validation](validation.md#browser-checks) for engine installation,
+artifact locations, overrides, and limits. The marketing suite exercises the
+public pages without JavaScript. Review its synthetic captures against
+[DESIGN.md](../DESIGN.md#completion-and-design-review).

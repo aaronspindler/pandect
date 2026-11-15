@@ -63,25 +63,9 @@ briefs. In active development; model-assisted analysis needs configuration.
 
 ## Feature language
 
-Keep availability beside the claim, including in slides, screenshots, and short
-announcements. Use **Available**, **Requires configuration**, **Planned**, and
-**Exploring** consistently.
-
-| Status | Describe as | Supporting reference |
-| --- | --- | --- |
-| Available | Private cases, owner-managed email invitations, viewer/editor collaboration, people and vehicle records. | [Cases](cases.md), [people](people.md), [vehicles](vehicles.md) |
-| Available | Original documents, images, audio, captured text, messages, calls, and location observations with source details and private downloads. Supported PDF, UTF-8, image, and WAV originals have private readers. | [Evidence](evidence.md), [previews](original-previews.md) |
-| Available | Search within a case across retained text and supported extraction; complete source-linked findings browsing, explicit person-related evidence, and processing progress/recovery. | [Analysis](analysis.md), [people](people.md) |
-| Available | Exact identifier connections in analyzed material and chronology of recorded communication/location times, with acquisition times and uncertain extracted dates distinguished. | [Connections](analysis.md), [chronology](chronology.md) |
-| Available | Case-shared exact evidence/finding selections and printable HTML briefs with citations, review decisions, and a downloadable provenance manifest. | [Shared selections](shared-selections.md) |
-| Available | Local native PDF/UTF-8 text extraction, JPEG/PNG metadata and printed-English recognition, possible plate readings, supported WAV metadata, and rule-based identifiers/dates/keywords. Format and coverage limits apply. | [Extraction](analysis-extraction.md), [text analysis](analysis-communications.md) |
-| Available | Supported Asset Location CSV and iMessage HTML imports; possible vehicle trips, call/coverage/duplicate reports, and selected text, conversation, and location comparisons. | [Vehicle imports](vehicle-location-imports.md), [communications](analysis-communications.md), [locations](analysis-locations.md) |
-| Available | Map recorded coordinates and person-linked points of interest; the map background uses an operator-configured tile provider. | [Maps](maps.md) |
-| Requires configuration | English WAV transcription, model-assisted topics/claims, conversation summaries, semantic conversation comparisons, and question-driven synthesis over explicitly selected text/findings through a private runtime or separately selected and approved external AI route. | [Local analysis](local-analysis.md), [synthesis](synthesis.md) |
-| Requires configuration | Address lookup and geographic reference context using configured geographic services. External lookups require approval unless the operator designates the endpoint as local. | [Locations](analysis-locations.md), [geographic context](analysis-geographic-context.md) |
-| Planned | Inferred event timelines, relationship graphs, and automatic evidence discovery for synthesis beyond explicitly selected material. Search across accessible cases is a broader product goal. | [Roadmap](evidence-analysis-roadmap.md), [project overview](../README.md#planned-and-exploratory) |
-| Exploring | Semantic passage retrieval, near-duplicate image comparison, structured table extraction, and broader specialist analysis. | [Catalogue](evidence-analysis.md) |
-| Planned | Managed hosting, with timing and pricing unannounced. | [Public hosting page](../marketing/templates/marketing/hosting.html) |
+Keep availability beside each claim, including in slides, screenshots, and short
+announcements. Follow the [content boundaries](marketing.md#content-boundaries)
+and check the linked domain guides before reusing capability-specific copy.
 
 ## Editorial boundaries
 

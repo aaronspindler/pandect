@@ -1,6 +1,6 @@
 # Document and media extraction
 
-The case Findings workflow retains derived results separately from originals.
+Analysis retains derived results separately from originals.
 Select a document/image/audio source, or the particular retained audio addition
 on a Phone call or FaceTime record. A metadata-only call has no recording to
 decode or transcribe. Supplied transcripts remain independent retained material.

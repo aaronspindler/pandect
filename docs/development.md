@@ -1,6 +1,7 @@
 # Local development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.7 and
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) at the version
+pinned in [`mise.toml`](../mise.toml) and
 Docker with Compose v2. uv manages Python, the `.venv`, and Python dependencies;
 there is no requirements.txt or separate pip installation step. If you already
 use [mise](https://mise.jdx.dev/), `mise install` installs the tools in `mise.toml`.
@@ -57,12 +58,9 @@ builds use content-hashed filenames from `collectstatic`. Rebuild with `make run
 after changing templates or static assets in the container workflow. Host-based
 debug development picks up source asset changes without collecting them.
 
-After verification, create a case from **All cases** to open **Case Tools**, then
-use **Add evidence**. The shared navigation keeps **Evidence** and **Processing**
-directly available. Case Tools links to findings, supporting views, People,
-Vehicles, and owner-only Settings, including collaborator invitations. Ordinary
-investigators do not need staff permissions.
-See [case workflows](cases.md), [evidence](evidence.md), and
+After verification, create a case from **All cases** and use **Add evidence**.
+Ordinary investigators do not need staff permissions. See
+[case workflows](cases.md), [evidence](evidence.md), and
 [vehicle-location imports](vehicle-location-imports.md) for task-specific guidance.
 
 The optional `createsuperuser` command creates an operator for `/admin/`. Staff

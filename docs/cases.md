@@ -74,15 +74,14 @@ never transfer ownership or create another owner.
 
 ## Data model
 
-A case has a UUIDv4 key, required `owner` (`settings.AUTH_USER_MODEL`), required
-`name` (255 characters), retained read-only `description`, automatically set `created_at`,
-and automatic `updated_at`. Product creation requires a name; trusted ORM/admin
-callers that omit it receive `Case #<UUID>`. Status and ownership transfer are
-not implemented.
+A case has one required owner. Product creation requires a name; trusted ORM/admin
+callers that omit it receive `Case #<UUID>`. Saved descriptions remain read-only.
+Status and ownership transfer are not implemented. The [models](../cases/models.py)
+own field definitions and constraints.
 
-`Case.additional_users` uses `CaseMembership`, with a UUIDv4 key and required
-case, user, and `viewer` (default) or `editor` role. PostgreSQL enforces one
-membership per case/user and valid roles. Model validation/admin reject the owner
+`Case.additional_users` uses `CaseMembership`, with a required case, user, and
+`viewer` (default) or `editor` role. PostgreSQL enforces one membership per
+case/user and valid roles. Model validation/admin reject the owner
 as a member; this is not a cross-table database constraint. ORM callers must
 invoke `full_clean()` before saving memberships.
 
@@ -96,7 +95,22 @@ admin/queryset deletion.
 
 Open `/admin/` and choose **Cases**. All scoped administration requires active
 staff status, global model permissions, and current case access. Superusers have
-no case-access bypass. These gates also apply to the domain admin guides.
+no case-access bypass. Case membership alone grants no global model permissions.
+
+For case-scoped domain records, inspection requires `view_<model>` or
+`change_<model>` and any current case role. Creation requires `add_<model>` and
+an owner/editor-access case; editing requires `change_<model>` and owner/editor
+access. Permission names use the owning app, such as `people.add_person` or
+`document.view_documentevidence`. Individual deletion follows the domain guide:
+[people](people.md#django-admin), [vehicles](vehicles.md#django-admin-and-authorization),
+or [evidence](evidence.md#permanent-deletion).
+
+Lists, searches, direct/history/deletion URLs, submitted case choices, and inline
+IDs are scoped server-side. Revocation or downgrade affects subsequent requests
+in existing sessions. Existing domain records cannot be reassigned to another
+case, and bulk admin actions are disabled. These shared gates are implemented in
+[`CaseScopedAdmin`](../cases/admin_access.py); case and membership administration
+adds the owner-only rules below.
 
 | Operation | Case requirement | Global permission |
 | --- | --- | --- |
@@ -116,11 +130,9 @@ listed on the confirmation when those records are present.
 Choose **Add case → Save and continue editing**. Ownership is assigned server-side;
 owner/creation time then become read-only. The owner-only membership inline adds
 existing users, changes roles, or removes members, respecting model permissions.
-Memberships have no standalone admin; case bulk actions are disabled.
+Memberships have no standalone admin.
 
-Lists, direct/history/deletion URLs, and submitted inline IDs are case-scoped.
 Viewers/editors cannot mutate cases or memberships even with global permissions.
-Revocation or downgrade affects subsequent requests in existing sessions.
 
 ## Scope and migration
 

@@ -1,8 +1,8 @@
 # People
 
 `people.Person` is an investigator-maintained record belonging to exactly one
-`cases.Case`. A case can contain many people through `case.people.all()`. People
-are independent of login accounts: a matching name, email, or phone number is not
+`cases.Case`. People are independent of login accounts: a matching name, email,
+or phone number is not
 proof of identity, and matching records are not automatically linked or merged.
 These records capture investigative work, not verified evidence or model output.
 
@@ -84,51 +84,27 @@ blocked by retained evidence links; POIs impose no additional deletion restricti
 
 ## Fields and validation
 
-| Field | Behavior |
-| --- | --- |
-| `id` | Automatically generated, non-editable UUIDv4 primary key. |
-| `case` | Required case foreign key. Deleting the case deletes its people. |
-| `first_name`, `last_name` | Optional text, up to 150 characters each. |
-| `phone_number` | Optional text, up to 64 characters; preserves international formatting and extensions. |
-| `email` | Optional Django-validated email address, up to 254 characters. |
-| `address` | Optional multiline address, without country-specific structure. |
-| `notes` | Previously saved investigator notes, now read-only in the product and admin. |
-| `created_at` | Set automatically on creation. |
-| `updated_at` | Set automatically on model saves. Queryset updates do not update it automatically. |
-
 Names may be unknown. At least one of first name, last name, phone number, or email
 must contain a non-whitespace character. A PostgreSQL check constraint enforces
 this, including for direct and bulk database writes. Address and notes alone do
-not meet this requirement. Missing text values use empty strings, not `NULL`.
+not meet this requirement.
 
-As with ordinary Django models, call `full_clean()` before saving through the ORM
-to validate email and field lengths; `save()` does not automatically run model
-validation. Admin forms validate these fields automatically. The phone field does
-not normalize or validate telephone numbering plans. There is one phone number,
-email, and address per record. Names and contact details are not unique, either
-within a case or across cases.
+There is one phone number, email, and freeform address per record. Phone numbers
+preserve formatting and extensions without numbering-plan validation or
+normalization. Names and contact details are not unique, either within a case or
+across cases. Saved notes remain read-only. Timestamps and Django admin history
+are not a versioned evidence or identity-assertion history.
 
-A person's display name uses their first and last name, falling back to email
-and then phone number. Creation/update timestamps and Django admin history are
-not a versioned evidence or identity-assertion history.
+The [model](../people/models.py) owns field definitions and constraints. Trusted
+ORM callers must use `full_clean()` for email and field validation before saving;
+`save()` does not perform it automatically.
 
 ## Django admin
 
-Open **People → Add person** in `/admin/` and select an owned/editor-access case.
-Case, notes, and timestamps are read-only on existing records; case reassignment
-is unsupported. The [shared admin gates](cases.md#django-admin) also apply:
-
-| Operation | Case requirement | Global permission |
-| --- | --- | --- |
-| List, search, inspect a person or history | Owner, viewer, or editor | `people.view_person` or `people.change_person` |
-| Create a person | Owner or editor of the selected case | `people.add_person` |
-| Edit a person | Owner or editor | `people.change_person` |
-| Delete a person | Owner only | `people.delete_person` |
-
-Case permissions do not grant person permissions. Lists, searches, submitted
-case choices, direct/history/deletion URLs remain scoped server-side. Bulk actions
-are disabled. Revocation/downgrades affect subsequent requests; superusers have no
-case-access bypass. Case deletion in admin also needs `people.delete_person`.
+Use **People** in `/admin/` under the [shared admin gates](cases.md#django-admin),
+with `people` model permissions. Only case owners with `people.delete_person`
+can delete a person, subject to the retained-evidence protections above. Existing
+case, notes, and timestamps are read-only; case reassignment is unsupported.
 
 ## Migration and scope
 

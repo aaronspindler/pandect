@@ -1,6 +1,6 @@
 # Background-worker foundation
 
-Pandect uses Django's native Tasks API with `django-tasks-db` 0.13 and its existing
+Pandect uses Django's native Tasks API with `django-tasks-db` and its existing
 PostgreSQL database. One `default` queue is shared by web and worker processes.
 There is no Redis service, scheduler, or external queue. Shared queue diagnostics
 and AI integration belong to `core`; case analysis lives in its `core.analysis`
@@ -36,14 +36,9 @@ reference. Retries and their automatic follow-ups preserve that reference, inclu
 when another authorized editor requests the retry. Historical runs without that
 reference are not assigned a guessed batch.
 
-Active work remains visible independently of history filters. History retains all
-check outcomes with evidence-type and outcome filters, pagination, and links to
-exact sources, results, timestamps, retry, and cancellation actions. Vehicle-location
-CSV imports have separate progress/history and review links; imports ready for
-review remain with current work until that step is completed. Owners and editors
-can request **Run more checks → Rerun all analysis** here; additional analysis
-remains deliberate. Refresh provides in-app completion feedback; no notification
-scheduler is added.
+See the [Processing workflow](interface-design.md#case-tools-processing-and-additional-analysis)
+for history filters, import review, and recovery controls. Refresh provides in-app
+completion feedback; there is no notification scheduler.
 
 Completed vehicle and iMessage imports offer **Run local checks on imported
 evidence** deliberately. Scope comes from retained import relationships (and the
@@ -63,10 +58,10 @@ requested new people atomically; internal processing groups are not import limit
 
 ## Startup and diagnostics
 
-Complete [local setup](development.md), then start the stack:
+Start the stack using [local development](development.md#first-run), then verify
+queue execution and inspect worker logs:
 
 ```sh
-docker compose up --build --wait
 docker compose exec web python manage.py check_task_worker --timeout 30
 docker compose logs --tail 100 worker
 ```
@@ -91,12 +86,10 @@ container is running. `/health/` remains a web/database check; only the diagnost
 above verifies that a worker actually processes this queue. Run it after startup
 or deployment, rather than repeatedly using it as a container health check.
 
-For host-based development, stop the container web and worker, start PostgreSQL,
-apply migrations, and run these in separate terminals:
+For [host-based development](development.md#run-python-on-the-host), run the
+diagnostic after starting the documented web and worker processes:
 
 ```sh
-uv run --locked --env-file .env python manage.py runserver
-uv run --locked --env-file .env python manage.py db_worker --no-reload
 uv run --locked --env-file .env python manage.py check_task_worker --timeout 30
 ```
 

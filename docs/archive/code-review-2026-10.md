@@ -1,8 +1,8 @@
 # Code review catalogue — 30 October 2026
 
 Historical review of the dated snapshot. Paths, counts, and validation results
-below describe that review, not the current checkout. Use [validation](validation.md)
-for current commands and [architecture](architecture.md) for current ownership.
+below describe that review, not the current checkout. Use [validation](../validation.md)
+for current commands and [architecture](../architecture.md) for current ownership.
 
 This review covered the first-party application, native inference runtime,
 templates, JavaScript/CSS, migrations, tests and operational configuration,
@@ -107,5 +107,5 @@ No dependency or schema changes are needed. After upgrading both web and worker,
 start new runs for queued version-1 `text_topics`/`session_summaries` methods or
 inference adapter snapshots: they fail recoverably rather than silently changing
 interpretation. Existing results and reviews remain retained. See
-[analysis](analysis.md#retained-processing) and
-[local inference](local-analysis.md) for the version and recovery details.
+[analysis](../analysis.md#retained-processing) and
+[local inference](../local-analysis.md) for the version and recovery details.

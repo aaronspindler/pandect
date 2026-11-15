@@ -1,33 +1,10 @@
 # Evidence analysis implementation roadmap
 
-This roadmap prioritizes future work from the [analysis catalogue](evidence-analysis.md).
-The catalogue's October 2026 scores are historical qualitative judgments, not
-current effort estimates or accuracy measurements. There are no delivery dates
-or committed capacity assumptions.
-
-## Implemented foundations
-
-Literal retained-content search, bounded file extraction, local OCR/plate
-candidates, configured transcription, current-evidence reports, conversation
-imports/comparisons, descriptive writing profiles, and location comparisons now
-exist for documented input profiles. Possible vehicle trips also appear from
-current observations without an analysis run. These foundations are no longer a
-future delivery sequence; [case analysis](analysis.md) and its focused guides own
-current capabilities, limits, and configuration.
-
-## Implemented investigation workflows
-
-Complete findings browsing now covers retained result items with latest-equivalent
-and historical views, source validation, and review filters. Person-related
-evidence/findings follow explicit case relationships. Connections compare exact
-identifier candidates in analyzed material; Chronology combines explicit observed
-and acquisition times while leaving extracted date strings unplaced. Shared
-selections preserve exact versions and generate printable provenance-linked briefs.
-Question-driven synthesis accepts selected text and findings through configured
-private inference or explicit Gateway approval. Original PDF/text/WAV inspection,
-source readiness, processing progress, deliberate post-import checks, and expanded
-iMessage account mapping complete these bounded workflows. See the
-[documentation index](README.md#investigation-workflows) for behavior and limits.
+This roadmap owns future priorities, with no delivery dates or committed capacity
+assumptions. [Case analysis](analysis.md) and its focused guides own implemented
+capabilities, input limits, and configuration; the [documentation index](README.md#investigation-workflows)
+routes to current investigation workflows. The [October 2026 catalogue](archive/evidence-analysis-2026-10.md)
+is historical research, not a current capability inventory or effort estimate.
 
 ## Next: qualify interpretation and retrieve related passages
 
@@ -84,19 +61,10 @@ video. Cross-case matching remains outside this roadmap. Advanced road-route
 inference and broad semantic linking require separate evaluation beyond
 observation grouping.
 
-## Completion criteria for every release
+## Delivery requirements
 
-Follow [AGENTS.md](../AGENTS.md) for case isolation, immutable originals,
-provenance, uncertainty, and inference boundaries. Owners/editors initiate
-processing and review; viewers inspect authorized results. Recheck current
-access before execution, external submission, retries, and publication. Already
-submitted external requests cannot be recalled.
-
-Use the [validation workflow](validation.md), with synthetic/sanitized fixtures,
-relevant permission/failure cases, mocked inference, and migration/Compose checks
-where affected. Visible changes need the [design review](../DESIGN.md#completion-and-design-review)
-and every scoped implementation needs the required simplicity review.
-
-Feature-specific acceptance should establish that investigators can find the
-source, understand coverage and uncertainty, and recover from failure. Planning
-scores alone establish neither method suitability nor accuracy.
+Follow [AGENTS.md](../AGENTS.md) for integrity, access, provenance, inference, and
+handoff requirements, and [validation](validation.md) for checks. Feature-specific
+acceptance should establish that investigators can find the source, understand
+coverage and uncertainty, reject suggestions without changing originals, and
+recover from failure. Planning scores establish neither suitability nor accuracy.

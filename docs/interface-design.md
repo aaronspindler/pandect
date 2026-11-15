@@ -2,8 +2,8 @@
 
 **Status: core interfaces implemented; validation results are separate.**
 This specification owns screen-specific behavior. [DESIGN.md](../DESIGN.md) owns
-shared visual, accessibility, and interaction rules; [delivery and acceptance](interface-plan.md)
-owns follow-up gates. Generated mockups are references, not rendered evidence.
+shared visual, accessibility, and interaction rules; [validation](validation.md)
+owns check selection and procedures. Generated mockups are references, not rendered evidence.
 
 ## Navigation and screens
 
@@ -24,10 +24,9 @@ Disclosures work without JavaScript.
 
 Cases, People, Vehicles, and Evidence use shared whole-row links with readable
 titles and secondary metadata. Detail pages and forms share the reader's heading,
-action, divider, and spacing styles. Icon-only actions use shared hover/focus
-tooltips, including Info/More when their words disappear on mobile. Tooltips can
-be hovered and dismissed with Escape without moving focus. Native title tooltips
-remain available without JavaScript. Decorative icons beside text need no tooltip.
+action, divider, and spacing styles. Info/More use the shared
+[icon-control and tooltip rules](../DESIGN.md#visual-foundations) when their words
+disappear on mobile.
 
 | Screen | Content and primary action |
 | --- | --- |
@@ -82,16 +81,10 @@ filters and stable newest-updated ordering. Empty cases offer the next action;
 empty filtered results offer Clear filters. Only owners edit case metadata or
 manage collaborators. Saved descriptions remain read-only.
 
-People allow partial identities, requiring at least one name, phone number, or
-email. Vehicles require at least a make, model, plate, or VIN. Owners/editors
-create and edit; viewers inspect; owners alone delete through a named-target
-confirmation. Case membership and login accounts are separate. Duplicate contact
-or vehicle identifiers do not merge records or verify identity/ownership.
-
 Person details include reported social accounts and POIs. Owners/editors manage
 social accounts with confirmed removal; viewers read them. Search includes
 platform/usernames. Saved notes and history are disclosed as read-only details.
-See [people](people.md) and [vehicles](vehicles.md) for field and deletion rules,
+See [people](people.md) and [vehicles](vehicles.md) for identity, role, and deletion rules,
 including retained location links that can block individual deletion.
 
 Case deletion is a separate owner confirmation naming the case and inventory,
@@ -246,14 +239,10 @@ Owners manage a compact owner/collaborator/pending-invitation table. Viewer is
 the default invitation role; ownership is fixed. Role changes are explicit saves;
 removal has a named confirmation and affects subsequent operations. Invitations
 show pending, accepted, expired, revoked, and delivery-failed states honestly.
-Resend/role change rotates tokens; links expire after the configured period
-(default seven days). See [cases](cases.md) for the complete acceptance contract.
-
-Acceptance uses GET confirmation then POST from an authenticated account with a
-matching verified email. Preserve the link through registration/verification and
-offer wrong-account recovery. Expired/revoked links explain how to contact the
-owner; failed mail leaves a retryable pending invitation. Replay cannot create
-another membership or change its role.
+Preserve the invitation through registration/verification and offer wrong-account
+recovery. Expired/revoked links explain how to contact the owner; failed mail
+leaves a retryable pending invitation. See [cases](cases.md) for token lifetime,
+rotation, verified-email matching, and acceptance/replay rules.
 
 All mutations use CSRF-protected POST and current server-side case/object access.
 Superusers receive no case bypass. Inaccessible objects return generic not-found
@@ -264,11 +253,6 @@ errors, idempotent retries, and no secret-bearing exception text.
 
 ## Accessibility and acceptance
 
-Apply [DESIGN.md](../DESIGN.md#completion-and-design-review) and the
-[delivery gates](interface-plan.md#verification-gates). Core forms work without
-JavaScript. At desktop widths label list/reader regions and make scrolling
-keyboard reachable; at mobile widths preserve Back/filter context and avoid
-horizontal page scrolling. Exercise empty states, missing fields/storage,
-revoked access, stale edits, expired invitations, partial batches, and uncertain
-confirmation. Use [browser checks](validation.md#browser-checks) for executable
-commands and synthetic capture locations.
+Apply [DESIGN.md](../DESIGN.md#completion-and-design-review) for viewport,
+keyboard, accessibility, and recovery checks. Use [validation](validation.md)
+for check selection, executable commands, and synthetic capture locations.

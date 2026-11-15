@@ -21,6 +21,7 @@ transcription remain deliberate.
 | Conversation summaries | The existing message-aware session chunks through the same local text runtime. | Coverage, conflicting messages and missing context. Current session grouping selects text messages. |
 | Claims, plans and commitments | Structured candidate statements with exact source quotations. | Attribution, negation, hearsay, tense and cancellation. |
 | Semantic conversation links | Two-sided quotation citations through the local text runtime. | False links and ambiguous references; candidates require investigator review. |
+| Question-driven synthesis | Selected text and findings through the local text runtime, with distinct original and prior-finding citations. See [synthesis](synthesis.md) for selection and output bounds. | Supporting/contrary evidence, negation, ambiguity, unknowns and abstention. Valid quotations do not establish interpretation quality. |
 | Geocoding | Operator-controlled Nominatim-compatible service. | Loaded area, dataset freshness, ambiguous/no matches and candidate review. |
 | Geographic context | Operator-controlled Overpass-compatible service; geometry matching already runs locally. | Loaded area, map timestamps, retained snapshots and actual historical coverage. |
 
@@ -216,11 +217,11 @@ uv run --locked --env-file .env python manage.py evaluate_local_analysis --audio
 uv run --locked --env-file .env python manage.py evaluate_local_analysis --method transcription --audio /absolute/synthetic.wav > /tmp/local-transcription.json
 ```
 
-The command runs all five text modes (including question synthesis) through the
-real local adapters and existing citation validators on fixed synthetic messages.
-It writes no database records,
-makes no Gateway calls, and exits nonzero if any selected method fails. Optional
-audio uses the existing PCM parser and chunk/timeline path. Its JSON includes
+The command exercises the model-based text methods listed above through the real
+local adapters and existing citation validators on fixed synthetic messages. It
+writes no database records, makes no Gateway calls, and exits nonzero if any
+selected method fails. Optional audio uses the existing PCM parser and
+chunk/timeline path. Its JSON includes
 expected distinctions, actual validated output, usage and elapsed time, without
 assigning an unsupported quality grade. Keep audio/output appropriately private.
 
@@ -229,9 +230,9 @@ assigning an unsupported quality grade. Keep audio/output appropriately private.
 2. Transcribe known speech with names, accents, overlap and non-speech. Inspect
    word errors, omissions and original-timeline intervals. Score against the
    retained transcript; unavailable confidence scores stay unknown.
-3. Evaluate topics, summaries, claims and links separately against analyst-written
-   expected findings, including negation, conflicting messages, hearsay,
-   cancellation, repeated quotations and deliberately ambiguous references.
+3. Evaluate each text method separately against analyst-written expected findings,
+   including supporting/contrary evidence, negation, conflicting messages, hearsay,
+   cancellation, repeated quotations, ambiguous references and abstention.
    Report citation validity separately from interpretation precision and recall.
 4. Record model/runtime digests, hardware, prompt/context sizes, cold/warm latency,
    peak process/container memory and queue completion time. Start with one active
@@ -248,46 +249,12 @@ advertise parity with remote inference or worldwide map readiness from mocked
 tests. Record per-method qualification results with the deployment, including
 any disabled or experimental modes.
 
-### Recorded synthetic qualification, 2026-10-29
-
-The four text paths and transcription listed below completed against the real
-pinned engines and verified model files. This historical qualification predates
-question synthesis and does not qualify that method. Forward/reverse geocoding
-and geographic context also completed
-against a synthetic private HTTP service, including real geometry parsing and a
-validated retained reference. The Docker network was internal; an external TCP
-probe failed. No investigation records or Gateway requests were created.
-
-| Method | Observed result | Elapsed time |
-| --- | --- | --- |
-| Topics/short summaries | Six model suggestions had valid quotations, but an ambiguous place became a specific venue and labels repeated source types. Interpretation remains unqualified. | 314 s |
-| Conversation summaries | Five message summaries had valid quotations and preserved cancellation/hearsay; an ambiguous venue was incorrectly resolved. Interpretation remains unqualified. | 174 s |
-| Claims/events | Six quoted suggestions preserved ambiguity and qualifications, but some event/relationship classifications were weak. They still require review. | 173 s |
-| Semantic conversation links | All six model suggestions cited only one source. The guard retained them as unresolved; no completed two-sided model link was demonstrated. | 193 s |
-| Transcription | The words in a 3.565-second generated English recording matched the supplied script. Two source-timed segments and two unresolved gaps produced a partial result. This is not a general recognition-quality measurement. | 20.6 s |
-| Geocoding | Forward and reverse HTTP lookups returned the synthetic candidate without external approval. | Not benchmarked |
-| Geographic context | Private HTTP lookup, bounded parsing and the retained reference passed against the synthetic map response. | Not benchmarked |
-
-The CPU-only Linux/arm64 runtimes had four CPUs each on a 16 GiB host with an
-approximately 7.75 GiB Docker VM. Text trials used a **4,096-token context and
-1,024 output tokens**, below the configured defaults. Observed native-process
-high-water RSS reached approximately **5.96 GiB for text** and **1.70 GiB for
-transcription**. The initial topic trial overlapped builds/tests; later text
-trials used the warm runtime. Runtimes were evaluated serially; combined-service
-memory was not qualified. These observations do not establish production
-throughput, maximum-context capacity, accuracy rates or remote-model parity.
-
-The 8B model remains unqualified for dependable interpretation or semantic linking.
-Reject unsupported specificity even when quotations validate. Different models and
-GPU execution require separate evaluation.
-
-Raw synthetic results are retained locally in ignored
-`data/validation/local-analysis/2026-10-29-qualification.json`; verified model
-files and source/checksum metadata are in ignored `data/models/`. The initial
-multi-method run lost runtime availability during an interrupted session;
-separate completed trials supersede those interrupted method results.
-These inference trials do not establish map coverage, replication freshness, or
-historical data availability. Qualify those against the configured map services.
+The baseline 8B model remains unqualified for dependable interpretation or semantic
+linking. The [29 October 2026 synthetic trial](archive/local-inference-qualification-2026-10-29.md)
+found unsupported specificity despite valid quotations and did not include question
+synthesis. Those historical results do not qualify current models, runtime
+versions, capacity, or map services. Different models and GPU execution require
+separate evaluation.
 
 Recover local failures by correcting configuration/capacity and starting another
 run. Do not edit retained runs, force-reset task rows, or delete originals.

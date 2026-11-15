@@ -1,8 +1,25 @@
 # Validation and automation
 
+## Choosing checks
+
+Use the [contributor requirements](../AGENTS.md#validation-and-handoff) to select
+behavior and failure-path coverage, and [DESIGN.md](../DESIGN.md#completion-and-design-review)
+for visible changes. The commands below provide the execution procedures:
+
+- Application changes: run `make check`; visible changes also need the affected
+  browser journeys.
+- Container, startup, or asset packaging changes: also run `make compose-smoke`.
+- Dependency changes: also run `make security-check`.
+- Documentation-only changes: check source accuracy, links, and whitespace;
+  application tests that restate prose are unnecessary.
+
+Complete the required [simplicity review](README.md#simplicity-review) after
+validation. Report local checks, hosted CI, and live verification separately.
+
 ## Local checks
 
-Start the development database and load the same environment used by Django:
+Complete [local setup](development.md#first-run), then start the development
+database and load the same environment used by Django:
 
 ```sh
 uv sync --locked
@@ -35,18 +52,15 @@ when a separate test database configuration is needed. Static regression tests
 exercise real manifest collection and cache headers independently; the Compose
 smoke also checks the non-debug build.
 
-The suite uses synthetic content and temporary storage. It covers account and
-case roles, revoked access and cross-case requests, UUID/schema constraints,
-immutable originals and provenance, private downloads, edit conflicts, confirmed
-deletion and rollback, duplicate-safe submissions, bounded imports, and worker
-publication/recovery. Tests live with their owning apps; see the domain guides
-for the behavior those tests protect.
+Tests use synthetic content and temporary storage and live with their owning
+apps. The domain guides explain the behavior they protect; test modules own the
+detailed coverage inventory.
 
 `make compose-smoke` needs Docker only. It builds a unique disposable project with
-synthetic configuration, random loopback ports, and fresh volumes. It checks
-migrations, production static delivery, retained records/original bytes, automatic
-native extraction, bounded PDF rendering, local OCR/plate search, and queue persistence/execution across
-restarts. A probe completes once in the controlled run; this does not establish
+synthetic configuration, random loopback ports, and fresh volumes to exercise
+startup, storage, processing, and worker restart. The executable coverage lives in
+[`scripts/compose-smoke.sh`](../scripts/compose-smoke.sh). A probe completes once
+in the controlled run; this does not establish
 exactly-once delivery after crashes. The script clears inherited `PANDECT_`
 settings and never uses your `.env` or data. Its exit trap removes only its own
 containers and volumes.
@@ -68,55 +82,52 @@ uv run --locked --env-file .env make browser-check
 
 On Linux, install browser OS dependencies as required by Playwright (CI uses
 `playwright install --with-deps chromium webkit`). `make browser-check` runs
-the browser modules listed below through Django with `config.test_settings`, separately
-from the ordinary unit suite. Browser fixtures use synthetic accounts/material
-and temporary private file storage. Never run competing Django test processes against the same
-test database, or point the suite at an investigation database.
+the modules selected in the [Makefile](../Makefile) through Django with
+`config.test_settings`, separately from the ordinary unit suite. Browser fixtures
+use synthetic accounts/material and temporary private file storage. Never run
+competing Django test processes against the same test database, or point the
+suite at an investigation database.
 
 `PANDECT_BROWSER_ENGINES` selects `chromium`, `webkit`, or both (comma-separated;
 default both). `PANDECT_BROWSER_ARTIFACTS` overrides captures for the shared
 harness and marketing; map captures always use `data/validation/maps`. Defaults
 are listed below. Artifacts are ignored local output; keep fixtures synthetic.
 
-The suites cover current roles and access removal, JavaScript upload recovery,
-no-JavaScript workflows, keyboard focus, responsive reflow, enlarged text,
-light/dark appearance, reduced motion, and forced colors. The core journeys include
-confirmed deletion/import inventories, duplicate review, and the evidence reader.
-Long originals remain complete, findings follow the original, and header **Info**
-and **More** panels stay keyboard accessible. Info holds metadata and processing
-history; More holds editing, archive/deletion, and additional analysis. Checks
-cover panel dismissal/focus return, plus focused check-submission errors without
-JavaScript. Shared-shell checks cover Cases, Case Tools, Evidence, Processing,
-People, Vehicles, Findings, Settings, and Account at desktop/mobile sizes, tooltip
-hover/focus/Escape behavior, enlarged text, dark appearance, and forced colors.
-
-| Suite | Main scope | Default captures |
-| --- | --- | --- |
-| `config.tests.browser` | Accounts, cases, collaborators, people/vehicles, evidence and imports | `data/validation/browser` |
-| `phone.imazing_browser` | iMazing CSV preparation, reviewed people, publication and no-JavaScript import | `data/validation/imazing-browser` |
-| `marketing.browser` | Public navigation and FAQ disclosures | `data/validation/marketing-browser` |
-| `core.analysis.browser` | Case Tools, Processing, extraction, reports, source links and review | `data/validation/analysis-browser` |
-| `core.analysis.context_browser` | Local OCR and retained geographic context | `data/validation/context-browser` |
-| `core.analysis.workflow_browser` | Complete findings, person links, connections, chronology and processing | `/private/tmp/pandect-workflow-browser` when explicitly configured |
-| `core.analysis.selection_browser` | Shared selections, portable briefs and mocked question synthesis | Shared browser artifact directory |
-| `document.browser` | UTF-8/PDF originals and private recording playback | Shared browser artifact directory |
-| `phone.browser` | Multi-account iMessage mapping without JavaScript | Shared browser artifact directory |
-| `image.browser` | Synthetic plate search and private crops | `data/validation/plate-browser` |
-| `geo.map_browser` | Map, POIs and keyboard source navigation | `data/validation/maps` |
+| Suite | Default captures |
+| --- | --- |
+| `config.tests.browser` | `data/validation/browser` |
+| `phone.imazing_browser` | `data/validation/imazing-browser` |
+| `marketing.browser` | `data/validation/marketing-browser` |
+| `core.analysis.browser` | `data/validation/analysis-browser` |
+| `core.analysis.context_browser` | `data/validation/context-browser` |
+| `core.analysis.workflow_browser` | `data/validation/investigation-workflows` |
+| `core.analysis.selection_browser` | `data/validation/selection-browser` |
+| `document.browser` | `data/validation/original-preview-browser` |
+| `phone.browser` | `data/validation/import-mapping-browser` |
+| `image.browser` | `data/validation/plate-browser` |
+| `geo.map_browser` | `data/validation/maps` |
 
 Inspect captures at the viewport sizes and density targets in [DESIGN.md](../DESIGN.md).
 Manual screen-reader testing is optional and does not block delivery. Successful
 builds or HTTP readiness do not establish these interactions, full accessibility
 compliance, recognition accuracy, or live deployment health.
 
-## Investigation workflow boundaries
+## Focused checks
 
-The ordinary PostgreSQL suite covers latest-equivalent finding selection,
-independent finding/result reviews, person attribution, exact shared selections,
-import membership, processing recovery, chronology, conservative identifier keys,
-and source/prior-finding synthesis quotations. Inference is mocked in routine
-tests; use [separate runtime qualification](local-analysis.md)
-for model/runtime evidence.
+Pass an owning app's test module, class, or method to Django to run a focused
+check. Browser modules use the same command and isolated database setup:
+
+```sh
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings image.tests.test_previews --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
+```
+
+Shared execution and publication tests live in `core.analysis.tests`; concrete
+processing tests live in their domain apps. For a focused parser check:
+
+```sh
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_parser_dispatch document.tests.test_analysis image.tests.test_analysis image.tests.test_ocr image.tests.test_plates core.analysis.tests.test_plates audio.tests.test_analysis geo.tests.test_geographic_context --noinput
+```
 
 To reproduce the findings resource benchmark and populated-database backfill check:
 
@@ -124,68 +135,17 @@ To reproduce the findings resource benchmark and populated-database backfill che
 uv run --locked --env-file .env python manage.py test core.analysis.tests.test_catalogue_bounds core.analysis.tests.test_catalogue_migrations --settings=config.test_settings --noinput
 ```
 
-The benchmark exercises 25 displayed runs with 500 file inputs each, reports time
-and query/file-check counts, and rejects full result-payload reads. The migration
-check starts with retained populated and empty results, applies the additive
-catalogue migrations, and verifies preservation without opening originals. The
-catalogue unit tests separately cover interrupted backfill recovery. Selection
-tests exercise 500 findings from one large result and multiple large extraction
-members to prevent repeated loads or retained unused payloads.
-
-## Person POI validation
-
-`make check` covers POI validation, same-case links, roles, stale edits, deletion,
-and bounded private map results. `geo.map_browser` exercises pointer/keyboard
-creation, validation recovery, editing, and no-JavaScript person-linked workflows
-in both engines. Tile responses are mocked; tests do not establish physical
-location accuracy or live tile-service coverage.
-
-## Image preview validation
-
-Image evidence preview checks cover current case roles and revoked access,
-private headers, unchanged original downloads, orientation, resizing, transparency,
-malformed/active content, byte/pixel bounds, and safe failures. Run the focused
-checks with:
-
-```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings image.tests.test_previews --noinput
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
-```
-
-The preview journey uses a synthetic multi-picture JPEG. Regressions also cover
-48 MP progressive JPEGs, unchanged original bytes, and rejection above 50 million
-pixels. The context browser uses a 48 MP JPEG with real local OCR. These fixtures
-do not qualify arbitrary photos or native RAW files.
-
-## Analysis validation
-
-`make check` includes retained-content search, reports, processing/review history,
-native imports, text/conversation/location methods, and inference boundaries.
-The analysis and context journeys are included in `make browser-check`; run a
-focused suite by passing its module to the same Django test command.
-
-Processing unit tests live with their domain apps; shared execution, access,
-publication, and result integration tests remain in `core.analysis.tests`.
-For a focused parser check, run:
-
-```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_parser_dispatch document.tests.test_analysis image.tests.test_analysis image.tests.test_ocr image.tests.test_plates core.analysis.tests.test_plates audio.tests.test_analysis geo.tests.test_geographic_context --noinput
-```
-
 Parser tests use real bounded child processes with synthetic documents, images,
 audio, geographic data, and local printed OCR. Host validation requires Tesseract
 and English data; see [development](development.md#run-python-on-the-host).
-Inference and geographic HTTP responses are mocked in ordinary tests. Worker
-checks exercise same-database dispatch, concurrent idempotent submissions,
-publication and provenance; they do not establish general OCR/model accuracy.
+Inference, geographic HTTP responses, and map tiles are mocked in routine tests.
+Passing these checks does not establish general recognition/model accuracy,
+physical location accuracy, or live service coverage.
 
 ## Local inference validation
 
-Local inference boundary coverage is included in `make check`: routing and
-immutable execution snapshots, pinned-runtime identity, context/output budgets,
-authorization, cancellation, safe HTTP failures, and private native-runtime
-authentication/limits. The runtime tests use synthetic model bytes and temporary
-loopback listeners, including real process-group termination. They do not load
+Local inference boundary checks are included in `make check`. Runtime tests use
+synthetic model bytes and temporary loopback listeners; they do not load
 Whisper or Qwen weights. Run their focused checks independently with:
 
 ```sh

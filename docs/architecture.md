@@ -2,23 +2,20 @@
 
 Pandect has one Django configuration and user model for self-hosted and
 operator-hosted operation. Environment variables supply deployment differences.
-The implemented scope includes account screens, case, people, and vehicle management,
-email invitations and viewer/editor collaboration, evidence upload/capture,
-private downloads, archive/restore, scoped operator administration, and reproducible
-development and validation. The UI uses Django templates, local CSS, and focused
+The [documentation index](README.md) routes to implemented domain workflows.
+The UI uses Django templates, local CSS, and focused
 vanilla JavaScript for the sequential upload queue and interface enhancements.
 
 ## Runtime decisions
 
-The committed runtime pins and lockfile use:
-
-- Python **3.14.9**, Django **6.1.3**, and django-allauth **65.21.1**.
-  The project stays on Python 3.14 until a separate upgrade validates the full
-  dependency stack and both CI architectures.
-- uv **0.13.7** resolves a committed, cross-platform `uv.lock`. The application
-  is a non-packaged uv project; commands run from the checkout.
-- PostgreSQL **18.6** is the development and CI database. Tests use a separate
-  PostgreSQL test database through Django's built-in test runner.
+Exact runtime versions belong to [`.python-version`](../.python-version),
+[`mise.toml`](../mise.toml), [`pyproject.toml`](../pyproject.toml), and the resolved
+[`uv.lock`](../uv.lock); container pins belong to the [Dockerfile](../Dockerfile)
+and [Compose configuration](../compose.yaml). The project stays on Python 3.14
+until a separate upgrade validates the full dependency stack and both CI
+architectures. uv manages a non-packaged project with a committed cross-platform
+lockfile; commands run from the checkout. Development and integration tests use
+PostgreSQL, with a separate test database through Django's built-in test runner.
 
 Sources: [Django downloads](https://www.djangoproject.com/download/),
 [Django's Python compatibility table](https://docs.djangoproject.com/en/6.1/faq/install/#what-python-version-can-i-use-with-django),
@@ -52,7 +49,7 @@ deployment checks to distinguish the running release from a healthy older image.
 Compose overrides the command for local development. PostgreSQL 18 stores its named volume at `/var/lib/postgresql`, as
 required by that image's version-specific layout.
 
-Django's native Tasks API uses `django-tasks-db` 0.13 with the existing PostgreSQL
+Django's native Tasks API uses `django-tasks-db` with the existing PostgreSQL
 database and one `default` queue. Compose runs a separate worker from the same
 application image after web readiness confirms migrations. This keeps self-hosting
 to PostgreSQL plus application processes, with no separate broker. The dependency
@@ -69,7 +66,7 @@ adds domain-level authorization, immutable results, progress, and recovery. See
 - django-allauth supplies username/email sign-in, registration, mandatory email
   verification, password recovery, and sign-out under `/accounts/`.
 - Django admin uses the custom user model and requires staff permissions.
-- `cases/` contains `Case`, the root record for future investigation and evidence
+- `cases/` contains `Case`, the root record for investigation and evidence
   relationships, and `CaseMembership` for viewer/editor collaboration. Ownership
   is separate from membership. Case metadata and the UUID-keyed `CaseInvitation`
   model support the product workflows. `cases.permissions` provides current case
@@ -178,6 +175,6 @@ and operator-provisioned models on an internal network; setup and qualification
 belong to [local analysis](local-analysis.md). Core management and deterministic
 analysis do not require an external AI service.
 
-Cross-case/global search, graphs, unified timelines, broader specialist analysis,
-ownership transfer, and self-service account deletion remain unimplemented.
+The [roadmap](evidence-analysis-roadmap.md) owns future analysis priorities.
+Ownership transfer and self-service account deletion remain unimplemented.
 There is no public evidence/media route.

@@ -5,9 +5,8 @@ software engineering experience. Users should understand where they are, what
 they are looking at, and their next action without learning the implementation.
 
 This file defines durable design requirements, not implementation status. Screen
-specifications belong in [interface design](docs/interface-design.md), delivery
-gates in [the interface plan](docs/interface-plan.md), and validation procedures
-in [validation](docs/validation.md).
+specifications belong in [interface design](docs/interface-design.md); check
+selection and executable procedures belong in [validation](docs/validation.md).
 
 ## Principles
 

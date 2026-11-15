@@ -1,16 +1,13 @@
 # Compose operation and recovery
 
-Complete [local setup](development.md) first. Compose binds application and
-database ports to loopback. Its development server, console email, and debug
-configuration are for local use.
+Use [local development](development.md#first-run) for setup and startup. Compose
+binds application and database ports to loopback. Its development server, console
+email, and debug configuration are for local use.
 
 ```sh
-docker compose up --build --wait
 docker compose ps
 docker compose logs --tail 100 web worker db
-docker compose exec web python manage.py check_task_worker --timeout 30
 docker compose stop
-docker compose up --wait
 docker compose down
 ```
 
@@ -22,15 +19,12 @@ On first run the database must become healthy before the application applies
 migrations. On subsequent starts Django applies only pending migrations. The
 application health check calls `/health/`, which checks PostgreSQL. If startup
 fails, inspect logs, verify environment variables, correct the problem, and rerun
-`docker compose up --build --wait`. Changed database passwords in `.env` do not
+`make run`. Changed database passwords in `.env` do not
 change passwords already stored in an initialized PostgreSQL volume; rotate them
 with PostgreSQL before updating configuration.
 
-The background worker starts after web readiness and uses the same application
-image, configuration, and private evidence volume. Its process restarts unless
-explicitly stopped. HTTP readiness does not prove queue execution; use the
-diagnostic above. Worker failures, manual recovery, and result pruning are
-documented in [background tasks](background-tasks.md).
+HTTP readiness does not prove queue execution. Use the [worker diagnostic and
+recovery procedures](background-tasks.md#startup-and-diagnostics) after startup.
 
 ## Database backup and restoration
 

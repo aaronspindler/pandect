@@ -1,13 +1,15 @@
 # Quiet evidence workspace: design QA
 
-final result: passed
+Historical QA report, archived on **2026-11-15**. Results and local artifact
+paths below describe the reviewed snapshot, not the current interface. Use
+[the design standard](../../DESIGN.md) and [validation](../validation.md) for
+current requirements and procedures.
 
-The final combined comparison found no remaining P0/P1/P2 differences. This report
-lives in `docs/`, following the repository's documentation ownership rule.
+The final combined comparison reported no remaining P0/P1/P2 differences.
 
 ## Visual truth and captures
 
-- Selected visual: [option 1](quiet-evidence-reference.png), generated at
+- Selected visual: [option 1](../design/quiet-evidence-reference.png), generated at
   1487 × 1058 pixels and normalized to the 1440 × 1024 comparison viewport.
 - Matching implementation: local synthetic evidence, light appearance,
   Chromium at 1440 × 1024 CSS pixels, device scale factor 1. The capture is

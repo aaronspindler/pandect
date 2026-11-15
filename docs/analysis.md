@@ -1,31 +1,27 @@
 # Case analysis and extraction
 
-**Case Tools** is the default case home, with concise recent evidence and
-source-linked findings plus links to the Findings catalogue, maps, chronology,
-connections, people, vehicles, selections, and reports. **Evidence** holds the
-original material; **Processing** shows active work and retained history. Adding
-eligible evidence queues supported local checks; viewing results does not require
-review. Reviews remain alongside results. Owners and editors can start or cancel
-processing and append reviews; viewers inspect authorized originals and results.
-Case permissions apply to workers, search, downloads and playback.
+This guide owns analysis behavior, retained results, and processing configuration.
+For screen navigation and control placement, see the
+[interface specification](interface-design.md#case-tools-processing-and-additional-analysis).
+Adding eligible evidence queues supported local checks; viewing results does not
+require review. Owners and editors can start or cancel processing and append
+reviews; viewers inspect authorized originals and results. Case permissions apply
+to workers, search, downloads and playback.
 
 The case highlights inspect the latest 40 eligible published result runs, keep the latest
 result per operation and evidence/attachment, and show at most 12 findings.
 They revalidate sources and omit archived, unavailable, rejected, and weak OCR
 findings. This is a recent highlights view; **Browse all findings** provides the
-complete retained collection. Case Tools shows at most five of those highlights
-without expanded measurements, alongside up to five recent active evidence records.
-Finding labels and source titles remain visible. Full runs remain accessible
-through Processing history. The Vehicle trips report is computed from current
-observations on opening the report, including previously imported data.
+complete retained collection. Full runs remain accessible through Processing
+history. The Vehicle trips report is computed from current observations on opening
+the report, including previously imported data.
 
 **Browse all findings** searches complete retained labels, text and measurement
 values, with 25 findings per page and filters for method, evidence type, specific
 evidence, explicitly related person, and finding-review state. An evidence reader's
-**All findings from this evidence** link applies the exact source filter; its title
-and a clear-filter action appear above the results. Archived sources,
-weak plate regions, and all review states remain visible with labels. Whole-result
-review is displayed separately and does not accept individual findings.
+**All findings from this evidence** link applies the exact source filter. Archived
+sources, weak plate regions, and all review states remain visible with labels.
+Whole-result review is displayed separately and does not accept individual findings.
 
 The default selects the newest requested successful equivalent run before applying
 search/review filters. Equivalence includes method/version, execution configuration,
@@ -71,10 +67,8 @@ filenames and JSON content. They use `application/octet-stream` with attachment
 disposition so browsers, including Linux WebKit, save the files reliably. Downloads
 remain private and uncached; image previews remain inline JPEGs.
 
-The full product catalogue and recommended order remain in
-[evidence analysis](evidence-analysis.md) and the [roadmap](evidence-analysis-roadmap.md).
-Implementation and supported formats must be judged against this guide and the
-focused guides below, rather than treating every catalogue possibility as shipped.
+The [roadmap](evidence-analysis-roadmap.md) covers future work. This guide and the
+focused guides below own current capabilities and supported formats.
 
 ## Reports and search
 
@@ -117,21 +111,14 @@ or recording is processed independently of earlier additions. Text checks after
 extraction use that exact retained extraction version. Unsupported formats and
 insufficient content appear as analysis outcomes.
 
-An evidence reader's **Findings** section shows up to three highlights per latest
-published operation, twelve total. Rejected results and weak OCR are omitted;
-partial coverage remains visible. Originals, retained additions, and the CSV
-source-row link stay above the findings; full CSV interpretation is in **Info**.
-**Run checks** sits beside empty findings for owners/editors; reruns for populated
-findings are in **More**. **Refresh status** appears while work is pending. **Info → Processing
-history** lists retained runs with pagination independent of the evidence list.
-The main **Processing** screen provides history across evidence, with all outcomes
-retained alongside a separate **In progress** section. Evidence-type and outcome
-filters affect check history while current work remains visible. Preparation is
-separate from execution; batch membership includes extraction follow-ups, and
-failed checks link to existing recovery actions. Vehicle-location CSV imports
-appear with progress and links to their review workflow. Imports ready for review
-remain in **In progress** until investigators finish that deliberate step. Queued
-counts are not completion counts.
+An evidence reader shows up to three highlights per latest published operation,
+twelve total. Rejected results and weak OCR are omitted; partial coverage remains
+visible. **Processing** retains all outcomes across evidence. Preparation is
+separate from execution; batch membership includes extraction follow-ups. Imports
+ready for review remain in progress until investigators finish that deliberate
+step. Queued counts are not completion counts. The
+[background task guide](background-tasks.md#investigator-progress-and-completed-imports)
+explains progress and import recovery.
 
 Owners and editors can use **Processing → Run more checks → Rerun all analysis** to
 queue the same supported local checks for all active evidence, including every
@@ -164,14 +151,11 @@ selected text and explicitly chosen findings, with separate quotation types.
 [Chronology](chronology.md) keeps observed and acquired times distinct.
 [Original previews](original-previews.md) provide private PDF/text/WAV reading.
 
-Use **Case Tools → More tools → Additional analysis**, **Processing → Run more
-checks → Choose analysis**, or an evidence reader's **More → Additional analysis**
-for comparisons, geographic lookups, model processing, or conversation imports. Choose a task, exact retained sources
-(including extraction versions), and required context before **Start analysis**.
-The source picker shows at most 500 choices; title search narrows larger cases.
-**Change analysis** returns to the task chooser. Only the chosen operation's
-settings are validated/saved. Required samples, areas, and claimed events remain
-visible; optional settings use disclosures.
+Use **Additional analysis** for comparisons, geographic lookups, model processing,
+or conversation imports. Choose a task, exact retained sources (including
+extraction versions), and required context before starting. The source picker
+shows at most 500 choices; title search narrows larger cases. Only the chosen
+operation's settings are validated and saved.
 
 **Read inferred message sessions**, **Inspect message timing**, and **Summarize
 message sessions** select Text messages only. For retained call transcripts, use
@@ -185,22 +169,16 @@ fallback. Geographic services require approval unless the operator designates th
 endpoint local. Keyword checks do not implicitly request AI summaries. The Map's
 separate [local address lookup](maps.md#local-address-lookup) follows its own flow.
 
-**Processing → History** filters by evidence type/status and preserves return
-URLs when opening checks. Case Tools links to reports based on current evidence.
-Report filters start collapsed for defaults and open for applied filters/errors. Results precede
-**About this report**; truncation and missing-time warnings stay visible. Call and
-vehicle reports use chronological rows in the user's timezone with source links.
-Their filters use the same timezone; recorded UTC hour counts retain their stated
-analysis basis. Duplicate reports
-group file-byte checksums; trip rows link departure/arrival and disclose their full
-observation list.
+Call and vehicle reports use chronological rows in the user's timezone with source
+links. Their filters use the same timezone; recorded UTC hour counts retain their
+stated analysis basis. Truncation and missing-time warnings remain visible.
+Duplicate reports group file-byte checksums; trip rows retain departure/arrival
+links and the full observation list.
 
 ## Inspecting run results
 
-**Findings** leads with output and exact source links. **Processing details**
-contains selected inputs, status/time, method/settings, requester, result download,
-and rerun controls. **Limitations** holds full warnings; **Review and history**
-holds finding/overall decisions. Disclosures and links work without JavaScript.
+Run results retain exact source links, processing details, limitations, and
+separate finding/overall reviews:
 
 - Image metadata distinguishes embedded claims from supplied metadata. OCR/plate
   findings show retained image regions/crops, separate plate-likeness and OCR
@@ -217,18 +195,13 @@ holds finding/overall decisions. Disclosures and links work without JavaScript.
 - Location schematics distinguish reported positions, reviewed estimates, and
   lookup candidates. Measurements and retained map references link to sources.
 
-A run page shows up to 50 findings. Its top **Back to Processing** link returns
-to processing history, preserving supplied history filters and page. Within a
-run, opening a finding preserves exact context and **Back to findings** returns
-to that run's finding page/position. Single-finding runs open directly;
-single-evidence runs link back to the combined reader's Findings section. Derived
-inputs link to both the retained extraction and original.
+A run page shows up to 50 findings. Derived inputs link to both the retained
+extraction and original.
 
 Processing outcome, reviewed-finding count, and overall review are distinct.
 **Awaiting review** means no decision is recorded; **Unresolved** is a review
 choice. Owners/editors can append individual and overall reviews; geocode reviews
-apply per candidate. Viewers can inspect them. Saving returns to the finding;
-validation errors preserve the decision/reason for correction.
+apply per candidate. Viewers can inspect them.
 
 **Download results** saves private JSON containing the result, selected sources,
 and processing provenance. If an exact retained input is unavailable or changed,
@@ -290,14 +263,11 @@ continues to work without an external map service.
 
 ## Local inference configuration
 
-Recording transcription and the four model-based text methods use the configured
-private runtime by default. Models and native engines have pinned identities;
-each new run retains its routing/settings snapshot and results preserve model
-provenance. Existing runs retain their historical routing and approval. A queued
-configuration/model mismatch fails recoverably rather than switching endpoints.
-Text tokenization checks the full rendered prompt plus output allowance; content
-is never silently truncated. See [local analysis](local-analysis.md) for optional
-Compose runtimes, configuration, GPU qualification and failure recovery.
+See [local analysis](local-analysis.md) for the supported runtime-backed methods,
+pinned model/engine identities, configuration, capacity, qualification, and
+failure recovery. Private inference is the default; every run retains its selected
+routing/settings and provenance. Queued configuration drift fails recoverably,
+without switching endpoints or falling back to external AI.
 
 ## External AI configuration
 
@@ -351,19 +321,9 @@ checks same-case relationships. `core.analysis.reports` dispatches reports to
 phone/geo implementations; cross-type duplicate reports and neutral helpers stay
 in `core`.
 
-Concrete operations live in each domain's `analysis/` package:
-
-| Code category | Implementations |
-| --- | --- |
-| `deterministic` | Document text extraction; text identifiers, style, repeated wording and keywords; phone conversation grouping, timing, imports and call reports; geographic calculations and vehicle reports |
-| `metadata` | Image and audio metadata inspection |
-| `ai` | Local image OCR, audio transcription, text suggestions and summaries, and semantic conversation analysis |
-| `external` | Geographic coordinate/address and map-context service lookups |
-
-Categories organize code, not processing location or approval: local OCR is AI,
-while private geographic lookups are External. Only implemented categories exist.
-Domain `workflows.py` modules compose mixed operations. `core.analysis.services`
-owns authorization, source snapshots, publication, and reviews;
+The [architecture guide](architecture.md#dependency-boundaries) owns domain
+categories, composition, and parser boundaries. `core.analysis.services` owns
+authorization, source snapshots, publication, and reviews;
 `core.analysis.operations` dispatches concrete callables with explicit dependencies.
 The UUID-only task entrypoint keeps durable runs/results/reviews and search text
 separate from disposable queue records.
@@ -371,17 +331,6 @@ separate from disposable queue records.
 Shared form factories select ordinary domain form subclasses; shared bases own
 source selection, submission, processing location/approval, archive and period
 fields. Domain forms retain operation-specific validation and serialization.
-
-`core.parsers` owns verified file reads and the bounded subprocess transport.
-Its fixed operation allowlist dispatches to the domain `parsers` modules in
-`document`, `image`, `audio`, and `geo`, and to `image.analysis.ai_parser` for local
-OCR. The image parser retains shared decoding, metadata, and preview preparation;
-the AI parser owns Tesseract execution and recognized-region interpretation.
-The pure parser contract and these domain modules load without Django initialization.
-The child runs with isolated Python,
-a restricted environment, and resource limits established before domain parsing;
-it imports application code only from the trusted root derived from the runner.
-The shared runner retains timeout, output-size, and process-group cleanup checks.
 
 Source resolution reuses originals and prior results only within one validation
 pass. Search similarly validates a shared run once per request. External requests

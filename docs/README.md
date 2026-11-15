@@ -2,8 +2,9 @@
 
 [AGENTS.md](../AGENTS.md) owns contributor requirements;
 [DESIGN.md](../DESIGN.md) owns durable interface standards. The guides below own
-current behavior and procedures. Planning documents and dated reviews are not
-proof of implementation or live deployment.
+current behavior and procedures. Start with the guide for the task; follow its
+links for domain details. Historical reports are kept in the [archive](archive/README.md)
+and are not current implementation or validation guidance.
 
 ## Setup and operation
 
@@ -32,13 +33,11 @@ proof of implementation or live deployment.
 ## Design and planning
 
 - [Investigator screens and workflows](interface-design.md)
-- [Interface delivery gates](interface-plan.md)
 - [Design references and assets](design/README.md)
 - [Public marketing pages](marketing.md)
 - [Project descriptions and reusable marketing copy](marketing-copy.md)
-- [Analysis catalogue](evidence-analysis.md) and [roadmap](evidence-analysis-roadmap.md)
-- Historical code reviews: [October 2026](code-review-2026-10.md),
-  [November 2026](code-review-2026-11.md)
+- [Analysis roadmap](evidence-analysis-roadmap.md)
+- [Archived planning, reviews, and qualification reports](archive/README.md)
 
 ## Codex project configuration
 

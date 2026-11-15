@@ -1,8 +1,8 @@
 # Vehicles
 
 `vehicle.Vehicle` is an investigator-maintained record belonging to exactly one
-`cases.Case`. Use `case.vehicles.all()` for its vehicles. Vehicle records capture
-reported details and investigative work; matching plates or VINs do not establish
+`cases.Case`. Vehicle records capture reported details and investigative work;
+matching plates or VINs do not establish
 identity, ownership, or a person's association with a vehicle. Records are not
 automatically linked to people or other vehicles. Investigators can explicitly
 link reported location evidence to a same-case vehicle. The `vehicle` app owns
@@ -42,56 +42,28 @@ imports](vehicle-location-imports.md) for formats, retention, limits, and recove
 
 ## Fields and validation
 
-| Field | Behavior |
-| --- | --- |
-| `id` | Automatically generated, non-editable UUIDv4 primary key. |
-| `case` | Required case foreign key; deleting the case deletes its vehicles. |
-| `make`, `model` | Optional text, up to 150 characters each. |
-| `year` | Optional integer from 1 through 9999; unknown years use `NULL`. |
-| `color` | Optional text, up to 100 characters. |
-| `license_plate`, `vin` | Optional text, up to 64 characters each. Partial or historical identifiers are accepted. |
-| `notes` | Previously saved investigator notes, now read-only in the product and admin. |
-| `created_at` | Automatically set on creation. |
-| `updated_at` | Automatically updated on model saves; queryset updates must set it explicitly. |
-
 A PostgreSQL constraint requires a non-whitespace make, model, plate, or VIN,
-including on bulk writes. Year, color, and notes alone are insufficient. A second
-constraint enforces the year range. Missing text uses empty strings, not `NULL`.
-Identifiers are not unique, within or across cases. No country-specific plate
-validation, VIN verification, normalization, ownership lookup, or merging occurs.
+including on bulk writes. Year, color, and notes alone are insufficient. A supplied
+year must be from 1 through 9999; leave it blank when unknown. Partial or historical
+identifiers are accepted and are not unique within or across cases. No
+country-specific plate validation, VIN verification, normalization, ownership
+lookup, or merging occurs.
 
-As with ordinary Django models, call `full_clean()` before ORM saves to validate
-field lengths; `save()` does not automatically run model validation. Product and
-admin forms validate automatically. Display names use the year (if known), make,
-and model, falling back to plate and then VIN. Timestamps and Django admin history
-are not a versioned evidence or vehicle-assertion history.
+Saved notes remain read-only. Timestamps and Django admin history are not a
+versioned evidence or vehicle-assertion history. The [model](../vehicle/models.py)
+owns field definitions and constraints; trusted ORM callers must use
+`full_clean()` for field validation before saving.
 
 ## Django admin and authorization
 
-Open **Vehicles → Add vehicle** in `/admin/`. Creation allows only owned or
-editor-access cases. Existing case and timestamp fields are read-only, even when
-another case is owned by the same user. Bulk actions are disabled.
+Use **Vehicles** in `/admin/` under the [shared admin gates](cases.md#django-admin),
+with `vehicle` model permissions. Only case owners with `vehicle.delete_vehicle`
+can delete a vehicle, subject to retained-observation protection. Existing case,
+notes, and timestamps are read-only; case reassignment is unsupported.
 
-The [shared admin gates](cases.md#django-admin) apply with these permissions:
-
-| Operation | Case requirement | Global permission |
-| --- | --- | --- |
-| List, search, inspect, history | Owner, viewer, or editor | `vehicle.view_vehicle` or `vehicle.change_vehicle` |
-| Create | Owner or editor of the selected case | `vehicle.add_vehicle` |
-| Edit | Owner or editor | `vehicle.change_vehicle` |
-| Delete | Owner only | `vehicle.delete_vehicle` |
-
-Lists, searches, direct URLs, and submitted case choices are scoped server-side.
-Revocation and role downgrades affect subsequent requests in existing sessions.
-Superusers have no case-access bypass. Admin deletion of a case with vehicles
-also requires `vehicle.delete_vehicle` in addition to the other affected model
-permissions.
-
-Product views require an active, email-verified account and current case access;
-all vehicle object paths also require the object to belong to the URL's case.
-Mutations recheck permissions under a case lock and require CSRF-protected POST.
-Future ORM callers, exports, jobs, and integrations must enforce current case
-permissions themselves.
+Product mutations recheck current case permissions under a case lock and require
+CSRF-protected POST. Authorization is not automatic for ORM callers: exports,
+jobs, and integrations must enforce the same case boundary themselves.
 
 ## Migration and scope
 

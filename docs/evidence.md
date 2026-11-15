@@ -15,64 +15,40 @@ The registered `video` app is a placeholder and adds no evidence category yet.
 
 ## Reading and editing evidence
 
-The reader shows the original followed by **Findings**. Its header keeps
-**Download original**, **Info**, and permitted **More** actions together. **Info**
-opens source metadata, saved read-only descriptions, attribution, integrity,
-attachment manifests, CSV interpretation, and paginated processing history.
-**More** holds Edit details, Archive/Restore, additional analysis, and authorized
-deletion. Empty optional values are omitted; imported observations keep the
-source-row/import link beside the original. These disclosures work without JavaScript.
-
-Single-record forms keep title/content visible. Optional provenance and technical
-fields are in **Source details**, opened for edits and validation errors. Collection
-**Filters** opens for nondefault type/state choices. These controls work without
-JavaScript. Applicable local checks run on investigator additions; findings and
-progress appear below the original. **Run checks** appears beside empty findings;
-checks for populated findings are in **More**. Processing history is available in
-**Info** and case Findings.
-See [analysis](analysis.md#retained-processing) for supported checks and exceptions.
+The reader keeps originals and source-linked findings together. **Info** exposes
+provenance, integrity, retained descriptions, and processing history; **More**
+contains permitted record actions. Case-wide history is in **Processing**.
+See the [screen specification](interface-design.md#evidence-browsing-and-reading)
+for layout and navigation, and [analysis](analysis.md#retained-processing) for
+automatic checks, progress, and recovery.
 
 ## Investigator workflow
 
 Inside a case, owners and editors choose **Add evidence** to select or drop
-documents, images, and audio together under **Upload files**. The always-visible
+documents, images, and audio together under **Upload files**. The
 **Add a record** section links to Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime forms. **Import records** links
-to **Import vehicle locations** and **Import messages · iMazing CSV**. These
-choices also work without JavaScript. The message importer retains the
-CSV, prepares a background review, and requires confirmed people and timezone
-before creating valid text-message rows. See
+to **Import vehicle locations** and **Import messages · iMazing CSV**. The
+message importer retains the CSV, prepares a background review, and requires
+confirmed people and timezone before creating valid text-message rows. See
 [iMazing imports](analysis-communications.md#imazing-csv-message-imports).
-Single-record forms keep all ten types in **Change type**, using
-an explicit **Choose type** button that also works without JavaScript.
 
 File categories describe the submitted material; no parser verifies them. Text
 captures one browser-submitted original; to preserve a text file's exact bytes,
 upload the file as a Document instead. Browser textareas may normalize line
 endings, but the server does not trim or normalize received original text.
 
-After selecting files, review their titles, suggested categories, and optional
-source details before uploading. Queue and upload actions appear after selection;
-**Stop after this file** appears while uploading.
-**Add more files** appends to the queue without replacing entries or edits.
+Review titles, suggested categories, and source details before uploading.
 Filenames supply initial titles; browser-declared image/audio types suggest a
-category, with Document as the fallback. These suggestions do not verify format.
-
-The file picker comes first. Expand **Shared source details** to enter a source name, URL, description, and
-collection time once. Changes follow pending files unless that individual field
-has been edited, including cleared. **Use shared details** restores an entry's
-shared source fields. Saved and
-unconfirmed originals keep their submitted details unchanged. Shared controls
-are disabled while uploading; file selection is also disabled while any save
-confirmation remains unresolved.
+category, with Document as the fallback. **Shared source details** applies a
+source name, URL, description, and collection time to pending files until a field
+is individually edited or cleared. **Use shared details** restores that link.
+Saved and unconfirmed submissions keep their submitted details unchanged.
 
 When browser support or JavaScript is unavailable, Add evidence links to an
-explicit single-document form. Each single-record form works without JavaScript;
-its **Change type** selector provides the other evidence types. Defaults are 20 files
-per batch, 100 MiB per file, and 1 MiB of UTF-8 captured text. Saved entries count
-toward the bulk page's limit; **Start another batch** opens a fresh page after all
-remaining files are added. Removing every pending file returns to the empty
-picker. Configured limits appear in the form; see
+explicit single-document form; **Change type** selects other record types.
+Configured limits appear in the form. Saved entries count toward the batch limit;
+use **Start another batch** after completing it. See
 [configuration](development.md#configuration) for operator settings.
 
 Batch uploads send one file at a time and show uploading, saving, added, failure,
@@ -81,6 +57,8 @@ validation rejection allows corrections; an interrupted confirmation must first
 retry the same frozen submission so an already-saved original is not duplicated.
 **Stop after this file** pauses pending entries. Queues live only in page memory;
 reloading may require file reselection, and uploads are not resumable.
+The [batch interface specification](interface-design.md#evidence-creation-and-batch-uploads)
+owns control states, shared-field behavior, and keyboard/fallback requirements.
 
 The Evidence collection searches title, descriptions, source name/details/URL,
 original filenames, location addresses, and linked person names/contact details,
@@ -88,10 +66,8 @@ with type, explicit related-person, and Active/Archived/All filters. A person
 filter includes person-location observations and communications where that person
 is sender or recipient, with role labels. It never infers a link from a matching
 name or contact. Invalid or foreign-case person filters are rejected. Filters
-remain in reader navigation. It uses 25 records per page. Wide
-screens keep the record list beside the selected evidence reader; smaller
-screens use the same canonical detail pages and browser navigation. Text
-originals are shown as escaped read-only text. Image evidence shows a resized
+remain in reader navigation. It uses 25 records per page. Text originals are shown
+as escaped read-only text. Image evidence shows a resized
 preview in the Original section, including for archived images. Previews support
 JPEG (`.jpg` and `.jpeg`) and single-frame PNG files up to 16 MiB and 50 million
 pixels, including 48 MP iPhone RAW exports saved as JPEG. Multi-picture JPEGs
@@ -149,47 +125,29 @@ the checksums of retained originals.
 
 ## Models and metadata
 
-All ten concrete evidence models inherit these fields from `Evidence`:
+The [shared evidence models](../core/models/evidence.py) own common field
+definitions; concrete originals belong to the domain apps listed above. Keep
+these distinctions when reading or extending them:
 
-- An automatically generated, non-editable UUIDv4 primary key (`id`).
-- Required `case`, `uploaded_by`, and `title` (up to 255 characters).
-- Automatic `created_at` and `edited_at` timestamps. `edited_at` changes on normal
-  saves, including `save(update_fields=[...])`; creation time remains fixed.
-- Optional `source` (a name/citation up to 255 characters), `source_url`,
-  `source_description`, and `collected_at`. Previously saved `description`
-  values remain readable and searchable.
-  Collection time describes source provenance, not the upload timestamp.
-- Generated `sha256`, calculated from the original bytes, captured UTF-8 text,
-  or canonical location/communication JSON.
-- `is_archived`, plus `archive_changed_at` and protected `archive_changed_by`
-  attribution for the latest real archive/restore transition; this is not a full
-  history journal.
-- Optional, immutable, unique `submission_id` UUID for idempotent product uploads.
-  Existing records and trusted maintenance callers may leave it null.
-
-| Model | Original | Optional metadata |
-| --- | --- | --- |
-| `image.ImageEvidence` | `file` | `width`, `height` in pixels |
-| `audio.AudioEvidence` | `file` | `duration` as a `timedelta`, `sample_rate` in Hz, `channel_count` |
-| `document.DocumentEvidence` | `file` | `page_count` |
-| `text.TextEvidence` | `body` | `language` tag, up to 35 characters |
-| `geo.LocationEvidence` | `address` and/or `latitude` + `longitude`, optional `observed_at` | Shared source fields |
-| `geo.PersonLocationEvidence` | Same location fields plus a required `person` in the same case | Shared source fields |
-| `geo.VehicleLocationEvidence` | Same location fields plus a required same-case `vehicle`; optional immutable CSV row, speed, receipt time, and import provenance | Shared source fields |
-| `phone.TextMessageEvidence` | Required same-case `sender` and `recipient`, one `body`, optional `occurred_at` | Shared source fields |
-| `phone.PhoneCallEvidence` / `phone.FaceTimeEvidence` | Required same-case `sender` and `recipient`, optional `occurred_at` and `duration` | Shared source fields. Retained attachments can be added separately. |
-
-File models inherit `file`, generated `original_filename` and `byte_size`, and
-optional `declared_content_type` from `FileEvidence`. Uploaded-file content types
-are captured when supplied; `ContentFile` callers may supply the declared type
-explicitly. It is a claim, not a verified format. Numeric metadata defaults to
-`NULL` (unknown); supplied counts and dimensions must be positive and duration
-must be nonnegative. A zero duration is distinct from an unknown duration.
+- Source name/citation, URL, description, and collection time describe provenance.
+  Collection time is separate from upload time. Saved investigator descriptions
+  remain readable and searchable.
+- Checksums are generated from original bytes, captured UTF-8 text, or canonical
+  location/communication JSON. They establish integrity, not authenticity.
+- Archive attribution records the latest real archive/restore transition, not a
+  complete history journal. Creation time remains fixed; ordinary saves update
+  the edit timestamp.
+- An immutable, unique submission ID makes product uploads idempotent. Existing
+  records and trusted maintenance callers may leave it unset.
+- Original filenames and byte sizes are generated. Declared content type and
+  optional technical metadata are supplied claims, not verified extraction.
+  Unknown numeric metadata remains unknown; supplied counts/dimensions must be
+  positive and durations nonnegative. A zero duration is distinct from unknown.
 
 [Case analysis](analysis.md) retains derived metadata, OCR, and transcripts
-separately from originals and supplied metadata. `TextEvidence.body` holds captured
-text; text files may be retained as Documents. File checksums establish byte
-integrity, not authenticity.
+separately from originals and supplied metadata. Communication and location
+originals have the specific contracts below; vehicle import originals are
+documented in [Vehicle locations and CSV imports](vehicle-location-imports.md).
 
 ## Communications and retained call material
 
@@ -340,71 +298,26 @@ remove operator backups or external-provider retention.
 
 ## Django admin
 
-Vehicle location originals and the bounded Asset Location CSV import flow are
-documented in [Vehicle locations and CSV imports](vehicle-location-imports.md).
-Source CSVs remain retained Document evidence. Imported telemetry and associations
-are immutable. Source edits leave them intact.
-
-All ten concrete evidence models are available under **Evidence** at `/admin/`.
-The [shared admin gates](cases.md#django-admin) apply. Lists, searches, history,
-and direct URLs include only cases the operator owns or shares.
-Admin and product readers share the same relationship checks. Linked people,
+Concrete evidence models are available under **Evidence** at `/admin/`, subject
+to the [shared admin gates](cases.md#django-admin). Linked people,
 vehicles, import batches, and source documents must belong to the
-evidence's case. Inconsistent records created through trusted maintenance writes
-are excluded from these views. Owner-only case deletion confirmation still counts
+evidence's case. Admin and product readers exclude inconsistent records created
+through trusted maintenance writes. Owner-only case deletion still counts
 all evidence belonging to the case, without displaying inconsistent source details.
 
-| Operation | Case requirement | Model permission |
-| --- | --- | --- |
-| List, search, inspect originals and history | Owner, viewer, or editor | `view_<model>` or `change_<model>` |
-| Add evidence | Owner or editor of the selected case | `add_<model>` |
-| Edit metadata, archive, restore | Owner or editor | `change_<model>` |
-| Permanently delete individual evidence | Current case access and active staff superuser | Superuser only |
+Creation assigns the signed-in operator as uploader. Product and admin forms
+share file/text limits and preserve original text and addresses without trimming.
+Existing originals, case, uploader, integrity fields, imported source values, and
+saved descriptions are read-only. Declared technical metadata remains editable.
+Change **Is archived** to archive or restore; the server records each actual
+transition's operator and time. Admin history is not a versioned evidence journal.
 
-Permission names use the owning domain app and lowercase model name, for example
-`document.add_documentevidence`, `image.view_imageevidence`,
-`text.change_textevidence`, `audio.view_audioevidence`,
-`geo.add_vehiclelocationevidence`, and `phone.view_phonecallevidence`. Case permissions alone do not grant evidence
-permissions. Staff without an editable case cannot open an evidence creation form.
-Removing or downgrading membership affects subsequent requests in existing sessions.
-
-Choose a type, select an editable case, and supply its original and source details.
-The uploader is assigned to the signed-in operator. Person-location choices
-include people from editable cases; the selected person must belong to the
-selected case, with mismatches rejected on the server. Product and admin forms
-share file/text limit validation, and original text and addresses are preserved
-without trimming.
-
-The title, source name, and original are visible by default. Saved investigator
-descriptions are read-only on existing records. Expand
-**Additional source details** for the source URL, source description, and
-collection date. Validation errors keep affected fields visible. Declared
-metadata, imported source values, and integrity attribution use separate native
-disclosures; retention controls remain visible.
-
-Existing originals, case, uploader, checksum, submission ID, and generated
-timestamps are read-only. Declared technical metadata remains editable. Change
-**Is archived** to archive or restore; the server records the operator and time of
-each actual transition. Original filenames are shown without exposing storage
-paths or backend URLs. **View on site** opens the normal evidence detail and
-private download workflow, which requires verified email as well as current case
-access. Admin adds and edits appear in Django admin history; this is not a
-versioned evidence journal.
-
-Admin **Delete** uses the [shared permanent-deletion workflow](#permanent-deletion).
-Bulk actions remain disabled.
-
-Owner-confirmed whole-case deletion in admin requires `cases.delete_case`, the
-`delete_<model>` permission
-for every contained evidence type, and any other permissions listed on Django's
-confirmation screen. It removes retained evidence, people, and original files
-through the existing cascade and committed cleanup. The confirmation uses the
-concrete models registered by each domain app.
-
-The implementation uses Django's standard
-[ModelAdmin hooks](https://docs.djangoproject.com/en/6.1/ref/contrib/admin/),
-including the case deletion confirmation hook to preserve the whole-case cascade
-for owners who are not superusers.
+Original filenames appear without storage paths or backend URLs. **View on site**
+opens the authorized product reader/download workflow, which additionally requires
+verified email. Individual **Delete** requires a superuser with current case
+access and uses the [confirmed deletion workflow](#permanent-deletion).
+Owner-confirmed whole-case deletion remains available through the case admin's
+contained-model permission checks and post-commit cleanup.
 
 ## Creating and editing records
 

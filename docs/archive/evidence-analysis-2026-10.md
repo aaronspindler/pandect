@@ -1,37 +1,11 @@
-# Evidence analysis and extraction catalogue
+# Archived evidence analysis and extraction catalogue
 
 This planning catalogue was scored on **2026-10-27** against the working tree of
 **2026-10-26**. Scores retain that historical baseline; they are not current
-estimates or availability claims. Some bounded capabilities have since shipped.
-Use [case analysis](analysis.md) for supported operations and
-[the roadmap](evidence-analysis-roadmap.md) for proposed priorities.
-
-## Current evidence inventory
-
-The ten retained types and append-only call additions are documented in
-[evidence](evidence.md). Call additions are inputs to their parent Phone call or
-FaceTime record, not another evidence type; each analysis identifies the additions
-it uses. The [vehicle-location importer](vehicle-location-imports.md) retains
-source rows and requires explicit vehicle/timezone interpretation.
-
-## Current investigation workflows
-
-These delivered workflows are separate from the historical scored proposals below.
-Owning guides describe the exact supported profiles, permissions and limits.
-
-| Investigator story | Current workflow |
-| --- | --- |
-| Find every retained observation and distinguish reruns | [Browse findings](analysis.md): search, filters, individual reviews and exact-source links; latest equivalent successful runs by default, retained history on request. |
-| See material explicitly connected to a person | [Person detail](people.md): paginated evidence/findings, sender/recipient/location attribution and full filtered collections. |
-| Understand what a method needs before starting | [Analysis readiness](analysis.md): actionable extraction, transcript, format and location-review prerequisites; runtime configuration is distinct from a verified connection. |
-| Inspect an original without completing analysis | [Original previews](original-previews.md): escaped UTF-8, bounded private PDF page images and supported WAV playback/seeking. |
-| Follow work and recover a failed check | [Processing](background-tasks.md): separate preparation/execution, source-specific errors, retained batch membership, explicit retry and cancellation. |
-| Check imported evidence deliberately | [Vehicle imports](vehicle-location-imports.md) and [iMessage imports](analysis-communications.md): bounded local checks over newly published rows, excluding skipped duplicates. |
-| Map more than two source account labels | [iMessage mapping](analysis-communications.md): up to 100 explicit label/person mappings and optional explicit fallback recipients; unresolved rows remain unresolved. |
-| Compare repeated exact identifiers | [Connections](analysis.md): conservative typed matching, duplicate-original warnings, reviews and disclosed analysis coverage. |
-| Follow structured observed times | [Chronology](chronology.md): communication/location events, distinct optional acquisition times and separately unplaced date references. |
-| Share exact material and produce a reviewable brief | [Shared selections](shared-selections.md): case-shared revisioned references, compatible source analysis, bounded printable HTML and an identical downloadable provenance manifest. |
-| Ask a question of selected evidence and findings | [Question synthesis](synthesis.md): deliberate private inference with exact original/prior-finding quotations, contrary evidence, unresolved questions and preserved review state. |
+estimates or availability claims. Archived on **2026-11-15**; implementation
+notes below reflect the archived snapshot and are not maintained as features ship.
+Use [case analysis](../analysis.md) for supported operations and
+[the roadmap](../evidence-analysis-roadmap.md) for proposed priorities.
 
 ## Scoring: investigative value and implementation ease
 
@@ -63,7 +37,7 @@ support is documented separately.
 ## Image
 
 Current decoding, metadata, OCR, and plate input profiles are in
-[document and media extraction](analysis-extraction.md). The broader scope below
+[document and media extraction](../analysis-extraction.md). The broader scope below
 is a planning reference.
 
 | Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
@@ -88,7 +62,7 @@ another. See [NIST FRTE 1:1 Verification](https://pages.nist.gov/frvt/html/frvt1
 ## Audio
 
 These methods also apply to identified audio additions on Phone call and
-FaceTime records; see [extraction](analysis-extraction.md) for supported WAV and
+FaceTime records; see [extraction](../analysis-extraction.md) for supported WAV and
 transcription profiles.
 
 | Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
@@ -144,7 +118,7 @@ or timeline must not turn them into a person's or vehicle's journey.
 | Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
 | --- | --- | --- | --- | --- | --- |
 | Address normalization/place matching: group equivalent descriptions | 4 | 3 | Addresses; reference data where needed | Parsed components, normalized derivatives, candidate equivalent places | Keep originals; units, aliases, and historical addresses can distinguish similar locations. |
-| Geocoding/reverse geocoding: connect addresses and coordinates | 4 | 3 | Address or coordinates plus an explicitly selected geocoder/dataset | Candidate coordinates/addresses, match granularity, lookup provenance | A centroid is not an observed coordinate; external queries disclose location data. See [configured geocoding](analysis-locations.md#geocoding-configuration-and-review). |
+| Geocoding/reverse geocoding: connect addresses and coordinates | 4 | 3 | Address or coordinates plus an explicitly selected geocoder/dataset | Candidate coordinates/addresses, match granularity, lookup provenance | A centroid is not an observed coordinate; external queries disclose location data. See [configured geocoding](../analysis-locations.md#geocoding-configuration-and-review). |
 | Time/coordinate quality checks: surface interpretation problems | 4 | 3 | Observations and source context | Missing-time flags, address/coordinate disagreements, duplicate candidates, time ambiguities | Basic ranges are already validated; decimal precision does not establish accuracy. Unknown event times stay unknown. |
 | Spatial grouping/geographic context: organize places | 3 | 3 | Coordinates/reviewed geocodes; relevant reference layers | Candidate clusters, neighbourhood/road/venue context, spatial summaries | Maps and boundaries change; a shared building can contain unrelated occupants. Clusters do not establish visits by a common subject. |
 | Proximity/geofence queries: find relevant observations | 4 | 4 | Coordinates, area/reference point, explicit distance assumptions | Distance estimates, candidate inside/near/outside observations | Boundary decisions depend on uncertain positions; missing accuracy information must remain visible. |
@@ -186,7 +160,7 @@ sources containing coordinates.
 ## Text message
 
 Records hold one message and two reported case-person links. The bounded
-[iMessage import](analysis-communications.md#retained-imessage-html-import) retains
+[iMessage import](../analysis-communications.md#retained-imessage-html-import) retains
 source-native context when supplied. Richer native relationships need supported
 source inputs; missing fields must stay unknown.
 
@@ -300,7 +274,7 @@ Trip segmentation, stay-point detection, route matching, and pattern mining are
 established trajectory-analysis topics. Movement between discrete observations
 remains uncertain. The [Microsoft Research trajectory overview](https://www.microsoft.com/en-us/research/project/trajectory-data-mining/)
 provides background; the following are proposed interpretation requirements,
-not an expansion of the bounded methods documented in [location analysis](analysis-locations.md).
+not an expansion of the bounded methods documented in [location analysis](../analysis-locations.md).
 
 1. **Establish coverage first.** Separate event, receipt, collection, and upload
    times. Show timezone interpretation, windows, gaps, duplicates, geocoding
@@ -327,12 +301,6 @@ not an expansion of the bounded methods documented in [location analysis](analys
 
 ## Analysis across evidence
 
-Bounded exact-identifier Connections, structured Chronology, shared selections,
-printable briefs, and question-driven synthesis are now implemented; see
-[case analysis](analysis.md), [chronology](chronology.md),
-[selections](shared-selections.md), and [synthesis](synthesis.md) for their limits.
-The broader capabilities and historical scores below remain proposals, including
-entity resolution, inferred event ordering, semantic retrieval, and graphs.
 These workflows operate within one authorized case. Cross-case matching is not
 assumed. Explain whether a proposed link comes from an explicit source
 relationship, shared value, proximity, or model similarity.
@@ -349,7 +317,7 @@ relationship, shared value, proximity, or model similarity.
 
 ## Shared requirements for future analysis
 
-Follow [AGENTS.md](../AGENTS.md) for original preservation, case authorization,
+Follow [AGENTS.md](../../AGENTS.md) for original preservation, case authorization,
 uncertainty, processing bounds, and failure handling. Additional analysis must:
 
 - Retain input/attachment IDs, checksums, selections, parameters, and processing
@@ -362,6 +330,6 @@ uncertainty, processing bounds, and failure handling. Additional analysis must:
   truth, causation, or ownership.
 - Use the shared inference boundary: configured private runtimes by default,
   external inference only through separately approved Cloudflare AI Gateway,
-  and no automatic fallback. Local OCR remains local. See [local analysis](local-analysis.md).
+  and no automatic fallback. Local OCR remains local. See [local analysis](../local-analysis.md).
 - Validate representative supported inputs and failures before quality claims.
   This catalogue does not establish suitability or accuracy.
