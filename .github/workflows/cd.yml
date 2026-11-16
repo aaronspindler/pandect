@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  preflight:
     if: >-
       github.repository == 'aaronspindler/pandect' &&
       github.event.workflow_run.conclusion == 'success' &&
@@ -23,7 +23,37 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      deploy: ${{ steps.preflight.outputs.deploy }}
+    steps:
+      - name: Check out the trusted deployment helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: Check the triggering CI image publication
+        id: preflight
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: python3 scripts/deploy-dokploy.py --preflight
+
+  deploy:
+    needs: preflight
+    if: needs.preflight.outputs.deploy == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read
+      deployments: write
     environment: production
     outputs:
       deployed: ${{ steps.rollout.outputs.deployed }}

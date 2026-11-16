@@ -25,6 +25,8 @@ ENVIRONMENT = {
     "TESTED_SHA": SHA,
     "GITHUB_REPOSITORY": "example/pandect",
     "GITHUB_API_URL": "https://api.github.com",
+    "GITHUB_SERVER_URL": "https://github.com",
+    "GITHUB_RUN_ID": "456",
     "GITHUB_TOKEN": "synthetic-github-token",
     "CI_RUN_ID": "123",
     "PANDECT_PRODUCTION_DATABASE_BASELINE": "domain-apps-v1",
@@ -48,6 +50,12 @@ class DeploymentCommandTests(TestCase):
         )
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        marker = patch.object(deploy, "create_rollout", return_value=77)
+        status = patch.object(deploy, "mark_rollout")
+        marker.start()
+        status.start()
+        self.addCleanup(marker.stop)
+        self.addCleanup(status.stop)
 
     def test_helper_parses_on_the_cd_runners_python_312(self):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 12))
@@ -285,6 +293,405 @@ class DeploymentCommandTests(TestCase):
             self.assertRaisesRegex(deploy.DeploymentError, "inspect service status"),
         ):
             deploy.api("https://example.test")
+
+
+class RolloutMarkerTests(TestCase):
+    def setUp(self):
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.output = Path(temporary.name) / "github-output"
+        self.output.touch()
+        self.environment = patch.dict(
+            os.environ, {**ENVIRONMENT, "GITHUB_OUTPUT": str(self.output)}, clear=True
+        )
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+        self.record = {
+            "id": 77,
+            "sha": SHA,
+            "ref": SHA,
+            "task": "pandect-rollout",
+            "environment": "production",
+        }
+        self.events = []
+        self.accepted_statuses = []
+        self.fail_states = set()
+        self.main_reads = 0
+        self.current_sha = SHA
+
+    def request(self, url, headers=None, data=None):
+        self.assertEqual(headers, {"Authorization": "Bearer synthetic-github-token"})
+        if url.endswith("/git/ref/heads/main"):
+            self.events.append("main")
+            self.main_reads += 1
+            return {
+                "object": {"sha": SHA if self.main_reads == 1 else self.current_sha}
+            }
+        if url.endswith("/deployments"):
+            self.events.append("record")
+            return self.record
+        if url.endswith("/deployments/77/statuses"):
+            self.events.append(data["state"])
+            if data["state"] in self.fail_states:
+                raise deploy.DeploymentError("Synthetic status outage")
+            self.accepted_statuses.append(data["state"])
+            return {"id": len(self.accepted_statuses), "state": data["state"]}
+        self.fail("Unexpected API endpoint")
+
+    def activate(self, application_id, image, sha, service):
+        self.assertEqual(image, IMAGE)
+        self.assertEqual(sha, SHA)
+        self.assertEqual(self.output.read_text(), "")
+        self.events.append(service)
+
+    def test_creation_binds_actual_tested_sha_and_image_without_extra_checks(self):
+        with patch.object(deploy, "api", return_value=self.record) as request:
+            self.assertEqual(deploy.create_rollout(SHA, IMAGE), 77)
+        self.assertEqual(
+            request.call_args.args,
+            (
+                "https://api.github.com/repos/example/pandect/deployments",
+                {"Authorization": "Bearer synthetic-github-token"},
+                {
+                    "ref": SHA,
+                    "task": "pandect-rollout",
+                    "environment": "production",
+                    "auto_merge": False,
+                    "required_contexts": [],
+                    "production_environment": True,
+                    "transient_environment": False,
+                    "payload": {"ci_run_id": "123", "image": IMAGE},
+                },
+            ),
+        )
+
+    def test_creation_rejects_missing_or_conflicting_record_identity(self):
+        for changes in (
+            {"id": 0},
+            {"id": True},
+            {"id": "77"},
+            {"sha": "b" * 40},
+            {"ref": "main"},
+            {"task": "deploy"},
+            {"environment": "preview"},
+        ):
+            with (
+                self.subTest(changes=changes),
+                patch.object(deploy, "api", return_value={**self.record, **changes}),
+                self.assertRaisesRegex(deploy.DeploymentError, "rollout identity"),
+            ):
+                deploy.create_rollout(SHA, IMAGE)
+
+    def test_invalid_log_or_ci_identity_blocks_record_creation(self):
+        for name, value in (
+            ("GITHUB_SERVER_URL", "http://github.example.test"),
+            ("GITHUB_SERVER_URL", "https://github.example.test/untrusted-path"),
+            ("GITHUB_SERVER_URL", "https://token@github.example.test"),
+            ("GITHUB_RUN_ID", "invalid"),
+            ("CI_RUN_ID", "invalid"),
+        ):
+            with (
+                self.subTest(name=name, value=value),
+                patch.dict(os.environ, {name: value}),
+                patch.object(deploy, "api") as request,
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                deploy.create_rollout(SHA, IMAGE)
+            request.assert_not_called()
+
+    def test_status_links_runner_and_preserves_older_record_states(self):
+        with patch.object(
+            deploy, "api", return_value={"id": 1, "state": "in_progress"}
+        ) as request:
+            deploy.mark_rollout(77, "in_progress")
+        self.assertEqual(
+            request.call_args.args[2],
+            {
+                "state": "in_progress",
+                "auto_inactive": False,
+                "log_url": "https://github.com/example/pandect/actions/runs/456",
+            },
+        )
+
+    def test_marker_precedes_last_main_check_and_both_verified_services(self):
+        with (
+            patch.object(deploy, "api", side_effect=self.request),
+            patch.object(deploy, "deploy", side_effect=self.activate),
+        ):
+            deploy.main()
+        self.assertEqual(
+            self.events,
+            ["main", "record", "in_progress", "main", "worker", "web", "success"],
+        )
+        self.assertEqual(self.output.read_text(), "deployed=true\n")
+
+    def test_creation_or_pending_status_failure_blocks_all_runtime_mutations(self):
+        for creation_failure in (True, False):
+            self.events.clear()
+            self.accepted_statuses.clear()
+            self.main_reads = 0
+            self.fail_states = {"in_progress"}
+            with (
+                self.subTest(creation_failure=creation_failure),
+                patch.object(
+                    deploy,
+                    "api",
+                    side_effect=(
+                        [
+                            {"object": {"sha": SHA}},
+                            deploy.DeploymentError("Unavailable"),
+                        ]
+                        if creation_failure
+                        else self.request
+                    ),
+                ),
+                patch.object(deploy, "deploy") as activate,
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                deploy.main()
+            activate.assert_not_called()
+            self.assertEqual(self.output.read_text(), "")
+            self.assertEqual(self.accepted_statuses, [])
+
+    def test_main_advance_after_record_creation_marks_inactive_without_activation(self):
+        self.current_sha = "c" * 40
+        with (
+            patch.object(deploy, "api", side_effect=self.request),
+            patch.object(deploy, "deploy") as activate,
+            redirect_stdout(io.StringIO()),
+        ):
+            deploy.main()
+        activate.assert_not_called()
+        self.assertEqual(self.accepted_statuses, ["in_progress", "inactive"])
+        self.assertEqual(self.output.read_text(), "")
+
+    def test_rollout_failure_is_recorded_and_original_error_is_preserved(self):
+        failure = deploy.DeploymentError("Synthetic worker failure")
+        with (
+            patch.object(deploy, "api", side_effect=self.request),
+            patch.object(deploy, "deploy", side_effect=failure) as activate,
+            self.assertRaises(deploy.DeploymentError) as error,
+        ):
+            deploy.main()
+        self.assertIs(error.exception, failure)
+        self.assertEqual(activate.call_count, 1)
+        self.assertEqual(self.accepted_statuses, ["in_progress", "failure"])
+        self.assertEqual(self.output.read_text(), "")
+
+    def test_failure_status_outage_leaves_pending_and_preserves_original_error(self):
+        self.fail_states = {"failure"}
+        failure = deploy.DeploymentError("Synthetic worker failure")
+        with (
+            patch.object(deploy, "api", side_effect=self.request),
+            patch.object(deploy, "deploy", side_effect=failure),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(deploy.DeploymentError) as error,
+        ):
+            deploy.main()
+        self.assertIs(error.exception, failure)
+        self.assertEqual(self.accepted_statuses, ["in_progress"])
+        self.assertEqual(self.output.read_text(), "")
+
+    def test_success_status_outage_leaves_pending_and_blocks_release_output(self):
+        self.fail_states = {"success"}
+        with (
+            patch.object(deploy, "api", side_effect=self.request),
+            patch.object(deploy, "deploy", side_effect=self.activate),
+            self.assertRaises(deploy.DeploymentError),
+        ):
+            deploy.main()
+        self.assertEqual(self.events[-3:], ["worker", "web", "success"])
+        self.assertEqual(self.accepted_statuses, ["in_progress"])
+        self.assertEqual(self.output.read_text(), "")
+
+
+class DeploymentPreflightTests(TestCase):
+    def setUp(self):
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.output = Path(temporary.name) / "github-output"
+        self.output.touch()
+        self.environment = patch.dict(
+            os.environ,
+            {
+                "TESTED_SHA": SHA,
+                "GITHUB_REPOSITORY": "example/pandect",
+                "GITHUB_API_URL": "https://api.github.com",
+                "GITHUB_TOKEN": "synthetic-github-token",
+                "GITHUB_OUTPUT": str(self.output),
+                "CI_RUN_ID": "123",
+                "CI_RUN_ATTEMPT": "1",
+            },
+            clear=True,
+        )
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+        self.run = {
+            "id": 123,
+            "run_attempt": 1,
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "head_sha": SHA,
+            "head_branch": "main",
+            "event": "push",
+            "status": "completed",
+            "conclusion": "success",
+            "head_repository": {"full_name": "example/pandect"},
+        }
+        self.image_job = {
+            "name": "Publish production image",
+            "run_id": 123,
+            "head_sha": SHA,
+            "status": "completed",
+            "conclusion": "success",
+        }
+
+    def jobs(self, *jobs):
+        return {"total_count": len(jobs), "jobs": list(jobs)}
+
+    def preflight(self, *responses):
+        with (
+            patch.object(deploy, "api", side_effect=responses) as request,
+            patch.object(deploy, "dokploy") as remote,
+            patch.object(deploy, "deploy") as activate,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            deploy.preflight()
+        remote.assert_not_called()
+        activate.assert_not_called()
+        return request, output.getvalue()
+
+    def test_successful_image_enables_deployment_without_production_secrets(self):
+        self.output.write_text("existing=retained\n")
+        request, output = self.preflight(self.run, self.jobs(self.image_job))
+        self.assertEqual(self.output.read_text(), "existing=retained\ndeploy=true\n")
+        self.assertIn("eligible", output)
+        self.assertEqual(request.call_count, 2)
+        self.assertTrue(
+            request.call_args.args[0].endswith("/attempts/1/jobs?per_page=100")
+        )
+
+    def test_explicit_skip_disables_deployment_and_release(self):
+        self.image_job["conclusion"] = "skipped"
+        summary = self.output.with_name("github-summary")
+        with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
+            _, output = self.preflight(self.run, self.jobs(self.image_job))
+        self.assertEqual(self.output.read_text(), "deploy=false\n")
+        self.assertIn("Skipped production deployment and release", output)
+        self.assertEqual(summary.read_text(), output)
+
+    def test_untrusted_or_mismatching_run_cannot_enable_deployment(self):
+        for change in (
+            {"id": 456},
+            {"run_attempt": 2},
+            {"name": "Different workflow"},
+            {"path": ".github/workflows/unrelated.yml"},
+            {"head_sha": "b" * 40},
+            {"head_branch": "untrusted-branch"},
+            {"event": "pull_request"},
+            {"status": "in_progress"},
+            {"conclusion": "failure"},
+            {"head_repository": {"full_name": "unrelated/pandect"}},
+            {"head_repository": None},
+        ):
+            with (
+                self.subTest(change=change),
+                self.assertRaisesRegex(deploy.DeploymentError, "not trusted"),
+            ):
+                self.preflight({**self.run, **change})
+            self.assertEqual(self.output.read_text(), "")
+
+    def test_invalid_run_identifiers_fail_before_api_requests(self):
+        for name, value in (
+            ("TESTED_SHA", "invalid"),
+            ("CI_RUN_ID", "123/other"),
+            ("CI_RUN_ATTEMPT", "0"),
+            ("GITHUB_REPOSITORY", "invalid-repository"),
+        ):
+            with (
+                self.subTest(name=name),
+                patch.dict(os.environ, {name: value}),
+                patch.object(deploy, "api") as request,
+                self.assertRaisesRegex(deploy.DeploymentError, "Invalid CI run"),
+            ):
+                deploy.preflight()
+            request.assert_not_called()
+            self.assertEqual(self.output.read_text(), "")
+
+    def test_missing_output_blocks_preflight_before_api_requests(self):
+        del os.environ["GITHUB_OUTPUT"]
+        with (
+            patch.object(deploy, "api") as request,
+            self.assertRaisesRegex(deploy.DeploymentError, "GITHUB_OUTPUT"),
+        ):
+            deploy.preflight()
+        request.assert_not_called()
+
+    def test_missing_ambiguous_failed_or_incomplete_image_job_fails(self):
+        for jobs in (
+            self.jobs(),
+            self.jobs(self.image_job, self.image_job),
+            self.jobs({**self.image_job, "conclusion": "failure"}),
+            self.jobs({**self.image_job, "conclusion": "cancelled"}),
+            self.jobs({**self.image_job, "status": "in_progress"}),
+            self.jobs({**self.image_job, "run_id": 456}),
+            self.jobs({**self.image_job, "head_sha": "b" * 40}),
+            {"total_count": 101, "jobs": [self.image_job]},
+            {"total_count": 1, "jobs": [None]},
+            None,
+        ):
+            with (
+                self.subTest(jobs=jobs),
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                self.preflight(self.run, jobs)
+            self.assertEqual(self.output.read_text(), "")
+
+    def test_api_failure_does_not_enable_deployment(self):
+        with self.assertRaises(deploy.DeploymentError):
+            self.preflight(self.run, deploy.DeploymentError("API unavailable"))
+        self.assertEqual(self.output.read_text(), "")
+
+    def test_partial_rerun_uses_latest_image_job_before_triggering_attempt(self):
+        os.environ["CI_RUN_ATTEMPT"] = "3"
+        self.run["run_attempt"] = 3
+        request, _ = self.preflight(
+            self.run,
+            self.jobs({"name": "Unrelated rerun"}),
+            self.jobs(self.image_job),
+        )
+        self.assertEqual(self.output.read_text(), "deploy=true\n")
+        self.assertEqual(
+            [call.args[0].split("/attempts/")[1] for call in request.call_args_list],
+            ["3", "3/jobs?per_page=100", "2/jobs?per_page=100"],
+        )
+
+    def test_newer_attempt_cannot_replace_triggering_attempt_identity(self):
+        self.run["run_attempt"] = 2
+        with self.assertRaisesRegex(deploy.DeploymentError, "not trusted"):
+            self.preflight(self.run)
+        self.assertEqual(self.output.read_text(), "")
+
+    def test_newer_explicit_skip_takes_precedence_over_older_success(self):
+        os.environ["CI_RUN_ATTEMPT"] = "2"
+        self.run["run_attempt"] = 2
+        self.image_job["conclusion"] = "skipped"
+        request, _ = self.preflight(self.run, self.jobs(self.image_job))
+        self.assertEqual(self.output.read_text(), "deploy=false\n")
+        self.assertEqual(request.call_count, 2)
+
+    def test_missing_image_history_is_bounded(self):
+        os.environ["CI_RUN_ATTEMPT"] = "100"
+        self.run["run_attempt"] = 100
+        with (
+            patch.object(
+                deploy, "api", side_effect=[self.run] + [self.jobs()] * 20
+            ) as request,
+            self.assertRaisesRegex(deploy.DeploymentError, "publication decision"),
+        ):
+            deploy.preflight()
+        self.assertEqual(request.call_count, 21)
+        self.assertEqual(self.output.read_text(), "")
 
 
 class ReleaseReadinessTests(TestCase):

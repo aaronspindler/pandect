@@ -266,7 +266,14 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     "Retrying shortly"
                 )
                 for milliseconds in (11000, 21000):
-                    page.clock.run_for(milliseconds)
+                    with page.expect_response(
+                        lambda response: (
+                            response.status == 503
+                            and response.request.headers.get("x-pandect-live") == "1"
+                        )
+                    ) as retry:
+                        page.clock.run_for(milliseconds)
+                    retry.value.finished()
                 expect(page.locator("[data-live-message]")).to_contain_text(
                     "Automatic updates paused"
                 )

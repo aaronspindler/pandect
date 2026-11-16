@@ -23,7 +23,7 @@ class NoRedirect(HTTPRedirectHandler):
 def required(name):
     value = os.environ.get(name, "")
     if not value:
-        raise DeploymentError(f"Set {name} in the production environment.")
+        raise DeploymentError(f"Set {name} in the workflow environment.")
     return value
 
 
@@ -57,11 +57,163 @@ def api(url, headers=None, data=None):
         ) from None
 
 
+def preflight():
+    """Check the triggering CI attempt without accessing production credentials."""
+    sha = required("TESTED_SHA")
+    repository = required("GITHUB_REPOSITORY")
+    run_id = required("CI_RUN_ID")
+    attempt = required("CI_RUN_ATTEMPT")
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", sha)
+        or not re.fullmatch(r"[1-9][0-9]{0,19}", run_id)
+        or not re.fullmatch(r"[1-9][0-9]{0,19}", attempt)
+        or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+    ):
+        raise DeploymentError("Invalid CI run identity.")
+    output_path = required("GITHUB_OUTPUT")
+    attempt = int(attempt)
+    base = f"{required('GITHUB_API_URL')}/repos/{repository}/actions/runs/{run_id}"
+    headers = {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"}
+    run = api(f"{base}/attempts/{attempt}", headers)
+    if (
+        not isinstance(run, dict)
+        or run.get("id") != int(run_id)
+        or run.get("run_attempt") != attempt
+        or run.get("name") != "CI"
+        or str(run.get("path", "")).split("@", 1)[0] != ".github/workflows/ci.yml"
+        or run.get("head_sha") != sha
+        or run.get("head_branch") != "main"
+        or run.get("event") != "push"
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+        or not isinstance(run.get("head_repository"), dict)
+        or run["head_repository"].get("full_name") != repository
+    ):
+        raise DeploymentError("The triggering run is not trusted successful main CI.")
+
+    # Partial reruns may reuse a successful job from an earlier attempt. Inspect
+    # exact attempts so a later rerun cannot change this event's decision.
+    image_job = None
+    for number in range(attempt, max(0, attempt - 20), -1):
+        payload = api(f"{base}/attempts/{number}/jobs?per_page=100", headers)
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("jobs"), list)
+            or not all(isinstance(job, dict) for job in payload["jobs"])
+            or payload.get("total_count") != len(payload["jobs"])
+            or len(payload["jobs"]) > 100
+        ):
+            raise DeploymentError("The CI job list is incomplete or invalid.")
+        matches = [
+            job
+            for job in payload["jobs"]
+            if job.get("name") == "Publish production image"
+        ]
+        if len(matches) > 1:
+            raise DeploymentError("The CI image publication job is ambiguous.")
+        if matches:
+            image_job = matches[0]
+            break
+    if (
+        image_job is None
+        or image_job.get("run_id") != int(run_id)
+        or image_job.get("head_sha") != sha
+        or image_job.get("status") != "completed"
+        or image_job.get("conclusion") not in {"success", "skipped"}
+    ):
+        raise DeploymentError(
+            "CI did not report a completed image publication decision."
+        )
+    eligible = image_job["conclusion"] == "success"
+    with open(output_path, "a", encoding="utf-8") as output:
+        output.write(f"deploy={'true' if eligible else 'false'}\n")
+    message = (
+        "CI published the tested image; production deployment is eligible."
+        if eligible
+        else (
+            "Skipped production deployment and release: "
+            "CI explicitly skipped image publication."
+        )
+    )
+    print(message)
+    if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            summary.write(message + "\n")
+
+
 def dokploy(path, data=None, **query):
     url = f"{required('DOKPLOY_URL').rstrip('/')}/api/{path}"
     if query:
         url += "?" + urlencode(query)
     return api(url, {"x-api-key": required("DOKPLOY_API_KEY")}, data)
+
+
+def rollout_log_url():
+    origin = urlsplit(required("GITHUB_SERVER_URL"))
+    run_id = required("GITHUB_RUN_ID")
+    if (
+        origin.scheme != "https"
+        or not origin.hostname
+        or origin.username
+        or origin.password
+        or origin.path
+        or origin.query
+        or origin.fragment
+        or not re.fullmatch(r"[1-9][0-9]{0,19}", run_id)
+    ):
+        raise DeploymentError("Invalid GitHub rollout log identity.")
+    return f"{origin.geturl()}/{required('GITHUB_REPOSITORY')}/actions/runs/{run_id}"
+
+
+def create_rollout(sha, image):
+    """Record the exact image revision before changing either runtime service."""
+    rollout_log_url()
+    repository = required("GITHUB_REPOSITORY")
+    ci_run_id = required("CI_RUN_ID")
+    if not re.fullmatch(r"[1-9][0-9]{0,19}", ci_run_id):
+        raise DeploymentError("Invalid CI run identity.")
+    result = api(
+        f"{required('GITHUB_API_URL')}/repos/{repository}/deployments",
+        {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"},
+        {
+            "ref": sha,
+            "task": "pandect-rollout",
+            "environment": "production",
+            "auto_merge": False,
+            "required_contexts": [],
+            "production_environment": True,
+            "transient_environment": False,
+            "payload": {"ci_run_id": ci_run_id, "image": image},
+        },
+    )
+    if (
+        not isinstance(result, dict)
+        or type(result.get("id")) is not int
+        or result["id"] <= 0
+        or result.get("sha") != sha
+        or result.get("ref") != sha
+        or result.get("task") != "pandect-rollout"
+        or result.get("environment") != "production"
+    ):
+        raise DeploymentError("GitHub did not confirm the exact rollout identity.")
+    return result["id"]
+
+
+def mark_rollout(deployment_id, state):
+    repository = required("GITHUB_REPOSITORY")
+    result = api(
+        f"{required('GITHUB_API_URL')}/repos/{repository}"
+        f"/deployments/{deployment_id}/statuses",
+        {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"},
+        {"state": state, "auto_inactive": False, "log_url": rollout_log_url()},
+    )
+    if (
+        not isinstance(result, dict)
+        or type(result.get("id")) is not int
+        or result["id"] <= 0
+        or result.get("state") != state
+    ):
+        raise DeploymentError("GitHub did not confirm the rollout status.")
 
 
 def records(payload):
@@ -282,15 +434,41 @@ def main():
         )
     if services[0][0] == services[1][0]:
         raise DeploymentError("Web and worker must use separate Dokploy applications.")
-    for application_id, service in services:
-        deploy(application_id, image, sha, service)
+    deployment_id = create_rollout(sha, image)
+    mark_rollout(deployment_id, "in_progress")
+    try:
+        # Publish the pending marker before this last main check: a docs-only CI
+        # decision made just before marker creation cannot race an old rollout.
+        current = api(
+            github_url, {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"}
+        )
+        if current["object"]["sha"] != sha:
+            mark_rollout(deployment_id, "inactive")
+            print("Skipped stale CI run after recording the pending rollout.")
+            return
+        for application_id, service in services:
+            deploy(application_id, image, sha, service)
+    except Exception:
+        try:
+            mark_rollout(deployment_id, "failure")
+        except Exception:
+            print("Could not mark the failed rollout; it remains unverified.")
+        raise
+    # If this status write fails, leave the marker unverified and block release
+    # publication even though both services may already be running the image.
+    mark_rollout(deployment_id, "success")
     with open(output_path, "a", encoding="utf-8") as output:
         output.write("deployed=true\n")
 
 
 if __name__ == "__main__":
     try:
-        main()
+        if sys.argv[1:] == ["--preflight"]:
+            preflight()
+        elif sys.argv[1:]:
+            raise DeploymentError("Usage: deploy-dokploy.py [--preflight]")
+        else:
+            main()
     except (DeploymentError, KeyError, TypeError) as error:
         detail = (
             str(error)

@@ -1,6 +1,19 @@
 #!/bin/sh
 # Use only a fresh project and temporary configuration; never the developer's data.
 set -eu
+if [ "$#" -gt 1 ]; then
+    printf 'Usage: %s [local-image]\n' "$0" >&2
+    exit 2
+fi
+prebuilt_image=
+if [ "$#" -eq 1 ]; then
+    # Resolve a local reference once; never pull or rebuild a replacement image.
+    prebuilt_image=$(docker image inspect --format '{{.Id}}' -- "$1")
+    if ! printf '%s' "$prebuilt_image" | python3 -c 'import re, sys; sys.exit(not re.fullmatch(r"sha256:[a-f0-9]{64}", sys.stdin.read()))'; then
+        printf 'The local image did not resolve to an immutable image ID.\n' >&2
+        exit 1
+    fi
+fi
 project="pandect-smoke-$(date +%s)-$$"
 smoke_env=$(mktemp)
 smoke_override=$(mktemp)
@@ -24,6 +37,15 @@ services:
   worker:
     command: ["sh", "/app/scripts/docker-entrypoint-worker.sh"]
 YAML
+if [ -n "$prebuilt_image" ]; then
+    cat >> "$smoke_override" <<YAML
+    image: $prebuilt_image
+    pull_policy: never
+  web:
+    image: $prebuilt_image
+    pull_policy: never
+YAML
+fi
 cat > "$smoke_env" <<'ENV'
 DJANGO_DEBUG=true
 DJANGO_SECRET_KEY=synthetic-compose-smoke-secret-not-for-deployment
@@ -54,10 +76,17 @@ for key, volume in config["volumes"].items():
     assert volume["name"] == f"{project}_{key}"
 print("Verified synthetic project and scoped disposable volumes:", project)
 '
-compose up --build --wait --wait-timeout 180
+if [ -n "$prebuilt_image" ]; then
+    compose up --no-build --wait --wait-timeout 180
+else
+    compose up --build --wait --wait-timeout 180
+fi
 web_image=$(docker inspect --format '{{.Image}}' "$(compose ps -q web)")
 worker_image=$(docker inspect --format '{{.Image}}' "$(compose ps -q worker)")
 test "$web_image" = "$worker_image"
+if [ -n "$prebuilt_image" ]; then
+    test "$web_image" = "$prebuilt_image"
+fi
 compose exec -T web python manage.py migrate --check
 compose exec -T web python manage.py check_task_worker --timeout 30
 compose exec -T web python manage.py shell <<'PY'
@@ -207,7 +236,7 @@ assert batch.status == "queued"
 assert not VehicleLocationEvidence.objects.exists()
 PY
 compose stop
-compose up --wait --wait-timeout 180 db web
+compose up --no-build --wait --wait-timeout 180 db web
 compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
 import hashlib
@@ -296,7 +325,7 @@ result = DBTaskResult.objects.get(
 assert result.status == TaskResultStatus.READY
 assert result.started_at is None
 PY
-compose up -d --wait --wait-timeout 180 worker
+compose up --no-build -d --wait --wait-timeout 180 worker
 compose exec -T web python manage.py check_task_worker --timeout 30
 compose exec -T web python manage.py shell <<'PY'
 from django.tasks import TaskResultStatus

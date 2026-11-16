@@ -285,6 +285,23 @@ variable `PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1`; the helper refus
 mutations without it. Once ready, rerun **Deploy production** for successful CI
 on current `main`.
 
+Before accessing the production environment, CD runs a secret-free preflight
+against the triggering CI run and attempt. Successful image publication permits
+the existing rollout; an explicit skipped publication ends without deployment or
+release. Missing, failed, ambiguous, or unreadable publication status fails before
+production secrets are accessed. Documentation-only CI can intentionally omit
+an image; see [classification and fallback rules](validation.md#documentation-only-runs).
+
+Before mutating Dokploy, the helper creates an explicit GitHub deployment record
+for task `pandect-rollout` in `production`, bound to the tested commit and image
+digest, and records `in_progress`. It checks current `main` again after that
+record exists. Stale work stops before activation; failed or interrupted rollouts
+remain uncertain. Only verification of both worker and web records `success`.
+CI uses the newest such record as its baseline; it never infers the attempted
+image from the deployment workflow's own revision or falls back to an older
+successful rollout. Missing tracking or a status-write failure selects full CI
+until a later rollout is verified. GitHub release publication remains separate.
+
 The run and commit tags must resolve to the same digest. CD supplies it as
 `PANDECT_IMAGE`; both Applications receive `repository@sha256:...`. CD uses only the
 trusted `main` helper, never downloaded CI artifacts. Production concurrency waits

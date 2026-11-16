@@ -121,16 +121,24 @@ class ConversationBrowserTests(BrowserTestCase):
                 target_row.get_by_role(
                     "link", name="Open evidence", exact=False
                 ).click()
-                expect(
-                    page.get_by_role(
-                        "heading", name=re.compile(r"^Original message 052:"), level=1
-                    )
-                ).to_be_visible()
                 expect(page).to_have_url(
                     self.live_server_url
                     + self.evidence_path(target)
                     + f"?conversation_source={self.export.pk}"
                 )
+                reader = page.locator("#evidence-reader")
+                expect(
+                    reader.get_by_role(
+                        "heading",
+                        level=1,
+                        name=re.compile(
+                            "^" + re.escape(target.body.split(":", 1)[0] + ":")
+                        ),
+                    )
+                ).to_be_visible()
+                original = reader.locator(".original-text")
+                expect(original).to_be_visible()
+                self.assertEqual(original.text_content(), target.body)
                 reverse_link = page.get_by_role(
                     "link", name="View in conversation", exact=True
                 )

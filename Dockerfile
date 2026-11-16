@@ -15,7 +15,8 @@ RUN apt-get update \
 COPY --from=uv /uv /uvx /usr/local/bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --locked --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-install-project
 
 COPY manage.py ./
 COPY config/ config/

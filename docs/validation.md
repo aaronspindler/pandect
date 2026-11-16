@@ -38,6 +38,12 @@ and Compose configuration validation. The database role must create/delete
 checks need the local `uv run --env-file .env` wrapper. `make format` applies Ruff
 fixes and formatting.
 
+CI runs `make static-check` once for repository hygiene, Ruff, lock validation,
+and Compose configuration. `make database-check` runs Django's database/system
+checks and migration drift detection. `make check` still includes both groups
+and the full PostgreSQL test suite; `make validate` retains configuration and
+database validation.
+
 Native Dokploy image deployment and the separate live web/database/worker checks
 are documented in [the Dokploy deployment procedure](operations.md#first-dokploy-deployment).
 The development Compose smoke does not validate public DNS, TLS, or a remote rollout.
@@ -47,6 +53,9 @@ application settings with source assets, without a release manifest. Direct test
 commands also need `--settings=config.test_settings`; override Make's module with
 `TEST_SETTINGS=<module>` for a separate test database configuration. Static tests
 exercise manifest collection/cache headers; Compose smoke checks the non-debug build.
+Synthetic test users use a fast password hasher only in test settings. A focused
+authentication regression selects production hashers and exercises successful
+and failed sign-in; production password settings are unchanged.
 
 Tests live with their apps, generate synthetic content in code, and use temporary
 storage. Domain guides explain behavior; test modules own coverage inventories.
@@ -59,6 +68,14 @@ and verifies the shared web/worker image. See
 probe does not establish exactly-once delivery after crashes. The script clears
 inherited `PANDECT_` settings, ignores your `.env`/data, and removes only its own
 containers/volumes on exit.
+
+To exercise a prebuilt local image without rebuilding it, run
+`sh scripts/compose-smoke.sh <local-image>`. The script resolves that reference
+to an immutable local image ID, uses it for both web and worker, and rejects
+missing images or a running-image mismatch. Application images are never pulled
+or rebuilt in this mode; PostgreSQL may still be pulled. The no-argument Make
+target retains its normal local build. The application image's uv download cache
+uses a BuildKit cache mount and is not included in the shipped image.
 
 `make security-check` runs pip-audit on the hash-locked graph, including developer
 tools, without re-resolving. It needs advisory-service internet access and removes
@@ -197,12 +214,22 @@ capacity in routine tests.
 
 ## GitHub Actions
 
-- **CI** runs the same checks, fresh PostgreSQL migrations, and Compose smoke on
-  Linux amd64 and arm64. uv reads `.python-version` and installs from `uv.lock`.
-- A separate Linux amd64 browser job installs Chromium/WebKit and runs
-  `make browser-check` for core, marketing, analysis, geographic context and map
-  journeys with synthetic configuration and PostgreSQL.
-- A separate CI job audits locked dependencies without database credentials.
+- **CI** first classifies changes and runs architecture-independent static
+  checks once, with full history for repository hygiene. uv reads
+  `.python-version` and installs from `uv.lock`.
+- Full application runs retain fresh PostgreSQL migrations, tests, database
+  validation, and Compose smoke on native Linux amd64 and arm64 runners.
+- Separate Linux amd64 Chromium and WebKit jobs each install one engine and run
+  all `make browser-check` journeys, with independent PostgreSQL services and
+  synthetic configuration. `PANDECT_BROWSER_ENGINES` selects the engine.
+- A separate application-run job audits locked dependencies without database
+  credentials. The scheduled audit also continues independently of source changes.
+- Native smoke builds and production publication reuse architecture-specific
+  GitHub Actions BuildKit layer caches. Only upstream `main` pushes export those
+  caches; PR and manual runs restore only. Cache misses use cold builds, and
+  cache export failures do not hide build, smoke, or publication failures.
+  Smoke exercises the exact locally loaded image; publication rebuilds from the
+  tested source using the amd64 layer cache.
 - After those checks pass for a `main` push in the Pandect operator repository,
   CI publishes one Linux amd64 application image to GHCR. CD resolves its
   successful-run and commit tags to a matching digest and deploys that same image
@@ -221,9 +248,14 @@ capacity in routine tests.
 Workflows use pinned action commits and default to read-only contents permissions.
 Only CI's production image job receives package-write permission; CD's deploy job
 receives package-read permission and the production environment's deployment
-secrets. Its separate release job receives contents-write permission through the
-built-in GitHub token, without deployment secrets. These workflows do not perform
-container or secret scanning.
+secrets. A preceding job receives Actions read permission to inspect CI publication
+without production secrets. Its separate release job receives contents-write
+permission through the built-in GitHub token, without deployment secrets. These
+workflows do not perform container or secret scanning.
+CI's classification job receives deployment-read permission to check the latest
+explicit production rollout before skipping application work. CD's production
+job receives deployment-write permission to record that rollout's actual tested
+commit and outcome; repository content writes stay isolated in the release job.
 
 The deployment and release helpers have mocked API and failure-path tests without
 credentials, network access, or a database:
@@ -237,6 +269,38 @@ ordering, bounded failures, stale skips, release reruns, and tag conflicts. GitH
 permissions, GHCR/Dokploy access, and publication require live verification.
 Hosted checks run after upload; local checks do not prove their execution or
 deployed behavior.
+
+### Documentation-only runs
+
+CI always starts and reports a final **CI status** check. Changes limited to
+Markdown under `docs/` and the root `README.md`, `AGENTS.md`, `DESIGN.md`,
+`PRINCIPLES.md`, and `SECURITY.md` can skip application tests, browsers, dependency
+audit, and image publication. Static checks and changed-range whitespace checks
+still run. Review documentation accuracy and affected links during handoff.
+The final check accepts skipped jobs only after successful explicit classification;
+unexpected skips, failures, and cancellations fail it. Requiring this status in
+branch rules is an operator setting, not a workflow side effect.
+
+PR classification compares the merge base with the PR head, including both
+sides of renames. Upstream `main` uses the newest explicit GitHub deployment
+record for task `pandect-rollout` in `production`. Its latest status must confirm
+success, and its tested commit must lie on current first-parent history. The
+classifier checks every changed path since that commit, including intermediate
+application changes later reverted. Release publication time and the deployment
+workflow's own source revision do not establish the deployed image's identity.
+
+Missing records, pending or failed rollouts, forced updates, unavailable commit
+history, and Git/API uncertainty require full CI. An older successful record
+never substitutes for a newer uncertain rollout. The first main run after this
+tracking is introduced therefore uses full coverage; its verified deployment
+enables later documentation-only skips. No application database migration or new
+service is required.
+Manual runs always select full coverage. The classifier never changes Git refs.
+
+CD's secret-free preflight inspects the triggering CI run's publication job.
+An explicit skipped image publication means no production deployment or GitHub
+release. Missing, failed, or ambiguous publication results fail preflight rather
+than being interpreted as documentation-only work.
 
 ## Public release checks
 

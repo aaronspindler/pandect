@@ -177,11 +177,19 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 self.assertIn(f"person={self.person.pk}", page.url)
                 message_path = reverse(
                     "core:evidence:detail",
-                    args=[self.case.pk, "text-message", self.message.pk],
+                    kwargs={
+                        "case_id": self.case.pk,
+                        "kind": "text-message",
+                        "evidence_id": self.message.pk,
+                    },
                 )
-                message_link = page.locator(f'a[href^="{message_path}"]').first
-                expect(message_link).to_be_visible()
-                expect(message_link).to_contain_text("person-00@example.test")
+                message_row = page.locator(
+                    f'a.evidence-row[href="{message_path}'
+                    f'?person={self.person.pk}&state=all"]'
+                )
+                expect(message_row).to_be_visible()
+                expect(message_row).to_contain_text("person-00@example.test")
+                expect(message_row).to_contain_text(self.person.first_name)
 
                 page.goto(self.url("core:analysis:connections", case_id=self.case.pk))
                 self.capture_layouts(page, engine, "connections")
