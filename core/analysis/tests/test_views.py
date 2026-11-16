@@ -224,8 +224,20 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             {"operation": "entities", "q": "Unmatched synthetic source"},
         )
         self.assertContains(response, "No suitable sources")
-        self.assertContains(response, 'href="?operation=entities"')
+        self.assertContains(response, 'name="browse_sources" value="clear"')
         self.assertNotContains(response, self.foreign.title)
+        response = self.client.post(
+            self.analysis_url("create"),
+            self.payload(q="Unmatched synthetic source", browse_sources="clear"),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["query"], "")
+        form = response.context["form"]
+        self.assertEqual(form["operation"].value(), "entities")
+        self.assertEqual(form["sources"].value(), [f"text:{self.note.pk}"])
+        self.assertIn(f"text:{self.note.pk}", dict(form.fields["sources"].choices))
+        self.assertNotContains(response, self.foreign.title)
+        self.assertFalse(AnalysisRun.objects.exists())
 
     def analysis_url(self, route, *, run=None, case=None, **extra):
         kwargs = {"case_id": (case or self.case).pk, **extra}

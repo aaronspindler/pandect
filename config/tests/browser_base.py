@@ -156,6 +156,8 @@ class BrowserTestCase(StaticLiveServerTestCase):
 
     def open_evidence_panel(self, page, name):
         """Open the record's native Info or More panel using the keyboard."""
+        # Redirects can reveal Info from the URL hash during page initialization.
+        page.wait_for_load_state("load")
         other_name = "more" if name == "info" else "info"
         other = page.locator(f".evidence-{other_name}")
         if other.count() and other.get_attribute("open") is not None:

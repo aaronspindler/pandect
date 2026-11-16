@@ -231,6 +231,7 @@ permitting the private services. Do not use public map capacity in routine tests
   the workflow guard skips private repositories.
 
 Workflows use pinned action commits and default to read-only contents permissions.
+CodeQL initialization and analysis use the same pinned action revision.
 Only CI's production image job receives package-write permission; CD's deploy job
 receives package-read permission and the production environment's deployment
 secrets. Its separate release job receives contents-write permission through the
