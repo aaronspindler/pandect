@@ -6,7 +6,7 @@
 <h1>Join {{ invitation.case.name }}</h1>
 <p>{{ invitation.invited_by.get_username }} invited you with <strong>{{ invitation.get_role_display }}</strong> access.</p>
 <p class="muted">
-{% if invitation.role == 'editor' %}You can inspect/download case material, add and edit people, vehicles, and evidence, and archive/restore evidence.{% else %}You can inspect case material and download original evidence.{% endif %} Ownership remains with the case owner.</p>
+{% if invitation.role == 'editor' %}You can inspect and download material, add or edit records, and archive or restore evidence.{% else %}You can inspect case material and download original evidence.{% endif %} Ownership remains with the case owner.</p>
 <form method="post">
 {% csrf_token %}
 <div class="form-actions">

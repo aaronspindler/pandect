@@ -241,6 +241,20 @@ class IMessageImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.publish(run, data, source), 1)
         self.assertEqual(data["metrics"]["unresolved_rows"], 5)
 
+    def test_unexpected_row_exception_detail_never_enters_results_or_downloads(self):
+        source = self.source()
+        with patch(
+            "phone.analysis.deterministic.imessage._timestamp",
+            side_effect=ValueError("private /operator/path: parser internals"),
+        ):
+            rows = list(iter_import_rows(source, {"timezone": "America/Toronto"}))
+        self.assertEqual(
+            rows[0]["values"]["unresolved_reason"],
+            "Message fields could not be interpreted; review the source row.",
+        )
+        self.assertNotIn("private /operator/path", json.dumps(rows))
+        self.assertNotIn("import_message", rows[0]["values"])
+
     def test_structurally_unsupported_csv_has_safe_failures(self):
         content = csv_content()
         invalid = (

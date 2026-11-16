@@ -8,7 +8,6 @@ from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.admin.widgets import AdminTextareaWidget
 from django.core.exceptions import PermissionDenied
-from django.core.paginator import Paginator
 from django.db import transaction
 from django.http import StreamingHttpResponse
 from django.template.response import TemplateResponse
@@ -217,7 +216,14 @@ class EvidenceAdmin(CaseScopedAdmin):
             for case_id in sorted(set(queryset.values_list("case_id", flat=True))):
                 get_case(request.user, case_id, lock=True)
             queryset = queryset.select_for_update(of=("self",))
-        items = list(queryset.select_related(None).order_by("case_id", "pk"))
+        # Review/logging need identities and titles, not original bodies. Keep
+        # file keys loaded for the post-delete cleanup signal.
+        fields = ["id", "case", "title"]
+        if self.file_evidence:
+            fields.append("file")
+        items = list(
+            queryset.select_related(None).only(*fields).order_by("case_id", "pk")
+        )
         groups = {}
         for item in items:
             groups.setdefault(item.case_id, []).append(item)
@@ -245,21 +251,17 @@ class EvidenceAdmin(CaseScopedAdmin):
             )
             return None
         # A blocked cascade must never disclose labels from inconsistent links.
-        entries = (
-            []
-            if blockers
-            else [
-                dict(entry, case_id=str(plan.item.case_id), case=str(plan.item.case))
-                for plan in plans
-                for entry in plan.entries
-            ]
-        )
         counts = (
             sum((plan.counts for plan in plans), Counter())
             if not blockers
             else Counter()
         )
         if request.POST.get("download") == "manifest" and not blockers and not changed:
+            entries = [
+                dict(entry, case_id=str(plan.item.case_id), case=str(plan.item.case))
+                for plan in plans
+                for entry in plan.entries
+            ]
             response = StreamingHttpResponse(
                 json.JSONEncoder().iterencode(
                     {
@@ -277,9 +279,6 @@ class EvidenceAdmin(CaseScopedAdmin):
             response["Cache-Control"] = "private, no-store"
             response["X-Content-Type-Options"] = "nosniff"
             return response
-        page = Paginator(entries, 50).get_page(
-            1 if changed else request.POST.get("review_page")
-        )
         request.current_app = self.admin_site.name
         return TemplateResponse(
             request,
@@ -299,15 +298,9 @@ class EvidenceAdmin(CaseScopedAdmin):
                 "select_across": request.POST.get("select_across", "0"),
                 "blockers": blockers,
                 "deletion_plan": {"counts": counts},
-                "deletion_page": page,
+                **(deletion_summary(plans) if not blockers else {}),
                 "inventory_changed": CHANGED if changed else "",
-                "deletion_post_pagination": True,
-                "deletion_links": {
-                    "previous": page.previous_page_number()
-                    if page.has_previous()
-                    else None,
-                    "next": page.next_page_number() if page.has_next() else None,
-                },
+                "deletion_download_post": True,
             },
             status=409 if changed else 200,
         )
@@ -336,6 +329,8 @@ class EvidenceAdmin(CaseScopedAdmin):
     def render_delete_form(self, request, context):
         plan = request.evidence_deletion_plan
         context.update(deletion_review_context(request, plan))
+        if not plan.blocker:
+            context.update(deletion_summary([plan]))
         changed = (
             context["protected"] == [CHANGED] or context["inventory_changed"]
         ) and not plan.blocker
@@ -374,3 +369,30 @@ class EvidenceAdmin(CaseScopedAdmin):
             obj.archive_changed_at = timezone.now()
             obj.archive_changed_by = request.user
         super().save_model(request, obj, form, change)
+
+
+def deletion_summary(plans):
+    """Summarize complete plans without copying their individual entries."""
+    record_counts = Counter()
+    selection_count = 0
+    for plan in plans:
+        for entry in plan.entries:
+            if entry["action"] == "Delete record":
+                record_counts[entry["type"]] += 1
+            elif entry["action"] == "Retain unavailable references":
+                selection_count += 1
+    return {
+        "deletion_record_counts": sorted(record_counts.items()),
+        "deletion_selection_count": selection_count,
+        "deletion_cases": sorted(
+            (
+                {
+                    "name": str(plan.item.case),
+                    "selected": len(plan.items),
+                    "counts": plan.counts,
+                }
+                for plan in plans
+            ),
+            key=lambda case: case["name"].casefold(),
+        ),
+    }

@@ -37,13 +37,24 @@
     const heading = document.createElement("strong");
     heading.textContent = "Investigator POI";
     const link = document.createElement("a");
-    link.href = point.url;
+    try {
+      const target = new URL(point.url, window.location.origin);
+      if ((target.protocol === "https:" || target.protocol === "http:") && target.origin === window.location.origin) {
+        link.href = target.href;
+      }
+    } catch {
+      // A malformed source URL remains readable as text.
+    }
     link.textContent = `${point.number}. ${point.title}`;
     content.append(heading, document.createElement("br"), link);
+    const icon = document.createElement("span");
+    const number = document.createElement("b");
+    number.textContent = point.number;
+    icon.append(number);
     const marker = L.marker([point.latitude, point.longitude], {
       title: `${point.number}. ${point.title}`,
       alt: point.title,
-      icon: L.divIcon({ className: "case-map-marker case-map-poi", html: `<span><b>${point.number}</b></span>`, iconSize: [44, 44], iconAnchor: [22, 22] }),
+      icon: L.divIcon({ className: "case-map-marker case-map-poi", html: icon, iconSize: [44, 44], iconAnchor: [22, 22] }),
     }).addTo(map).bindPopup(content, popupOptions());
     marker.getElement().setAttribute("aria-label", `${point.number}. ${point.title}`);
     markers.set(String(point.number), marker);

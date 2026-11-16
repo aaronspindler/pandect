@@ -108,6 +108,27 @@
 .marketing-faq summary { min-height:44px; align-content:center; cursor:pointer; font-weight:600; padding-block:.75rem; }
 .marketing-faq p { color:var(--secondary); }
 .marketing-faq details p { margin:.5rem 0 1rem; }
+.catalogue-legend { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.5rem 3rem; margin-bottom:2rem; }
+.catalogue-legend > div { border-top:1px solid var(--divider); padding-top:1rem; }
+.catalogue-legend dt,.catalogue-inputs dt { font-weight:600; margin-bottom:.5rem; }
+.catalogue-legend dd,.catalogue-inputs dd { margin:0; color:var(--secondary); }
+.catalogue-section { border-top:1px solid var(--divider); }
+.catalogue-overview { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.5fr); gap:1.5rem 4rem; }
+.catalogue-overview .section-label { margin-bottom:.75rem; }
+.catalogue-inputs > div + div { margin-top:1rem; }
+.marketing .catalogue-note { max-width:80ch; color:var(--secondary); }
+.catalogue-table { width:100%; table-layout:fixed; border-collapse:collapse; margin-block:2rem 1rem; text-align:left; }
+.catalogue-table caption { text-align:left; font-size:1.25rem; font-weight:600; margin-bottom:1rem; }
+.catalogue-table th,.catalogue-table td { vertical-align:top; padding:1rem .75rem; border-bottom:1px solid var(--divider); }
+.catalogue-table th { font-weight:600; }
+.catalogue-table thead th { color:var(--secondary); font-size:.875rem; }
+.catalogue-table th:first-child { width:26%; padding-left:0; }
+.catalogue-table th:nth-child(2) { width:38%; }
+.catalogue-table th:last-child,.catalogue-table td:last-child { padding-right:0; }
+.catalogue-table tbody tr:first-child > * { border-top:1px solid var(--divider); }
+.catalogue-table td { color:var(--secondary); }
+.catalogue-requirement { display:block; color:var(--text); margin-bottom:.5rem; }
+.catalogue-cell-label { display:none; }
 @media (prefers-color-scheme:dark) {
   .marketing { --brand:#f1e9da; }
 }
@@ -144,6 +165,15 @@
   .step-number { margin-bottom:1rem; }
   .marketing-footer { gap:2rem; }
   .marketing-footer nav { gap:.25rem 1rem; }
+  .catalogue-overview,.catalogue-legend { grid-template-columns:1fr; gap:1.5rem; }
+  .catalogue-table,.catalogue-table caption,.catalogue-table tbody { display:block; }
+  .catalogue-table thead { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .catalogue-table tbody tr { display:grid; gap:.75rem; padding-block:1.5rem; border-top:1px solid var(--divider); }
+  .catalogue-table tbody tr:last-child { border-bottom:1px solid var(--divider); }
+  .catalogue-table tbody th:first-child,.catalogue-table tbody td { display:block; width:100%; padding:0; border:0; }
+  .catalogue-table tbody th { font-size:1.25rem; }
+  .catalogue-table tbody tr:first-child > * { border:0; }
+  .catalogue-cell-label { display:block; font-size:.875rem; font-weight:600; color:var(--text); margin-bottom:.25rem; }
 }
 @media (forced-colors:active) {
   .marketing { --brand:CanvasText; }

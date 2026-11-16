@@ -1,16 +1,16 @@
 {% extends "ui/base.html" %}
-{% block title %}{% if creating %}Add person{% else %}Edit person{% endif %} · Pandect{% endblock %}
+{% block title %}{% if creating %}Add person{% else %}Edit person{% endif %}{% endblock %}
 {% block content %}
 <p class="breadcrumb"><a href="{% url 'people:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to people</a></p>
 <div class="page-header"><div><h1>{% if creating %}Add person{% else %}Edit person{% endif %}</h1><p>Enter at least a first name, last name, phone number, or email. Unknown names are fine.</p></div></div>
-{% if latest_person %}<section class="notice" aria-labelledby="latest-heading"><h2 id="latest-heading">Review the latest saved details</h2><p>Your proposed values remain in the form below. Compare them with these saved details before submitting again.</p>
+{% if latest_person %}<section class="notice" aria-labelledby="latest-heading"><h2 id="latest-heading">Review the latest saved details</h2><p>Compare these saved details with your changes below.</p>
   <dl class="metadata-grid"><div><dt>First name</dt><dd>{{ latest_person.first_name|default:"Not recorded" }}</dd></div><div><dt>Last name</dt><dd>{{ latest_person.last_name|default:"Not recorded" }}</dd></div><div><dt>Phone</dt><dd>{{ latest_person.phone_number|default:"Not recorded" }}</dd></div><div><dt>Email</dt><dd>{{ latest_person.email|default:"Not recorded" }}</dd></div><div><dt>Address</dt><dd>{{ latest_person.address|default:"Not recorded"|linebreaksbr }}</dd></div></dl>
 </section>{% endif %}
 <form method="post" class="form-layout" data-unsaved-form>
   {% csrf_token %}
   {% include "ui/components/form_fields.html" with form=form %}
   <div class="form-actions"><button class="button button-primary" type="submit">{% if creating %}Add person{% elif latest_person %}Save reviewed changes{% else %}Save changes{% endif %}</button>
-    {% if creating %}<a class="button button-secondary" href="{% url 'people:list' case_id=case.pk %}">Cancel</a>{% else %}<a class="button button-secondary" href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a>{% endif %}
+    {% if creating %}<a class="button button-secondary" href="{% url 'people:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a>{% else %}<a class="button button-secondary" href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a>{% endif %}
   </div>
 </form>
 {% endblock %}

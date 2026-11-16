@@ -8,13 +8,15 @@ from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import Client, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
 from core.evidence.deletion import CHANGED, execute_deletion
-from core.models import AnalysisRun
+from core.models import AnalysisRun, SavedSelection
 from core.testing import ALL_MODELS, EvidenceTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationImport
@@ -147,9 +149,19 @@ class DebugBulkEvidenceDeletionTests(EvidenceTestMixin, TestCase):
             operation="native_text",
             inputs=inputs,
         )
+        selection = SavedSelection.objects.create(
+            case=self.case,
+            name="Retained selection",
+            created_by=self.operator,
+            updated_by=self.operator,
+            members=[{"source": inputs[0]}],
+        )
         response = self.submit(items)
         entries = response.context["deletion_plan"]["counts"]
         self.assertEqual(entries["records"], 3)
+        self.assertContains(
+            response, "1 shared selection will retain references marked unavailable."
+        )
         confirmation = self.confirmation(items)
         newer = AnalysisRun.objects.create(
             case=self.case,
@@ -162,6 +174,43 @@ class DebugBulkEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         self.assertTrue(AnalysisRun.objects.filter(pk=run.pk).exists())
         self.submit(items, **self.confirmation(items))
         self.assertFalse(AnalysisRun.objects.filter(pk__in=[run.pk, newer.pk]).exists())
+        self.assertTrue(SavedSelection.objects.filter(pk=selection.pk).exists())
+
+    def test_large_selection_summarizes_types_and_cases_without_loading_bodies(self):
+        CaseMembership.objects.create(case=self.other_case, user=self.operator)
+        items = [
+            self.create_evidence(
+                title=f"Source {number}", body="Synthetic text " * 1000
+            )
+            for number in range(120)
+        ]
+        with CaptureQueriesContext(connection) as small_queries:
+            self.submit(items[:1])
+        with CaptureQueriesContext(connection) as large_queries:
+            response = self.submit(items)
+        # Query count must not grow per source, nor fetch large original bodies.
+        self.assertLessEqual(len(large_queries), len(small_queries) + 1)
+        self.assertFalse(
+            any('"text_textevidence"."body"' in query["sql"] for query in large_queries)
+        )
+        self.assertEqual(
+            response.context["deletion_record_counts"], [("Text evidence", 120)]
+        )
+        self.assertContains(response, "120 selected evidence records")
+        self.assertNotContains(response, items[0].title)
+        self.assertNotContains(response, "Next inventory page")
+
+        other = self.create_evidence(
+            case=self.other_case, title="Separate synthetic source"
+        )
+        response = self.submit([*items, other])
+        cases = {row["name"]: row for row in response.context["deletion_cases"]}
+        self.assertEqual(cases[str(self.case)]["selected"], 120)
+        self.assertEqual(cases[str(self.case)]["counts"]["records"], 120)
+        self.assertEqual(cases[str(self.other_case)]["selected"], 1)
+        self.assertContains(response, str(self.case))
+        self.assertContains(response, str(self.other_case))
+        self.assertNotContains(response, other.title)
 
     def test_revoked_case_changes_inventory_without_partial_deletion(self):
         CaseMembership.objects.create(case=self.other_case, user=self.operator)
@@ -227,16 +276,19 @@ class DebugBulkEvidenceDeletionTests(EvidenceTestMixin, TestCase):
         self.assertNotContains(response, attachment.original_filename, status_code=409)
         self.assertEqual(type(items[0]).objects.count(), 2)
 
-    def test_import_dependents_manifest_pagination_and_select_across(self):
+    def test_import_dependents_summary_manifest_and_select_across(self):
         items = [self.create_evidence(DocumentEvidence) for _ in range(26)]
         batch = VehicleLocationImport.objects.create(
             case=self.case, uploaded_by=self.editor, document=items[0], timezone="UTC"
         )
         confirmation = self.confirmation(items)
-        response = self.submit(
-            items, revision=confirmation["revision"], review_page="2"
+        response = self.submit(items)
+        self.assertContains(response, "27 records and 26 stored files")
+        self.assertEqual(response.context["deletion_cases"][0]["selected"], 26)
+        self.assertIn(
+            ("Document evidence", 26), response.context["deletion_record_counts"]
         )
-        self.assertEqual(response.context["deletion_page"].number, 2)
+        self.assertNotContains(response, str(batch.pk))
         response = self.submit(
             items, revision=confirmation["revision"], download="manifest"
         )

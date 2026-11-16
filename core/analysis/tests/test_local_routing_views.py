@@ -42,10 +42,14 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
         )
 
     def form(self, operation, kind="text", item=None, **values):
+        reviewed = analysis_form(case=self.case, operation=operation)
         return analysis_form(
             {
                 "operation": operation,
-                "submission_id": uuid4(),
+                "submission_id": reviewed["submission_id"].value(),
+                "execution_confirmation": reviewed["execution_confirmation"].value()
+                if "execution_confirmation" in reviewed.fields
+                else "",
                 "sources": [f"{kind}:{(item or self.note).pk}"],
             }
             | values,

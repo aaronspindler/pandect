@@ -26,11 +26,23 @@ def required(name):
     return value
 
 
+def runner_file(name):
+    path = os.path.realpath(required(name))
+    root = os.path.realpath(required("RUNNER_TEMP"))
+    if not path.startswith(root + os.sep):
+        raise ReleaseError(f"{name} must stay inside RUNNER_TEMP.")
+    return path
+
+
 def github(path, data=None, missing_ok=False, list_result=False):
-    url = (
-        f"{required('GITHUB_API_URL').rstrip('/')}/repos/"
-        f"{required('GITHUB_REPOSITORY')}/{path}"
-    )
+    if required("GITHUB_API_URL").rstrip("/") != "https://api.github.com":
+        raise ReleaseError("Only the public GitHub API is supported.")
+    repository = required("GITHUB_REPOSITORY")
+    if not re.fullmatch(
+        r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}", repository
+    ):
+        raise ReleaseError("Invalid GitHub repository identity.")
+    url = f"https://api.github.com/repos/{quote(repository, safe='/')}/{path}"
     request = Request(
         url,
         data=json.dumps(data).encode() if data is not None else None,
@@ -158,7 +170,7 @@ def main(prepare=False):
     expected = os.environ.get("PANDECT_VERSION", "")
     if (not prepare or expected) and VERSION.fullmatch(expected) is None:
         raise ReleaseError("Invalid deployment version; expected v1.N.")
-    output_path = required("GITHUB_OUTPUT") if prepare else None
+    output_path = runner_file("GITHUB_OUTPUT") if prepare else None
     tag, published = allocate_version(sha)
     if expected and tag != expected:
         raise ReleaseError("Release history changed; prepare the version again.")

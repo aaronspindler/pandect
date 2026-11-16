@@ -16,10 +16,11 @@ class BulkEvidenceAdminBrowserTests(BrowserTestCase):
         self.owner.is_staff = self.owner.is_superuser = True
         self.owner.save(update_fields=["is_staff", "is_superuser"])
         case = Case.objects.create(owner=self.owner, name="Synthetic bulk cleanup")
+        other_case = Case.objects.create(owner=self.owner, name="Other cleanup case")
         for engine in self.engines:
             items = [
                 DocumentEvidence.objects.create(
-                    case=case,
+                    case=case if number == 0 else other_case,
                     uploaded_by=self.owner,
                     title=f"Synthetic source {engine} {number}",
                     file=SimpleUploadedFile("original.txt", b"Synthetic original"),
@@ -50,6 +51,16 @@ class BulkEvidenceAdminBrowserTests(BrowserTestCase):
                     ).to_be_visible()
 
                 review(items, url)
+                expect(
+                    page.get_by_text("2 records and 2 stored files will be deleted.")
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("rowheader", name=case.name, exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("rowheader", name=other_case.name, exact=True)
+                ).to_be_visible()
+                expect(page.get_by_text(items[0].title, exact=True)).to_have_count(0)
                 page.get_by_role("button", name="Cancel", exact=True).click()
                 self.assertEqual(self.db(DocumentEvidence.objects.count), 2)
                 review(items, url)
@@ -93,7 +104,7 @@ class BulkEvidenceAdminBrowserTests(BrowserTestCase):
                     page.emulate_media(forced_colors="active")
                     self.capture(page, engine, "bulk-delete-forced-colors")
                 checkbox = page.get_by_role(
-                    "checkbox", name="I confirm permanent deletion of this inventory."
+                    "checkbox", name="I confirm permanent deletion.", exact=True
                 )
                 checkbox.focus()
                 checkbox.press("Space")
@@ -113,3 +124,37 @@ class BulkEvidenceAdminBrowserTests(BrowserTestCase):
                 self.assertEqual(self.db(DocumentEvidence.objects.count), 0)
                 for item in items:
                     self.assertFalse(item.file.storage.exists(item.file.name))
+
+                single = self.db(
+                    DocumentEvidence.objects.create,
+                    case=case,
+                    uploaded_by=self.owner,
+                    title="Synthetic single source",
+                    file=SimpleUploadedFile("single.txt", b"Synthetic original"),
+                )
+                single_url = self.url(
+                    "admin:document_documentevidence_delete", object_id=single.pk
+                )
+                page.goto(single_url)
+                expect(
+                    page.get_by_role("heading", name="Deletion summary")
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("rowheader", name=case.name, exact=True)
+                ).to_be_visible()
+                for width, height in ((1440, 900), (390, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate(
+                            "document.documentElement.scrollWidth - innerWidth"
+                        ),
+                        1,
+                    )
+                    self.capture(page, engine, f"single-delete-{width}-{height}")
+                page.get_by_role("button", name="Cancel", exact=True).click()
+                self.assertEqual(self.db(DocumentEvidence.objects.count), 1)
+                page.goto(single_url)
+                page.get_by_role(
+                    "button", name="Permanently delete evidence", exact=True
+                ).click()
+                self.assertEqual(self.db(DocumentEvidence.objects.count), 0)

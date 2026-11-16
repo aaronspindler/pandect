@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
+from core.analysis.approval import prepare_external_approval, validate_external_approval
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.readiness import configuration_readiness
 from core.analysis.selections import check_revision, resolve_selection, revision_token
@@ -44,6 +45,24 @@ class SynthesisForm(forms.Form):
     submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
     revision = forms.CharField(widget=forms.HiddenInput)
 
+    def __init__(self, *args, actor, case, **kwargs):
+        super().__init__(*args, **kwargs)
+        prepare_external_approval(
+            self, actor=actor, case=case, operation="question_synthesis"
+        )
+
+    def clean(self):
+        data = super().clean()
+        if data.get("backend") == "gateway":
+            if not data.get("external_processing"):
+                self.add_error(
+                    "external_processing", "Approve external processing to continue."
+                )
+            validate_external_approval(self, data)
+        else:
+            data["external_processing"] = False
+        return data
+
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
@@ -51,7 +70,10 @@ def create(request, case_id, selection_id):
     case = get_case(request.user, case_id, edit=True)
     selection = get_object_or_404(SavedSelection, pk=selection_id, case=case)
     form = SynthesisForm(
-        request.POST or None, initial={"revision": revision_token(selection)}
+        request.POST or None,
+        actor=request.user,
+        case=case,
+        initial={"revision": revision_token(selection)},
     )
     status = 200
     if request.method == "POST" and form.is_valid():
@@ -67,7 +89,7 @@ def create(request, case_id, selection_id):
                 )
                 if resolved["unavailable"]:
                     raise ValidationError(
-                        "Resolve unavailable selection members before synthesis."
+                        "Resolve unavailable selection items before analysis."
                     )
                 snapshots = resolved["snapshots"]
                 choices = [
@@ -110,6 +132,7 @@ def create(request, case_id, selection_id):
                     choices,
                     parameters=parameters,
                     external_processing=form.cleaned_data["external_processing"],
+                    approved_execution=form.approved_execution,
                     submission_id=form.cleaned_data["submission_id"],
                 )
                 if {entry["id"]: entry for entry in run.inputs} != {

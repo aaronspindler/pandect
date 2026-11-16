@@ -22,6 +22,7 @@
         {% include 'ui/components/icon.html' with name='file-text' %}
         <div>
           {% if item.summary_text %}<strong>{{ item.summary_text }}</strong>{% else %}<strong>{{ item.label }}</strong>{% endif %}
+          {% if item.ai_suggestion %}<small>AI suggestion</small>{% endif %}
           <div class="evidence-finding-meta">{% if item.summary_text %}<small>{{ item.label }}</small>{% endif %}{% if item.anchors %}<span class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=item.anchors compact=True %}</span>{% endif %}</div>
           {% if item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
           {% if item.attachment_label %}<small>{{ item.attachment_label }}</small>{% endif %}

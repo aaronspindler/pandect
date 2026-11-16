@@ -2,7 +2,7 @@
 <div class="page-content" id="message-import" data-live-region data-live-poll="{% if run.status == 'queued' or run.status == 'running' %}true{% else %}false{% endif %}">
   <a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>
   {% if run.status == 'queued' or run.status == 'running' %}
-    <section aria-labelledby="import-progress-heading"><h1 id="import-progress-heading">{% if final %}Importing messages{% else %}Preparing message review{% endif %}</h1><p role="status">{{ run.get_status_display }}</p><progress class="work-progress" value="{{ run.progress }}" max="100" aria-label="Message import progress">{{ run.progress }}%</progress><p>You can leave and return. Progress is saved as work continues.</p></section>
+    <section aria-labelledby="import-progress-heading"><h1 id="import-progress-heading">{% if final %}Importing messages{% else %}Preparing message review{% endif %}</h1><p role="status">{{ run.get_status_display }}</p><progress class="work-progress" value="{{ run.progress }}" max="100" aria-label="Message import progress">{{ run.progress }}%</progress><p>You can return later while processing continues.</p></section>
   {% else %}
     <h1>{% if final and run.status == 'complete' or final and run.status == 'partial' %}Messages imported{% elif run.status == 'complete' or run.status == 'partial' %}Message review ready{% else %}Message processing stopped{% endif %}</h1>
     <p><a class="button button-primary" href="{% url 'phone:imessage_review' case.pk run.pk %}">{% if final %}Open message import{% else %}Review prepared messages{% endif %}</a></p>

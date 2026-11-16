@@ -639,9 +639,17 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         self.operator.save(update_fields=["is_staff"])
         url = reverse("admin:document_documentevidence_delete", args=[source.pk])
         response = self.client.get(url)
-        self.assertContains(response, message.title)
-        self.assertContains(response, observations[0].title)
-        self.assertContains(response, str(staged[0].pk))
+        self.assertContains(response, "Deletion summary")
+        self.assertContains(response, str(self.case))
+        self.assertNotContains(response, f">{message.title}<")
+        self.assertNotContains(response, observations[0].title)
+        self.assertNotContains(response, str(staged[0].pk))
+        manifest = self.client.get(url + response.context["deletion_download_url"])
+        inventory = json.loads(b"".join(manifest.streaming_content))
+        ids = {entry["id"] for entry in inventory["entries"]}
+        self.assertTrue(
+            {str(message.pk), str(observations[0].pk), str(staged[0].pk)} <= ids
+        )
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
                 url, {"post": "yes", "revision": response.context["deletion_revision"]}

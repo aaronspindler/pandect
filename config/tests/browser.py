@@ -1348,9 +1348,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 ).to_have_attribute("aria-current", "page")
                 if engine == self.engines[0]:
                     expect(
-                        page.get_by_role(
-                            "heading", name="Keep the vehicles in this case together"
-                        )
+                        page.get_by_role("heading", name="No vehicles yet")
                     ).to_be_visible()
                 page.get_by_role("link", name="Add vehicle").first.focus()
                 page.get_by_role("link", name="Add vehicle").first.press("Enter")
@@ -1994,7 +1992,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.goto(self.url("cases:case_settings", case_id=case.pk))
                     page.locator(".record-row").filter(
                         has_text=guest.email
-                    ).get_by_role("link", name="Change access", exact=True).click()
+                    ).get_by_role(
+                        "link", name=f"Change access for {guest.username}", exact=True
+                    ).click()
                     page.locator("select[name='role']").select_option("viewer")
                     page.get_by_role("button", name="Save access", exact=True).click()
                     expect(
@@ -2010,7 +2010,11 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     expect(
                         guest_page.get_by_role("link", name="Edit details", exact=True)
                     ).to_have_count(0)
-                    page.get_by_role("link", name="Remove", exact=True).click()
+                    page.get_by_role(
+                        "link",
+                        name=f"Remove {guest.username} from this case",
+                        exact=True,
+                    ).click()
                     page.get_by_role("checkbox").check()
                     page.get_by_role(
                         "button", name="Remove collaborator", exact=True

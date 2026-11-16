@@ -7,7 +7,7 @@ import sys
 import time
 from http.client import HTTPException
 from urllib.error import HTTPError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
@@ -25,6 +25,25 @@ def required(name):
     if not value:
         raise DeploymentError(f"Set {name} in the workflow environment.")
     return value
+
+
+def runner_file(name):
+    path = os.path.realpath(required(name))
+    root = os.path.realpath(required("RUNNER_TEMP"))
+    if not path.startswith(root + os.sep):
+        raise DeploymentError(f"{name} must stay inside RUNNER_TEMP.")
+    return path
+
+
+def github_base():
+    if required("GITHUB_API_URL").rstrip("/") != "https://api.github.com":
+        raise DeploymentError("Only the public GitHub API is supported.")
+    repository = required("GITHUB_REPOSITORY")
+    if not re.fullmatch(
+        r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}", repository
+    ):
+        raise DeploymentError("Invalid GitHub repository identity.")
+    return f"https://api.github.com/repos/{quote(repository, safe='/')}"
 
 
 def release_version():
@@ -74,12 +93,11 @@ def preflight():
         not re.fullmatch(r"[0-9a-f]{40}", sha)
         or not re.fullmatch(r"[1-9][0-9]{0,19}", run_id)
         or not re.fullmatch(r"[1-9][0-9]{0,19}", attempt)
-        or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
     ):
         raise DeploymentError("Invalid CI run identity.")
-    output_path = required("GITHUB_OUTPUT")
+    output_path = runner_file("GITHUB_OUTPUT")
     attempt = int(attempt)
-    base = f"{required('GITHUB_API_URL')}/repos/{repository}/actions/runs/{run_id}"
+    base = f"{github_base()}/actions/runs/{run_id}"
     headers = {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"}
     run = api(f"{base}/attempts/{attempt}", headers)
     if (
@@ -165,7 +183,7 @@ def preflight():
         raise DeploymentError("CI did not report all completed required checks.")
     eligible = full and eligible_release(sha)
     with open(output_path, "a", encoding="utf-8") as output:
-        output.write(f"deploy={'true' if eligible else 'false'}\n")
+        output.write(f"deploy={'true' if eligible else 'false'}\nsource={sha}\n")
     message = (
         "CI checks passed; production publication and deployment are eligible."
         if eligible
@@ -177,8 +195,8 @@ def preflight():
         )
     )
     print(message)
-    if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
-        with open(summary_path, "a", encoding="utf-8") as summary:
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(runner_file("GITHUB_STEP_SUMMARY"), "a", encoding="utf-8") as summary:
             summary.write(message + "\n")
 
 
@@ -186,7 +204,7 @@ def eligible_release(sha):
     """Accept only forward commits on the current main history."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise DeploymentError("Invalid CI commit identity.")
-    base = f"{required('GITHUB_API_URL')}/repos/{required('GITHUB_REPOSITORY')}"
+    base = github_base()
     headers = {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"}
     comparison = api(f"{base}/compare/{sha}...main", headers)
     if not isinstance(comparison, dict) or comparison.get("status") not in {
@@ -241,8 +259,18 @@ def eligible_release(sha):
     return True
 
 
+def dokploy_origin():
+    value = required("DOKPLOY_URL").rstrip("/")
+    if not re.fullmatch(r"https://[A-Za-z0-9.:\[\]-]{1,260}", value):
+        raise DeploymentError("DOKPLOY_URL must be an HTTPS origin.")
+    origin = urlsplit(value)
+    if not origin.hostname or origin.username or origin.password or origin.path:
+        raise DeploymentError("DOKPLOY_URL must be an HTTPS origin.")
+    return value
+
+
 def dokploy(path, data=None, **query):
-    url = f"{required('DOKPLOY_URL').rstrip('/')}/api/{path}"
+    url = f"{dokploy_origin()}/api/{path}"
     if query:
         url += "?" + urlencode(query)
     return api(url, {"x-api-key": required("DOKPLOY_API_KEY")}, data)
@@ -269,12 +297,11 @@ def create_rollout(sha, image):
     """Record the exact image revision before changing either runtime service."""
     version = release_version()
     rollout_log_url()
-    repository = required("GITHUB_REPOSITORY")
     ci_run_id = required("CI_RUN_ID")
     if not re.fullmatch(r"[1-9][0-9]{0,19}", ci_run_id):
         raise DeploymentError("Invalid CI run identity.")
     result = api(
-        f"{required('GITHUB_API_URL')}/repos/{repository}/deployments",
+        f"{github_base()}/deployments",
         {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"},
         {
             "ref": sha,
@@ -301,10 +328,8 @@ def create_rollout(sha, image):
 
 
 def mark_rollout(deployment_id, state):
-    repository = required("GITHUB_REPOSITORY")
     result = api(
-        f"{required('GITHUB_API_URL')}/repos/{repository}"
-        f"/deployments/{deployment_id}/statuses",
+        f"{github_base()}/deployments/{deployment_id}/statuses",
         {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"},
         {"state": state, "auto_inactive": False, "log_url": rollout_log_url()},
     )
@@ -496,7 +521,7 @@ def main():
         raise DeploymentError("Invalid CI commit identity.")
     if not eligible_release(sha):
         return
-    output_path = required("GITHUB_OUTPUT")
+    output_path = runner_file("GITHUB_OUTPUT")
     if os.environ.get("PANDECT_PRODUCTION_DATABASE_BASELINE") != "domain-apps-v1":
         raise DeploymentError(
             "Production requires a fresh PostgreSQL database and empty queue for "
@@ -505,17 +530,7 @@ def main():
             "PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1. "
             "See docs/operations.md."
         )
-    origin = urlsplit(required("DOKPLOY_URL").rstrip("/"))
-    if (
-        origin.scheme != "https"
-        or not origin.hostname
-        or origin.username
-        or origin.password
-        or origin.path
-        or origin.query
-        or origin.fragment
-    ):
-        raise DeploymentError("DOKPLOY_URL must be an HTTPS origin.")
+    dokploy_origin()
     required("DOKPLOY_API_KEY")
     required("DOKPLOY_REGISTRY_PASSWORD")
     required("CI_RUN_ID")

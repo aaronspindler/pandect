@@ -364,7 +364,7 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         with patch("geo.vehicle_import_jobs.CHUNK_SIZE", 1):
             batch = self.new_batch(original)
             review = self.client.get(self.review_url(batch))
-            self.assertContains(review, "2 observations can be imported without them")
+            self.assertContains(review, "2 observations ready without them")
             self.assertFalse(
                 review.context["form"].fields["confirm_duplicates"].required
             )

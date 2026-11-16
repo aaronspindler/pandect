@@ -78,9 +78,11 @@
   background:var(--surface);
 }
 
-.evidence-search-field>.icon {
-  width:20px;
-  height:20px;
+.evidence-search-field .icon-button {
+  flex:none;
+  padding:.5rem;
+  border:0;
+  background:transparent;
 }
 
 .workspace-page .evidence-search .evidence-search-field input {

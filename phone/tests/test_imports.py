@@ -93,6 +93,20 @@ class CommunicationImportTests(EvidenceViewTestMixin, TestCase):
         result = AnalysisResult.objects.create(case=self.case, run=run, data=data)
         return run, result
 
+    def test_unexpected_row_exception_detail_never_enters_retained_results(self):
+        source = self.document(self.row())
+        with patch(
+            "phone.analysis.deterministic.imports._parse_time",
+            side_effect=ValueError("private /operator/path: parser internals"),
+        ):
+            data = prepare_import([source], self.parameters())
+        self.assertEqual(data["outcome"], "partial")
+        self.assertNotIn("private /operator/path", json.dumps(data))
+        self.assertIn(
+            "review the source row", data["items"][0]["values"]["unresolved_reason"]
+        )
+        self.assertNotIn("import_message", data["items"][0]["values"])
+
     def test_supported_export_preserves_text_context_and_original(self):
         html = self.row(
             attrs=(

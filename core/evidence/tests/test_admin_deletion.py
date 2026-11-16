@@ -1,5 +1,6 @@
 """Confirmed superuser deletion removes originals and dependent analysis files."""
 
+import json
 from dataclasses import replace
 from unittest.mock import patch
 from uuid import uuid4
@@ -202,8 +203,16 @@ class SuperuserEvidenceDeletionTests(EvidenceTestMixin, TestCase):
             inputs=first.inputs,
         )
         response = self.client.get(self.url(item))
-        self.assertContains(response, str(first.pk))
-        self.assertContains(response, str(downstream.pk))
+        self.assertIn(("Analysis run", 3), response.context["deletion_record_counts"])
+        self.assertNotContains(response, str(first.pk))
+        manifest = self.client.get(
+            self.url(item) + response.context["deletion_download_url"]
+        )
+        inventory = json.loads(b"".join(manifest.streaming_content))
+        ids = {entry["id"] for entry in inventory["entries"]}
+        self.assertTrue({str(first.pk), str(downstream.pk), str(queued.pk)} <= ids)
+        self.assertNotIn(str(unrelated.pk), ids)
+        self.assertNotIn(str(other_case.pk), ids)
         self.assertNotContains(response, str(unrelated.pk))
         self.assertNotContains(response, str(other_case.pk))
         with self.captureOnCommitCallbacks(execute=True):

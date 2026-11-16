@@ -3,12 +3,14 @@
 import os
 import sys
 from itertools import pairwise
-from pathlib import Path
 from urllib.parse import unquote
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.urls import reverse
 from playwright.sync_api import expect, sync_playwright
+
+from config.tests.browser_artifacts import artifact_directory
+from core.evidence.types import KINDS
 
 
 class MarketingBrowserTests(StaticLiveServerTestCase):
@@ -39,13 +41,8 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
             if name.strip()
         )
         self.assertTrue(engines and not set(engines) - {"chromium", "webkit"})
-        artifacts = Path(
-            os.environ.get(
-                "PANDECT_BROWSER_ARTIFACTS", "data/validation/marketing-browser"
-            )
-        ).resolve()
-        artifacts.mkdir(parents=True, exist_ok=True)
-        pages = ("home", "product", "trust", "roadmap", "hosting")
+        artifacts = artifact_directory("marketing-browser")
+        pages = ("home", "product", "evidence", "trust", "roadmap", "hosting")
         viewports = (
             (1440, 900),
             (1440, 1024),
@@ -85,6 +82,22 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             )
                         )
                         expect(page.get_by_role("heading", level=1)).to_have_count(1)
+                        if name == "evidence":
+                            page.locator("#main-content").focus()
+                            self.assertCountEqual(
+                                page.locator(".catalogue-section[id]").evaluate_all(
+                                    "sections => sections.map(s => s.id)"
+                                ),
+                                KINDS,
+                            )
+                            self.assertTrue(
+                                page.locator(".catalogue-table").evaluate_all(
+                                    "tables => tables.length > 0 && tables.every(t => "
+                                    "t.caption?.textContent.trim() && t.tHead && "
+                                    "t.tBodies.length && Array.from(t.tBodies[0].rows)"
+                                    ".every(r => r.querySelector('th[scope=row]')))"
+                                )
+                            )
                         if name != "home":
                             expect(
                                 page.locator("header [aria-current='page']")
@@ -99,23 +112,59 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             page.set_viewport_size({"width": width, "height": height})
                             self.assert_reflow(page)
                             self.assert_control_sizes(page)
+                            if name == "evidence" and width <= 768:
+                                labels = page.locator(".catalogue-cell-label")
+                                self.assertGreater(labels.count(), 0)
+                                self.assertTrue(
+                                    labels.evaluate_all(
+                                        "labels => labels.every(label => "
+                                        "label.getBoundingClientRect().height > 0)"
+                                    )
+                                )
+                                self.assertTrue(
+                                    page.locator(
+                                        ".catalogue-table tbody tr"
+                                    ).evaluate_all(
+                                        "rows => rows.every(row => Math.abs("
+                                        "row.querySelector('th').getBoundingClientRect()"
+                                        ".width - row.getBoundingClientRect()"
+                                        ".width) < 1)"
+                                    ),
+                                    "Stacked headings must use the full row width",
+                                )
                             page.screenshot(
                                 path=str(
                                     artifacts / f"{engine}-{name}-{width}x{height}.png"
                                 ),
-                                full_page=True,
+                                full_page=name != "evidence",
                             )
+                            if name == "evidence" and width in (1440, 390):
+                                page.locator(".catalogue-section[id]").first.screenshot(
+                                    path=str(
+                                        artifacts
+                                        / (
+                                            f"{engine}-evidence-section-"
+                                            f"{width}x{height}.png"
+                                        )
+                                    )
+                                )
                         page.locator("html").evaluate(
                             "element => element.style.fontSize = '200%'"
                         )
                         self.assert_reflow(page)
                         page.screenshot(
                             path=str(artifacts / f"{engine}-{name}-text-200.png"),
-                            full_page=True,
+                            full_page=name != "evidence",
                         )
                         page.locator("html").evaluate(
                             "element => element.style.removeProperty('font-size')"
                         )
+                        if name == "evidence":
+                            # A 360 CSS-pixel viewport exercises the reflow area
+                            # available at 400% zoom on a 1440-pixel display.
+                            page.set_viewport_size({"width": 360, "height": 225})
+                            self.assert_reflow(page)
+                            self.assert_control_sizes(page)
                     for href in sorted(local_links):
                         path, _, fragment = href.partition("#")
                         response = context.request.get(self.live_server_url + path)
@@ -150,6 +199,11 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                     analysis_url = reverse("marketing:product") + "#analysis"
                     for scope, name, href in (
                         ("header", "Product", reverse("marketing:product")),
+                        (
+                            "header",
+                            "Evidence & analysis",
+                            reverse("marketing:evidence"),
+                        ),
                         ("header", "Trust", reverse("marketing:trust")),
                         ("header", "Roadmap", reverse("marketing:roadmap")),
                         ("header", "Hosting", reverse("marketing:hosting")),
@@ -195,6 +249,18 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             expect(page.locator(":target")).to_be_in_viewport()
                     expect(page.locator("#analysis:target")).to_be_in_viewport()
 
+                    page.goto(self.live_server_url + reverse("marketing:evidence"))
+                    for kind in KINDS:
+                        link = page.locator(f'.page-links a[href="#{kind}"]')
+                        link.focus()
+                        link.press("Enter")
+                        expect(page).to_have_url(
+                            self.live_server_url
+                            + reverse("marketing:evidence")
+                            + f"#{kind}"
+                        )
+                        expect(page.locator(f"#{kind}:target")).to_be_in_viewport()
+
                     page.goto(self.live_server_url + reverse("marketing:hosting"))
                     faqs = page.locator(".marketing-faq details")
                     self.assertGreater(faqs.count(), 0)
@@ -220,7 +286,9 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             else "none",
                         )
                         appearance_pages = (
-                            ("home",) if appearance == "reduced-motion" else pages
+                            ("home", "evidence")
+                            if appearance == "reduced-motion"
+                            else pages
                         )
                         for name in appearance_pages:
                             page.goto(
@@ -235,7 +303,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                                 path=str(
                                     artifacts / f"{engine}-{name}-{appearance}.png"
                                 ),
-                                full_page=True,
+                                full_page=name != "evidence",
                             )
                     context.close()
                     browser.close()

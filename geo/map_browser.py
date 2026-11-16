@@ -13,6 +13,7 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.core.paginator import Paginator
 from django.db import connections
 from django.test import override_settings
 from django.urls import reverse
@@ -154,6 +155,63 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 route.fulfill(status=200, content_type="image/png", body=self.tile)
 
         context.route("**/*", serve)
+
+    def test_poi_marker_content_is_text_even_when_it_contains_markup(self):
+        markup = '<img src=x onerror="window.pandectInjected=true">'
+        points = [
+            {
+                "number": markup,
+                "title": markup,
+                "latitude": 43.64,
+                "longitude": -79.38,
+                "url": "/",
+            }
+        ]
+        unsafe_urls = (
+            "javascript:window.pandectInjected=true",
+            "data:text/html,<script>window.pandectInjected=true</script>",
+            "https://unrelated.example.test/",
+            "http://[invalid",
+        )
+        points.extend(
+            {
+                "number": f"unsafe-{index}",
+                "title": "Unsafe source link",
+                "latitude": 43.64 + (index + 1) / 100,
+                "longitude": -79.38,
+                "url": url,
+            }
+            for index, url in enumerate(unsafe_urls)
+        )
+        with (
+            patch(
+                "geo.map_views.poi_map_data",
+                return_value=(Paginator([], 100).page(1), points),
+            ),
+            sync_playwright() as playwright,
+        ):
+            for engine in self.engines():
+                with self.subTest(engine=engine):
+                    browser = getattr(playwright, engine).launch()
+                    context = browser.new_context()
+                    self.authenticate(context)
+                    self.mock_tiles(context, [])
+                    page = context.new_page()
+                    page.goto(self.map_url)
+                    marker = page.locator(".case-map-poi").first
+                    expect(marker.locator("b")).to_have_text(markup)
+                    expect(marker.locator("img")).to_have_count(0)
+                    marker.click()
+                    popup = page.locator(".leaflet-popup-content")
+                    expect(popup.locator("a")).to_have_text(f"{markup}. {markup}")
+                    expect(popup.locator("img")).to_have_count(0)
+                    for index in range(len(unsafe_urls)):
+                        page.locator(".case-map-poi").nth(index + 1).dispatch_event(
+                            "click"
+                        )
+                        expect(popup.locator("a")).not_to_have_attribute("href")
+                    self.assertIsNone(page.evaluate("window.pandectInjected"))
+                    browser.close()
 
     def test_complete_trip_keyboard_sources_and_responsive_layouts(self):
         with sync_playwright() as playwright:

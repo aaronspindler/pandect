@@ -10,6 +10,7 @@ from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.http import Http404
 
 from core.analysis.errors import AnalysisError
+from core.analysis.execution import requires_inference
 from core.analysis.navigation import finding_url
 from core.analysis.operations import OPERATIONS
 from core.analysis.projection import finding_values
@@ -271,6 +272,7 @@ def finding_rows(case, findings):
             if run.operation in OPERATIONS
             else run.operation,
             "created_at": run.created_at,
+            "uses_ai": bool(requires_inference(run.operation, run.parameters)),
             "review": finding.review or "unreviewed",
             "result_review": finding.result_review,
             "weak": finding.weak,

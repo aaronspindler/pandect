@@ -1,10 +1,10 @@
 {% extends "ui/base.html" %}
-{% block title %}{% if creating %}Add social account{% else %}Edit social account{% endif %} · Pandect{% endblock %}
+{% block title %}{% if creating %}Add social account{% else %}Edit social account{% endif %}{% endblock %}
 {% block content %}
 <p class="breadcrumb"><a href="{{ return_url }}">Back to person</a></p>
 <div class="page-header"><div>
   <h1>{% if creating %}Add social account{% else %}Edit social account{% endif %}</h1>
-  <p class="prose">Record a reported platform and username for {{ person }}.</p>
+  <p class="prose">Reported account for {{ person }}. Ownership is unverified.</p>
 </div></div>
 {% if latest_account %}
 <section class="notice" aria-labelledby="latest-heading">

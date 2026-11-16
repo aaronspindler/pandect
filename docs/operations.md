@@ -298,7 +298,14 @@ token; Dokploy's long-lived pull credential stays in secrets and Docker provider
 configuration. The helper preserves operator-owned environments, mounts, domains,
 database, and secret-store settings; it never redeploys PostgreSQL.
 
-CD accepts successful `CI` runs only from same-repository `main` pushes. Its whole
+The Python workflow helpers accept only `https://api.github.com` for the GitHub
+API and validate repository names before authenticated requests. Runner event,
+output, and summary paths must resolve beneath `RUNNER_TEMP`, including after
+symlink resolution. These helpers use GitHub-hosted runner paths; local mocked
+tests supply their own temporary root.
+
+CD accepts successful `CI` runs only from same-repository `main` pushes. The image
+build job checks out the source identity verified and emitted by preflight. Its whole
 workflow queues behind an active release without cancelling it for newer commits;
 GitHub permits up to 100 pending runs. Manual cancellation, queue limits, failures,
 and timeouts can still interrupt a release. Queued commits may be ancestors of

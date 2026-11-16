@@ -47,10 +47,10 @@
 {% else %}
 <div class="empty-state">
 <h2>
-{% if query or ownership != 'all' %}No matching cases{% else %}Start your first investigation{% endif %}
+{% if query or ownership != 'all' %}No matching cases{% else %}No cases yet{% endif %}
 </h2>
 <p>
-{% if query or ownership != 'all' %}Try a different name or clear your filters.{% else %}Create a case to collect original material and build a clear picture with your collaborators.{% endif %}
+{% if query or ownership != 'all' %}Try a different name or clear your filters.{% else %}Create a case to start collecting evidence.{% endif %}
 </p>
 {% if not query and ownership == 'all' %}
 <a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>

@@ -389,7 +389,7 @@ def selection_remove(request, case_id, selection_id, member_index):
         case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")
         selection = _get(case, selection_id, lock=request.method == "POST")
         if member_index >= len(selection.members):
-            raise Http404("Selection member not found.")
+            raise Http404("Selected item not found.")
         form = RevisionForm(
             request.POST if request.method == "POST" else None,
             initial={"revision": revision_token(selection)},
@@ -529,6 +529,7 @@ def selection_analyze(request, case_id, selection_id):
                 form = analysis_form(
                     request.POST if request.method == "POST" else None,
                     case=case,
+                    actor=request.user,
                     operation=operation,
                 )
                 options = [
@@ -563,6 +564,7 @@ def selection_analyze(request, case_id, selection_id):
                         parameters=form.parameters(),
                         submission_id=form.cleaned_data["submission_id"],
                         external_processing=form.cleaned_data["external_processing"],
+                        approved_execution=form.approved_execution,
                     )
                     return redirect(
                         "core:analysis:detail", case_id=case.pk, run_id=run.pk

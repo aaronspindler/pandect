@@ -440,7 +440,7 @@ details>summary+* {
   min-width:0
 }
 
-.field label {
+.field label,.field-group legend {
   display:inline-block;
   font-weight:550;
   font-size:.875rem;
@@ -448,7 +448,7 @@ details>summary+* {
 }
 
 .optional {
-  font-size:.75rem;
+  font-size:.875rem;
   color:var(--secondary)
 }
 
@@ -519,9 +519,23 @@ textarea {
 }
 
 .help-text {
-  font-size:.8125rem;
+  font-size:.875rem;
   margin-top:.375rem;
   overflow-wrap:anywhere
+}
+
+.field-group {
+  padding:0;
+  border:0
+}
+
+.field-group :is(div,li)>label {
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  min-height:44px;
+  font-weight:400;
+  margin:0
 }
 
 .help-text ul {

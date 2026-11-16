@@ -338,6 +338,42 @@ class PersonInterfaceTests(TestCase):
         )
         self.assertContains(detail, "?q=Alex&amp;page=2")
 
+    def test_create_edit_and_delete_keep_search_and_page_context(self):
+        self.client.force_login(self.owner)
+        query = "?q=Alex+%26+Example&page=2"
+        html_query = query.replace("&", "&amp;")
+        collection = self.client.get(self.url() + query)
+        self.assertContains(collection, self.url("create") + html_query)
+        create = self.client.get(self.url("create") + query)
+        self.assertContains(create, self.url() + html_query)
+        response = self.client.post(
+            self.url("create") + query, {"first_name": "New person"}
+        )
+        created = Person.objects.get(case=self.case, first_name="New person")
+        self.assertRedirects(
+            response, self.url("detail", created) + query, fetch_redirect_response=False
+        )
+
+        response = self.client.post(
+            self.url("edit", self.person) + query,
+            self.edit_data(address="Saved address"),
+        )
+        self.assertRedirects(
+            response,
+            self.url("detail", self.person) + query,
+            fetch_redirect_response=False,
+        )
+        detail = self.client.get(self.url("detail", created) + query)
+        self.assertContains(detail, self.url("delete", created) + html_query)
+        confirmation = self.client.get(self.url("delete", created) + query)
+        self.assertContains(confirmation, self.url("detail", created) + html_query)
+        response = self.client.post(
+            self.url("delete", created) + query, {"confirm": "on"}
+        )
+        self.assertRedirects(
+            response, self.url() + query, fetch_redirect_response=False
+        )
+
     def test_notes_are_escaped_and_missing_details_are_clear(self):
         self.person.notes = '<script>alert("untrusted")</script>\nUncertain source'
         self.person.save()

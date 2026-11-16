@@ -60,7 +60,10 @@ cannot start work and GET never enqueues. Processing shows progress/recovery.
 
 Lines connect reported positions or specifically reviewed address estimates in
 time order, interrupted by missing/ambiguous positions. They show no raw observation
-markers or reconstructed roads. Trips without drawable positions remain listed.
+markers or reconstructed roads. Concise route and tile-provider privacy details
+stay visible beside the map; **Map details** retains interpretation, lookup,
+and keyboard help.
+Trips without drawable positions remain listed.
 First/last observed places/times verify no departure/arrival, continuous presence,
 driver, or travelled distance. Positions beyond Web Mercator ±85.05112878° remain
 inspectable without clamping originals.

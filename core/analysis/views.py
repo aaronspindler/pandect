@@ -26,6 +26,7 @@ from core.analysis.automatic import start_evidence_analysis
 from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
+    gateway_destination,
     requires_inference,
     retry_execution_confirmation,
     snapshot_execution,
@@ -456,6 +457,7 @@ def create(request, case_id, kind=None, evidence_id=None):
     form = analysis_form(
         posted,
         case=case,
+        actor=request.user,
         operation=operation,
         query=query,
         evidence=evidence,
@@ -487,6 +489,7 @@ def create(request, case_id, kind=None, evidence_id=None):
                 parameters=form.parameters(),
                 submission_id=form.cleaned_data["submission_id"],
                 external_processing=form.cleaned_data["external_processing"],
+                approved_execution=form.approved_execution,
             )
         except (ValidationError, AnalysisError) as error:
             form.add_error(
@@ -691,14 +694,7 @@ def _retry_parameters(run):
 
 def _retry_destination(execution):
     if execution["backend"] == "gateway":
-        account, gateway, model = (
-            execution["account"],
-            execution["gateway"],
-            execution["model"],
-        )
-        if account and gateway and model:
-            return f"Cloudflare AI Gateway · {account} / {gateway} · {model}"
-        return "Cloudflare AI Gateway (configuration required)"
+        return gateway_destination(execution)
     try:
         endpoint = urlsplit(execution["url"])
         if endpoint.scheme in {"http", "https"} and endpoint.hostname:

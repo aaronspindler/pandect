@@ -49,7 +49,9 @@ are documented in [the Dokploy deployment procedure](operations.md#first-dokploy
 The development Compose smoke does not validate public DNS, TLS, or a remote rollout.
 
 `make test` and `make browser-check` select `config.test_settings`: PostgreSQL and
-application settings with source assets, without a release manifest. Direct test
+application settings with source assets, without a release manifest. Test settings
+clear live Gateway destinations/credentials and select the default Workers AI
+route; provider tests supply synthetic settings and mock HTTP transport. Direct test
 commands also need `--settings=config.test_settings`; override Make's module with
 `TEST_SETTINGS=<module>` for a separate test database configuration. Static tests
 exercise manifest collection/cache headers; Compose smoke checks the non-debug build.
@@ -139,8 +141,10 @@ a test database between competing Django processes or use an investigation datab
 
 `PANDECT_BROWSER_ENGINES` selects `chromium`, `webkit`, or both (comma-separated;
 default both). `PANDECT_BROWSER_ARTIFACTS` overrides captures for the shared
-harness and marketing; map captures always use `data/validation/maps`. Defaults
-are listed below. Artifacts are ignored local output; keep fixtures synthetic.
+harness and marketing within the checkout's `data/validation/` directory. Paths
+and symlinks resolving outside that directory are rejected. Map captures always
+use `data/validation/maps`. Defaults are listed below. Artifacts are ignored local
+output; keep fixtures synthetic.
 
 | Suite | Default captures |
 | --- | --- |
@@ -224,6 +228,14 @@ capacity in routine tests.
   synthetic configuration. `PANDECT_BROWSER_ENGINES` selects the engine.
 - A separate application-run job audits locked dependencies without database
   credentials. The scheduled audit also continues independently of source changes.
+- CI and the scheduled audit share uv dependency caches keyed by `.python-version`,
+  `pyproject.toml`, and `uv.lock`; setup-uv also separates the runner OS/version and
+  architecture. Source-only changes retain reuse, while runtime/dependency changes
+  invalidate the cache. The static job seeds amd64 before its dependent jobs;
+  only the arm64 check and the independent scheduled/manual audit additionally
+  save caches. Downstream amd64 jobs restore only. Every job still installs or
+  audits the locked graph; a cache hit never skips validation. See
+  [setup-uv caching](https://github.com/astral-sh/setup-uv/blob/68559e99cc807c1eb7e9238fd43a15bba460eec2/docs/caching.md).
 - Native smoke builds and production publication reuse architecture-specific
   GitHub Actions BuildKit layer caches. Only upstream `main` CI smoke builds and
   CD builds export those caches; PR and manual CI runs restore only. Cache misses
@@ -231,6 +243,14 @@ capacity in routine tests.
   publication failures.
   Smoke exercises the exact locally loaded image; publication rebuilds from the
   tested source using the matching architecture's layer cache.
+  The Dockerfile installs dependencies before copying source and sets release
+  metadata after static collection, so source/release changes retain earlier
+  layers. Its uv cache mount is local to the builder and is not exported by the
+  [GitHub Actions layer cache](https://docs.docker.com/build/ci/github-actions/cache/#cache-mounts).
+  Browser binaries and host apt packages are installed fresh; Playwright
+  [does not recommend browser caching](https://playwright.dev/python/docs/ci#caching-browsers)
+  because restore/download times are comparable and Linux dependencies still need
+  installation.
 - After those checks pass for a `main` push in the Pandect operator repository,
   **CD** allocates the next consecutive `v1.N` release version, builds native
   Linux amd64 and arm64 images, and publishes a combined attempt image to GHCR.

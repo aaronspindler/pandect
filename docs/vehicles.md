@@ -12,8 +12,8 @@ maps, and analysis.
 Open **Case tools → Vehicles**. Owners/editors choose **Add vehicle**, enter at
 least one make, model, plate, or VIN, and save; partial details are allowed.
 Viewers search/inspect. Search covers make, model, exact numeric year, color,
-plate, VIN, and saved notes, with 25 records per page. Returning from details or
-editing preserves the query/page.
+plate, VIN, and saved notes, with 25 records per page. Search and page context
+survives adding, editing, deleting, and returning from records.
 
 **Edit vehicle** corrects reported details. Stale forms preserve the draft beside
 all current details and require **Save reviewed changes**; deleted records cannot

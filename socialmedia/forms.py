@@ -20,8 +20,8 @@ class SocialAccountForm(forms.ModelForm):
         fields = ("platform", "username", "source")
         labels = {"source": "Source / citation"}
         help_texts = {
-            "platform": "Enter the platform name, for example Instagram or Mastodon.",
-            "username": "Enter the username as reported, including any leading @.",
+            "platform": "For example, Instagram or Mastodon.",
+            "username": "As reported, including any leading @.",
         }
         widgets = {
             "username": forms.TextInput(

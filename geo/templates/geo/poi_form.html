@@ -1,8 +1,8 @@
 {% extends "ui/base.html" %}
-{% block title %}{% if creating %}Add POI{% else %}Edit POI{% endif %} · Pandect{% endblock %}
+{% block title %}{% if creating %}Add POI{% else %}Edit POI{% endif %}{% endblock %}
 {% block content %}
 <p class="breadcrumb"><a href="{% url 'geo:case_map' case.pk %}">Back to map</a></p>
-<div class="page-header"><div><h1>{% if creating %}Add POI{% else %}Edit POI{% endif %}</h1><p>Link a place to a person as Home, Work, or a custom label. POIs are investigator annotations; they do not verify residence, employment, or presence.</p></div></div>
+<div class="page-header"><div><h1>{% if creating %}Add POI{% else %}Edit POI{% endif %}</h1><p>Link a place to a person. This annotation does not verify residence, employment, or presence.</p></div></div>
 {% if latest_poi %}<section class="notice" aria-labelledby="latest-heading"><h2 id="latest-heading">Review the latest saved details</h2><p>Your proposed values remain below. Compare them before saving again.</p>{% include "geo/poi_metadata.html" with poi=latest_poi show_empty=True %}</section>{% endif %}
 {% if has_people %}
 <form method="post" class="form-layout" data-unsaved-form>

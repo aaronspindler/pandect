@@ -10,6 +10,7 @@ from django.db.models import Exists, OuterRef, Q
 from django.http import Http404
 from django.utils import timezone
 
+from core.analysis.approval import prepare_external_approval, validate_external_approval
 from core.analysis.execution import processing_external, requires_inference
 from core.analysis.operations import OPERATIONS, get_operation
 from core.evidence.queries import scoped_evidence
@@ -435,6 +436,7 @@ class BaseAnalysisForm(forms.Form):
         *args,
         case,
         operation,
+        actor=None,
         query="",
         evidence=None,
         sources_page=1,
@@ -465,6 +467,9 @@ class BaseAnalysisForm(forms.Form):
         self.fields = {
             name: field for name, field in self.fields.items() if name in active_fields
         }
+        self.approved_execution = None
+        if uses_model:
+            prepare_external_approval(self, actor=actor, case=case, operation=operation)
         if not uses_model and not processing_external(operation, {}):
             self.fields["external_processing"].widget = forms.HiddenInput()
             self.fields["external_processing"].disabled = True
@@ -551,4 +556,6 @@ class BaseAnalysisForm(forms.Form):
             )
         if not external:
             data["external_processing"] = False
+        elif "execution_confirmation" in self.fields:
+            validate_external_approval(self, data)
         return data

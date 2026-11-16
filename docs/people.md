@@ -9,7 +9,8 @@ work, separate from verified evidence and model output.
 
 Open **Case tools → People**. Owners/editors choose **Add person**, enter at least
 one name, phone number, or email, and save. Viewers inspect. Search and every
-detail/edit/delete route remain case-scoped.
+detail/edit/delete route remain case-scoped. Adding, editing, or deleting a
+record retains the People search and page in return links.
 
 **Edit person** corrects name/contact details. Stale forms preserve the draft
 beside newer values and require **Save reviewed changes**; they cannot recreate

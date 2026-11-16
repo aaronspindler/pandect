@@ -186,6 +186,11 @@ inference and result limits still apply.
 
 Results preserve sources, processing details, limitations and separate reviews:
 
+Model findings show **AI suggestion** in the evidence reader, Case Tools,
+individual findings, selections, and briefs. The findings browser marks
+**AI-assisted run** because a
+single run can combine observed keywords or timing with model suggestions.
+
 - Image metadata distinguishes embedded/supplied claims. OCR/plates retain
   regions/crops, separate plate/OCR scores and low-score notices. Identifier
   normalization appears in **Value details**.
@@ -253,37 +258,108 @@ external fallback.
 
 ## External AI configuration
 
-The centralized backend uses provider-native Workers AI through Cloudflare Gateway:
-`gateway.ai.cloudflare.com/v1/ACCOUNT/GATEWAY/workers-ai/MODEL`. Browsers receive no
-credentials or direct-provider inference. Gateway/upstream authentication are
-separate; see [Gateway authentication](https://developers.cloudflare.com/ai-gateway/configuration/authentication/)
-and [Workers AI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/workersai/).
+The backend supports Workers AI and OpenAI GPT text analysis through Cloudflare
+AI Gateway. Local processing remains the default; investigators must select and
+approve external processing. Approval identifies the upstream provider and model.
+Browsers receive no credentials, and the backend never contacts OpenAI directly.
+
+### OpenAI with a key stored in Cloudflare
+
+Store an OpenAI provider key in your authenticated gateway's **Provider Keys**
+section. An existing key can be reused. Set these in the ignored local `.env`
+(or identically in the hosted web and worker environments):
+
+```dotenv
+PANDECT_AI_ACCOUNT_ID=your_32_character_cloudflare_account_id
+PANDECT_AI_GATEWAY_ID=your_gateway_id
+PANDECT_AI_GATEWAY_TOKEN=your_gateway_authentication_token
+PANDECT_AI_TEXT_PROVIDER=openai
+PANDECT_AI_TEXT_MODEL=gpt-6.1-sol
+PANDECT_AI_OPENAI_KEY_ALIAS=default
+```
+
+Use raw tokens without a `Bearer ` prefix. `PANDECT_AI_OPENAI_KEY_ALIAS` selects
+the stored provider key; change it if your key has a custom alias. Pandect sends
+`cf-aig-authorization` and `cf-aig-byok-alias`, and deliberately omits the provider
+`Authorization` header so Cloudflare supplies its stored OpenAI key. No OpenAI API
+key or Workers AI token is needed in Pandect for this text route. See
+[Cloudflare BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)
+and [OpenAI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/openai/).
+
+Run `make run` after changing Compose configuration; it updates web and worker.
+For native development, restart both processes using `uv run --locked --env-file
+.env ...`; Django itself does not load `.env`. Start a new analysis, choose the
+external service, inspect its destination, and approve the selected transfer.
+Changing configuration does not enable automatic cloud processing.
+
+OpenAI uses the Gateway's `/openai/responses` endpoint with **high** reasoning
+effort for question-driven synthesis, claims and commitments, and semantic
+conversation links; topics and message-session summaries use **medium** effort.
+Each request has a 32,768-token total completion allowance, including reasoning,
+and a 300-second client timeout with the matching Cloudflare request-timeout
+header. These bounds allow room for reasoning alongside the cited JSON output;
+they are ceilings, not guaranteed usage or completion times. Reasoning tokens
+are billed as output. See [OpenAI reasoning budgets](https://developers.openai.com/api/docs/guides/reasoning)
+and [Cloudflare request timeouts](https://developers.cloudflare.com/ai-gateway/configuration/request-handling/).
+Requests use `store=false` and JSON-object output. Existing source-quotation and
+domain validation still apply. Refused, incomplete, malformed, or unsupported
+output publishes no result.
+`gpt-6.1-sol` is the documented starting configuration; another GPT model must
+support these Responses API parameters. Model availability/access and analysis
+quality require live qualification. See [OpenAI JSON output](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+### Provider configuration
 
 | Environment variable | Purpose/default |
 | --- | --- |
-| `PANDECT_AI_ACCOUNT_ID` | Cloudflare account ID; empty disables inference. |
+| `PANDECT_AI_ACCOUNT_ID` | Cloudflare account ID; empty disables external inference. |
 | `PANDECT_AI_GATEWAY_ID` | Operator gateway ID. |
-| `PANDECT_AI_GATEWAY_TOKEN` | Authenticated Gateway token, sent as `cf-aig-authorization`. |
-| `PANDECT_AI_WORKERS_TOKEN` | Workers AI token, sent as `Authorization`; separate upstream credential. |
-| `PANDECT_AI_TEXT_MODEL` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
-| `PANDECT_AI_TRANSCRIPTION_MODEL` | `@cf/openai/whisper-large-v3-turbo` |
+| `PANDECT_AI_GATEWAY_TOKEN` | Gateway authentication, sent as `cf-aig-authorization`. |
+| `PANDECT_AI_TEXT_PROVIDER` | `workers-ai` (default) or `openai`; text analysis only. |
+| `PANDECT_AI_TEXT_MODEL` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` by default; explicitly set a GPT model when choosing `openai`. |
+| `PANDECT_AI_OPENAI_KEY_ALIAS` | Stored OpenAI provider key alias; `default`. |
+| `PANDECT_AI_WORKERS_TOKEN` | Workers AI upstream credential; required only for Workers AI routes. |
+| `PANDECT_AI_TRANSCRIPTION_MODEL` | `@cf/openai/whisper-large-v3-turbo`; external transcription remains on Workers AI. |
 
-The backend uses a 60-second request deadline, a daily ceiling of 100 requests per
-case, an 8 MiB request limit and a 2 MiB response limit. These bounded application
-defaults are defined in `config/settings.py`; they are not environment variables.
+Workers AI uses `gateway.ai.cloudflare.com/v1/ACCOUNT/GATEWAY/workers-ai/MODEL`
+and sends its separate upstream token in `Authorization`. Text inference uses a
+4,096-token output allowance and temperature zero. OCR remains local Tesseract.
+There is no provider switching or fallback. See
+[Gateway authentication](https://developers.cloudflare.com/ai-gateway/configuration/authentication/)
+and [Workers AI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/workersai/).
 
-Match web/worker configuration. Deliberately configure provider/Gateway logging
-and retention; skip-cache/no-log headers neither replace that policy nor guarantee
-upstream retention behavior. Runs retain explicit approval; payloads, secrets and
-provider exception bodies stay out of routine telemetry.
+Workers AI retains its 60-second client timeout. Both routes retain the 8 MiB
+request limit and 2 MiB response limit. These bounds and inference controls are
+application settings, not environment variables. Pandect imposes no daily
+request-count limit. Each HTTP attempt records case/run/model and bytes; missing
+token usage stays unknown.
+Cloudflare and upstream provider rate/quota limits still apply. Usage records do
+not imply an exact cost.
 
-Each HTTP attempt records case/run/model and bytes; missing token usage stays
-unknown. Daily request limits include failures and imply no exact cost.
-Authentication, quota, throttling, timeout, invalid output and missing settings
-fail recoverably. Transient 429/502/503/504 gets one transport retry with renewed
-authorization; others need deliberate reruns. Reports/deterministic checks need
-no AI credentials. Mocked inference/geocoding establishes no live availability
-or model quality; evaluate changed models/languages/inputs before broader claims.
+Match web/worker configuration. Provider, API format, stored-key alias and inference
+settings are retained without secrets. Configuration changes stop queued work
+recoverably. Old cloud jobs without a destination snapshot cannot move to OpenAI;
+start a deliberate rerun with fresh approval. Retained results stay readable.
+Initial analysis, synthesis, bulk processing and reruns bind external approval to
+the reviewed destination; changed settings require renewed review.
+
+Queued OpenAI work approved under the previous low-effort/8,192-token settings
+stops recoverably after this upgrade. Start a deliberate rerun with fresh approval
+to use the new settings; retained results remain readable. Local Ollama settings
+are unchanged, with thinking disabled.
+
+Queued work approved under the former daily request cap needs a deliberate rerun
+with fresh approval after upgrading. Historical usage and failed runs are retained;
+removing the cap does not automatically retry failed work.
+
+Deliberately configure Cloudflare and OpenAI logging/retention. `store=false` and
+the skip-cache/no-log headers do not override provider policies or guarantee zero
+retention. Payloads, secrets and provider exception bodies stay out of routine
+telemetry. Authentication, quota, throttling, timeout, invalid output and missing
+configuration fail recoverably. HTTP 429/502/503/504 gets one transport retry with
+renewed authorization and destination checks; other failures need deliberate
+reruns. Routine tests mock inference and establish neither live availability nor
+model quality. Reports and deterministic checks need no AI credentials.
 
 ## Data and code boundaries
 

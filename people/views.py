@@ -116,7 +116,12 @@ def person_create(request, case_id):
             person.case = case
             person.save(force_insert=True)
             messages.success(request, "Person added.")
-            return redirect("people:detail", case_id=case.pk, person_id=person.pk)
+            url = reverse(
+                "people:detail", kwargs={"case_id": case.pk, "person_id": person.pk}
+            )
+            if query := list_query(request):
+                url += f"?{query}"
+            return redirect(url)
     return render(
         request,
         "people/form.html",
@@ -146,7 +151,12 @@ def person_edit(request, case_id, person_id):
         if request.method == "POST" and form.is_valid():
             form.save(commit=False).save(force_update=True)
             messages.success(request, "Person details saved.")
-            return redirect("people:detail", case_id=case.pk, person_id=person.pk)
+            url = reverse(
+                "people:detail", kwargs={"case_id": case.pk, "person_id": person.pk}
+            )
+            if query := list_query(request):
+                url += f"?{query}"
+            return redirect(url)
         if form.stale:
             latest_person = Person.objects.get(pk=person.pk, case=case)
             form.data = form.data.copy()
@@ -190,7 +200,10 @@ def person_delete(request, case_id, person_id):
                 )
             else:
                 messages.success(request, "Person record deleted.")
-                return redirect("people:list", case_id=case.pk)
+                url = reverse("people:list", kwargs={"case_id": case.pk})
+                if query := list_query(request):
+                    url += f"?{query}"
+                return redirect(url)
     return render(
         request,
         "people/delete.html",
@@ -198,6 +211,7 @@ def person_delete(request, case_id, person_id):
             **case_context(case, request.user),
             "person": person,
             "form": form,
+            "list_query": list_query(request),
         },
         status=400 if request.method == "POST" else 200,
     )

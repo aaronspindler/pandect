@@ -36,6 +36,8 @@
   <div class="section-header"><div><h2 id="map-heading" class="sr-only">Trip map</h2><p class="muted map-summary">{% if selected_trip %}Selected trip · {{ selected_trip.source_count }} observations{% else %}No trip selected{% endif %}{% if poi_page %} · {{ poi_mapped_count }} of {{ poi_page|length }} POIs mapped{% endif %}</p></div><div class="actions"><button type="button" class="button button-secondary" data-map-fit aria-label="Show selected trip and POIs" hidden>Show all</button><a class="record-link" href="#trip-list">{% if detail %}Trip observations{% else %}Trip list{% endif %}</a>{% if poi_page or query %}<a class="record-link" href="#poi-list">POI list</a>{% endif %}</div></div>
   <p role="status" data-map-status>Enable JavaScript to load the interactive map. Trip summaries and sources are available below.</p>
   <p role="status" data-trip-status></p>
+  <p class="muted">Paths connect observations. Routes, continuous presence, drivers, and distance travelled remain unverified.</p>
+  {% if tile_url %}<p class="help-text">The background map provider receives your IP address, site origin, and viewed map areas.</p>{% endif %}
   <div id="investigation-map" class="case-map" tabindex="0" role="region" aria-label="Interactive trip map" aria-describedby="map-help" hidden></div>
   {% if selected_trip %}
   <div class="map-selected-trip">
@@ -46,12 +48,13 @@
   </div>
   {% endif %}
   <details class="map-details"><summary>Map details</summary>
-    {% if can_edit %}<p>Choose a spot on the map to add a POI there, or use Add POI to enter coordinates.</p>{% endif %}
-    <p>Lines connect reported coordinates or a single reviewed address estimate in observation order. Missing positions interrupt the line. They do not establish a road route, continuous presence, departure, arrival, driver, or distance travelled.</p>
-    <p>Address-only trips remain available while local lookups or reviews are pending. Review estimates from the trip's observations before their positions can enter the path.</p>
-    <p>Evidence files, titles, notes, and source details stay in Pandect. Local address lookup sends only addresses to the configured private geocoder. The background tile service receives only tile requests.</p>
-    <p>Diamond markers labelled P show person POIs: investigator annotations, separate from retained evidence. Only the current POI page is mapped. Trip paths use complete saved trips, independently of list pagination.</p>
-    <p id="map-help">Use arrow keys to pan and + or − to zoom when the map has focus, or use the zoom buttons. Choose a trip from the list to inspect its path and sources.</p>
+    {% if can_edit %}<p>Choose a spot to add a POI, or use Add POI to enter coordinates.</p>{% endif %}
+    <p>Positions are reported coordinates or reviewed address estimates. Missing positions break the line. First and last observations do not verify departure or arrival.</p>
+    <p>Review address estimates in the trip's observations to include them on the map. Trips remain readable while lookups or reviews are pending.</p>
+    <p>Evidence files, titles, and source details are not sent to the background map provider.</p>
+    <p>Address lookup sends only addresses to the configured private geocoder.</p>
+    <p>P markers are investigator POIs, separate from evidence. Only this POI page is mapped; selected trips include all their observations.</p>
+    <p id="map-help">Focus the map to pan with arrow keys and zoom with + or −, or use the zoom buttons. Choose a trip below to inspect its sources.</p>
   </details>
 </section>
 {% if poi_page or query %}<section class="content-section" aria-labelledby="poi-list">

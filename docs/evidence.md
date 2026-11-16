@@ -288,16 +288,20 @@ history is not a versioned evidence journal.
 
 Filenames expose no storage paths/URLs. **View on site** opens product readers/
 downloads, additionally requiring verified email. Individual deletion requires a
-superuser with case access and [confirmation](#permanent-deletion). Case-admin
+superuser with case access and [confirmation](#permanent-deletion). Admin confirmation
+shows counts by record type, stored-file totals, and affected cases instead of
+listing every item; the complete private JSON inventory is optional. Case-admin
 deletion requires ownership/contained-model permissions and post-commit cleanup.
 
 When Django `DEBUG=True` (`DJANGO_DEBUG=true`), evidence lists also offer
 **Delete selected evidence (DEBUG only)** to superusers. Select records of one
-evidence type, choose the action, review the complete inventory, check the
+evidence type, choose the action, review the summary, check the
 confirmation box, and choose **Permanently delete selected evidence**. The action
 supports selected rows or all records matching the current list filters, across
-accessible cases. Review is paginated at 50 inventory entries with a complete
-private JSON download; pagination and confirmation work without JavaScript.
+accessible cases. The summary shows selected evidence, total records, and stored
+files per case, plus record-type totals across the selection. Confirmation and
+the optional complete private JSON download work without JavaScript. The server
+still rebuilds and verifies the complete inventory before deletion.
 The same case-access, dependent-record, analysis, and post-commit file cleanup
 safeguards apply. Changed selections or inventories require fresh confirmation;
 the whole batch is atomic. Bulk deletion is unavailable with `DEBUG=False`,

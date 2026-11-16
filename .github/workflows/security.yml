@@ -22,4 +22,8 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
+          cache-dependency-glob: |
+            .python-version
+            pyproject.toml
+            uv.lock
       - run: make security-check

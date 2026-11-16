@@ -70,6 +70,15 @@ CONTEXT_FIELDS = (
     "attachments",
     "source_context",
 )
+# Only authored review reasons may enter retained results or downloads.
+ROW_REVIEW_REASONS = {
+    "Unsupported message Type; choose Incoming or Outgoing.",
+    "No message text; attachment references remain in the export.",
+    "Message text exceeds the supported byte limit.",
+    "A source identifier or timestamp exceeds 255 characters.",
+    "Message Date is missing or invalid.",
+    "Message Date is ambiguous or does not exist in this timezone.",
+}
 
 
 def _identifier(value):
@@ -330,7 +339,10 @@ def _row(source, number, start, end, raw, zone, text_limit, people):
                 "occurred_at": occurred_at,
             }
     except (ValueError, TypeError) as error:
-        values["unresolved_reason"] = str(error)
+        values["unresolved_reason"] = next(
+            (reason for reason in ROW_REVIEW_REASONS if reason == str(error)),
+            "Message fields could not be interpreted; review the source row.",
+        )
     return {
         "label": ("Excluded message" if "unresolved_reason" in values else "Message")
         + f" row {number}",

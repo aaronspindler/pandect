@@ -7,7 +7,13 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.analysis.services import process_run, review_result, start_run
+from core.analysis.catalogue import project_result
+from core.analysis.services import (
+    process_run,
+    review_result,
+    snapshot_sources,
+    start_run,
+)
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationImport
@@ -18,6 +24,61 @@ from text.models import TextEvidence
 
 
 class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
+    def test_model_suggestions_remain_labeled_in_reading_and_saved_selections(self):
+        from core.analysis.navigation import finding_url
+        from core.analysis.selections import build_brief, finding_member
+        from core.models import SavedSelection
+
+        source = self.source()
+        inputs = snapshot_sources(self.case, [{"kind": "text", "id": source.pk}])
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="content_events",
+            method_version="test",
+            inputs=inputs,
+            status="complete",
+        )
+        result = AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={
+                "summary": "Source-cited suggestions",
+                "items": [
+                    {
+                        "label": "Reported commitment",
+                        "text": "A delivery may be planned.",
+                        "source_ids": [inputs[0]["id"]],
+                        "values": {"status": "unresolved"},
+                    }
+                ],
+            },
+        )
+        project_result(result)
+        saved = SavedSelection.objects.create(
+            case=self.case,
+            created_by=self.users["owner"],
+            updated_by=self.users["owner"],
+            name="Model findings",
+            members=[finding_member(self.case, result.pk, 0)],
+        )
+        self.login("viewer")
+        for url in (
+            self.index_url(),
+            self.url("detail", source),
+            finding_url(self.case.pk, run.pk, 0),
+            reverse("core:analysis:selection_detail", args=[self.case.pk, saved.pk]),
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertContains(response, "AI suggestion")
+                self.assertNotContains(response, ">Record finding review</button>")
+        catalogue = self.client.get(
+            reverse("core:analysis:browse", args=[self.case.pk])
+        )
+        self.assertContains(catalogue, "AI-assisted run")
+        self.assertIn("AI suggestion", build_brief(saved, self.case))
+
     def index_url(self, case=None):
         return reverse(
             "core:analysis:index", kwargs={"case_id": (case or self.case).pk}

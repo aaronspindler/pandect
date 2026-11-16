@@ -1,15 +1,16 @@
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.templatetags.static import static
-from django.test import TestCase
-from django.urls import reverse
+from django.test import RequestFactory, TestCase, override_settings
+from django.urls import resolve, reverse
 
 from cases.models import Case, CaseMembership
 from text.models import TextEvidence
 
 
 class MarketingPageTests(TestCase):
-    pages = ("home", "product", "trust", "roadmap", "hosting")
+    pages = ("home", "product", "evidence", "trust", "roadmap", "hosting")
 
     @classmethod
     def setUpTestData(cls):
@@ -54,6 +55,20 @@ class MarketingPageTests(TestCase):
         self.assertContains(response, static("marketing/marketing.css"))
         self.assertNotContains(response, static("ui/app.css"))
         self.assertNotContains(response, static("core/evidence.js"))
+
+    @override_settings(
+        PANDECT_LOCAL_AI={},
+        PANDECT_AI_GATEWAY={},
+        PANDECT_GEOCODER_URL="",
+        PANDECT_MAP_CONTEXT_URL="",
+    )
+    def test_catalogue_renders_without_case_queries_or_configured_services(self):
+        request = RequestFactory().get(reverse("marketing:evidence"))
+        request.user = AnonymousUser()
+        request.resolver_match = resolve(request.path)
+        with self.assertNumQueries(0):
+            response = request.resolver_match.func(request)
+        self.assertEqual(response.status_code, 200)
 
     def test_public_pages_never_include_private_case_material(self):
         users = [None, self.owner]

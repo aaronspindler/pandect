@@ -44,7 +44,7 @@ class SavedSelection(models.Model):
     def clean(self):
         super().clean()
         if not isinstance(self.members, list) or len(self.members) > 500:
-            raise ValidationError("A selection supports at most 500 members.")
+            raise ValidationError("A selection supports at most 500 items.")
         if len(json.dumps(self.members).encode()) > 262144:
             raise ValidationError(
                 "The selection references exceed the supported limit."

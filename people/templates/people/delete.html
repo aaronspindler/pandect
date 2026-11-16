@@ -1,8 +1,8 @@
 {% extends "ui/base.html" %}
-{% block title %}Delete {{ person }} · Pandect{% endblock %}
+{% block title %}Delete {{ person }}{% endblock %}
 {% block content %}
 <div class="form-layout">
-<p class="breadcrumb"><a href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}">Back to person</a></p>
+<p class="breadcrumb"><a href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to person</a></p>
 <div class="page-header"><div><p class="eyebrow">{{ case }}</p><h1>Delete {{ person }}?</h1><p>This permanently removes this person record and its notes. There is no in-app undo.</p></div></div>
 <p>Evidence, other people, the case, and login accounts are retained.</p>
 {% with account_count=person.social_accounts.count %}
@@ -12,7 +12,7 @@
 <p>People linked to retained location evidence or communications cannot be deleted individually, including when that evidence is archived.</p>
 <form method="post" class="form-layout">
   {% csrf_token %}{% include "ui/components/form_fields.html" with form=form %}
-  <div class="form-actions"><a class="button button-secondary" href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}">Cancel</a><button class="button button-danger" type="submit">Permanently delete person</button></div>
+  <div class="form-actions"><a class="button button-secondary" href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a><button class="button button-danger" type="submit">Permanently delete person</button></div>
 </form>
 </div>
 {% endblock %}

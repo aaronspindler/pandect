@@ -35,6 +35,7 @@ class CIChangeClassificationTests(TestCase):
             {
                 "GITHUB_EVENT_NAME": "push",
                 "GITHUB_EVENT_PATH": str(self.event_path),
+                "RUNNER_TEMP": str(self.temporary),
                 "GITHUB_REPOSITORY": "aaronspindler/pandect",
                 "GITHUB_API_URL": "https://api.github.com",
                 "GITHUB_TOKEN": "synthetic-test-token",
@@ -137,6 +138,24 @@ class CIChangeClassificationTests(TestCase):
 
     def test_helper_parses_on_the_ci_runners_python_312(self):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 12))
+
+    def test_runner_paths_reject_traversal_siblings_and_symlinks(self):
+        with TemporaryDirectory() as outside:
+            link = self.temporary / "outside"
+            link.symlink_to(outside, target_is_directory=True)
+            for name in ("GITHUB_EVENT_PATH", "GITHUB_OUTPUT"):
+                for path in (
+                    outside,
+                    self.temporary / "../escape",
+                    str(self.temporary) + "-sibling",
+                    link / "file",
+                ):
+                    with (
+                        self.subTest(name=name, path=str(path)),
+                        patch.dict(os.environ, {name: str(path)}),
+                        self.assertRaises(ValueError),
+                    ):
+                        changes.runner_file(name)
 
     def test_docs_only_main_has_verified_cumulative_comparison(self):
         self.write("docs/manual.md", "# Updated synthetic guide\n")

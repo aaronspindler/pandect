@@ -115,7 +115,7 @@ class StartupTests(SimpleTestCase):
         self.assertEqual(settings["PANDECT_MAP_CONTEXT_TIMEOUT"], 10)
         gateway = settings["PANDECT_AI_GATEWAY"]
         self.assertEqual(gateway["timeout"], 60)
-        self.assertEqual(gateway["daily_requests"], 100)
+        self.assertNotIn("daily_requests", gateway)
         self.assertEqual(gateway["max_request_bytes"], 8 * 1024**2)
         self.assertEqual(gateway["max_response_bytes"], 2 * 1024**2)
         local = settings["PANDECT_LOCAL_AI"]

@@ -46,13 +46,56 @@ class GitHubReleaseCommandTests(TestCase):
         self.addCleanup(temporary.cleanup)
         self.output = Path(temporary.name) / "github-output"
         environment = patch.dict(
-            os.environ, {**ENVIRONMENT, "GITHUB_OUTPUT": str(self.output)}, clear=True
+            os.environ,
+            {
+                **ENVIRONMENT,
+                "GITHUB_OUTPUT": str(self.output),
+                "RUNNER_TEMP": str(self.output.parent),
+            },
+            clear=True,
         )
         environment.start()
         self.addCleanup(environment.stop)
 
     def test_helper_parses_on_the_cd_runners_python_312(self):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 12))
+
+    def test_runner_output_rejects_traversal_siblings_and_symlinks(self):
+        with TemporaryDirectory() as outside:
+            link = self.output.parent / "outside"
+            link.symlink_to(outside, target_is_directory=True)
+            for path in (
+                outside,
+                self.output.parent / "../escape",
+                str(self.output.parent) + "-sibling",
+                link / "file",
+            ):
+                with (
+                    self.subTest(path=str(path)),
+                    patch.dict(os.environ, {"GITHUB_OUTPUT": str(path)}),
+                    patch.object(release, "github") as request,
+                    self.assertRaises(release.ReleaseError),
+                ):
+                    release.main(prepare=True)
+                request.assert_not_called()
+
+    def test_untrusted_api_url_or_repository_never_receives_credentials(self):
+        for name, value in (
+            ("GITHUB_API_URL", "https://api.github.com.attacker.test"),
+            ("GITHUB_API_URL", "http://api.github.com"),
+            ("GITHUB_API_URL", "https://api.github.com@attacker.test"),
+            ("GITHUB_API_URL", "https://api.github.com/private"),
+            ("GITHUB_REPOSITORY", "../private"),
+            ("GITHUB_REPOSITORY", "example/pandect/../../private"),
+        ):
+            with (
+                self.subTest(name=name, value=value),
+                patch.dict(os.environ, {name: value}),
+                patch.object(OpenerDirector, "open") as request,
+                self.assertRaises(release.ReleaseError),
+            ):
+                release.github("releases")
+            request.assert_not_called()
 
     def prepare(self, *responses, expected=""):
         with (

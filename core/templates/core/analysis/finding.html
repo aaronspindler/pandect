@@ -4,6 +4,7 @@
     {% if focused_finding %}<h2 id="finding-heading-{{ item.number }}">{{ item.label }}</h2>{% else %}<h3 id="finding-heading-{{ item.number }}">{% include 'core/analysis/finding_link.html' %}</h3>{% endif %}
     {% if can_edit and result.pk %}<a class="record-link" href="{% url 'core:analysis:selection_pick' case.pk %}?result={{ result.pk }}&amp;item={{ item.index }}">Save to selection</a>{% endif %}
   </header>
+  {% if item.ai_suggestion %}<p class="muted">AI suggestion · Check against the sources.</p>{% endif %}
   {% if item.audio_url %}
   <p class="analysis-recording-time">
     {% if focused_finding %}Recording interval · {{ item.start_seconds }}–{{ item.end_seconds }} seconds

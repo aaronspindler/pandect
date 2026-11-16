@@ -716,6 +716,11 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(url, payload).status_code, 403)
+        reviewed = self.client.get(url, {"operation": "content_events"}).context["form"]
+        payload |= {
+            "submission_id": reviewed["submission_id"].value(),
+            "execution_confirmation": reviewed["execution_confirmation"].value(),
+        }
         self.assertEqual(
             self.client.post(url, payload | {"external_processing": "on"}).status_code,
             302,

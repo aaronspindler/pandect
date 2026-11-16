@@ -42,6 +42,10 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
+          cache-dependency-glob: |
+            .python-version
+            pyproject.toml
+            uv.lock
       - name: Install locked dependencies
         run: uv sync --locked
       - name: Validate source, dependency lock, and Compose configuration
@@ -100,6 +104,12 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
+          cache-dependency-glob: |
+            .python-version
+            pyproject.toml
+            uv.lock
+          # The static job already seeds the same locked dependencies on amd64.
+          save-cache: ${{ matrix.architecture == 'arm64' }}
       - name: Install local OCR
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
       - name: Install locked dependencies
@@ -168,6 +178,11 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
+          cache-dependency-glob: |
+            .python-version
+            pyproject.toml
+            uv.lock
+          save-cache: false
       - name: Prefer Ubuntu's primary package mirrors
         run: sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
       - name: Install local OCR
@@ -195,6 +210,11 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
+          cache-dependency-glob: |
+            .python-version
+            pyproject.toml
+            uv.lock
+          save-cache: false
       - name: Audit locked dependencies
         run: make security-check
 

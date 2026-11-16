@@ -3,13 +3,36 @@
 from copy import deepcopy
 
 from django.template.loader import render_to_string
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from core.analysis.presentation import measurement_formatter
+from core.analysis.projection import is_ai_suggestion
 from core.analysis.sources import Source, source_id
 from core.testing import EvidenceViewTestMixin
 from people.models import Person
+
+
+class FindingProvenanceTests(SimpleTestCase):
+    def test_mixed_results_keep_observations_separate_from_model_suggestions(self):
+        cases = (
+            ("text_topics", {"occurrences": 3}, "Keyword", False),
+            ("text_topics", {"status": "unresolved"}, "Topic", True),
+            ("conversation_link", {"elapsed_seconds": 30}, "Sequence", False),
+            ("conversation_link", {"status": "unresolved"}, "Suggested link", True),
+            ("session_summaries", {}, "Unsupported source", False),
+            ("session_summaries", {"status": "unresolved"}, "Summary", True),
+            ("question_synthesis", {"section": "supported"}, "Observation", True),
+            ("entities", {"raw": "a@example.test"}, "Email", False),
+            ("transcription", {}, "", False),
+            ("transcription", {}, "Candidate transcript", True),
+        )
+        for operation, values, text, expected in cases:
+            with self.subTest(operation=operation, values=values):
+                self.assertEqual(
+                    is_ai_suggestion(operation, {"values": values, "text": text}),
+                    expected,
+                )
 
 
 class AnalysisPresentationTests(EvidenceViewTestMixin, TestCase):

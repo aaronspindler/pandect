@@ -7,7 +7,8 @@
 {% get_current_timezone as current_timezone %}
 <div class="page-content" id="vehicle-import" data-live-region data-live-poll="{% if batch.status == 'queued' or batch.status == 'running' %}true{% else %}false{% endif %}">
   <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
-  <header class="page-header"><div><h1>{% if batch.completed_at %}Vehicle locations imported{% else %}Import vehicle locations{% endif %}</h1><p>{% if batch.completed_at %}Your locations are ready. Explore the findings or open the original observations.{% elif batch.status == 'review' %}Match each asset to a case vehicle, then import its locations.{% else %}Your original file is saved.{% endif %}</p></div></header>
+  <header class="page-header"><div><h1>{% if batch.completed_at %}Vehicle locations imported{% else %}Import vehicle locations{% endif %}</h1>{% if batch.status == 'review' %}<p>Match each asset to a case vehicle.</p>{% endif %}</div></header>
+  <p class="muted">Export timezone: <strong>{{ batch.timezone }}</strong> · Created Time is the reported observation time.</p>
   <details class="disclosure"><summary>Source and time interpretation</summary><div class="disclosure-body">
   <dl class="metadata-grid"><div><dt>Source CSV</dt><dd><a href="{% url 'core:evidence:detail' case_id=case.pk kind='document' evidence_id=batch.document_id %}">{{ batch.document.original_filename }}</a></dd></div><div><dt>Export timezone</dt><dd>{{ batch.timezone }}</dd></div><div><dt>Observation time</dt><dd>Created Time from the export, shown in {{ current_timezone }}</dd></div></dl>
   <p class="muted">A reported association does not verify identity, ownership, or presence. Received Time is separate from observation and collection times. No coordinates or observation intervals are inferred.</p>
@@ -22,7 +23,7 @@
       <h2 id="processing-heading">{% if batch.phase == 'publish' %}Importing observations{% else %}Preparing locations{% endif %}</h2>
       <p role="status">{{ batch.get_status_display }}{% if batch.processed_rows %} · {{ batch.processed_rows }} rows processed{% endif %}</p>
       <progress class="work-progress"{% if progress != None %} value="{{ progress }}"{% endif %} max="100" aria-label="Vehicle location import progress">{% if progress != None %}{{ progress }}%{% else %}Processing{% endif %}</progress>
-      <p>You can leave and return from the source CSV. Progress is saved as work continues.</p>
+      <p>You can return from the source CSV while processing continues.</p>
       {% if batch.status == 'running' and can_retry %}<details><summary>Recover interrupted processing</summary><p>If progress has stopped, ask the operator to stop the worker before retrying. Earlier observations will not be added twice.</p><form method="post" class="form-layout">{% csrf_token %}<input type="hidden" name="action" value="retry"><div class="field"><label for="worker-stopped"><input id="worker-stopped" type="checkbox" name="worker_stopped" required> The operator has stopped the worker for this interrupted attempt</label></div><button class="button button-secondary" type="submit">Retry interrupted import</button></form></details>{% endif %}
     </section>
   {% elif batch.status == 'failed' %}
@@ -38,9 +39,9 @@
     </details>
   {% else %}
     {% if invalid %}<p class="notice" role="alert">Some rows need correction before import. Open the row preview below, then upload a corrected CSV. The original file stays saved.</p>{% endif %}
-    {% if batch.duplicate_count %}<p class="notice">{{ batch.duplicate_count }} possible duplicate{{ batch.duplicate_count|pluralize }} in this import. {{ nonduplicate_count }} observation{{ nonduplicate_count|pluralize }} can be imported without them. Select “Keep the possible duplicates” to import all {{ batch.row_count }} rows. Matches are checked again before importing.</p>{% endif %}
+    {% if batch.duplicate_count %}<p class="notice">{{ batch.duplicate_count }} possible duplicate{{ batch.duplicate_count|pluralize }} · {{ nonduplicate_count }} observation{{ nonduplicate_count|pluralize }} ready without them. Matches are checked again before import.</p>{% endif %}
     {% if can_edit and form and not invalid %}
-    <section aria-labelledby="mapping-heading"><h2 id="mapping-heading" tabindex="-1">Choose the vehicles</h2><p>Choose the vehicle for each asset in the file. <a href="{% url 'vehicle:create' case_id=case.pk %}">Add a vehicle</a> if needed.</p>
+    <section aria-labelledby="mapping-heading"><h2 id="mapping-heading" tabindex="-1">Choose the vehicles</h2><p>Match each asset to its reported vehicle. This association does not verify identity, ownership, or presence. <a href="{% url 'vehicle:create' case_id=case.pk %}">Add a vehicle</a> if needed.</p>
     <form method="post" class="form-layout" data-unsaved-form>
       {% csrf_token %}{% include 'ui/components/form_fields.html' with form=form %}
       <div class="actions"><button class="button button-primary" type="submit">Import locations</button><a class="button button-secondary" href="{% url 'core:evidence:list' case_id=case.pk %}">Cancel</a></div>

@@ -21,7 +21,7 @@
 {% endfor %}
 {% else %}
 <form method="post" action="{% querystring %}" id="analysis-selection" class="analysis-section analysis-form" novalidate data-unsaved-form>
-  {% csrf_token %}{{ form.operation }}{{ form.submission_id }}
+  {% csrf_token %}{{ form.operation }}{{ form.submission_id }}{{ form.execution_confirmation }}
   <input type="hidden" name="sources_page" value="{{ form.source_page.number }}">
   <input type="hidden" name="sources_cursor" value="{{ form.sources_cursor }}">
   <input type="hidden" name="sources_reverse" value="{% if form.sources_reverse %}1{% endif %}">

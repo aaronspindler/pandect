@@ -15,7 +15,7 @@ from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.analysis.execution import processing_external
+from core.analysis.execution import gateway_destination, processing_external
 from core.analysis.reprocessing import reprocessing_executions, start_reprocessing
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS
@@ -63,6 +63,16 @@ class ReprocessingForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.actor, self.case = actor, case
         self.executions = reprocessing_executions()
+        destinations = dict.fromkeys(
+            gateway_destination(route)
+            for route in self.executions.values()
+            if route and route["backend"] == "gateway"
+        )
+        self.fields["external_processing"].help_text = (
+            "; ".join(destinations)
+            + ". "
+            + self.fields["external_processing"].help_text
+        )
         self.fields["evidence_types"].choices = [
             (kind, f"{label} · {counts[kind]} active")
             for kind, label in KIND_LABELS.items()
@@ -110,6 +120,8 @@ class ReprocessingForm(forms.Form):
                 salt=CONFIRMATION_SALT,
             )
             self.data = values
+            values.pop("external_processing", None)
+            data["external_processing"] = False
         return data
 
 

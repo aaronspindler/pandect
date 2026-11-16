@@ -1,0 +1,19 @@
+<table class="catalogue-table" role="table">
+  <caption>{{ group.label }} {{ title }}</caption>
+  <thead role="rowgroup">
+    <tr role="row">
+      <th scope="col" role="columnheader" id="{{ group.kind }}-{{ category }}-name">{% if category == 'imports' %}Import{% elif category == 'reports' %}Report{% else %}Analysis{% endif %}</th>
+      <th scope="col" role="columnheader" id="{{ group.kind }}-{{ category }}-description">What it does</th>
+      <th scope="col" role="columnheader" id="{{ group.kind }}-{{ category }}-requirements">Requirements</th>
+    </tr>
+  </thead>
+  <tbody role="rowgroup">
+    {% for row in rows %}
+      <tr role="row">
+        <th scope="row" role="rowheader" id="{{ group.kind }}-{{ category }}-{{ row.id }}">{{ row.label }}</th>
+        <td role="cell" headers="{{ group.kind }}-{{ category }}-{{ row.id }} {{ group.kind }}-{{ category }}-description"><span class="catalogue-cell-label" aria-hidden="true">What it does</span>{{ row.description }}</td>
+        <td role="cell" headers="{{ group.kind }}-{{ category }}-{{ row.id }} {{ group.kind }}-{{ category }}-requirements"><span class="catalogue-cell-label" aria-hidden="true">Requirements</span><strong class="catalogue-requirement">{{ row.requirement }}</strong>{{ row.detail }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>

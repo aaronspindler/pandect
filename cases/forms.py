@@ -30,6 +30,7 @@ class MembershipRoleForm(forms.ModelForm):
     class Meta:
         model = CaseMembership
         fields = ("role",)
+        labels = {"role": "Case access"}
 
 
 class InvitationForm(forms.ModelForm):

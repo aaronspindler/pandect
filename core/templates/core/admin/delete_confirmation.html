@@ -7,9 +7,9 @@
 {% endblock %}
 
 {% block delete_confirm %}
-  <p>This permanently deletes the evidence, its original files, retained call material, and related analysis, reviews, and generated files. Analysis using several sources is removed in full, including downstream analysis that depends on it. This cannot be undone.</p>
+  <p>This permanently deletes “{{ object }}”, its original files, retained call material, and related analysis, reviews, and generated files. This cannot be undone.</p>
   {% if deletion_changed %}<p role="alert">{{ deletion_changed }}</p>{% endif %}
-  {% include "core/evidence/deletion_inventory.html" %}
+  {% include "core/admin/deletion_summary.html" %}
   <form method="post">
     {% csrf_token %}
     <input type="hidden" name="post" value="yes">

@@ -26,6 +26,10 @@ action, divider, and spacing styles. Info/More use the shared
 [icon-control and tooltip rules](../DESIGN.md#visual-foundations) when their words
 disappear on mobile.
 
+People and Vehicles retain list searches and pages through creation, editing,
+deletion, and cancellation. Shared forms name choice groups with native legends;
+error links focus the affected control or group.
+
 | Screen | Content and primary action |
 | --- | --- |
 | All cases | Searchable owned/shared cases with roles; **Create case**. |
@@ -220,10 +224,15 @@ CSV and attribution remain accessible. See [imports](vehicle-location-imports.md
 
 ## Case Tools, Processing, and additional analysis
 
-Case Tools shows destinations, up to five recent findings, and five recent active
-records. Five **Explore patterns** links open reports. Link full findings/reports
-rather than expanding measurements/history. Recent findings retain attribution;
-linked readers/reports retain exact output, reviews, coverage, and uncertainty.
+Case Tools groups destinations under **Explore evidence**, **Organize your
+work**, and **Reports**, side by side on wide screens and stacked on narrow
+screens. The header links directly to **Evidence** and **Processing**, alongside
+owner/editor **Add evidence**. Five report links stay together in the directory;
+owner/editor **Additional analysis** is directly available with organizing tools.
+Below the directory, previews show up to five recent findings and five recent
+active records. Link full findings/reports rather than expanding measurements or
+history. Recent findings retain attribution; linked readers/reports retain exact
+output, reviews, coverage, and uncertainty.
 
 Processing separates **In progress** from paginated **History**, which retains all
 check outcomes and has evidence-type and outcome filters. Those filters do not
@@ -260,7 +269,7 @@ completed or stopped preparation offers **Run message analysis again**. Each
 result discloses its bounded message selection. Other additional AI and external
 operations remain in the deliberate analysis flow.
 
-**Case Tools → More tools → Additional analysis** and **Processing → Run more
+**Case Tools → Additional analysis** and **Processing → Run more
 checks → Choose analysis** group tasks, then open a source/context form. Keep
 required samples, areas, and claimed events visible; disclose tuning in **Options**,
 opening after errors. Keep versions explicit and require external approval.

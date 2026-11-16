@@ -6,6 +6,21 @@ import re
 from urllib.parse import urlsplit, urlunsplit
 
 
+def is_ai_suggestion(operation, finding):
+    """Distinguish model output from observations in mixed-method results."""
+    values = finding.get("values", {})
+    if operation == "question_synthesis":
+        return "section" in values
+    if operation in {
+        "content_events",
+        "session_summaries",
+        "text_topics",
+        "conversation_link",
+    }:
+        return "status" in values
+    return operation == "transcription" and bool(finding.get("text"))
+
+
 def equivalence_key(run):
     """Order and exact retained versions are meaningful analysis inputs."""
     selection_keys = (

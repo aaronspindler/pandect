@@ -25,7 +25,6 @@ CONFIG = {
     "workers_token": "synthetic-workers-secret",
     "models": {"text": "@cf/test/text-model"},
     "timeout": 8,
-    "daily_requests": 10,
     "max_request_bytes": 4096,
     "max_response_bytes": 4096,
 }
@@ -197,17 +196,27 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
             build.assert_not_called()
         self.assertEqual(GatewayRequest.objects.count(), 0)
 
-    def test_daily_limit_is_case_scoped_and_counts_retry_attempts(self):
-        with (
-            override_settings(PANDECT_AI_GATEWAY=CONFIG | {"daily_requests": 1}),
-            patch("core.analysis.gateway.build_opener") as build,
-        ):
+    def test_requests_continue_past_100_daily_attempts_with_case_scoped_accounting(
+        self,
+    ):
+        GatewayRequest.objects.bulk_create(
+            [
+                GatewayRequest(
+                    case=self.case,
+                    run=self.run,
+                    model=CONFIG["models"]["text"],
+                    status="complete",
+                    request_bytes=1,
+                )
+                for _ in range(100)
+            ]
+        )
+        with patch("core.analysis.gateway.build_opener") as build:
             build.return_value.open.return_value = response(
                 {"result": {"response": "Synthetic"}}
             )
             self.client.request("text", {})
-            with self.assertRaisesMessage(AnalysisError, "gateway_case_limit"):
-                self.client.request("text", {})
+            self.client.request("text", {})
             other_text = TextEvidence.objects.create(
                 case=self.other_case,
                 uploaded_by=self.users["outsider"],
@@ -220,7 +229,8 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
             GatewayClient(
                 other, lambda **kwargs: authorize_run(other, **kwargs)
             ).request("text", {})
-        self.assertEqual(GatewayRequest.objects.filter(case=self.case).count(), 1)
+        self.assertEqual(build.return_value.open.call_count, 3)
+        self.assertEqual(GatewayRequest.objects.filter(case=self.case).count(), 102)
         self.assertEqual(GatewayRequest.objects.filter(case=self.other_case).count(), 1)
 
     def test_rate_limit_has_one_bounded_retry_with_authorization_between_attempts(self):

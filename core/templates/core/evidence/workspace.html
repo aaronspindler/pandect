@@ -22,7 +22,7 @@
         {% if checksum %}<input type="hidden" name="checksum" value="{{ checksum }}">{% endif %}
         <label class="visually-hidden" for="evidence-query">Search evidence</label>
         <div class="evidence-search-row">
-          <div class="evidence-search-field">{% include 'ui/components/icon.html' with name='search' %}<input id="evidence-query" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Search evidence…"></div>
+          <div class="evidence-search-field"><input id="evidence-query" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Search evidence…"><button class="icon-button" type="submit" aria-label="Search" title="Search" data-tooltip="Search">{% include 'ui/components/icon.html' with name='search' %}</button></div>
           <details class="evidence-filters" data-disclosure{% if selected_kind or selected_person or state != 'active' %} open{% endif %}>
             <summary class="button button-secondary icon-button" aria-label="Filters{% if selected_kind or selected_person or state != 'active' %}, applied{% endif %}" title="Filters" data-tooltip="Filters">{% include 'ui/components/icon.html' with name='filter' %}</summary>
             <div class="evidence-filter-panel">

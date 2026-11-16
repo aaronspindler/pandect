@@ -10,6 +10,7 @@ from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.navigation import finding_url
 from core.analysis.operations import OPERATIONS, get_operation
 from core.analysis.presentation import measurement_formatter
+from core.analysis.projection import is_ai_suggestion
 from core.analysis.services import resolve_inputs
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from image.analysis import MIN_OCR_WORD_SCORE
@@ -79,6 +80,7 @@ def finding_row(finding, index, review, case, run, *, show_weak=False, history=N
             case.pk, run.pk, index, show_weak=show_weak, history=history
         ),
         "latest_review": review,
+        "ai_suggestion": is_ai_suggestion(run.operation, finding),
         "plate_score": values.get("Plate-likeness score (0–100)")
         if run.operation == "plate_ocr"
         else None,

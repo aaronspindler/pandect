@@ -148,7 +148,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 page.get_by_label("Search findings").fill("person-00@example.test")
                 page.locator(".evidence-filters > summary").press("Enter")
                 page.get_by_label("Person").select_option(str(self.person.pk))
-                page.get_by_role("button", name="Find findings").press("Enter")
+                page.get_by_role("button", name="Search").press("Enter")
                 expect(page.locator(".analysis-finding-rows > li")).to_have_count(1)
                 self.capture_layouts(page, engine, "catalogue-filtered")
                 finding = page.locator(".analysis-finding-rows > li a").first

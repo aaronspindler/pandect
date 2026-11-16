@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.navigation import finding_url
+from core.analysis.projection import is_ai_suggestion
 from core.analysis.services import (
     SourceResolutionCache,
     require_current_geocode_reviews,
@@ -45,7 +46,7 @@ def check_revision(selection, token):
         valid = False
     if not valid:
         raise ValidationError(
-            "This selection changed. Review the latest members and submit again."
+            "This selection changed. Review the latest items and submit again."
         )
 
 
@@ -74,7 +75,7 @@ def append_member(selection, member):
     if member_key(member) in {member_key(value) for value in selection.members}:
         return False
     if len(selection.members) >= MAX_MEMBERS:
-        raise ValidationError("A selection supports at most 500 members.")
+        raise ValidationError("A selection supports at most 500 items.")
     selection.members = [*selection.members, member]
     return True
 
@@ -285,6 +286,7 @@ def resolve_member(member, case, *, require_current_review=False, resolver=None)
         "total_characters": resolved["total_characters"][index],
         "url": finding_url(case.pk, result.run_id, index, show_weak=True),
         "finding": finding,
+        "ai_suggestion": is_ai_suggestion(result.run.operation, finding),
         "result": result,
         "sources": cited,
         "snapshots": result.run.inputs,
@@ -354,7 +356,7 @@ def resolve_selection(
             row = {
                 "member": member,
                 "available": False,
-                "title": f"Unavailable member {index + 1}",
+                "title": f"Unavailable item {index + 1}",
                 "error": error_message(error.code)
                 if isinstance(error, AnalysisError)
                 else (
@@ -392,7 +394,7 @@ def resolve_selection(
 def selection_choices(resolved):
     if resolved["unavailable"]:
         raise ValidationError(
-            "Resolve unavailable selection members before starting analysis."
+            "Resolve unavailable selection items before starting analysis."
         )
     if any(row["type"] != "source" for row in resolved["members"]):
         raise ValidationError(
@@ -468,7 +470,7 @@ def build_brief(selection, case):
     if resolved["unavailable"]:
         raise ValidationError(
             [
-                f"Member {row['index'] + 1}: {row['error']}"
+                f"Item {row['index'] + 1}: {row['error']}"
                 for row in resolved["unavailable"]
             ]
         )
@@ -514,6 +516,7 @@ def build_brief(selection, case):
                     "finding_citations": row["finding"].get("finding_citations", []),
                     "values": row["finding"].get("values", {}),
                     "finding_review": row["review"],
+                    "ai_suggestion": row["ai_suggestion"],
                     "result_review": row["result_review"],
                     "analysis": {
                         "run_id": str(result.run_id),

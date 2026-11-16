@@ -22,6 +22,21 @@ from phone.models import CommunicationContext, TextMessageEvidence
 PARSER_VERSION = "imessage-html-v3"
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 500
+# Only authored review reasons may enter retained results or downloads.
+ROW_REVIEW_REASONS = {
+    "Nested message records are unsupported",
+    "Missing sender, empty message, or oversized body",
+    "The source timestamp exceeds 255 characters",
+    "A native source identifier exceeds the supported limit",
+    "Invalid source participant labels",
+    "Too many attachment references",
+    "Ambiguous or nonexistent local timestamp",
+    "Unresolved source-label mapping; supply explicit sender and recipient selections",
+    "Expected exactly one sender field",
+    "Expected exactly one timestamp field",
+    "Expected exactly one bubble field",
+    "Expected exactly one recipient field",
+}
 
 
 @dataclass
@@ -342,7 +357,11 @@ def prepare_import(sources, parameters):
             )
         except (ValueError, TypeError) as error:
             errors += 1
-            values["unresolved_reason"] = str(error)
+            values["unresolved_reason"] = next(
+                (reason for reason in ROW_REVIEW_REASONS if reason == str(error)),
+                "Message fields could not be interpreted; "
+                "review the source row and timestamp.",
+            )
             items.append(
                 {
                     "label": f"Unresolved message row {row}",

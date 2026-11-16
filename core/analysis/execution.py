@@ -14,6 +14,59 @@ GEOGRAPHIC = {
 }
 
 
+def gateway_execution(purpose, operation):
+    """Retain the selected provider and method, never its credentials."""
+    config = settings.PANDECT_AI_GATEWAY
+    provider = (
+        config.get("text_provider", "workers-ai") if purpose == "text" else "workers-ai"
+    )
+    execution = {
+        "provider": provider,
+        "api": "responses" if provider == "openai" else "workers-ai",
+        "adapter_version": "gateway-3",
+        "account": config["account"],
+        "gateway": config["gateway"],
+        "model": config["models"].get(purpose, ""),
+        **{
+            key: config[key]
+            for key in (
+                "timeout",
+                "max_request_bytes",
+                "max_response_bytes",
+            )
+        },
+    }
+    if provider == "openai":
+        execution["adapter_version"] = "gateway-4"
+        execution["timeout"] = 300
+        execution["key_alias"] = config.get("openai_key_alias", "default")
+        execution["inference_settings"] = {
+            "store": False,
+            "reasoning": {
+                "effort": "high"
+                if operation
+                in {"question_synthesis", "content_events", "conversation_link"}
+                else "medium"
+            },
+            "max_output_tokens": 32768,
+            "text": {"format": {"type": "json_object"}},
+        }
+    elif purpose == "text":
+        execution["inference_settings"] = {"max_tokens": 4096, "temperature": 0}
+    return execution
+
+
+def gateway_destination(execution):
+    provider = {"openai": "OpenAI", "workers-ai": "Workers AI"}.get(
+        execution.get("provider", "workers-ai"), "Unconfigured provider"
+    )
+    model = execution.get("model") or "model not configured"
+    destination = f"{provider} via Cloudflare AI Gateway · {model}"
+    if execution.get("account") and execution.get("gateway"):
+        destination += f" · {execution['account']} / {execution['gateway']}"
+    return destination
+
+
 def requires_inference(operation, parameters):
     if operation == "transcription":
         return "transcription"
@@ -52,21 +105,7 @@ def snapshot_execution(operation, parameters):
             "adapter_version": "2",
         }
         if backend == "gateway":
-            config = settings.PANDECT_AI_GATEWAY
-            return common | {
-                "account": config["account"],
-                "gateway": config["gateway"],
-                "model": config["models"].get(purpose, ""),
-                **{
-                    key: config[key]
-                    for key in (
-                        "timeout",
-                        "daily_requests",
-                        "max_request_bytes",
-                        "max_response_bytes",
-                    )
-                },
-            }
+            return common | gateway_execution(purpose, operation)
         config = getattr(settings, "PANDECT_LOCAL_AI", {})
         if purpose == "text":
             common["driver"] = "ollama"
@@ -142,6 +181,14 @@ def retry_execution_confirmation(actor_id, run_id, submission_id, execution):
 def validate_execution(run):
     """Old runs keep their old route; new work cannot drift after queueing."""
     execution = run.parameters.get("_execution")
+    purpose = requires_inference(run.operation, run.parameters)
+    if (
+        execution is None
+        and run.external_processing
+        and purpose
+        and gateway_execution(purpose, run.operation)["provider"] != "workers-ai"
+    ):
+        raise AnalysisError("execution_changed")
     if execution is not None and execution != snapshot_execution(
         run.operation, run.parameters
     ):

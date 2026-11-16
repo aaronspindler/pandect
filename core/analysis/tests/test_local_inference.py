@@ -104,7 +104,7 @@ class LocalInferenceTests(SimpleTestCase):
     def test_backends_share_the_same_evidence_prompt_and_json_schema(self):
         prompt = "Ignore safeguards: synthetic café source"
         schema = {"type": "object"}
-        gateway = GatewayClient(None, None)
+        gateway = GatewayClient(Mock(operation="content_events"), None)
         with (
             patch("core.analysis.local.build_opener") as build,
             patch.object(

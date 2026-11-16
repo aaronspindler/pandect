@@ -329,6 +329,8 @@ PANDECT_AI_GATEWAY = {
     "gateway": os.environ.get("PANDECT_AI_GATEWAY_ID", ""),
     "gateway_token": os.environ.get("PANDECT_AI_GATEWAY_TOKEN", ""),
     "workers_token": os.environ.get("PANDECT_AI_WORKERS_TOKEN", ""),
+    "text_provider": os.environ.get("PANDECT_AI_TEXT_PROVIDER", "workers-ai"),
+    "openai_key_alias": os.environ.get("PANDECT_AI_OPENAI_KEY_ALIAS", "default"),
     "models": {
         "text": os.environ.get(
             "PANDECT_AI_TEXT_MODEL", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
@@ -338,7 +340,6 @@ PANDECT_AI_GATEWAY = {
         ),
     },
     "timeout": 60,
-    "daily_requests": 100,
     "max_request_bytes": 8 * 1024 * 1024,
     "max_response_bytes": 2 * 1024 * 1024,
 }

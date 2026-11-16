@@ -39,7 +39,8 @@ confirmer separately from the source uploader. Workers recheck edit access and
 verified email during preparation/publication. A verified owner/editor can retry
 if the original requester loses access/verification.
 
-Screens lead with progress and matching. **Source and time interpretation** and
+Screens lead with progress and matching, with the export timezone and Created Time
+interpretation visible beside the review. **Source and time interpretation** and
 source rows use native disclosures; invalid rows open the preview. **View findings**
 opens findings/trips with raw observations in a disclosure. Saved trips process
 retained addresses/times without geocoding or review; see [automatic trips](analysis-locations.md#automatic-vehicle-trips).

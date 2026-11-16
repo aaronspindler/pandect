@@ -73,7 +73,7 @@ class VehicleImportReviewForm(forms.Form):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        choices = [("", "---------")]
+        choices = [("", "Choose a case vehicle")]
         choices.extend(
             (str(vehicle.pk), str(vehicle))
             for vehicle in Vehicle.objects.filter(case=case)
@@ -87,10 +87,6 @@ class VehicleImportReviewForm(forms.Form):
                 choices=choices,
                 label=label,
                 initial=vehicle_mapping.get(str(index), default_vehicle),
-                help_text=(
-                    "Choose the case vehicle reported by this asset. "
-                    "This association is not independently verified."
-                ),
             )
         if duplicates:
             self.fields["confirm_duplicates"] = forms.BooleanField(

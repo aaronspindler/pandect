@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django import forms
 from django.conf import settings
+from django.template.defaultfilters import filesizeformat
 
 from ui.forms import localize_datetime_labels
 
@@ -99,23 +100,17 @@ class EvidenceForm(BaseEvidenceForm):
             self.fields["submission_id"].required = True
         if "file" in self.fields:
             self.fields["file"].label = "Original file"
-            self.fields["file"].help_text = (
-                "Supported checks run automatically after upload. "
-                "Results appear in Findings."
-            )
+            self.fields[
+                "file"
+            ].help_text = f"Up to {filesizeformat(settings.PANDECT_MAX_FILE_BYTES)}."
         if "body" in self.fields:
             self.fields["body"].strip = False
             self.fields["body"].label = "Original text"
             self.fields["body"].help_text = (
-                "We preserve the text submitted by your browser. Upload a text file "
-                "as a Document when its exact original bytes matter."
+                f"Up to {filesizeformat(settings.PANDECT_MAX_TEXT_BYTES)}. "
+                "Upload a text file as a Document to preserve its exact bytes; "
+                "browsers can change line endings."
             )
-            if kind == "text":
-                self.fields[
-                    "body"
-                ].help_text += (
-                    " Exact duplicates in this case are checked before saving."
-                )
             self.fields["body"].widget.attrs.update(
                 {
                     "wrap": "soft",

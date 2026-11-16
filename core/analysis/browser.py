@@ -12,6 +12,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.test import override_settings
 from django.urls import reverse
 from PIL import Image
 from playwright.sync_api import expect
@@ -20,10 +21,12 @@ from audio.models import AudioEvidence
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.bulk import prepare_case_analysis_batch
+from core.analysis.selections import source_member
 from core.analysis.services import cancel_run, process_run, start_run
 from core.analysis.testing import wav_bytes
+from core.analysis.tests.test_openai_gateway import OPENAI
 from core.analysis.tests.test_topic_recovery import LOCAL
-from core.models import AnalysisReview, AnalysisRun, CaseAnalysisBatch
+from core.models import AnalysisReview, AnalysisRun, CaseAnalysisBatch, SavedSelection
 from document.models import DocumentEvidence
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from image.models import ImageEvidence
@@ -40,6 +43,103 @@ from vehicle.models import Vehicle
 
 class AnalysisBrowserTests(BrowserTestCase):
     artifact_subdirectory = "analysis-browser"
+
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
+    def test_openai_destination_and_stale_approval_without_javascript(self):
+        saved = SavedSelection.objects.create(
+            case=self.case,
+            name="Synthetic OpenAI selection",
+            created_by=self.owner,
+            updated_by=self.owner,
+            members=[
+                source_member(self.case, {"kind": "text", "id": str(self.text.pk)})
+            ],
+        )
+        urls = (
+            (
+                "initial",
+                self.url("core:analysis:create", case_id=self.case.pk)
+                + "?operation=content_events",
+            ),
+            (
+                "synthesis",
+                self.url(
+                    "core:analysis:synthesize",
+                    case_id=self.case.pk,
+                    selection_id=saved.pk,
+                ),
+            ),
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.owner)
+                for flow, url in urls:
+                    page.goto(url)
+                    expect(
+                        page.get_by_text(re.compile("OpenAI via Cloudflare AI Gateway"))
+                    ).to_be_visible()
+                    page.get_by_label("Processing location", exact=True).select_option(
+                        "gateway"
+                    )
+                    if flow == "initial":
+                        page.locator(
+                            f'input[name="sources"][value="text:{self.text.pk}"]'
+                        ).check()
+                    else:
+                        page.get_by_label("Question", exact=True).fill(
+                            "What is reported in this selection?"
+                        )
+                    approval = page.get_by_label(
+                        re.compile("I approve external processing")
+                    )
+                    approval.focus()
+                    expect(approval).to_be_focused()
+                    approval.press("Space")
+                    expect(approval).to_be_checked()
+                    for width, height in (
+                        (1440, 900),
+                        (1440, 1024),
+                        (768, 1024),
+                        (390, 844),
+                        (320, 844),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        approval.scroll_into_view_if_needed()
+                        self._assert_reflow(page)
+                        self.capture(page, engine, f"openai-{flow}-{width}-{height}")
+                    page.emulate_media(color_scheme="dark")
+                    self.capture(page, engine, f"openai-{flow}-dark")
+                    page.emulate_media(
+                        color_scheme="light",
+                        forced_colors="active",
+                        reduced_motion="reduce",
+                    )
+                    self.capture(page, engine, f"openai-{flow}-forced-colors")
+                    with self.settings(
+                        PANDECT_AI_GATEWAY=OPENAI
+                        | {"models": OPENAI["models"] | {"text": "gpt-6-astra"}}
+                    ):
+                        page.get_by_role(
+                            "button", name="Start analysis", exact=True
+                        ).click()
+                        expect(
+                            page.get_by_text(re.compile("Processing settings changed"))
+                        ).to_be_visible()
+                        expect(
+                            page.get_by_text(
+                                re.compile(
+                                    "OpenAI via Cloudflare AI Gateway.*gpt-6-astra"
+                                )
+                            )
+                        ).to_be_visible()
+                        expect(approval).not_to_be_checked()
+                    page.emulate_media(color_scheme="light", forced_colors="none")
+                self.assertFalse(
+                    self.db(AnalysisRun.objects.filter(external_processing=True).exists)
+                )
 
     def setUp(self):
         super().setUp()
@@ -317,6 +417,11 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.locator("#analysis-reports .analysis-options a")
                 ).to_have_count(5)
+                expect(
+                    page.locator(".case-tools-directory summary").filter(
+                        has_text="More tools"
+                    )
+                ).to_have_count(0)
                 navigation = page.get_by_role("navigation", name="Investigation")
                 navigation.get_by_role("link", name="Processing", exact=True).press(
                     "Enter"
@@ -355,6 +460,24 @@ class AnalysisBrowserTests(BrowserTestCase):
                 ):
                     page.set_viewport_size({"width": width, "height": height})
                     self._assert_reflow(page)
+                    expect(
+                        page.get_by_role("link", name="Additional analysis", exact=True)
+                    ).to_be_visible()
+                    for link in page.locator(".case-tools-directory a").all():
+                        if not link.is_visible():
+                            continue
+                        bounds = link.bounding_box()
+                        self.assertIsNotNone(bounds)
+                        self.assertGreaterEqual(bounds["width"], 44)
+                        self.assertGreaterEqual(bounds["height"], 44)
+                    if label == "desktop":
+                        for link in page.locator(
+                            "#analysis-reports .analysis-options a"
+                        ).all():
+                            bounds = link.bounding_box()
+                            self.assertIsNotNone(bounds)
+                            self.assertGreaterEqual(bounds["y"], 0)
+                            self.assertLessEqual(bounds["y"] + bounds["height"], height)
                     self.capture(page, engine, f"analysis-overview-{label}")
                 pattern = page.get_by_role("link", name="Vehicle trips", exact=True)
                 pattern.focus()
@@ -365,7 +488,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 page.go_back()
                 expect(page.locator("#analysis-reports-heading")).to_have_text(
-                    "Explore patterns"
+                    "Reports"
                 )
                 page.evaluate("document.documentElement.style.fontSize = '200%'")
                 self._assert_reflow(page)
@@ -393,8 +516,12 @@ class AnalysisBrowserTests(BrowserTestCase):
                     reduced_motion="no-preference",
                 )
                 page.goto(index_url)
-                page.get_by_text("More tools", exact=True).press("Enter")
-                page.get_by_role("link", name="Additional analysis", exact=True).click()
+                additional_analysis = page.get_by_role(
+                    "link", name="Additional analysis", exact=True
+                )
+                additional_analysis.focus()
+                expect(additional_analysis).to_be_focused()
+                additional_analysis.press("Enter")
                 expect(
                     page.get_by_role("heading", name="Choose an analysis")
                 ).to_be_visible()
@@ -490,7 +617,10 @@ class AnalysisBrowserTests(BrowserTestCase):
                     )
                     expect(approval).not_to_be_checked()
                     expect(approval).to_have_accessible_description(
-                        re.compile("synthetic-rerun.*reviewed-model")
+                        re.compile("synthetic-rerun")
+                    )
+                    expect(approval).to_have_accessible_description(
+                        re.compile("reviewed-model")
                     )
                     next_control = (
                         "Alt+Tab"
@@ -1010,8 +1140,12 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
-                page.get_by_text("More tools", exact=True).press("Enter")
-                page.get_by_role("link", name="Additional analysis", exact=True).click()
+                additional_analysis = page.get_by_role(
+                    "link", name="Additional analysis", exact=True
+                )
+                additional_analysis.focus()
+                expect(additional_analysis).to_be_focused()
+                additional_analysis.press("Enter")
                 expect(
                     page.get_by_role("heading", name="Choose an analysis", exact=True)
                 ).to_be_visible()

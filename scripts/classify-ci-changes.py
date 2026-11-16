@@ -21,6 +21,14 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def runner_file(name):
+    path = os.path.realpath(os.environ[name])
+    root = os.path.realpath(os.environ["RUNNER_TEMP"])
+    if not path.startswith(root + os.sep):
+        raise ValueError(f"{name} must stay inside RUNNER_TEMP.")
+    return path
+
+
 def git(*arguments):
     return subprocess.check_output(
         ["git", "--no-optional-locks", *arguments],
@@ -139,7 +147,7 @@ def comparison():
     event_name = os.environ.get("GITHUB_EVENT_NAME")
     if event_name not in {"pull_request", "push"}:
         return None
-    with open(os.environ["GITHUB_EVENT_PATH"], "rb") as event_file:
+    with open(runner_file("GITHUB_EVENT_PATH"), "rb") as event_file:
         raw_event = event_file.read(MAX_RESPONSE_BYTES + 1)
     if len(raw_event) > MAX_RESPONSE_BYTES:
         raise ValueError("Event exceeded its size limit.")
@@ -204,7 +212,7 @@ def main():
     if base and head:
         output += f"base={base}\nhead={head}\n"
     print(output, end="")
-    with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+    with open(runner_file("GITHUB_OUTPUT"), "a", encoding="utf-8") as output_file:
         output_file.write(output)
 
 

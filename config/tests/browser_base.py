@@ -5,7 +5,6 @@ import re
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
-from pathlib import Path
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
@@ -15,6 +14,8 @@ from django.test import override_settings
 from django.urls import reverse
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
+
+from config.tests.browser_artifacts import artifact_directory
 
 
 @override_settings(
@@ -58,13 +59,7 @@ class BrowserTestCase(StaticLiveServerTestCase):
         )
         self.addCleanup(self.media_directory.cleanup)
         self.enterContext(override_settings(MEDIA_ROOT=self.media_directory.name))
-        self.artifacts = Path(
-            os.environ.get(
-                "PANDECT_BROWSER_ARTIFACTS",
-                Path("data/validation") / self.artifact_subdirectory,
-            )
-        ).resolve()
-        self.artifacts.mkdir(parents=True, exist_ok=True)
+        self.artifacts = artifact_directory(self.artifact_subdirectory)
 
     def make_user(self, username):
         user = get_user_model().objects.create_user(

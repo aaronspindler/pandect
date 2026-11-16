@@ -467,6 +467,7 @@ def start_run(
     previous_run=None,
     retry_confirmation="",
     batch=None,
+    approved_execution=None,
 ):
     case = get_case(actor, case_id, edit=True, lock=True)
     if previous_run:
@@ -498,6 +499,8 @@ def start_run(
     }
     execution = snapshot_execution(operation, parameters)
     external = bool(execution and execution["location"] == "external")
+    if external and approved_execution is not None and approved_execution != execution:
+        raise AnalysisError("execution_changed")
     if external and not external_processing:
         if previous_run:
             raise AnalysisError("retry_approval_required")

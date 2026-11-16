@@ -4,14 +4,14 @@
 <div class="page-content">
   <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
   <header class="page-header"><div><h1>Import vehicle locations</h1><p>Upload an Asset Location CSV, then match its assets to your case vehicles.</p></div></header>
-  <p>UTF-8 CSV files can contain up to {{ max_csv_rows }} observations and {{ max_csv_bytes|filesizeformat }}.</p>
+  <p>UTF-8 CSV · Up to {{ max_csv_rows }} observations · {{ max_csv_bytes|filesizeformat }} maximum</p>
   <details><summary>Supported CSV format</summary><p>Use the export with Asset, Serial Number, Address, Speed, Heading, Trigger, Time Summary, Created Time, and Received Time columns. Each CSV can describe up to {{ max_csv_groups }} distinct Asset and Serial Number pairs. Split exports with more source assets into separate files.</p>
     <p class="muted">Addresses are retained as reported. Coordinates remain unknown. Serial numbers identify source assets or devices and are not treated as VINs. Time Summary is preserved without assuming a duration or interval.</p>
     <p>miTrail lets each user choose their timezone in <a href="https://info.mitrail.com/en-US/profile-preferences-password-change-740866" target="_blank" rel="noopener noreferrer">profile preferences</a>. Match that setting when importing; miTrail does not document one timezone for every account.</p>
   </details>
   <form method="post" enctype="multipart/form-data" class="form-layout" data-unsaved-form>
     {% csrf_token %}{% include 'ui/components/form_fields.html' with form=form %}
-    <p class="muted">The original CSV is saved with your evidence. Locations are added after you confirm the vehicles and timezone. You can leave and return while the file is being prepared.</p>
+    <p class="muted">The original CSV stays in your evidence. Review and confirm before locations are added. You can return later to finish.</p>
     <div class="actions"><button class="button button-primary" type="submit">Upload CSV</button><a class="button button-secondary" href="{% url 'core:evidence:list' case_id=case.pk %}">Cancel</a></div>
   </form>
 </div>

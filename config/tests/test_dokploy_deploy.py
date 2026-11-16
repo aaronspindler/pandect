@@ -48,7 +48,13 @@ class DeploymentCommandTests(TestCase):
         self.output = Path(temporary.name) / "github-output"
         self.output.touch()
         self.environment = patch.dict(
-            os.environ, {**ENVIRONMENT, "GITHUB_OUTPUT": str(self.output)}, clear=True
+            os.environ,
+            {
+                **ENVIRONMENT,
+                "GITHUB_OUTPUT": str(self.output),
+                "RUNNER_TEMP": str(self.output.parent),
+            },
+            clear=True,
         )
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -64,6 +70,43 @@ class DeploymentCommandTests(TestCase):
 
     def test_helper_parses_on_the_cd_runners_python_312(self):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 12))
+
+    def test_runner_output_paths_cannot_escape_through_symlinks_or_traversal(self):
+        with TemporaryDirectory() as outside:
+            link = self.output.parent / "outside"
+            link.symlink_to(outside, target_is_directory=True)
+            for name in ("GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY"):
+                for path in (
+                    outside,
+                    self.output.parent / "../escape",
+                    str(self.output.parent) + "-sibling",
+                    link / "file",
+                ):
+                    with (
+                        self.subTest(name=name, path=str(path)),
+                        patch.dict(os.environ, {name: str(path)}),
+                        self.assertRaises(deploy.DeploymentError),
+                    ):
+                        deploy.runner_file(name)
+
+    def test_untrusted_github_url_or_repository_fails_before_requests(self):
+        for name, value in (
+            ("GITHUB_API_URL", "https://api.github.com.attacker.test"),
+            ("GITHUB_API_URL", "http://api.github.com"),
+            ("GITHUB_API_URL", "https://api.github.com@attacker.test"),
+            ("GITHUB_API_URL", "https://api.github.com/private"),
+            ("GITHUB_REPOSITORY", "../private"),
+            ("GITHUB_REPOSITORY", "example/pandect/../../private"),
+            ("GITHUB_REPOSITORY", "-" * 100000 + "/repo"),
+        ):
+            with (
+                self.subTest(name=name),
+                patch.dict(os.environ, {name: value}),
+                patch.object(OpenerDirector, "open") as request,
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                deploy.preflight()
+            request.assert_not_called()
 
     def test_invalid_or_missing_version_blocks_mutations(self):
         for version in (
@@ -93,6 +136,24 @@ class DeploymentCommandTests(TestCase):
             self.assertIsNone(
                 deploy.api("https://deploy.example.test/api/application.deploy")
             )
+
+    def test_dokploy_requests_validate_the_origin_before_sending_credentials(self):
+        for value in (
+            "http://deploy.example.test",
+            "https://user:password@deploy.example.test",
+            "https://deploy.example.test/api",
+            "https://deploy.example.test?redirect=elsewhere",
+            "https://deploy.example.test#fragment",
+            "https://deploy.example.test\n",
+        ):
+            with (
+                self.subTest(value=value),
+                patch.dict(os.environ, {"DOKPLOY_URL": value}),
+                patch.object(deploy, "api") as request,
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                deploy.dokploy("application.one", applicationId="synthetic")
+            request.assert_not_called()
 
     def test_stale_ci_cannot_mutate_dokploy(self):
         with (
@@ -331,7 +392,13 @@ class RolloutMarkerTests(TestCase):
         self.output = Path(temporary.name) / "github-output"
         self.output.touch()
         self.environment = patch.dict(
-            os.environ, {**ENVIRONMENT, "GITHUB_OUTPUT": str(self.output)}, clear=True
+            os.environ,
+            {
+                **ENVIRONMENT,
+                "GITHUB_OUTPUT": str(self.output),
+                "RUNNER_TEMP": str(self.output.parent),
+            },
+            clear=True,
         )
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -555,6 +622,7 @@ class DeploymentPreflightTests(TestCase):
                 "GITHUB_API_URL": "https://api.github.com",
                 "GITHUB_TOKEN": "synthetic-github-token",
                 "GITHUB_OUTPUT": str(self.output),
+                "RUNNER_TEMP": str(self.output.parent),
                 "CI_RUN_ID": "123",
                 "CI_RUN_ATTEMPT": "1",
             },
@@ -629,7 +697,9 @@ class DeploymentPreflightTests(TestCase):
         request, output, history = self.preflight(
             self.run, self.jobs(*self.required_jobs)
         )
-        self.assertEqual(self.output.read_text(), "existing=retained\ndeploy=true\n")
+        self.assertEqual(
+            self.output.read_text(), f"existing=retained\ndeploy=true\nsource={SHA}\n"
+        )
         self.assertIn("eligible", output)
         self.assertEqual(request.call_count, 2)
         history.assert_called_once_with(SHA)
@@ -649,14 +719,14 @@ class DeploymentPreflightTests(TestCase):
                     {"name": "Investigator journeys", "conclusion": "skipped"},
                 ),
             )
-        self.assertEqual(self.output.read_text(), "deploy=false\n")
+        self.assertEqual(self.output.read_text(), f"deploy=false\nsource={SHA}\n")
         self.assertIn("Skipped production deployment and release", output)
         self.assertEqual(summary.read_text(), output)
         history.assert_not_called()
 
     def test_older_release_does_not_publish_or_deploy(self):
         self.preflight(self.run, self.jobs(*self.required_jobs), eligible=False)
-        self.assertEqual(self.output.read_text(), "deploy=false\n")
+        self.assertEqual(self.output.read_text(), f"deploy=false\nsource={SHA}\n")
 
     def test_missing_ambiguous_or_unsuccessful_ci_decision_fails(self):
         marker = self.required_jobs[1]["steps"][0]
@@ -784,7 +854,7 @@ class DeploymentPreflightTests(TestCase):
             self.jobs(self.required_jobs[0]),
             self.jobs(*self.required_jobs[1:]),
         )
-        self.assertEqual(self.output.read_text(), "deploy=true\n")
+        self.assertEqual(self.output.read_text(), f"deploy=true\nsource={SHA}\n")
         self.assertEqual(
             [call.args[0].split("/attempts/")[1] for call in request.call_args_list],
             ["3", "3/jobs?per_page=100", "2/jobs?per_page=100"],
@@ -801,7 +871,7 @@ class DeploymentPreflightTests(TestCase):
         self.run["run_attempt"] = 2
         self.skip_application()
         request, _, _ = self.preflight(self.run, self.jobs(*self.required_jobs))
-        self.assertEqual(self.output.read_text(), "deploy=false\n")
+        self.assertEqual(self.output.read_text(), f"deploy=false\nsource={SHA}\n")
         self.assertEqual(request.call_count, 2)
 
     def test_missing_job_history_is_bounded(self):

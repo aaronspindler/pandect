@@ -9,11 +9,12 @@ navigation; `core` owns Evidence, Processing, and Case Tools; `geo` owns maps/PO
 With a verified account, choose **All cases → Create case** and enter a name.
 The creator becomes owner. Opening, creating, or joining a case checks access
 and opens **Case Tools**, as do saved case URLs. Shared navigation links to
-**Case Tools**, **Evidence**, and **Processing**. Case Tools shows recent evidence,
-source-linked findings, Map, Chronology, Connections, People, Vehicles, Selections,
-and reports. **Case details** holds ownership, timestamps, your role, saved
-read-only descriptions, and owner-only Settings. All cases searches accessible
-names/descriptions and filters owned/shared cases.
+**Case Tools**, **Evidence**, and **Processing**. Case Tools groups evidence views,
+organizing tools, and reports in one directory, with recent evidence and
+source-linked findings below. Its header also links to Evidence and Processing
+and offers **Add evidence** to owners/editors. **Case details** holds ownership,
+timestamps, your role, saved read-only descriptions, and owner-only Settings.
+All cases searches accessible names/descriptions and filters owned/shared cases.
 
 Viewers inspect material and download originals. Editors also add/edit records
 and archive/restore evidence. Owners manage access and delete people, vehicles,

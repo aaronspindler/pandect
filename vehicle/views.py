@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
@@ -99,7 +100,12 @@ def vehicle_create(request, case_id):
             vehicle.case = case
             vehicle.save(force_insert=True)
             messages.success(request, "Vehicle added.")
-            return redirect("vehicle:detail", case_id=case.pk, vehicle_id=vehicle.pk)
+            url = reverse(
+                "vehicle:detail", kwargs={"case_id": case.pk, "vehicle_id": vehicle.pk}
+            )
+            if query := list_query(request):
+                url += f"?{query}"
+            return redirect(url)
     return render(
         request,
         "vehicle/form.html",
@@ -129,7 +135,12 @@ def vehicle_edit(request, case_id, vehicle_id):
         if request.method == "POST" and form.is_valid():
             form.save(commit=False).save(force_update=True)
             messages.success(request, "Vehicle details saved.")
-            return redirect("vehicle:detail", case_id=case.pk, vehicle_id=vehicle.pk)
+            url = reverse(
+                "vehicle:detail", kwargs={"case_id": case.pk, "vehicle_id": vehicle.pk}
+            )
+            if query := list_query(request):
+                url += f"?{query}"
+            return redirect(url)
         if form.stale:
             latest_vehicle = Vehicle.objects.get(pk=vehicle.pk, case=case)
             form.data = form.data.copy()
@@ -172,7 +183,10 @@ def vehicle_delete(request, case_id, vehicle_id):
                 )
             else:
                 messages.success(request, "Vehicle record deleted.")
-                return redirect("vehicle:list", case_id=case.pk)
+                url = reverse("vehicle:list", kwargs={"case_id": case.pk})
+                if query := list_query(request):
+                    url += f"?{query}"
+                return redirect(url)
     return render(
         request,
         "vehicle/delete.html",
@@ -180,6 +194,7 @@ def vehicle_delete(request, case_id, vehicle_id):
             **case_context(case, request.user),
             "vehicle": vehicle,
             "form": form,
+            "list_query": list_query(request),
         },
         status=400 if request.method == "POST" else 200,
     )

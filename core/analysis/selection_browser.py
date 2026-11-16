@@ -164,13 +164,13 @@ class SelectionBrowserTests(BrowserTestCase):
                     "Enter"
                 )
                 expect(
-                    page.get_by_text("2 members · Revision 3.", exact=False)
+                    page.get_by_text("2 items · Revision 3.", exact=False)
                 ).to_be_visible()
                 expect(
                     page.get_by_text("<script>untrusted source</script>", exact=False)
                 ).to_be_visible()
                 page.wait_for_load_state("load")
-                for remove in page.get_by_role("link", name="Remove member").all():
+                for remove in page.get_by_role("link", name="Remove item").all():
                     self.assertGreaterEqual(remove.bounding_box()["width"], 75)
                 self._captures(page, engine, "selection")
                 ask = page.get_by_role("link", name="Ask a question", exact=True)
@@ -181,7 +181,7 @@ class SelectionBrowserTests(BrowserTestCase):
                     "Was the meeting held, and what contact was extracted?"
                 )
                 self._captures(page, engine, "synthesis-form")
-                page.get_by_role("button", name="Start synthesis", exact=True).press(
+                page.get_by_role("button", name="Start analysis", exact=True).press(
                     "Enter"
                 )
                 expect(
@@ -217,7 +217,7 @@ class SelectionBrowserTests(BrowserTestCase):
                     "Enter"
                 )
                 expect(
-                    page.get_by_text("3 members · Revision 4.", exact=False)
+                    page.get_by_text("3 items · Revision 4.", exact=False)
                 ).to_be_visible()
 
             with self.browser_page(engine) as (_, page):

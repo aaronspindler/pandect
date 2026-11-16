@@ -1,7 +1,7 @@
 {% extends "ui/base.html" %}
 {% load static %}
 {% block extra_head %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endblock %}
-{% block title %}{{ person }} · {{ case }} · Pandect{% endblock %}
+{% block title %}{{ person }} · {{ case }}{% endblock %}
 {% block content %}
 <div class="detail-layout">
 <p class="breadcrumb"><a href="{% url 'people:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to people</a></p>
@@ -59,7 +59,7 @@
 {% if person.last_name %}<div><dt>Last name</dt><dd>{{ person.last_name }}</dd></div>{% endif %}
 </dl>{% endif %}
 <dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ person.created_at|date:'c' }}">{{ person.created_at|date:"j M Y, H:i T" }}</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ person.updated_at|date:'c' }}">{{ person.updated_at|date:"j M Y, H:i T" }}</time></dd></div></dl>
-{% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'people:delete' case_id=case.pk person_id=person.pk %}">Delete person</a></div>{% endif %}
+{% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'people:delete' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Delete person</a></div>{% endif %}
 </div>
 </details>
 </div>

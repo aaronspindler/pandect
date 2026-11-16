@@ -117,8 +117,8 @@ ERROR_MESSAGES = {
         "review its account limits."
     ),
     "gateway_case_limit": (
-        "This case reached the configured daily AI request limit. Try another "
-        "day or ask the operator to review the limit."
+        "This run stopped at the former daily AI request limit. "
+        "Start another run with fresh external-processing approval."
     ),
     "gateway_rate_limit": (
         "The external AI service is busy. Wait before starting another run."
@@ -134,6 +134,13 @@ ERROR_MESSAGES = {
     "gateway_invalid_response": (
         "The returned AI output did not pass validation. No unvalidated "
         "result was published."
+    ),
+    "gateway_incomplete_response": (
+        "The external AI response was incomplete. No result was published. "
+        "Choose a smaller selection before starting another run."
+    ),
+    "gateway_refused": (
+        "The external AI service declined this analysis. No result was published."
     ),
     "gateway_input_limit": (
         "The selected content exceeds the configured AI request limit. Choose "

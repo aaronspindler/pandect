@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header">
   <div><h1>Vehicles</h1></div>
-  {% if can_edit and page_obj.object_list or can_edit and query %}<div class="actions"><a class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}">Add vehicle</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
+  {% if can_edit and page_obj.object_list or can_edit and query %}<div class="actions"><a class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
 </div>
 <form class="search-form" method="get" role="search" aria-label="Search vehicles">
   <label for="vehicles-search">Search vehicles</label>
@@ -25,9 +25,9 @@
   {% if page_obj.has_next %}<a class="button button-secondary" href="?{% if search_query %}{{ search_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>{% endif %}
 </nav>{% endif %}
 {% else %}
-<section class="empty-state"><h2>{% if query %}No matching vehicles{% else %}Keep the vehicles in this case together{% endif %}</h2>
-  <p>{% if query %}Try another make, model, year, plate, VIN, color, or note.{% else %}Add the vehicle details you encounter. Partial details are enough to start.{% endif %}</p>
-  {% if query %}<a class="button button-secondary" href="{% url 'vehicle:list' case_id=case.pk %}">Clear filters</a>{% elif can_edit %}<a class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}">Add vehicle</a>{% else %}<p class="secondary">You have viewer access. The owner or an editor can add vehicles.</p>{% endif %}
+<section class="empty-state"><h2>{% if query %}No matching vehicles{% else %}No vehicles yet{% endif %}</h2>
+  <p>{% if query %}Try another make, model, year, plate, VIN, color, or note.{% else %}Add a make, model, plate, or VIN to get started.{% endif %}</p>
+  {% if query %}<a class="button button-secondary" href="{% url 'vehicle:list' case_id=case.pk %}">Clear filters</a>{% elif can_edit %}<a class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a>{% else %}<p class="secondary">You have viewer access. The owner or an editor can add vehicles.</p>{% endif %}
 </section>
 {% endif %}
 {% endblock %}

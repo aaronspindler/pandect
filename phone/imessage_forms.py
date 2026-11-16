@@ -105,6 +105,7 @@ class IMessagePersonForm(forms.Form):
     phone_number = forms.CharField(
         required=False,
         max_length=64,
+        help_text="Optional when a name or email identifies the person record.",
         widget=forms.TextInput(attrs={"inputmode": "tel"}),
     )
     email = forms.EmailField(required=False, max_length=254)

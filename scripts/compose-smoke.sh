@@ -453,7 +453,7 @@ try:
         ("/static/ui/app.css", b"evidence-workspace"),
         ("/static/core/evidence.js", b"data-evidence-upload"),
         ("/static/ui/icons/file-text.svg", b"<svg"),
-        ("/accounts/login/", b"Welcome to Pandect"),
+        ("/accounts/login/", b'name="login"'),
     ):
         with urlopen("http://127.0.0.1:8001" + path, timeout=5) as response:
             assert response.status == 200, path

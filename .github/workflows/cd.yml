@@ -16,7 +16,8 @@ concurrency:
   queue: max
 
 jobs:
-  preflight:
+  verify:
+    name: CI preflight
     if: >-
       github.repository == 'aaronspindler/pandect' &&
       github.event.workflow_run.conclusion == 'success' &&
@@ -31,6 +32,7 @@ jobs:
       deployments: read
     outputs:
       deploy: ${{ steps.preflight.outputs.deploy }}
+      source: ${{ steps.preflight.outputs.source }}
     steps:
       - name: Check out the trusted deployment helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,8 +51,8 @@ jobs:
 
   prepare:
     name: Allocate the next successful release version
-    needs: preflight
-    if: needs.preflight.outputs.deploy == 'true'
+    needs: verify
+    if: needs.verify.outputs.deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -74,7 +76,7 @@ jobs:
 
   image-builds:
     name: Build production image (${{ matrix.architecture }})
-    needs: prepare
+    needs: [verify, prepare]
     if: needs.prepare.outputs.published == 'false'
     env:
       PANDECT_VERSION: ${{ needs.prepare.outputs.version }}
@@ -95,7 +97,7 @@ jobs:
       - name: Check out the source verified by CI
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.verify.outputs.source }}
           persist-credentials: false
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -116,11 +118,11 @@ jobs:
           platforms: linux/${{ matrix.architecture }}
           push: true
           build-args: |
-            APP_COMMIT_SHA=${{ github.event.workflow_run.head_sha }}
+            APP_COMMIT_SHA=${{ needs.verify.outputs.source }}
             APP_VERSION=${{ env.PANDECT_VERSION }}
           labels: |
             org.opencontainers.image.version=${{ env.PANDECT_VERSION }}
-            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+            org.opencontainers.image.revision=${{ needs.verify.outputs.source }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           tags: ${{ steps.image.outputs.name }}:build-${{ github.event.workflow_run.id }}-${{ matrix.architecture }}
           cache-from: type=gha,version=2,scope=pandect-app-${{ matrix.architecture }}

@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from django.core.files.base import ContentFile
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -198,6 +198,7 @@ class AnalysisReadinessTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.context["form"]["sources"].value(), [extracted])
         self.assertEqual(response.context["source_options"][-1][2]["label"], "Ready")
 
+    @override_settings(PANDECT_LOCAL_AI={})
     def test_no_storage_or_network_probes_and_foreign_focus_rejected(self):
         item = self.document()
         foreign = self.document(case=self.other_case)

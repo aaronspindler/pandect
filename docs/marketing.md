@@ -9,6 +9,7 @@ announcements with the same availability boundaries.
 | --- | --- |
 | `/` | Introduction, fictional workspace, core workflow, and self-hosting next step. |
 | `/product/` | Current capabilities, fictional examples at `#analysis`, configured services, and input limits. |
+| `/evidence/` | Complete evidence and analysis catalogue, supported imports/reports, input profiles, and setup requirements. |
 | `/trust/` | Case access, originals, analysis approval, and map tile privacy. |
 | `/roadmap/` | Available capabilities, planned work, and exploration without release dates. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
@@ -26,6 +27,31 @@ text, fine dividers, responsive/dark/forced-color layouts, keyboard focus, and a
 skip link. Introductions lead to useful actions; separate pages own product,
 trust, and planning details. Format limits and hosting questions use native
 disclosures. Navigation and actions work without JavaScript.
+
+## Evidence and analysis catalogue
+
+**Evidence & analysis** groups every addable evidence type into its own section,
+with analysis descriptions and requirements beside each method. Shared methods
+appear in every applicable section. Pattern reports and supported import workflows
+are listed separately from analysis. The same table content stacks at narrow
+widths, retaining visible labels and table relationships.
+
+`marketing/catalogue.py` owns the public presentation data, keyed by current
+evidence-kind, analysis-operation, report, and import identifiers. It describes
+supported capabilities rather than this installation's service readiness, and
+public requests do not query case material or probe services. Keep it aligned with
+the evidence/form registries, analysis operations, execution requirements, reports,
+and their owning guides when capabilities change. Catalogue coverage tests detect
+missing types/methods, incorrect source mappings, and changed model requirements;
+review descriptions and input prerequisites against the implementation as well.
+
+Requirements distinguish **Included**, **Included; AI optional**, **Private setup
+or approved external AI**, and **Configured geographic service**. Included OCR
+and plate reading use the standard Docker image's local tools. Private models and
+geographic services need operator setup; external AI requires explicit approval
+through Cloudflare AI Gateway, and external geographic requests have their own
+approval. Private services do not imply external transfer. Runtime failure never
+silently switches processing to a cloud service.
 
 ## Content boundaries
 
@@ -56,7 +82,7 @@ Use [development PostgreSQL](development.md) and run sequentially to avoid test
 database contention:
 
 ```sh
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.tests.test_views config.tests.test_product_access --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.tests config.tests.test_product_access --noinput
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.browser --noinput
 ```
 

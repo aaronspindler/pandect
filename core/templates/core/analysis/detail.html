@@ -28,7 +28,7 @@
 {% if result and run.operation == 'conversation_import' %}{% load import_checks %}{% import_checks 'messages' run.pk %}{% endif %}
 {% if result and show_result_overview %}
 <section class="analysis-result-overview" aria-labelledby="analysis-result-summary">
-  <h2 id="analysis-result-summary">{{ data.summary }}</h2>
+  <h2 id="analysis-result-summary">{% if run.operation == 'question_synthesis' %}AI suggestions{% else %}{{ data.summary }}{% endif %}</h2>
   <div class="analysis-result-meta">
     {% if data.warnings %}
     <details class="analysis-result-limits"{% if not items %} open{% endif %}>
@@ -41,7 +41,7 @@
 </section>
 {% endif %}
 
-{% if result and run.operation == 'question_synthesis' %}<section class="analysis-section"><h2>Question</h2><p>{{ data.question }}</p><h2>Not established by this selection</h2><p class="muted">Model-suggested questions and limitations, not additional source-backed observations.</p><ul>{% for unknown in data.unknowns %}<li>{{ unknown }}</li>{% empty %}<li>No additional unknowns were returned. This does not establish completeness.</li>{% endfor %}</ul></section>{% endif %}
+{% if result and run.operation == 'question_synthesis' %}<section class="analysis-section"><h2>Question</h2><p>{{ data.question }}</p><h2>Not established by this selection</h2><p class="muted">Questions and limitations suggested by AI.</p><ul>{% for unknown in data.unknowns %}<li>{{ unknown }}</li>{% empty %}<li>No additional unknowns were returned. This does not establish completeness.</li>{% endfor %}</ul></section>{% endif %}
 
   {% if run.operation == 'ocr' and items %}
   <p class="muted">OCR can miss text. Compare candidates with the original.</p>
