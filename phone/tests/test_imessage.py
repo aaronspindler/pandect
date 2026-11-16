@@ -276,6 +276,19 @@ class IMessageImportTests(EvidenceViewTestMixin, TestCase):
                     prepare_import([source], {"phase": "preview", "timezone": "UTC"})
             self.assertEqual(raised.exception.code, "imessage_import_limit")
 
+    def test_csv_limit_rejects_large_metadata_before_open_and_bounds_actual_bytes(self):
+        source = self.source(csv_content(Text="x" * 20000))
+        with patch("phone.analysis.deterministic.imessage.MAX_FILE_BYTES", 10000):
+            with patch.object(source.item.file, "open") as opened:
+                with self.assertRaises(AnalysisError) as raised:
+                    prepare_import([source], {"phase": "preview", "timezone": "UTC"})
+                self.assertEqual(raised.exception.code, "imessage_import_limit")
+                opened.assert_not_called()
+            source.item.byte_size = 1
+            with self.assertRaises(AnalysisError) as raised:
+                prepare_import([source], {"phase": "preview", "timezone": "UTC"})
+            self.assertEqual(raised.exception.code, "imessage_import_limit")
+
     def test_more_than_ten_thousand_rows_have_a_compact_validated_result(self):
         count = 10001
         source = self.source(

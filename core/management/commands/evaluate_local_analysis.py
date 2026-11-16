@@ -185,6 +185,7 @@ class Command(BaseCommand):
                 key: execution.get(key)
                 for key in (
                     "backend",
+                    "driver",
                     "purpose",
                     "model",
                     "sha256",

@@ -68,10 +68,20 @@ def snapshot_execution(operation, parameters):
                 },
             }
         config = getattr(settings, "PANDECT_LOCAL_AI", {})
+        if purpose == "text":
+            common["driver"] = "ollama"
+            common["adapter_version"] = "ollama-1"
         # Fixed decoding choices are part of the retained method too. Bump the
         # adapter version when changing request construction or interpretation.
         common["inference_settings"] = (
-            {"temperature": 0, "enable_thinking": False, "cache_prompt": False}
+            {
+                "temperature": 0,
+                "think": False,
+                "truncate": False,
+                "shift": False,
+                "keep_alive": 0,
+                "context_bound": "rendered_utf8_bytes+8",
+            }
             if purpose == "text"
             else {
                 "language": "en",

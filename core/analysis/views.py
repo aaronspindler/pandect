@@ -73,6 +73,7 @@ from core.evidence.views import render_detail
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
 from geo.analysis import presentation as geo_presentation
 from phone.analysis import presentation as phone_presentation
+from ui.live import render_live
 
 
 def _context(request, case):
@@ -181,7 +182,7 @@ def rerun_all(request, case_id):
             messages.success(
                 request,
                 "Analysis requested for all active evidence. "
-                "Refresh to follow its progress."
+                "Follow its progress in Processing."
                 if created
                 else "This analysis request has already been queued.",
             )
@@ -287,7 +288,7 @@ def current_report(request, case_id, name):
             ]
     else:
         tables = []
-    return render(
+    return (render_live if name == "vehicle-trips" else render)(
         request,
         "core/analysis/report.html",
         _context(request, case)
@@ -347,7 +348,7 @@ def process_evidence(request, case_id, kind, evidence_id):
             else:
                 messages.success(
                     request,
-                    "Local analysis queued. Refresh this page to follow its progress."
+                    "Local analysis queued. Follow progress below."
                     if created
                     else "This analysis was already queued.",
                 )
@@ -933,7 +934,7 @@ def detail(request, case_id, run_id):
             context["retry_confirmation"] = retry_execution_confirmation(
                 request.user.pk, run.pk, context["retry_submission_id"], execution
             )
-    return render(request, "core/analysis/detail.html", context)
+    return render_live(request, "core/analysis/detail.html", context)
 
 
 @product_login_required

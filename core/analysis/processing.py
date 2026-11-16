@@ -5,7 +5,6 @@ from uuid import UUID
 from django.core.paginator import Paginator
 from django.db.models import F, Q
 from django.http import Http404
-from django.shortcuts import render
 from django.views.decorators.http import require_safe
 
 from cases.permissions import case_context, get_case
@@ -18,6 +17,7 @@ from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS, KINDS
 from core.models import AnalysisRun, CaseAnalysisBatch
 from geo.models import VehicleLocationImport, VehicleTripGeneration
+from ui.live import render_live
 
 
 @product_login_required
@@ -116,7 +116,7 @@ def index(request, case_id):
     trip_history = Paginator(trip_generations, 10).get_page(
         request.GET.get("trips_page")
     )
-    return render(
+    return render_live(
         request,
         "core/analysis/processing.html",
         case_context(case, request.user)
@@ -124,6 +124,12 @@ def index(request, case_id):
             "nav_section": "processing",
             "page_obj": page,
             "active_runs": active_runs,
+            "live_pending": bool(
+                active_runs.paginator.count
+                or active_batches.paginator.count
+                or active_trips.paginator.count
+                or imports.filter(status__in=("queued", "running")).exists()
+            ),
             "active_batches": active_batches,
             "active_imports": active_imports,
             "import_history": import_history,

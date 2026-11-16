@@ -22,6 +22,7 @@ from core.evidence.types import FILE_KINDS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence
+from people.models import Person
 from phone.models import (
     CallEvidenceAttachment,
     CommunicationContext,
@@ -32,6 +33,101 @@ from text.models import TextEvidence
 
 
 class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
+    def test_message_labels_show_content_sender_and_local_time(self):
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Imported message · row 12",
+            sender=self.person,
+            recipient=self.person,
+            body="  Meet at the harbour.\r\nBring the file.  ",
+            occurred_at=datetime(2026, 11, 16, 14, 30, tzinfo=UTC),
+        )
+        original = (message.title, message.body, message.sha256, message.edited_at)
+        label = (
+            "Meet at the harbour. Bring the file. · Synthetic person · "
+            "16 Nov 2026, 09:30:00 EST"
+        )
+        self.client.cookies["pandect_timezone"] = "America/Toronto"
+        for role in ("owner", "editor", "viewer"):
+            self.login(role)
+            with self.subTest(role=role):
+                response = self.client.get(self.url("list"))
+                self.assertEqual(response.context["rows"][0]["title"], label)
+                self.assertContains(response, label)
+                detail = self.client.get(
+                    self.url("detail", message, kind="text-message")
+                )
+                self.assertContains(detail, f"<h1>{label}</h1>", html=True)
+                self.assertContains(detail, "Saved title")
+                self.assertContains(detail, message.title)
+        message.refresh_from_db()
+        self.assertEqual(
+            (message.title, message.body, message.sha256, message.edited_at), original
+        )
+
+    def test_message_excerpts_are_bounded_escaped_and_match_the_reader(self):
+        body = "<script>untrusted</script>\n" + "x" * 120 + " original ending"
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Individually retained message",
+            sender=self.person,
+            recipient=self.person,
+            body=body,
+        )
+        self.login("viewer")
+        response = self.client.get(self.url("list"))
+        label = response.context["rows"][0]["title"]
+        self.assertEqual(
+            label,
+            " ".join(body[:80].split()) + "… · Synthetic person · Time not recorded",
+        )
+        self.assertNotContains(response, "<script>untrusted</script>")
+        self.assertNotContains(response, "original ending")
+        detail = self.client.get(self.url("detail", message, kind="text-message"))
+        self.assertEqual(detail.context["display_title"], label)
+        self.assertContains(detail, "original ending")
+        self.assertNotContains(detail, "<script>untrusted</script>")
+
+    def test_message_labels_load_only_the_current_page_with_one_bounded_query(self):
+        for number in range(27):
+            TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title=f"Imported message · row {number}",
+                sender=self.person,
+                recipient=self.person,
+                body=f"Message {number} " + "x" * 1000,
+            )
+        foreign_person = Person.objects.create(
+            case=self.other_case, first_name="Private sender"
+        )
+        TextMessageEvidence.objects.create(
+            case=self.other_case,
+            uploaded_by=self.users["outsider"],
+            title="Private message title",
+            sender=foreign_person,
+            recipient=foreign_person,
+            body="Private body",
+        )
+        self.login("viewer")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url("list"))
+        self.assertEqual(len(response.context["rows"]), 25)
+        self.assertEqual(response.context["page_obj"].paginator.count, 27)
+        self.assertNotContains(response, "Private sender")
+        self.assertNotContains(response, "Private body")
+        label_queries = [
+            query["sql"] for query in queries if 'AS "label_body"' in query["sql"]
+        ]
+        self.assertEqual(len(label_queries), 1)
+        self.assertIn("SUBSTRING", label_queries[0])
+        self.assertIn(", 1, 81)", label_queries[0])
+        self.assertEqual(label_queries[0].count('"body"'), 1)
+        second = self.client.get(self.url("list"), {"page": 2})
+        self.assertEqual(len(second.context["rows"]), 2)
+
     def test_bulk_page_requires_current_case_edit_access(self):
         self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 302)
         self.assertEqual(self.client.get(self.url("create")).status_code, 302)

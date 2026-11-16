@@ -54,6 +54,7 @@ from core.storage import retain_uploaded_originals
 from geo.models import VehicleLocationImport
 from image.previews import image_preview
 from phone.forms import save_call_content
+from ui.live import render_live
 
 SAVE_UNCONFIRMED = (
     "The save could not be confirmed. Keep your original and retry this submission."
@@ -178,7 +179,7 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
         context["vehicle_import"] = VehicleLocationImport.objects.filter(
             case=case, document=item
         ).first()
-    return render(request, "core/evidence/workspace.html", context, status=status)
+    return render_live(request, "core/evidence/workspace.html", context, status=status)
 
 
 def _created_response(request, case, kind, item, *, created):
@@ -405,8 +406,7 @@ def create(request, case_id):
                 413
                 if "file" in form.errors
                 and request.FILES.get("file")
-                and request.FILES["file"].size
-                > getattr(settings, "PANDECT_MAX_FILE_BYTES", 100 * 1024 * 1024)
+                and request.FILES["file"].size > settings.PANDECT_MAX_FILE_BYTES
                 else 400
             )
             return _error(
@@ -430,10 +430,8 @@ def create(request, case_id):
         or form.fields["sender"].queryset.exists(),
         "nav_section": "evidence",
         "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
-        "max_batch_files": getattr(settings, "PANDECT_MAX_BATCH_FILES", 20),
-        "max_file_bytes": getattr(
-            settings, "PANDECT_MAX_FILE_BYTES", 100 * 1024 * 1024
-        ),
+        "max_batch_files": settings.PANDECT_MAX_BATCH_FILES,
+        "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
     }
     return render(request, "core/evidence/form.html", context, status=status)
 

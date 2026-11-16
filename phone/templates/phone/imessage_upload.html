@@ -4,7 +4,7 @@
 <div class="page-content">
   <a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>
   <header class="page-header"><div><h1>Import iMessage CSV</h1><p>Retain a CSV, review its messages, then choose the two people in this conversation.</p></div></header>
-  <p>One direct conversation. The configured upload limit is {{ max_bytes|filesizeformat }}; there is no message-row limit. Message timestamps need the export's timezone.</p>
+  <p>One direct conversation. The CSV import limit is {{ max_bytes|filesizeformat }}; there is no message-row limit. Message timestamps need the export's timezone.</p>
   <form method="post" enctype="multipart/form-data" class="form-layout" data-unsaved-form>
     {% csrf_token %}{{ form.submission_id }}
     {% include 'ui/components/form_errors.html' with form=form %}

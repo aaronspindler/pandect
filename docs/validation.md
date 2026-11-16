@@ -128,6 +128,7 @@ are listed below. Artifacts are ignored local output; keep fixtures synthetic.
 | Suite | Default captures |
 | --- | --- |
 | `config.tests.browser` | `data/validation/browser` |
+| `core.evidence.bulk_admin_browser` | `data/validation/browser` |
 | Message CSV import | `data/validation/message-csv-browser` |
 | `marketing.browser` | `data/validation/marketing-browser` |
 | `core.analysis.browser` | `data/validation/analysis-browser` |
@@ -140,6 +141,7 @@ are listed below. Artifacts are ignored local output; keep fixtures synthetic.
 | `phone.conversation_browser` | `data/validation/conversations-browser` |
 | `image.browser` | `data/validation/plate-browser` |
 | `geo.map_browser` | `data/validation/maps` |
+| `ui.live_browser` | `data/validation/live-updates` |
 
 Inspect captures at [DESIGN.md](../DESIGN.md) viewport/density targets. Manual
 screen-reader testing requires an explicit user request and does not block
@@ -182,11 +184,11 @@ and temporary loopback listeners, without Whisper/Qwen weights. Run them with:
 
 ```sh
 uv run --locked python -m unittest inference.test_server
-uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_local_inference config.tests.test_settings --noinput
+uv run --locked --env-file .env python manage.py test --settings=config.test_settings core.analysis.tests.test_local_inference core.analysis.tests.test_ollama core.analysis.tests.test_execution config.tests.test_settings --noinput
 ```
 
 Optional runtime build check:
-`docker compose --profile local-ai build local-text local-transcription`.
+`docker compose --profile local-ai build local-transcription`.
 Builds do not provision models or prove quality. After provisioning reviewed
 artifacts, follow [local qualification](local-analysis.md#qualification-and-recovery).
 Record actual output, latency, and peak memory separately from mocked tests/builds;

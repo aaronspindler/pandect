@@ -2,7 +2,6 @@
 
 from uuid import UUID
 
-from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
@@ -17,13 +16,14 @@ from core.analysis.errors import AnalysisError, error_message
 from core.analysis.services import resolve_inputs
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.models import AnalysisRun
-from phone.analysis.deterministic.imessage import read_import_page
+from phone.analysis.deterministic.imessage import import_file_limit, read_import_page
 from phone.imessage_forms import (
     IMessageConfirmForm,
     IMessagePersonForm,
     IMessageUploadForm,
 )
 from phone.imessage_imports import confirm_import, preview_source, start_preview
+from ui.live import render_live
 
 
 @product_login_required
@@ -81,7 +81,7 @@ def imessage_upload(request, case_id):
         | {
             "form": form,
             "nav_section": "evidence",
-            "max_bytes": settings.PANDECT_MAX_FILE_BYTES,
+            "max_bytes": import_file_limit(),
         },
         status=status,
     )
@@ -256,7 +256,7 @@ def imessage_review(request, case_id, run_id):
         ]
         imported = scoped_evidence(case, "text-message").filter(pk__in=message_ids)
     imported = Paginator(imported, 25).get_page(request.GET.get("messages_page"))
-    return render(
+    return render_live(
         request,
         "phone/imessage_review.html",
         case_context(case, request.user)

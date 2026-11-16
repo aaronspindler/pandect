@@ -16,13 +16,15 @@ from core.analysis.errors import AnalysisError, error_message
 from core.analysis.gateway import GatewayClient
 from core.analysis.http import NoRedirect
 from core.analysis.local import LocalClient
+from core.analysis.tests.test_ollama import COMPLETION, INFO, RENDER, TAGS, VERSION
 
 EXECUTION = {
     "backend": "local",
     "purpose": "text",
     "url": "http://private-runtime:8080",
-    "runtime": "llama.cpp-synthetic-revision",
-    "model": "synthetic-qwen",
+    "driver": "ollama",
+    "runtime": "ollama@0.40.11",
+    "model": "qwen3.5:9b",
     "sha256": "a" * 64,
     "context_tokens": 512,
     "max_output_tokens": 64,
@@ -50,22 +52,6 @@ def identity(execution=EXECUTION):
     }
 
 
-def completion(value=None, **kwargs):
-    return {
-        "model": EXECUTION["model"],
-        "choices": [
-            {
-                "finish_reason": "stop",
-                "message": {
-                    "content": json.dumps({"items": []} if value is None else value)
-                },
-            }
-        ],
-        "usage": {"completion_tokens": 7},
-        **kwargs,
-    }
-
-
 def wav_bytes():
     buffer = BytesIO()
     with wave.open(buffer, "wb") as recording:
@@ -83,75 +69,33 @@ class LocalInferenceTests(SimpleTestCase):
         self.authorize = Mock()
         self.client = LocalClient(self.authorize, self.execution)
 
-    def text_replies(self, *, tokens=None, final=None):
+    def text_replies(self):
         return [
-            response(identity()),
-            response({"prompt": "Exact rendered café prompt"}),
-            response({"tokens": [1, 2, 3] if tokens is None else tokens}),
-            response(completion() if final is None else final),
+            response(value)
+            for value in (VERSION, TAGS, INFO, RENDER, VERSION, COMPLETION, VERSION)
         ]
 
-    def test_text_uses_verified_runtime_full_prompt_budget_and_constrained_json(self):
-        schema = {"type": "object", "properties": {"items": {"type": "array"}}}
+    def test_text_transport_keeps_credentials_private_and_bypasses_proxies(self):
         with patch("core.analysis.local.build_opener") as build:
             build.return_value.open.side_effect = self.text_replies()
-            value = self.client.infer("Synthetic café source", schema)
-        self.assertEqual(value, {"items": []})
+            self.assertEqual(self.client.infer("Synthetic source", {}), {"items": []})
         calls = build.return_value.open.call_args_list
-        self.assertEqual(
-            [call.args[0].full_url for call in calls],
-            [
-                self.execution["url"] + path
-                for path in (
-                    "/identity",
-                    "/apply-template",
-                    "/tokenize",
-                    "/v1/chat/completions",
-                )
-            ],
-        )
-        self.assertIsNone(calls[0].args[0].data)
-        rendered = json.loads(calls[1].args[0].data)
-        payload = json.loads(calls[3].args[0].data)
-        self.assertEqual(rendered["messages"], payload["messages"])
-        self.assertIn("Synthetic café source", payload["messages"][1]["content"])
-        self.assertEqual(payload["chat_template_kwargs"], {"enable_thinking": False})
-        self.assertEqual(payload["reasoning_effort"], "none")
-        self.assertEqual(
-            payload["response_format"], {"type": "json_schema", "schema": schema}
-        )
-        self.assertEqual(payload["max_tokens"], 64)
-        self.assertFalse(payload["cache_prompt"])
-        self.assertFalse(payload["stream"])
-        self.assertEqual(
-            json.loads(calls[2].args[0].data),
-            {
-                "content": "Exact rendered café prompt",
-                "add_special": True,
-                "parse_special": True,
-            },
-        )
+        self.assertEqual(len(calls), 7)
         for call in calls:
             headers = {key.lower(): value for key, value in call.args[0].header_items()}
             self.assertEqual(
                 headers["authorization"], "Bearer synthetic-private-runtime-token"
             )
+            self.assertNotIn("x-pandect-identity", headers)
             self.assertEqual(call.kwargs["timeout"], 12)
-            if call.args[0].data is None:
-                self.assertNotIn("x-pandect-identity", headers)
-            else:
-                manifest = base64.urlsafe_b64decode(headers["x-pandect-identity"])
-                self.assertEqual(json.loads(manifest), identity())
-                self.assertNotIn(b"synthetic-private-runtime-token", manifest)
-                self.assertNotIn(b"Synthetic caf", manifest)
         for call in build.call_args_list:
             self.assertIsInstance(call.args[0], ProxyHandler)
             self.assertEqual(call.args[0].proxies, {})
             self.assertIsInstance(call.args[1], NoRedirect)
-        self.assertEqual(self.authorize.call_count, 8)
-        self.assertEqual(self.client.usage["input_tokens"], 3)
-        self.assertEqual(self.client.usage["output_tokens"], 7)
-        self.assertEqual(self.client.usage["request_count"], 4)
+        self.assertEqual(self.authorize.call_count, 14)
+        self.assertEqual(self.client.usage["input_tokens"], 20)
+        self.assertEqual(self.client.usage["output_tokens"], 8)
+        self.assertEqual(self.client.usage["request_count"], 7)
         self.assertNotIn("Synthetic", json.dumps(self.client.usage))
         self.assertNotIn(
             "synthetic-private-runtime-token", json.dumps(self.client.usage)
@@ -170,9 +114,9 @@ class LocalInferenceTests(SimpleTestCase):
             build.return_value.open.side_effect = self.text_replies()
             self.client.infer(prompt, schema)
             gateway.infer(prompt, schema)
-        local_messages = json.loads(build.return_value.open.call_args.args[0].data)[
-            "messages"
-        ]
+        local_messages = json.loads(
+            build.return_value.open.call_args_list[-2].args[0].data
+        )["messages"]
         self.assertEqual(local_messages, request.call_args.args[1]["messages"])
         self.assertNotIn(prompt, local_messages[0]["content"])
         self.assertEqual(
@@ -193,138 +137,6 @@ class LocalInferenceTests(SimpleTestCase):
                     self.client.infer(prompt, schema)
                 build.assert_not_called()
 
-    def test_runtime_identity_drift_blocks_any_source_submission(self):
-        for field, wrong in (
-            ("kind", "transcription"),
-            ("sha256", "b" * 64),
-            ("runtime", "different-build"),
-            ("model", "different-model"),
-            ("context_tokens", 256),
-        ):
-            with (
-                self.subTest(field=field),
-                patch("core.analysis.local.build_opener") as build,
-            ):
-                build.return_value.open.return_value = response(
-                    identity() | {field: wrong}
-                )
-                with self.assertRaisesMessage(AnalysisError, "local_ai_model_changed"):
-                    self.client.infer("Private source", {})
-                self.assertEqual(build.return_value.open.call_count, 1)
-                self.assertIsNone(build.return_value.open.call_args.args[0].data)
-
-    def test_context_overflow_stops_before_generation_without_truncating(self):
-        with patch("core.analysis.local.build_opener") as build:
-            build.return_value.open.side_effect = self.text_replies(tokens=[1] * 449)
-            with self.assertRaisesMessage(AnalysisError, "local_ai_context_limit"):
-                self.client.infer("Retained source remains whole", {})
-            self.assertEqual(build.return_value.open.call_count, 3)
-
-    def test_replaced_runtime_after_identity_check_is_rejected_without_generation(self):
-        conflict = HTTPError(
-            self.execution["url"] + "/apply-template",
-            409,
-            "runtime_identity_mismatch",
-            {},
-            BytesIO(),
-        )
-        with patch("core.analysis.local.build_opener") as build:
-            build.return_value.open.side_effect = [response(identity()), conflict]
-            with self.assertRaisesMessage(AnalysisError, "local_ai_model_changed"):
-                self.client.infer("Private source", {})
-        calls = build.return_value.open.call_args_list
-        self.assertEqual(len(calls), 2)
-        headers = dict(
-            (key.lower(), value) for key, value in calls[1].args[0].header_items()
-        )
-        self.assertEqual(
-            json.loads(base64.urlsafe_b64decode(headers["x-pandect-identity"])),
-            identity(),
-        )
-
-    def test_exact_context_boundary_can_generate(self):
-        with patch("core.analysis.local.build_opener") as build:
-            build.return_value.open.side_effect = self.text_replies(tokens=[1] * 448)
-            self.assertEqual(self.client.infer("Source", {}), {"items": []})
-
-    def test_bad_tokenization_is_not_replaced_by_character_estimates(self):
-        for tokens in ("123", [True], ["one"], [-1]):
-            with (
-                self.subTest(tokens=tokens),
-                patch("core.analysis.local.build_opener") as build,
-            ):
-                build.return_value.open.side_effect = self.text_replies(tokens=tokens)
-                with self.assertRaisesMessage(
-                    AnalysisError, "local_ai_invalid_response"
-                ):
-                    self.client.infer("Source", {})
-                self.assertEqual(build.return_value.open.call_count, 3)
-
-    def test_invalid_truncated_reasoning_and_tool_outputs_fail_closed(self):
-        invalid = [
-            {"choices": []},
-            completion(model="other-model"),
-            completion(
-                choices=[{"finish_reason": "length", "message": {"content": "{}"}}]
-            ),
-            completion(
-                choices=[{"finish_reason": "stop", "message": {"content": "bad JSON"}}]
-            ),
-            completion(
-                choices=[
-                    {
-                        "finish_reason": "stop",
-                        "message": {
-                            "content": "{}",
-                            "reasoning_content": "unsupported reasoning",
-                        },
-                    }
-                ]
-            ),
-            completion(
-                choices=[
-                    {
-                        "finish_reason": "stop",
-                        "message": {"content": "{}", "tool_calls": [{}]},
-                    }
-                ]
-            ),
-            completion(
-                choices=[{"finish_reason": "stop", "message": {"content": "42"}}]
-            ),
-            completion(
-                choices=[
-                    {"finish_reason": "stop", "message": {"content": '{"value":NaN}'}}
-                ]
-            ),
-            completion(
-                choices=[
-                    {
-                        "finish_reason": "stop",
-                        "message": {"content": '{"value":1e999}'},
-                    }
-                ]
-            ),
-        ]
-        for final in invalid:
-            with (
-                self.subTest(final=final),
-                patch("core.analysis.local.build_opener") as build,
-            ):
-                build.return_value.open.side_effect = self.text_replies(final=final)
-                with self.assertRaisesMessage(
-                    AnalysisError, "local_ai_invalid_response"
-                ):
-                    self.client.infer("Source", {})
-
-    def test_absent_usage_stays_unknown(self):
-        final = completion()
-        final.pop("usage")
-        with patch("core.analysis.local.build_opener") as build:
-            build.return_value.open.side_effect = self.text_replies(final=final)
-            self.client.infer("Source", {})
-        self.assertIsNone(self.client.usage["output_tokens"])
-
     def test_permission_revocation_before_request_stops_transport(self):
         self.authorize.side_effect = PermissionDenied
         with patch("core.analysis.local.build_opener") as build:
@@ -333,17 +145,17 @@ class LocalInferenceTests(SimpleTestCase):
             build.assert_not_called()
 
     def test_permission_revocation_after_response_withholds_result(self):
-        self.authorize.side_effect = [None] * 7 + [PermissionDenied()]
+        self.authorize.side_effect = [None] * 13 + [PermissionDenied()]
         with patch("core.analysis.local.build_opener") as build:
             build.return_value.open.side_effect = self.text_replies()
             with self.assertRaises(PermissionDenied):
                 self.client.infer("Private source", {})
-        self.assertEqual(self.authorize.call_count, 8)
+        self.assertEqual(self.authorize.call_count, 14)
 
     def test_cancelled_chunk_does_not_submit_next_request(self):
         self.authorize.side_effect = [None, None, AnalysisError("processing_cancelled")]
         with patch("core.analysis.local.build_opener") as build:
-            build.return_value.open.return_value = response(identity())
+            build.return_value.open.return_value = response(VERSION)
             with self.assertRaisesMessage(AnalysisError, "processing_cancelled"):
                 self.client.infer("Private source", {})
             self.assertEqual(build.return_value.open.call_count, 1)
@@ -409,10 +221,10 @@ class LocalInferenceTests(SimpleTestCase):
 
     def test_request_size_limit_rejects_instead_of_slicing(self):
         with patch("core.analysis.local.build_opener") as build:
-            build.return_value.open.return_value = response(identity())
+            build.return_value.open.side_effect = self.text_replies()
             with self.assertRaisesMessage(AnalysisError, "local_ai_input_limit"):
                 self.client.infer("x" * 65536, {})
-            self.assertEqual(build.return_value.open.call_count, 1)
+            self.assertEqual(build.return_value.open.call_count, 3)
 
     def test_invalid_endpoint_or_missing_model_pin_is_unavailable(self):
         for changes in (
@@ -445,6 +257,7 @@ class LocalTranscriptionTests(SimpleTestCase):
             "runtime": "whisper.cpp-synthetic-revision",
         }
         self.execution.pop("context_tokens")
+        self.execution.pop("driver")
         self.authorize = Mock()
         self.client = LocalClient(self.authorize, self.execution)
         self.audio = wav_bytes()

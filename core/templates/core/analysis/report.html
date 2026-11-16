@@ -17,6 +17,9 @@
   <div class="form-actions"><button class="button button-primary" type="submit">Update report</button><a class="button button-secondary" href="?">Reset selection</a></div>
 </form>
 </details>
+{% if name == 'vehicle-trips' %}{% include 'ui/components/live_updates.html' %}{% endif %}
+{% partialdef live inline %}
+<div id="report-results" data-live-region data-live-poll="{{ data.processing_pending|yesno:'true,false' }}">
 {% if data %}
 {% if name == 'vehicle-trips' %}
 <h2>{{ data.summary }}</h2>
@@ -51,4 +54,6 @@
 </details>
 {% endif %}
 {% endif %}
+</div>
+{% endpartialdef %}
 {% endblock %}

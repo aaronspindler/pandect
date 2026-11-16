@@ -47,7 +47,7 @@ INVENTORY_LABELS = {
 
 @dataclass
 class DeletionPlan:
-    item: object
+    items: list
     kind: str
     collector: Collector
     entries: list = field(default_factory=list)
@@ -57,6 +57,10 @@ class DeletionPlan:
     analysis_count: int = 0
     affected_vehicle_ids: set = field(default_factory=set)
 
+    @property
+    def item(self):
+        return self.items[0]
+
     def revision(self, actor):
         return signing.dumps(self._identity(actor), salt=SALT)
 
@@ -65,7 +69,7 @@ class DeletionPlan:
             str(actor.pk),
             str(self.item.case_id),
             self.kind,
-            str(self.item.pk),
+            sorted(str(item.pk) for item in self.items),
             self.fingerprint,
         ]
 
@@ -178,13 +182,23 @@ def _case_file(name, case_id):
 
 
 def plan_deletion(item, kind):
+    return plan_deletions([item], kind)
+
+
+def plan_deletions(items, kind):
+    """Plan one evidence type within one case, collecting shared dependents once."""
+    item = items[0]
+    if any(source.case_id != item.case_id for source in items):
+        raise ValueError("A deletion plan must belong to one case.")
     collector = Collector(using=item._state.db, origin=item, force_collection=True)
-    plan = DeletionPlan(item, kind, collector)
-    roots = {kind: [item]}
+    plan = DeletionPlan(items, kind, collector)
+    roots = {kind: items}
     batches = []
     if kind == "document":
         batches = list(
-            VehicleLocationImport.objects.filter(document=item).only("id", "case_id")
+            VehicleLocationImport.objects.filter(document__in=items).only(
+                "id", "case_id"
+            )
         )
         roots["vehicle-location"] = list(
             VehicleLocationEvidence.objects.filter(import_batch__in=batches).only(
@@ -193,7 +207,7 @@ def plan_deletion(item, kind):
         )
         roots["text-message"] = list(
             KINDS["text-message"]
-            .objects.filter(communication_context__source_document=item)
+            .objects.filter(communication_context__source_document__in=items)
             .only("id", "case_id")
         )
     # Check source-linked roots before querying or displaying any private labels.

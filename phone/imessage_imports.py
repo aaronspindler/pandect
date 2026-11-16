@@ -13,6 +13,7 @@ from core.evidence.queries import get_evidence
 from core.models import AnalysisRun
 from core.storage import file_integrity, retain_uploaded_originals
 from document.models import DocumentEvidence
+from phone.analysis.deterministic.imessage import import_file_limit
 
 
 def start_preview(actor, case_id, values):
@@ -20,7 +21,11 @@ def start_preview(actor, case_id, values):
         case = get_case(actor, case_id, edit=True, lock=True)
         original = values.get("file")
         if original:
+            if original.size > import_file_limit():
+                raise AnalysisError("imessage_import_limit")
             metadata = file_integrity(DocumentEvidence(file=original).file)
+            if metadata["byte_size"] > import_file_limit():
+                raise AnalysisError("imessage_import_limit")
             title = (
                 values.get("title")
                 or f"Messages: {metadata['original_filename']}"[:255]
@@ -54,6 +59,8 @@ def start_preview(actor, case_id, values):
                 originals.append(document.file)
         else:
             document = get_evidence(case, "document", values["document"].pk, lock=True)
+            if document.byte_size > import_file_limit():
+                raise AnalysisError("imessage_import_limit")
         return start_run(
             actor,
             case.pk,

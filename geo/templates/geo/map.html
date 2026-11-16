@@ -25,7 +25,12 @@
   </form>
 </details>
 {% endif %}
-{% if pending %}<p class="notice" role="status">Preparing trips from the complete observation history. Refresh to see progress.</p>{% elif failed %}<p class="notice" role="status">Some trip processing needs attention. <a href="{% url 'core:analysis:processing' case.pk %}">Open Processing</a>.</p>{% endif %}
+{% if not detail %}{% include 'ui/components/live_updates.html' %}{% endif %}
+{% partialdef progress inline %}
+<div id="map-progress" data-live-region data-live-poll="{{ pending|yesno:'true,false' }}">
+{% if pending %}<p class="notice" role="status">Preparing trips from the complete observation history.</p>{% elif failed %}<p class="notice" role="status">Some trip processing needs attention. <a href="{% url 'core:analysis:processing' case.pk %}">Open Processing</a>.</p>{% endif %}
+</div>
+{% endpartialdef %}
 {% if needs_prepare %}{% include 'geo/prepare_trips.html' %}{% endif %}
 <section class="case-map-section" aria-labelledby="map-heading" data-case-map data-geometry-url="{{ geometry_url }}" {% if can_edit %}data-poi-create-url="{% url 'geo:poi_create' case.pk %}"{% endif %} data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}">
   <div class="section-header"><div><h2 id="map-heading" class="sr-only">Trip map</h2><p class="muted map-summary">{% if selected_trip %}Selected trip · {{ selected_trip.source_count }} observations{% else %}No trip selected{% endif %}{% if poi_page %} · {{ poi_mapped_count }} of {{ poi_page|length }} POIs mapped{% endif %}</p></div><div class="actions"><button type="button" class="button button-secondary" data-map-fit aria-label="Show selected trip and POIs" hidden>Show all</button><a class="record-link" href="#trip-list">{% if detail %}Trip observations{% else %}Trip list{% endif %}</a>{% if poi_page or query %}<a class="record-link" href="#poi-list">POI list</a>{% endif %}</div></div>
@@ -54,6 +59,8 @@
   {% include "geo/poi_list.html" %}
 </section>{% endif %}
 {% block trip_listing %}
+{% partialdef trips inline %}
+<div id="map-trips" data-live-region data-live-poll="false">
 <section class="content-section" aria-labelledby="trip-list" tabindex="-1">
   <div class="section-header"><h2 id="trip-list">Trips</h2><span class="muted">{{ page_obj.paginator.count }} possible trip{{ page_obj.paginator.count|pluralize }}</span></div>
   {% if trips %}
@@ -63,6 +70,10 @@
   {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Trip pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#trip-list">Previous trips</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#trip-list">Next trips</a>{% endif %}</nav>{% endif %}
   {% else %}<div class="empty-state compact-empty"><h3>{% if filters_applied %}No matching trips{% else %}No trips available yet{% endif %}</h3><p>{% if filters_applied %}Clear or broaden the filters to see more trips.{% elif pending %}Trips will appear when preparation finishes.{% else %}Timed observations for the same vehicle must show a change of place to form a possible trip. Stationary observations alone do not form a trip.{% endif %}</p><a class="record-link" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a></div>{% endif %}
 </section>
+</div>
+{% endpartialdef %}
 {% endblock %}
 {{ points|json_script:'case-map-points' }}
 {% endblock %}
+
+{% partialdef live %}{% partial progress %}{% partial trips %}{% endpartialdef %}

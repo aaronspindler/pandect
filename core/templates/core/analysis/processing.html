@@ -3,9 +3,12 @@
 {% block content %}
 <header class="page-header">
   <div><h1>Processing</h1><p class="muted">Follow work in progress and revisit earlier results.</p></div>
-  <div class="actions">{% if can_edit %}<a class="button button-primary" href="{% url 'core:analysis:reprocess' case.pk %}">Reprocess evidence</a>{% endif %}<a class="button button-secondary" href="{% querystring %}">Refresh progress</a></div>
+  <div class="actions">{% if can_edit %}<a class="button button-primary" href="{% url 'core:analysis:reprocess' case.pk %}">Reprocess evidence</a>{% endif %}</div>
 </header>
 
+{% include 'ui/components/live_updates.html' %}
+{% partialdef activity inline %}
+<div id="processing-activity" data-live-region data-live-poll="{{ live_pending|yesno:'true,false' }}">
 <section class="analysis-section" aria-labelledby="in-progress-heading">
   <div class="section-header"><h2 id="in-progress-heading">In progress</h2>{% if active_runs.paginator.count %}<span class="muted">{{ active_runs.paginator.count }} check{{ active_runs.paginator.count|pluralize }}</span>{% endif %}</div>
   {% if active_batches.paginator.count %}
@@ -30,6 +33,10 @@
   {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count %}<p class="muted" role="status">Nothing is being processed right now.</p>{% endif %}
 </section>
 
+</div>
+{% endpartialdef %}
+{% partialdef history inline %}
+<div id="processing-results" data-live-region data-live-poll="false">
 <section class="analysis-section" id="processing-history" aria-labelledby="processing-history-heading">
   <div class="section-header"><h2 id="processing-history-heading">History</h2><a class="record-link" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a></div>
   {% if batch %}
@@ -78,6 +85,8 @@
   {% if batches.has_other_pages %}<nav class="pagination" aria-label="Batch pages">{% if batches.has_previous %}<a class="button button-secondary" href="{% querystring batches_page=batches.previous_page_number %}#batch-history">Previous</a>{% endif %}<span>Page {{ batches.number }} of {{ batches.paginator.num_pages }}</span>{% if batches.has_next %}<a class="button button-secondary" href="{% querystring batches_page=batches.next_page_number %}#batch-history">Next</a>{% endif %}</nav>{% endif %}
 </details>
 {% endif %}
+</div>
+{% endpartialdef %}
 {% if can_edit %}
 <details class="analysis-section">
   <summary>Run more checks</summary>
@@ -86,3 +95,5 @@
 </details>
 {% endif %}
 {% endblock %}
+
+{% partialdef live %}{% partial activity %}{% partial history %}{% endpartialdef %}

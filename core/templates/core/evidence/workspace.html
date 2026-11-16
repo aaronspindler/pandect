@@ -1,6 +1,6 @@
 {% extends "ui/base.html" %}
 {% load static %}
-{% block title %}{% if item %}{{ item.title }}{% else %}Evidence{% endif %} · {{ case.name }}{% endblock %}
+{% block title %}{% if item %}{{ display_title|default:item.title }}{% else %}Evidence{% endif %} · {{ case.name }}{% endblock %}
 {% block body_class %}workspace-page{% if item %} has-selection{% endif %}{% endblock %}
 {% block extra_head %}{% if item %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endif %}<link rel="stylesheet" href="{% static 'core/workspace.css' %}">{% endblock %}
 {% block case_context %}{% endblock %}
@@ -60,7 +60,7 @@
     <div class="evidence-content">
     <a class="back-link" href="{{ list_url }}">Back to evidence</a>
     <header class="evidence-reader-header">
-      <div><h1>{{ item.title }}</h1><p class="evidence-meta">{{ kind_label }}{% if item.source %} · {{ item.source }}{% endif %}{% if item.collected_at %} · Collected {{ item.collected_at|date:"d M Y" }}{% endif %}{% if item.is_archived %} · Archived{% endif %}</p></div>
+      <div><h1>{{ display_title|default:item.title }}</h1><p class="evidence-meta">{{ kind_label }}{% if item.source %} · {{ item.source }}{% endif %}{% if item.collected_at %} · Collected {{ item.collected_at|date:"d M Y" }}{% endif %}{% if item.is_archived %} · Archived{% endif %}</p></div>
       <div class="actions">
         <a class="button button-secondary" href="{% url 'core:evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">{% include 'ui/components/icon.html' with name='download' %} Download original</a>
         {% include 'core/evidence/info.html' %}
@@ -71,6 +71,7 @@
       <h2 class="visually-hidden" id="evidence-original-heading" tabindex="-1">Original</h2>
       {% include reader_template %}
     </section>
+    {% include 'ui/components/live_updates.html' %}
     {% include 'core/analysis/evidence.html' with evidence=item %}
     </div>
     {% else %}
@@ -79,3 +80,9 @@
   </section>
 </div>
 {% endblock %}
+
+{% partialdef live %}
+{% include 'core/analysis/evidence.html' with evidence=item %}
+{% include 'core/evidence/info.html#history' %}
+{% include 'core/evidence/more.html#checks' %}
+{% endpartialdef %}

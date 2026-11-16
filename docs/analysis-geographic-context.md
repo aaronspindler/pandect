@@ -73,8 +73,10 @@ Use identical web/worker settings:
 | `PANDECT_MAP_CONTEXT_VERSION` | Required dataset/version identifier. |
 | `PANDECT_MAP_CONTEXT_ATTRIBUTION` | Required attribution and licensing notice. |
 | `PANDECT_MAP_CONTEXT_USER_AGENT` | Required application/operator identification accepted by the service. |
-| `PANDECT_MAP_CONTEXT_TIMEOUT` | Seconds; default 10, range 1–30. |
 | `PANDECT_MAP_CONTEXT_HISTORY_START` | Earliest snapshot: UTC `YYYY-MM-DD` or explicitly zoned ISO timestamp. Empty disables historical lookup. |
+
+Requests have a fixed ten-second timeout. Service identification defaults to
+`Pandect/0.1`; override it when the operator requires different contact details.
 
 No public endpoint is configured by default. Operators arrange capacity, coverage,
 retention and licensing; see public Overpass's

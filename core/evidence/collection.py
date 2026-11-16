@@ -2,6 +2,7 @@
 
 from django.core.paginator import Paginator
 from django.db.models import Case, CharField, Q, Value, When
+from django.db.models.functions import Substr
 from django.urls import reverse
 
 from core.analysis.search import derived_content_condition, derived_text_matches
@@ -16,6 +17,7 @@ from core.evidence.types import (
     LOCATION_KINDS,
 )
 from people.models import Person
+from phone.presentation import message_evidence_label
 
 
 def person_attribution(kind, person):
@@ -115,10 +117,30 @@ def collection_context(case, params):
         queries[0].union(*queries[1:], all=True).order_by("-created_at", "kind", "id")
     )
     page = Paginator(combined, 25).get_page(params.get("page"))
+    page_rows = list(page.object_list)
+    message_ids = [row["id"] for row in page_rows if row["kind"] == "text-message"]
+    message_labels = {
+        message.pk: message_evidence_label(
+            message.label_body, message.sender, message.occurred_at
+        )
+        for message in scoped_evidence(case, "text-message")
+        .filter(pk__in=message_ids)
+        .select_related("sender")
+        .only(
+            "occurred_at",
+            "sender__first_name",
+            "sender__last_name",
+            "sender__email",
+            "sender__phone_number",
+        )
+        .annotate(label_body=Substr("body", 1, 81))
+    }
     params = collection_params(params)
     suffix = "?" + params.urlencode() if params else ""
     rows = []
-    for row in page.object_list:
+    for row in page_rows:
+        if row["kind"] == "text-message":
+            row["title"] = message_labels.get(row["id"], row["title"])
         row["label"] = KIND_LABELS[row["kind"]]
         row["url"] = (
             reverse(

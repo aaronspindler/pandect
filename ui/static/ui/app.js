@@ -122,10 +122,11 @@
     });
   });
   const dirtyForms = new Set();
-  document.querySelectorAll("[data-unsaved-form]:not([data-evidence-upload])").forEach((form) => {
-    form.addEventListener("input", () => dirtyForms.add(form));
-    form.addEventListener("submit", () => dirtyForms.delete(form));
+  document.addEventListener("input", (event) => {
+    const form = event.target.closest("[data-unsaved-form]:not([data-evidence-upload])");
+    if (form) dirtyForms.add(form);
   });
+  document.addEventListener("submit", (event) => dirtyForms.delete(event.target));
   window.addEventListener("beforeunload", (event) => {
     if (dirtyForms.size) {
       event.preventDefault();

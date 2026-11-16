@@ -53,7 +53,7 @@ or Editor. Recipients need an account with the invited email verified.
 operator-provisioned account. Invitations do not bypass registration. Acceptance
 requires POST and resumes after sign-in/verification; opening a link grants no access.
 
-Links expire after `PANDECT_INVITATION_DAYS` (default seven days). Owners can
+Links expire after seven days. Owners can
 resend, revoke, or change pending roles; resend/role changes invalidate old tokens.
 Mail failure retains an actionable pending invitation: check SMTP before resending.
 Pending/failed invitations remain visible; accepted/revoked records appear under
@@ -97,7 +97,8 @@ or [evidence](evidence.md#permanent-deletion).
 
 Lists, searches, direct/history/deletion URLs, submitted cases, and inline IDs
 are scoped server-side. Revocation/downgrade affects subsequent requests in
-existing sessions. Records cannot move between cases; bulk actions are disabled.
+existing sessions. Records cannot move between cases. Bulk actions are disabled
+except for [debug-only superuser evidence deletion](evidence.md#django-admin).
 [`CaseScopedAdmin`](../cases/admin_access.py) implements these gates, with the
 following case/membership rules:
 

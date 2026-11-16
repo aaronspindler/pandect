@@ -1,0 +1,29 @@
+{% extends "admin/base_site.html" %}
+{% load admin_urls static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'core/admin.css' %}">
+{% endblock %}
+{% block bodyclass %}{{ block.super }} delete-confirmation{% endblock %}
+
+{% block content %}
+  <p>This permanently deletes {{ items|length }} selected evidence record{{ items|length|pluralize }}, their original files, imported records, retained call material, and related analysis, reviews, and generated files. This cannot be undone.</p>
+  {% url opts|admin_urlname:'changelist' as cancel_url %}
+  {% if blockers %}
+    {% for blocker in blockers %}<p role="alert">{{ blocker }}</p>{% endfor %}
+    <a class="button evidence-delete-cancel" href="{% add_preserved_filters cancel_url %}">Cancel</a>
+  {% else %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="delete_selected">
+      <input type="hidden" name="select_across" value="{{ select_across }}">
+      {% for item in selected_items %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ item.pk }}">{% endfor %}
+      {% for revision in revisions %}<input type="hidden" name="revision" value="{{ revision }}">{% endfor %}
+      {% include "core/evidence/deletion_inventory.html" %}
+      <p><label class="evidence-delete-confirm"><input type="checkbox" name="confirm" value="yes" required> I confirm permanent deletion of this inventory.</label></p>
+      <button type="submit" name="post" value="yes">Permanently delete selected evidence</button>
+      <a role="button" class="button evidence-delete-cancel" href="{% add_preserved_filters cancel_url %}">Cancel</a>
+    </form>
+  {% endif %}
+{% endblock %}

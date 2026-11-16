@@ -24,6 +24,7 @@ from geo.trip_processing import (
     trip_readiness,
     trip_sources,
 )
+from ui.live import render_live
 
 
 class TripMapForm(VehicleReportForm):
@@ -128,7 +129,7 @@ def case_map(request, case_id):
                 "trip_count": page.paginator.count,
             }
         )
-    return render(request, "geo/map.html", context)
+    return render_live(request, "geo/map.html", context)
 
 
 @product_login_required

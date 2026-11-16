@@ -24,7 +24,6 @@ class RuntimeTests(unittest.TestCase):
         self.model.write_bytes(b"synthetic model")
         self.digest = hashlib.sha256(self.model.read_bytes()).hexdigest()
         environment = {
-            "PANDECT_RUNTIME_KIND": "text",
             "PANDECT_RUNTIME_MODEL": "synthetic-model",
             "PANDECT_RUNTIME_MODEL_SHA256": self.digest,
             "PANDECT_LOCAL_AI_TOKEN": "synthetic-runtime-secret",
@@ -38,11 +37,30 @@ class RuntimeTests(unittest.TestCase):
     def test_identity_uses_measured_model_digest_and_pinned_engine(self):
         self.runtime.verify_model()
         self.assertEqual(self.runtime.identity["sha256"], self.digest)
-        self.assertEqual(self.runtime.identity["context_tokens"], 32768)
+        self.assertEqual(self.runtime.identity["kind"], "transcription")
         self.assertEqual(
             self.runtime.identity["runtime"],
-            "llama.cpp@8642541b255bfb5dc39cd351a178be09013a55d6",
+            "whisper.cpp@d1be6fde11ac6e0407606b4e42fe72d34add8037",
         )
+
+    def test_retired_environment_options_cannot_change_runtime_bounds(self):
+        names = (
+            "PANDECT_RUNTIME_TIMEOUT",
+            "PANDECT_RUNTIME_MAX_REQUEST_BYTES",
+            "PANDECT_RUNTIME_MAX_RESPONSE_BYTES",
+            "PANDECT_RUNTIME_THREADS",
+        )
+        for value in ("1", "not-an-integer"):
+            with (
+                self.subTest(value=value),
+                patch.dict(os.environ, dict.fromkeys(names, value)),
+            ):
+                runtime = Runtime()
+                self.assertEqual(runtime.timeout, 600)
+                self.assertEqual(runtime.max_request, 8 * 1024 * 1024)
+                self.assertEqual(runtime.max_response, 2 * 1024 * 1024)
+                command = runtime.command()
+                self.assertEqual(command[command.index("--threads") + 1], "4")
 
     def test_missing_or_changed_model_fails_before_engine_launch(self):
         self.model.write_bytes(b"different model")
@@ -83,7 +101,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(options["stdout"], subprocess.DEVNULL)
         self.assertEqual(options["stderr"], subprocess.DEVNULL)
         self.assertTrue(options["start_new_session"])
-        self.assertIn("--parallel", process.call_args.args[0])
+        self.assertIn("--processors", process.call_args.args[0])
 
     def test_changed_mounted_file_invalidates_running_runtime(self):
         self.runtime.verify_model()
@@ -127,13 +145,11 @@ class RuntimeTests(unittest.TestCase):
             patch.object(self.runtime, "stop") as stop,
             self.assertRaises(TimeoutError),
         ):
-            self.runtime.forward("/v1/chat/completions", b"{}", "application/json")
+            self.runtime.forward("/inference", b"{}", "application/json")
         stop.assert_called_once()
 
     def test_whisper_command_keeps_english_and_context_boundaries(self):
-        os.environ["PANDECT_RUNTIME_KIND"] = "transcription"
-        runtime = Runtime()
-        command = runtime.command()
+        command = self.runtime.command()
         # The pinned server enables no_context by default; unlike its help text,
         # its actual CLI parser does not recognize --no-context.
         for option in ("--no-gpu", "--no-fallback"):
@@ -143,13 +159,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[command.index("--language") + 1], "en")
 
     def test_gpu_offload_is_explicit_for_a_separately_qualified_image(self):
-        with patch.dict(os.environ, {"PANDECT_RUNTIME_GPU_LAYERS": "99"}):
-            command = Runtime().command()
-        self.assertEqual(command[command.index("--n-gpu-layers") + 1], "99")
-        with patch.dict(
-            os.environ,
-            {"PANDECT_RUNTIME_KIND": "transcription", "PANDECT_RUNTIME_GPU": "true"},
-        ):
+        with patch.dict(os.environ, {"PANDECT_RUNTIME_GPU": "true"}):
             self.assertNotIn("--no-gpu", Runtime().command())
 
     def test_token_and_valid_model_hash_are_required(self):
@@ -168,9 +178,8 @@ class RuntimeTests(unittest.TestCase):
 class RuntimeHTTPTests(unittest.TestCase):
     def setUp(self):
         self.runtime = Mock()
-        self.runtime.kind = "text"
         self.runtime.token = "synthetic-secret"
-        self.runtime.identity = {"kind": "text", "sha256": "a" * 64}
+        self.runtime.identity = {"kind": "transcription", "sha256": "a" * 64}
         self.runtime.max_request = 32
         self.runtime.lock = threading.Lock()
         self.runtime.ready.return_value = True
@@ -213,28 +222,33 @@ class RuntimeHTTPTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/identity"), (200, self.runtime.identity))
 
     def test_only_allowed_native_routes_can_receive_requests(self):
-        self.assertEqual(self.request("POST", "/completion", b"{}")[0], 404)
-        self.assertEqual(
-            self.request("POST", "/v1/chat/completions?secret=x", b"{}")[0], 404
-        )
+        for path in (
+            "/completion",
+            "/apply-template",
+            "/tokenize",
+            "/v1/chat/completions",
+            "/inference?secret=x",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.request("POST", path, b"{}")[0], 404)
         self.runtime.forward.assert_not_called()
-        status, _ = self.request("POST", "/v1/chat/completions", b"{}")
+        status, _ = self.request("POST", "/inference", b"{}")
         self.assertEqual(status, 200)
         self.runtime.forward.assert_called_once_with(
-            "/v1/chat/completions", b"{}", "application/json"
+            "/inference", b"{}", "application/json"
         )
 
     def test_request_limit_and_busy_runtime_do_not_forward_evidence(self):
-        self.assertEqual(self.request("POST", "/tokenize", b"x" * 33)[0], 413)
+        self.assertEqual(self.request("POST", "/inference", b"x" * 33)[0], 413)
         with self.runtime.lock:
-            self.assertEqual(self.request("POST", "/tokenize", b"{}")[0], 503)
+            self.assertEqual(self.request("POST", "/inference", b"{}")[0], 503)
         self.runtime.forward.assert_not_called()
 
     def test_request_identity_rejects_same_alias_with_a_different_artifact(self):
         selected = self.runtime.identity | {"sha256": "b" * 64}
         identity = base64.urlsafe_b64encode(json.dumps(selected).encode()).decode()
         status, value = self.request(
-            "POST", "/tokenize", b"{}", headers={"X-Pandect-Identity": identity}
+            "POST", "/inference", b"{}", headers={"X-Pandect-Identity": identity}
         )
         self.assertEqual(status, 409)
         self.assertEqual(value, {"error": "runtime_identity_changed"})
@@ -246,7 +260,7 @@ class RuntimeHTTPTests(unittest.TestCase):
                 self.assertEqual(
                     self.request(
                         "POST",
-                        "/tokenize",
+                        "/inference",
                         b"{}",
                         headers={"X-Pandect-Identity": value},
                     )[0],
@@ -256,7 +270,7 @@ class RuntimeHTTPTests(unittest.TestCase):
 
     def test_error_bodies_never_relay_native_exception_strings(self):
         self.runtime.forward.side_effect = ValueError("private source or model path")
-        status, value = self.request("POST", "/tokenize", b"{}")
+        status, value = self.request("POST", "/inference", b"{}")
         self.assertEqual(status, 503)
         self.assertEqual(value, {"error": "runtime_unavailable"})
         # The client can read the response before the handler's finally block runs.

@@ -183,8 +183,8 @@ Keep title/original fields visible. Disclose optional source/technical fields
 on request, editing, or validation errors. Saved descriptions/notes remain
 readable; new note authoring is retired. Retain citations and review reasons.
 
-The default limits are 20 batch entries, 100 MiB per file, and 1 MiB UTF-8 captured
-text; show configured operator limits. Each file is a separate request. A batch
+The limits are 100 batch entries, 1 GiB per file, and 10 MiB UTF-8 captured
+text; show the application limits. Each file is a separate request. A batch
 row shows filename, editable title/type, source overrides, and state. Browser type
 hints are suggestions, not verification. Shared source fields follow pending
 entries until individually overridden, including by blank values; **Use shared
@@ -234,6 +234,17 @@ distinct from execution: **Checks queued** does not mean those checks have finis
 Owners and editors have **Run more checks → Rerun all analysis** here; it starts
 supported local checks across active evidence, preserves earlier results, and
 reports background preparation progress.
+
+While work is active, Processing, analysis results, evidence findings/history,
+message and vehicle import reviews, and vehicle trip summaries update their
+changing sections every five seconds with JavaScript. The original reader,
+navigation, filters, URL, and interactive map remain in place. Focused sections
+and edited forms wait for the investigator; open disclosures stay open. Polling
+pauses in hidden tabs and stops when work finishes. Requests time out after 15
+seconds; three consecutive failures pause updates with a manual retry. Session or
+access loss stops updates and offers All cases. **Refresh status** also works
+without JavaScript. Every fragment request repeats the page's current case checks.
+
 The prominent **Reprocess evidence** button opens a dedicated screen. Native
 checkboxes select multiple evidence types with active counts; Local is the default
 processing location, with External / AI and Both as alternatives. Explain local

@@ -2,6 +2,7 @@
   <summary id="evidence-info-toggle" class="button button-secondary" aria-label="Info" data-tooltip="Info" title="Info">{% include 'ui/components/icon.html' with name='info-circle' %}<span class="evidence-toolbar-label">Info</span></summary>
   <aside class="evidence-info-panel" aria-labelledby="evidence-details-heading">
     <div class="evidence-info-header"><h2 id="evidence-details-heading" tabindex="-1">Evidence info</h2><button class="button button-secondary icon-button" type="button" aria-label="Close info" data-tooltip="Close info" title="Close info" data-close-disclosure hidden>{% include 'ui/components/icon.html' with name='x' %}</button></div>
+    {% if display_title %}<section class="evidence-info-section"><h3>Saved title</h3><p>{{ item.title }}</p></section>{% endif %}
     {% if item.source or item.source_description or item.source_url or item.collected_at %}
     <section class="evidence-info-section"><h3>Source</h3>
       <dl class="metadata-grid">
@@ -25,6 +26,8 @@
     {% for attachment in attachments %}
     <section class="evidence-info-section" id="attachment-details-{{ attachment.pk }}"><h3>{% if attachment.file %}{{ attachment.original_filename }}{% else %}Supplied transcript{% endif %}</h3><dl class="metadata-grid"><div><dt>Added by</dt><dd>{{ attachment.uploaded_by }}</dd></div><div><dt>Added at</dt><dd>{{ attachment.created_at|date:"d M Y, H:i:s T" }}</dd></div><div><dt>Attachment SHA-256</dt><dd><code>{{ attachment.sha256 }}</code></dd></div>{% if attachment.file %}<div><dt>Audio SHA-256</dt><dd><code>{{ attachment.audio_sha256 }}</code></dd></div>{% endif %}</dl><a class="record-link" href="{% url 'phone:attachment_download' case_id=case.pk kind=kind evidence_id=item.pk attachment_id=attachment.pk component='manifest' %}">Download attachment record</a></section>
     {% endfor %}
+    {% partialdef history inline %}
+    <div id="evidence-processing-history" data-live-region data-live-poll="false">
     {% if analysis_page_obj %}
     <section class="evidence-info-section" aria-labelledby="evidence-history-heading">
       <h3 id="evidence-history-heading" tabindex="-1">Processing history</h3>
@@ -32,5 +35,7 @@
       {% if analysis_page_obj.has_other_pages %}<nav class="pagination" aria-label="Run history pages">{% if analysis_page_obj.has_previous %}<a class="button button-secondary" href="?info=1&amp;results_page={{ analysis_page_obj.previous_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Previous</a>{% endif %}<span>Page {{ analysis_page_obj.number }} of {{ analysis_page_obj.paginator.num_pages }}</span>{% if analysis_page_obj.has_next %}<a class="button button-secondary" href="?info=1&amp;results_page={{ analysis_page_obj.next_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Next</a>{% endif %}</nav>{% endif %}
     </section>
     {% endif %}
+    </div>
+    {% endpartialdef %}
   </aside>
 </details>

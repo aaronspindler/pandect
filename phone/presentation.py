@@ -1,9 +1,23 @@
 from django.core.paginator import Paginator
+from django.utils import timezone
+from django.utils.formats import date_format
 
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS
 from phone.conversations import conversation_url
 from phone.models import CommunicationContext
+
+
+def message_evidence_label(body, sender, occurred_at):
+    excerpt = " ".join(body[:80].split()) or "Text message"
+    if len(body) > 80:
+        excerpt += "…"
+    timestamp = (
+        date_format(timezone.localtime(occurred_at), "d M Y, H:i:s T")
+        if occurred_at
+        else "Time not recorded"
+    )
+    return f"{excerpt} · {sender} · {timestamp}"
 
 
 def reader_context(
@@ -22,6 +36,9 @@ def reader_context(
             "uploaded_by"
         )
     if kind == "text-message":
+        context["display_title"] = message_evidence_label(
+            item.body, item.sender, item.occurred_at
+        )
         context["conversation_url"] = conversation_url(
             case, item, source=conversation_source, list_page=conversation_list_page
         )

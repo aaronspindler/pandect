@@ -30,12 +30,13 @@ DJANGO_SECRET_KEY=synthetic-compose-smoke-secret-not-for-deployment
 POSTGRES_DB=pandect_smoke
 POSTGRES_USER=pandect_smoke
 POSTGRES_PASSWORD=synthetic-smoke-password
-PANDECT_DB_PORT=0
+POSTGRES_PORT=0
 PANDECT_WEB_PORT=0
 ENV
 # Prevent inherited development/CI environment values from overriding isolation.
-unset DJANGO_DEBUG DJANGO_SECRET_KEY DJANGO_ALLOWED_HOSTS POSTGRES_DB POSTGRES_USER
-unset POSTGRES_PASSWORD
+for variable in $(python3 -c 'import os; print(" ".join(key for key in os.environ if key.startswith(("DJANGO_", "POSTGRES_"))))'); do
+    unset "$variable"
+done
 unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
 # Include future settings too; never carry operator endpoints or tokens into tests.
 for variable in $(python3 -c 'import os; print(" ".join(key for key in os.environ if key.startswith("PANDECT_")))'); do

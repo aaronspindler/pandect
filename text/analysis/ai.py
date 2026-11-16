@@ -4,6 +4,7 @@ import json
 
 from django.core.exceptions import ValidationError
 
+from core.analysis.errors import AnalysisError, error_message
 from core.analysis.sources import output
 from text.analysis.deterministic import keywords
 from text.analysis.shared import bounded_sources
@@ -187,17 +188,45 @@ def cited_model_analysis(sources, parameters, *, infer, purpose):
 
 
 def text_topics(sources, parameters, *, infer=None):
-    result = cited_model_analysis(
-        sources,
-        parameters,
-        infer=infer,
-        purpose=(
-            "Propose topic labels and brief source-cited summaries "
-            "of the selected material. Preserve qualifications, "
-            "mixed topics, conflicting statements and unknowns."
-        ),
-    )
     observed = keywords(sources, parameters)
+    try:
+        result = cited_model_analysis(
+            sources,
+            parameters,
+            infer=infer,
+            purpose=(
+                "Propose topic labels and brief source-cited summaries "
+                "of the selected material. Preserve qualifications, "
+                "mixed topics, conflicting statements and unknowns."
+            ),
+        )
+    except ValidationError:
+        if not observed["items"]:
+            raise
+        result = output(
+            "Keywords retained; topic suggestions were not published.",
+            warnings=[
+                "Topic suggestions could not be validated for this selection. "
+                "Keyword results are retained. Choose fewer sources or start "
+                "another run to try topic suggestions again."
+            ],
+            outcome="partial",
+        )
+    except AnalysisError as error:
+        if (
+            not observed["items"]
+            or not error.code.startswith(("local_ai_", "gateway_"))
+            or error.code == "local_ai_model_changed"
+        ):
+            raise
+        result = output(
+            "Keywords retained; topic suggestions were not published.",
+            warnings=[
+                "Topic suggestions could not finish. Keyword results are retained. "
+                + error_message(error.code)
+            ],
+            outcome="partial",
+        )
     result["items"] = observed["items"] + result["items"]
     result["warnings"] = observed["warnings"] + result["warnings"]
     if observed["items"]:
@@ -206,7 +235,8 @@ def text_topics(sources, parameters, *, infer=None):
         elif result["outcome"] not in {"complete", "partial"}:
             result["warnings"].append(result["summary"])
             result["outcome"] = "partial"
-    result["summary"] = "Keyword and topic analysis of selected text."
+    if result["outcome"] != "partial":
+        result["summary"] = "Keyword and topic analysis of selected text."
     return result
 
 

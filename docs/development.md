@@ -91,38 +91,60 @@ for diagnostics, recovery, and pruning.
 
 ## Configuration
 
-Optional text/transcription runtimes use the `local-ai` profile and require
-reviewed local model files, hashes, and a runtime token. Startup never downloads
-models. See [local analysis](local-analysis.md) for setup, cloud selection,
-capacity measurement, and qualification.
+The local example contains only the two required secrets and `DJANGO_DEBUG=true`.
+Database names, ports and internal processing limits have defaults; add optional
+environment values only for your deployment or an explicitly configured service.
+
+Optional local text processing uses an operator-controlled Ollama installation
+with a reviewed Qwen3.5 model, manifest digest and exact server-version pin.
+The separate `local-ai` Compose profile supplies only Whisper transcription and
+requires reviewed model weights, a file hash and a runtime token. Startup never
+downloads models. Printed-English OCR remains in the bounded Tesseract parser.
+See [local analysis](local-analysis.md) for setup, cloud selection, capacity
+measurement, qualification and upgrading older local text configurations.
 
 | Variable | Behavior |
 | --- | --- |
 | `DJANGO_SECRET_KEY` | Required in every mode; generate a unique secret. |
 | `DJANGO_DEBUG` | Defaults to `false`; `.env.example` enables local debug and console email. |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated hosts; defaults to loopback names only. |
+| `PANDECT_PUBLIC_ORIGIN` | Public HTTP(S) origin used in invitation emails. Compose defaults to `http://localhost:<PANDECT_WEB_PORT>`; host Django defaults to `http://localhost:8000`. No path, credentials, query, or fragment; override for another deployment address. |
+| `DJANGO_ALLOWED_HOSTS` | Optional comma-separated override; defaults to the public-origin hostname and loopback names. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Optional comma-separated override; defaults to the public origin. |
 | `PANDECT_ALLOW_SIGNUPS` | Defaults to `true`; disable public registration with `false`. This also blocks registration by new invitees. |
 | `PANDECT_TRUSTED_PROXY_COUNT` | Proxy hops trusted by allauth for client IP detection. Defaults to `0`. Set only behind a [controlled proxy chain](operations.md#first-dokploy-deployment). |
 | `POSTGRES_DB`, `POSTGRES_USER` | Default to `pandect`. |
 | `POSTGRES_PASSWORD` | Required by Compose; use a generated local password. |
-| `POSTGRES_HOST`, `POSTGRES_PORT` | Host commands default to `127.0.0.1:5432`; Compose uses `db:5432`. |
-| `PANDECT_DB_PORT` | Compose's loopback database port, default `5432`. |
+| `POSTGRES_HOST`, `POSTGRES_PORT` | Host commands default to `127.0.0.1:5432`; `POSTGRES_PORT` also selects Compose's loopback database port. Containers use `db:5432`. |
 | `PANDECT_WEB_PORT` | Compose's loopback web port, default `8000`. |
 | `PANDECT_MEDIA_ROOT` | Optional private original-storage path; defaults to `data/media`. Originals are served only through case-authorized download routes. |
-| `PANDECT_PUBLIC_ORIGIN` | Public HTTP(S) origin used in invitation emails, default `http://localhost:8000`; no path, credentials, query, or fragment. Match the actual deployment address/port. |
-| `PANDECT_INVITATION_DAYS` | Positive invitation lifetime in days, default `7`. |
-| `PANDECT_MAX_FILE_BYTES` | Positive per-file limit, default `104857600` (100 MiB), enforced while streaming and before storage. |
-| `PANDECT_MAX_TEXT_BYTES` | Positive captured-text UTF-8 limit, default `1048576` (1 MiB). |
-| `PANDECT_MAX_BATCH_FILES` | Positive browser-queue size limit, default `20`; files are sent sequentially, one per request. |
-| `DJANGO_DEFAULT_FROM_EMAIL` | Sender address, default `pandect@localhost`. |
+| `DJANGO_DEFAULT_FROM_EMAIL` | Optional sender override; defaults to `pandect@` followed by the public-origin hostname, or `pandect@localhost` for IP and `.localhost` origins. |
 | `DJANGO_EMAIL_HOST`, `DJANGO_EMAIL_PORT` | SMTP host and port when debug is disabled; defaults `localhost:587`. |
 | `DJANGO_EMAIL_HOST_USER`, `DJANGO_EMAIL_HOST_PASSWORD` | Operator SMTP credentials when debug is disabled. SMTP uses STARTTLS and a ten-second timeout. |
 
-For a port conflict, change `PANDECT_DB_PORT` and `POSTGRES_PORT` to the same unused
-port in `.env`, and/or change `PANDECT_WEB_PORT`. Update `PANDECT_PUBLIC_ORIGIN`
-when changing the externally visible web port. The containers always use 5432 and
-8000 internally. Compose is a local development configuration and passes only
+Empty host, CSRF-origin and sender overrides use their derived defaults.
+Deployment-specific proxy trust, HTTPS redirect and HSTS settings are described
+in [operations](operations.md#first-dokploy-deployment).
+
+Files allow 1 GiB each, captured text allows 10 MiB UTF-8, and browser batches
+allow 100 sequential uploads. Invitations expire after seven days. These are
+application defaults in `config/settings.py`, rather than environment variables.
+Specialized imports and parsers retain their separate bounds; accepting an
+original does not mean every parser can process it. See
+[request limits](operations.md#upload-limits-and-request-handling).
+
+For a port conflict, change `POSTGRES_PORT` to an unused port in `.env`, and/or
+change `PANDECT_WEB_PORT`. Compose derives its default public origin from the
+published web port, so a port-only change needs no separate origin override.
+If `PANDECT_PUBLIC_ORIGIN` is explicitly configured, keep it aligned with the
+actual address; host-based Django on another port also needs this override.
+The containers always use 5432 and 8000 internally. Compose is a local development
+configuration and passes only
 the variables it declares; hosted configuration is supplied directly to Django.
+
+Remove obsolete internal tuning values from existing environments; they no longer
+override application defaults. Restart web and worker together with matching
+configuration. Queued analysis whose saved execution settings differ fails
+recoverably; start a new run without changing retained results or source material.
 
 Keep `.env`, databases, uploads, and backups out of Git. Put all test evidence and
 validation output, including synthetic imports/exports, under ignored `data/`

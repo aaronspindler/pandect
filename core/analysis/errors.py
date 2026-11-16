@@ -17,7 +17,7 @@ ERROR_MESSAGES = {
         "Export one direct conversation and prepare a new review."
     ),
     "imessage_import_limit": (
-        "This CSV exceeds the configured upload size or the limit of "
+        "This CSV exceeds the CSV import size limit or the limit of "
         "131,072 characters per field. There is no message-row limit. "
         "Review the file size and individual fields before trying again."
     ),

@@ -1,4 +1,4 @@
-<section class="evidence-section analysis-highlights" aria-labelledby="evidence-findings-heading">
+<section id="evidence-findings" data-live-region data-live-poll="{{ analysis_pending|yesno:'true,false' }}" class="evidence-section analysis-highlights" aria-labelledby="evidence-findings-heading">
   <div class="evidence-findings-header">
     <h2 id="evidence-findings-heading" tabindex="-1">Findings</h2>
     {% if can_edit and not local_analysis_pending and not highlights or analysis_form.errors %}
@@ -12,7 +12,6 @@
   {% if analysis_pending %}
   <div class="evidence-check-status">
     <p role="status">Checking…</p>
-    <a class="record-link" href="{{ request.get_full_path }}">Refresh status</a>
   </div>
   {% endif %}
   {% if highlights %}

@@ -14,6 +14,7 @@
 .delete-confirmation .pagination { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-block: 1rem; }
 
 .delete-confirmation form input[type="submit"],
+.delete-confirmation form button,
 .delete-confirmation form .evidence-delete-cancel {
     min-height: 44px;
     box-sizing: border-box;
@@ -22,6 +23,26 @@
 .delete-confirmation form .evidence-delete-cancel {
     display: inline-flex;
     align-items: center;
+}
+
+.delete-confirmation button[name="post"] {
+    background: var(--delete-button-bg);
+    color: var(--button-fg);
+    border: 0;
+    border-radius: 4px;
+    padding: 10px 15px;
+    cursor: pointer;
+}
+
+.delete-confirmation button[name="post"]:is(:active, :focus, :hover) {
+    background: var(--delete-button-hover-bg);
+}
+
+.evidence-delete-confirm {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    min-height: 44px;
 }
 
 .delete-confirmation form :focus-visible {

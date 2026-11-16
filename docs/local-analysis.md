@@ -17,7 +17,7 @@ runs without undoing messages or independent results.
 | Method | Local implementation | Qualification needed |
 | --- | --- | --- |
 | Recording transcription | whisper.cpp with `large-v3-turbo`; existing English PCM WAV profile, 30-second chunks and original-timeline anchors. | Recognition and timing on names, accents, overlap and non-speech. No diarization or speaker identity. |
-| Topics and short summaries | llama.cpp/Qwen3-8B with exact quotation validation. Keyword-only analysis remains independent. | Topic relevance, omitted qualifications and unsupported interpretation. |
+| Topics and short summaries | Ollama/Qwen3.5 with exact quotation validation. Keyword-only analysis remains independent. | Topic relevance, omitted qualifications and unsupported interpretation. |
 | Conversation summaries | The existing message-aware session chunks through the same local text runtime. | Coverage, conflicting messages and missing context. Current session grouping selects text messages. |
 | Claims, plans and commitments | Structured candidate statements with exact source quotations. | Attribution, negation, hearsay, tense and cancellation. |
 | Semantic conversation links | Two-sided quotation citations through the local text runtime. | False links and ambiguous references; candidates require investigator review. |
@@ -26,25 +26,117 @@ runs without undoing messages or independent results.
 | Geographic context | Operator-controlled Overpass-compatible service; geometry matching already runs locally. | Loaded area, map timestamps, retained snapshots and actual historical coverage. |
 
 Execution support does not establish accuracy or equivalence to the remote 70B
-model. The baseline is [Qwen3-8B Q4_K_M](https://huggingface.co/Qwen/Qwen3-8B-GGUF)
-in non-thinking mode. The optional CPU image pins llama.cpp **v0.8.0** at
-`8642541b255bfb5dc39cd351a178be09013a55d6` and whisper.cpp **v1.9.5** at
-`d1be6fde11ac6e0407606b4e42fe72d34add8037`. Qwen's Apache-2.0 and Whisper's MIT
-model licenses are separate from runtime licenses. Retain upstream metadata/notices
-with model files.
+model. Local text uses an operator-provisioned Qwen3.5 model in Ollama, with
+`qwen3.5:9b` as the default model name. The optional CPU transcription image pins
+whisper.cpp **v1.9.5** at `d1be6fde11ac6e0407606b4e42fe72d34add8037`.
+Model licenses are separate from runtime licenses; retain upstream
+metadata/notices with provisioned artifacts.
 
-## Start the optional CPU runtimes
+## Use Ollama for local text analysis
 
-The ordinary stack needs no inference services. Startup/inference never downloads
-models. Obtain the official single-file Qwen Q4_K_M artifact and
-[Whisper large-v3-turbo weights](https://huggingface.co/ggerganov/whisper.cpp/tree/main).
-Verify SHA-256 against upstream metadata and retain the source revision. Store
-reviewed files in ignored `data/models/text.gguf` and
-`data/models/transcription.bin`, or set `*_MODEL_FILE`; never put them under
-source-controlled `inference/`.
+Ollama is the **Local** text backend for Qwen3.5, including `qwen3.5:9b`.
+It supplies topics, claims, session summaries, semantic links and question
+synthesis. Transcription uses the separate Whisper runtime, and printed-English
+OCR remains in the bounded Tesseract parser. Cloudflare configuration is
+unnecessary for Ollama; selecting **External AI service** continues to use
+Cloudflare.
 
-After [local setup](development.md#first-run) creates `.env`, record model digests
-and add a private runtime token without printing it:
+Use Ollama **0.40.11 or later**, with an exact reviewed server version pinned in
+Pandect. This adapter needs digest-addressed local models and prompt rendering;
+older versions fail closed. Provision the model deliberately:
+
+```sh
+ollama pull qwen3.5:9b
+```
+
+For Python/web/worker processes running on the host, run this from the checkout
+after creating `.env`. It records the installed manifest digest (not the model
+weight-file hash) and exact server version without sending evidence or changing
+the database:
+
+```sh
+uv run --locked python - <<'PY'
+import json
+from pathlib import Path
+from urllib.request import urlopen
+
+url = "http://127.0.0.1:11434"
+model = "qwen3.5:9b"
+with urlopen(url + "/api/version", timeout=10) as response:
+    version = json.load(response)["version"]
+with urlopen(url + "/api/tags", timeout=10) as response:
+    installed = json.load(response)["models"]
+matches = [item for item in installed if item["name"] == model]
+if len(matches) != 1 or matches[0].get("remote_host") or matches[0].get("remote_model"):
+    raise SystemExit("Install the local qwen3.5:9b model before configuring Pandect.")
+values = {
+    "PANDECT_LOCAL_TEXT_URL": url,
+    "PANDECT_LOCAL_TEXT_MODEL": model,
+    "PANDECT_LOCAL_TEXT_SHA256": matches[0]["digest"],
+    "PANDECT_LOCAL_TEXT_RUNTIME": "ollama@" + version,
+}
+path = Path(".env")
+lines = [line for line in path.read_text().splitlines()
+         if line.split("=", 1)[0] not in values]
+path.write_text("\n".join(lines + [f"{key}={value}" for key, value in values.items()]) + "\n")
+path.chmod(0o600)
+PY
+```
+
+Restart both host web and worker processes with the updated `.env`. No
+`local-ai` Compose profile or bundled text model file is needed for Ollama.
+The native loopback API needs no token; an authenticated private proxy can use
+`PANDECT_LOCAL_AI_TOKEN`. Keep identical settings in web and worker.
+
+For web/workers inside Docker Desktop, set `PANDECT_LOCAL_TEXT_URL` to
+`http://host.docker.internal:11434` and make Ollama reachable from the Docker VM.
+Container loopback points to the container itself. On Linux, supply an explicit
+host gateway mapping or a private Ollama service address. Restrict any non-loopback
+listener to the Pandect host/network; use TLS or a trusted encrypted tunnel for
+LAN access. Recreate the web/worker containers after configuring the endpoint.
+The host qualification command below needs the host-reachable URL, supplied as
+an environment override if `.env` contains the Docker address.
+
+Pandect verifies the configured tag's digest and server version, then requests
+the immutable `sha256:<digest>:local` model. The local-only suffix makes Ollama
+reject cloud-backed models server-side. Pandect never pulls a missing model,
+changes models, or falls back to cloud. Updating Ollama or pulling a changed tag
+requires reviewing and updating the pins, restarting web/worker together, and
+starting new runs; queued configuration drift fails recoverably. Keep Ollama's
+server/version and model storage under operator control throughout processing.
+
+Requests disable thinking, tools, streaming, truncation and context shifting,
+use temperature zero, and unload the model after inference. No conversation
+history is shared between runs. Ollama renders the complete prompt first;
+Pandect bounds Qwen3.5's byte-level token count conservatively by its rendered
+UTF-8 byte length plus eight special-token slots and the output allowance.
+This can reject text that would fit an exact token count, but never silently
+narrows the selection. Other tokenizer families are unsupported. Results still
+pass the shared strict JSON, source-quotation and domain validators; incomplete
+output is withheld. Usage retains actual input/output token counts separately
+from the conservative context bound.
+
+The application uses a fixed 16,384-token context, including the complete prompt
+and output allowance. This does not establish a host's capacity or model accuracy.
+Keep one active inference request and measure memory and latency alongside
+Pandect's other services. Qualify with synthetic/sanitized text using the existing
+`evaluate_local_analysis` command below. Successful execution does not establish
+investigation accuracy.
+
+## Start optional CPU transcription
+
+The ordinary stack needs no inference services. The `local-ai` Compose profile
+adds only `local-transcription`; Ollama text processing uses the separately
+managed service above. Startup/inference never downloads models. Obtain reviewed
+[Whisper large-v3-turbo weights](https://huggingface.co/ggerganov/whisper.cpp/tree/main),
+verify SHA-256 against upstream metadata and retain the source revision. Store
+this file in ignored `data/models/transcription.bin`, or set
+`PANDECT_LOCAL_TRANSCRIPTION_MODEL_FILE`; never put it under source-controlled
+`inference/`.
+
+For web/workers inside Compose, after [local setup](development.md#first-run)
+creates `.env`, record the model digest and add a private runtime token without
+printing it:
 
 ```sh
 uv run --locked python - <<'PY'
@@ -52,85 +144,102 @@ import hashlib
 import secrets
 from pathlib import Path
 
+with Path("data/models/transcription.bin").open("rb") as stream:
+    digest = hashlib.file_digest(stream, "sha256").hexdigest()
 values = {
-    "PANDECT_LOCAL_TEXT_URL": "http://local-text:8080",
     "PANDECT_LOCAL_TRANSCRIPTION_URL": "http://local-transcription:8080",
+    "PANDECT_LOCAL_TRANSCRIPTION_SHA256": digest,
     "PANDECT_LOCAL_AI_TOKEN": secrets.token_urlsafe(32),
 }
-for purpose, name in (("TEXT", "text.gguf"), ("TRANSCRIPTION", "transcription.bin")):
-    with (Path("data/models") / name).open("rb") as stream:
-        values[f"PANDECT_LOCAL_{purpose}_SHA256"] = hashlib.file_digest(stream, "sha256").hexdigest()
 path = Path(".env")
 lines = path.read_text().splitlines()
 lines = [line for line in lines if line.split("=", 1)[0] not in values]
 path.write_text("\n".join(lines + [f"{key}={value}" for key, value in values.items()]) + "\n")
 path.chmod(0o600)
 PY
-docker compose --profile local-ai build local-text local-transcription
-docker compose --profile local-ai up -d --wait
+docker compose --profile local-ai build local-transcription
+docker compose --profile local-ai up -d --wait local-transcription
 ```
 
-Use configured paths when hashing alternative files. Rerunning rotates the token;
-recreate web, worker and both runtimes together. No database/evidence is reset.
-Missing files/tokens or digest mismatches block runtime startup. Unconfigured URLs
-produce recoverable analysis errors; case management stays usable.
+Use the configured path when hashing an alternative file. Rerunning rotates the
+token; recreate web, worker and `local-transcription` with the same values. If an
+Ollama proxy uses `PANDECT_LOCAL_AI_TOKEN`, update its authentication to match too.
+No database/evidence is reset. Missing files/tokens or digest mismatches block
+runtime startup. Unconfigured URLs produce recoverable analysis errors; case
+management stays usable.
 
-Runtimes verify read-only mounted models before launching pinned engines. Changes
-during verification are rejected; later changes/unavailability stop the engine.
-Authenticated `/identity` reports model digest/engine revision. Before sending
-evidence, Pandect compares these against the queued snapshot. Each POST carries
-expected identity, checked under the runtime request lock before content is read
-or forwarded. Replacing an engine under an alias cannot silently change a run.
-Native engines listen only on container loopback; the front door exposes only
-identity, readiness and required inference/tokenization routes.
+The transcription runtime verifies its read-only mounted model before launching
+Whisper. Changes during verification are rejected; later changes/unavailability
+stop the engine. Authenticated `/identity` reports model digest/engine revision.
+Before sending evidence, Pandect compares these against the queued snapshot.
+Each POST carries expected identity, checked under the runtime request lock before
+content is read or forwarded. Replacing an engine under an alias cannot silently
+change a run. Whisper listens only on container loopback; the front door exposes
+only identity, readiness and transcription routes.
 
-The internal `inference` network joins web/workers and runtimes, with no published
-ports or runtime internet route. Runtimes have read-only filesystems, private
-temporary memory, no evidence mount/Gateway credentials/privileged capabilities,
-and no payload logging. Each accepts one request at a time. Deadlines kill/reap
-the native process group; container restart reloads the verified model.
+The internal `inference` network joins web/workers and transcription, with no
+published ports or transcription runtime internet route. Host-based web/workers
+need a separately reachable private transcription endpoint preserving this
+identity/authentication contract. The container has a read-only filesystem,
+private temporary memory, no evidence mount/Gateway credentials/privileged
+capabilities, and no payload logging. It accepts one request at a time. Deadlines
+kill/reap the native process group; container restart reloads the verified model.
 Cancellation withholds publication, but submitted requests may continue until
 completion/deadline.
 
 ## Configuration and capacity
 
 Set identical web/worker values. `*_URL` explicitly designates operator control;
-a private hostname alone does not. Only the supplied front door/identity contract
-is supported. LAN services need TLS or a trusted encrypted tunnel and a firewall
+a private hostname alone does not. Transcription requires the supplied front
+door/identity contract; text requires the native Ollama API described above.
+LAN services need TLS or a trusted encrypted tunnel and a firewall
 restricting access to Pandect workers. Never expose runtimes to untrusted networks.
 
 | Variable | Default / purpose |
 | --- | --- |
 | `PANDECT_LOCAL_TEXT_URL`, `PANDECT_LOCAL_TRANSCRIPTION_URL` | Empty disables the corresponding runtime; Compose examples are above. |
-| `PANDECT_LOCAL_TEXT_MODEL`, `PANDECT_LOCAL_TRANSCRIPTION_MODEL` | `Qwen3-8B-Q4_K_M`, `whisper-large-v3-turbo`; must match runtime identity. |
-| `PANDECT_LOCAL_TEXT_SHA256`, `PANDECT_LOCAL_TRANSCRIPTION_SHA256` | Required exact model-file hashes. |
-| `PANDECT_LOCAL_TEXT_RUNTIME`, `PANDECT_LOCAL_TRANSCRIPTION_RUNTIME` | Pinned engine identity; change deliberately with a reviewed image update. |
-| `PANDECT_LOCAL_AI_TOKEN` | Required private runtime bearer token; never retained in run parameters. |
-| `PANDECT_LOCAL_TEXT_CONTEXT_TOKENS` | 32,768, including the full rendered prompt and output allowance. |
-| `PANDECT_LOCAL_AI_MAX_OUTPUT_TOKENS` | 4,096. |
-| `PANDECT_LOCAL_AI_TIMEOUT` | 600 seconds per request, capped at 1,800. |
-| `PANDECT_LOCAL_AI_MAX_REQUEST_BYTES`, `PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES` | 8 MiB / 2 MiB. |
-| `PANDECT_LOCAL_AI_THREADS`, `PANDECT_LOCAL_AI_CPUS` | Four native threads / four Compose CPUs per service. |
-| `PANDECT_LOCAL_TEXT_MEMORY`, `PANDECT_LOCAL_TRANSCRIPTION_MEMORY` | Compose memory ceilings of `24g` / `4g`; configurable, not host minimum checks. |
+| `PANDECT_LOCAL_TEXT_MODEL`, `PANDECT_LOCAL_TRANSCRIPTION_MODEL` | `qwen3.5:9b`, `whisper-large-v3-turbo`; must match runtime identity. |
+| `PANDECT_LOCAL_TEXT_SHA256`, `PANDECT_LOCAL_TRANSCRIPTION_SHA256` | Required installed manifest digest for Ollama text; exact model-file SHA-256 for Whisper. |
+| `PANDECT_LOCAL_TEXT_RUNTIME`, `PANDECT_LOCAL_TRANSCRIPTION_RUNTIME` | Text defaults empty and requires `ollama@<exact reviewed server version>`; transcription defaults to the pinned Whisper revision above. Change deliberately with a reviewed runtime update. |
+| `PANDECT_LOCAL_AI_TOKEN` | Required bearer token for bundled Whisper; optional proxy token for Ollama. Never retained in run parameters. |
 
-Text weights alone occupy about 5 GB; context/KV caches, buffers, web and database
-need more. A 16–24 GB inference allowance is a planning estimate, not a measured
-requirement or throughput guarantee. The reproducible image is CPU-only and never
-silently offloads or selects a smaller model. Separately qualified GPU runtimes
-can preserve the identity/API contract.
+Local inference uses a 600-second request deadline, 8 MiB request and 2 MiB
+response limits, and a 4,096-token output allowance. Ollama text has a
+16,384-token context, including the complete rendered prompt and output allowance.
+These bounded defaults live in `config/settings.py`, rather than environment
+variables. The bundled Whisper front door uses the same request/response limits
+and deadline, with four native threads.
 
-For NVIDIA, separately pin an image retaining `server.py`/`revisions.json` and
-native commits. Build both with `-DGGML_CUDA=ON`, matching CUDA libraries and host
-driver. Preserve model/authentication/read-only/internal-network configuration.
-After qualification, use an override such as:
+Compose limits Whisper to four CPUs and `4g` memory. These are resource ceilings,
+not host minimum checks, and do not configure Ollama. For a measured hardware
+requirement, apply a Compose override instead of adding environment variables:
 
 ```yaml
 services:
-  local-text:
-    image: ${PANDECT_LOCAL_GPU_IMAGE:?Set a qualified image digest}
-    gpus: all
-    environment:
-      PANDECT_RUNTIME_GPU_LAYERS: "99"
+  local-transcription:
+    cpus: 8
+    mem_limit: 8g
+```
+
+Save outside source control as `/tmp/pandect-capacity.yaml`, then run:
+
+```sh
+docker compose -f compose.yaml -f /tmp/pandect-capacity.yaml --profile local-ai up -d --wait local-transcription
+```
+
+Measure Ollama memory and latency with the chosen Qwen3.5 artifact, context and
+concurrency alongside web, worker and PostgreSQL. Model weights alone do not
+establish capacity; no hardware or throughput qualification is implied. Ollama's
+own installation controls text hardware acceleration.
+
+The reproducible Whisper image is CPU-only. For NVIDIA transcription, separately
+pin an image retaining `server.py`/`revisions.json` and the native Whisper commit.
+Build Whisper with `-DGGML_CUDA=ON`, matching CUDA libraries and host driver.
+Preserve model/authentication/read-only/internal-network configuration. After
+qualification, use an override such as:
+
+```yaml
+services:
   local-transcription:
     image: ${PANDECT_LOCAL_GPU_IMAGE:?Set a qualified image digest}
     gpus: all
@@ -142,25 +251,45 @@ Save outside source control as `/tmp/pandect-gpu.yaml`, set
 `PANDECT_LOCAL_GPU_IMAGE` to the reviewed digest, then run:
 
 ```sh
-docker compose -f compose.yaml -f /tmp/pandect-gpu.yaml --profile local-ai up -d --no-build
+docker compose -f compose.yaml -f /tmp/pandect-gpu.yaml --profile local-ai up -d --no-build local-transcription
 ```
 
 GPU controls enable offload only; they add no GPU support to the CPU image.
 The CPU build qualifies no GPU driver/image or throughput.
 
-The text client tokenizes the full rendered prompt and reserves output tokens.
-Oversized selections fail with narrowing instructions, never silent truncation;
-session chunks preserve messages. Inference runs outside the deterministic
-parser's 1 GiB/20-second boundary.
+Ollama text requests bound the full rendered prompt as described above and
+reserve output tokens. Oversized selections fail with narrowing instructions,
+never silent truncation; session chunks preserve messages. Inference runs outside
+the deterministic parser's 1 GiB/20-second boundary.
 
 New runs retain backend, artifact, runtime, settings, adapter version and location.
 Request/interpretation changes require adapter-version changes, preserving history.
-Queued model/endpoint drift fails recoverably; select new settings in a new run.
-Adapter version 2 shares local/Gateway prompts and strict JSON validation,
-rejecting nonfinite numbers (including exponent overflow) and malformed output.
-Queued version-1 inference fails with `execution_changed` before dispatch; upgrade
-web/worker together and start a version-2 run. Cloud requests retain separate
+Queued model/endpoint or execution-setting drift fails recoverably; select new
+settings in a new run. Updating application defaults can therefore require new
+runs; earlier results and their recorded settings remain unchanged.
+Text retains adapter version `ollama-1`; transcription and Gateway retain version
+2. Shared prompts and strict JSON validation reject nonfinite numbers (including
+exponent overflow) and malformed output. Queued older execution identities fail
+with `execution_changed` before dispatch. Cloud requests retain separate
 `GatewayRequest` accounting/approval; there is no implicit failover.
+
+## Upgrade existing local text setups
+
+Local text now uses Ollama only. The separate llama.cpp adapter, `local-text`
+Compose service and bundled text-model build are removed. Provision/review the
+local Qwen3.5 artifact, then configure its Ollama URL, manifest digest and exact
+server-version pin using the procedure above. An empty text runtime pin disables
+text inference until configured. Remove obsolete `PANDECT_LOCAL_TEXT_DRIVER`,
+`PANDECT_LOCAL_TEXT_MODEL_FILE` and `PANDECT_LOCAL_TEXT_MEMORY` entries from the
+operator configuration.
+
+Restart web and worker together on the same release/settings. Queued llama.cpp
+runs fail recoverably with `execution_changed`; start new Ollama runs after
+configuration. Saved results, reviews and provenance remain intact. Runtime
+replacement requires no database migration, evidence deletion or model-file
+cleanup. Removing the Compose service definition does not stop an already
+running old container; retire it explicitly during an operator-controlled update,
+without removing retained model files or evidence.
 
 ## Reuse private map services
 
@@ -221,19 +350,22 @@ unresolved outcomes and record per-method deployment qualification, including
 disabled/experimental modes. Mocked tests prove neither remote-inference parity
 nor worldwide map readiness.
 
-The baseline 8B model remains unqualified for dependable interpretation/semantic
-linking. The [29 October trial](archive/local-inference-qualification-2026-10-29.md)
-found unsupported specificity despite valid quotes and excluded question synthesis.
-It qualifies no current model/runtime, capacity or map service. Different models
-and GPU execution require separate evaluation.
+The historical Qwen3-8B/llama.cpp
+[29 October trial](archive/local-inference-qualification-2026-10-29.md) found
+unsupported specificity despite valid quotes and excluded question synthesis.
+That removed text backend's trial qualifies no current Ollama model/runtime,
+capacity or map service. Current models and GPU execution require separate
+evaluation.
 
 Correct configuration/capacity and start another run to recover. Never edit
-retained runs, force-reset tasks or delete originals. Restart stopped runtimes
-with `docker compose --profile local-ai restart local-text local-transcription`.
-Back up models/source/checksum metadata separately from evidence; coordinate
+retained runs, force-reset tasks or delete originals. Restart bundled transcription
+with `docker compose --profile local-ai restart local-transcription`; manage
+Ollama through its owning installation. Back up models/source/checksum metadata
+separately from evidence; coordinate
 PostgreSQL/private storage backups as described in [operations](operations.md).
 
-Primary references: [llama.cpp server](https://github.com/ggml-org/llama.cpp/blob/8642541b255bfb5dc39cd351a178be09013a55d6/tools/server/README.md),
+Primary references: [Ollama chat API](https://docs.ollama.com/api/chat),
+[Ollama 0.40.11 digest-addressed manifests](https://github.com/ollama/ollama/blob/v0.40.11/manifest/manifest.go),
 [whisper.cpp server](https://github.com/ggml-org/whisper.cpp/blob/d1be6fde11ac6e0407606b4e42fe72d34add8037/examples/server/README.md),
 [Whisper limitations](https://huggingface.co/openai/whisper-large-v3-turbo),
 [Nominatim administration](https://nominatim.org/release-docs/latest/admin/Installation/)

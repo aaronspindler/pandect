@@ -12,6 +12,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.reports import report
 from core.evidence.queries import same_case_evidence
+from ui.live import render_live
 from vehicle.forms import VehicleDeleteForm, VehicleForm
 from vehicle.models import Vehicle
 
@@ -65,7 +66,7 @@ def vehicle_detail(request, case_id, vehicle_id):
     vehicle = get_object_or_404(Vehicle, case=case, pk=vehicle_id)
     trip_report = report(case, "vehicle-trips", vehicle_id=vehicle.pk, page_size=5)
     more_trips = trip_report["page_obj"].paginator.count > 5
-    return render(
+    return render_live(
         request,
         "vehicle/detail.html",
         {

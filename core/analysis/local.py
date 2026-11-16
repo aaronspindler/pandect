@@ -1,4 +1,4 @@
-"""Bounded clients for operator-owned llama.cpp and whisper.cpp runtimes."""
+"""Bounded clients for operator-controlled local inference runtimes."""
 
 import base64
 import binascii
@@ -14,7 +14,7 @@ from django.conf import settings
 
 from core.analysis.errors import AnalysisError
 from core.analysis.http import NoRedirect
-from core.analysis.inference_payloads import decode_json, encode_json, evidence_messages
+from core.analysis.inference_payloads import decode_json, encode_json
 
 
 def validate_local_configuration(config):
@@ -47,10 +47,16 @@ def validate_local_configuration(config):
         ):
             valid = valid and type(config.get(name)) is int and config[name] > 0
         if config.get("purpose") == "text":
+            version = re.fullmatch(r"ollama@(\d+)\.(\d+)\.(\d+)", config["runtime"])
             valid = (
                 valid
+                and config.get("driver") == "ollama"
                 and type(config.get("context_tokens")) is int
                 and config["context_tokens"] > config["max_output_tokens"]
+                and version is not None
+                and tuple(map(int, version.groups())) >= (0, 40, 11)
+                and re.fullmatch(r"qwen3\.5:[a-zA-Z0-9_.-]+", config["model"])
+                is not None
             )
     except ValueError, TypeError, KeyError:
         valid = False
@@ -88,7 +94,7 @@ class LocalClient:
         if body is not None and len(body) > config["max_request_bytes"]:
             raise AnalysisError("local_ai_input_limit")
         headers = {"Content-Type": content_type, "Accept": "application/json"}
-        if body is not None:
+        if body is not None and config["purpose"] == "transcription":
             # The runtime checks this identity under its request lock before
             # reading evidence or forwarding it to the native engine. A prior
             # GET alone cannot pin a runtime replaced between HTTP requests.
@@ -132,6 +138,8 @@ class LocalClient:
                 503: "local_ai_busy",
                 504: "local_ai_unavailable",
             }.get(error.code, "local_ai_unavailable")
+            if config["purpose"] == "text" and error.code == 404:
+                code = "local_ai_model_changed"
             error.close()
             raise AnalysisError(code) from None
         except URLError, TimeoutError, OSError:
@@ -152,8 +160,6 @@ class LocalClient:
             "sha256": self.execution["sha256"],
             "runtime": self.execution["runtime"],
         }
-        if purpose == "text":
-            expected["context_tokens"] = self.execution["context_tokens"]
         return expected
 
     def _identity(self, purpose):
@@ -165,77 +171,11 @@ class LocalClient:
             raise AnalysisError("local_ai_model_changed")
 
     def infer(self, prompt, schema):
-        try:
-            messages = evidence_messages(prompt, schema)
-        except ValueError, TypeError, RecursionError:
-            raise AnalysisError("local_ai_invalid_input") from None
-        self._identity("text")
-        template = {
-            "messages": messages,
-            "chat_template_kwargs": {"enable_thinking": False},
-            "reasoning_effort": "none",
-        }
-        rendered = self._request("/apply-template", template).get("prompt")
-        if not isinstance(rendered, str):
-            raise AnalysisError("local_ai_invalid_response")
-        tokens = self._request(
-            "/tokenize",
-            {"content": rendered, "add_special": True, "parse_special": True},
-        ).get("tokens")
-        if not isinstance(tokens, list) or any(
-            type(token) is not int or not 0 <= token < 2**31 for token in tokens
-        ):
-            raise AnalysisError("local_ai_invalid_response")
-        if (
-            len(tokens) + self.execution["max_output_tokens"]
-            > self.execution["context_tokens"]
-        ):
-            raise AnalysisError("local_ai_context_limit")
-        self.usage["input_tokens"] = (self.usage["input_tokens"] or 0) + len(tokens)
-        result = self._request(
-            "/v1/chat/completions",
-            template
-            | {
-                "model": self.execution["model"],
-                "temperature": 0,
-                "max_tokens": self.execution["max_output_tokens"],
-                "stream": False,
-                "cache_prompt": False,
-                "response_format": {"type": "json_schema", "schema": schema},
-            },
-        )
-        try:
-            choices = result["choices"]
-            if not isinstance(choices, list) or len(choices) != 1:
-                raise ValueError
-            choice = choices[0]
-            message = choice["message"]
-            if (
-                choice["finish_reason"] != "stop"
-                or message.get("reasoning_content")
-                or message.get("tool_calls")
-                or result.get("model", self.execution["model"])
-                != self.execution["model"]
-            ):
-                raise ValueError
-            value = decode_json(message["content"])
-            if not isinstance(value, (dict, list)):
-                raise ValueError
-        except (
-            KeyError,
-            IndexError,
-            ValueError,
-            TypeError,
-            AttributeError,
-            RecursionError,
-        ):
-            raise AnalysisError("local_ai_invalid_response") from None
-        usage = result.get("usage", {})
-        if isinstance(usage, dict):
-            count = usage.get("completion_tokens")
-            if type(count) is int and 0 <= count < 2**31:
-                self.usage["output_tokens"] = (self.usage["output_tokens"] or 0) + count
-        return value
+        from core.analysis.ollama import infer
+
+        if self.execution["purpose"] != "text":
+            raise AnalysisError("local_ai_not_configured")
+        return infer(self, prompt, schema)
 
     def request(self, purpose, payload):
         if purpose != "transcription":

@@ -77,7 +77,7 @@ a new project name for fresh database/file volumes.
   recovery_project=pandect-recovery-$(date -u +%Y%m%d%H%M%S)
 
   recovery() {
-    PANDECT_DB_PORT=0 PANDECT_WEB_PORT=0 \
+    POSTGRES_PORT=0 PANDECT_WEB_PORT=0 \
       docker compose -f compose.yaml --env-file "$recovery_env" -p "$recovery_project" "$@"
   }
 
@@ -168,10 +168,12 @@ CI builds one GHCR image; CD resolves its immutable digest. Dokploy runs native
    Configure the web Application's native HTTP health check against
    `http://127.0.0.1:8000/health/`; keep worker rollout stop-first and web start-first.
 3. Copy [`.env.dokploy.example`](../.env.dokploy.example) into both application
-   environments, replacing blank secrets and the database hostname. Set
-   `DJANGO_DEBUG=false`, `PANDECT_ALLOW_SIGNUPS=false`, and
-   `PANDECT_PUBLIC_ORIGIN=https://openpandect.com`. Keep both applications on the
-   same secret key and database credentials.
+   environments, replacing blank secrets and the database hostname. Debug defaults
+   off; this example closes signups and uses
+   `PANDECT_PUBLIC_ORIGIN=https://openpandect.com`. The public origin supplies the
+   default allowed host, CSRF origin and email sender; optional explicit overrides
+   support other deployment requirements. Keep both applications on the same
+   secret key and database credentials.
 4. Mount the same private persistent named volume at `/app/data` in both
    applications. Keep them on the same server and storage-owning Swarm node;
    local named volumes are not shared between nodes. The application UID must
@@ -197,8 +199,12 @@ can sign in. Leave inference URLs/tokens unset for this first deployment. SMTP i
 optional for the marketing launch but required before password resets,
 verification, or invitation delivery.
 
-Trust `X-Forwarded-Proto` only behind the controlled proxy; set the exact HTTPS
-CSRF origin and retain secure session/CSRF cookies. Verify edge HTTP-to-HTTPS
+Trust `X-Forwarded-Proto` only behind the controlled proxy; retain secure
+session/CSRF cookies. `DJANGO_TRUST_PROXY_HEADERS` defaults to `false`; the Dokploy
+example explicitly enables it for this ingress. `DJANGO_SECURE_SSL_REDIRECT`
+defaults to `false` because the edge owns the redirect; enable it only when the
+application can reliably identify HTTPS requests. HSTS defaults off; this example
+sets `DJANGO_SECURE_HSTS_SECONDS=86400`. Verify edge HTTP-to-HTTPS
 redirects, sign-in CSRF, and proxy behavior on the actual domain. Assess Django's
 deployment findings against edge configuration and the one-day HSTS policy.
 
@@ -322,22 +328,27 @@ Back up before schema upgrades and preserve compatibility with the running relea
 
 ## Upload limits and request handling
 
-Uploads stream one file per request, bounded by `PANDECT_MAX_FILE_BYTES`. The
-browser queues up to `PANDECT_MAX_BATCH_FILES` sequential requests;
-`PANDECT_MAX_TEXT_BYTES` bounds text, messages, and transcripts. Django's memory
-threshold controls temporary storage, not file size. Call audio uses normal file
-limits/private storage; transcription is a separate [analysis operation](analysis.md).
+Uploads stream one file per request, with a 1 GiB per-file limit. The browser
+queues up to 100 sequential requests; captured text, manually added messages and
+supplied transcripts allow 10 MiB UTF-8. These application limits are defined in
+`config/settings.py`, not environment variables. Django's memory threshold controls
+temporary storage, not file size. Call audio uses normal file limits/private
+storage; transcription is a separate [analysis operation](analysis.md).
 
-Vehicle CSV imports accept up to 100 MiB and 100,000 data rows, respecting any
-smaller operator file limit. Worker parsing, paginated review, and atomic
+Vehicle CSV imports accept up to 100 MiB and 100,000 data rows. Message CSV imports
+also retain a separate 100 MiB file limit, 131,072-character field limit and 1 MiB
+UTF-8 message-text limit. Ordinary originals remain subject to each analysis
+method's narrower profile; deterministic parsers still read at most 16 MiB.
+Worker parsing, paginated review, and atomic
 publication are described in [vehicle-location imports](vehicle-location-imports.md).
 Back up source documents, staged rows, interpretations, progress, and provenance
 with the rest of the database and private files. File cleanup and orphan recovery
 follow the [evidence lifecycle](evidence.md#private-storage-and-deletion).
 
 Configure the serving proxy/CDN to limit the entire request body as well. With the
-default 100 MiB file limit, use a 102 MiB request cap to leave room for ordinary
-metadata and multipart overhead; revise limits together if configuration changes.
+1 GiB file limit, use a 1,026 MiB request cap to leave room for ordinary metadata
+and multipart overhead. Providers with smaller request caps require an ingress
+that supports the intended upload size. Keep request and application limits aligned.
 Ensure upstream request timeouts permit a bounded upload and original save. The
 image's Gunicorn timeout is 180 seconds, matching the enhanced upload request
 window; slow or interrupted transfers may need retry, not automatic resume.
@@ -348,11 +359,17 @@ submission ID so retry can reconcile a committed record without creating another
 
 Set `PANDECT_PUBLIC_ORIGIN` to the external HTTP(S) origin, without path/credentials;
 invitation email uses it instead of the Host header. Invitations require verified
-recipient email and expire after `PANDECT_INVITATION_DAYS` (default seven). After
+recipient email and expire after seven days. After
 delivery failure, fix SMTP before owner-initiated resend. Sign-in resumes invitations
 through the session, without tokens in login URLs.
 
 Production SMTP uses the configured sender, STARTTLS, and a bounded timeout.
+Set `DJANGO_EMAIL_HOST`, `DJANGO_EMAIL_HOST_USER` and
+`DJANGO_EMAIL_HOST_PASSWORD` for the actual SMTP service; the port defaults to 587
+and can be overridden with `DJANGO_EMAIL_PORT`. The sender defaults to
+`pandect@` followed by the public-origin hostname, using `pandect@localhost` for
+IP and `.localhost` origins. Set `DJANGO_DEFAULT_FROM_EMAIL` when the mail service
+requires another address.
 Development console mail prints private verification/invitation links; keep logs
 private and hosted debug disabled.
 

@@ -31,9 +31,9 @@ from text.models import TextEvidence
 LOCAL = {
     "text": {
         "url": "http://private-text.test:8080",
-        "model": "synthetic-qwen",
+        "model": "qwen3.5:9b",
         "sha256": "a" * 64,
-        "runtime": "synthetic-llama-revision",
+        "runtime": "ollama@0.40.11",
         "context_tokens": 32768,
     },
     "transcription": {
@@ -77,9 +77,10 @@ class ExecutionSelectionTests(SimpleTestCase):
         execution = snapshot_execution("content_events", {})
         self.assertEqual(execution["sha256"], "a" * 64)
         self.assertEqual(execution["context_tokens"], 32768)
-        self.assertEqual(execution["adapter_version"], "2")
+        self.assertEqual(execution["driver"], "ollama")
+        self.assertEqual(execution["adapter_version"], "ollama-1")
         self.assertEqual(execution["inference_settings"]["temperature"], 0)
-        self.assertFalse(execution["inference_settings"]["enable_thinking"])
+        self.assertFalse(execution["inference_settings"]["think"])
         self.assertNotIn("token", execution)
         self.assertNotIn(LOCAL["token"], str(execution))
 
@@ -331,6 +332,95 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
         ):
             self.assertEqual(self.process(run), "failed")
         cloud.assert_not_called()
+        self.assertFalse(hasattr(run, "result"))
+
+    def test_ollama_runs_preserve_provenance_failure_recovery_and_revocation(self):
+        configured = deepcopy(LOCAL)
+        configured["text"] |= {
+            "driver": "ollama",
+            "runtime": "ollama@0.40.11",
+            "model": "qwen3.5:9b",
+        }
+        from core.analysis.tests.test_ollama import (
+            COMPLETION,
+            INFO,
+            RENDER,
+            TAGS,
+            VERSION,
+        )
+
+        with (
+            override_settings(PANDECT_LOCAL_AI=configured),
+            patch("core.analysis.local.build_opener") as transport,
+            patch("core.analysis.gateway.GatewayClient.request") as cloud,
+        ):
+            run = self.start(role="editor")
+            complete = COMPLETION | {
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(self.suggestion(run)),
+                }
+            }
+            transport.return_value.open.side_effect = [
+                BytesIO(json.dumps(reply).encode())
+                for reply in (VERSION, TAGS, INFO, RENDER, VERSION, complete, VERSION)
+            ]
+            self.assertEqual(self.process(run), "complete", run.error_code)
+            self.assertFalse(run.external_processing)
+            self.assertEqual(run.result.provenance["execution"]["driver"], "ollama")
+            self.assertEqual(run.result.provenance["local_usage"]["output_tokens"], 8)
+
+            failed = self.start(role="editor")
+            transport.return_value.open.side_effect = [
+                BytesIO(json.dumps(VERSION).encode()),
+                BytesIO(b'{"models":[]}'),
+            ]
+            self.assertEqual(self.process(failed), "failed")
+            self.assertEqual(failed.error_code, "local_ai_model_changed")
+            self.assertFalse(hasattr(failed, "result"))
+
+            retried = self.start(role="editor", previous_run=failed)
+            self.assertEqual(retried.previous_run_id, failed.pk)
+            count = 0
+
+            def revoke_after_completion(request, **kwargs):
+                nonlocal count
+                replies = (VERSION, TAGS, INFO, RENDER, VERSION, complete, VERSION)
+                reply = replies[count]
+                count += 1
+                if count == 6:
+                    CaseMembership.objects.filter(
+                        case=self.case, user=self.users["editor"]
+                    ).delete()
+                return BytesIO(json.dumps(reply).encode())
+
+            transport.return_value.open.side_effect = revoke_after_completion
+            self.assertEqual(self.process(retried), "failed")
+            self.assertEqual(retried.error_code, "access_removed")
+            self.assertFalse(hasattr(retried, "result"))
+            cloud.assert_not_called()
+            self.assertEqual(GatewayRequest.objects.count(), 0)
+
+    def test_removed_text_backend_snapshot_fails_before_dispatch(self):
+        run = self.start()
+        execution = run.parameters["_execution"]
+        execution.pop("driver")
+        execution["adapter_version"] = "2"
+        execution["inference_settings"] = {
+            "temperature": 0,
+            "enable_thinking": False,
+            "cache_prompt": False,
+        }
+        AnalysisRun.objects.filter(pk=run.pk).update(parameters=run.parameters)
+        with (
+            patch("core.analysis.local.build_opener") as transport,
+            patch("core.analysis.gateway.GatewayClient.request") as cloud,
+        ):
+            self.assertEqual(self.process(run), "failed")
+            self.assertEqual(run.error_code, "execution_changed")
+            transport.assert_not_called()
+            cloud.assert_not_called()
+        self.assertNotIn("driver", run.parameters["_execution"])
         self.assertFalse(hasattr(run, "result"))
 
     def test_revocation_after_local_inference_withholds_results(self):

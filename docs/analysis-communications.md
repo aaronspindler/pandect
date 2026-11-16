@@ -221,8 +221,9 @@ timezone. These 18 headers are required in any order:
 `Attachment type`.
 
 UTF-8/optional BOM, quoted commas and multiline text are supported; other layouts
-are not. No message-row ceiling applies. Configured uploads default to 100 MiB;
-fields allow 131,072 characters within message-text byte limits. Preparation,
+are not. No message-row ceiling applies. Message CSV files allow 100 MiB, separately
+from ordinary uploads. Fields allow 131,072 characters and each message allows
+at most 1 MiB UTF-8. Preparation,
 review and publication stream rows rather than accumulating conversations in results.
 
 Background preparation creates no people/messages. Review shows contact labels,

@@ -3,6 +3,7 @@
 import csv
 import io
 from copy import deepcopy
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -10,12 +11,15 @@ from django.test import TestCase
 from django.urls import reverse
 
 from cases.models import CaseMembership
+from core.analysis.errors import AnalysisError
 from core.analysis.services import process_run, resolve_inputs
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.imessage import HEADERS, iter_import_rows
+from phone.imessage_forms import IMessageUploadForm
+from phone.imessage_imports import start_preview
 from phone.models import CommunicationContext, TextMessageEvidence
 
 
@@ -115,6 +119,96 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(conflict.status_code, 409)
         self.assertEqual(DocumentEvidence.objects.count(), 1)
+
+    def test_csv_import_streaming_limit_does_not_reduce_ordinary_uploads(self):
+        self.login("owner")
+        raw = message_csv()
+        with (
+            patch("phone.analysis.deterministic.imessage.MAX_FILE_BYTES", len(raw) - 1),
+            self.settings(PANDECT_MAX_FILE_BYTES=2 * len(raw)),
+        ):
+            page = self.client.get(self.upload_url())
+            self.assertEqual(page.context["max_bytes"], len(raw) - 1)
+            rejected = self.client.post(
+                self.upload_url(),
+                {
+                    "submission_id": str(uuid4()),
+                    "timezone": "UTC",
+                    "confirm_timezone": "on",
+                    "file": SimpleUploadedFile("messages.csv", raw),
+                },
+            )
+            self.assertEqual(rejected.status_code, 400)
+            self.assertTrue(rejected.wsgi_request.evidence_upload_too_large)
+            self.assertFalse(DocumentEvidence.objects.exists())
+            self.assertFalse(AnalysisRun.objects.exists())
+            self.assertFalse(list(self.media_root.rglob("*")))
+            accepted = self.client.post(
+                self.url("create"),
+                self.payload("document", file=SimpleUploadedFile("messages.csv", raw)),
+                HTTP_ACCEPT="application/json",
+            )
+            self.assertEqual(accepted.status_code, 201)
+        self.assertEqual(DocumentEvidence.objects.get().byte_size, len(raw))
+
+    def test_intake_form_rejects_large_uploaded_and_retained_csv(self):
+        raw = message_csv()
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Retained CSV",
+            file=SimpleUploadedFile("messages.csv", raw),
+        )
+        with patch(
+            "phone.analysis.deterministic.imessage.MAX_FILE_BYTES", len(raw) - 1
+        ):
+            for field, value in (
+                ("file", SimpleUploadedFile("messages.csv", raw)),
+                ("document", str(document.pk)),
+            ):
+                with self.subTest(field=field):
+                    form = IMessageUploadForm(
+                        {
+                            "submission_id": str(uuid4()),
+                            "timezone": "UTC",
+                            "confirm_timezone": "on",
+                            **({field: value} if field == "document" else {}),
+                        },
+                        {field: value} if field == "file" else None,
+                        case=self.case,
+                    )
+                    self.assertFalse(form.is_valid())
+                    self.assertIn(field, form.errors)
+
+    def test_intake_service_rejects_large_sources_before_hashing_or_queueing(self):
+        raw = message_csv()
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Retained CSV",
+            file=SimpleUploadedFile("messages.csv", raw),
+        )
+        with (
+            patch("phone.analysis.deterministic.imessage.MAX_FILE_BYTES", len(raw) - 1),
+            patch("phone.imessage_imports.file_integrity") as integrity,
+            patch("phone.imessage_imports.start_run") as queue,
+        ):
+            for source in (
+                {"file": SimpleUploadedFile("messages.csv", raw)},
+                {"document": document},
+            ):
+                with self.subTest(source=next(iter(source))):
+                    with self.assertRaises(AnalysisError) as raised:
+                        start_preview(
+                            self.users["owner"],
+                            self.case.pk,
+                            source | {"submission_id": uuid4(), "timezone": "UTC"},
+                        )
+                    self.assertEqual(raised.exception.code, "imessage_import_limit")
+            integrity.assert_not_called()
+            queue.assert_not_called()
+        self.assertEqual(DocumentEvidence.objects.count(), 1)
+        self.assertFalse(AnalysisRun.objects.exists())
 
     def test_review_and_confirm_create_people_only_in_worker_and_bind_choices(self):
         preview = self.prepare()

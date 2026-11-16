@@ -85,7 +85,11 @@ addresses do not establish visits.
 
 `text_topics` and `session_summaries` version 2 retain stage warnings/combined
 outcomes: keywords remain useful without inferred topics; missing session content
-stays insufficient/partial. Pending version 1 fails with
+stays insufficient/partial. Topic response/quotation validation failures and
+inference service failures retain available keyword findings as a partial result,
+with a safe explanation and rerun guidance. No rejected topic suggestions are
+published; source/access changes and runtime/model identity drift still stop the
+run. Pending version 1 fails with
 `processing_version_unavailable`; start a new run. Earlier results/reviews stay intact.
 
 Single/bulk investigator uploads queue applicable native text extraction, image
@@ -198,7 +202,8 @@ append reviews, per candidate for geocodes; viewers inspect.
 **Download results** includes private result/source/provenance JSON. Missing/changed
 exact inputs withhold results/downloads. [Workers](background-tasks.md) execute
 queued runs, distinguishing queued/running/complete/partial/no-findings/insufficient/
-unsupported/failed/cancelled. Refresh for progress. Runs retain checksums,
+unsupported/failed/cancelled. Progress and completed results update in place with
+JavaScript; **Refresh status** remains available without it. Runs retain checksums,
 parameters, method, anchors and review history; reruns preserve earlier output.
 
 Cancellation blocks publication but recalls no sent request. Workers require
@@ -258,10 +263,10 @@ and [Workers AI integration](https://developers.cloudflare.com/ai-gateway/usage/
 | `PANDECT_AI_WORKERS_TOKEN` | Workers AI token, sent as `Authorization`; separate upstream credential. |
 | `PANDECT_AI_TEXT_MODEL` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
 | `PANDECT_AI_TRANSCRIPTION_MODEL` | `@cf/openai/whisper-large-v3-turbo` |
-| `PANDECT_AI_TIMEOUT` | Request timeout in seconds, default 60, maximum 120. |
-| `PANDECT_AI_DAILY_CASE_REQUESTS` | Daily per-case request count ceiling, default 100. |
-| `PANDECT_AI_MAX_REQUEST_BYTES` | Submitted request ceiling, default 8 MiB. |
-| `PANDECT_AI_MAX_RESPONSE_BYTES` | Response ceiling, default 2 MiB. |
+
+The backend uses a 60-second request deadline, a daily ceiling of 100 requests per
+case, an 8 MiB request limit and a 2 MiB response limit. These bounded application
+defaults are defined in `config/settings.py`; they are not environment variables.
 
 Match web/worker configuration. Deliberately configure provider/Gateway logging
 and retention; skip-cache/no-log headers neither replace that policy nor guarantee

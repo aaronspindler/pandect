@@ -38,8 +38,8 @@ safe source/method errors. Grouped comparisons disclose their retained coverage.
 New runs carry explicit parent-batch references, preserved through retries and
 follow-ups even when another authorized editor retries. Historical membership is
 never guessed. See the [Processing workflow](interface-design.md#case-tools-processing-and-additional-analysis)
-for filters, review and recovery. Refresh supplies completion feedback; there is
-no notification scheduler.
+for filters, review, recovery, and automatic updates to visible progress/results.
+Refresh remains available without JavaScript; there is no notification scheduler.
 
 Completed vehicle and HTML iMessage imports offer deliberate **Run local checks
 on imported evidence**. Scope comes from retained relationships, published

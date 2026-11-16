@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="{% static 'ui/app.css' %}">
   <script src="{% static 'ui/timezone.js' %}" data-automatic="{% if user.timezone %}false{% else %}true{% endif %}" data-method="{{ request.method }}"></script>
   <script src="{% static 'ui/app.js' %}" defer></script>
+  <script src="{% static 'ui/live.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body class="{% if user.is_authenticated %}app-page {% endif %}{% if case %}case-page {% endif %}{% block body_class %}{% endblock %}">

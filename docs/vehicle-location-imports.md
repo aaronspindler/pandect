@@ -15,7 +15,8 @@ superusers have no access bypass.
    source/citation and explicitly confirm **Created Time** means observation time.
 2. **Upload CSV** retains the exact file (optional UTF-8 BOM) as Document evidence
    with SHA-256 and an import record. The worker prepares review with progress
-   and **Refresh status**; no observations exist yet. To return later, open the
+   that updates automatically with JavaScript; **Refresh status** remains available.
+   No observations exist yet. To return later, open the
    Document and choose **Continue vehicle location import**.
 3. Review paginated original cells and interpreted timestamps in your
    [account/device timezone](cases.md#account-settings); the export timezone still
@@ -114,7 +115,7 @@ only. Templates live in `geo/templates/geo/`; shared deletion uses
 
 ## Operational bounds and scope
 
-Limits are **100,000 data rows**, **100 MiB** (or smaller `PANDECT_MAX_FILE_BYTES`),
+Limits are **100,000 data rows**, **100 MiB**,
 and **100 asset/serial pairs**. Uploads stream within that byte limit; workers
 bound reads, process chunks, and store private review rows in PostgreSQL. Review
 and results show 50 rows per page. Addresses allow 20,000 characters, triggers

@@ -3,9 +3,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import Http404
 from django.test import SimpleTestCase
 
+from core.analysis.errors import AnalysisError, error_message
 from core.analysis.sources import Source
 from text.analysis.ai import content_events
 from text.analysis.deterministic import (
@@ -414,6 +416,86 @@ class TextAnalysisTests(SimpleTestCase):
         empty = text_topics([source(" ")], {}, infer=None)
         self.assertEqual(empty["outcome"], "insufficient")
         self.assertEqual(empty["items"], [])
+
+    def test_rejected_topics_retain_keywords_without_publishing_any_suggestions(self):
+        original = source("Harbour harbour delivery.")
+        valid = {
+            "kind": "Topic",
+            "text": "Harbour delivery",
+            "citations": [{"source_id": original.id, "quote": "Harbour"}],
+        }
+        invalid = valid | {
+            "text": "Unverified suggestion",
+            "citations": [{"source_id": original.id, "quote": "Absent quotation"}],
+        }
+        for response in ({"items": [valid, invalid]}, {"items": "invalid"}):
+            with self.subTest(response=response):
+                result = text_topics([original], {}, infer=Mock(return_value=response))
+                self.assertEqual(result["outcome"], "partial")
+                self.assertIn("topic suggestions were not published", result["summary"])
+                self.assertEqual(result["items"], keywords([original], {})["items"])
+                self.assertIn("Topic suggestions", " ".join(result["warnings"]))
+                self.assertNotIn("Absent quotation", str(result))
+                self.assertNotIn("Unverified suggestion", str(result))
+
+    def test_topic_validation_warning_never_contains_exception_text(self):
+        original = source("Harbour delivery.")
+        result = text_topics(
+            [original],
+            {},
+            infer=Mock(side_effect=ValidationError("private provider diagnostic")),
+        )
+        self.assertEqual(result["outcome"], "partial")
+        self.assertNotIn("private provider diagnostic", str(result))
+
+    def test_topic_input_limit_retains_bounded_keywords_without_inference(self):
+        original = source("harbour " * 8001)
+        infer = Mock()
+        result = text_topics([original], {}, infer=infer)
+        infer.assert_not_called()
+        self.assertEqual(result["outcome"], "partial")
+        self.assertEqual(result["items"], keywords([original], {})["items"])
+        with self.assertRaises(ValidationError):
+            text_topics([source("harbour " * 125001)], {}, infer=infer)
+
+    def test_topic_service_failures_keep_keywords_and_safe_recovery_guidance(self):
+        original = source("Harbour delivery.")
+        for code in (
+            "local_ai_unavailable",
+            "local_ai_invalid_response",
+            "local_ai_context_limit",
+            "gateway_unavailable",
+            "gateway_invalid_response",
+        ):
+            with self.subTest(code=code):
+                result = text_topics(
+                    [original], {}, infer=Mock(side_effect=AnalysisError(code))
+                )
+                self.assertEqual(result["outcome"], "partial")
+                self.assertEqual(result["items"], keywords([original], {})["items"])
+                self.assertIn(error_message(code), " ".join(result["warnings"]))
+
+    def test_topics_do_not_recover_source_access_identity_or_unexpected_failures(self):
+        original = source("Harbour delivery.")
+        for error in (
+            AnalysisError("access_removed"),
+            AnalysisError("source_changed"),
+            AnalysisError("source_unavailable"),
+            AnalysisError("execution_changed"),
+            AnalysisError("local_ai_model_changed"),
+            PermissionDenied(),
+            Http404(),
+            RuntimeError(),
+        ):
+            with self.subTest(error=type(error), code=str(error)):
+                with self.assertRaises(type(error)):
+                    text_topics([original], {}, infer=Mock(side_effect=error))
+        with self.assertRaises(AnalysisError):
+            text_topics(
+                [source("a")],
+                {},
+                infer=Mock(side_effect=AnalysisError("local_ai_unavailable")),
+            )
 
     def test_model_suggestions_require_exact_quotes_and_selected_sources(self):
         original = source("I will meet you tomorrow. Actually, cancel that proposal.")

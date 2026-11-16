@@ -88,14 +88,79 @@ class StartupTests(SimpleTestCase):
             with self.subTest(url=url), self.assertRaises(ImproperlyConfigured):
                 self.load_settings(PANDECT_MAP_TILE_URL=url)
 
-    def test_local_inference_limits_are_separate_from_gateway_limits(self):
-        settings = self.load_settings(
-            PANDECT_AI_TIMEOUT="60",
-            PANDECT_LOCAL_AI_TIMEOUT="9999",
-            PANDECT_LOCAL_TEXT_CONTEXT_TOKENS="8192",
-            PANDECT_LOCAL_AI_MAX_OUTPUT_TOKENS="1024",
+    def test_product_limits_are_fixed_even_with_retired_environment_overrides(self):
+        retired = (
+            "PANDECT_MAX_FILE_BYTES",
+            "PANDECT_MAX_TEXT_BYTES",
+            "PANDECT_MAX_BATCH_FILES",
+            "PANDECT_INVITATION_DAYS",
+            "PANDECT_AI_TIMEOUT",
+            "PANDECT_AI_DAILY_CASE_REQUESTS",
+            "PANDECT_AI_MAX_REQUEST_BYTES",
+            "PANDECT_AI_MAX_RESPONSE_BYTES",
+            "PANDECT_LOCAL_AI_TIMEOUT",
+            "PANDECT_LOCAL_AI_MAX_REQUEST_BYTES",
+            "PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES",
+            "PANDECT_LOCAL_TEXT_CONTEXT_TOKENS",
+            "PANDECT_LOCAL_AI_MAX_OUTPUT_TOKENS",
+            "PANDECT_GEOCODER_TIMEOUT",
+            "PANDECT_MAP_CONTEXT_TIMEOUT",
         )
-        self.assertEqual(settings["PANDECT_AI_GATEWAY"]["timeout"], 60)
-        self.assertEqual(settings["PANDECT_LOCAL_AI"]["timeout"], 1800)
-        self.assertEqual(settings["PANDECT_LOCAL_AI"]["text"]["context_tokens"], 8192)
-        self.assertEqual(settings["PANDECT_LOCAL_AI"]["max_output_tokens"], 1024)
+        settings = self.load_settings(**dict.fromkeys(retired, "not-an-integer"))
+        self.assertEqual(settings["PANDECT_MAX_FILE_BYTES"], 1024**3)
+        self.assertEqual(settings["PANDECT_MAX_TEXT_BYTES"], 10 * 1024**2)
+        self.assertEqual(settings["PANDECT_MAX_BATCH_FILES"], 100)
+        self.assertEqual(settings["PANDECT_INVITATION_DAYS"], 7)
+        self.assertEqual(settings["PANDECT_GEOCODER_TIMEOUT"], 10)
+        self.assertEqual(settings["PANDECT_MAP_CONTEXT_TIMEOUT"], 10)
+        gateway = settings["PANDECT_AI_GATEWAY"]
+        self.assertEqual(gateway["timeout"], 60)
+        self.assertEqual(gateway["daily_requests"], 100)
+        self.assertEqual(gateway["max_request_bytes"], 8 * 1024**2)
+        self.assertEqual(gateway["max_response_bytes"], 2 * 1024**2)
+        local = settings["PANDECT_LOCAL_AI"]
+        self.assertEqual(local["timeout"], 600)
+        self.assertEqual(local["max_request_bytes"], 8 * 1024**2)
+        self.assertEqual(local["max_response_bytes"], 2 * 1024**2)
+        self.assertEqual(local["text"]["context_tokens"], 16384)
+        self.assertEqual(local["max_output_tokens"], 4096)
+
+    def test_transcription_runtime_and_application_share_resource_bounds(self):
+        from inference.server import Runtime
+
+        settings = self.load_settings(
+            PANDECT_LOCAL_AI_TIMEOUT="1",
+            PANDECT_LOCAL_AI_MAX_REQUEST_BYTES="1",
+            PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES="1",
+        )
+        with patch.dict(
+            os.environ,
+            {
+                "PANDECT_RUNTIME_MODEL": "synthetic-model",
+                "PANDECT_RUNTIME_MODEL_SHA256": "a" * 64,
+                "PANDECT_LOCAL_AI_TOKEN": "synthetic-token",
+            },
+            clear=True,
+        ):
+            runtime = Runtime()
+        local = settings["PANDECT_LOCAL_AI"]
+        self.assertEqual(runtime.timeout, local["timeout"])
+        self.assertEqual(runtime.max_request, local["max_request_bytes"])
+        self.assertEqual(runtime.max_response, local["max_response_bytes"])
+
+    def test_local_text_defaults_to_ollama_and_requires_explicit_pins(self):
+        defaults = self.load_settings()["PANDECT_LOCAL_AI"]["text"]
+        self.assertEqual(defaults["model"], "qwen3.5:9b")
+        self.assertEqual(defaults["runtime"], "")
+        self.assertEqual(defaults["sha256"], "")
+        self.assertNotIn("driver", defaults)
+        settings = self.load_settings(
+            PANDECT_LOCAL_TEXT_MODEL="qwen3.5:4b",
+            PANDECT_LOCAL_TEXT_RUNTIME="ollama@0.40.11",
+            PANDECT_LOCAL_TEXT_SHA256="a" * 64,
+        )
+        text = settings["PANDECT_LOCAL_AI"]["text"]
+        self.assertEqual(text["model"], "qwen3.5:4b")
+        self.assertEqual(text["runtime"], "ollama@0.40.11")
+        self.assertEqual(text["sha256"], "a" * 64)
+        self.assertEqual(text["url"], "")

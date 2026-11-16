@@ -18,6 +18,13 @@ integrity, retained descriptions, and processing history; **More** holds permitt
 actions. **Processing** shows case-wide history. See [screen specifications](interface-design.md#evidence-browsing-and-reading)
 and [automatic checks/recovery](analysis.md#retained-processing).
 
+Text messages use a compact message excerpt, reported sender, and reported time
+as their evidence-list label and reader heading. Times use the current display
+timezone; missing times say **Time not recorded**. Excerpts take the first 80
+source characters, collapse whitespace, and mark longer messages with an ellipsis.
+The complete original, saved title, and imported source-row attribution remain
+retained; these labels also apply to messages imported earlier.
+
 ## Investigator workflow
 
 Owners/editors choose **Add evidence → Upload files** for documents, images, and
@@ -179,7 +186,7 @@ content remains. Archived calls retain additions and permit more. Viewers inspec
 
 Transcripts preserve received text without trimming, subject to browser line endings;
 they are supplied material, not verification/automatic transcription. Requests
-accept one file with `PANDECT_MAX_FILE_BYTES` and `PANDECT_MAX_TEXT_BYTES` bounds.
+accept one file up to 1 GiB and supplied text up to 10 MiB UTF-8.
 Calls use ordinary forms. Uncertain submissions retry the original ID/content;
 new additions need new IDs. Failed file submissions may need reselection.
 
@@ -283,6 +290,18 @@ Filenames expose no storage paths/URLs. **View on site** opens product readers/
 downloads, additionally requiring verified email. Individual deletion requires a
 superuser with case access and [confirmation](#permanent-deletion). Case-admin
 deletion requires ownership/contained-model permissions and post-commit cleanup.
+
+When Django `DEBUG=True` (`DJANGO_DEBUG=true`), evidence lists also offer
+**Delete selected evidence (DEBUG only)** to superusers. Select records of one
+evidence type, choose the action, review the complete inventory, check the
+confirmation box, and choose **Permanently delete selected evidence**. The action
+supports selected rows or all records matching the current list filters, across
+accessible cases. Review is paginated at 50 inventory entries with a complete
+private JSON download; pagination and confirmation work without JavaScript.
+The same case-access, dependent-record, analysis, and post-commit file cleanup
+safeguards apply. Changed selections or inventories require fresh confirmation;
+the whole batch is atomic. Bulk deletion is unavailable with `DEBUG=False`,
+including submissions from a previously opened confirmation page.
 
 ## Creating and editing records
 

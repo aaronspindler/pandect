@@ -44,10 +44,90 @@ class DeploymentSettingsTests(SimpleTestCase):
             health = middleware(factory.get("/health/", HTTP_HOST="127.0.0.1"))
             self.assertEqual(health.status_code, 200)
 
-    def test_hsts_and_cross_origin_csrf_trust_require_configuration(self):
+    def test_site_origin_supplies_hosts_csrf_and_sender_defaults(self):
+        settings = self.load_settings(
+            PANDECT_PUBLIC_ORIGIN="https://cases.example.test:8443/"
+        )
+        self.assertEqual(
+            settings["ALLOWED_HOSTS"],
+            ["cases.example.test", "localhost", "127.0.0.1", "[::1]"],
+        )
+        self.assertEqual(
+            settings["CSRF_TRUSTED_ORIGINS"], ["https://cases.example.test:8443"]
+        )
+        self.assertEqual(settings["DEFAULT_FROM_EMAIL"], "pandect@cases.example.test")
+        self.assertFalse(settings["DEBUG"])
+        self.assertIsNone(settings["SECURE_PROXY_SSL_HEADER"])
+        self.assertFalse(settings["SECURE_SSL_REDIRECT"])
+
+    def test_empty_overrides_use_defaults_and_explicit_overrides_replace_them(self):
+        settings = self.load_settings(
+            PANDECT_PUBLIC_ORIGIN="https://cases.example.test",
+            DJANGO_ALLOWED_HOSTS="",
+            DJANGO_CSRF_TRUSTED_ORIGINS="",
+            DJANGO_DEFAULT_FROM_EMAIL="",
+        )
+        self.assertIn("cases.example.test", settings["ALLOWED_HOSTS"])
+        self.assertEqual(
+            settings["CSRF_TRUSTED_ORIGINS"], ["https://cases.example.test"]
+        )
+        self.assertEqual(settings["DEFAULT_FROM_EMAIL"], "pandect@cases.example.test")
+        explicit = self.load_settings(
+            PANDECT_PUBLIC_ORIGIN="https://cases.example.test",
+            DJANGO_ALLOWED_HOSTS="other.example.test, 127.0.0.1",
+            DJANGO_CSRF_TRUSTED_ORIGINS="https://other.example.test",
+            DJANGO_DEFAULT_FROM_EMAIL="operator@example.test",
+        )
+        self.assertEqual(explicit["ALLOWED_HOSTS"], ["other.example.test", "127.0.0.1"])
+        self.assertEqual(
+            explicit["CSRF_TRUSTED_ORIGINS"], ["https://other.example.test"]
+        )
+        self.assertEqual(explicit["DEFAULT_FROM_EMAIL"], "operator@example.test")
+
+    def test_local_and_ip_origins_keep_safe_sender_and_valid_health_hosts(self):
+        for origin, host in (
+            ("http://localhost:8000", "localhost"),
+            ("http://127.0.0.1:8001", "127.0.0.1"),
+            ("http://[::1]:8002", "[::1]"),
+        ):
+            with self.subTest(origin=origin):
+                settings = self.load_settings(PANDECT_PUBLIC_ORIGIN=origin)
+                self.assertEqual(settings["DEFAULT_FROM_EMAIL"], "pandect@localhost")
+                with override_settings(ALLOWED_HOSTS=settings["ALLOWED_HOSTS"]):
+                    self.assertEqual(
+                        RequestFactory().get("/", HTTP_HOST=host).get_host(), host
+                    )
+                    self.assertEqual(
+                        RequestFactory()
+                        .get("/health/", HTTP_HOST="127.0.0.1")
+                        .get_host(),
+                        "127.0.0.1",
+                    )
+
+    def test_invalid_public_origins_fail_before_deriving_defaults(self):
+        for origin in (
+            "ftp://example.test",
+            "https://example.test/path",
+            "https://example.test?query=1",
+            "https://example.test#fragment",
+            "https://user:password@example.test",
+            "https://example.test:bad",
+            "https://example.test:65536",
+            "https://[::1",
+            "https://example.test\n",
+            "https://*.example.test",
+            "https://",
+        ):
+            with (
+                self.subTest(origin=origin),
+                self.assertRaisesMessage(ImproperlyConfigured, "PANDECT_PUBLIC_ORIGIN"),
+            ):
+                self.load_settings(PANDECT_PUBLIC_ORIGIN=origin)
+
+    def test_hsts_and_additional_csrf_trust_require_configuration(self):
         defaults = self.load_settings()
         self.assertEqual(defaults["SECURE_HSTS_SECONDS"], 0)
-        self.assertEqual(defaults["CSRF_TRUSTED_ORIGINS"], [])
+        self.assertEqual(defaults["CSRF_TRUSTED_ORIGINS"], ["http://localhost:8000"])
         production = self.load_settings(
             DJANGO_SECURE_HSTS_SECONDS="86400",
             DJANGO_CSRF_TRUSTED_ORIGINS="https://openpandect.com, , https://www.example.test",

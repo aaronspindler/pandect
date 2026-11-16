@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import Mock, patch
 from uuid import UUID
 
 from django.conf import settings
@@ -21,6 +22,7 @@ from config.tests.browser_base import BrowserTestCase
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.services import cancel_run, process_run, start_run
 from core.analysis.testing import wav_bytes
+from core.analysis.tests.test_topic_recovery import LOCAL
 from core.models import AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
@@ -534,6 +536,117 @@ class AnalysisBrowserTests(BrowserTestCase):
                     expect(
                         page.get_by_role("heading", name="Processing 0%")
                     ).to_be_visible()
+
+    def test_topic_failure_retains_keywords_and_keyboard_retry_without_javascript(self):
+        with self.settings(PANDECT_LOCAL_AI=LOCAL):
+            run, _ = start_run(
+                self.owner,
+                self.case.pk,
+                "text_topics",
+                [{"kind": "text", "id": str(self.text.pk)}],
+                parameters={"include_summary": True},
+            )
+            client = Mock(usage={"request_count": 1})
+            client.infer.return_value = {"items": "PRIVATE UNVALIDATED RESPONSE"}
+            with patch("core.analysis.local.LocalClient", return_value=client):
+                process_run(run.pk)
+            run.refresh_from_db()
+            self.assertEqual(run.status, "partial", run.error_code)
+            result_id = run.result.pk
+            detail_url = self.url(
+                "core:analysis:detail", case_id=self.case.pk, run_id=run.pk
+            )
+            for engine in self.engines:
+                with (
+                    self.subTest(engine=engine),
+                    self.browser_page(engine, java_script_enabled=False) as (_, page),
+                ):
+                    self.sign_in(page)
+                    page.goto(detail_url)
+                    expect(
+                        page.get_by_role("status").filter(
+                            has_text=re.compile(r"^Partial$")
+                        )
+                    ).to_be_visible()
+                    expect(
+                        page.get_by_role(
+                            "heading",
+                            name=(
+                                "Keywords retained; topic suggestions "
+                                "were not published."
+                            ),
+                            exact=True,
+                        )
+                    ).to_be_visible()
+                    expect(
+                        page.get_by_role("heading", name="Findings", exact=True)
+                    ).to_be_visible()
+                    expect(page.locator("main")).not_to_contain_text(
+                        "Processing could not finish"
+                    )
+                    expect(page.locator("main")).not_to_contain_text(
+                        "PRIVATE UNVALIDATED RESPONSE"
+                    )
+                    limitations = page.get_by_text("Limitations", exact=True)
+                    limitations.focus()
+                    limitations.press("Enter")
+                    expect(
+                        page.get_by_text(
+                            "Topic suggestions could not be validated "
+                            "for this selection.",
+                            exact=False,
+                        )
+                    ).to_be_visible()
+                    for width, height, label in (
+                        (1440, 900, "desktop"),
+                        (1440, 1024, "tall-desktop"),
+                        (768, 1024, "tablet"),
+                        (390, 844, "mobile"),
+                        (320, 844, "reflow"),
+                    ):
+                        page.set_viewport_size({"width": width, "height": height})
+                        for scheme in ("light", "dark"):
+                            page.emulate_media(
+                                color_scheme=scheme, reduced_motion="reduce"
+                            )
+                            self._assert_reflow(page)
+                            self.capture(
+                                page, engine, f"topic-recovery-{label}-{scheme}"
+                            )
+                    page.set_viewport_size({"width": 1440, "height": 900})
+                    page.get_by_text("Processing details", exact=True).press("Enter")
+                    retry = page.get_by_role(
+                        "button", name="Start another run with these inputs", exact=True
+                    )
+                    retry.focus()
+                    expect(retry).to_be_focused()
+                    retry.press("Enter")
+                    expect(page).not_to_have_url(detail_url)
+                    expect(
+                        page.get_by_role("heading", name="Processing 0%")
+                    ).to_be_visible()
+                    retried_id = UUID(page.url.rstrip("/").split("/")[-1])
+                    retried = self.db(AnalysisRun.objects.get, pk=retried_id)
+                    self.assertEqual(retried.previous_run_id, run.pk)
+                    self.assertEqual(
+                        self.db(AnalysisRun.objects.get, pk=run.pk).status, "partial"
+                    )
+                    self.assertEqual(
+                        self.db(lambda: AnalysisRun.objects.get(pk=run.pk).result.pk),
+                        result_id,
+                    )
+                with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                    self.sign_in(page, self.viewer)
+                    page.goto(detail_url)
+                    expect(
+                        page.get_by_role("heading", name="Findings", exact=True)
+                    ).to_be_visible()
+                    page.get_by_text("Processing details", exact=True).press("Enter")
+                    expect(
+                        page.get_by_role(
+                            "button", name="Start another run with these inputs"
+                        )
+                    ).to_have_count(0)
 
     def test_review_errors_preserve_text_focus_and_later_finding_page(self):
         for engine in self.engines:

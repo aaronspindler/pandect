@@ -1,10 +1,12 @@
 """Shared Django configuration for local and operator-hosted Pandect."""
 
 import os
+from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
+from django.http.request import split_domain_port
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -14,10 +16,33 @@ if not SECRET_KEY:
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 APP_COMMIT_SHA = os.environ.get("APP_COMMIT_SHA", "unknown")
+PANDECT_PUBLIC_ORIGIN = os.environ.get(
+    "PANDECT_PUBLIC_ORIGIN", "http://localhost:8000"
+).rstrip("/")
+try:
+    origin = urlsplit(PANDECT_PUBLIC_ORIGIN)
+    public_host, _ = split_domain_port(origin.netloc)
+    public_port = origin.port
+except ValueError as error:
+    raise ImproperlyConfigured(
+        "PANDECT_PUBLIC_ORIGIN must be an HTTP(S) origin."
+    ) from error
+if (
+    origin.scheme not in {"http", "https"}
+    or not public_host
+    or origin.username is not None
+    or origin.password is not None
+    or origin.path
+    or origin.query
+    or origin.fragment
+    or any(character.isspace() for character in PANDECT_PUBLIC_ORIGIN)
+):
+    raise ImproperlyConfigured("PANDECT_PUBLIC_ORIGIN must be an HTTP(S) origin.")
+default_hosts = list(dict.fromkeys([public_host, "localhost", "127.0.0.1", "[::1]"]))
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.environ.get(
-        "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]"
+    for host in (
+        os.environ.get("DJANGO_ALLOWED_HOSTS") or ",".join(default_hosts)
     ).split(",")
     if host.strip()
 ]
@@ -200,39 +225,18 @@ if SECURE_HSTS_SECONDS < 0:
     raise ImproperlyConfigured("DJANGO_SECURE_HSTS_SECONDS must not be negative.")
 CSRF_TRUSTED_ORIGINS = [
     value.strip()
-    for value in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    for value in (
+        os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS") or PANDECT_PUBLIC_ORIGIN
+    ).split(",")
     if value.strip()
 ]
 
 
-def positive_env(name, default):
-    try:
-        value = int(os.environ.get(name, default))
-    except ValueError as error:
-        raise ImproperlyConfigured(f"{name} must be a positive integer.") from error
-    if value <= 0:
-        raise ImproperlyConfigured(f"{name} must be a positive integer.")
-    return value
-
-
-PANDECT_MAX_FILE_BYTES = positive_env("PANDECT_MAX_FILE_BYTES", 100 * 1024 * 1024)
-PANDECT_MAX_TEXT_BYTES = positive_env("PANDECT_MAX_TEXT_BYTES", 1024 * 1024)
-PANDECT_MAX_BATCH_FILES = positive_env("PANDECT_MAX_BATCH_FILES", 20)
-PANDECT_INVITATION_DAYS = positive_env("PANDECT_INVITATION_DAYS", 7)
-PANDECT_PUBLIC_ORIGIN = os.environ.get(
-    "PANDECT_PUBLIC_ORIGIN", "http://localhost:8000"
-).rstrip("/")
-origin = urlsplit(PANDECT_PUBLIC_ORIGIN)
-if (
-    origin.scheme not in {"http", "https"}
-    or not origin.netloc
-    or origin.username
-    or origin.password
-    or origin.path
-    or origin.query
-    or origin.fragment
-):
-    raise ImproperlyConfigured("PANDECT_PUBLIC_ORIGIN must be an HTTP(S) origin.")
+# Product policy lives in code; deployment-specific connections stay in the environment.
+PANDECT_MAX_FILE_BYTES = 1024 * 1024 * 1024
+PANDECT_MAX_TEXT_BYTES = 10 * 1024 * 1024
+PANDECT_MAX_BATCH_FILES = 100
+PANDECT_INVITATION_DAYS = 7
 FILE_UPLOAD_HANDLERS = [
     "core.evidence.uploads.LimitedUploadHandler",
     "django.core.files.uploadhandler.MemoryFileUploadHandler",
@@ -275,7 +279,17 @@ LOGGING = {
     },
 }
 
-DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "pandect@localhost")
+sender_domain = origin.hostname
+try:
+    ip_address(sender_domain)
+except ValueError:
+    if sender_domain.endswith(".localhost"):
+        sender_domain = "localhost"
+else:
+    sender_domain = "localhost"
+DEFAULT_FROM_EMAIL = (
+    os.environ.get("DJANGO_DEFAULT_FROM_EMAIL") or f"pandect@{sender_domain}"
+)
 if DEBUG:
     MAILERS = {"default": {"BACKEND": "django.core.mail.backends.console.EmailBackend"}}
 else:
@@ -307,25 +321,20 @@ PANDECT_AI_GATEWAY = {
             "PANDECT_AI_TRANSCRIPTION_MODEL", "@cf/openai/whisper-large-v3-turbo"
         ),
     },
-    "timeout": min(120, positive_env("PANDECT_AI_TIMEOUT", 60)),
-    "daily_requests": positive_env("PANDECT_AI_DAILY_CASE_REQUESTS", 100),
-    "max_request_bytes": positive_env("PANDECT_AI_MAX_REQUEST_BYTES", 8 * 1024 * 1024),
-    "max_response_bytes": positive_env(
-        "PANDECT_AI_MAX_RESPONSE_BYTES", 2 * 1024 * 1024
-    ),
+    "timeout": 60,
+    "daily_requests": 100,
+    "max_request_bytes": 8 * 1024 * 1024,
+    "max_response_bytes": 2 * 1024 * 1024,
 }
 # Only explicitly configured, operator-controlled runtimes are local. Their
-# mounted model digests and image revisions are checked before evidence is sent.
+# model and runtime identities are checked before evidence is sent.
 PANDECT_LOCAL_AI = {
     "text": {
         "url": os.environ.get("PANDECT_LOCAL_TEXT_URL", ""),
-        "model": os.environ.get("PANDECT_LOCAL_TEXT_MODEL", "Qwen3-8B-Q4_K_M"),
+        "model": os.environ.get("PANDECT_LOCAL_TEXT_MODEL", "qwen3.5:9b"),
         "sha256": os.environ.get("PANDECT_LOCAL_TEXT_SHA256", ""),
-        "runtime": os.environ.get(
-            "PANDECT_LOCAL_TEXT_RUNTIME",
-            "llama.cpp@8642541b255bfb5dc39cd351a178be09013a55d6",
-        ),
-        "context_tokens": positive_env("PANDECT_LOCAL_TEXT_CONTEXT_TOKENS", 32768),
+        "runtime": os.environ.get("PANDECT_LOCAL_TEXT_RUNTIME", ""),
+        "context_tokens": 16384,
     },
     "transcription": {
         "url": os.environ.get("PANDECT_LOCAL_TRANSCRIPTION_URL", ""),
@@ -339,14 +348,10 @@ PANDECT_LOCAL_AI = {
         ),
     },
     "token": os.environ.get("PANDECT_LOCAL_AI_TOKEN", ""),
-    "timeout": min(1800, positive_env("PANDECT_LOCAL_AI_TIMEOUT", 600)),
-    "max_request_bytes": positive_env(
-        "PANDECT_LOCAL_AI_MAX_REQUEST_BYTES", 8 * 1024 * 1024
-    ),
-    "max_response_bytes": positive_env(
-        "PANDECT_LOCAL_AI_MAX_RESPONSE_BYTES", 2 * 1024 * 1024
-    ),
-    "max_output_tokens": positive_env("PANDECT_LOCAL_AI_MAX_OUTPUT_TOKENS", 4096),
+    "timeout": 600,
+    "max_request_bytes": 8 * 1024 * 1024,
+    "max_response_bytes": 2 * 1024 * 1024,
+    "max_output_tokens": 4096,
 }
 PANDECT_ANALYSIS_MAX_SOURCES = 500
 PANDECT_ANALYSIS_MAX_BYTES = 16 * 1024 * 1024
@@ -362,7 +367,7 @@ PANDECT_GEOCODER_USER_AGENT = os.environ.get(
     "PANDECT_GEOCODER_USER_AGENT", "Pandect/0.1"
 )
 
-PANDECT_GEOCODER_TIMEOUT = min(30, positive_env("PANDECT_GEOCODER_TIMEOUT", 10))
+PANDECT_GEOCODER_TIMEOUT = 10
 
 # Reference context is a separate configured lookup, not an inference endpoint.
 PANDECT_MAP_CONTEXT_URL = os.environ.get("PANDECT_MAP_CONTEXT_URL", "")
@@ -375,7 +380,7 @@ PANDECT_MAP_CONTEXT_ATTRIBUTION = os.environ.get("PANDECT_MAP_CONTEXT_ATTRIBUTIO
 PANDECT_MAP_CONTEXT_USER_AGENT = os.environ.get(
     "PANDECT_MAP_CONTEXT_USER_AGENT", "Pandect/0.1"
 )
-PANDECT_MAP_CONTEXT_TIMEOUT = min(30, positive_env("PANDECT_MAP_CONTEXT_TIMEOUT", 10))
+PANDECT_MAP_CONTEXT_TIMEOUT = 10
 PANDECT_MAP_CONTEXT_HISTORY_START = os.environ.get(
     "PANDECT_MAP_CONTEXT_HISTORY_START", ""
 )

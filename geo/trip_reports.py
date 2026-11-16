@@ -67,6 +67,7 @@ def saved_trip_report(
         "gap_page_obj": gap_page_obj,
         "warnings": warnings,
         "pending": pending,
+        "processing_pending": readiness["pending"],
         "needs_prepare": readiness["needs_prepare"],
         "vehicle_id": vehicle_id,
         "coverage": (

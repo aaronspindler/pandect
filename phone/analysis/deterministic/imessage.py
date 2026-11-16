@@ -23,6 +23,7 @@ from people.models import Person
 from phone.models import CommunicationContext, TextMessageEvidence
 
 PARSER_VERSION = "imessage-csv-v1"
+MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FIELD_CHARS = 131072
 BATCH_SIZE = 500
 BATCH_CHARS = 2 * 1024 * 1024
@@ -89,6 +90,10 @@ def _text_limit():
     return min(settings.PANDECT_MAX_TEXT_BYTES, 1024 * 1024)
 
 
+def import_file_limit():
+    return min(settings.PANDECT_MAX_FILE_BYTES, MAX_FILE_BYTES)
+
+
 def _timestamp(raw, zone):
     if not raw:
         return None
@@ -150,13 +155,13 @@ def _people(parameters, case):
 
 
 class _BoundedReader(io.RawIOBase):
-    """Hash original storage bytes while bounding reads by the normal upload limit."""
+    """Hash original storage bytes within the message CSV import limit."""
 
     def __init__(self, original):
         self.original = original
         self.size = 0
         self.digest = hashlib.sha256()
-        self.limit = settings.PANDECT_MAX_FILE_BYTES
+        self.limit = import_file_limit()
 
     def readable(self):
         return True
@@ -195,6 +200,8 @@ class _CSVLines:
 
 def _raw_rows(source):
     """Yield logical records; consuming the iterator verifies file integrity."""
+    if source.item.byte_size > import_file_limit():
+        raise AnalysisError("imessage_import_limit")
     try:
         with source.item.file.open("rb") as original:
             bounded = _BoundedReader(original)

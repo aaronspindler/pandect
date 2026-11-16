@@ -9,6 +9,7 @@ from django import forms
 from core.evidence.forms import validate_file
 from document.models import DocumentEvidence
 from people.models import Person
+from phone.analysis.deterministic.imessage import import_file_limit
 
 
 class IMessageUploadForm(forms.Form):
@@ -51,7 +52,19 @@ class IMessageUploadForm(forms.Form):
         original = validate_file(self.cleaned_data.get("file"))
         if original and not original.size:
             raise forms.ValidationError("Choose a nonempty CSV.")
+        if original and original.size > import_file_limit():
+            raise forms.ValidationError(
+                "Choose a CSV within the displayed import size limit."
+            )
         return original
+
+    def clean_document(self):
+        document = self.cleaned_data.get("document")
+        if document and document.byte_size > import_file_limit():
+            raise forms.ValidationError(
+                "Choose a CSV within the displayed import size limit."
+            )
+        return document
 
     def clean_timezone(self):
         value = self.cleaned_data["timezone"]

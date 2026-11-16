@@ -1,14 +1,22 @@
 """Case-scoped operator access with confirmed superuser evidence deletion."""
 
+import json
 from collections import Counter
 
+from django.conf import settings
 from django.contrib import admin
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.admin.widgets import AdminTextareaWidget
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
+from django.db import transaction
+from django.http import StreamingHttpResponse
+from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils import timezone
 
 from cases.admin_access import CaseScopedAdmin
+from cases.permissions import get_case
 from core.evidence.deletion import (
     CHANGED,
     deletion_manifest_response,
@@ -16,12 +24,14 @@ from core.evidence.deletion import (
     execute_deletion,
     get_deletion_target,
     plan_deletion,
+    plan_deletions,
 )
 from core.evidence.forms import BaseEvidenceForm
 from core.evidence.queries import same_case_evidence
 
 
 class EvidenceAdmin(CaseScopedAdmin):
+    actions = ("delete_selected",)
     form = BaseEvidenceForm
     file_evidence = False
     import_fields = ()
@@ -189,8 +199,121 @@ class EvidenceAdmin(CaseScopedAdmin):
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser and self.has_view_permission(request, obj)
 
+    def get_actions(self, request, action_location=admin.ActionLocation.CHANGE_LIST):
+        if not settings.DEBUG or not self.has_delete_permission(request):
+            return {}
+        return super().get_actions(request, action_location=action_location)
+
+    @admin.action(
+        permissions=["delete"], description="Delete selected evidence (DEBUG only)"
+    )
+    @transaction.atomic
+    def delete_selected(self, request, queryset):
+        if not settings.DEBUG or not self.has_delete_permission(request):
+            raise PermissionDenied
+        confirming = request.POST.get("post") == "yes"
+        # Lock cases in a stable order before rebuilding the complete inventory.
+        if confirming:
+            for case_id in sorted(set(queryset.values_list("case_id", flat=True))):
+                get_case(request.user, case_id, lock=True)
+            queryset = queryset.select_for_update(of=("self",))
+        items = list(queryset.select_related(None).order_by("case_id", "pk"))
+        groups = {}
+        for item in items:
+            groups.setdefault(item.case_id, []).append(item)
+        plans = [plan_deletions(group, self.kind) for group in groups.values()]
+        blockers = {plan.blocker for plan in plans if plan.blocker}
+        revisions = request.POST.getlist("revision")
+        changed = bool(revisions or confirming) and (
+            len(revisions) != len(plans)
+            or any(
+                not plan.matches(revision, request.user)
+                for plan, revision in zip(plans, revisions, strict=False)
+            )
+        )
+        if (
+            confirming
+            and request.POST.get("confirm") == "yes"
+            and not changed
+            and not blockers
+        ):
+            self.log_deletions(request, items)
+            for plan in plans:
+                execute_deletion(plan, request.user)
+            self.message_user(
+                request, f"Permanently deleted {len(items)} evidence records."
+            )
+            return None
+        # A blocked cascade must never disclose labels from inconsistent links.
+        entries = (
+            []
+            if blockers
+            else [
+                dict(entry, case_id=str(plan.item.case_id), case=str(plan.item.case))
+                for plan in plans
+                for entry in plan.entries
+            ]
+        )
+        counts = (
+            sum((plan.counts for plan in plans), Counter())
+            if not blockers
+            else Counter()
+        )
+        if request.POST.get("download") == "manifest" and not blockers and not changed:
+            response = StreamingHttpResponse(
+                json.JSONEncoder().iterencode(
+                    {
+                        "schema": "pandect.evidence-bulk-deletion.v1",
+                        "evidence_ids": [str(item.pk) for item in items],
+                        "counts": dict(counts),
+                        "entries": entries,
+                    }
+                ),
+                content_type="application/octet-stream",
+            )
+            response["Content-Disposition"] = (
+                'attachment; filename="evidence-deletion.json"'
+            )
+            response["Cache-Control"] = "private, no-store"
+            response["X-Content-Type-Options"] = "nosniff"
+            return response
+        page = Paginator(entries, 50).get_page(
+            1 if changed else request.POST.get("review_page")
+        )
+        request.current_app = self.admin_site.name
+        return TemplateResponse(
+            request,
+            "core/admin/bulk_delete_confirmation.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Delete selected evidence",
+                "opts": self.opts,
+                "media": self.media,
+                "preserved_filters": self.get_preserved_filters(request),
+                "items": items,
+                "selected_items": items[:1]
+                if request.POST.get("select_across") == "1"
+                else items,
+                "action_checkbox_name": ACTION_CHECKBOX_NAME,
+                "revisions": [plan.revision(request.user) for plan in plans],
+                "select_across": request.POST.get("select_across", "0"),
+                "blockers": blockers,
+                "deletion_plan": {"counts": counts},
+                "deletion_page": page,
+                "inventory_changed": CHANGED if changed else "",
+                "deletion_post_pagination": True,
+                "deletion_links": {
+                    "previous": page.previous_page_number()
+                    if page.has_previous()
+                    else None,
+                    "next": page.next_page_number() if page.has_next() else None,
+                },
+            },
+            status=409 if changed else 200,
+        )
+
     def get_deleted_objects(self, objs, request):
-        # Bulk deletion is disabled; the same plan supplies review and mutation.
+        # Individual deletion uses the same plan for review and mutation.
         obj = objs[0]
         if request.method == "POST":
             # Django holds the delete transaction through this hook and delete_model.

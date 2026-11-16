@@ -46,6 +46,7 @@ class AppResourceDiscoveryTests(SimpleTestCase):
             "ui/primitives.css",
             "ui/app.css",
             "ui/app.js",
+            "ui/live.js",
             "ui/brand/logo-oxblood.png",
             "ui/icons/files.svg",
             "core/evidence.js",

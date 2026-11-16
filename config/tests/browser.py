@@ -36,6 +36,7 @@ from geo.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import enqueue_preparation, process_import
 from image.models import ImageEvidence
 from people.models import Person
+from phone.models import TextMessageEvidence
 from text.models import TextEvidence
 from vehicle.models import Vehicle
 
@@ -695,6 +696,79 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     "https://example.com/source"
                 )
 
+    def test_message_evidence_labels_and_responsive_navigation(self):
+        sender = Person.objects.create(case=self.case, first_name="Jordan Smith")
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Imported message · row 12",
+            sender=sender,
+            recipient=sender,
+            body="Meet at the harbour.\nBring the file.",
+            occurred_at=datetime(2026, 11, 16, 14, 30, tzinfo=UTC),
+        )
+        label = (
+            "Meet at the harbour. Bring the file. · Jordan Smith · "
+            "16 Nov 2026, 09:30:00 EST"
+        )
+        list_url = self.url("core:evidence:list", case_id=self.case.pk)
+        detail_url = self.url(
+            "core:evidence:detail",
+            case_id=self.case.pk,
+            kind="text-message",
+            evidence_id=message.pk,
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (context, page),
+            ):
+                self.sign_in(page)
+                context.add_cookies(
+                    [
+                        {
+                            "name": "pandect_timezone",
+                            "value": "America/Toronto",
+                            "url": list_url,
+                        }
+                    ]
+                )
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.goto(list_url)
+                    link = page.locator(".evidence-row").filter(has_text=label)
+                    expect(link).to_be_visible()
+                    expect(link.locator(".evidence-row-title")).to_have_text(label)
+                    link.focus()
+                    expect(link).to_be_focused()
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"message-label-list-{width}-{height}")
+                    link.press("Enter")
+                    expect(page).to_have_url(detail_url)
+                    expect(page.get_by_role("heading", level=1)).to_have_text(label)
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"message-label-reader-{width}-{height}")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 321
+                )
+                self.capture(page, engine, "message-label-large-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "message-label-dark")
+                page.emulate_media(forced_colors="active")
+                self.capture(page, engine, "message-label-forced-colors")
+
     def test_communication_evidence_and_retained_attachments(self):
         sender = Person.objects.create(case=self.case, first_name="Alex Sender")
         recipient = Person.objects.create(case=self.case, first_name="Jordan Recipient")
@@ -775,8 +849,14 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                                 full_page=True,
                             )
                     page.get_by_role("button", name=re.compile(r"^Save ")).click()
+                    reader_title = (
+                        "Synthetic message <source> · Alex Sender · "
+                        "26 Oct 2026, 12:30:15 UTC"
+                        if kind == "text-message"
+                        else title
+                    )
                     expect(
-                        page.get_by_role("heading", name=title, exact=True)
+                        page.get_by_role("heading", name=reader_title, exact=True)
                     ).to_be_visible()
                     detail_url = page.url
                     if kind != "text-message":
@@ -896,7 +976,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         self.sign_in(page, viewer)
                         page.goto(detail_url)
                         expect(
-                            page.get_by_role("heading", name=title, exact=True)
+                            page.get_by_role("heading", name=reader_title, exact=True)
                         ).to_be_visible()
                         expect(
                             page.get_by_role(

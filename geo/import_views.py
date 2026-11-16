@@ -23,6 +23,7 @@ from geo.vehicle_import_jobs import (
     retry_import,
 )
 from geo.vehicle_imports import MAX_BYTES, MAX_GROUPS, MAX_ROWS, PARSER_VERSION
+from ui.live import render_live
 
 
 @product_login_required
@@ -202,7 +203,7 @@ def vehicle_import_review(request, case_id, import_id):
                 )
                 messages.success(
                     request,
-                    "Vehicle locations queued for import. Refresh to follow progress.",
+                    "Vehicle locations queued for import. Follow progress below.",
                 )
                 return redirect(review_url, case_id=case.pk, import_id=batch.pk)
             status = 400
@@ -236,7 +237,7 @@ def vehicle_import_review(request, case_id, import_id):
             request.GET.get("page")
         )
     skipped_count = batch.duplicate_count if not batch.duplicates_confirmed else 0
-    return render(
+    return render_live(
         request,
         "geo/import_review.html",
         {

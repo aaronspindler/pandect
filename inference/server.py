@@ -1,4 +1,4 @@
-"""Private, bounded front door for the two pinned native inference servers."""
+"""Private, bounded front door for the pinned Whisper transcription server."""
 
 import base64
 import hashlib
@@ -14,26 +14,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-def positive(name, default):
-    value = int(os.environ.get(name, default))
-    if value <= 0:
-        raise ValueError("invalid_runtime_configuration")
-    return value
-
-
 def model_signature(stat):
     return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
 
 class Runtime:
     def __init__(self):
-        self.kind = os.environ["PANDECT_RUNTIME_KIND"]
-        if self.kind not in {"text", "transcription"}:
-            raise ValueError("invalid_runtime_configuration")
         revisions = json.loads(Path(__file__).with_name("revisions.json").read_text())
         self.identity = {
-            "kind": self.kind,
-            "runtime": revisions[self.kind],
+            "kind": "transcription",
+            "runtime": revisions["transcription"],
             "model": os.environ["PANDECT_RUNTIME_MODEL"],
             "sha256": os.environ["PANDECT_RUNTIME_MODEL_SHA256"].lower(),
         }
@@ -41,22 +31,11 @@ class Runtime:
         if not self.token or not re.fullmatch(r"[0-9a-f]{64}", self.identity["sha256"]):
             raise ValueError("invalid_runtime_configuration")
         self.model_path = Path("/models/model")
-        self.timeout = min(1800, positive("PANDECT_RUNTIME_TIMEOUT", 600))
-        self.max_request = positive(
-            "PANDECT_RUNTIME_MAX_REQUEST_BYTES", 8 * 1024 * 1024
-        )
-        self.max_response = positive(
-            "PANDECT_RUNTIME_MAX_RESPONSE_BYTES", 2 * 1024 * 1024
-        )
-        self.threads = positive("PANDECT_RUNTIME_THREADS", 4)
-        self.gpu_layers = int(os.environ.get("PANDECT_RUNTIME_GPU_LAYERS", "0"))
-        if self.gpu_layers < 0:
-            raise ValueError("invalid_runtime_configuration")
+        self.timeout = 600
+        self.max_request = 8 * 1024 * 1024
+        self.max_response = 2 * 1024 * 1024
+        self.threads = 4
         self.gpu = os.environ.get("PANDECT_RUNTIME_GPU", "false").lower() == "true"
-        if self.kind == "text":
-            self.identity["context_tokens"] = positive(
-                "PANDECT_RUNTIME_CONTEXT_TOKENS", 32768
-            )
         self.lock = threading.Lock()
         self.process = None
         self.verified_model = None
@@ -76,36 +55,14 @@ class Runtime:
         self.verified_model = signature
 
     def command(self):
-        common = [
+        return [
+            "/opt/pandect/whisper-server",
             "--model",
             str(self.model_path),
             "--host",
             "127.0.0.1",
             "--port",
             "8081",
-        ]
-        if self.kind == "text":
-            return [
-                "/opt/pandect/llama-server",
-                *common,
-                "--alias",
-                self.identity["model"],
-                "--ctx-size",
-                str(self.identity["context_tokens"]),
-                "--parallel",
-                "1",
-                "--threads",
-                str(self.threads),
-                "--n-gpu-layers",
-                str(self.gpu_layers),
-                "--no-webui",
-                "--jinja",
-                "--reasoning",
-                "off",
-            ]
-        return [
-            "/opt/pandect/whisper-server",
-            *common,
             "--threads",
             str(self.threads),
             "--processors",
@@ -240,12 +197,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized():
             return
         runtime = self.server.runtime
-        allowed = (
-            {"/apply-template", "/tokenize", "/v1/chat/completions"}
-            if runtime.kind == "text"
-            else {"/inference"}
-        )
-        if self.path not in allowed:
+        if self.path != "/inference":
             self.reply(404, {"error": "unknown_route"})
             return
         if self.headers.get("Transfer-Encoding"):

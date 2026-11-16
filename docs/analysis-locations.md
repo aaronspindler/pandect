@@ -109,7 +109,9 @@ does not offer that service as a generic backend.
 | `PANDECT_GEOCODER_VERSION` | Dataset/version identifier. |
 | `PANDECT_GEOCODER_ATTRIBUTION` | Required attribution/license notice. |
 | `PANDECT_GEOCODER_USER_AGENT` | Application/operator identification accepted by the service. |
-| `PANDECT_GEOCODER_TIMEOUT` | Seconds; default 10, range 1–30. |
+
+Requests have a fixed ten-second timeout. Service identification defaults to
+`Pandect/0.1`; override it when the operator requires different contact details.
 
 Current edit access and explicit external approval are required unless designated
 local. Processing rechecks access immediately before requests and publication.

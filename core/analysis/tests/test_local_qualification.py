@@ -11,14 +11,16 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 
 from core.analysis.errors import AnalysisError
-from core.analysis.tests.test_local_inference import EXECUTION, wav_bytes
+from core.analysis.testing import wav_bytes
+from core.analysis.tests.test_ollama import EXECUTION
 from core.management.commands.evaluate_local_analysis import synthetic_sources
 
 CONFIG = {
     "text": EXECUTION,
-    "transcription": EXECUTION
-    | {
+    "transcription": {
+        "url": "http://private-transcription.test:8080",
         "model": "synthetic-whisper",
+        "sha256": "b" * 64,
         "runtime": "whisper.cpp-synthetic-revision",
     },
     "token": "synthetic-secret",
@@ -146,7 +148,15 @@ class LocalQualificationTests(SimpleTestCase):
             with self.assertRaisesMessage(CommandError, "qualification failures"):
                 call_command("evaluate_local_analysis", stdout=output)
         report = json.loads(output.getvalue())
-        self.assertEqual(len(report["summary"]["failed"]), 5)
+        self.assertEqual(len(report["summary"]["failed"]), 4)
+        topics = report["methods"]["text_topics"]
+        self.assertEqual(topics["status"], "completed")
+        self.assertEqual(topics["output"]["outcome"], "partial")
+        self.assertTrue(topics["output"]["items"])
+        self.assertTrue(
+            all("occurrences" in item["values"] for item in topics["output"]["items"])
+        )
+        self.assertNotIn("Unsupported meaning", str(topics["output"]))
         for name in report["summary"]["failed"]:
             self.assertEqual(
                 report["methods"][name]["error_code"], "citation_validation_rejected"

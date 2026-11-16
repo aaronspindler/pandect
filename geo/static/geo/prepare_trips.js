@@ -14,7 +14,8 @@ for (const form of document.querySelectorAll("[data-prepare-trips][data-auto-pre
         headers: { Accept: "application/json" }, body: new FormData(form),
       });
       if (!response.ok) throw new Error("unavailable");
-      status.textContent = "Trip preparation requested. Refresh to see completed trips, or follow progress in Processing.";
+      status.textContent = "Trip preparation requested. Follow progress in Processing.";
+      document.dispatchEvent(new Event("pandect:refresh"));
     } catch {
       status.textContent = "Trip preparation could not be confirmed. Try Prepare trips again.";
     } finally {

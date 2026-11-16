@@ -230,7 +230,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(
                     page.locator("#processing-history .analysis-history-row")
                 ).to_have_count(3)
-                page.get_by_role("link", name="Refresh progress").press("Enter")
+                page.get_by_role("link", name="Refresh status").press("Enter")
                 self.capture_layouts(page, engine, "processing")
                 self.db(
                     CaseMembership.objects.filter(

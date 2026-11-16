@@ -132,7 +132,11 @@ owns vehicle-location calculations.
 The shared shell follows [DESIGN.md](../DESIGN.md). At wide desktop sizes,
 evidence uses case navigation, a dense record list, and a reading pane. Smaller
 screens use the same canonical list/detail URLs and full-page form workflows.
-JavaScript enhances batching; core record management works without it.
+JavaScript enhances batching and polls authorized Django template fragments for
+active work through `ui/live.py` and `ui/static/ui/live.js`. Existing page URLs
+serve fragments only for safe requests with `X-Pandect-Live: 1`, varying responses
+on that header. No additional service or frontend dependency is required. Core
+record management and manual refresh work without JavaScript.
 
 Product entry points require an active account with a verified allauth email.
 Case authorization is separate from Django staff/model permissions. Current roles
@@ -153,11 +157,13 @@ matching treatment. See [operations](operations.md).
 ## Capability boundaries
 
 Implemented analysis and inputs are listed in [analysis](analysis.md) and
-[vehicle-location imports](vehicle-location-imports.md). Optional private
-text/transcription services have separate resource bounds, pinned native engines,
-and operator-provisioned models on an internal network; setup and qualification
-belong to [local analysis](local-analysis.md). Core management and deterministic
-analysis do not require an external AI service.
+[vehicle-location imports](vehicle-location-imports.md). Optional private text
+processing uses native Ollama with pinned Qwen3.5 model manifests and server
+versions. The optional bundled inference image contains only whisper.cpp for
+transcription, with separate resource bounds and operator-provisioned weights on
+an internal network. Tesseract OCR stays in the isolated file parser. Setup and
+qualification belong to [local analysis](local-analysis.md). Core management and
+deterministic analysis do not require an external AI service.
 
 The [roadmap](evidence-analysis-roadmap.md) owns future analysis priorities.
 Ownership transfer and self-service account deletion remain unimplemented.

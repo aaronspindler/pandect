@@ -2,6 +2,9 @@
 {% block title %}{{ operation_label }} · {{ case.name }}{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ back_to_analysis }}">Back to Processing</a>
+{% include 'ui/components/live_updates.html' %}
+{% partialdef live inline %}
+<div id="analysis-result" data-live-region data-live-poll="{% if run.status == 'queued' or run.status == 'running' %}true{% else %}false{% endif %}">
 <header class="page-header analysis-result-header">
   <div><h1>{{ operation_label }}</h1></div>
   {% if source_unavailable or run.status != 'complete' %}<span class="badge" role="status">{% if source_unavailable %}Result withheld{% else %}{{ run.get_status_display }}{% endif %}</span>{% endif %}
@@ -11,9 +14,8 @@
 <section class="analysis-section">
   <h2>Processing {{ run.progress }}%</h2>
   <progress class="work-progress" value="{{ run.progress }}" max="100" aria-label="Analysis progress">{{ run.progress }}%</progress>
-  <p>Checks run in the background. Refresh to see the latest progress.</p>
+  <p>Checks run in the background. You can leave and return to this result.</p>
   <div class="actions">
-    <a class="button button-secondary" href="">Refresh status</a>
     {% if can_edit %}<form method="post" action="{% url 'core:analysis:cancel' case.pk run.pk %}{{ history_suffix }}">{% csrf_token %}<button class="button button-secondary" type="submit">Cancel processing</button></form>{% endif %}
   </div>
 </section>
@@ -181,4 +183,6 @@
 </form>
 {% endif %}
 </details>
+</div>
+{% endpartialdef %}
 {% endblock %}

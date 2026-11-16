@@ -293,7 +293,7 @@
   padding:.5rem;
 }
 
-.evidence-more-panel>a,.evidence-more-panel>form>button {
+.evidence-more-panel>a,.evidence-more-panel form>button {
   display:flex;
   align-items:center;
   gap:.75rem;
@@ -309,7 +309,7 @@
   text-decoration:none;
 }
 
-.evidence-more-panel>a:hover,.evidence-more-panel>form>button:hover {
+.evidence-more-panel>a:hover,.evidence-more-panel form>button:hover {
   background:var(--background);
 }
 
