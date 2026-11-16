@@ -9,6 +9,7 @@ from pathlib import PurePosixPath
 from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models.deletion import Collector, ProtectedError
 from django.http import StreamingHttpResponse
 
@@ -54,6 +55,7 @@ class DeletionPlan:
     fingerprint: str = ""
     blocker: str = ""
     analysis_count: int = 0
+    affected_vehicle_ids: set = field(default_factory=set)
 
     def revision(self, actor):
         return signing.dumps(self._identity(actor), salt=SALT)
@@ -215,6 +217,21 @@ def plan_deletion(item, kind):
         },
     )
     plan.analysis_count = len(runs)
+    from geo.models import VehicleTripGeneration
+
+    vehicle_roots = roots.get("vehicle-location", [])
+    vehicle_ids = [source.pk for source in vehicle_roots]
+    generations = VehicleTripGeneration.objects.filter(
+        inputs__observation_id__in=vehicle_ids
+    ).distinct()
+    if generations.exclude(case_id=item.case_id).exists():
+        plan.blocker = CASE_CONFLICT
+        return plan
+    plan.affected_vehicle_ids = set(
+        VehicleLocationEvidence.objects.filter(pk__in=vehicle_ids).values_list(
+            "vehicle_id", flat=True
+        )
+    )
     try:
         for objects in roots.values():
             if objects:
@@ -222,6 +239,7 @@ def plan_deletion(item, kind):
         if batches:
             collector.collect(batches, fail_on_restricted=False)
         collector.collect(runs, fail_on_restricted=False)
+        collector.collect(generations, fail_on_restricted=False)
     except ProtectedError:
         plan.blocker = (
             "Related material has a protected relationship. "
@@ -339,6 +357,19 @@ def plan_deletion(item, kind):
         digest.update(b"\n")
     plan.fingerprint = digest.hexdigest()
     return plan
+
+
+@transaction.atomic
+def execute_deletion(plan, actor):
+    """Remove the reviewed inventory and invalidate remaining vehicle history."""
+    if plan.blocker or not actor.is_superuser:
+        raise PermissionDenied
+    case = get_case(actor, plan.item.case_id, lock=True)
+    plan.collector.delete()
+    if plan.affected_vehicle_ids:
+        from geo.trip_processing import invalidate_vehicle_trips
+
+        invalidate_vehicle_trips(actor, case, plan.affected_vehicle_ids)
 
 
 def deletion_review_context(request, plan):

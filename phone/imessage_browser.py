@@ -11,15 +11,15 @@ from core.analysis.services import process_run
 from core.models import AnalysisRun
 from people.models import Person
 from phone.models import TextMessageEvidence
-from phone.tests.test_imazing_views import message_csv
+from phone.tests.test_imessage_views import message_csv
 
 
-class IMazingImportBrowserTests(BrowserTestCase):
-    artifact_subdirectory = "imazing-browser"
+class IMessageImportBrowserTests(BrowserTestCase):
+    artifact_subdirectory = "message-csv-browser"
 
     def setUp(self):
         super().setUp()
-        self.owner = self.make_user("imazing-browser-owner")
+        self.owner = self.make_user("imessage-browser-owner")
         self.case = Case.objects.create(owner=self.owner, name="Synthetic direct chat")
 
     def test_no_javascript_upload_review_people_and_import(self):
@@ -29,8 +29,8 @@ class IMazingImportBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("phone:imazing_upload", case_id=self.case.pk))
-                page.get_by_label("iMazing message CSV", exact=True).set_input_files(
+                page.goto(self.url("phone:imessage_upload", case_id=self.case.pk))
+                page.get_by_label("iMessage CSV", exact=True).set_input_files(
                     {
                         "name": "synthetic-messages.csv",
                         "mimeType": "text/csv",
@@ -163,4 +163,34 @@ class IMazingImportBrowserTests(BrowserTestCase):
                     self.db(TextMessageEvidence.objects.filter(case=self.case).count),
                     2 * (self.engines.index(engine) + 1),
                 )
-                self.capture(page, engine, "imported-mobile")
+                follow = page.get_by_role(
+                    "link", name="Follow message analysis", exact=True
+                )
+                expect(follow).to_be_visible()
+                expect(
+                    page.get_by_role(
+                        "button", name="Run local checks on imported evidence"
+                    )
+                ).to_have_count(0)
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"automatic-analysis-{width}-{height}")
+                follow.focus()
+                expect(follow).to_be_focused()
+                page.keyboard.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("Preparing message analysis", exact=True).first
+                ).to_be_visible()
+                self.capture(page, engine, "automatic-analysis-processing")

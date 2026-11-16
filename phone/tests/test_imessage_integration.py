@@ -19,12 +19,12 @@ from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.analysis.deterministic.imazing import HEADERS
-from phone.imazing_imports import confirm_import
+from phone.analysis.deterministic.imessage import HEADERS
+from phone.imessage_imports import confirm_import
 from phone.models import CommunicationContext, TextMessageEvidence
 
 
-class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
+class IMessagePipelineTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
         stream = io.StringIO(newline="")
@@ -52,7 +52,7 @@ class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
         self.preview, _ = start_run(
             self.users["editor"],
             self.case.pk,
-            "imazing_import",
+            "imessage_import",
             [{"kind": "document", "id": str(self.document.pk)}],
             parameters={"phase": "preview", "timezone": "America/Toronto"},
         )
@@ -88,7 +88,7 @@ class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
         retry, _ = start_run(
             self.users["editor"],
             self.case.pk,
-            "imazing_import",
+            "imessage_import",
             [{"kind": "document", "id": str(self.document.pk)}],
             parameters=final.parameters,
             previous_run=final,
@@ -121,7 +121,7 @@ class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
         repeated, _ = start_run(
             self.users["editor"],
             self.case.pk,
-            "imazing_import",
+            "imessage_import",
             [{"kind": "document", "id": str(self.document.pk)}],
             parameters=final.parameters,
             previous_run=final,
@@ -156,7 +156,7 @@ class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
         preview, _ = start_run(
             self.users["editor"],
             self.case.pk,
-            "imazing_import",
+            "imessage_import",
             [{"kind": "document", "id": str(document.pk)}],
             parameters={"phase": "preview", "timezone": "America/Toronto"},
         )
@@ -176,7 +176,7 @@ class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
         legacy = AnalysisRun.objects.create(
             case=self.case,
             requested_by=self.users["editor"],
-            operation="imazing_import",
+            operation="imessage_import",
             method_version="1",
             parameters=final.parameters,
             inputs=final.inputs,
@@ -213,17 +213,15 @@ class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
     ):
         self.login("editor")
         detail = reverse("core:analysis:detail", args=[self.case.pk, self.preview.pk])
-        review = reverse("phone:imazing_review", args=[self.case.pk, self.preview.pk])
+        review = reverse("phone:imessage_review", args=[self.case.pk, self.preview.pk])
         self.assertRedirects(self.client.get(detail), review)
         self.assertContains(self.client.get(detail + "?processing=1"), "Synthetic CSV")
         processing = reverse("core:analysis:processing", args=[self.case.pk])
-        self.assertContains(
-            self.client.get(processing), "Prepare iMazing message review"
-        )
+        self.assertContains(self.client.get(processing), "Prepare message review")
         source = reverse(
             "core:evidence:detail", args=[self.case.pk, "document", self.document.pk]
         )
-        link = reverse("phone:imazing_upload", args=[self.case.pk])
+        link = reverse("phone:imessage_upload", args=[self.case.pk])
         self.assertContains(self.client.get(source), link + "?document=")
         self.login("viewer")
         self.assertNotContains(self.client.get(source), link + "?document=")
@@ -235,7 +233,7 @@ class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
         self.login("editor")
         url = reverse("core:analysis:create", args=[self.case.pk])
         before = AnalysisRun.objects.count()
-        response = self.client.get(url + "?operation=imazing_import")
+        response = self.client.get(url + "?operation=imessage_import")
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'name="operation" value="imazing_import"')
+        self.assertNotContains(response, 'name="operation" value="imessage_import"')
         self.assertEqual(AnalysisRun.objects.count(), before)

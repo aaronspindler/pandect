@@ -23,7 +23,7 @@ def start_preview(actor, case_id, values):
             metadata = file_integrity(DocumentEvidence(file=original).file)
             title = (
                 values.get("title")
-                or f"iMazing messages: {metadata['original_filename']}"[:255]
+                or f"Messages: {metadata['original_filename']}"[:255]
             )
             document = DocumentEvidence.objects.filter(
                 submission_id=values["submission_id"]
@@ -57,16 +57,16 @@ def start_preview(actor, case_id, values):
         return start_run(
             actor,
             case.pk,
-            "imazing_import",
+            "imessage_import",
             [{"kind": "document", "id": str(document.pk)}],
             parameters={"phase": "preview", "timezone": values["timezone"]},
-            submission_id=uuid5(values["submission_id"], "imazing-preview"),
+            submission_id=uuid5(values["submission_id"], "imessage-preview"),
         )
 
 
 def preview_source(preview, case):
     if (
-        preview.operation != "imazing_import"
+        preview.operation != "imessage_import"
         or preview.parameters.get("phase") != "preview"
     ):
         raise Http404("Message import not found.")
@@ -86,7 +86,7 @@ def confirm_import(actor, case_id, preview_id, people):
             .get(
                 pk=preview_id,
                 case=case,
-                operation="imazing_import",
+                operation="imessage_import",
                 method_version="2",
                 parameters__phase="preview",
                 status__in=("complete", "partial"),
@@ -103,7 +103,7 @@ def confirm_import(actor, case_id, preview_id, people):
     return start_run(
         actor,
         case.pk,
-        "imazing_import",
+        "imessage_import",
         [{"kind": "document", "id": str(document.pk)}],
         parameters={
             "phase": "import",

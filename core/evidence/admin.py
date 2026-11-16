@@ -13,6 +13,7 @@ from core.evidence.deletion import (
     CHANGED,
     deletion_manifest_response,
     deletion_review_context,
+    execute_deletion,
     get_deletion_target,
     plan_deletion,
 )
@@ -241,7 +242,7 @@ class EvidenceAdmin(CaseScopedAdmin):
         return super().delete_view(request, object_id, extra_context)
 
     def delete_model(self, request, obj):
-        request.evidence_deletion_plan.collector.delete()
+        execute_deletion(request.evidence_deletion_plan, request.user)
 
     def save_model(self, request, obj, form, change):
         if not change:

@@ -33,6 +33,7 @@ from core.evidence.deletion import (
     CHANGED,
     deletion_manifest_response,
     deletion_review_context,
+    execute_deletion,
     get_deletion_target,
     plan_deletion,
 )
@@ -134,7 +135,10 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
             "can_delete_evidence": request.user.is_superuser,
             "info_open": request.GET.get("info") == "1"
             or request.GET.get("section") == "details"
-            or "results_page" in request.GET,
+            or any(
+                key in request.GET
+                for key in ("results_page", "thread_page", "reply_page")
+            ),
         }
     )
     context.update(
@@ -147,9 +151,29 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
         )
     )
     if kind in COMMUNICATION_KINDS:
+        from phone.conversations import conversation_list_page
         from phone.presentation import reader_context
 
-        context.update(reader_context(case, kind, item))
+        conversation_source = None
+        if kind == "text-message" and request.GET.get("conversation_source"):
+            try:
+                conversation_source = UUID(request.GET["conversation_source"])
+            except ValueError:
+                raise Http404("Export not found.") from None
+            conversation_source = get_evidence(case, "document", conversation_source).pk
+        context.update(
+            reader_context(
+                case,
+                kind,
+                item,
+                conversation_source=conversation_source,
+                conversation_list_page=conversation_list_page(
+                    request.GET.get("conversation_list_page")
+                ),
+                native_thread_page=request.GET.get("thread_page"),
+                native_reply_page=request.GET.get("reply_page"),
+            )
+        )
     if kind == "document":
         context["vehicle_import"] = VehicleLocationImport.objects.filter(
             case=case, document=item
@@ -197,6 +221,9 @@ def _duplicate_review(request, case, kind, item):
     return {
         "matches": matches[:10],
         "has_more": len(matches) > 10,
+        "all_matches_url": reverse("core:evidence:list", args=(case.pk,))
+        + "?state=all&checksum="
+        + item.sha256,
         "confirmation": signing.dumps(identity, salt="core.evidence.duplicate"),
     }
 
@@ -312,6 +339,12 @@ def create(request, case_id):
                         status = 409
                     else:
                         item = form.save()
+                        if kind == "vehicle-location":
+                            from geo.trip_processing import invalidate_vehicle_trips
+
+                            invalidate_vehicle_trips(
+                                request.user, case, [item.vehicle_id]
+                            )
                         original = getattr(item, "file", None)
                         if original:
                             originals.append(original)
@@ -556,6 +589,10 @@ def _set_archive(request, case_id, kind, evidence_id, archived):
                     "archive_changed_by",
                 ]
             )
+            if kind == "vehicle-location":
+                from geo.trip_processing import invalidate_vehicle_trips
+
+                invalidate_vehicle_trips(request.user, case, [item.vehicle_id])
     messages.success(
         request,
         "Evidence archived. Its original is retained."
@@ -594,7 +631,7 @@ def delete(request, case_id, kind, evidence_id):
                 status = 409
             else:
                 LogEntry.objects.log_actions(request.user.pk, [item], DELETION)
-                plan.collector.delete()
+                execute_deletion(plan, request.user)
                 messages.success(request, "Evidence deleted.")
                 return redirect(
                     reverse("core:evidence:list", kwargs={"case_id": case.pk})

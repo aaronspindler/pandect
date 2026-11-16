@@ -1,8 +1,11 @@
 """Readable measurements and source examples; full technical data stays retained."""
 
+import hashlib
 import json
 import re
+from urllib.parse import urlencode
 
+from django.core.paginator import Paginator
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_aware
 
@@ -85,7 +88,7 @@ def label(value):
     return value[:1].upper() + value[1:]
 
 
-def measurement_formatter(data, *, case, sources=()):
+def measurement_formatter(data, *, case, sources=(), query=None):
     source_map = {str(source.id): source for source in sources}
     ids = list(dict.fromkeys(UUID.findall(json.dumps(data, default=str))))[:2000]
     names = {}
@@ -107,9 +110,47 @@ def measurement_formatter(data, *, case, sources=()):
         return names.get(str(value), str(value)) if reference else str(value)
 
     def render(values, *, duplicate_text=""):
-        def rows(mapping, depth=0, reference_keys=False, reference_values=False):
+        root = hashlib.sha256(
+            json.dumps(values, default=str, sort_keys=True).encode()
+        ).hexdigest()[:12]
+
+        def value_page(collection, path):
+            key = (
+                "values_"
+                + root
+                + "_"
+                + hashlib.sha256(str(path).encode()).hexdigest()[:8]
+            )
+            page = Paginator(collection, 200).get_page((query or {}).get(key))
+            links = {"page": page, "anchor": key}
+            for name, number in (
+                (
+                    "previous",
+                    page.previous_page_number() if page.has_previous() else None,
+                ),
+                ("next", page.next_page_number() if page.has_next() else None),
+            ):
+                if number is not None:
+                    params = query.copy() if query is not None else {}
+                    params[key] = number
+                    links[name] = (
+                        "?"
+                        + (
+                            params.urlencode()
+                            if hasattr(params, "urlencode")
+                            else urlencode(params)
+                        )
+                        + "#"
+                        + key
+                    )
+            return page, links
+
+        def rows(
+            mapping, depth=0, reference_keys=False, reference_values=False, path=()
+        ):
             result = []
-            for key, value in list(mapping.items())[:200]:
+            mapping_page, mapping_links = value_page(list(mapping.items()), path)
+            for key, value in mapping_page:
                 normalized = str(key).lower().replace(" ", "_")
                 if normalized in INTERNAL or str(key).lower() in TECHNICAL:
                     continue
@@ -151,17 +192,23 @@ def measurement_formatter(data, *, case, sources=()):
                             "exclusions",
                         },
                         reference_values=normalized in {"sender_map", "recipient_map"},
+                        path=(*path, key),
                     )
                 elif isinstance(value, list):
+                    entries, links = value_page(value, (*path, key))
+                    if entries.has_other_pages():
+                        row["pagination"] = links
                     if not value:
                         row["text"] = "None observed"
                     elif all(not isinstance(entry, (dict, list)) for entry in value):
                         row["text"] = ", ".join(
-                            scalar(entry, reference=reference) for entry in value[:200]
+                            scalar(entry, reference=reference) for entry in entries
                         )
                     else:
                         row["examples"] = []
-                        for entry in value[:200]:
+                        for index, entry in enumerate(
+                            entries, start=entries.start_index()
+                        ):
                             if not isinstance(entry, dict):
                                 row["examples"].append({"text": scalar(entry)})
                                 continue
@@ -175,6 +222,7 @@ def measurement_formatter(data, *, case, sources=()):
                                         if k not in {"excerpt", "text", "start", "end"}
                                     },
                                     depth + 1,
+                                    path=(*path, key, index),
                                 ),
                             }
                             if source:
@@ -187,21 +235,17 @@ def measurement_formatter(data, *, case, sources=()):
                                         f"Characters {entry['start']}–{entry['end']}"
                                     )
                             row["examples"].append(example)
-                    if len(value) > 200:
-                        row["note"] = (
-                            "First 200 values shown; the download retains all values."
-                        )
                 else:
                     row["text"] = scalar(value, reference=reference)
                     row["timestamp"] = measurement_timestamp(normalized, value)
                 if row.get("children") == []:
                     row["text"] = "No additional recorded values"
                 result.append(row)
-            if len(mapping) > 200:
+            if mapping_page.has_other_pages():
                 result.append(
                     {
-                        "label": "Further values",
-                        "text": "The download retains all remaining values.",
+                        "label": "Value pages",
+                        "pagination": mapping_links,
                     }
                 )
             return result

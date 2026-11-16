@@ -1,216 +1,220 @@
-"""Bounded possible trips from current, case-scoped vehicle observations."""
+"""Deterministic full-history trip segmentation and saved report entry point."""
 
-from collections import defaultdict
-from itertools import pairwise
+from datetime import datetime
+from decimal import Decimal
 
-from django.db.models import F
-from django.urls import reverse
+from django.db.models import Count, Max
 
-from core.analysis.reporting import _base_metrics, _instant, _period, _state, _url
-from core.evidence.queries import scoped_evidence
 from geo.analysis.deterministic.locations import distance_m, normalize_address
+from geo.trip_models import VehicleTrip, VehicleTripSource
 
-GAP_SECONDS = 60 * 60
-STOP_SECONDS = 5 * 60
+CHUNK_SIZE = 500
+GAP_SECONDS = 3600
+STOP_SECONDS = 300
 STOP_RADIUS_M = 100
 
 
-def _same_place(first, second):
-    if first.latitude is not None and second.latitude is not None:
+def _snapshot(item):
+    return {
+        "id": str(item.pk),
+        "title": item.title,
+        "address": item.address,
+        "normalized_address": normalize_address(item.address)["comparison_key"],
+        "latitude": str(item.latitude) if item.latitude is not None else None,
+        "longitude": str(item.longitude) if item.longitude is not None else None,
+        "observed_at": item.observed_at.isoformat() if item.observed_at else None,
+        "speed_kmh": str(item.speed_kmh) if item.speed_kmh is not None else None,
+        "is_archived": item.is_archived,
+        "source_row": item.source_row,
+        "import_id": str(item.import_batch_id) if item.import_batch_id else None,
+    }
+
+
+def _time(source):
+    return datetime.fromisoformat(source["observed_at"])
+
+
+def _same(first, second):
+    if first["latitude"] is not None and second["latitude"] is not None:
         return (
             distance_m(
-                (first.latitude, first.longitude), (second.latitude, second.longitude)
+                (first["latitude"], first["longitude"]),
+                (second["latitude"], second["longitude"]),
             )
             <= STOP_RADIUS_M
         )
-    first_address = normalize_address(first.address)["comparison_key"]
-    second_address = normalize_address(second.address)["comparison_key"]
-    if first_address and second_address:
-        return first_address == second_address
+    if first["normalized_address"] and second["normalized_address"]:
+        return first["normalized_address"] == second["normalized_address"]
     return None
 
 
-def _segments(block):
-    """Stops delimit candidates; unchanged or incomparable positions do not."""
-    stationary = []
-    for index, item in enumerate(block):
-        if stationary and _same_place(block[stationary[-1][0]], item) is True:
-            stationary[-1].append(index)
+def _positive(source):
+    return source["speed_kmh"] is not None and Decimal(source["speed_kmh"]) > 0
+
+
+class Segmenter:
+    """Carry a few boundary samples while ordered memberships remain in PostgreSQL."""
+
+    def __init__(self, generation):
+        self.generation = generation
+        self.pending = []
+
+    def flush(self):
+        if self.pending:
+            VehicleTripSource.objects.bulk_create(self.pending, batch_size=CHUNK_SIZE)
+            self.pending = []
+
+    def create(self, name, entry, source, *, kind="trip"):
+        ordinal = entry.get("next_ordinal", 1)
+        entry["next_ordinal"] = ordinal + 1
+        return VehicleTrip.objects.create(
+            case_id=self.generation.case_id,
+            vehicle_id=self.generation.vehicle_id,
+            generation=self.generation,
+            evidence_state=name,
+            kind=kind,
+            ordinal=ordinal,
+            start_at=_time(source),
+            end_at=_time(source),
+        )
+
+    def append(self, trip_id, source, seconds=0):
+        self.pending.append(
+            VehicleTripSource(
+                case_id=self.generation.case_id,
+                trip_id=trip_id,
+                input_id=source["input_id"],
+                ordinal=source["ordinal"],
+                gap_seconds=seconds,
+            )
+        )
+
+    def candidate(self, name, entry, source):
+        trip = self.create(name, entry, source)
+        entry.update(trip_id=str(trip.pk), origin=source, first_movement=None)
+        self.append(trip.pk, source)
+
+    def finish(self, name, entry, end):
+        trip_id = entry.get("trip_id")
+        if not trip_id:
+            return
+        self.flush()
+        origin = entry["origin"]
+        moved = entry.get("first_movement")
+        trip = VehicleTrip.objects.get(pk=trip_id)
+        if moved is None or moved > end["ordinal"] or _time(end) <= _time(origin):
+            trip.delete()
         else:
-            stationary.append([index])
-    start = 0
-    for indexes in stationary:
-        members = [block[index] for index in indexes]
-        span = (members[-1].observed_at - members[0].observed_at).total_seconds()
-        if span < STOP_SECONDS or any(
-            item.speed_kmh is not None and item.speed_kmh > 0 for item in members
-        ):
-            continue
-        candidate = block[start : indexes[0] + 1]
-        if any(_same_place(candidate[0], item) is False for item in candidate):
-            yield candidate
-        start = indexes[-1]
-    candidate = block[start:]
-    if any(_same_place(candidate[0], item) is False for item in candidate):
-        yield candidate
+            trip.sources.filter(ordinal__gt=end["ordinal"]).delete()
+            totals = trip.sources.aggregate(
+                count=Count("pk"), largest=Max("gap_seconds")
+            )
+            trip.end_at = _time(end)
+            trip.source_count = totals["count"]
+            trip.largest_gap_seconds = totals["largest"] or 0
+            trip.basis = (
+                "Reported addresses and available coordinates"
+                if trip.sources.filter(input__snapshot__latitude=None).exists()
+                else "Reported coordinates"
+            )
+            trip.save(
+                update_fields=("end_at", "source_count", "largest_gap_seconds", "basis")
+            )
+            self.generation.metrics[name]["trips"] += 1
+        entry["trip_id"] = None
 
-
-def _place(item):
-    if item.address:
-        return item.address
-    return f"{item.latitude}, {item.longitude}"
-
-
-def _source(case, item):
-    return {
-        "label": item.title,
-        "place": _place(item),
-        "time": item.observed_at,
-        "url": _url(case, "vehicle-location", item),
-        "row": item.source_row,
-        "import_url": reverse(
-            "geo:vehicle_import_review",
-            kwargs={"case_id": case.pk, "import_id": item.import_batch_id},
+    def reset(self, name, entry, source):
+        entry.update(
+            previous=source,
+            anchor=source,
+            run_start=source,
+            run_positive=_positive(source),
         )
-        if item.import_batch_id
-        else "",
-    }
+        self.candidate(name, entry, source)
 
+    def stopped(self, entry):
+        return (
+            not entry["run_positive"]
+            and (_time(entry["previous"]) - _time(entry["run_start"])).total_seconds()
+            >= STOP_SECONDS
+        )
 
-def vehicle_trip_report(case, state, vehicle_id, start, end, limit):
-    queryset = _state(scoped_evidence(case, "vehicle-location"), state)
-    if vehicle_id:
-        queryset = queryset.filter(vehicle_id=vehicle_id)
-    missing_times = queryset.filter(observed_at__isnull=True).count()
-    queryset = _period(queryset, "observed_at", start, end)
-    available = queryset.count()
-    records = list(
-        queryset.select_related("vehicle").order_by(
-            F("observed_at").desc(nulls_last=True), "pk"
-        )[:limit]
-    )
-    records.sort(
-        key=lambda item: (
-            item.observed_at is None,
-            _instant(item.observed_at),
-            str(item.pk),
+    def finish_block(self, name, entry):
+        self.finish(
+            name,
+            entry,
+            entry["run_start"] if self.stopped(entry) else entry["previous"],
         )
-    )
-    metrics = _base_metrics(
-        [("vehicle-location", item) for item in records],
-        available,
-        state,
-        start,
-        end,
-        "Reported observation time",
-    )
-    warnings = []
-    if available > len(records):
-        warnings.append(
-            f"Only the latest {len(records)} of {available} matching observations "
-            "are included. Choose a vehicle or date range to inspect more trips."
+
+    def gap(self, name, entry, first, last, seconds):
+        trip = self.create(name, entry, first, kind="gap")
+        trip.end_at = _time(last)
+        trip.source_count = 2
+        trip.largest_gap_seconds = seconds
+        trip.basis = "Reported observation times"
+        trip.save(
+            update_fields=("end_at", "source_count", "largest_gap_seconds", "basis")
         )
-    if missing_times:
-        warnings.append(
-            f"{missing_times} observations without a recorded time cannot form trips."
-        )
-    tracks = defaultdict(list)
-    for item in records:
-        if item.observed_at is not None:
-            tracks[item.vehicle_id].append(item)
-    items, gaps = [], []
-    conflicts = 0
-    incomparable = 0
-    for track in tracks.values():
-        blocks = []
-        for item in track:
-            if not blocks:
-                blocks.append([item])
-                continue
-            previous = blocks[-1][-1]
-            seconds = (item.observed_at - previous.observed_at).total_seconds()
-            same = _same_place(previous, item)
+        self.append(trip.pk, first)
+        self.append(trip.pk, last, seconds)
+        self.generation.metrics[name]["gaps"] += 1
+
+    def process(self, name, source):
+        metrics = self.generation.metrics[name]
+        metrics["observations"] += 1
+        if source["observed_at"] is None:
+            metrics["missing_times"] += 1
+            return
+        entry = self.generation.carry.setdefault(name, {})
+        previous = entry.get("previous")
+        if previous is None:
+            self.reset(name, entry, source)
+            return
+        seconds = (_time(source) - _time(previous)).total_seconds()
+        same = _same(previous, source)
+        if seconds > GAP_SECONDS or same is None or (seconds == 0 and same is False):
+            self.finish_block(name, entry)
             if seconds > GAP_SECONDS:
-                gaps.append(
-                    {
-                        "vehicle": str(item.vehicle),
-                        "start": _source(case, previous),
-                        "end": _source(case, item),
-                        "minutes": round(seconds / 60, 1),
-                    }
-                )
-                blocks.append([item])
-            elif same is None or (seconds == 0 and same is False):
-                conflicts += seconds == 0 and same is False
-                incomparable += same is None
-                blocks.append([item])
+                self.gap(name, entry, previous, source, seconds)
             else:
-                blocks[-1].append(item)
-        for block in blocks:
-            for members in _segments(block):
-                first, last = members[0], members[-1]
-                seconds = (last.observed_at - first.observed_at).total_seconds()
-                if seconds <= 0:
-                    continue
-                sources = [_source(case, item) for item in members]
-                coordinate_based = all(item.latitude is not None for item in members)
-                items.append(
-                    {
-                        "label": "Possible trip",
-                        "text": "Movement suggested by the selected observations.",
-                        "url": sources[0]["url"],
-                        "vehicle": str(first.vehicle),
-                        "vehicle_url": reverse(
-                            "vehicle:detail",
-                            kwargs={"case_id": case.pk, "vehicle_id": first.vehicle_id},
-                        ),
-                        "start": sources[0],
-                        "end": sources[-1],
-                        "minutes": round(seconds / 60, 1),
-                        "basis": "Reported coordinates"
-                        if coordinate_based
-                        else "Reported addresses and available coordinates",
-                        "sources": sources,
-                        "related": sources,
-                        "values": {
-                            "Vehicle": str(first.vehicle),
-                            "First observed (UTC)": _instant(first.observed_at),
-                            "Last observed (UTC)": _instant(last.observed_at),
-                            "Elapsed minutes": round(seconds / 60, 1),
-                            "Observations": len(members),
-                            "Largest sampling interval (minutes)": round(
-                                max(
-                                    (b.observed_at - a.observed_at).total_seconds()
-                                    for a, b in pairwise(members)
-                                )
-                                / 60,
-                                1,
-                            ),
-                        },
-                    }
-                )
-    items.sort(key=lambda item: item["start"]["time"], reverse=True)
-    gaps.sort(key=lambda gap: gap["start"]["time"], reverse=True)
-    if conflicts:
-        warnings.append(f"{conflicts} conflicting same-time positions split trips.")
-    if incomparable:
-        warnings.append(
-            f"{incomparable} position changes cannot be compared and split trips."
-        )
-    metrics |= {
-        "Possible trips": len(items),
-        "Coverage gaps": len(gaps),
-        "Vehicles in selection": len(tracks),
-        "Missing observation time": missing_times,
-    }
-    return {
-        "summary": f"{len(items)} possible trip{'s' if len(items) != 1 else ''}",
-        "items": items,
-        "gaps": gaps,
-        "metrics": metrics,
-        "warnings": warnings,
-        "coverage": (
-            f"Based on {len(records)} of {available} matching observations. "
-            "Times reflect reported observations."
-        ),
-    }
+                metrics["incomparable"] += same is None
+                metrics["conflicts"] += seconds == 0 and same is False
+            self.reset(name, entry, source)
+            return
+        same_run = _same(entry["anchor"], source) is True
+        if not same_run and self.stopped(entry):
+            self.finish(name, entry, entry["run_start"])
+            self.candidate(name, entry, previous)
+        self.append(entry["trip_id"], source, seconds)
+        if entry["first_movement"] is None and _same(entry["origin"], source) is False:
+            entry["first_movement"] = source["ordinal"]
+        if same_run:
+            entry["run_positive"] |= _positive(source)
+        else:
+            entry.update(
+                anchor=source, run_start=source, run_positive=_positive(source)
+            )
+        entry["previous"] = source
+
+    def complete(self):
+        for name, entry in self.generation.carry.items():
+            if entry.get("previous"):
+                self.finish_block(name, entry)
+        self.flush()
+        self.generation.carry = {}
+
+
+def vehicle_trip_report(case, state, vehicle_id, start, end, limit, page=1, gap_page=1):
+    """Page complete saved trips; observation history is never sliced here."""
+    from geo.trip_reports import saved_trip_report
+
+    return saved_trip_report(
+        case,
+        state=state,
+        vehicle_id=vehicle_id,
+        start=start,
+        end=end,
+        page=page,
+        page_size=min(limit, 25),
+        gap_page=gap_page,
+    )

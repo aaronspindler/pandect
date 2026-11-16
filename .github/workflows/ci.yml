@@ -52,6 +52,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install uv and the pinned Python runtime
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -142,7 +143,7 @@ jobs:
         run: make security-check
 
   images:
-    name: Publish production ${{ matrix.service }} image
+    name: Publish production image
     needs: [check, browser, security]
     if: >-
       github.repository == 'aaronspindler/pandect' &&
@@ -153,9 +154,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        service: [web, worker]
     steps:
       - name: Check out the tested source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,17 +171,17 @@ jobs:
           password: ${{ github.token }}
 
       - name: Build and push the production image
-        env:
-          SERVICE: ${{ matrix.service }}
         shell: bash
         run: |
           set -euo pipefail
-          image="ghcr.io/${GITHUB_REPOSITORY,,}-${SERVICE}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
           docker buildx build --push --platform linux/amd64 \
-            --target "$SERVICE" --build-arg "APP_COMMIT_SHA=${GITHUB_SHA}" \
+            --build-arg "APP_COMMIT_SHA=${GITHUB_SHA}" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --tag "${image}:${GITHUB_SHA}" --tag "${image}:build-${GITHUB_RUN_ID}" \
             --metadata-file /tmp/pandect-image-metadata.json .
           digest="$(python3 -c 'import json; print(json.load(open("/tmp/pandect-image-metadata.json"))["containerimage.digest"])')"
+          # Backticks in the build summary are literal Markdown.
+          # shellcheck disable=SC2016
           printf 'Published `%s@%s` for `%s`.\n' "$image" "$digest" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

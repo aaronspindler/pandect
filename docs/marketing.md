@@ -1,73 +1,65 @@
 # Public marketing pages
 
-Pandect's public pages explain the self-hostable investigation workspace, show
-what investigators can use today, and distinguish optional configured analysis
-from planned work. They are served by the existing Django application, with no
-separate frontend build or marketing service. The
-[reusable copy kit](marketing-copy.md) supplies project descriptions and
-announcement copy with the same availability boundaries.
+The Django application serves public pages about current capabilities, optional
+configured analysis, and planned work, without a separate frontend build or
+service. The [copy kit](marketing-copy.md) supplies reusable descriptions and
+announcements with the same availability boundaries.
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Plain-language introduction, fictional workspace, current capabilities, and planned-work signposting. |
-| `/product/` | Available evidence, findings, exact connections, chronology, shared briefs, collaboration, map and import workflows; analysis examples at `#analysis`; separately configured services. |
-| `/trust/` | Case access, original preservation, analysis approval, and map tile privacy. |
-| `/roadmap/` | Available capabilities, planned work, and exploratory ideas without a release schedule. |
+| `/` | Introduction, fictional workspace, core workflow, and self-hosting next step. |
+| `/product/` | Current capabilities, fictional examples at `#analysis`, configured services, and input limits. |
+| `/trust/` | Case access, originals, analysis approval, and map tile privacy. |
+| `/roadmap/` | Available capabilities, planned work, and exploration without release dates. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
 
-Anonymous visitors can read every page. Signed-in visitors opening `/` retain
-the shortcut to **All cases**; the other public pages show **Open workspace**.
-The existing sign-in and email-verification checks still protect case material.
-Public pages never query or display an investigator's cases or evidence.
-Illustrations use a labelled fictional case. Examples show source links and
-candidate-finding limits; configuration-dependent analysis is identified beside
-the claim. Trust includes [external tile-provider privacy](maps.md#external-tiles-and-privacy).
+All pages are public. Signed-in `/` visitors go to **All cases**; other public
+pages offer **Open workspace**. Authentication and email verification protect
+case material, which public pages never query or display. Illustrations use
+labelled fictional cases; examples retain source links, candidate-finding limits,
+and configuration requirements. Trust explains [tile-provider privacy](maps.md#external-tiles-and-privacy).
 
-The pages use `marketing/templates/marketing/` and `marketing/static/marketing/marketing.css`, sharing
-the approved brand artwork. Navigation and calls to action are ordinary links
-and work without JavaScript. Responsive layouts, dark appearance, keyboard
-focus, a skip link, and forced-colors brand text follow [the design
-standard](../DESIGN.md).
+Templates live in `marketing/templates/marketing/`; styling is
+`marketing/static/marketing/marketing.css`. The editorial layout shares the
+approved brand and [design standard](../DESIGN.md): prominent headings, readable
+text, fine dividers, responsive/dark/forced-color layouts, keyboard focus, and a
+skip link. Introductions lead to useful actions; separate pages own product,
+trust, and planning details. Format limits and hosting questions use native
+disclosures. Navigation and actions work without JavaScript.
 
 ## Content boundaries
 
-The hosted service is described as planned. These pages do not establish a
-launch date, pricing, a signup waitlist, payment handling, support commitments,
-security certification, or availability guarantees. Existing account routes
-belong to the running installation; they are not a hosted-service purchase flow.
-Publishing these source changes does not configure DNS or deploy openpandect.com.
+Hosted service is **Planned**: no launch date, pricing, waitlist, payment flow,
+support commitment, certification, or availability guarantee is established.
+Account routes access this installation; source publication does not deploy or
+configure DNS for openpandect.com. Hosting copy does not replace live operator
+configuration or legal policies.
 
 Use **Available**, **Requires configuration**, **Planned**, and **Exploring**
-consistently. Keep product claims aligned with implemented behavior documented in
-[cases](cases.md), [evidence](evidence.md), [analysis](analysis.md), and
-[maps](maps.md). Search means search within a case. Native PDF text extraction,
-printed-English JPEG/PNG recognition, and the supported WAV and import profiles
-have specific coverage limits; avoid implying support for every uploaded format.
+consistently. Verify claims against [cases](cases.md), [evidence](evidence.md),
+[analysis](analysis.md), and [maps](maps.md). Search is within a case. State the
+bounded native PDF, printed-English JPEG/PNG, WAV, and import profiles rather
+than implying every upload format is supported.
 
-The public roadmap summarizes the [proposed priorities](evidence-analysis-roadmap.md).
-Use that guide for future scope and the [current analysis guide](analysis.md) for
-implemented behavior. Review the public pages and copy kit when capabilities ship
-or priorities change.
+The public roadmap summarizes [proposed priorities](evidence-analysis-roadmap.md);
+[analysis](analysis.md) owns implemented methods. Review public pages and the
+copy kit when capabilities or priorities change.
 
-Possible trips, plate readings, exact identifier matches, and model suggestions
-stay distinguishable from verified facts. Chronology displays recorded times,
-with uncertain extracted dates kept separate. Shared briefs preserve exact source
-versions and review decisions. Original preservation and checksums describe
-integrity, not truth.
-Hosting copy does not replace operator configuration or legal policies for a live
-service.
+Keep possible trips, plate candidates, identifier matches, and model suggestions
+distinct from verified facts. Chronology shows recorded times separately from
+uncertain extracted dates; briefs preserve source versions and reviews. Originals
+and checksums establish integrity, not truth.
 
 ## Validation
 
-Use the development PostgreSQL setup from [local development](development.md).
-Run the tests sequentially so they do not compete for the same test database:
+Use [development PostgreSQL](development.md) and run sequentially to avoid test
+database contention:
 
 ```sh
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.tests.test_views config.tests.test_product_access --noinput
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings marketing.browser --noinput
 ```
 
-Use [browser validation](validation.md#browser-checks) for engine installation,
-artifact locations, overrides, and limits. The marketing suite exercises the
-public pages without JavaScript. Review its synthetic captures against
-[DESIGN.md](../DESIGN.md#completion-and-design-review).
+[Browser validation](validation.md#browser-checks) owns engine installation,
+artifacts, overrides, and limits. The marketing suite runs without JavaScript;
+review synthetic captures against [DESIGN.md](../DESIGN.md#completion-and-design-review).

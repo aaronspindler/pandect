@@ -3,9 +3,10 @@
 set -eu
 project="pandect-smoke-$(date +%s)-$$"
 smoke_env=$(mktemp)
+smoke_override=$(mktemp)
 smoke_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 compose() {
-    docker compose --file "$smoke_root/compose.yaml" --project-directory "$smoke_root" --project-name "$project" --env-file "$smoke_env" "$@"
+    docker compose --file "$smoke_root/compose.yaml" --file "$smoke_override" --project-directory "$smoke_root" --project-name "$project" --env-file "$smoke_env" "$@"
 }
 cleanup() {
     result=$?
@@ -13,10 +14,16 @@ cleanup() {
         compose logs --no-color --tail 100 || true
     fi
     compose down --volumes --remove-orphans || true
-    rm -f "$smoke_env"
+    rm -f "$smoke_env" "$smoke_override"
 }
 trap cleanup EXIT
 trap 'exit 1' INT TERM
+# Exercise the production worker command from the same image as the web service.
+cat > "$smoke_override" <<'YAML'
+services:
+  worker:
+    command: ["sh", "/app/scripts/docker-entrypoint-worker.sh"]
+YAML
 cat > "$smoke_env" <<'ENV'
 DJANGO_DEBUG=true
 DJANGO_SECRET_KEY=synthetic-compose-smoke-secret-not-for-deployment
@@ -47,6 +54,9 @@ for key, volume in config["volumes"].items():
 print("Verified synthetic project and scoped disposable volumes:", project)
 '
 compose up --build --wait --wait-timeout 180
+web_image=$(docker inspect --format '{{.Image}}' "$(compose ps -q web)")
+worker_image=$(docker inspect --format '{{.Image}}' "$(compose ps -q worker)")
+test "$web_image" = "$worker_image"
 compose exec -T web python manage.py migrate --check
 compose exec -T web python manage.py check_task_worker --timeout 30
 compose exec -T web python manage.py shell <<'PY'

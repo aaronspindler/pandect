@@ -1,15 +1,23 @@
 from django.urls import path
 
 from audio.views import play_attachment
-from phone import imazing_views, views
+from phone import conversation_views, imessage_views, views
 
 app_name = "phone"
 urlpatterns = [
-    path("imazing/new/", imazing_views.imazing_upload, name="imazing_upload"),
     path(
-        "imazing/<uuid:run_id>/",
-        imazing_views.imazing_review,
-        name="imazing_review",
+        "conversations/", conversation_views.conversation_list, name="conversation_list"
+    ),
+    path(
+        "conversations/<uuid:first_person_id>/<uuid:second_person_id>/",
+        conversation_views.conversation_detail,
+        name="conversation_detail",
+    ),
+    path("imessage/new/", imessage_views.imessage_upload, name="imessage_upload"),
+    path(
+        "imessage/<uuid:run_id>/",
+        imessage_views.imessage_review,
+        name="imessage_review",
     ),
     path(
         "<str:kind>/<uuid:evidence_id>/attachments/<uuid:attachment_id>/play/",

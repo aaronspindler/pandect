@@ -35,3 +35,10 @@ class VehicleLocationEvidenceAdmin(EvidenceAdmin):
         "speed_kmh",
         "received_at",
     )
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if not change or "is_archived" in form.changed_data:
+            from geo.trip_processing import invalidate_vehicle_trips
+
+            invalidate_vehicle_trips(request.user, obj.case, [obj.vehicle_id])

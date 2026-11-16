@@ -1,0 +1,11 @@
+{% if direction == 'previous' %}
+<nav class="conversation-paging" data-conversation-edge="previous" aria-label="{% if first_person %}Earlier messages{% else %}Previous conversations{% endif %}">
+  {% if page_obj.has_previous %}<a class="record-link" data-conversation-page href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">{% if first_person %}Earlier messages{% else %}Previous conversations{% endif %}</a>{% endif %}
+  <span class="muted" role="status" data-conversation-status></span>
+</nav>
+{% else %}
+<nav class="conversation-paging" data-conversation-edge="next" aria-label="{% if first_person %}Later messages{% else %}More conversations{% endif %}">
+  {% if page_obj.has_next %}<a class="record-link" data-conversation-page href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">{% if first_person %}Later messages{% else %}More conversations{% endif %}</a>{% endif %}
+  <span class="muted" role="status" data-conversation-status></span>
+</nav>
+{% endif %}

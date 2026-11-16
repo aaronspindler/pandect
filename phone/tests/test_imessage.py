@@ -1,4 +1,4 @@
-"""Synthetic iMazing CSV interpretation, provenance, and publication regressions."""
+"""Synthetic message CSV interpretation, provenance, and publication regressions."""
 
 import csv
 import io
@@ -26,7 +26,7 @@ from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.analysis.deterministic.imazing import (
+from phone.analysis.deterministic.imessage import (
     HEADERS,
     MAX_FIELD_CHARS,
     PARSER_VERSION,
@@ -63,7 +63,7 @@ def csv_content(*rows, **overrides):
     return stream.getvalue().encode("utf-8")
 
 
-class IMazingImportTests(EvidenceViewTestMixin, TestCase):
+class IMessageImportTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.correspondent = Person.objects.create(
@@ -74,7 +74,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         document = DocumentEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
-            title="Synthetic iMazing export",
+            title="Synthetic message CSV export",
             file=ContentFile(content or csv_content(), name="messages.csv"),
         )
         return Source(str(uuid4()), "document", document)
@@ -90,7 +90,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         return AnalysisRun.objects.create(
             case=self.case,
             requested_by=self.users[actor],
-            operation="imazing_import",
+            operation="imessage_import",
             method_version="2",
             parameters=parameters,
             inputs=[
@@ -213,9 +213,9 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
             )
         )
         run, data = self.confirmed(source)
-        self.assertEqual(data["imazing"]["chat_session"], "")
-        self.assertEqual(data["imazing"]["sender_id"], "")
-        self.assertEqual(data["imazing"]["sender_names"], [])
+        self.assertEqual(data["imessage"]["chat_session"], "")
+        self.assertEqual(data["imessage"]["sender_id"], "")
+        self.assertEqual(data["imessage"]["sender_names"], [])
         self.assertEqual(self.publish(run, data, source), 1)
         self.assertEqual(TextMessageEvidence.objects.get().sender, self.person)
 
@@ -246,17 +246,17 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         invalid = (
             (
                 content.replace(b"Chat Session", b"Other column", 1),
-                "imazing_invalid_format",
+                "imessage_invalid_format",
             ),
-            (content + b"short,row\r\n", "imazing_invalid_format"),
-            (content + b'"unfinished', "imazing_invalid_format"),
-            (content.replace(b"Original", b"\x00Original"), "imazing_invalid_format"),
-            (content + b"\xff", "imazing_invalid_format"),
+            (content + b"short,row\r\n", "imessage_invalid_format"),
+            (content + b'"unfinished', "imessage_invalid_format"),
+            (content.replace(b"Original", b"\x00Original"), "imessage_invalid_format"),
+            (content + b"\xff", "imessage_invalid_format"),
             (
                 csv_content({}, {"Chat Session": "Another session"}),
-                "imazing_multiple_chats",
+                "imessage_multiple_chats",
             ),
-            (csv_content({}, {"Sender ID": "15555550102"}), "imazing_multiple_chats"),
+            (csv_content({}, {"Sender ID": "15555550102"}), "imessage_multiple_chats"),
         )
         for raw, code in invalid:
             with self.subTest(code=code), self.assertRaises(AnalysisError) as raised:
@@ -274,7 +274,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
             with self.assertRaises(AnalysisError) as raised:
                 with self.settings(PANDECT_MAX_FILE_BYTES=file_limit):
                     prepare_import([source], {"phase": "preview", "timezone": "UTC"})
-            self.assertEqual(raised.exception.code, "imazing_import_limit")
+            self.assertEqual(raised.exception.code, "imessage_import_limit")
 
     def test_more_than_ten_thousand_rows_have_a_compact_validated_result(self):
         count = 10001
@@ -333,8 +333,10 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         parameters = {"phase": "preview", "timezone": "UTC"}
         data = prepare_import([source], parameters)
         parameters |= {
-            "_imazing_text_limit_bytes": data["imazing"]["text_limit_bytes"],
-            "_imazing_interpretation_sha256": data["imazing"]["interpretation_sha256"],
+            "_imessage_text_limit_bytes": data["imessage"]["text_limit_bytes"],
+            "_imessage_interpretation_sha256": data["imessage"][
+                "interpretation_sha256"
+            ],
         }
         rows, total, samples = read_import_page(source, parameters, page=2)
         self.assertEqual(total, 55)
@@ -346,20 +348,20 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         with self.assertRaises(AnalysisError):
             read_import_page(
                 source,
-                parameters | {"_imazing_interpretation_sha256": "0" * 64},
+                parameters | {"_imessage_interpretation_sha256": "0" * 64},
                 page=1,
             )
         with source.item.file.storage.open(source.item.file.name, "wb") as original:
             original.write(csv_content(Text="Changed after review"))
         with self.assertRaises(AnalysisError) as raised:
             read_import_page(source, parameters, page=1)
-        self.assertEqual(raised.exception.code, "imazing_source_changed")
+        self.assertEqual(raised.exception.code, "imessage_source_changed")
 
     def test_summary_contact_labels_are_bounded_and_raw_rows_remain_complete(self):
         names = [f"Name {number} " + "x" * 300 for number in range(7)]
         source = self.source(csv_content(*({"Sender Name": name} for name in names)))
         data = prepare_import([source], {"timezone": "UTC"})
-        summary = data["imazing"]
+        summary = data["imessage"]
         self.assertEqual(len(summary["sender_names"]), 5)
         self.assertTrue(summary["sender_names_omitted"])
         self.assertTrue(summary["sender_names_truncated"])
@@ -373,7 +375,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         source = self.source(csv_content(**{"Message Date": ""}))
         with self.assertRaises(AnalysisError) as raised:
             prepare_import([source], {"phase": "preview"})
-        self.assertEqual(raised.exception.code, "imazing_invalid_confirmation")
+        self.assertEqual(raised.exception.code, "imessage_invalid_confirmation")
         run, data = self.confirmed(source)
         self.assertIsNone(
             next(iter_import_rows(source, run.parameters))["values"]["occurred_at"]
@@ -404,7 +406,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
                     data = prepare_import([source], parameters)
                     with self.assertRaises(AnalysisError) as raised:
                         self.publish(run, data, source)
-                self.assertEqual(raised.exception.code, "imazing_invalid_confirmation")
+                self.assertEqual(raised.exception.code, "imessage_invalid_confirmation")
                 self.assertEqual(Person.objects.count(), before)
                 self.assertFalse(TextMessageEvidence.objects.exists())
                 self.assertFalse(CommunicationContext.objects.exists())
@@ -459,7 +461,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         changed_data = prepare_import([source], parameters)
         with self.assertRaises(AnalysisError) as raised:
             self.publish(changed, changed_data, source)
-        self.assertEqual(raised.exception.code, "imazing_conflict")
+        self.assertEqual(raised.exception.code, "imessage_conflict")
         self.assertEqual(TextMessageEvidence.objects.count(), 1)
         self.assertEqual(TextMessageEvidence.objects.get().recipient, self.person)
 
@@ -486,7 +488,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         foreign = AnalysisRun.objects.create(
             case=self.other_case,
             requested_by=self.users["outsider"],
-            operation="imazing_import",
+            operation="imessage_import",
             method_version="2",
             parameters={"phase": "import"},
         )
@@ -505,14 +507,14 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         source = self.source()
         run, data = self.confirmed(source)
         tampered = deepcopy(data)
-        tampered["imazing"]["interpretation_sha256"] = "0" * 64
+        tampered["imessage"]["interpretation_sha256"] = "0" * 64
         with self.assertRaises(AnalysisError):
             self.publish(run, tampered, source)
         changed_zone = run.parameters | {"timezone": "UTC"}
         changed_run = self.import_run(source, changed_zone)
         with self.assertRaises(AnalysisError) as raised:
             self.publish(changed_run, prepare_import([source], changed_zone), source)
-        self.assertEqual(raised.exception.code, "imazing_invalid_confirmation")
+        self.assertEqual(raised.exception.code, "imessage_invalid_confirmation")
         wrong_preview = run.parameters | {"preview_run_id": str(uuid4())}
         with self.assertRaises(AnalysisError):
             self.publish(self.import_run(source, wrong_preview), data, source)
@@ -552,7 +554,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
             original.write(csv_content(Text="Different retained bytes"))
         with self.assertRaises(AnalysisError) as raised:
             self.publish(run, data, source)
-        self.assertEqual(raised.exception.code, "imazing_source_changed")
+        self.assertEqual(raised.exception.code, "imessage_source_changed")
         self.assertFalse(TextMessageEvidence.objects.exists())
 
     def test_text_is_not_duplicated_in_result_metadata(self):
@@ -563,12 +565,12 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(json.dumps(data).count("A unique synthetic message."), 0)
 
 
-class ConcurrentIMazingConfirmationTests(TransactionTestCase):
+class ConcurrentIMessageConfirmationTests(TransactionTestCase):
     def test_parallel_confirmations_queue_one_run_without_creating_people(self):
-        from phone.imazing_imports import confirm_import
+        from phone.imessage_imports import confirm_import
 
         owner = get_user_model().objects.create_user(
-            username="concurrent-imazing-owner"
+            username="concurrent-imessage-owner"
         )
         case = Case.objects.create(owner=owner, name="Synthetic concurrent import")
         with TemporaryDirectory() as directory, self.settings(MEDIA_ROOT=directory):
@@ -584,7 +586,7 @@ class ConcurrentIMazingConfirmationTests(TransactionTestCase):
             preview = AnalysisRun.objects.create(
                 case=case,
                 requested_by=owner,
-                operation="imazing_import",
+                operation="imessage_import",
                 method_version="2",
                 parameters=parameters,
                 inputs=[

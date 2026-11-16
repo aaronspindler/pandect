@@ -289,7 +289,11 @@
           list.append(row);
         });
         entry.matches.append(list);
-        if (result.has_more) entry.matches.append(element("p", "Showing the first 10 matches."));
+        if (result.has_more) {
+          const more = element("p", "Showing the first 10 matches. ");
+          more.append(element("a", "Review all matches (opens in a new tab)", {href:result.all_matches_url, target:"_blank", rel:"noopener"}));
+          entry.matches.append(more);
+        }
         setStatus(entry, "duplicate", "Exact duplicate found in this case. This file has not been added.");
         announce(`${entry.file.name}: exact duplicate found. Review matching evidence before adding another copy.`);
       } else if (xhr.status === 413 || (xhr.status === 400 && result)) {

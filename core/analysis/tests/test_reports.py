@@ -197,9 +197,9 @@ class ExistingFieldReportTests(EvidenceViewTestMixin, TestCase):
         for values in (
             {"name": "unknown"},
             {"state": "unknown"},
-            {"limit": 0},
-            {"limit": 501},
-            {"limit": True},
+            {"page_size": 0},
+            {"page_size": 26},
+            {"page_size": True},
             {"start": INSTANT.replace(tzinfo=None)},
             {"start": INSTANT, "end": INSTANT - timedelta(seconds=1)},
             {"vehicle_id": self.vehicle.pk},
@@ -208,3 +208,34 @@ class ExistingFieldReportTests(EvidenceViewTestMixin, TestCase):
                 report(self.case, **({"name": "calls"} | values))
         with self.assertRaises(ValidationError):
             report(self.case, "duplicates", participant_id=self.person.pk)
+
+    def test_duplicate_groups_compare_files_beyond_the_old_selection_limit(self):
+        documents = DocumentEvidence.objects.bulk_create(
+            [
+                DocumentEvidence(
+                    case=self.case,
+                    uploaded_by=self.users["owner"],
+                    title=f"File {number}",
+                    file=f"synthetic/{number}.bin",
+                    original_filename=f"file-{number}.bin",
+                    byte_size=1,
+                    sha256=f"{number if number < 1002 else 0:064x}",
+                )
+                for number in range(1003)
+            ]
+        )
+        result = report(self.case, "duplicates")
+        self.assertEqual(result["metrics"]["Selected records"], 1003)
+        self.assertEqual(result["metrics"]["Duplicate byte groups"], 1)
+        self.assertEqual(result["metrics"]["Occurrences in duplicate groups"], 2)
+        self.assertEqual(
+            {item["values"]["Source ID"] for item in result["items"]},
+            {str(documents[0].pk), str(documents[-1].pk)},
+        )
+        DocumentEvidence.objects.filter(case=self.case).update(sha256="a" * 64)
+        last = report(self.case, "duplicates", page=41)
+        self.assertEqual(len(last["items"]), 3)
+        self.assertEqual(last["page_obj"].paginator.count, 1003)
+        self.assertTrue(
+            all(item["values"]["Group occurrences"] == 1003 for item in last["items"])
+        )

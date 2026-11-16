@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from django.core.paginator import Paginator
-from django.db.models import F
+from django.db.models import F, Q
 from django.http import Http404
 from django.shortcuts import render
 from django.views.decorators.http import require_safe
@@ -17,7 +17,7 @@ from core.analysis.operations import OPERATIONS
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS, KINDS
 from core.models import AnalysisRun, CaseAnalysisBatch
-from geo.models import VehicleLocationImport
+from geo.models import VehicleLocationImport, VehicleTripGeneration
 
 
 @product_login_required
@@ -67,14 +67,14 @@ def index(request, case_id):
     for run in displayed_runs:
         operation = OPERATIONS.get(run.operation)
         run.label = operation.label if operation else "Retained analysis"
-        if run.operation == "imazing_import" and run.import_phase == "preview":
-            run.label = "Prepare iMazing message review"
+        if run.operation == "imessage_import" and run.import_phase == "preview":
+            run.label = "Prepare message review"
         run.failure_message = error_message(run.error_code) if run.error_code else ""
         run.source_title = titles.get(
             (run.first_kind, run.first_evidence), "Source unavailable"
         )
     all_batches = CaseAnalysisBatch.objects.filter(case=case).defer(
-        "scope", "preparation_errors"
+        "preparation_errors"
     )
     active_batches = Paginator(all_batches.filter(status="queued"), 5).get_page(
         request.GET.get("preparing_page")
@@ -96,6 +96,26 @@ def index(request, case_id):
         imports.filter(status__in=("pending", "queued", "running", "review")), 10
     ).get_page(request.GET.get("active_imports_page"))
     import_history = Paginator(imports, 25).get_page(request.GET.get("imports_page"))
+    trip_generations = (
+        VehicleTripGeneration.objects.filter(
+            case=case,
+            vehicle__case=case,
+            state__case=case,
+            state__vehicle_id=F("vehicle_id"),
+        )
+        .select_related("vehicle")
+        .defer("cursor", "carry", "metrics")
+    )
+    active_trips = Paginator(
+        trip_generations.filter(
+            Q(status__in=("queued", "running"))
+            | Q(status="complete", geocode_status__in=("queued", "running"))
+        ),
+        10,
+    ).get_page(request.GET.get("active_trips_page"))
+    trip_history = Paginator(trip_generations, 10).get_page(
+        request.GET.get("trips_page")
+    )
     return render(
         request,
         "core/analysis/processing.html",
@@ -107,8 +127,21 @@ def index(request, case_id):
             "active_batches": active_batches,
             "active_imports": active_imports,
             "import_history": import_history,
+            "active_trips": active_trips,
+            "trip_history": trip_history,
             "batches": batches,
             "batch": batch,
+            "batch_failures": [
+                failure
+                | {
+                    "operation_label": OPERATIONS[failure["operation"]].label
+                    if failure.get("operation") in OPERATIONS
+                    else ""
+                }
+                for failure in batch.preparation_errors
+            ]
+            if batch
+            else [],
             "history_filters": filters,
             "history_suffix": query_suffix(
                 filters | ({"history_page": page.number} if page.number > 1 else {})

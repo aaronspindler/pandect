@@ -48,8 +48,4 @@ LABEL org.opencontainers.image.revision=${APP_COMMIT_SHA}
 USER pandect
 EXPOSE 8000
 
-FROM runtime AS worker
-CMD ["sh", "/app/scripts/docker-entrypoint-worker.sh"]
-
-FROM runtime AS web
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "180", "--access-logfile", "-", "--logger-class", "config.privacy.PrivateAccessLogger"]

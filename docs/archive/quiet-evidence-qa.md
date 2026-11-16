@@ -1,101 +1,83 @@
 # Quiet evidence workspace: design QA
 
-Historical QA report, archived on **2026-11-15**. Results and local artifact
-paths below describe the reviewed snapshot, not the current interface. Use
-[the design standard](../../DESIGN.md) and [validation](../validation.md) for
-current requirements and procedures.
-
-The final combined comparison reported no remaining P0/P1/P2 differences.
+Historical QA, archived **2026-11-15**. Results and artifact paths describe that
+snapshot; [DESIGN.md](../../DESIGN.md) and [validation](../validation.md) own
+current requirements. Final combined comparison found no remaining P0/P1/P2
+differences.
 
 ## Visual truth and captures
 
-- Selected visual: [option 1](../design/quiet-evidence-reference.png), generated at
-  1487 × 1058 pixels and normalized to the 1440 × 1024 comparison viewport.
-- Matching implementation: local synthetic evidence, light appearance,
-  Chromium at 1440 × 1024 CSS pixels, device scale factor 1. The capture is
+- Selected [option 1](../design/quiet-evidence-reference.png): generated at
+  1487 × 1058, normalized to 1440 × 1024.
+- Matching implementation: synthetic evidence, light appearance, Chromium at
+  1440 × 1024 CSS pixels, device scale 1;
   `data/validation/quiet-evidence/chromium-quiet-evidence-1440x1024.png`.
-- Full and focused comparisons are saved in
+- Full/reader/collection comparisons show reference beside implementation:
   `data/validation/quiet-evidence-preview/comparison-v2-{full,reader,collection}.png`.
-  Source and implementation appear together in each comparison image.
-- The in-app browser was also inspected directly with synthetic data. It follows
-  the user's dark appearance. Its desktop, mobile, and 320px Info captures are
+- Direct in-app browser inspection followed the user's dark appearance:
   `data/validation/quiet-evidence-preview/{desktop-v2,mobile-v2,info-320-v2}.png`.
-  Temporary viewport overrides were reset after review.
+  Temporary viewport overrides were reset.
 
-These captures and the preview use fictional material. They are local validation
-artifacts, not private investigation records or live deployment evidence.
+Captures and preview use fictional material; they are local validation artifacts,
+not investigation records or deployment evidence.
 
 ## Comparison history
 
-1. The first combined comparison found P2 drift in the major proportions and
-   reading hierarchy: the rail/list were too narrow and original text was too
-   small. The search field also showed a duplicate input border. Evidence:
-   `comparison-v1.png` and `comparison-v1-{reader,collection}.png` in the same
-   preview artifact directory.
-2. The revised layout uses an 80px rail, 336px collection, 32px selected title,
-   and 24px original text on wide screens, with the original's comfortable
-   reading measure and stronger separation before Findings. The inner search
-   border was removed. Current evidence: the three `comparison-v2-*` captures.
-3. Narrow Info initially exceeded the viewport because of invalid CSS arithmetic.
-   Corrected bounds were verified in the in-app browser at 320px: the inspector
-   spans x=16 to x=304 and the document scroll width remains 320px. Its native
-   summary and close control remain available.
-4. The mobile toolbar now uses labelled, accessible 44px icon controls for Info
-   and More beside Download original. Findings keep their icon beside the value.
-   Long retained attachment filenames wrap in their original content section.
+1. Initial P2 differences: narrow rail/list, small original text, and duplicate
+   search border. Evidence: `comparison-v1.png` and
+   `comparison-v1-{reader,collection}.png` in the preview directory.
+2. Revised layout: 80px rail, 336px collection, 32px selected title, 24px wide-screen
+   original text, comfortable reading measure, stronger Findings separation,
+   and no inner search border. Evidence: the three `comparison-v2-*` captures.
+3. Invalid CSS arithmetic caused narrow Info overflow. The corrected inspector
+   spans x=16–304 at 320px; document scroll width stays 320px. Native summary and
+   close control remain available.
+4. Mobile Info/More became labelled 44px icon controls beside Download original.
+   Findings retain icons beside values; long attachment filenames wrap.
 
 ## Fidelity surfaces
 
-- **Typography:** existing system fonts and semantic weights; strong selected
-  title and original, smaller source metadata, and value-first findings. List
-  titles remain 16px. Narrow original text remains 16px. Generated-image glyph
-  metrics and exact line breaks are not treated as a new font requirement.
-- **Spacing and layout:** the rail, collection, and reader follow the chosen
-  hierarchy without a disclosure stack or nested cards. The list retains the
-  documented 12/14 visible-row targets. Info is one flat inspector; More groups
-  secondary actions. Mobile uses a compact bar and canonical reader.
-- **Colors:** existing light/dark tokens, blue selection/focus, oxblood/ivory
-  branding, and neutral dividers. The light comparison and separate dark captures
-  evaluate the corresponding appearances without changing system preferences.
-- **Assets:** approved transparent arch symbols, with preserved proportions and
-  light/dark variants; existing licensed Tabler icons. The generated screen is a
-  reference, not a raster replacement for working controls or evidence.
-- **Copy and data:** routine instructional paragraphs and duplicate headings are
-  removed. Original content, source links, uncertainty, and processing errors
-  remain explicit. Real processing supplies one phone candidate for the sample;
-  the mock's illustrative date finding is not fabricated. CSV uploads retain
-  their actual Document category. Source character anchors replace fictional
-  line numbers where that is what the processor supplies.
+- **Typography:** existing system fonts/weights; strong title/original, secondary
+  metadata, value-first findings. List titles and narrow original text stay 16px.
+  Generated glyph metrics/line breaks impose no font requirement.
+- **Layout:** selected rail/collection/reader hierarchy, no disclosure stack or
+  nested cards, documented 12/14-row targets, flat Info, grouped More, and mobile
+  compact bar/canonical reader.
+- **Colors:** existing light/dark tokens, blue selection/focus, oxblood/ivory brand,
+  neutral dividers. Separate appearance captures required no system changes.
+- **Assets:** approved transparent arch variants/proportions and licensed Tabler
+  icons. Generated screens remain references, not raster controls or evidence.
+- **Copy/data:** removed repeated instructions/headings while retaining originals,
+  sources, uncertainty, and errors. Actual processing supplies one phone candidate;
+  no illustrative date finding was fabricated. CSV stays Document; real character
+  anchors replace fictional line numbers.
 
 ## Interaction evidence
 
-The in-app browser verified search, selection with retained filters, Info opening
-and closing, More, Edit details and safe cancellation back to Info, and 320px
-inspector bounds. Its browser console contained no errors. The working synthetic
-preview remains open; no deployment or investigation-data changes were needed.
+In-app checks covered search, filter-preserving selection, Info open/close, More,
+Edit details/cancellation back to Info, and 320px bounds; no console errors. The
+synthetic preview remained open. No deployment or investigation data changed.
 
-Repository browser journeys additionally cover keyboard/Escape/outside dismissal,
-no-JavaScript access, full originals and private downloads, current roles,
-processing/history pagination, check-submission recovery, and responsive states.
-Automated checks and screenshots do not establish full accessibility compliance
-or model accuracy. Manual screen-reader testing was not requested.
+Repository browser journeys covered keyboard/Escape/outside dismissal,
+no-JavaScript access, originals/private downloads, current roles, processing and
+history pagination, check recovery, and responsiveness. Automated checks and
+captures do not establish full accessibility or model accuracy. Screen-reader
+testing was not requested.
 
 ## Follow-up polish
 
-- Optional P3: the open Info inspector repeats its native Info trigger above the
-  Evidence info heading. A later refinement could consolidate that header while
-  preserving the no-JavaScript toggle. It does not obstruct content or controls.
+Optional P3: open Info repeats its native trigger above Evidence info. A later
+refinement could consolidate it while retaining the no-JavaScript toggle;
+content and controls remain unobstructed.
 
-The final visual review checked source and implementation separately, then the
-combined full, reader, and collection inputs, plus mobile/Info and dark captures.
-Implementation validation completed locally:
+Final visual review checked reference and implementation separately, combined
+full/reader/collection inputs, mobile/Info, and dark captures. Local validation:
 
-- The documented `make check` passed all 967 tests, Ruff lint/format checks,
-  lockfile validation, system/database checks, migration drift, and Compose config.
-- All 35 affected browser journeys ran in Chromium and WebKit. After repairing
-  filename wrapping and stale test interactions/labels, all four affected journeys
-  passed on rerun; the other 31 had already passed.
-- The required shared simplicity review found no actionable overengineering or
-  optional simplicity changes. It excluded concurrent unrelated checkout work.
+- `make check`: 967 tests, Ruff, lockfile, system/database, migration drift, and
+  Compose configuration passed.
+- 35 affected Chromium/WebKit journeys ran. Four passed after filename-wrapping
+  and stale-interaction/label fixes; the other 31 had passed already.
+- Required shared simplicity review found no actionable overengineering or
+  optional simplifications; concurrent unrelated work was excluded.
 
-These results do not claim CI execution or deployment of the running Docker app.
+These results do not establish hosted CI or deployment of the running Docker app.

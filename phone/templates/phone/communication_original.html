@@ -7,7 +7,7 @@
     <div><dt>{% if is_call %}Call started at{% else %}Sent at{% endif %}</dt><dd>{% if item.occurred_at %}{{ item.occurred_at|date:"d M Y, H:i:s T" }}{% else %}Not recorded{% endif %}</dd></div>
     {% if is_call %}<div><dt>Reported duration</dt><dd>{{ item.duration|default_if_none:"Not recorded" }}</dd></div>{% endif %}
   </dl>
-  {% if not is_call %}<h3>Original message</h3><div class="original-text">{{ item.body }}</div>{% endif %}
+  {% if not is_call %}<div class="section-header"><h3>Original message</h3>{% if conversation_url %}<a class="record-link" href="{{ conversation_url }}">View in conversation</a>{% endif %}</div><div class="original-text">{{ item.body }}</div>{% endif %}
 </section>
 {% if is_call %}
 <section aria-labelledby="call-content-heading">

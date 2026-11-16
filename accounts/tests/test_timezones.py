@@ -15,6 +15,8 @@ from core.analysis.forms import analysis_form, report_form
 from core.evidence.form_registry import evidence_form
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence, VehicleLocationEvidence
+from geo.trip_jobs import process_trips
+from geo.trip_processing import prepare_case_trips
 from phone.models import PhoneCallEvidence, TextMessageEvidence
 from text.models import TextEvidence
 
@@ -187,6 +189,13 @@ class UserTimezoneTests(EvidenceViewTestMixin, TestCase):
                 address=address,
                 observed_at=time,
             )
+        generation = prepare_case_trips(self.users["owner"], self.case.pk)[0]
+        for _ in range(10):
+            if generation.status != "queued":
+                break
+            process_trips(str(generation.pk), str(generation.token))
+            generation.refresh_from_db()
+        self.assertEqual(generation.status, "complete", generation.error_code)
         response = self.client.get(
             reverse("core:analysis:report", args=(self.case.pk, "vehicle-trips"))
         )

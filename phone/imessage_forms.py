@@ -1,4 +1,4 @@
-"""Explicit source time and participant choices for one iMazing conversation."""
+"""Explicit source time and participant choices for one CSV conversation."""
 
 import re
 from uuid import uuid4, uuid5
@@ -11,11 +11,15 @@ from document.models import DocumentEvidence
 from people.models import Person
 
 
-class IMazingUploadForm(forms.Form):
+class IMessageUploadForm(forms.Form):
     submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
     file = forms.FileField(
         required=False,
-        label="iMazing message CSV",
+        label="iMessage CSV",
+        help_text=(
+            "Use the supported 18-column export, from Chat Session "
+            "through Attachment type."
+        ),
         widget=forms.ClearableFileInput(attrs={"accept": ".csv,text/csv"}),
     )
     document = forms.ModelChoiceField(
@@ -68,7 +72,7 @@ class IMazingUploadForm(forms.Form):
         return data
 
 
-class IMazingPersonForm(forms.Form):
+class IMessagePersonForm(forms.Form):
     mode = forms.ChoiceField(
         label="Person record",
         choices=(
@@ -99,7 +103,7 @@ class IMazingPersonForm(forms.Form):
         self.fields["person"].queryset = Person.objects.filter(case=case)
         self.fields["mode"].initial = "existing" if case.people.exists() else "create"
         if role == "correspondent":
-            identifier = preview.result.data.get("imazing", {}).get("sender_id", "")
+            identifier = preview.result.data.get("imessage", {}).get("sender_id", "")
             if len(identifier) <= 64 and re.fullmatch(r"[+\d(). -]+", identifier):
                 self.fields["phone_number"].initial = identifier
 
@@ -134,7 +138,7 @@ class IMazingPersonForm(forms.Form):
         }
 
 
-class IMazingConfirmForm(forms.Form):
+class IMessageConfirmForm(forms.Form):
     direct_chat = forms.BooleanField(
         label="I confirm this export is a direct conversation between these two people"
     )

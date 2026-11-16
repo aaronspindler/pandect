@@ -17,14 +17,18 @@ from core.analysis.errors import AnalysisError, error_message
 from core.analysis.services import resolve_inputs
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.models import AnalysisRun
-from phone.analysis.deterministic.imazing import read_import_page
-from phone.imazing_forms import IMazingConfirmForm, IMazingPersonForm, IMazingUploadForm
-from phone.imazing_imports import confirm_import, preview_source, start_preview
+from phone.analysis.deterministic.imessage import read_import_page
+from phone.imessage_forms import (
+    IMessageConfirmForm,
+    IMessagePersonForm,
+    IMessageUploadForm,
+)
+from phone.imessage_imports import confirm_import, preview_source, start_preview
 
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-def imazing_upload(request, case_id):
+def imessage_upload(request, case_id):
     case = get_case(request.user, case_id, edit=True)
     initial = {"timezone": request.user.timezone or "America/Toronto"}
     if request.method == "GET" and request.GET.get("document"):
@@ -33,7 +37,7 @@ def imazing_upload(request, case_id):
         except ValueError:
             raise Http404("Document not found.") from None
         initial["document"] = get_evidence(case, "document", document_id).pk
-    form = IMazingUploadForm(
+    form = IMessageUploadForm(
         request.POST if request.method == "POST" else None,
         request.FILES if request.method == "POST" else None,
         case=case,
@@ -69,10 +73,10 @@ def imazing_upload(request, case_id):
                     if created
                     else "This CSV review was already queued.",
                 )
-                return redirect("phone:imazing_review", case_id=case.pk, run_id=run.pk)
+                return redirect("phone:imessage_review", case_id=case.pk, run_id=run.pk)
     return render(
         request,
-        "phone/imazing_upload.html",
+        "phone/imessage_upload.html",
         case_context(case, request.user)
         | {
             "form": form,
@@ -85,11 +89,11 @@ def imazing_upload(request, case_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-def imazing_review(request, case_id, run_id):
+def imessage_review(request, case_id, run_id):
     case = get_case(request.user, case_id, edit=request.method == "POST")
     requested = get_object_or_404(
         AnalysisRun.objects.select_related("result", "previous_run").filter(
-            case=case, operation="imazing_import"
+            case=case, operation="imessage_import"
         ),
         pk=run_id,
     )
@@ -98,7 +102,7 @@ def imazing_review(request, case_id, run_id):
             AnalysisRun.objects.select_related("result"),
             pk=requested.parameters.get("preview_run_id"),
             case=case,
-            operation="imazing_import",
+            operation="imessage_import",
             parameters__phase="preview",
         )
     else:
@@ -112,7 +116,7 @@ def imazing_review(request, case_id, run_id):
     final = (
         AnalysisRun.objects.filter(
             case=case,
-            operation="imazing_import",
+            operation="imessage_import",
             parameters__phase="import",
             parameters__preview_run_id=str(preview.pk),
         )
@@ -140,8 +144,8 @@ def imazing_review(request, case_id, run_id):
                 source,
                 preview.parameters
                 | {
-                    "_imazing_text_limit_bytes": data["imazing"]["text_limit_bytes"],
-                    "_imazing_interpretation_sha256": data["imazing"][
+                    "_imessage_text_limit_bytes": data["imessage"]["text_limit_bytes"],
+                    "_imessage_interpretation_sha256": data["imessage"][
                         "interpretation_sha256"
                     ],
                 },
@@ -149,7 +153,7 @@ def imazing_review(request, case_id, run_id):
                 per_page=25,
             )
             if actual_total != total:
-                raise AnalysisError("imazing_source_changed")
+                raise AnalysisError("imessage_source_changed")
             rows.object_list = selected
         except AnalysisError as error:
             source_error = error_message(error.code)
@@ -167,11 +171,11 @@ def imazing_review(request, case_id, run_id):
     status = 200
     if ready:
         posted = request.POST if request.method == "POST" else None
-        form = IMazingConfirmForm(posted)
-        account = IMazingPersonForm(
+        form = IMessageConfirmForm(posted)
+        account = IMessagePersonForm(
             posted, case=case, preview=preview, role="account", prefix="account"
         )
-        correspondent = IMazingPersonForm(
+        correspondent = IMessagePersonForm(
             posted,
             case=case,
             preview=preview,
@@ -212,7 +216,7 @@ def imazing_review(request, case_id, run_id):
                         else "This message import was already queued.",
                     )
                     return redirect(
-                        "phone:imazing_review", case_id=case.pk, run_id=final.pk
+                        "phone:imessage_review", case_id=case.pk, run_id=final.pk
                     )
             else:
                 status = 400
@@ -254,7 +258,7 @@ def imazing_review(request, case_id, run_id):
     imported = Paginator(imported, 25).get_page(request.GET.get("messages_page"))
     return render(
         request,
-        "phone/imazing_review.html",
+        "phone/imessage_review.html",
         case_context(case, request.user)
         | {
             "nav_section": "evidence",
@@ -262,7 +266,7 @@ def imazing_review(request, case_id, run_id):
             "run": current,
             "document": document,
             "source_error": source_error,
-            "summary": data.get("imazing", {}),
+            "summary": data.get("imessage", {}),
             "samples": samples,
             "metrics": metrics,
             "rows": rows,

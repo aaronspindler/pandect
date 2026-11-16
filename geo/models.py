@@ -13,6 +13,13 @@ from core.storage import (
     canonical_bytes,
 )
 from document.models import DocumentEvidence
+from geo.trip_models import (  # noqa: F401
+    VehicleTrip,
+    VehicleTripGeneration,
+    VehicleTripInput,
+    VehicleTripSource,
+    VehicleTripState,
+)
 
 
 class LocationContent(Evidence):
@@ -336,7 +343,10 @@ class VehicleLocationEvidence(LocationContent):
     )
 
     class Meta(LocationContent.Meta):
-        indexes = [models.Index(fields=("case", "raw_fingerprint"))]
+        indexes = [
+            models.Index(fields=("case", "raw_fingerprint")),
+            models.Index(fields=("case", "vehicle", "observed_at", "id")),
+        ]
         constraints = [
             *LocationContent.Meta.constraints,
             models.UniqueConstraint(

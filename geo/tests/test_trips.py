@@ -11,8 +11,14 @@ from django.urls import reverse
 from core.analysis.reports import report
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
-from geo.models import VehicleLocationEvidence, VehicleLocationImport
+from geo.models import VehicleLocationEvidence, VehicleLocationImport, VehicleTrip
 from geo.testing import csv_content, parse_csv
+from geo.trip_jobs import process_trips
+from geo.trip_processing import (
+    format_trip,
+    invalidate_vehicle_trips,
+    prepare_case_trips,
+)
 from geo.vehicle_import_jobs import (
     enqueue_completion,
     enqueue_preparation,
@@ -25,7 +31,7 @@ INSTANT = datetime(2026, 10, 27, 12, tzinfo=UTC)
 
 class VehicleTripTests(EvidenceViewTestMixin, TestCase):
     def observation(self, minute=0, address="10 Example Street", **values):
-        return VehicleLocationEvidence.objects.create(
+        observation = VehicleLocationEvidence.objects.create(
             **(
                 {
                     "case": self.case,
@@ -38,9 +44,36 @@ class VehicleTripTests(EvidenceViewTestMixin, TestCase):
                 | values
             )
         )
+        invalidate_vehicle_trips(
+            self.users["owner"], self.case, [observation.vehicle_id]
+        )
+        return observation
 
     def trips(self, **values):
-        return report(self.case, "vehicle-trips", **values)
+        self.prepare()
+        result = report(self.case, "vehicle-trips", **values)
+        # Inspect source membership explicitly; rendered summaries link to the
+        # independently paginated provenance instead of embedding whole histories.
+        result["items"] = [
+            item
+            | format_trip(
+                self.case,
+                VehicleTrip.objects.get(pk=item["id"]),
+                include_sources=True,
+            )
+            for item in result["items"]
+        ]
+        return result
+
+    def prepare(self):
+        for generation in prepare_case_trips(self.users["owner"], self.case.pk):
+            for _ in range(100):
+                generation.refresh_from_db()
+                if generation.status != "queued":
+                    break
+                process_trips(str(generation.pk), str(generation.token))
+            generation.refresh_from_db()
+            self.assertEqual(generation.status, "complete", generation.error_code)
 
     def test_address_trips_split_at_stops_and_retain_every_source(self):
         records = [
@@ -101,15 +134,16 @@ class VehicleTripTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(len(result["items"]), 1)
         self.assertEqual(len(result["items"][0]["sources"]), 4)
 
-    def test_latest_bounded_selection_filters_and_new_evidence_refresh(self):
+    def test_complete_history_filters_and_new_evidence_refresh(self):
         self.observation(0)
         self.observation(2, "20 Example Street")
         latest = self.observation(4, "30 Example Street")
-        result = self.trips(limit=2)
-        self.assertTrue(result["metrics"]["Truncated"])
-        self.assertIn("latest 2 of 3", " ".join(result["warnings"]))
+        result = self.trips(page_size=2)
+        self.assertFalse(result["metrics"]["Truncated"])
+        self.assertEqual(result["metrics"]["Matching records"], 3)
+        self.assertEqual(len(result["items"][0]["sources"]), 3)
         self.assertEqual(result["items"][0]["end"]["time"], latest.observed_at)
-        self.assertEqual(self.trips(end=INSTANT)["items"], [])
+        self.assertEqual(len(self.trips(end=INSTANT)["items"]), 1)
         next_item = self.observation(6, "40 Example Street")
         self.assertEqual(self.trips()["items"][0]["end"]["time"], next_item.observed_at)
         VehicleLocationEvidence.objects.filter(pk=next_item.pk).update(
@@ -117,6 +151,7 @@ class VehicleTripTests(EvidenceViewTestMixin, TestCase):
             archive_changed_at=INSTANT,
             archive_changed_by=self.users["owner"],
         )
+        invalidate_vehicle_trips(self.users["owner"], self.case, [self.vehicle.pk])
         self.assertEqual(self.trips()["items"][0]["end"]["time"], latest.observed_at)
         self.assertEqual(
             self.trips(state="all")["items"][0]["end"]["time"], next_item.observed_at
@@ -140,10 +175,10 @@ class VehicleTripTests(EvidenceViewTestMixin, TestCase):
         )
         self.observation(10, import_batch=batch, source_row=2)
         DocumentEvidence.objects.filter(pk=document.pk).update(case=self.other_case)
-        result = self.trips()
+        result = report(self.case, "vehicle-trips")
         self.assertEqual(result["metrics"]["Matching records"], 0)
         with self.assertRaises(Http404):
-            self.trips(vehicle_id=other.pk)
+            report(self.case, "vehicle-trips", vehicle_id=other.pk)
 
     def test_completed_address_only_csv_immediately_exposes_trips_without_analysis(
         self,
@@ -190,6 +225,7 @@ class VehicleTripTests(EvidenceViewTestMixin, TestCase):
     ):
         self.observation(0)
         self.observation(10, "20 Example Street")
+        self.prepare()
         urls = [
             reverse(
                 "vehicle:detail",

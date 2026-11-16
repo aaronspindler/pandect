@@ -127,3 +127,57 @@ class VehicleReportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             result["items"][0]["values"]["Receipt minus event (seconds)"], "Unknown"
         )
+
+    def test_full_vehicle_history_and_page_flags_cross_batch_boundaries(self):
+        rows = []
+        for number in range(1003):
+            at = INSTANT + timedelta(minutes=number + (40 if number >= 500 else 0))
+            raw = {"Row": str(number), "Heading": "N" if number < 500 else "E"}
+            if number == 1002:
+                raw = {"Row": "0", "Heading": "N"}
+            rows.append(
+                VehicleLocationEvidence(
+                    case=self.case,
+                    uploaded_by=self.users["owner"],
+                    vehicle=self.vehicle,
+                    title=f"Observation {number}",
+                    address="Synthetic address",
+                    observed_at=at,
+                    received_at=at + timedelta(seconds=-1 if number == 1002 else 1),
+                    speed_kmh=number,
+                    raw_row=raw,
+                    sha256="0" * 64,
+                )
+            )
+        VehicleLocationEvidence.objects.bulk_create(rows)
+        first = report(self.case, "vehicle-coverage")
+        last = report(self.case, "vehicle-coverage", page=41)
+        self.assertEqual(first["metrics"], last["metrics"])
+        self.assertEqual(first["metrics"]["Selected records"], 1003)
+        self.assertEqual(first["metrics"]["Reported speed median (km/h)"], 501)
+        self.assertEqual(first["metrics"]["Intervals of at least 30 minutes"], 1)
+        self.assertEqual(first["metrics"]["Negative receipt delays"], 1)
+        self.assertEqual(first["metrics"]["Duplicate raw-row groups"], 1)
+        self.assertEqual(first["metrics"]["Changes between known reported headings"], 2)
+        self.assertEqual(len(last["items"]), 3)
+        self.assertIn("Negative", last["items"][-1]["text"])
+        self.assertIn("Identical", last["items"][-1]["text"])
+        grouped = report(self.case, "vehicle-coverage", duplicate_row=rows[-1].pk)
+        self.assertEqual(grouped["metrics"]["Selected records"], 2)
+        self.assertEqual(len(grouped["items"]), 2)
+        narrowed = report(
+            self.case,
+            "vehicle-coverage",
+            duplicate_row=rows[0].pk,
+            start=rows[-1].observed_at,
+        )
+        self.assertEqual(narrowed["metrics"]["Selected records"], 1)
+        self.assertIn(str(rows[-1].pk), narrowed["items"][0]["url"])
+        crossing = report(self.case, "vehicle-coverage", page=21)
+        self.assertEqual(
+            crossing["items"][0]["values"][
+                "Interval since preceding timed observation (seconds)"
+            ],
+            41 * 60,
+        )
+        self.assertIn(str(rows[499].pk), str(crossing["items"][0]["related"]))

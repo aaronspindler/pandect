@@ -35,6 +35,7 @@ def person_attribution(kind, person):
 
 def collection_context(case, params):
     query = params.get("q", "")[:200].strip()
+    checksum = params.get("checksum", "")[:64]
     selected_kind = params.get("type", "")
     if selected_kind not in KINDS:
         selected_kind = ""
@@ -47,6 +48,8 @@ def collection_context(case, params):
         if selected_kind and kind != selected_kind:
             continue
         queryset = scoped_evidence(case, kind)
+        if checksum:
+            queryset = queryset.filter(sha256=checksum)
         if person:
             queryset = person_evidence(queryset, person)
         if state != "all":
@@ -151,6 +154,7 @@ def collection_context(case, params):
         "page_obj": page,
         "pagination": pagination,
         "query": query,
+        "checksum": checksum,
         "selected_kind": selected_kind,
         "state": state,
         "selected_person": person,

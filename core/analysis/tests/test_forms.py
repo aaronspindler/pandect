@@ -20,10 +20,10 @@ from phone.models import TextMessageEvidence
 
 
 class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
-    def test_source_picker_stops_before_discarded_types_and_extraction_queries(self):
+    def test_source_picker_continues_without_loading_original_bodies(self):
         records = [self.text() for _ in range(4)]
         with (
-            patch("core.analysis.form_base.SOURCE_CHOICE_LIMIT", 3),
+            patch("core.analysis.form_base.SOURCE_PAGE_SIZE", 3),
             CaptureQueriesContext(connection) as queries,
         ):
             choices = source_choices(self.case, "entities")
@@ -31,9 +31,10 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
             [key for key, label in choices],
             [f"text:{x.pk}" for x in reversed(records[1:])],
         )
-        self.assertFalse(
-            any('"document_documentevidence"' in query["sql"] for query in queries)
-        )
+        self.assertTrue(choices.has_next())
+        with patch("core.analysis.form_base.SOURCE_PAGE_SIZE", 3):
+            second = source_choices(self.case, "entities", page=2, cursor=choices.after)
+        self.assertEqual(second[0][0], f"text:{records[0].pk}")
         extraction_queries = [
             query for query in queries if '"core_analysisresult"' in query["sql"]
         ]
@@ -57,7 +58,7 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         process_run(run.pk)
         run.refresh_from_db()
         self.assertEqual(run.status, "complete", run.error_code)
-        with patch("core.analysis.form_base.SOURCE_CHOICE_LIMIT", 3):
+        with patch("core.analysis.form_base.SOURCE_PAGE_SIZE", 3):
             choices = source_choices(self.case, "entities")
         self.assertEqual(len(choices), 3)
         self.assertEqual(choices[1][0], f"document:{document.pk}")
@@ -120,7 +121,11 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
             ],
         )
         self.assertEqual(
-            sum('"core_analysisreview"' in query["sql"] for query in queries), 1
+            sum(
+                query["sql"].split(" FROM ", 1)[-1].startswith('"core_analysisreview"')
+                for query in queries
+            ),
+            1,
         )
         self.assertEqual(
             sum('"core_analysisresult"."data"' in query["sql"] for query in queries),
