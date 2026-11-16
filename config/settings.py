@@ -79,6 +79,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "config.access.ProductUploadAccessMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "accounts.middleware.TimezoneMiddleware",
@@ -138,6 +139,15 @@ DATABASES = {
         "OPTIONS": {"connect_timeout": 5},
     }
 }
+# Authentication limits must be shared by every web process. The table uses
+# Django's upstream cache schema and is created by an accounts migration.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "pandect_authentication_cache",
+        "OPTIONS": {"MAX_ENTRIES": 100000},
+    }
+}
 # Use the durable queue in development too; DEBUG must not run work inline.
 TASKS = {
     "default": {
@@ -164,6 +174,8 @@ ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_ADAPTER = "accounts.adapter.PandectAccountAdapter"
+# Full CSV verification is deliberate work; summaries and progress do not consume it.
+ACCOUNT_RATE_LIMITS = {"imessage_row_review": "10/m/user,30/m/key"}
 # Opt in only when the application is reachable through a controlled proxy chain.
 try:
     ALLAUTH_TRUSTED_PROXY_COUNT = int(
@@ -220,7 +232,10 @@ SECURE_SSL_REDIRECT = (
     os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "false").lower() == "true"
 )
 SECURE_REDIRECT_EXEMPT = [r"^health/$"]
-SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "0"))
+SECURE_HSTS_SECONDS = int(
+    os.environ.get("DJANGO_SECURE_HSTS_SECONDS")
+    or ("86400" if origin.scheme == "https" else "0")
+)
 if SECURE_HSTS_SECONDS < 0:
     raise ImproperlyConfigured("DJANGO_SECURE_HSTS_SECONDS must not be negative.")
 CSRF_TRUSTED_ORIGINS = [

@@ -1,5 +1,6 @@
 """Application entry points; case and investigation routes are added incrementally."""
 
+from allauth.account.decorators import secure_admin_login
 from django.contrib import admin
 from django.urls import include, path
 
@@ -7,6 +8,8 @@ from accounts.views import timezone_settings
 from cases.views import invitation_accept
 
 from .views import health
+
+admin.site.login = secure_admin_login(admin.site.login)
 
 urlpatterns = [
     path("", include("marketing.urls")),

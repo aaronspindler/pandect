@@ -124,10 +124,19 @@ class DeploymentSettingsTests(SimpleTestCase):
             ):
                 self.load_settings(PANDECT_PUBLIC_ORIGIN=origin)
 
-    def test_hsts_and_additional_csrf_trust_require_configuration(self):
+    def test_hsts_defaults_to_one_day_for_https_origins_and_allows_overrides(self):
         defaults = self.load_settings()
         self.assertEqual(defaults["SECURE_HSTS_SECONDS"], 0)
         self.assertEqual(defaults["CSRF_TRUSTED_ORIGINS"], ["http://localhost:8000"])
+        https = self.load_settings(PANDECT_PUBLIC_ORIGIN="https://cases.example.test")
+        self.assertEqual(https["SECURE_HSTS_SECONDS"], 86400)
+        for override, expected in (("", 86400), ("0", 0), ("3600", 3600)):
+            with self.subTest(override=override):
+                configured = self.load_settings(
+                    PANDECT_PUBLIC_ORIGIN="https://cases.example.test",
+                    DJANGO_SECURE_HSTS_SECONDS=override,
+                )
+                self.assertEqual(configured["SECURE_HSTS_SECONDS"], expected)
         production = self.load_settings(
             DJANGO_SECURE_HSTS_SECONDS="86400",
             DJANGO_CSRF_TRUSTED_ORIGINS="https://openpandect.com, , https://www.example.test",
@@ -139,3 +148,21 @@ class DeploymentSettingsTests(SimpleTestCase):
         )
         with self.assertRaisesMessage(ImproperlyConfigured, "must not be negative"):
             self.load_settings(DJANGO_SECURE_HSTS_SECONDS="-1")
+
+    def test_https_response_emits_hsts_behind_an_explicitly_trusted_proxy(self):
+        production = self.load_settings(
+            PANDECT_PUBLIC_ORIGIN="https://cases.example.test",
+            DJANGO_TRUST_PROXY_HEADERS="true",
+        )
+        with override_settings(
+            SECURE_HSTS_SECONDS=production["SECURE_HSTS_SECONDS"],
+            SECURE_PROXY_SSL_HEADER=production["SECURE_PROXY_SSL_HEADER"],
+        ):
+            middleware = SecurityMiddleware(lambda request: HttpResponse("ok"))
+            request = RequestFactory().get(
+                "/", HTTP_HOST="cases.example.test", HTTP_X_FORWARDED_PROTO="https"
+            )
+            response = middleware(request)
+            self.assertEqual(response["Strict-Transport-Security"], "max-age=86400")
+            local = middleware(RequestFactory().get("/"))
+            self.assertNotIn("Strict-Transport-Security", local)

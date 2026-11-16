@@ -2,6 +2,7 @@
 
 from uuid import UUID
 
+from allauth.core import ratelimit
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
@@ -107,12 +108,6 @@ def imessage_review(request, case_id, run_id):
         )
     else:
         preview = requested
-    document = None
-    source_error = ""
-    try:
-        document = preview_source(preview, case)
-    except AnalysisError as error:
-        source_error = error_message(error.code)
     final = (
         AnalysisRun.objects.filter(
             case=case,
@@ -124,6 +119,33 @@ def imessage_review(request, case_id, run_id):
         .first()
     )
     current = final or preview
+    if (
+        request.method in {"GET", "HEAD"}
+        and request.headers.get("X-Pandect-Live") == "1"
+    ):
+        # Poll only authorized run state. Reading rows deliberately revalidates
+        # the entire CSV, so it must never run on an automatic refresh.
+        return render_live(
+            request,
+            "phone/imessage_progress.html",
+            {"case": case, "run": current, "final": final},
+        )
+    show_rows = request.GET.get("page") is not None
+    if show_rows or request.method == "POST":
+        limited = ratelimit.consume_or_429(
+            request,
+            action="imessage_row_review",
+            key=str(case.pk),
+            limit_get=True,
+        )
+        if limited is not None:
+            return limited
+    document = None
+    source_error = ""
+    try:
+        document = preview_source(preview, case)
+    except AnalysisError as error:
+        source_error = error_message(error.code)
     if any(
         hasattr(run, "result") and run.result.case_id != case.pk
         for run in (preview, current)
@@ -133,9 +155,9 @@ def imessage_review(request, case_id, run_id):
         preview.result.data if not source_error and hasattr(preview, "result") else {}
     )
     legacy_preview = preview.method_version != "2"
-    samples = data.get("items", [])[:3]
+    samples = data.get("imessage_samples", data.get("items", [])[:3])
     rows = Paginator(data.get("items", []), 25).get_page(request.GET.get("page"))
-    if data and not legacy_preview:
+    if data and not legacy_preview and (show_rows or request.method == "POST"):
         try:
             total = data.get("metrics", {}).get("source_rows", 0)
             rows = Paginator(range(total), 25).get_page(request.GET.get("page"))
@@ -270,6 +292,7 @@ def imessage_review(request, case_id, run_id):
             "samples": samples,
             "metrics": metrics,
             "rows": rows,
+            "show_rows": show_rows,
             "form": form,
             "account_form": account,
             "correspondent_form": correspondent,

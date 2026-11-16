@@ -59,7 +59,9 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   `AUTH_USER_MODEL = "accounts.User"` is set before any initial migration.
 - django-allauth supplies username/email sign-in, registration, mandatory email
   verification, password recovery, and sign-out under `/accounts/`.
-- Django admin uses the custom user model and requires staff permissions.
+- Django admin uses the same allauth sign-in flow and requires staff permissions.
+  Authentication rate limits share Django's PostgreSQL cache. An accounts
+  migration creates the upstream cache schema; it is not a Pandect domain model.
 - `cases/` owns the investigation boundary (`Case`), viewer/editor collaboration
   (`CaseMembership`), and UUID-keyed `CaseInvitation`. Ownership is separate from
   membership. `cases.permissions` supplies current case authorization to product

@@ -1,9 +1,12 @@
 import hashlib
 from datetime import timedelta
+from unittest.mock import patch
 
 from allauth.account.models import EmailAddress
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.cache.backends.db import DatabaseCache
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -202,10 +205,56 @@ class AuthenticationTests(TestCase):
     def test_admin_requires_staff_access(self):
         response = self.client.get(reverse("admin:index"))
         self.assertRedirects(
-            response, f"{reverse('admin:login')}?next={reverse('admin:index')}"
+            response,
+            f"{reverse('admin:login')}?next={reverse('admin:index')}",
+            fetch_redirect_response=False,
         )
         self.client.force_login(self.user)
         self.assertEqual(self.client.get(reverse("admin:index")).status_code, 302)
+
+    def test_admin_login_uses_allauth_instead_of_accepting_credentials(self):
+        operator = get_user_model().objects.create_superuser(
+            username="login-operator",
+            email="login-operator@example.test",
+            password=self.password,
+        )
+        target = reverse("admin:index")
+        expected = f"{reverse('account_login')}?next={target}"
+        url = f"{reverse('admin:login')}?next={target}"
+        self.assertRedirects(self.client.get(url), expected)
+        response = self.client.post(
+            url, {"username": operator.username, "password": self.password}
+        )
+        self.assertRedirects(response, expected)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+        response = self.client.post(
+            expected, {"login": operator.username, "password": self.password}
+        )
+        self.assertRedirects(response, reverse("account_email_verification_sent"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    @override_settings(ACCOUNT_RATE_LIMITS={"login": "2/m/ip"})
+    def test_login_limit_is_shared_by_independent_database_cache_instances(self):
+        configuration = settings.CACHES["default"]
+        first_cache = DatabaseCache(configuration["LOCATION"], configuration)
+        second_cache = DatabaseCache(configuration["LOCATION"], configuration)
+        data = {"login": self.user.username, "password": "incorrect"}
+        for backend, expected in (
+            (first_cache, 200),
+            (second_cache, 200),
+            (first_cache, 429),
+        ):
+            with patch("allauth.core.internal.ratelimit.cache", backend):
+                response = Client().post(
+                    reverse("account_login"), data, REMOTE_ADDR="192.0.2.101"
+                )
+            self.assertEqual(response.status_code, expected)
+        with patch("allauth.core.internal.ratelimit.cache", second_cache):
+            response = Client().post(
+                reverse("account_login"), data, REMOTE_ADDR="192.0.2.102"
+            )
+        self.assertEqual(response.status_code, 200)
 
     def test_superuser_can_access_admin(self):
         superuser = get_user_model().objects.create_superuser(

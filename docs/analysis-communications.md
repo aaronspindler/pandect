@@ -245,9 +245,15 @@ contexts and results. Repeated confirmation/retries create no duplicates. Confli
 source-row interpretations preserve originals. Document/row identity, as in HTML,
 does not deduplicate distinct exports by native IDs.
 
-Method 2 retains compact summaries/digests of reviewed interpretation. Review
-reads 25 rows at a time from checksum-verified originals using retained timezone/
-text limits; three initial rows supply excerpts. Eligibility/time changes need
+Method 2 retains compact summaries/digests of reviewed interpretation and excerpts
+from up to three initial rows. Ordinary review reads that retained summary;
+automatic updates read only authorized run progress and offer a link when review
+is ready. **Review all message rows** deliberately reads the checksum-verified
+original and shows 25 rows using retained timezone/text limits. Confirmation also
+rechecks the full source and interpretation before queueing publication. These
+full-file checks share a limit of 10 per minute per user and 30 per minute per
+case across web processes; excess requests return 429 before reading the source.
+Summary pages and progress remain available. Eligibility/time changes need
 fresh review. Result item/byte ceilings never truncate imports: messages are not
 individual result items. Bounded publication groups share one transaction and
 roll back entirely on conflict/failure. Completed message links paginate.

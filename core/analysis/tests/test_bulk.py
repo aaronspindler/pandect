@@ -1,18 +1,21 @@
 """Case-wide local checks keep bounds, attribution and retry-safe progress."""
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from unittest.mock import patch
 from uuid import uuid4
 
 from allauth.account.models import EmailAddress
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
-from django.db import OperationalError
-from django.test import Client, TestCase, override_settings
+from django.db import OperationalError, close_old_connections
+from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
-from cases.models import CaseMembership
+from cases.models import Case, CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch, start_case_analysis
 from core.analysis.services import process_run
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, FILE_KINDS, KINDS
@@ -110,6 +113,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(original_run.status, "complete")
         original_result = AnalysisResult.objects.get(run=original_run)
         retained_data = original_result.data
+        runs.exclude(pk=original_run.pk).update(status=AnalysisRun.Status.UNSUPPORTED)
         later, _ = self.start()
         self.drain(later)
         original_result.refresh_from_db()
@@ -117,6 +121,41 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             AnalysisRun.objects.count(), batch.queued_runs + later.queued_runs
         )
+
+    def test_fresh_requests_wait_for_preparation_and_checks_across_editors(self):
+        self.source("text")
+        batch, _ = self.start(role="editor")
+        with self.assertRaisesMessage(ValidationError, "already in progress"):
+            self.start()
+        batch.refresh_from_db()
+        self.assertEqual(batch.requested_by, self.users["editor"])
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+        self.assertEqual(DBTaskResult.objects.count(), 1)
+
+        self.drain(batch)
+        runs = AnalysisRun.objects.filter(batch=batch)
+        self.assertEqual(runs.count(), 2)
+        for state in (AnalysisRun.Status.QUEUED, AnalysisRun.Status.RUNNING):
+            runs.update(status=state)
+            with self.assertRaisesMessage(ValidationError, "already in progress"):
+                self.start()
+            self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+        runs.update(status=AnalysisRun.Status.FAILED)
+        fresh, created = self.start()
+        self.assertTrue(created)
+        self.assertNotEqual(fresh.pk, batch.pk)
+
+    def test_scoped_batches_and_other_cases_do_not_block_case_wide_checks(self):
+        scoped = CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            scope={"type": "reprocess"},
+        )
+        self.start(role="outsider", case=self.other_case)
+        full, created = self.start()
+        self.assertTrue(created)
+        self.assertNotEqual(full.pk, scoped.pk)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 3)
 
     def test_archived_foreign_inconsistent_and_new_sources_are_excluded(self):
         active = self.source("text")
@@ -274,12 +313,16 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
                     ).status_code,
                     302,
                 )
-        self.assertEqual(CaseAnalysisBatch.objects.count(), 2)
-        self.assertEqual(DBTaskResult.objects.count(), 2)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+        self.assertEqual(DBTaskResult.objects.count(), 1)
         self.login("owner")
+        response = self.client.post(
+            self.url(), {"submission_id": str(uuid4())}, follow=True
+        )
+        self.assertContains(response, "Case-wide analysis is already in progress.")
         self.assertEqual(self.client.get(self.url()).status_code, 405)
         self.client.post(self.url(), {"submission_id": "invalid"})
-        self.assertEqual(CaseAnalysisBatch.objects.count(), 2)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(
@@ -313,3 +356,30 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
             )
         self.assertContains(response, "Analysis could not be queued")
         self.assertNotContains(response, "Private connection details")
+
+
+class ConcurrentCaseAnalysisTests(TransactionTestCase):
+    def test_fresh_concurrent_requests_create_one_batch_and_task(self):
+        owner = get_user_model().objects.create_user(username="parallel-batch-owner")
+        editor = get_user_model().objects.create_user(username="parallel-batch-editor")
+        case = Case.objects.create(owner=owner, name="Concurrent batch requests")
+        CaseMembership.objects.create(case=case, user=editor, role="editor")
+        ready = Barrier(2)
+
+        def submit(actor):
+            close_old_connections()
+            try:
+                ready.wait(timeout=10)
+                batch, _ = start_case_analysis(actor, case.pk, submission_id=uuid4())
+                return "created", batch.pk
+            except ValidationError as error:
+                self.assertIn("already in progress", str(error))
+                return "busy", None
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(submit, (owner, editor)))
+        self.assertEqual(sorted(row[0] for row in results), ["busy", "created"])
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+        self.assertEqual(DBTaskResult.objects.count(), 1)
