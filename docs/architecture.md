@@ -41,9 +41,13 @@ Web and worker share one image. Production web defaults to
 `gunicorn config.wsgi:application`; the worker uses
 `sh /app/scripts/docker-entrypoint-worker.sh`. In Dokploy, the singleton worker
 migrates and emits its release preparation marker before processing tasks; web
-activation follows. `APP_COMMIT_SHA` is baked into the image and OCI revision label
-and returned as `commit` by healthy `/health/` responses. Compose overrides startup
-commands for development. PostgreSQL 18's named volume mounts at `/var/lib/postgresql`.
+activation follows. `APP_VERSION` carries the published `vN.N` identifier in the
+image, OCI version label, and healthy `/health/` response's `version` field;
+local builds default to `dev`. `APP_COMMIT_SHA` retains the exact source revision
+in the image, OCI revision label, and health response's `commit` field. See
+[release numbering and deployment](operations.md#continuous-deployment).
+Compose overrides startup commands for development. PostgreSQL 18's named volume
+mounts at `/var/lib/postgresql`.
 
 Django's Tasks API uses the beta `django-tasks-db` dependency, PostgreSQL, and one
 `default` queue, without a separate broker. Compose starts its worker after web

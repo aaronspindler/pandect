@@ -198,72 +198,16 @@ jobs:
       - name: Audit locked dependencies
         run: make security-check
 
-  images:
-    name: Publish production image
-    needs: [static, check, browser, security]
-    if: >-
-      needs.static.outputs.full == 'true' &&
-      github.repository == 'aaronspindler/pandect' &&
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Check out the tested source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-      - name: Set the production image name
-        id: image
-        shell: bash
-        run: printf 'name=ghcr.io/%s\n' "${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - name: Build and push the production image
-        id: publish
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          build-args: APP_COMMIT_SHA=${{ github.sha }}
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          tags: |
-            ${{ steps.image.outputs.name }}:${{ github.sha }}
-            ${{ steps.image.outputs.name }}:build-${{ github.run_id }}
-          cache-from: type=gha,version=2,scope=pandect-app-amd64
-          cache-to: type=gha,version=2,scope=pandect-app-amd64,mode=max,ignore-error=true
-      - name: Record the published immutable image
-        env:
-          IMAGE: ${{ steps.image.outputs.name }}
-          DIGEST: ${{ steps.publish.outputs.digest }}
-        shell: bash
-        run: |
-          # shellcheck disable=SC2016
-          printf 'Published `%s@%s` for `%s`.\n' "$IMAGE" "$DIGEST" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-
   status:
     name: CI status
-    needs: [static, check, browser, security, images]
+    needs: [static, check, browser, security]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       RESULTS: ${{ toJSON(needs) }}
-      PUBLISH_EXPECTED: ${{ github.repository == 'aaronspindler/pandect' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
-      - name: Require successful checks or deliberate documentation-only skips
+      - name: ${{ needs.static.outputs.full == 'true' && 'Require successful application checks' || 'Require deliberate documentation-only skips' }}
         run: |
           python3 - <<'PY'
           import json
@@ -275,10 +219,8 @@ jobs:
           valid = jobs['static']['result'] == 'success' and full in {'true', 'false'}
           expected = 'success' if full == 'true' else 'skipped'
           valid = valid and all(jobs[name]['result'] == expected for name in ('check', 'browser', 'security'))
-          image_expected = 'success' if full == 'true' and os.environ['PUBLISH_EXPECTED'] == 'true' else 'skipped'
-          valid = valid and jobs['images']['result'] == image_expected
           if not valid:
               print('CI failed: a required job failed, was cancelled, or was unexpectedly skipped.')
               sys.exit(1)
-          print('All required checks passed.' if full == 'true' else 'Documentation-only checks passed; application jobs and publication were intentionally skipped.')
+          print('All required checks passed.' if full == 'true' else 'Documentation-only checks passed; application jobs were intentionally skipped.')
           PY

@@ -225,19 +225,25 @@ capacity in routine tests.
 - A separate application-run job audits locked dependencies without database
   credentials. The scheduled audit also continues independently of source changes.
 - Native smoke builds and production publication reuse architecture-specific
-  GitHub Actions BuildKit layer caches. Only upstream `main` pushes export those
-  caches; PR and manual runs restore only. Cache misses use cold builds, and
-  cache export failures do not hide build, smoke, or publication failures.
+  GitHub Actions BuildKit layer caches. Only upstream `main` CI smoke builds and
+  CD builds export those caches; PR and manual CI runs restore only. Cache misses
+  use cold builds, and cache export failures do not hide build, smoke, or
+  publication failures.
   Smoke exercises the exact locally loaded image; publication rebuilds from the
-  tested source using the amd64 layer cache.
+  tested source using the matching architecture's layer cache.
 - After those checks pass for a `main` push in the Pandect operator repository,
-  CI publishes one Linux amd64 application image to GHCR. CD resolves its
-  successful-run and commit tags to a matching digest and deploys that same image
-  to the native web and worker Dokploy Applications with their respective startup
+  **CD** allocates the next consecutive `v1.N` release version, builds native
+  Linux amd64 and arm64 images, and publishes a combined attempt image to GHCR.
+  CI itself does not publish packages or deploy. CD verifies both platforms and
+  resolves the attempt tag to the published immutable digest, then deploys it to
+  the native web and worker Dokploy Applications with their respective startup
   commands, verifying worker startup before the web release. See
   [continuous deployment](operations.md#continuous-deployment). After both services
-  pass verification, a dependent job publishes a GitHub release for the tested
-  commit. Stale skips and failed deployments do not publish.
+  pass verification, the final publication stage promotes the versioned image
+  and publishes a GitHub release for the tested commit. Published successful
+  releases advance the version sequence; failed or skipped runs do not consume
+  numbers. Successful-source reruns leave published images and releases unchanged.
+  Rejected older attempts and failed deployments do not publish a release.
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
 - **CodeQL** uses GitHub-managed default setup in the repository's security
   settings. Upstream scans Python, JavaScript/TypeScript, and Actions with extended
@@ -246,12 +252,13 @@ capacity in routine tests.
   [GitHub rejects their analysis uploads](https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/two-codeql-workflows).
 
 Workflows use pinned action commits and default to read-only contents permissions.
-Only CI's production image job receives package-write permission; CD's deploy job
-receives package-read permission and the production environment's deployment
-secrets. A preceding job receives Actions read permission to inspect CI publication
-without production secrets. Its separate release job receives contents-write
-permission through the built-in GitHub token, without deployment secrets. These
-workflows do not perform container or secret scanning.
+CD's native build, combined-image, and final release jobs receive package-write
+permission; the final job uses it to promote the verified version tag. The deploy
+job receives package-read permission and the production environment's deployment
+secrets. Preflight receives Actions read permission to inspect CI results, and
+release preparation receives contents-read permission, without production
+secrets. The final release job also receives contents-write permission through
+the built-in GitHub token, without deployment secrets. These workflows do not perform container or secret scanning.
 CI's classification job receives deployment-read permission to check the latest
 explicit production rollout before skipping application work. CD's production
 job receives deployment-write permission to record that rollout's actual tested
@@ -265,8 +272,9 @@ uv run --locked python -m unittest config.tests.test_dokploy_deploy config.tests
 ```
 
 These cover immutable deployment identity, startup commands, worker-before-web
-ordering, bounded failures, stale skips, release reruns, and tag conflicts. GitHub
-permissions, GHCR/Dokploy access, and publication require live verification.
+ordering, bounded failures, ancestry guards, consecutive release allocation,
+release reruns, and tag conflicts. GitHub permissions, GHCR/Dokploy access, and
+publication require live verification.
 Hosted checks run after upload; local checks do not prove their execution or
 deployed behavior.
 
@@ -275,8 +283,9 @@ deployed behavior.
 CI always starts and reports a final **CI status** check. Changes limited to
 Markdown under `docs/` and the root `README.md`, `AGENTS.md`, `DESIGN.md`,
 `PRINCIPLES.md`, and `SECURITY.md` can skip application tests, browsers, dependency
-audit, and image publication. Static checks and changed-range whitespace checks
-still run. Review documentation accuracy and affected links during handoff.
+audit, and the subsequent CD image publication. Static checks and changed-range
+whitespace checks still run. Review documentation accuracy and affected links
+during handoff.
 The final check accepts skipped jobs only after successful explicit classification;
 unexpected skips, failures, and cancellations fail it. Requiring this status in
 branch rules is an operator setting, not a workflow side effect.
@@ -297,10 +306,15 @@ enables later documentation-only skips. No application database migration or new
 service is required.
 Manual runs always select full coverage. The classifier never changes Git refs.
 
-CD's secret-free preflight inspects the triggering CI run's publication job.
-An explicit skipped image publication means no production deployment or GitHub
-release. Missing, failed, or ambiguous publication results fail preflight rather
-than being interpreted as documentation-only work.
+CD's secret-free preflight requires successful static and final status jobs and
+the status job's explicit successful validation decision. For a full application
+run, it also requires successful native AMD64/ARM64 tests, Chromium/WebKit journeys,
+and dependency audit before image publication and deployment. A confirmed
+documentation-only decision skips all CD publication, deployment, and release
+jobs; skipped matrix jobs need not have expanded into platform/browser entries.
+Missing, failed, or ambiguous results fail preflight rather than being interpreted
+as documentation-only work. Queued releases also pass the commit-ancestry checks
+described in the operations guide.
 
 ## Public release checks
 

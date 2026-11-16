@@ -20,9 +20,11 @@ deploy = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(deploy)
 
 SHA = "a" * 40
+VERSION = "v1.42"
 IMAGE = "ghcr.io/example/pandect@sha256:" + "b" * 64
 ENVIRONMENT = {
     "TESTED_SHA": SHA,
+    "PANDECT_VERSION": VERSION,
     "GITHUB_REPOSITORY": "example/pandect",
     "GITHUB_API_URL": "https://api.github.com",
     "GITHUB_SERVER_URL": "https://github.com",
@@ -56,9 +58,35 @@ class DeploymentCommandTests(TestCase):
         status.start()
         self.addCleanup(marker.stop)
         self.addCleanup(status.stop)
+        history = patch.object(deploy, "eligible_release", return_value=True)
+        history.start()
+        self.addCleanup(history.stop)
 
     def test_helper_parses_on_the_cd_runners_python_312(self):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 12))
+
+    def test_invalid_or_missing_version_blocks_mutations(self):
+        for version in (
+            "",
+            SHA,
+            "deploy-" + SHA,
+            "v1",
+            "v1.2.3",
+            "v01.2",
+            "v1.02",
+            "v1.2/other",
+            "v1.2\n",
+        ):
+            with (
+                self.subTest(version=version),
+                patch.dict(os.environ, {"PANDECT_VERSION": version}),
+                patch.object(deploy, "api") as request,
+                patch.object(deploy, "dokploy") as remote,
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                deploy.main()
+            request.assert_not_called()
+            remote.assert_not_called()
 
     def test_native_deploy_accepts_an_empty_success_response(self):
         with patch.object(OpenerDirector, "open", return_value=io.BytesIO(b"")):
@@ -68,13 +96,12 @@ class DeploymentCommandTests(TestCase):
 
     def test_stale_ci_cannot_mutate_dokploy(self):
         with (
-            patch.object(deploy, "api", return_value={"object": {"sha": "c" * 40}}),
+            patch.object(deploy, "eligible_release", return_value=False),
             patch.object(deploy, "deploy") as activate,
-            redirect_stdout(io.StringIO()) as output,
+            redirect_stdout(io.StringIO()),
         ):
             deploy.main()
         activate.assert_not_called()
-        self.assertIn("Skipped stale", output.getvalue())
         self.assertEqual(self.output.read_text(), "")
 
     def test_worker_is_verified_before_web_activation(self):
@@ -199,6 +226,8 @@ class DeploymentCommandTests(TestCase):
         provider = request.call_args_list[2].args[1]
         self.assertEqual(provider["dockerImage"], IMAGE)
         self.assertEqual(provider["registryUrl"], "ghcr.io")
+        activation = request.call_args_list[3].args[1]
+        self.assertEqual(activation["title"], f"Deploy worker {VERSION} CI 123")
         self.assertNotIn(ENVIRONMENT["DOKPLOY_REGISTRY_PASSWORD"], output.getvalue())
         readiness.assert_called_once()
 
@@ -318,6 +347,14 @@ class RolloutMarkerTests(TestCase):
         self.fail_states = set()
         self.main_reads = 0
         self.current_sha = SHA
+        history = patch.object(deploy, "eligible_release", side_effect=self.eligible)
+        history.start()
+        self.addCleanup(history.stop)
+
+    def eligible(self, sha):
+        self.events.append("history")
+        self.main_reads += 1
+        return self.main_reads == 1 or self.current_sha == sha
 
     def request(self, url, headers=None, data=None):
         self.assertEqual(headers, {"Authorization": "Bearer synthetic-github-token"})
@@ -360,7 +397,7 @@ class RolloutMarkerTests(TestCase):
                     "required_contexts": [],
                     "production_environment": True,
                     "transient_environment": False,
-                    "payload": {"ci_run_id": "123", "image": IMAGE},
+                    "payload": {"ci_run_id": "123", "image": IMAGE, "version": VERSION},
                 },
             ),
         )
@@ -421,7 +458,7 @@ class RolloutMarkerTests(TestCase):
             deploy.main()
         self.assertEqual(
             self.events,
-            ["main", "record", "in_progress", "main", "worker", "web", "success"],
+            ["history", "record", "in_progress", "history", "worker", "web", "success"],
         )
         self.assertEqual(self.output.read_text(), "deployed=true\n")
 
@@ -437,10 +474,7 @@ class RolloutMarkerTests(TestCase):
                     deploy,
                     "api",
                     side_effect=(
-                        [
-                            {"object": {"sha": SHA}},
-                            deploy.DeploymentError("Unavailable"),
-                        ]
+                        [deploy.DeploymentError("Unavailable")]
                         if creation_failure
                         else self.request
                     ),
@@ -453,7 +487,9 @@ class RolloutMarkerTests(TestCase):
             self.assertEqual(self.output.read_text(), "")
             self.assertEqual(self.accepted_statuses, [])
 
-    def test_main_advance_after_record_creation_marks_inactive_without_activation(self):
+    def test_ineligible_history_after_record_creation_marks_inactive_without_activation(
+        self,
+    ):
         self.current_sha = "c" * 40
         with (
             patch.object(deploy, "api", side_effect=self.request),
@@ -511,7 +547,7 @@ class DeploymentPreflightTests(TestCase):
         self.addCleanup(temporary.cleanup)
         self.output = Path(temporary.name) / "github-output"
         self.output.touch()
-        self.environment = patch.dict(
+        environment = patch.dict(
             os.environ,
             {
                 "TESTED_SHA": SHA,
@@ -524,10 +560,11 @@ class DeploymentPreflightTests(TestCase):
             },
             clear=True,
         )
-        self.environment.start()
-        self.addCleanup(self.environment.stop)
+        environment.start()
+        self.addCleanup(environment.stop)
         self.run = {
             "id": 123,
+            "run_number": 42,
             "run_attempt": 1,
             "name": "CI",
             "path": ".github/workflows/ci.yml",
@@ -538,20 +575,46 @@ class DeploymentPreflightTests(TestCase):
             "conclusion": "success",
             "head_repository": {"full_name": "example/pandect"},
         }
-        self.image_job = {
-            "name": "Publish production image",
-            "run_id": 123,
-            "head_sha": SHA,
-            "status": "completed",
-            "conclusion": "success",
-        }
+        self.required_jobs = [
+            {
+                "name": name,
+                "run_id": 123,
+                "head_sha": SHA,
+                "status": "completed",
+                "conclusion": "success",
+            }
+            for name in (
+                "Classify changes and validate source",
+                "CI status",
+                "Test and validate (amd64)",
+                "Test and validate (arm64)",
+                "Investigator journeys (chromium)",
+                "Investigator journeys (webkit)",
+                "Locked Python dependency audit",
+            )
+        ]
+        self.required_jobs[1]["steps"] = [
+            {
+                "name": "Require successful application checks",
+                "status": "completed",
+                "conclusion": "success",
+            }
+        ]
 
     def jobs(self, *jobs):
         return {"total_count": len(jobs), "jobs": list(jobs)}
 
-    def preflight(self, *responses):
+    def skip_application(self):
+        self.required_jobs[1]["steps"][0]["name"] = (
+            "Require deliberate documentation-only skips"
+        )
+        for job in self.required_jobs[2:]:
+            job["conclusion"] = "skipped"
+
+    def preflight(self, *responses, eligible=True):
         with (
             patch.object(deploy, "api", side_effect=responses) as request,
+            patch.object(deploy, "eligible_release", return_value=eligible) as history,
             patch.object(deploy, "dokploy") as remote,
             patch.object(deploy, "deploy") as activate,
             redirect_stdout(io.StringIO()) as output,
@@ -559,30 +622,78 @@ class DeploymentPreflightTests(TestCase):
             deploy.preflight()
         remote.assert_not_called()
         activate.assert_not_called()
-        return request, output.getvalue()
+        return request, output.getvalue(), history
 
-    def test_successful_image_enables_deployment_without_production_secrets(self):
+    def test_successful_checks_enable_deployment_without_production_secrets(self):
         self.output.write_text("existing=retained\n")
-        request, output = self.preflight(self.run, self.jobs(self.image_job))
+        request, output, history = self.preflight(
+            self.run, self.jobs(*self.required_jobs)
+        )
         self.assertEqual(self.output.read_text(), "existing=retained\ndeploy=true\n")
         self.assertIn("eligible", output)
         self.assertEqual(request.call_count, 2)
+        history.assert_called_once_with(SHA)
         self.assertTrue(
             request.call_args.args[0].endswith("/attempts/1/jobs?per_page=100")
         )
 
     def test_explicit_skip_disables_deployment_and_release(self):
-        self.image_job["conclusion"] = "skipped"
+        self.skip_application()
         summary = self.output.with_name("github-summary")
         with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
-            _, output = self.preflight(self.run, self.jobs(self.image_job))
+            _, output, history = self.preflight(
+                self.run,
+                self.jobs(
+                    *self.required_jobs[:2],
+                    {"name": "Test and validate", "conclusion": "skipped"},
+                    {"name": "Investigator journeys", "conclusion": "skipped"},
+                ),
+            )
         self.assertEqual(self.output.read_text(), "deploy=false\n")
         self.assertIn("Skipped production deployment and release", output)
         self.assertEqual(summary.read_text(), output)
+        history.assert_not_called()
+
+    def test_older_release_does_not_publish_or_deploy(self):
+        self.preflight(self.run, self.jobs(*self.required_jobs), eligible=False)
+        self.assertEqual(self.output.read_text(), "deploy=false\n")
+
+    def test_missing_ambiguous_or_unsuccessful_ci_decision_fails(self):
+        marker = self.required_jobs[1]["steps"][0]
+        for steps in (
+            None,
+            [],
+            [None],
+            [marker, marker],
+            [{**marker, "name": "Unrecognized validation"}],
+            [{**marker, "status": "in_progress"}],
+            [{**marker, "conclusion": "skipped"}],
+            [{**marker, "conclusion": "failure"}],
+        ):
+            jobs = [
+                self.required_jobs[0],
+                {**self.required_jobs[1], "steps": steps},
+                *self.required_jobs[2:],
+            ]
+            with self.subTest(steps=steps), self.assertRaises(deploy.DeploymentError):
+                self.preflight(self.run, self.jobs(*jobs))
+            self.assertEqual(self.output.read_text(), "")
+
+    def test_full_validation_requires_both_architectures_and_browsers(self):
+        for missing in self.required_jobs[2:]:
+            jobs = [job for job in self.required_jobs if job is not missing]
+            with (
+                self.subTest(missing=missing["name"]),
+                self.assertRaisesRegex(deploy.DeploymentError, "required checks"),
+            ):
+                self.preflight(self.run, self.jobs(*jobs))
+            self.assertEqual(self.output.read_text(), "")
 
     def test_untrusted_or_mismatching_run_cannot_enable_deployment(self):
         for change in (
             {"id": 456},
+            {"run_number": "42"},
+            {"run_number": 0},
             {"run_attempt": 2},
             {"name": "Different workflow"},
             {"path": ".github/workflows/unrelated.yml"},
@@ -612,7 +723,7 @@ class DeploymentPreflightTests(TestCase):
                 self.subTest(name=name),
                 patch.dict(os.environ, {name: value}),
                 patch.object(deploy, "api") as request,
-                self.assertRaisesRegex(deploy.DeploymentError, "Invalid CI run"),
+                self.assertRaises(deploy.DeploymentError),
             ):
                 deploy.preflight()
             request.assert_not_called()
@@ -627,24 +738,37 @@ class DeploymentPreflightTests(TestCase):
             deploy.preflight()
         request.assert_not_called()
 
-    def test_missing_ambiguous_failed_or_incomplete_image_job_fails(self):
-        for jobs in (
-            self.jobs(),
-            self.jobs(self.image_job, self.image_job),
-            self.jobs({**self.image_job, "conclusion": "failure"}),
-            self.jobs({**self.image_job, "conclusion": "cancelled"}),
-            self.jobs({**self.image_job, "status": "in_progress"}),
-            self.jobs({**self.image_job, "run_id": 456}),
-            self.jobs({**self.image_job, "head_sha": "b" * 40}),
-            {"total_count": 101, "jobs": [self.image_job]},
+    def test_ambiguous_failed_mixed_or_incomplete_jobs_fail(self):
+        for payload in (
+            self.jobs(*self.required_jobs, self.required_jobs[0]),
+            self.jobs(
+                *self.required_jobs[:2],
+                *[{**job, "conclusion": "skipped"} for job in self.required_jobs[2:3]],
+                *self.required_jobs[3:],
+            ),
+            *[
+                self.jobs({**self.required_jobs[0], **change}, *self.required_jobs[1:])
+                for change in (
+                    {"conclusion": "failure"},
+                    {"conclusion": "skipped"},
+                    {"status": "in_progress"},
+                    {"run_id": 456},
+                    {"head_sha": "b" * 40},
+                )
+            ],
+            self.jobs(
+                *self.required_jobs[:-1],
+                {**self.required_jobs[-1], "conclusion": "cancelled"},
+            ),
+            {"total_count": 101, "jobs": self.required_jobs},
             {"total_count": 1, "jobs": [None]},
             None,
         ):
             with (
-                self.subTest(jobs=jobs),
+                self.subTest(payload=payload),
                 self.assertRaises(deploy.DeploymentError),
             ):
-                self.preflight(self.run, jobs)
+                self.preflight(self.run, payload)
             self.assertEqual(self.output.read_text(), "")
 
     def test_api_failure_does_not_enable_deployment(self):
@@ -652,13 +776,13 @@ class DeploymentPreflightTests(TestCase):
             self.preflight(self.run, deploy.DeploymentError("API unavailable"))
         self.assertEqual(self.output.read_text(), "")
 
-    def test_partial_rerun_uses_latest_image_job_before_triggering_attempt(self):
+    def test_partial_rerun_reuses_latest_jobs_before_triggering_attempt(self):
         os.environ["CI_RUN_ATTEMPT"] = "3"
         self.run["run_attempt"] = 3
-        request, _ = self.preflight(
+        request, _, _ = self.preflight(
             self.run,
-            self.jobs({"name": "Unrelated rerun"}),
-            self.jobs(self.image_job),
+            self.jobs(self.required_jobs[0]),
+            self.jobs(*self.required_jobs[1:]),
         )
         self.assertEqual(self.output.read_text(), "deploy=true\n")
         self.assertEqual(
@@ -675,23 +799,145 @@ class DeploymentPreflightTests(TestCase):
     def test_newer_explicit_skip_takes_precedence_over_older_success(self):
         os.environ["CI_RUN_ATTEMPT"] = "2"
         self.run["run_attempt"] = 2
-        self.image_job["conclusion"] = "skipped"
-        request, _ = self.preflight(self.run, self.jobs(self.image_job))
+        self.skip_application()
+        request, _, _ = self.preflight(self.run, self.jobs(*self.required_jobs))
         self.assertEqual(self.output.read_text(), "deploy=false\n")
         self.assertEqual(request.call_count, 2)
 
-    def test_missing_image_history_is_bounded(self):
+    def test_missing_job_history_is_bounded(self):
         os.environ["CI_RUN_ATTEMPT"] = "100"
         self.run["run_attempt"] = 100
         with (
             patch.object(
                 deploy, "api", side_effect=[self.run] + [self.jobs()] * 20
             ) as request,
-            self.assertRaisesRegex(deploy.DeploymentError, "publication decision"),
+            self.assertRaisesRegex(deploy.DeploymentError, "required checks"),
         ):
             deploy.preflight()
         self.assertEqual(request.call_count, 21)
         self.assertEqual(self.output.read_text(), "")
+
+
+class ReleaseHistoryTests(TestCase):
+    def setUp(self):
+        environment = patch.dict(os.environ, ENVIRONMENT, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.previous_sha = "c" * 40
+        self.record = {
+            "id": 77,
+            "task": "pandect-rollout",
+            "environment": "production",
+            "sha": self.previous_sha,
+            "ref": self.previous_sha,
+            "payload": {"version": "v1.41"},
+        }
+
+    def eligible(self, *responses):
+        with (
+            patch.object(deploy, "api", side_effect=responses) as request,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = deploy.eligible_release(SHA)
+        return result, request
+
+    def test_queued_ancestor_of_main_can_start_the_first_release(self):
+        result, request = self.eligible({"status": "ahead"}, [])
+        self.assertTrue(result)
+        self.assertIn(f"/compare/{SHA}...main", request.call_args_list[0].args[0])
+
+    def test_descendant_commit_follows_previous_attempt(self):
+        result, request = self.eligible(
+            {"status": "ahead"}, [self.record], {"status": "ahead"}
+        )
+        self.assertTrue(result)
+        self.assertTrue(
+            request.call_args.args[0].endswith(f"/compare/{self.previous_sha}...{SHA}")
+        )
+
+    def test_unconsumed_version_can_be_reused_by_a_descendant_commit(self):
+        self.record["payload"]["version"] = VERSION
+        result, _ = self.eligible(
+            {"status": "identical"}, [self.record], {"status": "ahead"}
+        )
+        self.assertTrue(result)
+
+    def test_version_labels_do_not_override_forward_source_history(self):
+        self.record["payload"]["version"] = "v1.43"
+        result, _ = self.eligible(
+            {"status": "identical"}, [self.record], {"status": "ahead"}
+        )
+        self.assertTrue(result)
+
+    def test_same_source_attempt_can_be_retried(self):
+        self.record.update(sha=SHA, ref=SHA)
+        result, request = self.eligible({"status": "identical"}, [self.record])
+        self.assertTrue(result)
+        self.assertEqual(request.call_count, 2)
+
+    def test_historical_versionless_record_requires_forward_commit_history(self):
+        self.record["payload"] = {}
+        result, _ = self.eligible(
+            {"status": "ahead"}, [self.record], {"status": "ahead"}
+        )
+        self.assertTrue(result)
+        result, _ = self.eligible(
+            {"status": "ahead"}, [self.record], {"status": "behind"}
+        )
+        self.assertFalse(result)
+
+    def test_force_pushed_or_reversed_main_history_is_skipped(self):
+        for status in ("diverged", "behind"):
+            with self.subTest(status=status):
+                result, request = self.eligible({"status": status})
+            self.assertFalse(result)
+            self.assertEqual(request.call_count, 1)
+
+    def test_reused_version_cannot_reverse_or_diverge_from_previous_attempt(self):
+        for status in ("diverged", "behind"):
+            with self.subTest(status=status):
+                result, _ = self.eligible(
+                    {"status": "ahead"}, [self.record], {"status": status}
+                )
+            self.assertFalse(result)
+
+    def test_ambiguous_or_malformed_history_fails_closed(self):
+        for history in (
+            None,
+            {},
+            [self.record, self.record],
+            [None],
+            *[
+                [{**self.record, **change}]
+                for change in (
+                    {"id": 0},
+                    {"id": True},
+                    {"sha": "invalid"},
+                    {"ref": "main"},
+                    {"task": "other"},
+                    {"environment": "other"},
+                    {"payload": None},
+                )
+            ],
+        ):
+            with (
+                self.subTest(history=history),
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                self.eligible({"status": "ahead"}, history)
+
+    def test_missing_or_unknown_comparisons_fail_closed(self):
+        for comparison in (None, {}, {"status": "unknown"}):
+            with (
+                self.subTest(comparison=comparison),
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                self.eligible(comparison)
+            with (
+                self.subTest(comparison=comparison),
+                self.assertRaises(deploy.DeploymentError),
+            ):
+                self.eligible({"status": "ahead"}, [self.record], comparison)
 
 
 class ReleaseReadinessTests(TestCase):

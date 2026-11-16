@@ -27,6 +27,13 @@ def required(name):
     return value
 
 
+def release_version():
+    version = required("PANDECT_VERSION")
+    if not re.fullmatch(r"v(0|[1-9][0-9]{0,19})\.(0|[1-9][0-9]{0,19})", version):
+        raise DeploymentError("Invalid deployment version; expected vN.N.")
+    return version
+
+
 def api(url, headers=None, data=None):
     request = Request(
         url,
@@ -79,6 +86,8 @@ def preflight():
         not isinstance(run, dict)
         or run.get("id") != int(run_id)
         or run.get("run_attempt") != attempt
+        or type(run.get("run_number")) is not int
+        or run["run_number"] <= 0
         or run.get("name") != "CI"
         or str(run.get("path", "")).split("@", 1)[0] != ".github/workflows/ci.yml"
         or run.get("head_sha") != sha
@@ -93,7 +102,22 @@ def preflight():
 
     # Partial reruns may reuse a successful job from an earlier attempt. Inspect
     # exact attempts so a later rerun cannot change this event's decision.
-    image_job = None
+    names = {
+        "Classify changes and validate source",
+        "CI status",
+        "Test and validate (amd64)",
+        "Test and validate (arm64)",
+        "Investigator journeys (chromium)",
+        "Investigator journeys (webkit)",
+        "Locked Python dependency audit",
+    }
+    baseline = {"Classify changes and validate source", "CI status"}
+    markers = {
+        "Require successful application checks": True,
+        "Require deliberate documentation-only skips": False,
+    }
+    jobs = {}
+    full = None
     for number in range(attempt, max(0, attempt - 20), -1):
         payload = api(f"{base}/attempts/{number}/jobs?per_page=100", headers)
         if (
@@ -104,41 +128,117 @@ def preflight():
             or len(payload["jobs"]) > 100
         ):
             raise DeploymentError("The CI job list is incomplete or invalid.")
-        matches = [
-            job
-            for job in payload["jobs"]
-            if job.get("name") == "Publish production image"
-        ]
-        if len(matches) > 1:
-            raise DeploymentError("The CI image publication job is ambiguous.")
-        if matches:
-            image_job = matches[0]
+        for name in names - jobs.keys():
+            matches = [job for job in payload["jobs"] if job.get("name") == name]
+            if len(matches) > 1:
+                raise DeploymentError("A required CI job is ambiguous.")
+            if matches:
+                jobs[name] = matches[0]
+        if full is None and "CI status" in jobs:
+            steps = jobs["CI status"].get("steps")
+            if not isinstance(steps, list) or not all(
+                isinstance(step, dict) for step in steps
+            ):
+                raise DeploymentError("CI did not report its validation decision.")
+            decisions = [step for step in steps if step.get("name") in markers]
+            if (
+                len(decisions) != 1
+                or decisions[0].get("status") != "completed"
+                or decisions[0].get("conclusion") != "success"
+            ):
+                raise DeploymentError("CI did not confirm its validation decision.")
+            full = markers[decisions[0]["name"]]
+        required_names = names if full else baseline
+        if full is not None and required_names <= jobs.keys():
             break
     if (
-        image_job is None
-        or image_job.get("run_id") != int(run_id)
-        or image_job.get("head_sha") != sha
-        or image_job.get("status") != "completed"
-        or image_job.get("conclusion") not in {"success", "skipped"}
-    ):
-        raise DeploymentError(
-            "CI did not report a completed image publication decision."
+        full is None
+        or not required_names <= jobs.keys()
+        or any(
+            jobs[name].get("run_id") != int(run_id)
+            or jobs[name].get("head_sha") != sha
+            or jobs[name].get("status") != "completed"
+            or jobs[name].get("conclusion") != "success"
+            for name in required_names
         )
-    eligible = image_job["conclusion"] == "success"
+    ):
+        raise DeploymentError("CI did not report all completed required checks.")
+    eligible = full and eligible_release(sha)
     with open(output_path, "a", encoding="utf-8") as output:
         output.write(f"deploy={'true' if eligible else 'false'}\n")
     message = (
-        "CI published the tested image; production deployment is eligible."
+        "CI checks passed; production publication and deployment are eligible."
         if eligible
         else (
             "Skipped production deployment and release: "
-            "CI explicitly skipped image publication."
+            "CI explicitly skipped application checks."
+            if not full
+            else "Skipped production deployment and release: history has advanced."
         )
     )
     print(message)
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(summary_path, "a", encoding="utf-8") as summary:
             summary.write(message + "\n")
+
+
+def eligible_release(sha):
+    """Accept only forward commits on the current main history."""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise DeploymentError("Invalid CI commit identity.")
+    base = f"{required('GITHUB_API_URL')}/repos/{required('GITHUB_REPOSITORY')}"
+    headers = {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"}
+    comparison = api(f"{base}/compare/{sha}...main", headers)
+    if not isinstance(comparison, dict) or comparison.get("status") not in {
+        "ahead",
+        "identical",
+        "behind",
+        "diverged",
+    }:
+        raise DeploymentError("GitHub did not confirm the main commit history.")
+    if comparison["status"] not in {"ahead", "identical"}:
+        print("Skipped CI commit outside current main history.")
+        return False
+    latest = api(
+        f"{base}/deployments?environment=production&task=pandect-rollout&per_page=1",
+        headers,
+    )
+    if latest == []:
+        return True
+    if (
+        not isinstance(latest, list)
+        or len(latest) != 1
+        or not isinstance(latest[0], dict)
+    ):
+        raise DeploymentError("GitHub did not return an unambiguous rollout history.")
+    record = latest[0]
+    previous_sha, payload = record.get("sha"), record.get("payload")
+    if (
+        type(record.get("id")) is not int
+        or record["id"] <= 0
+        or record.get("task") != "pandect-rollout"
+        or record.get("environment") != "production"
+        or not isinstance(previous_sha, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", previous_sha)
+        or record.get("ref") != previous_sha
+        or not isinstance(payload, dict)
+    ):
+        raise DeploymentError("The latest rollout identity is invalid.")
+    if previous_sha != sha:
+        comparison = api(f"{base}/compare/{previous_sha}...{sha}", headers)
+        if not isinstance(comparison, dict) or comparison.get("status") not in {
+            "ahead",
+            "identical",
+            "behind",
+            "diverged",
+        }:
+            raise DeploymentError("GitHub did not confirm the rollout commit history.")
+        if comparison["status"] not in {"ahead", "identical"}:
+            print(
+                "Skipped CI commit that does not follow the latest production attempt."
+            )
+            return False
+    return True
 
 
 def dokploy(path, data=None, **query):
@@ -167,6 +267,7 @@ def rollout_log_url():
 
 def create_rollout(sha, image):
     """Record the exact image revision before changing either runtime service."""
+    version = release_version()
     rollout_log_url()
     repository = required("GITHUB_REPOSITORY")
     ci_run_id = required("CI_RUN_ID")
@@ -183,7 +284,7 @@ def create_rollout(sha, image):
             "required_contexts": [],
             "production_environment": True,
             "transient_environment": False,
-            "payload": {"ci_run_id": ci_run_id, "image": image},
+            "payload": {"ci_run_id": ci_run_id, "image": image, "version": version},
         },
     )
     if (
@@ -339,6 +440,7 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, work
 
 
 def deploy(application_id, image, sha, service):
+    version = release_version()
     print(f"Deploying {service} to Dokploy.", flush=True)
     previous = records(dokploy("deployment.all", applicationId=application_id))
     if any(item["status"] in {"running", "queued"} for item in previous):
@@ -368,7 +470,7 @@ def deploy(application_id, image, sha, service):
             "password": required("DOKPLOY_REGISTRY_PASSWORD"),
         },
     )
-    title = f"Deploy {service} CI {required('CI_RUN_ID')} {sha}"
+    title = f"Deploy {service} {version} CI {required('CI_RUN_ID')}"
     started_at = time.monotonic()
     dokploy(
         "application.deploy",
@@ -383,18 +485,16 @@ def deploy(application_id, image, sha, service):
         started_at,
         service == "worker",
     )
-    print(f"Verified {service} running {image} for {sha}.")
+    print(f"Verified {service} running {version} ({sha}) from {image}.")
 
 
 def main():
+    release_version()
     sha = required("TESTED_SHA")
     repository = required("GITHUB_REPOSITORY")
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise DeploymentError("Invalid CI commit identity.")
-    github_url = f"{required('GITHUB_API_URL')}/repos/{repository}/git/ref/heads/main"
-    current = api(github_url, {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"})
-    if current["object"]["sha"] != sha:
-        print("Skipped stale CI run: main has advanced beyond the tested commit.")
+    if not eligible_release(sha):
         return
     output_path = required("GITHUB_OUTPUT")
     if os.environ.get("PANDECT_PRODUCTION_DATABASE_BASELINE") != "domain-apps-v1":
@@ -437,14 +537,10 @@ def main():
     deployment_id = create_rollout(sha, image)
     mark_rollout(deployment_id, "in_progress")
     try:
-        # Publish the pending marker before this last main check: a docs-only CI
-        # decision made just before marker creation cannot race an old rollout.
-        current = api(
-            github_url, {"Authorization": f"Bearer {required('GITHUB_TOKEN')}"}
-        )
-        if current["object"]["sha"] != sha:
+        # Publish the pending marker before the final history check so CI cannot
+        # mistake an in-progress rollout for a verified documentation baseline.
+        if not eligible_release(sha):
             mark_rollout(deployment_id, "inactive")
-            print("Skipped stale CI run after recording the pending rollout.")
             return
         for application_id, service in services:
             deploy(application_id, image, sha, service)

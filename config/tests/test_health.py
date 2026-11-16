@@ -12,13 +12,22 @@ class HealthTests(TestCase):
         response = self.client.get(reverse("health"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(), {"status": "ok", "commit": settings.APP_COMMIT_SHA}
+            response.json(),
+            {
+                "status": "ok",
+                "version": settings.APP_VERSION,
+                "commit": settings.APP_COMMIT_SHA,
+            },
         )
         self.assertIn("no-store", response.headers["Cache-Control"])
 
-    @override_settings(APP_COMMIT_SHA="0123456789abcdef0123456789abcdef01234567")
+    @override_settings(
+        APP_VERSION="v1.23",
+        APP_COMMIT_SHA="0123456789abcdef0123456789abcdef01234567",
+    )
     def test_readiness_identifies_the_running_release(self):
         response = self.client.get(reverse("health"))
+        self.assertEqual(response.json()["version"], "v1.23")
         self.assertEqual(
             response.json()["commit"], "0123456789abcdef0123456789abcdef01234567"
         )

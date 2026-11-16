@@ -43,9 +43,12 @@ RUN chmod -R u=rwX,go=rX /app \
 # A synthetic build-only setting is sufficient; collectstatic never needs a DB.
 RUN DJANGO_SECRET_KEY=static-collection-build-only python manage.py collectstatic --noinput \
     && chown -R pandect:pandect /app/staticfiles
+ARG APP_VERSION=dev
 ARG APP_COMMIT_SHA=unknown
-ENV APP_COMMIT_SHA=${APP_COMMIT_SHA}
-LABEL org.opencontainers.image.revision=${APP_COMMIT_SHA}
+ENV APP_VERSION=${APP_VERSION} \
+    APP_COMMIT_SHA=${APP_COMMIT_SHA}
+LABEL org.opencontainers.image.version=${APP_VERSION} \
+    org.opencontainers.image.revision=${APP_COMMIT_SHA}
 USER pandect
 EXPOSE 8000
 

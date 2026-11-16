@@ -15,6 +15,7 @@ if not SECRET_KEY:
     raise ImproperlyConfigured("Set DJANGO_SECRET_KEY before starting Pandect.")
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
+APP_VERSION = os.environ.get("APP_VERSION", "dev")
 APP_COMMIT_SHA = os.environ.get("APP_COMMIT_SHA", "unknown")
 PANDECT_PUBLIC_ORIGIN = os.environ.get(
     "PANDECT_PUBLIC_ORIGIN", "http://localhost:8000"

@@ -152,8 +152,9 @@ old database/media retained; do not fake migration history.
 
 ## First Dokploy deployment
 
-CI builds one GHCR image; CD resolves its immutable digest. Dokploy runs native
-**web** and **worker** Applications plus managed **PostgreSQL**, without Compose.
+After CI checks pass, CD publishes one multi-platform GHCR image and resolves its
+immutable digest. Dokploy runs native **web** and **worker** Applications plus
+managed **PostgreSQL**, without Compose.
 
 1. In the production project, create a managed PostgreSQL resource using
    `postgres:18.6`, with a new database, role, and strong password.
@@ -252,10 +253,30 @@ older images may not support newer schemas.
 
 ### Continuous deployment
 
-After checks pass for an upstream `main` push, CI publishes one Linux amd64 image
-to private `ghcr.io/<owner>/<repository>`, tagged with the commit and
-`build-<CI run ID>`. The summary records its digest; embedded `APP_COMMIT_SHA`
-identifies the live revision. PRs and manual CI runs do not publish/activate releases.
+After checks pass for an upstream `main` push, **CD** chooses the next release
+version and builds the tested commit on native Linux AMD64 and ARM64 runners.
+Builds use attempt-specific `build-<CI run ID>-amd64` and `-arm64` tags and a
+combined `build-<CI run ID>` image. CD verifies that the manifest contains both
+Linux architectures before deploying its immutable digest. CI runs checks and
+smoke builds without package publication or deployment.
+
+Successful GitHub releases assign consecutive `v1.N` versions, starting at
+`v1.0`. The read-only `scripts/create-github-release.py --prepare` step selects
+the next number from published, non-draft, non-prerelease releases in that series. Legacy commit-based and
+three-part tags do not assign these numbers. The helper requires an unbroken
+successful `v1.0`, `v1.1`, … history; it stops on a missing version instead of
+skipping it. History reads stop if 20 pages of 100 releases cannot establish the
+complete history. Only a published successful GitHub release consumes a number.
+Failed or skipped work before publication leaves the candidate available. A
+retry of the latest published source skips building, deploying, and assigning it
+a second number. The non-packaged uv project's `pyproject.toml` version does not
+assign deployment versions.
+
+The candidate version is embedded in `APP_VERSION` and the OCI version label;
+`APP_COMMIT_SHA` and the OCI revision label retain source provenance. Healthy
+`/health/` responses expose both `version` and `commit`. The final publication
+stage promotes the verified image to `ghcr.io/<owner>/<repository>:v1.N` after
+deployment succeeds.
 
 Under GitHub **Settings → Environments → production**, set **Deployment branches
 and tags** to **Selected branches and tags** and allow only the protected
@@ -272,40 +293,46 @@ See [GitHub's deployment branch and environment settings](https://docs.github.co
 | `DOKPLOY_WORKER_APPLICATION_ID` | Existing native worker Application ID. |
 | `DOKPLOY_REGISTRY_PASSWORD` | Registry credential with read access to the private GHCR package. |
 
-The registry username is the repository owner. CI publishes with its scoped GitHub
+The registry username is the repository owner. CD publishes with its scoped GitHub
 token; Dokploy's long-lived pull credential stays in secrets and Docker provider
 configuration. The helper preserves operator-owned environments, mounts, domains,
 database, and secret-store settings; it never redeploys PostgreSQL.
 
-CD accepts successful `CI` runs only from same-repository `main` pushes and skips
-stale commits. For the [domain-app baseline](architecture.md#primary-keys-and-the-initial-schema),
+CD accepts successful `CI` runs only from same-repository `main` pushes. Its whole
+workflow queues behind an active release without cancelling it for newer commits;
+GitHub permits up to 100 pending runs. Manual cancellation, queue limits, failures,
+and timeouts can still interrupt a release. Queued commits may be ancestors of
+current `main`; commit ancestry prevents older source from rolling back a newer
+attempted deployment. A newer descendant attempt may reuse a version that never
+reached successful GitHub release publication. For the
+[domain-app baseline](architecture.md#primary-keys-and-the-initial-schema),
 retain the old database/evidence volume, prepare a fresh PostgreSQL database and
 empty queue, and point both Applications to it. Then set **production** environment
 variable `PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1`; the helper refuses
-mutations without it. Once ready, rerun **Deploy production** for successful CI
-on current `main`.
+mutations without it. Once ready, rerun **CD** for the intended successful CI run.
 
 Before accessing the production environment, CD runs a secret-free preflight
-against the triggering CI run and attempt. Successful image publication permits
-the existing rollout; an explicit skipped publication ends without deployment or
-release. Missing, failed, ambiguous, or unreadable publication status fails before
-production secrets are accessed. Documentation-only CI can intentionally omit
-an image; see [classification and fallback rules](validation.md#documentation-only-runs).
+against the triggering CI run and attempt. Successful application checks permit
+the image build and rollout; successful static checks and a final status decision
+confirming documentation-only skips end without image publication, deployment,
+or release. Missing, failed, ambiguous, or unreadable check results fail before
+production secrets are accessed. See
+[classification and fallback rules](validation.md#documentation-only-runs).
 
 Before mutating Dokploy, the helper creates an explicit GitHub deployment record
 for task `pandect-rollout` in `production`, bound to the tested commit and image
-digest, and records `in_progress`. It checks current `main` again after that
-record exists. Stale work stops before activation; failed or interrupted rollouts
+digest, CI run identity, and candidate version, and records `in_progress`. It
+repeats the ancestry guard before activation; failed or interrupted rollouts
 remain uncertain. Only verification of both worker and web records `success`.
 CI uses the newest such record as its baseline; it never infers the attempted
 image from the deployment workflow's own revision or falls back to an older
 successful rollout. Missing tracking or a status-write failure selects full CI
 until a later rollout is verified. GitHub release publication remains separate.
 
-The run and commit tags must resolve to the same digest. CD supplies it as
-`PANDECT_IMAGE`; both Applications receive `repository@sha256:...`. CD uses only the
-trusted `main` helper, never downloaded CI artifacts. Production concurrency waits
-for active rollouts without cancelling them for newer commits.
+The attempt tag must resolve to the same digest recorded by the combined-image
+job. CD supplies it as `PANDECT_IMAGE`; both Applications receive
+`repository@sha256:...`. CD uses only the trusted workflow helper, never downloaded
+CI artifacts.
 
 CD updates each native Application's Docker provider, sets worker's Command to
 `sh` with `/app/scripts/docker-entrypoint-worker.sh` as its sole Argument, and
@@ -326,26 +353,36 @@ package first. Successful CI/CD switches both images and startup commands withou
 a database reset or extra migration. Retain old digests/commands for reviewed recovery.
 
 Only after both services pass verification does the deployment helper emit its
-`deployed=true` output. A dependent job then publishes a GitHub release tagged
-`deploy-<full tested commit SHA>`, pointing to that exact commit, with generated
-release notes and links to the CI and deployment runs. Tags identify deployed
-commits; semantic versions remain managed separately. Stale CI skips and
-failed or partial deployments never enable the release job. The release helper
-comes from the trusted workflow revision; only this job receives
-`contents: write` through the built-in GitHub token, without Dokploy secrets.
+`deployed=true` output. A dependent job repeats read-only release preparation and
+checks the candidate still matches its expected version. If that source is
+already published, it leaves the versioned image and release unchanged.
+Otherwise, it promotes the verified image digest to `v1.N`, then publishes the
+GitHub release tagged `v1.N` and named `Pandect v1.N`, pointing to the exact tested
+commit, with generated release notes and links to the CI and deployment runs.
+The publication helper checks the sequence again before creating the release.
+Rejected older attempts and failed or partial deployments never enable this job.
+The release helper comes from the trusted workflow revision; only this job
+receives `contents: write` through the built-in GitHub token, without Dokploy
+secrets.
 
 Reruns preserve an existing published release after checking that its tag
-resolves to the tested commit. A matching tag left by an interrupted publication
-can be reused to create the missing release. Conflicting tags, existing drafts,
-and API failures stop publication for operator review; the helper never moves
-tags or edits/deletes existing releases. Deployment releases leave GitHub's
-**Latest** designation unchanged so a late retry cannot supersede a newer release.
-If publication fails after deployment
-succeeds, production remains deployed. Use GitHub Actions **Re-run failed jobs**
-to retry only publication using the successful deployment's output; rerunning
-the entire workflow repeats the deployment and its current-`main` check.
+resolves to the tested commit. A matching tag left by interrupted publication can
+be reused to create the missing release. Conflicting tags, existing drafts, gaps
+in successful release history, and API failures stop publication for operator
+review; the helper never moves Git tags or edits/deletes existing releases.
+Deployment releases leave GitHub's **Latest** designation unchanged so a late
+retry cannot supersede a newer release.
+
+Image promotion and GitHub release creation are separate operations. An
+interruption can leave a promoted image without a completed GitHub release; the
+number remains available until release publication succeeds. If the release
+request succeeded but its response was lost, preparation reconciles the
+published release before retrying. A deployment that already succeeded remains
+running. Use GitHub Actions **Re-run failed jobs** to retry final publication
+using its successful deployment's output; rerunning the entire workflow repeats
+eligibility checks and reconciles existing successful release state first.
 Inspect an uncertain publication before retrying. Repository tag rules must
-permit the workflow to create `deploy-*` tags. GitHub can also reject release
+permit the workflow to create `v*` tags. GitHub can also reject release
 creation with HTTP 403/404 if the target commit's workflow files differ from the
 current default branch and the token lacks workflow-modification authority;
 inspect the target and repository rules rather than adding fallback credentials.

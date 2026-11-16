@@ -1,4 +1,4 @@
-name: Deploy production
+name: CD
 
 on:
   workflow_run:
@@ -13,6 +13,7 @@ permissions:
 concurrency:
   group: deploy-production
   cancel-in-progress: false
+  queue: max
 
 jobs:
   preflight:
@@ -27,6 +28,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      deployments: read
     outputs:
       deploy: ${{ steps.preflight.outputs.deploy }}
     steps:
@@ -36,7 +38,7 @@ jobs:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
-      - name: Check the triggering CI image publication
+      - name: Verify CI results and linear release eligibility
         id: preflight
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -45,9 +47,128 @@ jobs:
           CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: python3 scripts/deploy-dokploy.py --preflight
 
-  deploy:
+  prepare:
+    name: Allocate the next successful release version
     needs: preflight
     if: needs.preflight.outputs.deploy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      published: ${{ steps.version.outputs.published }}
+    steps:
+      - name: Check out the trusted release helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Reconcile successful releases and select the next version
+        id: version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python3 scripts/create-github-release.py --prepare
+
+  image-builds:
+    name: Build production image (${{ matrix.architecture }})
+    needs: prepare
+    if: needs.prepare.outputs.published == 'false'
+    env:
+      PANDECT_VERSION: ${{ needs.prepare.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out the source verified by CI
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Set the production image name
+        id: image
+        shell: bash
+        run: printf 'name=ghcr.io/%s\n' "${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Build and push the native production image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/${{ matrix.architecture }}
+          push: true
+          build-args: |
+            APP_COMMIT_SHA=${{ github.event.workflow_run.head_sha }}
+            APP_VERSION=${{ env.PANDECT_VERSION }}
+          labels: |
+            org.opencontainers.image.version=${{ env.PANDECT_VERSION }}
+            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          tags: ${{ steps.image.outputs.name }}:build-${{ github.event.workflow_run.id }}-${{ matrix.architecture }}
+          cache-from: type=gha,version=2,scope=pandect-app-${{ matrix.architecture }}
+          cache-to: type=gha,version=2,scope=pandect-app-${{ matrix.architecture }},mode=max,ignore-error=true
+
+  images:
+    name: Stage the production image
+    needs: image-builds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Stage and verify both architectures for this attempt
+        id: publish
+        env:
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker buildx imagetools create \
+            --tag "${image}:build-${CI_RUN_ID}" \
+            "${image}:build-${CI_RUN_ID}-amd64" \
+            "${image}:build-${CI_RUN_ID}-arm64"
+          digest="$(docker buildx imagetools inspect "${image}:build-${CI_RUN_ID}" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          docker buildx imagetools inspect "${image}@${digest}" --raw | jq -e '
+            [.manifests[].platform | select(.os == "linux") | .architecture]
+            | sort == ["amd64", "arm64"]' > /dev/null
+          printf 'image=%s@%s\n' "$image" "$digest" >> "$GITHUB_OUTPUT"
+          # shellcheck disable=SC2016
+          printf 'Staged `%s:build-%s` for AMD64 and ARM64 (`%s`).\n' "$image" "$CI_RUN_ID" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: [prepare, images]
+    env:
+      PANDECT_VERSION: ${{ needs.prepare.outputs.version }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -61,7 +182,7 @@ jobs:
       - name: Check out the trusted deployment helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
       - name: Set up Docker Buildx
@@ -74,17 +195,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Resolve the successful CI image to an immutable digest
+      - name: Verify the attempt tag matches the immutable image
         env:
-          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          EXPECTED_IMAGE: ${{ needs.images.outputs.image }}
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
         shell: bash
         run: |
           set -euo pipefail
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
-          digest="$(docker buildx imagetools inspect "${image}:${TESTED_SHA}" --format '{{.Manifest.Digest}}')"
-          run_digest="$(docker buildx imagetools inspect "${image}:build-${CI_RUN_ID}" --format '{{.Manifest.Digest}}')"
-          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ && "$digest" == "$run_digest" ]]
+          digest="$(docker buildx imagetools inspect "${image}:build-${CI_RUN_ID}" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ && "${image}@${digest}" == "$EXPECTED_IMAGE" ]]
           printf 'PANDECT_IMAGE=%s@%s\n' "$image" "$digest" >> "$GITHUB_ENV"
 
       - name: Deploy worker and web to Dokploy
@@ -102,12 +222,15 @@ jobs:
         run: python3 scripts/deploy-dokploy.py
 
   release:
-    needs: deploy
+    needs: [prepare, images, deploy]
+    env:
+      PANDECT_VERSION: ${{ needs.prepare.outputs.version }}
     if: needs.deploy.outputs.deployed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
+      packages: write
     steps:
       - name: Check out the trusted release helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -115,7 +238,40 @@ jobs:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
+      - name: Recheck the version before publishing it
+        id: candidate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python3 scripts/create-github-release.py --prepare
+
+      - name: Set up Docker Buildx
+        if: steps.candidate.outputs.published == 'false'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        if: steps.candidate.outputs.published == 'false'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Promote the verified image to its release version
+        if: steps.candidate.outputs.published == 'false'
+        env:
+          EXPECTED_IMAGE: ${{ needs.images.outputs.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker buildx imagetools create --tag "${image}:${PANDECT_VERSION}" "$EXPECTED_IMAGE"
+          digest="$(docker buildx imagetools inspect "${image}:${PANDECT_VERSION}" --format '{{.Manifest.Digest}}')"
+          [[ "${image}@${digest}" == "$EXPECTED_IMAGE" ]]
+
       - name: Publish the verified deployment release
+        if: steps.candidate.outputs.published == 'false'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}

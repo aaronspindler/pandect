@@ -39,4 +39,10 @@ def health(request):
             cursor.execute("SELECT 1")
     except DatabaseError:
         return JsonResponse({"status": "unavailable"}, status=503)
-    return JsonResponse({"status": "ok", "commit": settings.APP_COMMIT_SHA})
+    return JsonResponse(
+        {
+            "status": "ok",
+            "version": settings.APP_VERSION,
+            "commit": settings.APP_COMMIT_SHA,
+        }
+    )

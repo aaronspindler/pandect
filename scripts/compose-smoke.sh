@@ -423,7 +423,7 @@ context = run_parser("geographic_context", json.dumps({"elements": [{
 assert context["matches"][0]["feature_id"] == "node/1"
 PY
 compose exec -T web python -c \
-    'import json, os, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok", "commit": os.environ["APP_COMMIT_SHA"]}'
+    'import json, os, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok", "version": os.environ["APP_VERSION"], "commit": os.environ["APP_COMMIT_SHA"]}'
 compose exec -T web python <<'PY'
 import os
 import subprocess
