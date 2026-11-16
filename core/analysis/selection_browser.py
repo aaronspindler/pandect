@@ -169,6 +169,7 @@ class SelectionBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_text("<script>untrusted source</script>", exact=False)
                 ).to_be_visible()
+                page.wait_for_load_state("load")
                 for remove in page.get_by_role("link", name="Remove member").all():
                     self.assertGreaterEqual(remove.bounding_box()["width"], 75)
                 self._captures(page, engine, "selection")

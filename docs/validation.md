@@ -227,8 +227,11 @@ permitting the private services. Do not use public map capacity in routine tests
   pass verification, a dependent job publishes a GitHub release for the tested
   commit. Stale skips and failed deployments do not publish.
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
-- **CodeQL** analyzes Python on pushes, pull requests, and a weekly schedule;
-  the workflow guard skips private repositories.
+- **CodeQL** uses GitHub-managed default setup in the repository's security
+  settings. Upstream scans Python, JavaScript/TypeScript, and Actions with extended
+  queries and remote/local threat models. Forks must configure their own setup.
+  Keep advanced CodeQL workflow files out while default setup is enabled:
+  [GitHub rejects their analysis uploads](https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/two-codeql-workflows).
 
 Workflows use pinned action commits and default to read-only contents permissions.
 Only CI's production image job receives package-write permission; CD's deploy job

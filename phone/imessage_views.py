@@ -18,7 +18,11 @@ from core.analysis.services import resolve_inputs
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.models import AnalysisRun
 from phone.analysis.deterministic.imessage import read_import_page
-from phone.imessage_forms import IMessageConfirmForm, IMessagePersonForm, IMessageUploadForm
+from phone.imessage_forms import (
+    IMessageConfirmForm,
+    IMessagePersonForm,
+    IMessageUploadForm,
+)
 from phone.imessage_imports import confirm_import, preview_source, start_preview
 
 
