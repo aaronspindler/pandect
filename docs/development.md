@@ -21,6 +21,7 @@ From the repository root:
 
 ```sh
 uv sync --locked
+make install-hooks
 cp .env.example .env
 uv run --locked python - <<'PY'
 import secrets
@@ -133,7 +134,12 @@ when changing the externally visible web port. The containers always use 5432 an
 8000 internally. Compose is a local development configuration and passes only
 the variables it declares; hosted configuration is supplied directly to Django.
 
-Keep `.env`, databases, uploads, and backups out of Git.
+Keep `.env`, databases, uploads, and backups out of Git. Store all local test
+evidence and validation output under ignored `data/` (for example,
+`data/test-evidence/`) or outside the checkout, including synthetic imports and
+exports. Generate committed test fixtures in code instead of retaining sample
+evidence files. See [repository hygiene](validation.md#repository-hygiene) for
+the commit/push hooks and their limits.
 
 ## Manage dependencies
 

@@ -13,8 +13,9 @@ result per operation and evidence/attachment, and show at most 12 findings.
 They revalidate sources and omit archived, unavailable, rejected, and weak OCR
 findings. This is a recent highlights view; **Browse all findings** provides the
 complete retained collection. Full runs remain accessible through Processing
-history. The Vehicle trips report is computed from current observations on opening
-the report, including previously imported data.
+history. The Vehicle trips report reads saved, automatically processed complete vehicle
+histories shared with the Map and vehicle pages, including previously imported data
+after preparation.
 
 **Browse all findings** searches complete retained labels, text and measurement
 values, with 25 findings per page and filters for method, evidence type, specific
@@ -84,10 +85,18 @@ page, considering at most ten matching passages per record. Each candidate must
 match its retained source, checksum, and call attachment. An unavailable newer
 run can fall back to an older valid candidate within that limit.
 
-Analysis reports cover call counts/durations/timing, vehicle trips, observation coverage
-and receipt delays, reported speed/heading, and exact file-byte duplicates. Each
-report bounds its source selection to 500 records and discloses truncation,
-unknown values, archive/time filters, and contributing originals. Call audio uses
+Analysis reports cover call counts/durations/timing, vehicle trips, observation
+coverage and receipt delays, reported speed/heading, and exact file-byte duplicates.
+Vehicle trips process full histories in background chunks and paginate complete
+trips. Other reports analyze every record matching the case, archive, participant,
+vehicle and time filters, using database streams of at most 500 rows per fetch.
+Their source lists have 25 records per page; pagination never changes totals,
+exact medians, duplicate groups, or comparisons between consecutive observations.
+Participant-pair counts have independent pages. Duplicate groups can span pages;
+each occurrence retains the complete group count. Matching vehicle CSV rows link
+to a complete paginated selection. Unknown values, time exclusions and contributing
+originals remain visible. These current-field reports are read-only calculations
+on each request, separate from saved background trip processing. Call audio uses
 its audio-byte checksum; a call/attachment manifest checksum is a different hash
 domain. Unknown duration or speed is distinct from zero. Gaps do not prove
 inactivity; repeated addresses do not establish visits.
@@ -130,14 +139,20 @@ after refreshing deliberately starts another batch, preserving earlier results
 and reviews. AI inference, transcription and external lookups still require their
 existing deliberate analysis flows. Empty calls have no retained content to check.
 CSV imports still require timezone/vehicle confirmation before atomic publication.
-Trips then appear without per-row jobs, geocoding, or review. Conversation imports
+Completed publication queues saved trip processing. Trip summaries need no
+geocoding or review; plotted address estimates require candidate review. Conversation imports
 retain their dedicated flow. An uncertain save retried with its original submission
 recovers the same evidence and checks.
 
-Completed vehicle and iMessage imports offer a deliberate **Run local checks on
+Completed vehicle and HTML iMessage imports offer a deliberate **Run local checks on
 imported evidence** action. Independent checks use bounded groups rather than one
 batch per imported row; skipped duplicates are excluded. See
 [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
+Confirmed iMazing CSV imports automatically queue the message, writing, and local
+model suite for newly published messages. Their **Follow message analysis** link
+opens the retained batch. Each run discloses its bounded selection; local model
+failures remain recoverable without undoing the import. See
+[iMazing imports](analysis-communications.md#imazing-csv-message-imports).
 
 Source choices display prerequisites and retained inspection status. A source may
 need exact extraction, a transcript, or accepted coordinates. Unknown file support
@@ -154,7 +169,11 @@ selected text and explicitly chosen findings, with separate quotation types.
 Use **Additional analysis** for comparisons, geographic lookups, model processing,
 or conversation imports. Choose a task, exact retained sources (including
 extraction versions), and required context before starting. The source picker
-shows at most 500 choices; title search narrows larger cases. Only the chosen
+shows 25 choices per page, including all retained extraction versions and eligible
+call additions. Previous/Next navigation seeks retained source/version cursors;
+it does not count or scan the entire case before displaying a page. Paging and title searches preserve checked sources; selections on
+other pages can be removed before starting. The existing maximum of 500 selected
+sources per execution and parser/inference limits still apply. Only the chosen
 operation's settings are validated and saved.
 
 **Read inferred message sessions**, **Inspect message timing**, and **Summarize
@@ -163,19 +182,25 @@ message sessions** select Text messages only. For retained call transcripts, use
 exchanges across channels** still accepts messages, phone calls and FaceTime.
 Earlier runs retain their original selections and results.
 
-Model processing is deliberate: **Local** is the default; **Cloudflare AI Gateway**
-requires explicit external-processing approval. Local failure never causes cloud
+Outside the automatic iMazing suite, model processing is deliberately selected.
+**Local** is the default; **Cloudflare AI Gateway** requires explicit
+external-processing approval. Local failure never causes cloud
 fallback. Geographic services require approval unless the operator designates the
 endpoint local. Keyword checks do not implicitly request AI summaries. The Map's
 separate [local address lookup](maps.md#local-address-lookup) follows its own flow.
 
 Call and vehicle reports use chronological rows in the user's timezone with source
 links. Their filters use the same timezone; recorded UTC hour counts retain their
-stated analysis basis. Truncation and missing-time warnings remain visible.
-Duplicate reports group file-byte checksums; trip rows retain departure/arrival
-links and the full observation list.
+stated analysis basis. Missing-time warnings remain visible.
+Duplicate reports group file-byte checksums; trip rows retain first/last observed
+source links and link to complete paginated source inspection.
 
 ## Inspecting run results
+
+Long structured value lists and mappings have independent pages of 200 values,
+with their counts and navigation beside the values. Paging retains the finding,
+report and collection filters; full result downloads remain available. Parser,
+inference and result-size safeguards are unchanged.
 
 Run results retain exact source links, processing details, limitations, and
 separate finding/overall reviews:

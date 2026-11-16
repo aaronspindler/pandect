@@ -151,6 +151,17 @@ def start(request, case_id, import_type, import_id):
 
     case = get_case(request.user, case_id, edit=True)
     scope = {"type": import_type, "id": str(import_id)}
+    if (
+        import_type == "messages"
+        and AnalysisRun.objects.filter(
+            case=case,
+            pk=import_id,
+            operation="imazing_import",
+            method_version="2",
+            parameters__phase="import",
+        ).exists()
+    ):
+        scope["automatic"] = True
     try:
         imported_sources(case, scope)
     except AnalysisError as error:
@@ -168,21 +179,21 @@ def start(request, case_id, import_type, import_id):
         except ValidationError, DatabaseError, AnalysisError:
             messages.error(
                 request,
-                "Local checks could not be queued. Return to the import and try again.",
+                "Analysis could not be queued. Return to the import and try again.",
             )
         else:
             messages.success(
                 request,
-                "Local checks requested."
+                "Message analysis requested."
+                if created and scope.get("automatic")
+                else "Local checks requested."
                 if created
-                else "These local checks were already requested.",
+                else "This analysis was already requested.",
             )
             return redirect(
                 reverse("core:analysis:processing", args=[case.pk])
                 + f"?batch={batch.pk}"
             )
     else:
-        messages.error(
-            request, "Return to the import and submit its local checks again."
-        )
+        messages.error(request, "Return to the import and submit its analysis again.")
     return redirect("core:analysis:processing", case_id=case.pk)

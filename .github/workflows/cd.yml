@@ -44,21 +44,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Resolve the successful CI images to immutable digests
+      - name: Resolve the successful CI image to an immutable digest
         env:
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
         shell: bash
         run: |
           set -euo pipefail
-          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
-          for service in web worker; do
-            image="${repository}-${service}"
-            digest="$(docker buildx imagetools inspect "${image}:${TESTED_SHA}" --format '{{.Manifest.Digest}}')"
-            run_digest="$(docker buildx imagetools inspect "${image}:build-${CI_RUN_ID}" --format '{{.Manifest.Digest}}')"
-            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ && "$digest" == "$run_digest" ]]
-            printf '%s_IMAGE=%s@%s\n' "${service^^}" "$image" "$digest" >> "$GITHUB_ENV"
-          done
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          digest="$(docker buildx imagetools inspect "${image}:${TESTED_SHA}" --format '{{.Manifest.Digest}}')"
+          run_digest="$(docker buildx imagetools inspect "${image}:build-${CI_RUN_ID}" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ && "$digest" == "$run_digest" ]]
+          printf 'PANDECT_IMAGE=%s@%s\n' "$image" "$digest" >> "$GITHUB_ENV"
 
       - name: Deploy worker and web to Dokploy
         id: rollout

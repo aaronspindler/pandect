@@ -183,44 +183,54 @@ partly failed batch retains completed candidates with a partial outcome instead
 of claiming every lookup succeeded. A selection with no eligible addresses or
 coordinates is reported as insufficient and does not contact the lookup service.
 
-The [investigation map](maps.md#local-address-lookup) can queue local forward
-lookups and display unreviewed candidates as distinct square estimate markers.
-This is candidate inspection, not acceptance for location analysis. Every
-unrejected alternative remains visible, accepted candidates are labelled, and
-the original observation is preserved. The map never invokes an external geocoder.
+The [investigation map](maps.md#local-address-lookup) automatically prepares
+configured-local lookups for saved trip sources. Source inspection links to
+candidate review. Only a specifically accepted candidate can supply an estimated
+trip position; unreviewed or ambiguous alternatives leave a break. Originals remain
+unchanged. The map never invokes an external geocoder.
 
 ## Automatic vehicle trips
 
-Vehicle pages and the **Vehicle trips** report calculate possible trips from the
-current vehicle-location evidence as soon as observations are available. This
-includes address-only Asset Location CSV imports after their associations and time
-interpretation have been confirmed. No analysis job, geocoding lookup, or finding
-review is needed. The existing coordinate-based retained journey operation remains
-available for a deliberately selected, versioned analysis.
+The Map, Vehicle trips report and vehicle detail pages read the same saved possible
+trips. New observations, completed CSV imports and archive/restore changes queue
+per-vehicle background rebuilding. Existing cases offer an idempotent **Prepare
+trips** POST; owners/editors start it automatically when opening the map with
+JavaScript, or use the normal form. Viewers inspect completed results. Processing
+shows progress, retained generations, safe failures and deliberate recovery.
 
-The current-evidence report uses at most the latest 500 matching observations by
-reported observation time and shows its coverage. Vehicle and date/time filters let
-investigators inspect another period. Filter inputs and report rows use the active
-account timezone, or the device timezone when the account uses automatic detection,
-with UTC as the fallback. The form labels identify that timezone. Retained source
-times and explicitly labelled UTC statistical distributions remain unchanged.
-Archived observations are excluded by default.
-Vehicle pages show the five most recent possible trips and link to the full report.
-Untimed observations cannot form trips. Each vehicle is segmented independently,
-using only evidence whose vehicle and import provenance remain in the same case.
+Processing reads the complete eligible vehicle history in chronological chunks of
+500 observations, without a total-source cutoff. One generation retains every
+source/checksum and produces active, archived and all-evidence variants. Each chunk
+rechecks current authorization and source revision. Only a complete matching
+revision is published; retries and duplicate delivery cannot publish partial trips.
+A source change supersedes obsolete work. Confirm the old worker stopped before
+recovering abandoned running work. There are at most three attempts per recovery
+phase. No startup task or migration processes runtime evidence.
 
-Reported coordinates take precedence when both observations have them; positions
-within 100 metres are treated as nearby. Otherwise conservative matching address
-wording groups nearby observations without inferring coordinates. A stationary
-group lasting at least five observed minutes, with no positive reported speed,
-separates possible trips. Gaps longer than one hour, conflicting positions at the
-same time, and positions that cannot be compared also split the sequence. Stationary
-observations alone do not produce a trip. Address wording is an approximation and
-does not establish a physical stop.
+Vehicle pages show five recent trips; reports and map lists paginate 25 trips.
+Date filters select complete trips overlapping the interval, rather than shorten
+the input sequence. Times use the active account/device timezone, with UTC as the
+fallback. Archived observations are excluded by default. Every source remains
+accessible from paginated trip detail, including imported CSV row provenance.
 
-Trips show their first and last observed place/time, elapsed observed minutes, all
-contributing observation links, and imported CSV row links. Actual departure,
-arrival, road route, distance travelled, driver, and continuous presence remain
-unknown. Coverage gaps are available alongside trips. Results are recalculated on
-the next page load when observations are added or archived; these reports do not
-create retained analysis results or change original evidence.
+Each vehicle is segmented independently using only same-case observations and
+consistent import/document relationships. Untimed observations are retained in
+processing coverage but cannot form trips. Coordinates take precedence when both
+observations have them; positions within 100 metres are nearby. Otherwise
+conservative normalized address wording compares places without inferring
+coordinates. A stationary group lasting at least five observed minutes, with no
+positive speed anywhere in that group, separates trips. Gaps longer than one hour,
+conflicting positions at the same time and incomparable positions also separate
+sequences. Stationary observations alone produce no trip.
+
+Address-only CSV records can form trips before any lookup or candidate review.
+Configured private local lookup is prepared separately after trip publication.
+The map connects reported coordinates or exactly one specifically accepted local
+candidate, retaining estimate attribution and breaks for unresolved positions.
+Reviews affect geometry, not original-based segmentation. See
+[map lookup and review](maps.md#local-address-lookup).
+
+Trips show first/last observed place/time and elapsed observed minutes. Actual
+departure, arrival, road route, distance travelled, driver and continuous presence
+remain unknown. The separate deliberately selected retained journey analysis
+remains available for versioned analysis with its existing source bounds.

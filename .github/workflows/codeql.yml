@@ -14,7 +14,7 @@ permissions:
 jobs:
   analyze:
     # Public repositories can use CodeQL without a private-code-scanning plan.
-    # The repository remains private until the separately approved release.
+    # Pandect is public; retain the guard for private forks without that plan.
     if: github.event.repository.private == false
     name: Python code scanning
     runs-on: ubuntu-24.04

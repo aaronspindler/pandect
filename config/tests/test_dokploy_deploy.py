@@ -20,7 +20,7 @@ deploy = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(deploy)
 
 SHA = "a" * 40
-IMAGE = "ghcr.io/example/pandect-worker@sha256:" + "b" * 64
+IMAGE = "ghcr.io/example/pandect@sha256:" + "b" * 64
 ENVIRONMENT = {
     "TESTED_SHA": SHA,
     "GITHUB_REPOSITORY": "example/pandect",
@@ -33,8 +33,7 @@ ENVIRONMENT = {
     "DOKPLOY_REGISTRY_PASSWORD": "synthetic-registry-password",
     "DOKPLOY_WEB_APPLICATION_ID": "web-id",
     "DOKPLOY_WORKER_APPLICATION_ID": "worker-id",
-    "WORKER_IMAGE": IMAGE,
-    "WEB_IMAGE": IMAGE.replace("-worker@", "-web@"),
+    "PANDECT_IMAGE": IMAGE,
 }
 
 
@@ -84,8 +83,8 @@ class DeploymentCommandTests(TestCase):
         self.assertEqual(
             activate.call_args_list,
             [
-                call("worker-id", ENVIRONMENT["WORKER_IMAGE"], SHA, "worker"),
-                call("web-id", ENVIRONMENT["WEB_IMAGE"], SHA, "web"),
+                call("worker-id", IMAGE, SHA, "worker"),
+                call("web-id", IMAGE, SHA, "web"),
             ],
         )
         self.assertEqual(self.output.read_text(), "existing=retained\ndeployed=true\n")
@@ -110,15 +109,23 @@ class DeploymentCommandTests(TestCase):
             deploy.main()
         request.assert_not_called()
 
-    def test_invalid_web_image_is_rejected_before_worker_mutation(self):
-        os.environ["WEB_IMAGE"] = "ghcr.io/example/pandect-web:latest"
-        with (
-            patch.object(deploy, "api", return_value={"object": {"sha": SHA}}),
-            patch.object(deploy, "deploy") as activate,
-            self.assertRaisesRegex(deploy.DeploymentError, "immutable digest"),
+    def test_invalid_shared_image_is_rejected_before_worker_mutation(self):
+        for image in (
+            "ghcr.io/example/pandect:latest",
+            IMAGE.replace("example/", "unrelated/"),
+            IMAGE.replace("pandect@", "pandect-worker@"),
+            IMAGE.replace("pandect@", "pandect-web@"),
+            IMAGE[:-1],
         ):
-            deploy.main()
-        activate.assert_not_called()
+            with (
+                self.subTest(image=image),
+                patch.dict(os.environ, {"PANDECT_IMAGE": image}),
+                patch.object(deploy, "api", return_value={"object": {"sha": SHA}}),
+                patch.object(deploy, "deploy") as activate,
+                self.assertRaisesRegex(deploy.DeploymentError, "immutable digest"),
+            ):
+                deploy.main()
+            activate.assert_not_called()
 
     def test_distinct_applications_are_required(self):
         os.environ["DOKPLOY_WEB_APPLICATION_ID"] = "worker-id"
@@ -174,9 +181,12 @@ class DeploymentCommandTests(TestCase):
         )
         update = request.call_args_list[1].args[1]
         self.assertEqual(
-            set(update), {"applicationId", "replicas", "updateConfigSwarm"}
+            set(update),
+            {"applicationId", "replicas", "command", "args", "updateConfigSwarm"},
         )
         self.assertEqual(update["replicas"], 1)
+        self.assertEqual(update["command"], "sh")
+        self.assertEqual(update["args"], ["/app/scripts/docker-entrypoint-worker.sh"])
         self.assertEqual(update["updateConfigSwarm"]["Order"], "stop-first")
         provider = request.call_args_list[2].args[1]
         self.assertEqual(provider["dockerImage"], IMAGE)
@@ -200,9 +210,11 @@ class DeploymentCommandTests(TestCase):
             patch.object(deploy, "wait_ready"),
             redirect_stdout(io.StringIO()),
         ):
-            deploy.deploy("web-id", ENVIRONMENT["WEB_IMAGE"], SHA, "web")
+            deploy.deploy("web-id", IMAGE, SHA, "web")
         update = request.call_args_list[1].args[1]
         self.assertEqual(update["replicas"], 1)
+        self.assertIsNone(update["command"])
+        self.assertIsNone(update["args"])
         self.assertEqual(update["updateConfigSwarm"]["Order"], "start-first")
         self.assertNotIn("healthCheckSwarm", update)
 

@@ -11,7 +11,7 @@
   {% if active_batches.paginator.count %}
   <h3>Preparing checks</h3>
   {% for item in active_batches %}
-  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>Preparing local checks</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p></div></a>
+  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>{% if item.scope.automatic %}Preparing message analysis{% else %}Preparing local checks{% endif %}</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p></div></a>
   {% endfor %}
   {% if active_batches.has_other_pages %}<nav class="pagination" aria-label="Preparation in progress pages">{% if active_batches.has_previous %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_batches.number }} of {{ active_batches.paginator.num_pages }}</span>{% if active_batches.has_next %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
   {% endif %}
@@ -22,7 +22,12 @@
   {% for item in active_imports %}{% include 'core/analysis/processing_import.html' %}{% endfor %}
   {% if active_imports.has_other_pages %}<nav class="pagination" aria-label="Imports in progress pages">{% if active_imports.has_previous %}<a class="button button-secondary" href="{% querystring active_imports_page=active_imports.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_imports.number }} of {{ active_imports.paginator.num_pages }}</span>{% if active_imports.has_next %}<a class="button button-secondary" href="{% querystring active_imports_page=active_imports.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
   {% endif %}
-  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count %}<p class="muted" role="status">Nothing is being processed right now.</p>{% endif %}
+  {% if active_trips.paginator.count %}
+  <h3>Vehicle trips</h3>
+  {% for item in active_trips %}{% include 'geo/processing_trip.html' %}{% endfor %}
+  {% if active_trips.has_other_pages %}<nav class="pagination" aria-label="Trips in progress pages">{% if active_trips.has_previous %}<a class="button button-secondary" href="{% querystring active_trips_page=active_trips.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_trips.number }} of {{ active_trips.paginator.num_pages }}</span>{% if active_trips.has_next %}<a class="button button-secondary" href="{% querystring active_trips_page=active_trips.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
+  {% endif %}
+  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count %}<p class="muted" role="status">Nothing is being processed right now.</p>{% endif %}
 </section>
 
 <section class="analysis-section" id="processing-history" aria-labelledby="processing-history-heading">
@@ -48,6 +53,14 @@
   {% for run in page_obj %}{% include 'core/analysis/processing_run.html' %}{% empty %}<p class="muted">{% if history_filters %}No checks match these filters.{% else %}No processing history yet. Supported checks start when evidence is added.{% endif %}</p>{% endfor %}
   {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Processing pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#processing-history">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#processing-history">Next</a>{% endif %}</nav>{% endif %}
 </section>
+
+{% if trip_history.paginator.count %}
+<details class="analysis-section" id="trip-history"{% if request.GET.trips_page %} open{% endif %}>
+  <summary>Trip processing history · {{ trip_history.paginator.count }}</summary>
+  {% for item in trip_history %}{% include 'geo/processing_trip.html' %}{% endfor %}
+  {% if trip_history.has_other_pages %}<nav class="pagination" aria-label="Trip history pages">{% if trip_history.has_previous %}<a class="button button-secondary" href="{% querystring trips_page=trip_history.previous_page_number %}#trip-history">Previous</a>{% endif %}<span>Page {{ trip_history.number }} of {{ trip_history.paginator.num_pages }}</span>{% if trip_history.has_next %}<a class="button button-secondary" href="{% querystring trips_page=trip_history.next_page_number %}#trip-history">Next</a>{% endif %}</nav>{% endif %}
+</details>
+{% endif %}
 
 {% if import_history.paginator.count %}
 <details class="analysis-section" id="import-history"{% if request.GET.imports_page %} open{% endif %}>

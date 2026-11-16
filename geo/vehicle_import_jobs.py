@@ -377,6 +377,13 @@ def _publish(batch, started):
         current.completed_at = current.finished_at = timezone.now()
         current.processed_rows = current.row_count
         current.save()
+        from geo.trip_processing import invalidate_vehicle_trips
+
+        invalidate_vehicle_trips(
+            current.requested_by,
+            case,
+            current.observations.values_list("vehicle_id", flat=True).distinct(),
+        )
 
 
 def process_import(import_id, job_token):

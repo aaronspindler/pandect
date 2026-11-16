@@ -11,3 +11,4 @@
   </section>
 {% endfor %}
 {% if row.note %}<p class="muted">{{ row.note }}</p>{% endif %}
+{% if row.pagination %}<nav class="pagination" id="{{ row.pagination.anchor }}" aria-label="{{ row.label }} pages">{% if row.pagination.previous %}<a class="record-link" href="{{ row.pagination.previous }}">Previous values</a>{% endif %}<span>{{ row.pagination.page.start_index }}–{{ row.pagination.page.end_index }} of {{ row.pagination.page.paginator.count }}</span>{% if row.pagination.next %}<a class="record-link" href="{{ row.pagination.next }}">Next values</a>{% endif %}</nav>{% endif %}

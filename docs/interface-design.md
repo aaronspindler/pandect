@@ -8,8 +8,9 @@ owns check selection and procedures. Generated mockups are references, not rende
 ## Navigation and screens
 
 Cases open to **Case Tools**, a home for exploring evidence and results. It
-links to the Findings catalogue, Map, Chronology, Connections, People, Vehicles,
-Selections, and reports, with concise recent evidence and source-linked findings.
+links to the Findings catalogue, Map, Chronology, Conversations, Connections,
+People, Vehicles, Selections, and reports, with concise recent evidence and
+source-linked findings.
 A native **Case details** disclosure keeps supporting information and owner-only
 Settings available. Normal investigators need no staff access. Graphs, an
 inferred event timeline, ownership transfer, and self-service account deletion
@@ -35,6 +36,7 @@ disappear on mobile.
 | Evidence | Active records, search and disclosed filters; **Add evidence** for owners/editors. |
 | Processing | Active checks and imports, paginated history, recovery links, and owner/editor **Rerun all analysis**. |
 | Evidence reader | Original and Findings together; downloads, Info, and authorized More actions beside the title. |
+| Conversations | Reported participant pairs and message counts; chat reader, retained-export filter, inline message details, and links to individual evidence. |
 | Findings catalogue | Searchable retained source-linked results, with filters and separate review states. |
 | People / Vehicles | Searchable case records; owner/editor creation and editing, viewer inspection. |
 | Case settings | Owner-only name/access management and a separate delete section. |
@@ -144,6 +146,38 @@ and require another review if it changes. Cancellation preserves list context;
 inconsistent cross-case links block deletion without exposing foreign records.
 See [evidence](evidence.md) for the deletion and private-storage contract.
 
+## Conversation reading
+
+**Case Tools → Conversations** lists reported participant pairs, message counts,
+and latest recorded times, with 25 pairs per page. Opening a pair shows a chat
+reader with 50 messages per page, oldest recorded time first and unknown times
+last. Keep sender names explicit and participant alignment consistent; do not
+label either participant as the signed-in user. Date separators and timestamps
+use the display timezone. Preserve message whitespace and escape source content.
+
+**All sources** includes imported and individually entered messages. A labelled
+retained-export selector narrows the pair and resets pagination/selection. Keep
+source attribution beside each message, preserve overlapping-export records, and
+mark archived records. Explain the reported-participant grouping once rather
+than suggesting a verified native thread or complete history.
+
+Use a native **Message details** disclosure beneath each message for reported
+participants/time, archive state, source details, and available imported context.
+Render those details with the message page so opening or closing them requires
+no reload or fetch and keeps keyboard focus and the reader's place. This works
+without JavaScript and uses the same inline layout at every screen size.
+
+Keep **Open evidence** beside each message's source for the canonical reader and
+native reply/thread relationship lists. **View in conversation** there resolves the
+exact message and its page, opens its details, and marks the target beyond color.
+Retain the selected export and conversation list page on this round trip.
+
+Filtering, pagination, and evidence links use ordinary GET navigation. Browser
+Back preserves source/page context. Use ordinary page scrolling at every screen
+size. Empty conversations and empty export-filtered results retain case navigation
+and offer the appropriate evidence or clear-filter link.
+See [evidence](evidence.md#reading-conversations) for interpretation limits.
+
 ## Evidence creation and batch uploads
 
 **Add evidence** starts with mixed-file upload under **Upload files**, followed by
@@ -212,13 +246,20 @@ distinct from execution: **Checks queued** does not mean those checks have finis
 Owners and editors have **Run more checks → Rerun all analysis** here; it starts
 supported local checks across active evidence, preserves earlier results, and
 reports background preparation progress.
-Additional AI and external operations remain in the deliberate analysis flow.
+Confirmed iMazing imports automatically start message, writing, and local model
+analysis. Their review page links to **Follow message analysis** in Processing;
+completed or stopped preparation offers **Run message analysis again**. Each
+result discloses its bounded message selection. Other additional AI and external
+operations remain in the deliberate analysis flow.
 
 **Case Tools → More tools → Additional analysis** and **Processing → Run more
 checks → Choose analysis** open deliberate analysis. It first groups tasks;
 selecting one opens its source/context form. Required samples, areas, and claimed-event inputs stay visible. **Options**
 holds optional tuning and opens after errors. Source versions remain explicit,
-and external processing requires approval.
+and external processing requires approval. Source choices use 25-record pages;
+native POST navigation and title search retain checked sources and entered options.
+Show selections from other pages with an explicit remove action. Browsing never
+queues analysis; the existing execution and inference selection limits still apply.
 
 Use the shared field renderer for labels, help, errors, approvals, and reviews.
 Progress uses a native indicator; failures expose retry/recovery controls. Results
@@ -229,6 +270,11 @@ in **Value details**.
 
 Reports put a concise summary before chronological/grouped source rows. Keep
 coverage warnings visible; **About this report** holds fixed methods and totals.
+Source rows use 25-record pages while totals and comparisons cover the complete
+filtered selection. Participant-pair counts paginate independently. Native thread
+and reply lists and vehicle observations also retain complete paginated access.
+Long structured result lists/mappings use independent 200-value pages rather than
+discarding the remaining values; retain filter/finding context and full downloads.
 Narrow rows stack with labels intact. Trip rows show dates, endpoints, observed
 duration, and disclosed source observations; vehicle pages omit repeated names.
 These display rules do not imply exhaustive coverage or verified journeys.

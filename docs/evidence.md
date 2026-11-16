@@ -85,6 +85,10 @@ URLs. No preview files or analysis results are stored. Files are downloaded thro
 currently authorized attachment routes. Supported PDF/text documents and WAV
 recordings also have [private in-product readers](original-previews.md).
 
+Duplicate-upload warnings show a short preview and link to **Review all matches**.
+That private Evidence list uses a retained-checksum filter, includes archived
+records, and paginates every matching original without resubmitting the upload.
+
 Owners/editors choose **More → Edit details** to correct metadata. Stale edits
 preserve the draft beside newer values and require **Save reviewed changes**.
 **Archive**/**Restore** organize evidence without removing original access.
@@ -170,6 +174,40 @@ identify the original associations. These associations do not verify identity.
 Both participants are restricted to the same case by product/admin forms and
 normal model validation/saves. Either participant link prevents individual person
 deletion, including for archived evidence; whole-case deletion removes both.
+
+### Reading conversations
+
+**Case Tools → Conversations** groups retained Text messages by their reported
+pair of case people, regardless of sending direction. The list shows message
+counts and the latest recorded time, with 25 pairs per page. Open a pair to read
+50 messages per page in recorded-time order, oldest first. Unknown times appear
+last; UUID order breaks equal or unknown-time ties without implying an event order.
+
+The default **All sources** includes imported and individually entered messages.
+Choose a retained export to narrow the reader to that source. Archived messages
+remain readable and labelled; separate records from overlapping exports remain
+separate. This grouping is a reading aid, not a verified native thread or proof
+of identity, complete history, or response. Calls and inferred analysis sessions
+remain separate views.
+
+Expand **Message details** beneath a message for reported participants/time,
+source attribution, and available imported context, including the retained export
+and row, native references, reactions/status, and attachment references. Details
+open in place without reloading the page or fetching more content, including
+without JavaScript. Attachment references are not opened or fetched.
+
+Use **Open evidence** beside a message's source for its full original, findings,
+integrity details, native reply/thread links, and permitted actions.
+**View in conversation** on that evidence page returns to the exact message with
+its details open, including beyond the first page, and retains the export filter
+and conversation list page when following this round trip.
+
+In the evidence reader's **Info → Imported source context**, native thread
+messages and reply candidates have independent 25-record pages in retained source
+order. Both lists cover the complete same-case, same-export population; supplied
+native IDs and multiple reply matches remain unverified source references.
+
+### Retained call material
 
 A call can be saved without content, with a supplied transcript, with one audio
 file, or with both. Initial material is saved atomically with the call. Later,

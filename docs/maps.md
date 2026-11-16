@@ -1,11 +1,11 @@
 # Investigation map
 
 Open a case and choose **Case tools → Map**. Owners, editors and viewers can inspect
-case-scoped locations and follow links back to retained evidence. Owners and
-editors can choose **Add location** or **Add POI**. The `geo` app owns the map
+case-scoped processed vehicle trips and follow links back to retained evidence.
+Owners and editors can choose **Add POI**. The `geo` app owns the map
 views, local lookup coordination, POIs, templates, static assets, and tests.
 `geo.map_views` serves the existing case-scoped URLs, with named routes
-`geo:case_map` and `geo:map_locate`.
+`geo:case_map`, `geo:prepare_trips`, and `geo:trip_detail`.
 
 ## Person points of interest
 
@@ -25,14 +25,14 @@ address lookups. No new external service or inference route is used.
 
 Diamond markers labelled **P1**, **P2**, and so on match the **Points of interest**
 list. Popups show the label and person and link to the POI details. Identical
-coordinates share a marker whose popup lists all POIs and observations there.
+coordinates share a marker whose popup lists the POIs there.
 **Show on map** provides the keyboard alternative to marker selection. Polar
 coordinates beyond the map display limit remain in the list without moving them.
 
 Search includes POI labels, types, addresses, citations, and person names or
-contacts. Evidence type/status filters affect only observations. The POI list
+contacts. Vehicle, date and evidence-state filters affect only trips. The POI list
 has its own URL-backed `poi_page`, at most 100 records per page; only that page
-is plotted alongside the current observation page. Person detail pages also
+is plotted alongside the selected complete trip. Person detail pages also
 list their POIs, 25 per page, with an **Add POI** link that prefills the person.
 
 Current owners/editors can add, edit, and delete POIs; viewers can inspect them.
@@ -49,93 +49,75 @@ constraints for labels and coordinate ranges. Use the
 [fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
 on a new database and queue; no old POI table or data conversion is retained.
 
-## Location observations
+## Processed vehicle trips
 
-The map plots recorded WGS84 latitude/longitude from Location, Person location
-and Vehicle location evidence. Numbered markers match the accessible location
-list. A count groups observations with identical coordinates; its popup links
-every source without moving the positions. Nearby markers can still overlap;
-use the list's **Show on map** action to inspect each source. No route, identity,
-ownership or presence is inferred. Observation times and source citations remain
-in the list and originals remain unchanged.
+The map shows saved possible vehicle trips, with the latest matching trip selected
+initially. Choose a trip to inspect its complete path and contributing observations.
+Raw Location, Person location and Vehicle location evidence is available through
+Evidence; individual observations are no longer plotted as the map's main content.
 
-The default view includes active observations. Search titles, addresses and source
-citations, filter by evidence type or include archived material. Filters and page
-are in the URL; each page contains at most 100 observations, newest additions
-first. Only the current page is plotted. The map and its configured background
-tiles load automatically when the page opens. Zoom/pan last for the current page.
-**Search and filters** keeps search, type and archive controls together in one
-native disclosure. It starts closed so the map is prominent, and opens when a
-query or nondefault filter is active. **Apply filters** submits the current
-selection with or without JavaScript. The map toolbar shows
-mapped coverage and links to available lists. An empty POI list is omitted unless
-a search is active; **Add POI** remains available in the page header.
-The compact **Map details** disclosure contains keyboard help, source limitations
-and the evidence privacy explanation, along with POI placement and list-filter
-guidance.
+Filter by vehicle, active/archived/all evidence, and dates in the displayed account
+or device timezone. Date filters select whole trips overlapping the interval;
+they do not cut observations before segmentation. The summary list has 25 trips
+per page. Trip detail lists 50 source observations per page, with original evidence
+and imported CSV row links. List pagination never limits the history used to
+process a trip. See [trip rules](analysis-locations.md#automatic-vehicle-trips).
 
-Address-only observations use the configured **local** geocoder. When an owner
-or editor opens a map page, JavaScript queues missing address lookups and updates
-the map without moving keyboard focus. Viewers can inspect retained estimates
-and follow in-progress work; they cannot start processing. Without JavaScript,
-**Look up addresses locally** queues work and a normal refresh displays it.
+New manual observations, completed imports, archive/restore changes and confirmed
+source deletion invalidate the affected vehicle's saved trips and queue rebuilding.
+The map, report and vehicle page use the same current completed generation. Pending,
+failed and superseded output is not displayed as current. Existing cases without
+saved trips offer **Prepare trips** to owners/editors; JavaScript submits this
+idempotent POST automatically. Viewers cannot start processing. GET requests do
+not enqueue jobs. Follow progress and recovery in **Processing**.
 
-Square markers distinguish address estimates from recorded-coordinate circles.
-All currently unrejected candidates from the latest local lookup remain visible;
-an ambiguous address is never silently assigned its first match. **Show on map**
-fits all candidates for that observation. Each estimate links its source and
-the retained lookup/review, with dataset attribution. Accepted estimates are
-labelled reviewed; later rejection removes that candidate on the next read.
-Open marker popups resize to fit the map's available width and height.
-Inspecting an unreviewed candidate on this map does not accept it for downstream
-distance, movement or context analysis; those still require candidate review.
-Original addresses, reported coordinates and checksums remain unchanged.
+Lines connect reported positions or specifically reviewed address estimates in time
+order. Missing or ambiguous positions interrupt the line. The map draws no raw
+observation markers and reconstructs no road route. A trip remains in the list
+when it has no drawable positions. First/last observed places and times are not
+verified departure or arrival, continuous presence, driver identity, or distance
+travelled. Polar positions beyond Web Mercator's ±85.05112878° range remain in
+source inspection without clamping the original.
 
-Coordinates beyond Web Mercator's ±85.05112878° latitude limit stay in the list
-with an explanation, without clamping the original position.
+Geometry arrives in cursor pages of at most 500 sources and is progressively drawn
+onto one canvas. Completed coordinate buffers are discarded; pan/zoom replays the
+selected trip. Loading status distinguishes a partial drawing from a completed
+one. Every request rechecks current case access and the published generation;
+changed address reviews stop an obsolete replay. The server-rendered trip and
+source lists remain available without JavaScript or tiles.
 
 ## Local address lookup
+
+Address-only trips are processed without geocoding. After trip publication, a
+separate background preparation step queues missing lookups through the configured
+private geocoder, in batches of at most 25 distinct addresses and the operator's
+analysis source limit (at most 500 sources). Batches continue through the eligible
+trip sources; this is not a total-history limit. Lookup failure does not block trip
+summaries. Existing pending and terminal lookups are retained; failed lookups are
+retried deliberately from their existing processing pages.
 
 Configure `PANDECT_GEOCODER_LOCAL=true` together with the private
 `PANDECT_GEOCODER_URL`, source name, dataset version, attribution and User-Agent
 on **both web and worker**. See [geocoding configuration](analysis-locations.md#geocoding-configuration-and-review).
-There is no public geocoder default or external fallback. An unconfigured,
-non-local or unsupported endpoint blocks map lookups before queuing; a queued
-endpoint/locality/version change fails before dispatch. A local designation is
-an operator assertion of control, not an inference from the hostname. The browser
-never contacts the geocoder directly. Only the selected original address is sent
-by the worker to that service, with fixed lookup options; files, titles, notes,
-case IDs and person/vehicle identifiers are excluded. Redirects and ambient HTTP
-proxies are disabled by the shared geocoder client.
+There is no public geocoder default or cloud fallback. The browser never contacts
+the geocoder. Workers send only selected original addresses, without evidence
+files, titles, case IDs or vehicle identifiers. Existing endpoint/version checks,
+case authorization, resource limits and retained lookup provenance apply.
 
-Local address lookup reuses the existing case-authorized analysis queue and retained
-results; it adds no geocoding tables, global address cache or in-request HTTP lookups.
-Every job rechecks current editor access, source case/relationships, immutable
-checksums and the pinned local endpoint before requests and publication. The
-same case lock and atomic enqueue prevent duplicate page submissions from
-starting the same pending sources twice. Completed local analysis geocodes can
-also be displayed; external or unpinned legacy results are not adopted.
-
-One job handles up to 25 distinct addresses within the operator's analysis source
-limit, deduplicated within its selected sources. A page has at most 100 observations and the browser starts at most four
-new batches, with up to 200 status checks three seconds apart. Polling updates
-only the current authorized page. Lookup failures and no matches stop automatic
-retries; use **Look up addresses locally** to start another retained attempt.
-Observations are paginated before checking retained lookup history, so only
-eligible addresses on the current page resolve their latest local run.
-If records or their details change while lookups run, updates stop and ask for a
-refresh rather than attaching new marker numbers to a stale location list.
-Addresses over 2,000 characters remain unsupported. Each lookup retains up to
-five candidates; original coordinates always take precedence. If a worker is
-stopped, work stays queued. For an abandoned running job, confirm the old worker
-has stopped and cancel it from its lookup page before retrying. Earlier results
-and reviews remain retained; see [background recovery](background-tasks.md).
+Open a trip's observations and follow **Review lookup** to inspect candidates.
+Only a specifically accepted candidate from the latest matching local lookup can
+supply an estimated path position. Whole-run approval does not choose a candidate;
+multiple accepted alternatives remain unmapped. Reported coordinates take
+precedence. Rejection or changed acceptance refreshes geometry without changing
+the trip's original-address/coordinate segmentation. Original addresses,
+coordinates and checksums remain unchanged. No global address cache is introduced.
 
 ## External tiles and privacy
 
 Leaflet 1.9.4 is vendored under `geo/static/geo/vendor/leaflet/` with its BSD
 license. Map templates live under `geo/templates/geo/`. One map instance belongs
-to the case page; evidence is supplied through Django's escaped `json_script`.
+to the map or trip-detail page; POIs use Django's escaped `json_script` and
+trip positions use authorized JSON responses.
 Titles are rendered as DOM text, never as popup HTML. The complete server-rendered
 list works without JavaScript, tiles, or the map library.
 
@@ -146,7 +128,7 @@ areas. Evidence files, titles, notes, source addresses, case IDs and observation
 times are not sent to the tile provider. Address lookup is confined to the local
 geocoder described above. Marker details are rendered locally in the browser. Tile images
 use `referrerPolicy: origin`; ordinary private pages retain the existing
-same-origin referrer policy. Only the successful map page's CSP permits images
+same-origin referrer policy. Only successful map and trip-detail pages' CSP permit images
 from the configured tile origin. Private HTML remains uncached, while the browser
 honors the tile server's normal caching headers.
 
@@ -157,14 +139,14 @@ is a separate explicit lookup with retained source responses and provenance.
 Keyboard users can pan with arrow keys, zoom with +/− or 44px zoom controls,
 inspect markers, and use the list and source links. Mouse-wheel zoom is disabled
 to preserve document scrolling. Touch panning/pinch zoom follow Leaflet behavior;
-the list stays outside the map's gesture area. Tile failures leave the source
-markers and list usable and explain how to retry.
+the list stays outside the map's gesture area. Tile failures leave the trip paths
+and POIs and list usable and explain how to retry.
 
 ## Operator configuration
 
 | Variable | Default and behavior |
 | --- | --- |
-| `PANDECT_MAP_TILE_URL` | Empty by default: disables background tiles while retaining source markers. For OpenStreetMap, set `https://tile.openstreetmap.org/{z}/{x}/{y}.png`. A configured URL must be an HTTPS raster tile template containing `{z}`, `{x}`, `{y}`, without credentials, query or fragment. It is visible to the browser; never put secrets in it. |
+| `PANDECT_MAP_TILE_URL` | Empty by default: disables background tiles while retaining trip paths and POIs. For OpenStreetMap, set `https://tile.openstreetmap.org/{z}/{x}/{y}.png`. A configured URL must be an HTTPS raster tile template containing `{z}`, `{x}`, `{y}`, without credentials, query or fragment. It is visible to the browser; never put secrets in it. |
 | `PANDECT_MAP_TILE_ATTRIBUTION` | Optional additional plain-text provider attribution. OpenStreetMap copyright attribution always remains visible. |
 
 Compose passes these variables to the shared application environment. For hosted
@@ -185,15 +167,12 @@ uv run --locked --env-file .env python manage.py test --settings=config.test_set
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings geo.map_browser --noinput
 ```
 
-The browser journey uses synthetic locations and mocked tile responses in
-Chromium and WebKit. It checks automatic tile loading, disabled basemaps, and
-requests containing only tile paths without evidence payloads, source links, keyboard
-controls, overlapping points, no-JavaScript fallback, tile failure, desktop/mobile
-layouts, dark/forced-color/reduced-motion appearance and 320px reflow. Captures
-also cover address estimates appearing after a mocked local background lookup,
-ambiguous candidates, review links and keyboard source selection. Unit checks
-cover local-only dispatch, configuration drift, revoked/cross-case access,
-duplicate/bounded batches, review changes, and unchanged originals. No real
-addresses are sent in tests. Captures are saved under ignored
-`data/validation/maps`. These checks do not establish
-live tile-provider availability or full accessibility compliance.
+The browser journey uses synthetic trips/POIs and mocked tile responses in
+Chromium and WebKit. It checks progressive trip drawing, complete source access,
+local candidate review, keyboard controls, POI placement, no-JavaScript fallback,
+tile failure, desktop/mobile layouts and 320px reflow. Captures are saved under
+ignored `data/validation/maps`. Unit tests cover complete processing beyond 100
+and 500 observations, chunk boundaries, current roles, revocation, case/source
+integrity, retries, stale generations and deletion inventories. Routine tests
+send no real addresses and do not establish live provider availability or full
+accessibility compliance.

@@ -22,7 +22,7 @@
     <h2 id="duplicate-heading">Matching evidence already exists</h2>
     <p>This original has the same SHA-256 checksum as evidence in this case. Nothing has been added. Review the matches or add a separate copy if its source needs its own record.</p>
     <ul>{% for match in duplicates.matches %}<li><a class="record-link" href="{{ match.url }}" target="_blank" rel="noopener">{{ match.title }} · {{ match.label }}{% if match.is_archived %} · Archived{% endif %} (opens in a new tab)</a></li>{% endfor %}</ul>
-    {% if duplicates.has_more %}<p>Showing the first 10 matches.</p>{% endif %}
+    {% if duplicates.has_more %}<p>Showing the first 10 matches. <a href="{{ duplicates.all_matches_url }}" target="_blank" rel="noopener">Review all matches (opens in a new tab)</a></p>{% endif %}
     {% if is_file %}<p>Select the original file again below to add a duplicate. Your other details are preserved.</p>{% endif %}
   </section>{% endif %}
   <form method="post" enctype="multipart/form-data" class="form-layout{% if is_communication %} communication-form{% endif %}" id="evidence-create-form"{% if not editing and is_file and not duplicates %} data-evidence-upload data-upload-url="{% url 'core:evidence:create' case_id=case.pk %}" data-max-file-bytes="{{ max_file_bytes }}" data-max-batch-files="{{ max_batch_files }}" data-kind="{{ kind }}"{% endif %} data-unsaved-form>

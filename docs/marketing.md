@@ -9,8 +9,8 @@ announcement copy with the same availability boundaries.
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Plain-language introduction, fictional workspace, current capabilities, and planned-work signposting. |
-| `/product/` | Available evidence, findings, exact connections, chronology, shared briefs, collaboration, map and import workflows; analysis examples at `#analysis`; separately configured services. |
+| `/` | Concise introduction, fictional workspace, core workflow, and self-hosting next step. |
+| `/product/` | Current capabilities, fictional analysis examples at `#analysis`, configured services, and supported-input limits. |
 | `/trust/` | Case access, original preservation, analysis approval, and map tile privacy. |
 | `/roadmap/` | Available capabilities, planned work, and exploratory ideas without a release schedule. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
@@ -23,11 +23,15 @@ Illustrations use a labelled fictional case. Examples show source links and
 candidate-finding limits; configuration-dependent analysis is identified beside
 the claim. Trust includes [external tile-provider privacy](maps.md#external-tiles-and-privacy).
 
-The pages use `marketing/templates/marketing/` and `marketing/static/marketing/marketing.css`, sharing
-the approved brand artwork. Navigation and calls to action are ordinary links
-and work without JavaScript. Responsive layouts, dark appearance, keyboard
-focus, a skip link, and forced-colors brand text follow [the design
-standard](../DESIGN.md).
+The pages use `marketing/templates/marketing/` and
+`marketing/static/marketing/marketing.css`. A shared editorial layout uses the
+approved brand, prominent headings, readable text, and fine dividers. Short
+introductions lead to the next useful action; product details, trust choices,
+and project plans have their own pages instead of repeated feature lists.
+Supporting format limits and hosting questions use native disclosures.
+Navigation, calls to action, and disclosures work without JavaScript.
+Responsive layouts, dark appearance, keyboard focus, a skip link, and
+forced-colors brand text follow [the design standard](../DESIGN.md).
 
 ## Content boundaries
 

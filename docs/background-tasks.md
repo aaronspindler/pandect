@@ -40,10 +40,10 @@ See the [Processing workflow](interface-design.md#case-tools-processing-and-addi
 for history filters, import review, and recovery controls. Refresh provides in-app
 completion feedback; there is no notification scheduler.
 
-Completed vehicle and iMessage imports offer **Run local checks on imported
+Completed vehicle and HTML iMessage imports offer **Run local checks on imported
 evidence** deliberately. Scope comes from retained import relationships (and the
 published iMessage IDs and source rows for historical results, or the publishing
-run on new iMazing message contexts), never browser-supplied evidence IDs. Each step
+run on new iMazing message contexts), never browser-supplied evidence IDs. Each local-check step
 queues independent local checks for at most 500 sources or the configured lower
 source limit; text groups also respect the one-million-character analysis bound.
 Skipped duplicate rows are absent. This does not run models, transcription,
@@ -51,10 +51,51 @@ external lookups, or split context-dependent movement/conversation analyses.
 Duplicate submissions recover the same batch. Each continuation rechecks access;
 preparation and run failures remain recoverable through existing workflows.
 
+Confirmed iMazing CSV imports instead start their message-analysis batch
+automatically in the publication transaction. The existing batch cursor and task
+continuations prepare bounded selections in reported-time order. They queue both
+independent local checks and the message/writing/model suite described in
+[automatic message analysis](analysis-communications.md#imazing-csv-message-imports).
+Processing separates preparation from execution; **Checks queued** does not mean
+model work has finished. Model failures preserve the import and independent
+results, and never trigger cloud fallback. Preview, excluded, and reused rows do
+not start a batch. No database migration or startup backfill is required.
+
 iMazing CSV imports have no row-count ceiling. They stream within the configured
 file and per-message limits, retain compact analysis summaries, and paginate
 source review and completed messages. Publication still commits all messages and
 requested new people atomically; internal processing groups are not import limits.
+
+## Saved vehicle trips
+
+`geo` owns durable per-vehicle trip state, generations, every retained input and
+ordered trip membership. Authorized evidence/import/archive mutations invalidate
+the vehicle revision and atomically queue replacement work. Each task handles at
+most 500 observations and commits staged output, its cursor/token and continuation
+together. Active/archived/all variants share one generation. Current verified
+editor access, source relationships and revision are checked during processing;
+only a complete current generation is published. Failed or superseded work is
+never exposed as complete. Input history has no 100/500-observation cutoff.
+
+The Map, report and vehicle pages read saved trips. Existing evidence is initialized
+through **Prepare trips**, a case-authorized idempotent POST; GET and application
+startup remain read-only. Processing exposes progress and generation history.
+Retries preserve prior generations, use new delivery tokens and allow three
+attempts. Recovering running work requires explicit confirmation that its previous
+worker stopped. Confirmed source deletion inventories include all dependent
+generations, including those affected by observations that produced no trip;
+remaining evidence is invalidated/rebuilt in the deletion transaction. A
+superuser with viewer-only case access can confirm deletion of its complete
+inventory but cannot queue a rebuild;
+a current owner/editor prepares the replacement.
+
+After publication a separate bounded continuation prepares existing local geocode
+runs, at most 25 distinct addresses and the configured source ceiling per run.
+Lookup preparation has its own progress/recovery and never blocks trip summaries.
+The trip map uses only reported positions or specifically reviewed local estimates;
+lookup/review changes refresh geometry without resegmenting originals. See
+[trip rules](analysis-locations.md#automatic-vehicle-trips) and
+[map lookups](maps.md#local-address-lookup).
 
 ## Startup and diagnostics
 

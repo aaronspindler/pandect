@@ -39,11 +39,12 @@ unprivileged user, and defaults to `gunicorn config.wsgi:application`. Its build
 context excludes local secrets and data. App-local templates/static assets are
 included explicitly; `collectstatic` runs during the image build and WhiteNoise
 serves public application assets. Private evidence is outside its static root.
-The Dockerfile's `web` target is the default image; its `worker` target uses the
-same application runtime and starts the PostgreSQL-backed worker. In native
-Dokploy deployment, the singleton worker applies migrations and emits its release
+One application image supplies both web and worker services. Web uses the image's
+default Gunicorn command; the production worker overrides it with
+`sh /app/scripts/docker-entrypoint-worker.sh`. In native Dokploy deployment, the
+singleton worker applies migrations and emits its release
 preparation marker before starting queue processing; web activation follows
-worker preparation. `APP_COMMIT_SHA` is baked into both targets and the image's
+worker preparation. `APP_COMMIT_SHA` is baked into the shared image and its
 OCI revision label. Healthy `/health/` responses report it as `commit`, allowing
 deployment checks to distinguish the running release from a healthy older image.
 Compose overrides the command for local development. PostgreSQL 18 stores its named volume at `/var/lib/postgresql`, as

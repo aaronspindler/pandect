@@ -34,6 +34,7 @@
       <fieldset class="form-layout"><legend>Export account — outgoing sender</legend><p>This person sent Outgoing messages and received Incoming messages. Their phone number is optional when a name or email identifies the record.</p>{% include 'phone/imazing_person_fields.html' with person_form=account_form only %}</fieldset>
       <fieldset class="form-layout"><legend>Correspondent — incoming sender</legend><p>This person sent Incoming messages and received Outgoing messages.</p>{% if summary.sender_id %}<p>Source Sender ID: <strong>{{ summary.sender_id }}</strong>{% if summary.sender_names %} · {% for name in summary.sender_names %}{{ name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</p>{% endif %}<p>The source identifier is suggested for a new record; review it before importing.</p>{% include 'phone/imazing_person_fields.html' with person_form=correspondent_form only %}</fieldset>
       {% for field in form %}{% include 'ui/components/form_field.html' with field=field only %}{% endfor %}
+      <p>After import, message timing, writing, links, and summaries are analyzed automatically. AI suggestions use the configured local analysis service.</p>
       <div class="actions"><button class="button button-primary" type="submit">Import messages</button><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Cancel</a></div>
     </form>
   {% elif not can_edit and not final %}<p class="role-note">You have Viewer access. An owner or editor can complete this import.</p>

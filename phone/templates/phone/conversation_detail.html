@@ -1,0 +1,52 @@
+{% extends 'ui/base.html' %}
+{% load static %}
+{% block title %}{{ first_person }}{% if first_person.pk != second_person.pk %} and {{ second_person }}{% endif %} · Conversation{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'phone/conversations.css' %}">{% endblock %}
+{% block body_class %}conversation-page{% endblock %}
+{% block content %}
+<a class="record-link" href="{{ conversation_list_url }}">All conversations</a>
+<header class="page-header conversation-header">
+  <div><h1>{{ first_person }}{% if first_person.pk != second_person.pk %} and {{ second_person }}{% endif %}</h1><p class="muted">Messages grouped by reported participants. Retained exports may overlap.</p></div>
+</header>
+<form class="conversation-filter" method="get" aria-label="Filter conversation by source">
+  {% if list_page > 1 %}<input type="hidden" name="list_page" value="{{ list_page }}">{% endif %}
+  <div><label for="conversation-source">Source</label><select id="conversation-source" name="source">
+    <option value="">All sources</option>
+    {% for document in source_documents %}<option value="{{ document.pk }}"{% if selected_source.pk == document.pk %} selected{% endif %}>{{ document.title }}{% if document.is_archived %} · Archived{% endif %}</option>{% endfor %}
+  </select></div>
+  <button class="button button-secondary" type="submit">Apply filter</button>
+  {% if selected_source %}<a class="record-link" href="{% url 'phone:conversation_detail' case.pk first_person.pk second_person.pk %}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">Clear filter</a>{% endif %}
+</form>
+{% if page_obj.object_list %}
+<section class="conversation-reader" aria-labelledby="conversation-messages-heading">
+  <div class="section-header conversation-section-header"><h2 id="conversation-messages-heading">Messages</h2><p class="muted">{{ page_obj.paginator.count }} message{{ page_obj.paginator.count|pluralize }} · Includes archived</p></div>
+  <div class="conversation-stream">
+    <ol class="conversation-messages">
+      {% for message in page_obj %}
+      {% ifchanged message.occurred_at|date:'Y-m-d' %}<li class="conversation-date">{% if message.occurred_at %}<h3>{{ message.occurred_at|date:'l, j F Y' }}</h3>{% else %}<h3>Time not recorded</h3>{% endif %}</li>{% endifchanged %}
+      <li class="conversation-message{% if message.sender_id == second_person.pk and first_person.pk != second_person.pk %} conversation-message-second{% endif %}{% if selected_message.pk == message.pk %} is-selected{% endif %}" id="message-{{ message.pk }}" tabindex="-1"{% if selected_message.pk == message.pk %} data-selected-message{% endif %}>
+        <article aria-labelledby="message-sender-{{ message.pk }}">
+          <header class="conversation-message-header"><strong id="message-sender-{{ message.pk }}">{{ message.sender }}</strong>{% if selected_message.pk == message.pk %}<span class="conversation-selected-label">Linked message</span>{% endif %}{% if message.is_archived %}<span class="status">Archived</span>{% endif %}</header>
+          <p class="conversation-message-time muted">{% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</p>
+          <div class="conversation-message-body">{{ message.body }}</div>
+          <p class="conversation-message-source muted">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %} · <a href="{{ message.evidence_url }}">Open evidence<span class="sr-only">: {{ message.title }}</span></a></p>
+          <details class="conversation-message-details" id="message-details-{{ message.pk }}" data-message-details{% if selected_message.pk == message.pk %} open{% endif %}>
+            <summary>Message details<span class="sr-only">: {{ message.title }}</span></summary>
+            {% include 'phone/message_details.html' with item=message communication_context=message.imported_source hide_native_links=True %}
+          </details>
+        </article>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% if page_obj.has_other_pages %}<nav class="pagination conversation-pagination" aria-label="Message pages">
+    {% if page_obj.has_previous %}<a class="button button-secondary" href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page=1">First</a><a class="button button-secondary" href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Earlier</a>{% endif %}
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a class="button button-secondary" href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Later</a><a class="button button-secondary" href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.paginator.num_pages }}">Last</a>{% endif %}
+  </nav>{% endif %}
+</section>
+
+{% else %}
+<section class="empty-state"><h2>No messages{% if selected_source %} from this source{% endif %}</h2><p>{% if selected_source %}Choose All sources to see other retained messages between these people.{% else %}There are no retained messages between these people in this case.{% endif %}</p>{% if selected_source %}<a class="button button-secondary" href="{% url 'phone:conversation_detail' case.pk first_person.pk second_person.pk %}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">Clear filter</a>{% endif %}</section>
+{% endif %}
+{% endblock %}

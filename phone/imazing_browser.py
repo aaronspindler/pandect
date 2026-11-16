@@ -163,4 +163,34 @@ class IMazingImportBrowserTests(BrowserTestCase):
                     self.db(TextMessageEvidence.objects.filter(case=self.case).count),
                     2 * (self.engines.index(engine) + 1),
                 )
-                self.capture(page, engine, "imported-mobile")
+                follow = page.get_by_role(
+                    "link", name="Follow message analysis", exact=True
+                )
+                expect(follow).to_be_visible()
+                expect(
+                    page.get_by_role(
+                        "button", name="Run local checks on imported evidence"
+                    )
+                ).to_have_count(0)
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"automatic-analysis-{width}-{height}")
+                follow.focus()
+                expect(follow).to_be_focused()
+                page.keyboard.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("Preparing message analysis", exact=True).first
+                ).to_be_visible()
+                self.capture(page, engine, "automatic-analysis-processing")

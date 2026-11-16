@@ -33,7 +33,8 @@ block individual deletion. Deleting an unlinked vehicle retains the case, people
 other vehicles, and login accounts. Whole-case deletion removes vehicles and their
 observations together. Product users need no staff permissions.
 
-The vehicle detail page lists up to 25 recent reported locations. Owners and
+The vehicle detail page paginates all reported locations, including archived
+evidence, with 25 observations per page. Owners and
 editors can add **Vehicle location** evidence or choose **Import vehicle
 locations** to review an Asset Location CSV and explicitly map source assets to
 case vehicles. Source identifiers never overwrite plates/VINs or establish
@@ -76,9 +77,16 @@ planned. Geographic analysis of retained vehicle locations is implemented in `ge
 
 ## Automatic trips
 
-Vehicle details lead with five recent possible trips derived from retained timed
-locations. Raw location records remain available under **Show observations**. **See all trips** or **Choose dates** opens the complete report selection.
-CSV address-only imports work without geocoding or review. Stops and gaps separate
-trips; each endpoint and contributing observation links to its source. Reports
-inspect the latest 500 matching observations and disclose incomplete coverage;
-use vehicle/date filters for older intervals. See [location analysis](analysis-locations.md).
+Vehicle details lead with five recent saved possible trips. The Map and Vehicle
+trips report use the same complete processed histories; **See all trips** or
+**Choose dates** opens the paginated report. Date filters select whole overlapping
+trips. Raw records remain available under **Show observations** and each trip's
+paginated source inspection.
+
+New evidence, completed imports and archive/restore changes queue rebuilding in
+the background. Pending or failed generations are not displayed as current.
+Processing provides progress and recovery. Address-only CSV records form trips
+without geocoding; map positions additionally require reported coordinates or
+specifically reviewed local lookup estimates. Stops and gaps separate trips,
+without reconstructing roads or verifying presence. See
+[trip processing](analysis-locations.md#automatic-vehicle-trips).

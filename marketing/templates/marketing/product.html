@@ -1,49 +1,43 @@
 {% extends 'marketing/base.html' %}
-{% block title %}Available features{% endblock %}
-{% block description %}Explore Pandect’s private cases, searchable findings, exact identifier connections, recorded chronology, shared briefs, maps, and imports. See which analysis tools need configured services.{% endblock %}
+{% block title %}Product{% endblock %}
+{% block description %}Organize evidence, search within a case, and review source-linked findings. Explore Pandect’s available features, optional services, and supported formats.{% endblock %}
 {% block content %}
 <section class="marketing-hero wrap page-intro">
   <p class="section-label">Product · In active development</p>
-  <h1>A workspace for the evidence.<br><em>And the work of understanding it.</em></h1>
-  <p class="lead">Pandect brings gathered material into private cases, makes supported content searchable, and keeps findings tied to their sources. Here’s what the current application can do.</p>
+  <h1>Keep the evidence.<br><em>Build your understanding.</em></h1>
+  <p class="lead">One workspace for original material, source-linked findings, and the people reviewing them.</p>
   <nav class="page-links" aria-label="On this page"><a href="#available">Available now</a><a href="#analysis">Analysis examples</a><a href="#configured-services">Configured services</a><a href="#limits">Supported formats</a></nav>
 </section>
 <section class="wrap marketing-section available-features" id="available" aria-labelledby="available-heading">
-  <div class="section-heading"><p class="section-label">Available now</p><h2 id="available-heading">From gathered material to a clearer case.</h2><p>These capabilities are implemented. Supported local checks run in your installation; model-assisted tools and geographic services have separate setup requirements below.</p></div>
+  <div class="section-heading"><p class="section-label">Available now</p><h2 id="available-heading">A connected place for case work.</h2></div>
   <div class="feature-grid">
-    <article><h3>Private cases and collaboration</h3><p>Create cases with one owner. Invite viewers or editors by email, manage their access, and keep each investigation’s material together.</p></article>
-    <article><h3>Evidence with its originals</h3><p>Retain files, text, communications, and locations with source details and checksums. Inspect supported PDF pages, UTF-8 text, images, and WAV recordings in private readers.</p></article>
-    <article><h3>Search within a case</h3><p>Search captured text, messages, supplied transcripts, and extracted passages. Open the matching source or retained extraction version from the result.</p></article>
-    <article><h3>Automatic local checks</h3><p>Eligible new evidence queues text extraction, printed-English image recognition, metadata checks, identifiers, dates, keywords, and possible plate readings.</p></article>
-    <article><h3>People, vehicles, and maps</h3><p>Maintain people, social-account records, and vehicles. Open evidence and findings explicitly linked to a person. Map recorded locations and person-linked points of interest.</p></article>
-    <article><h3>Imports you can review</h3><p>Import supported Asset Location CSV exports and the documented iMessage HTML format. Confirm timezone and record associations; retain the source file and links to imported records.</p></article>
-    <article><h3>Browse all findings</h3><p>Search retained findings by method, source, person, and review state. Keep exact citations and earlier run versions. Follow processing progress and recover failed checks.</p></article>
-    <article><h3>Connections and comparisons</h3><p>Inspect repeated identifier candidates in analyzed material, possible trips, call timing, and duplicate files. Exact string matches do not establish identity or association.</p></article>
-    <article><h3>Recorded chronology</h3><p>Follow communication and location times in one view. Keep acquisition times distinct and uncertain extracted dates unplaced, with links back to the sources.</p></article>
-    <article><h3>Shared selections and briefs</h3><p>Save exact evidence and finding references with collaborators. Export a printable HTML brief with citations, review decisions, and a downloadable provenance manifest.</p></article>
+    <article><h3>Private cases</h3><p>Organize evidence, people, and vehicles. The case owner invites viewers or editors and manages their access.</p></article>
+    <article><h3>Originals in view</h3><p>Retain files, text, and communications with source details and checksums. Read supported documents, images, and recordings privately.</p></article>
+    <article><h3>Search and findings</h3><p>Search supported text and findings within a case. Follow citations to the source, inspect earlier versions, and record review decisions.</p></article>
+    <article><h3>Local checks and comparisons</h3><p>Eligible evidence receives local extraction, image OCR, and metadata checks. Explore identifiers, call patterns, and exact-file duplicates without treating matches as proof of identity.</p></article>
+    <article><h3>Locations and chronology</h3><p>Review possible vehicle trips, their observations, and points of interest on a map. Browse recorded communication and location times; uncertain extracted dates stay separate.</p></article>
+    <article><h3>Imports and shared briefs</h3><p>Review supported vehicle CSV, iMazing CSV, and iMessage HTML imports. Save shared selections and export cited HTML briefs with review decisions and a provenance manifest.</p></article>
   </div>
 </section>
 {% include 'marketing/analysis_examples.html' %}
 <section class="availability-section" id="configured-services" aria-labelledby="services-heading">
   <div class="wrap marketing-section">
-    <div class="section-heading"><p class="section-label">Available with configured services</p><h2 id="services-heading">Add services when your work needs them.</h2><p>These integrations are implemented, but need an operator-configured runtime or endpoint. Ordinary case work stays usable without them.</p></div>
+    <div class="section-heading"><p class="section-label">Requires configuration</p><h2 id="services-heading">Add analysis when you need it.</h2><p>These tools need operator-configured services. Ordinary case work remains usable without them.</p></div>
     <div class="principles">
-      <article><h3>Speech transcription</h3><p>Transcribe English speech in supported WAV recordings using a configured private runtime, or an explicitly selected and approved external AI route.</p></article>
-      <article><h3>Model-assisted analysis</h3><p>Ask a question of explicitly selected text and findings, with citations, contrary evidence, and unresolved questions. Topics, claims, and conversation summaries are also supported. Model output remains suggestions to review.</p></article>
-      <article><h3>Geographic lookups</h3><p>Look up candidate addresses or coordinates and retain nearby map context. Configure private services or approve external lookups; review estimates before using them.</p></article>
+      <article><h3>Speech to text</h3><p>Transcribe English speech in supported WAV recordings with a configured private runtime or explicitly approved external AI.</p></article>
+      <article><h3>Model suggestions</h3><p>Explore topics, claims, and conversation summaries, or ask a question of selected text and findings. Keep citations and review model suggestions.</p></article>
+      <article><h3>Geographic context</h3><p>Find candidate addresses and nearby map context through private services or approved external lookups. Estimates remain subject to review.</p></article>
     </div>
-    <a class="text-link" href="{% url 'marketing:trust' %}">Where processing happens and what leaves your installation <span aria-hidden="true">→</span></a>
+    <a class="text-link" href="{% url 'marketing:trust' %}">Processing and privacy <span aria-hidden="true">→</span></a>
   </div>
 </section>
 <section class="marketing-section wrap split-section" id="limits" aria-labelledby="limits-heading">
-  <div><p class="section-label">Supported formats</p><h2 id="limits-heading">Keeping a file and analyzing it are different.</h2></div>
+  <div><p class="section-label">Supported formats</p><h2 id="limits-heading">Know what can be analyzed.</h2><p>Storage supports more formats than automated analysis. Results disclose unsupported inputs and incomplete coverage.</p></div>
   <div class="marketing-faq">
-    <p>Evidence storage supports more files than automated analysis. Each method has format and resource limits, with incomplete or unsupported outcomes shown in its results.</p>
-    <details><summary>Document text and image recognition</summary><p>Native extraction supports UTF-8 text and unencrypted PDFs with embedded text. Private PDF page previews let you inspect supported documents, including scanned pages, without extracting their text. Local OCR reads printed English in JPEG/PNG images. Handwriting, Office extraction, and direct recognition of scanned PDF pages are unsupported; retain a separate page image for OCR.</p></details>
-    <details><summary>Audio and possible plate readings</summary><p>Audio metadata and transcription support uncompressed 16-bit PCM WAV in the documented profile; transcription supports English. Plate search is a local JPEG/PNG heuristic and can miss plates or mistake other text for them. It does not identify an owner or driver.</p></details>
-    <details><summary>Imports and report coverage</summary><p>Imports accept documented file profiles, rather than arbitrary exports or live tracking feeds. Reports select at most 500 records; automatic vehicle trips use the latest 500 matching observations. Results disclose truncation, gaps, and unknown values.</p></details>
-    <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/analysis.md">Read the supported-analysis guide <span aria-hidden="true">↗</span></a>
+    <details><summary>Documents and images</summary><p>Extract embedded text from unencrypted PDFs and UTF-8 files. Local OCR reads printed English in JPEG/PNG images. Handwriting, Office extraction, and OCR directly from scanned PDF pages are unsupported; use a separate page image.</p></details>
+    <details><summary>Audio and plate readings</summary><p>Audio analysis supports the documented uncompressed 16-bit PCM WAV profile; transcription supports English. Local plate detection in JPEG/PNG can miss plates or misread text. It identifies neither an owner nor a driver.</p></details>
+    <details><summary>Imports and report coverage</summary><p>Imports support documented export profiles, with timezone and association review, rather than live tracking feeds. Saved vehicle trips process complete eligible histories; other reports use at most 500 source records and disclose truncation and gaps.</p></details>
+    <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/analysis.md">Supported-analysis guide <span aria-hidden="true">↗</span></a>
   </div>
 </section>
-<section class="trust-strip"><div class="wrap split-section"><h2>See where the project is headed.</h2><div><p>Inferred event timelines, relationship graphs, cross-case evidence search, and automatic evidence discovery for synthesis remain planned.</p><a class="text-link" href="{% url 'marketing:roadmap' %}">Available features and future work <span aria-hidden="true">→</span></a></div></div></section>
 {% endblock %}

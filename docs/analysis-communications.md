@@ -111,6 +111,13 @@ Unknown or overlapping periods produce no interval.
 
 ## Conversation sessions and interaction
 
+The [conversation reader](evidence.md#reading-conversations) in **Case Tools →
+Conversations** reads retained messages directly, across imported and individually
+entered records, with an optional retained-export filter and inline message
+details that open without a reload. It does not require an analysis run or use
+inferred session boundaries. The operations below instead analyse their exact
+retained selections; their output may cover only part of a participant conversation.
+
 **Read inferred message sessions**, **Inspect message timing**, and **Summarize
 message sessions** accept Text message evidence. Phone calls, FaceTime
 records, and their transcripts are not message-session inputs. To summarize or
@@ -324,6 +331,46 @@ source claims; reactions do not become separate messages and edit/deletion
 markers do not recover missing history. Attachment paths are never opened or
 fetched, and referenced files are not ingested.
 
-Completed CSV imports offer **Run local checks on imported evidence** for exactly
-the messages newly created by that import. Checks remain deliberate. The existing
-HTML import operation and its recorded parser versions are unchanged.
+Confirmed CSV imports automatically queue analysis for exactly the messages newly
+created by that import. The preparation task commits with publication; a preview,
+excluded row, or reused message does not start another analysis batch. The import
+page links to **Follow message analysis** in Processing. **Run message analysis
+again** prepares a new batch while preserving earlier results. Historical imports
+are not backfilled automatically. HTML imports retain their deliberate local-check
+action.
+
+The automatic suite includes identifiers/dates, keywords, inferred message
+sessions, timing, writing profiles, repeated wording, temporal exchange links,
+local topic suggestions, claims/commitments, session summaries, and semantic
+exchange suggestions. Writing profiles use separate reported senders. Writing
+comparisons use that sender's earlier/later timed samples, split near the middle
+at a distinct timestamp without dividing equal-time messages; fewer than two
+distinct times cannot produce a comparison. Existing adequacy guards still report
+insufficient evidence rather than attributing authorship.
+
+Preparation walks all newly imported messages in reported-time order, with unknown
+times last, using at most 250 messages (or the configured lower source limit) and
+one million text characters per step. It queues repeated-wording comparisons in
+groups of at most 50 messages/100,000 characters, and model work in groups of at
+most 20 messages/16,000 characters. An individual oversized message is retained
+whole; an unsupported analysis fails visibly rather than truncating it. Each
+result retains its exact selection and counts against the import population.
+Smaller selections disclose partial coverage: session boundaries, timing, writing,
+and wording comparisons do not span separate selections. These are bounded views,
+not whole-conversation or whole-case conclusions.
+
+Temporal exchange comparisons also select retained, unarchived same-case Phone
+call and FaceTime metadata for the reported participant pair within ten minutes
+of the message window, up to the remaining analysis-source capacity. Other calls,
+transcripts, and material outside the selection remain unexamined. Semantic
+suggestions cover the selected imported messages only.
+
+Automatic model work uses the shared local/private runtime, with pinned execution
+provenance and exact quotation validation. Missing configuration, runtime drift,
+capacity limits, and provider/output failures remain visible, retryable runs;
+they do not undo messages or prevent independent rule-based results. There is no
+automatic external AI selection or cloud fallback. Case editing access and
+verified requester status are rechecked at preparation and execution. Preparation
+commits its cursor, runs, and continuation together; retries do not duplicate
+queued work. A stopped preparation can be rerun from the import page after the
+old worker has stopped; a failed individual run uses normal Processing recovery.

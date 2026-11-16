@@ -42,7 +42,7 @@ class PrivatePageMiddleware:
         if (
             response.status_code == 200
             and match
-            and match.view_name == "geo:case_map"
+            and match.view_name in ("geo:case_map", "geo:trip_detail")
             and settings.PANDECT_MAP_TILE_ORIGIN
         ):
             tile_source = f" {settings.PANDECT_MAP_TILE_ORIGIN}"

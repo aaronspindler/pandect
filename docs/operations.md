@@ -169,8 +169,8 @@ not an additive migration or faked history. Retain their old database and media.
 
 ## First Dokploy deployment
 
-CI builds versioned GHCR images, CD resolves immutable digests, and Dokploy runs
-separate native Docker Applications for **web** and **worker**, plus a managed
+CI builds one versioned GHCR image, CD resolves its immutable digest, and Dokploy
+runs separate native Docker Applications for **web** and **worker**, plus a managed
 **PostgreSQL** resource.
 The local `compose.yaml` remains a development tool; it is not used in Dokploy.
 
@@ -179,8 +179,11 @@ The local `compose.yaml` remains a development tool; it is not used in Dokploy.
    Keep it private; use its internal hostname and port 5432 in the application
    configuration. Retain Dokploy's database volume and backup ownership.
 2. Create native Docker Applications named `web` and `worker` on the same intended
-   deployment server. Configure one replica each. Use the `web` and `worker`
-   Dockerfile targets' respective GHCR images by digest, never `latest`.
+   deployment server. Configure one replica each. Use the same
+   `ghcr.io/<owner>/<repository>@sha256:<digest>` image for both, never `latest`.
+   Leave web's Command and Arguments overrides empty so it uses the image's
+   default Gunicorn command. Set worker's Command to `sh` and Arguments to the
+   single entry `/app/scripts/docker-entrypoint-worker.sh`.
    Configure the web Application's native HTTP health check against
    `http://127.0.0.1:8000/health/`; keep worker rollout stop-first and web start-first.
 3. Copy [`.env.dokploy.example`](../.env.dokploy.example) into both application
@@ -256,10 +259,10 @@ rollback or matching backup restoration is a separately reviewed recovery action
 ### Continuous deployment
 
 After all CI checks pass on a push to Pandect's upstream `main`, CI builds
-the Dockerfile's `web` and `worker` targets for Linux amd64 and publishes private
-`ghcr.io/<owner>/<repository>-web` and `-worker` images. Each has the commit tag
-and a `build-<CI run ID>` tag; the build summary records its immutable digest.
-Images embed `APP_COMMIT_SHA` so live health identifies their source revision.
+one Linux amd64 image and publishes it to the private
+`ghcr.io/<owner>/<repository>` package. It has the commit tag and a
+`build-<CI run ID>` tag; the build summary records its immutable digest.
+The image embeds `APP_COMMIT_SHA` so live health identifies its source revision.
 Pull requests and manually dispatched CI do not publish or activate releases.
 
 Under GitHub **Settings → Environments → production**, set **Deployment branches
@@ -275,7 +278,7 @@ See [GitHub's deployment branch and environment settings](https://docs.github.co
 | `DOKPLOY_API_KEY` | Operator API key permitted to update/deploy these applications and read deployment/task status. |
 | `DOKPLOY_WEB_APPLICATION_ID` | Existing native web Application ID. |
 | `DOKPLOY_WORKER_APPLICATION_ID` | Existing native worker Application ID. |
-| `DOKPLOY_REGISTRY_PASSWORD` | Registry credential with read access to both private GHCR packages. |
+| `DOKPLOY_REGISTRY_PASSWORD` | Registry credential with read access to the private GHCR package. |
 
 The registry username is the repository owner. CI uses its scoped GitHub token
 for package publication; the long-lived Dokploy pull credential stays in secrets
@@ -294,22 +297,33 @@ Once both are configured, set the GitHub
 until this setting is present. Rerun the failed **Deploy production** workflow
 for the successful CI run on current `main` once the database is ready.
 
-For each image, both the successful run's tag and commit tag must resolve to the
-same digest; Dokploy receives `repository@sha256:...`, never a moving tag. CD
+The successful run's tag and commit tag must resolve to the same digest. CD passes
+that shared reference to the deployment helper as `PANDECT_IMAGE`; both Dokploy
+Applications receive the same `repository@sha256:...`, never a moving tag. CD
 checks out only the trusted `main` deployment helper and executes no downloaded
 CI artifacts. Its production concurrency group waits for the active rollout
 instead of cancelling it when a newer commit arrives.
 
-CD updates each native Application's Docker provider and triggers deployment,
-preserving runtime environment and mounts. Both Applications remain singleton;
-the worker uses stop-first updates and web uses start-first updates. The worker
-deploys first, applies migrations, and must
-report the exact prepared marker while one running Swarm task uses the expected
+CD updates each native Application's Docker provider, sets worker's Command to
+`sh` with `/app/scripts/docker-entrypoint-worker.sh` as its sole Argument, and
+clears web's Command and Arguments overrides to use the image default. It then
+triggers deployment, preserving runtime environment and mounts. Both Applications
+remain singleton; the worker uses stop-first updates and web uses start-first
+updates. The worker deploys first, applies migrations, and must report the exact
+prepared marker while one running Swarm task uses the expected
 image for a 60-second stability window. Then web deploys and must report the
 expected commit over `https://openpandect.com/health/`, with a stable running task
 on its exact image. An accepted deploy request alone does not count as success.
 Queue execution still requires the bounded `check_task_worker` diagnostic above;
 CD's worker checks establish startup and task identity.
+
+When upgrading from the separate `-web` and `-worker` packages, keep the existing
+Dokploy Application IDs, environment, database, and shared evidence volume.
+Ensure the pull credential can read the new shared GHCR package before rollout.
+The first successful CI/CD run switches both Applications to the shared image and
+configures their startup commands. Retain the previous image digests and command
+settings for separately reviewed recovery; changing image packaging requires no
+database reset or additional migration.
 
 Only after both services pass verification does the deployment helper emit its
 `deployed=true` output. A dependent job then publishes a GitHub release tagged

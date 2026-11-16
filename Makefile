@@ -2,7 +2,7 @@ UV ?= uv
 RUN = $(UV) run --locked
 TEST_SETTINGS ?= config.test_settings
 
-.PHONY: sync run lint format test validate check security-check compose-smoke browser-check
+.PHONY: sync run lint format test validate check security-check compose-smoke browser-check repository-check install-hooks
 
 sync:
 	$(UV) sync --locked
@@ -22,7 +22,7 @@ test:
 	$(RUN) python manage.py test --settings=$(TEST_SETTINGS)
 
 browser-check:
-	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser core.analysis.workflow_browser core.analysis.selection_browser image.browser document.browser phone.browser phone.imazing_browser geo.map_browser --noinput --settings=$(TEST_SETTINGS)
+	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser core.analysis.workflow_browser core.analysis.selection_browser image.browser document.browser phone.browser phone.imazing_browser phone.conversation_browser geo.map_browser --noinput --settings=$(TEST_SETTINGS)
 
 validate:
 	$(UV) lock --check
@@ -30,7 +30,14 @@ validate:
 	$(RUN) python manage.py makemigrations --check --dry-run
 	docker compose config --quiet
 
-check: lint test validate
+repository-check:
+	$(RUN) python scripts/check-repository-hygiene.py --staged
+	$(RUN) python scripts/check-repository-hygiene.py --history
+
+install-hooks:
+	git config --local core.hooksPath .githooks
+
+check: repository-check lint test validate
 
 # Audit the resolved graph without pip resolving a different set of packages.
 security-check:

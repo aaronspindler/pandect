@@ -270,6 +270,14 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(confirmation.status_code, 302)
         batch.refresh_from_db()
         self.assertEqual(process_import(batch.pk, batch.job_token), "complete")
+        from geo.trip_jobs import process_trips
+        from geo.trip_processing import prepare_case_trips
+
+        for generation in prepare_case_trips(self.users["editor"], self.case.pk):
+            while generation.status == "queued":
+                process_trips(str(generation.pk), str(generation.token))
+                generation.refresh_from_db()
+            self.assertEqual(generation.status, "complete", generation.error_code)
         self.assertFalse(AnalysisRun.objects.exists())
         self.login("viewer")
         response, highlights = self.findings()

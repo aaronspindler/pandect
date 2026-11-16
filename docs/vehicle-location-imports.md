@@ -50,8 +50,8 @@ can retry if the original requester loses access or verification.
 The import screen leads with progress and vehicle matching. **Source and time
 interpretation** and the paginated source-row preview are native disclosures;
 invalid rows open the preview for correction. On completion, **View findings**
-opens the case findings and trips, with raw observations in a disclosure. Trips
-use retained addresses/times without geocoding or review; see
+opens the case findings and trips, with raw observations in a disclosure. Saved trips are processed in the background from retained addresses/times
+without needing geocoding or review; see
 [automatic vehicle trips](analysis-locations.md#automatic-vehicle-trips).
 Individual observations retain **Original CSV row and interpretation**, including
 receipt time, source cells, asset labels and parser provenance.
@@ -166,7 +166,8 @@ and matching web/worker revisions; old queued task paths are incompatible. No
 application command automatically resets runtime data.
 
 The importer makes no external lookup or AI request and does not verify tracking
-claims. Imported observations can feed the [Map](maps.md) and
+claims. Completed publication queues saved trip processing; separately configured
+private-geocoder preparation may subsequently queue address lookups for trip maps. Imported observations can feed the [Map](maps.md) and
 [automatic trip reports](analysis-locations.md#automatic-vehicle-trips).
 The CSV format alone establishes no vendor timestamp, event, duration, or identifier
 semantics; the import retains the investigator's explicit interpretation.

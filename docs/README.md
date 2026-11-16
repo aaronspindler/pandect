@@ -1,5 +1,6 @@
 # Pandect documentation
 
+[PRINCIPLES.md](../PRINCIPLES.md) owns foundational project principles;
 [AGENTS.md](../AGENTS.md) owns contributor requirements;
 [DESIGN.md](../DESIGN.md) owns durable interface standards. The guides below own
 current behavior and procedures. Start with the guide for the task; follow its

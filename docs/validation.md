@@ -30,11 +30,11 @@ make compose-smoke
 make security-check
 ```
 
-`make check` runs Ruff lint/format checks, Django tests against PostgreSQL, uv
-lockfile validation, Django database/system checks, migration drift detection,
-and Compose configuration validation. The database role must be able to create
-and delete Django's `test_<POSTGRES_DB>` database. Never point tests at an
-investigation or shared hosted database.
+`make check` runs repository hygiene checks, Ruff lint/format checks, Django tests
+against PostgreSQL, uv lockfile validation, Django database/system checks,
+migration drift detection, and Compose configuration validation. The database
+role must be able to create and delete Django's `test_<POSTGRES_DB>` database.
+Never point tests at an investigation or shared hosted database.
 
 `make lint`, `make test`, and `make validate` run individual groups. Management
 checks need environment variables; use the `uv run --env-file .env` wrapper when
@@ -52,13 +52,15 @@ when a separate test database configuration is needed. Static regression tests
 exercise real manifest collection and cache headers independently; the Compose
 smoke also checks the non-debug build.
 
-Tests use synthetic content and temporary storage and live with their owning
-apps. The domain guides explain the behavior they protect; test modules own the
-detailed coverage inventory.
+Tests generate synthetic content in code, use temporary storage, and live with
+their owning apps. The domain guides explain the behavior they protect; test
+modules own the detailed coverage inventory.
 
 `make compose-smoke` needs Docker only. It builds a unique disposable project with
 synthetic configuration, random loopback ports, and fresh volumes to exercise
-startup, storage, processing, and worker restart. The executable coverage lives in
+startup, storage, processing, and worker restart. It runs the production worker
+startup script and verifies that web and worker use the same built image. The
+executable coverage lives in
 [`scripts/compose-smoke.sh`](../scripts/compose-smoke.sh). A probe completes once
 in the controlled run; this does not establish
 exactly-once delivery after crashes. The script clears inherited `PANDECT_`
@@ -68,6 +70,51 @@ containers and volumes.
 `make security-check` exports the hash-locked dependency graph, including developer
 tools, and runs pip-audit against it without re-resolving dependencies. It requires
 internet access to the advisory service. Temporary exports are removed on exit.
+
+## Repository hygiene
+
+Pandect's source repository is public. Local test evidence must never be committed
+or pushed, including synthetic imports, exports, and browser artifacts. Keep it
+under ignored `data/` or outside the checkout. Tests generate their fixtures in
+code and write files only to temporary/ignored storage. Static UI assets and
+reviewed design illustrations remain source assets; never put evidence there.
+
+Install the versioned Git hooks in every clone before creating commits or pushing:
+
+```sh
+make install-hooks
+make repository-check
+```
+
+The installer sets this clone's `core.hooksPath` to `.githooks`; reconcile any
+existing custom hooks first. The pre-commit hook checks the complete staged tree,
+including force-added ignored paths. The pre-push hook checks the history of
+every outgoing branch or tag, so committing an evidence file and later deleting
+it still blocks the push. Branch/tag deletions carry no files and are allowed.
+Both hooks use `python3` and require no Django settings or database.
+
+The shared checker rejects runtime/evidence directories, environment files other
+than the two root examples, database dumps, document/message/location exports,
+archives, recordings, and images outside static/design asset directories. It
+reports categories and counts without reading or printing evidence contents or
+filenames. `make repository-check` checks the index and all locally reachable
+history; CI fetches full history and runs it through `make check`.
+History checks refuse shallow clones; run `git fetch --unshallow` before checking
+or pushing from one.
+
+Run the Git integration regression tests without a database:
+
+```sh
+uv run --locked python -m unittest config.tests.test_repository_hygiene
+```
+
+These checks recognize paths and file formats, not whether arbitrary source text
+or an allowed asset contains private material. Review the exact staged diff and
+outgoing commits. Hooks can be bypassed, and CI runs after upload; neither is a
+substitute for keeping local evidence out of the source tree. If a check fails,
+keep the material local and remove it from every outgoing commit before pushing;
+a later deletion is insufficient. Do not force-push or rewrite shared history as
+routine validation.
 
 ## Browser checks
 
@@ -104,6 +151,7 @@ are listed below. Artifacts are ignored local output; keep fixtures synthetic.
 | `core.analysis.selection_browser` | `data/validation/selection-browser` |
 | `document.browser` | `data/validation/original-preview-browser` |
 | `phone.browser` | `data/validation/import-mapping-browser` |
+| `phone.conversation_browser` | `data/validation/conversations-browser` |
 | `image.browser` | `data/validation/plate-browser` |
 | `geo.map_browser` | `data/validation/maps` |
 
@@ -171,9 +219,10 @@ permitting the private services. Do not use public map capacity in routine tests
   journeys with synthetic configuration and PostgreSQL.
 - A separate CI job audits locked dependencies without database credentials.
 - After those checks pass for a `main` push in the Pandect operator repository,
-  CI publishes the Linux amd64 web and worker image targets to GHCR. CD resolves
-  their successful-run and commit tags to matching digests and deploys the native
-  Dokploy Applications, verifying worker startup before the web release. See
+  CI publishes one Linux amd64 application image to GHCR. CD resolves its
+  successful-run and commit tags to a matching digest and deploys that same image
+  to the native web and worker Dokploy Applications with their respective startup
+  commands, verifying worker startup before the web release. See
   [continuous deployment](operations.md#continuous-deployment). After both services
   pass verification, a dependent job publishes a GitHub release for the tested
   commit. Stale skips and failed deployments do not publish.
@@ -182,7 +231,7 @@ permitting the private services. Do not use public map capacity in routine tests
   the workflow guard skips private repositories.
 
 Workflows use pinned action commits and default to read-only contents permissions.
-Only CI's production image jobs receive package-write permission; CD's deploy job
+Only CI's production image job receives package-write permission; CD's deploy job
 receives package-read permission and the production environment's deployment
 secrets. Its separate release job receives contents-write permission through the
 built-in GitHub token, without deployment secrets. These workflows do not perform
@@ -195,22 +244,24 @@ credentials, network access, or a database:
 uv run --locked python -m unittest config.tests.test_dokploy_deploy config.tests.test_github_release
 ```
 
-These tests cover immutable deployment identity, worker-before-web ordering,
-bounded failures, stale skips, release reruns and tag conflicts. GitHub permissions,
-GHCR/Dokploy access, and actual release publication require live verification.
+These tests cover shared immutable deployment identity, service startup commands,
+worker-before-web ordering, bounded failures, stale skips, release reruns and tag
+conflicts. GitHub permissions, GHCR/Dokploy access, and actual release publication
+require live verification.
 
 Local checks do not prove hosted workflow execution or deployed behavior. Hosted
 checks run only after changes reach GitHub.
 
 ## Public release checks
 
-Review and scan the exact source and Git refs intended for publication for
-credentials, private infrastructure details, and investigation material. Review
-retained issues, pull requests, attachments, Actions logs, and artifacts before
-changing an existing repository's visibility. Confirm that the source license,
-third-party notices, and private reporting instructions cover the release.
+The repository is public. For every contribution or release, review and scan the
+exact source and Git refs intended for publication for credentials, private
+infrastructure details, and investigation material. Review
+retained issues, pull requests, attachments, Actions logs, and artifacts for the
+same material. Confirm that the source license, third-party notices, and private
+reporting instructions cover the release.
 Verify CodeQL and the repository's secret scanning and push protection settings
-after a visibility change.
+for the public repository.
 
 For public image distribution, record each platform image digest and its source
 revision. Inspect the image's package inventory and provenance, review applicable

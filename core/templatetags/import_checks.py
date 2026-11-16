@@ -5,7 +5,7 @@ from django.http import Http404
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.import_checks import imported_sources
-from core.models import CaseAnalysisBatch
+from core.models import AnalysisRun, CaseAnalysisBatch
 
 register = template.Library()
 
@@ -14,6 +14,18 @@ register = template.Library()
 def import_checks(context, import_type, import_id):
     case = context["case"]
     scope = {"type": import_type, "id": str(import_id)}
+    automatic = (
+        import_type == "messages"
+        and AnalysisRun.objects.filter(
+            case=case,
+            pk=import_id,
+            operation="imazing_import",
+            method_version="2",
+            parameters__phase="import",
+        ).exists()
+    )
+    if automatic:
+        scope["automatic"] = True
     try:
         _, sources = imported_sources(case, scope)
         count = sources.count()
@@ -29,6 +41,7 @@ def import_checks(context, import_type, import_id):
         "import_type": import_type,
         "import_id": import_id,
         "eligible_count": count,
+        "automatic": automatic,
         "form": EvidenceAnalysisForm(),
         "batch": CaseAnalysisBatch.objects.filter(case=case, scope=scope).first(),
         "csrf_token": context.get("csrf_token"),

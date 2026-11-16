@@ -1,24 +1,24 @@
 {% extends 'marketing/base.html' %}
 {% block title %}Self-host Pandect{% endblock %}
-{% block description %}Self-host the current Pandect application with Docker Compose. You manage storage, access, backups, and optional analysis services. Managed hosting is planned.{% endblock %}
+{% block description %}Run Pandect on infrastructure you control. Self-hosting is available today; managed hosting is planned.{% endblock %}
 {% block content %}
 <section class="marketing-hero wrap page-intro">
   <p class="section-label">Hosting</p>
-  <h1>Your investigation.<br><em>Your infrastructure.</em></h1>
-  <p class="lead">Self-host the current Pandect application with Docker Compose. You choose where case material is stored and which optional analysis services to configure.</p>
+  <h1>Your cases.<br><em>Your infrastructure.</em></h1>
+  <p class="lead">Self-host Pandect. Choose where evidence lives and which analysis services you use.</p>
   <div class="hero-actions"><a class="marketing-button" href="https://github.com/aaronspindler/pandect/blob/main/docs/development.md">Read the setup guide <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/aaronspindler/pandect">View the source <span aria-hidden="true">↗</span></a></div>
 </section>
 <section class="wrap hosting-options" aria-label="Hosting availability">
-  <article><p class="status-label">Available now</p><h2>Self-hosted Pandect</h2><p>Run the application, PostgreSQL database, and background worker on infrastructure you manage. Ordinary case work and supported local checks need no external AI credentials or hosted subscription.</p><p>You are responsible for deployment configuration, accounts, mail, storage, backups, and updates. The supplied Compose setup is for local development; read the operations guide before exposing an installation.</p><a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/operations.md">Deployment and operations guide <span aria-hidden="true">↗</span></a></article>
-  <article><p class="status-label">Planned · Not yet available</p><h2>Managed Pandect</h2><p>A managed service is planned for openpandect.com, using the same application and case model.</p><p>Launch timing, pricing, and support terms have not been announced. Signing in here accesses this installation; it does not purchase or reserve managed hosting.</p><a class="text-link" href="{% url 'marketing:roadmap' %}">Follow the product roadmap <span aria-hidden="true">→</span></a></article>
+  <article><p class="status-label">Available now</p><h2>Self-hosted</h2><p>Run the application, database, and worker yourself. Case work and local checks need no external AI credentials or hosted subscription.</p><p>You manage configuration, accounts, mail, storage, backups, and updates. Docker Compose is supplied for local development; review operations guidance before public deployment.</p><a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/operations.md">Deployment and operations guide <span aria-hidden="true">↗</span></a></article>
+  <article><p class="status-label">Planned · Not yet available</p><h2>Managed hosting</h2><p>Planned for openpandect.com. Launch timing, pricing, and support terms are unannounced.</p><p>Signing in here accesses this installation. It does not purchase or reserve hosting.</p><a class="text-link" href="{% url 'marketing:roadmap' %}">See the roadmap <span aria-hidden="true">→</span></a></article>
 </section>
-<section class="marketing-section wrap split-section faq-section" aria-labelledby="questions-heading">
+<section class="marketing-section wrap split-section" aria-labelledby="questions-heading">
   <div><p class="section-label">Before you begin</p><h2 id="questions-heading">A few practical questions.</h2></div>
   <div class="marketing-faq">
-    <details><summary>What works without an AI service?</summary><p>Case management, evidence collection, search, maps of recorded locations, imports, and supported local checks and reports. Printed-English OCR runs locally. Transcription and model-assisted analysis need separately configured runtimes. <a href="{% url 'marketing:product' %}#configured-services">See service requirements.</a></p></details>
-    <details><summary>Can analysis stay on my infrastructure?</summary><p>Supported AI tools default to operator-configured local or private-LAN runtimes. Local failures never trigger cloud fallback. External AI uses a separately configured Cloudflare AI Gateway route and requires explicit selection and approval. Map tiles and geographic endpoints have their own configuration. <a href="{% url 'marketing:trust' %}">Read about processing and privacy.</a></p></details>
-    <details><summary>Where do I create an account or sign in?</summary><p>Use the installation you or your operator has set up. Accounts and case access belong to that installation. The sign-in link on this site opens its account flow.</p></details>
-    <details><summary>How do I update and back up Pandect?</summary><p>Follow the <a href="https://github.com/aaronspindler/pandect/blob/main/docs/operations.md">operations guide</a> for deployment, upgrades, backups, and recovery. Pandect is in active development; check compatibility requirements before updating.</p></details>
+    <details><summary>Do I need an AI service?</summary><p>No. Cases, evidence, search, imports, maps, and local checks work without one. Transcription and model-assisted analysis require <a href="{% url 'marketing:product' %}#configured-services">separately configured services</a>.</p></details>
+    <details><summary>Can analysis stay on my infrastructure?</summary><p>Supported AI defaults to configured local or private-LAN runtimes, with no cloud fallback. External AI requires explicit selection and approval. Maps have separate privacy settings. <a href="{% url 'marketing:trust' %}">See processing and privacy.</a></p></details>
+    <details><summary>Where do I sign in?</summary><p>Use your own or your operator’s installation. This site’s sign-in opens accounts on this installation.</p></details>
+    <details><summary>How do I update and back up?</summary><p>Follow the <a href="https://github.com/aaronspindler/pandect/blob/main/docs/operations.md">operations guide</a> for upgrades, backups, and recovery. Check compatibility requirements before updating.</p></details>
   </div>
 </section>
 {% endblock %}

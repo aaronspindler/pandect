@@ -1,15 +1,30 @@
+from django.core.paginator import Paginator
+
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS
+from phone.conversations import conversation_url
 from phone.models import CommunicationContext
 
 
-def reader_context(case, kind, item):
+def reader_context(
+    case,
+    kind,
+    item,
+    *,
+    conversation_source=None,
+    conversation_list_page=1,
+    native_thread_page=None,
+    native_reply_page=None,
+):
     context = {}
     if kind in CALL_KINDS:
         context["attachments"] = item.attachments.filter(case=case).select_related(
             "uploaded_by"
         )
     if kind == "text-message":
+        context["conversation_url"] = conversation_url(
+            case, item, source=conversation_source, list_page=conversation_list_page
+        )
         context["communication_context"] = (
             CommunicationContext.objects.filter(
                 case=case, message=item, source_document__case=case
@@ -29,12 +44,22 @@ def reader_context(case, kind, item):
                 .only("source_row", "message__title")
             )
             context["native_reply_candidates"] = (
-                related.filter(native_message_id=imported.reply_to_id)[:20]
+                Paginator(
+                    related.filter(native_message_id=imported.reply_to_id).order_by(
+                        "source_row", "pk"
+                    ),
+                    25,
+                ).get_page(native_reply_page)
                 if imported.reply_to_id
                 else []
             )
             context["native_thread_messages"] = (
-                related.filter(native_thread_id=imported.native_thread_id)[:100]
+                Paginator(
+                    related.filter(native_thread_id=imported.native_thread_id).order_by(
+                        "source_row", "pk"
+                    ),
+                    25,
+                ).get_page(native_thread_page)
                 if imported.native_thread_id
                 else []
             )

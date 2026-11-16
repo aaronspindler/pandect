@@ -1,49 +1,34 @@
 {% extends 'marketing/base.html' %}
 {% block title %}A self-hostable investigation workspace{% endblock %}
 {% block content %}
-<section class="marketing-hero home-intro wrap">
+<section class="marketing-hero home-intro wrap" aria-labelledby="home-heading">
   <div>
-    <p class="section-label">A self-hostable investigation workspace</p>
-    <h1>Bring the evidence together.<br><em>Keep the source in view.</em></h1>
-    <p class="lead">Pandect helps you organize the material you’ve gathered, search within a case, and review findings alongside their sources. Invite collaborators and run it on infrastructure you control.</p>
+    <p class="section-label">The self-hostable investigation workspace</p>
+    <h1 id="home-heading">A clearer view<br><em>of your case.</em></h1>
+    <p class="lead">Bring evidence together. Search within a case, review findings with their sources, and work with collaborators on infrastructure you control.</p>
     <div class="hero-actions">
-      <a class="marketing-button" href="{% url 'marketing:product' %}">See available features <span aria-hidden="true">→</span></a>
+      <a class="marketing-button" href="{% url 'marketing:product' %}">Explore the product <span aria-hidden="true">→</span></a>
       <a class="text-link" href="{% url 'marketing:hosting' %}">Self-host Pandect <span aria-hidden="true">→</span></a>
     </div>
+    <p class="intro-note">In active development. <a href="{% url 'marketing:roadmap' %}">See what’s available and planned.</a></p>
   </div>
-  <aside class="project-brief" aria-labelledby="project-status">
-    <p class="section-label" id="project-status">Project status</p>
-    <h2>Built to use. Still taking shape.</h2>
-    <p>Pandect is in active development. Case work, searchable findings, recorded chronology, and exact identifier matches are available today.</p>
-    <p>Relationship graphs, broader evidence discovery, and a managed service are planned.</p>
-    <a class="text-link" href="{% url 'marketing:roadmap' %}">What’s available and what’s next <span aria-hidden="true">→</span></a>
-  </aside>
+  {% include 'marketing/workspace.html' %}
 </section>
-<div class="wrap">{% include 'marketing/workspace.html' %}</div>
 <section class="marketing-section wrap" aria-labelledby="workflow-heading">
   <div class="section-heading">
     <p class="section-label">Available now</p>
-    <h2 id="workflow-heading">A place for the work behind an investigation.</h2>
-    <p>Bring files, observations, and conversations into a case. Keep original material and derived findings connected as your understanding develops.</p>
+    <h2 id="workflow-heading">From gathered material to shared understanding.</h2>
   </div>
   <div class="principles">
-    <article><span class="step-number" aria-hidden="true">01</span><h3>Gather and organize</h3><p>Upload documents, images, and audio. Capture text, messages, calls, and locations. Keep people and vehicles in the same case.</p></article>
-    <article><span class="step-number" aria-hidden="true">02</span><h3>Find and examine</h3><p>Search retained text and all findings. Inspect exact identifier matches, recorded chronology, and source-linked results from supported local checks.</p><a class="text-link" href="{% url 'marketing:product' %}#analysis">See analysis examples <span aria-hidden="true">→</span></a></article>
-    <article><span class="step-number" aria-hidden="true">03</span><h3>Review together</h3><p>Invite viewers or editors, save shared selections, and export cited briefs. The case owner manages access; originals stay separate from analysis and review decisions.</p></article>
+    <article><span class="step-number" aria-hidden="true">01</span><h3>Gather the evidence</h3><p>Keep files, conversations, and location observations in a private case, alongside its people and vehicles.</p><a class="text-link" href="{% url 'marketing:product' %}#available">Explore current features <span aria-hidden="true">→</span></a></article>
+    <article><span class="step-number" aria-hidden="true">02</span><h3>Follow the sources</h3><p>Search supported text, inspect local findings, and trace patterns back to the original material.</p><a class="text-link" href="{% url 'marketing:product' %}#analysis">See analysis examples <span aria-hidden="true">→</span></a></article>
+    <article><span class="step-number" aria-hidden="true">03</span><h3>Review together</h3><p>Invite viewers or editors. Save shared selections and export cited briefs with review decisions intact.</p><a class="text-link" href="{% url 'marketing:trust' %}">Evidence and privacy <span aria-hidden="true">→</span></a></article>
   </div>
 </section>
-<section class="availability-section" aria-labelledby="availability-heading">
-  <div class="wrap marketing-section">
-    <div class="section-heading"><p class="section-label">Know what you’re getting</p><h2 id="availability-heading">The current product. The next steps.</h2></div>
-    <div class="availability-grid">
-      <article><p class="status-label">Available now</p><h3>Evidence and case work</h3><p>Private cases, collaboration, searchable findings, exact connections, recorded chronology, shared briefs, maps, and imports.</p><a class="text-link" href="{% url 'marketing:product' %}#available">Explore current features <span aria-hidden="true">→</span></a></article>
-      <article><p class="status-label">Requires configuration</p><h3>Additional analysis services</h3><p>Speech transcription, synthesis over selected text and findings, other model suggestions, and geographic lookups need configured services.</p><a class="text-link" href="{% url 'marketing:product' %}#configured-services">See service requirements <span aria-hidden="true">→</span></a></article>
-      <article><p class="status-label">Planned</p><h3>A wider investigation view</h3><p>Inferred event timelines, relationship graphs, cross-case evidence search, and automatic evidence discovery for synthesis are future work.</p><a class="text-link" href="{% url 'marketing:roadmap' %}">Read the roadmap <span aria-hidden="true">→</span></a></article>
-    </div>
+<section class="availability-section" aria-labelledby="hosting-heading">
+  <div class="marketing-section wrap split-section">
+    <div><p class="section-label">Your infrastructure</p><h2 id="hosting-heading">Start with a workspace you control.</h2><a class="marketing-button" href="{% url 'marketing:hosting' %}">Explore self-hosting <span aria-hidden="true">→</span></a></div>
+    <div><p>Ordinary case work and supported local checks need no external AI credentials or hosted subscription.</p><p>Transcription, model suggestions, and geographic lookups require configured services. Managed hosting is planned.</p><div class="hero-actions"><a class="text-link" href="{% url 'marketing:product' %}#configured-services">See service requirements <span aria-hidden="true">→</span></a><a class="text-link" href="{% url 'marketing:roadmap' %}">Read the roadmap <span aria-hidden="true">→</span></a></div></div>
   </div>
-</section>
-<section class="marketing-section wrap split-section closing-section">
-  <div><p class="section-label">Your cases. Your infrastructure.</p><h2>Start with a workspace you control.</h2></div>
-  <div><p>Run Pandect with Docker Compose. Ordinary case work and supported local checks need no external AI credentials or hosted Pandect subscription.</p><div class="hero-actions"><a class="marketing-button" href="{% url 'marketing:hosting' %}">Explore self-hosting <span aria-hidden="true">→</span></a><a class="text-link" href="{% url 'marketing:trust' %}">Evidence and privacy <span aria-hidden="true">→</span></a></div></div>
 </section>
 {% endblock %}

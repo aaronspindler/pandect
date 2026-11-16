@@ -6,6 +6,14 @@
 .codex/config.toml
 .pandect-maintenance.lock/
 data/
+media/
+uploads/
+exports/
+artifacts/
+local-evidence/
+local_evidence/
+test-evidence/
+test_evidence/
 .serena/
 *.sqlite
 *.sqlite3

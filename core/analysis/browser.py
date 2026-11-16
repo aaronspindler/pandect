@@ -26,7 +26,12 @@ from document.models import DocumentEvidence
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from image.models import ImageEvidence
 from people.models import Person
-from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
+from phone.models import (
+    CallEvidenceAttachment,
+    CommunicationContext,
+    PhoneCallEvidence,
+    TextMessageEvidence,
+)
 from text.models import TextEvidence
 from vehicle.models import Vehicle
 
@@ -1736,3 +1741,134 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.assertEqual(
                     self.db(AnalysisRun.objects.filter(case=self.case).count), 0
                 )
+
+    def test_complete_lists_and_reports_paginate_without_javascript(self):
+        person = Person.objects.create(
+            case=self.case, first_name="Synthetic correspondent"
+        )
+        for number in range(30):
+            PhoneCallEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                sender=person,
+                recipient=person,
+                title=f"Paginated call {number:02}",
+                duration=timedelta(seconds=number),
+            )
+            TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title=f"Paginated source {number:02}",
+                body="Synthetic source wording.",
+            )
+        messages = []
+        for number in range(105):
+            message = TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                sender=person,
+                recipient=person,
+                title=f"Thread message {number + 1:03}",
+                body=f"Synthetic retained message {number + 1}.",
+            )
+            CommunicationContext.objects.create(
+                case=self.case,
+                message=message,
+                source_document=self.document,
+                source_sha256=self.document.sha256,
+                source_row=number + 1,
+                source_start=number,
+                source_end=number + 1,
+                parser_version="synthetic.v1",
+                timezone="UTC",
+                raw_sender="Synthetic correspondent",
+                native_thread_id="synthetic-thread",
+            )
+            messages.append(message)
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.owner)
+                page.goto(
+                    self.live_server_url
+                    + reverse("core:analysis:report", args=(self.case.pk, "calls"))
+                )
+                expect(
+                    page.get_by_role(
+                        "heading", name=re.compile("31 selected call records")
+                    )
+                ).to_be_visible()
+                next_records = page.get_by_role("link", name="Next records", exact=True)
+                next_records.focus()
+                next_records.press("Enter")
+                expect(page.get_by_label("Report record pages")).to_contain_text(
+                    "Page 2"
+                )
+                expect(
+                    page.get_by_role(
+                        "heading", name=re.compile("31 selected call records")
+                    )
+                ).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 900),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"complete-report-{width}-{height}")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.goto(
+                    self.url("core:analysis:create", case_id=self.case.pk)
+                    + "?operation=entities&q=Paginated+source"
+                )
+                selected = page.locator(
+                    '.analysis-source-option input[type="checkbox"]'
+                ).first
+                selected_value = selected.get_attribute("value")
+                selected.check()
+                page.get_by_role("button", name="Next sources", exact=True).click()
+                expect(page.get_by_label("Source choice pages")).to_contain_text(
+                    "Page 2"
+                )
+                expect(
+                    page.locator(
+                        f'input[type="hidden"][name="sources"][value="{selected_value}"]'
+                    )
+                ).to_have_count(1)
+                page.get_by_role("button", name="Previous sources", exact=True).click()
+                expect(
+                    page.locator(f'input[type="checkbox"][value="{selected_value}"]')
+                ).to_be_checked()
+                page.get_by_label("Find evidence by title").fill("No matching source")
+                page.get_by_role("button", name="Find evidence", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="No suitable sources", exact=True)
+                ).to_be_visible()
+                page.get_by_role(
+                    "button", name="Clear title filter", exact=True
+                ).click()
+                expect(
+                    page.locator(f'input[type="checkbox"][value="{selected_value}"]')
+                ).to_be_checked()
+                self.capture(page, engine, "complete-source-picker")
+                page.goto(
+                    self.url(
+                        "core:evidence:detail",
+                        case_id=self.case.pk,
+                        kind="text-message",
+                        evidence_id=messages[-1].pk,
+                    )
+                    + "?info=1&thread_page=5"
+                )
+                expect(page.get_by_label("Native thread pages")).to_contain_text(
+                    "Page 5 of 5"
+                )
+                expect(
+                    page.get_by_role("link", name="Thread message 105", exact=True).last
+                ).to_be_visible()
+                self.capture(page, engine, "complete-native-thread")

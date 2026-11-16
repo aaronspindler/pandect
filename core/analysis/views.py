@@ -196,7 +196,10 @@ def current_report(request, case_id, name):
     case = get_case(request.user, case_id)
     if name not in REPORT_NAMES:
         raise Http404("Report not found.")
-    form = report_form(request.GET or None, case=case, report_name=name)
+    filter_data = request.GET.copy()
+    if filter_data:
+        filter_data.setdefault("state", "active")
+    form = report_form(filter_data or None, case=case, report_name=name)
     filters_applied = request.GET.get("state", "active") != "active" or any(
         request.GET.get(field)
         for field in (
@@ -205,17 +208,26 @@ def current_report(request, case_id, name):
             "vehicle_id",
             "participant_id",
             "other_participant_id",
+            "duplicate_row",
         )
     )
     data = None
     if not form.is_bound or form.is_valid():
         values = form.cleaned_data if form.is_bound else {"state": "active"}
         try:
-            data = report(case, name, **{k: v or None for k, v in values.items()})
+            data = report(
+                case,
+                name,
+                page=request.GET.get("page", 1),
+                gap_page=request.GET.get("gap_page", 1),
+                pair_page=request.GET.get("pair_page", 1),
+                duplicate_row=request.GET.get("duplicate_row") or None,
+                **{k: v or None for k, v in values.items()},
+            )
         except ValidationError as error:
             form.add_error(None, error)
     if data is not None:
-        formatter = measurement_formatter(data, case=case)
+        formatter = measurement_formatter(data, case=case, query=request.GET)
         data["measurements"] = formatter(data.get("metrics", {}))
         summary_fields = {
             "calls": (
@@ -285,6 +297,7 @@ def current_report(request, case_id, name):
             "name": name,
             "tables": tables,
             "filters_applied": filters_applied,
+            "duplicate_row": request.GET.get("duplicate_row", ""),
         },
     )
 
@@ -407,13 +420,50 @@ def create(request, case_id, kind=None, evidence_id=None):
         return render(request, "core/analysis/create.html", chooser_context)
     if operation not in operations:
         operation = next(iter(operations))
-    query = request.GET.get("q", "")[:200] if evidence is None else ""
+    posted = request.POST.copy() if request.method == "POST" else None
+    browse = request.POST.get("browse_sources") if posted is not None else None
+    if posted is not None and request.POST.get("remove_source"):
+        posted.setlist(
+            "sources",
+            [
+                value
+                for value in posted.getlist("sources")
+                if value != posted["remove_source"]
+            ],
+        )
+        browse = "remove"
+    if browse == "clear":
+        posted["q"] = ""
+    query = (
+        (posted if posted is not None else request.GET).get("q", "")[:200]
+        if evidence is None
+        else ""
+    )
+    navigation = posted if posted is not None else request.GET
+    try:
+        sources_page = max(1, int(navigation.get("sources_page", "1")))
+    except ValueError:
+        sources_page = 1
+    sources_cursor = navigation.get("sources_cursor", "")
+    sources_reverse = navigation.get("sources_reverse") == "1"
+    if browse in {"search", "clear"}:
+        sources_page, sources_cursor, sources_reverse = 1, "", False
+    elif browse in {"next", "previous"}:
+        sources_reverse = browse == "previous"
+        sources_cursor = navigation.get(
+            "source_before" if sources_reverse else "source_after", ""
+        )
+        sources_page = max(1, sources_page + (-1 if sources_reverse else 1))
     form = analysis_form(
-        request.POST if request.method == "POST" else None,
+        posted,
         case=case,
         operation=operation,
         query=query,
         evidence=evidence,
+        sources_page=sources_page,
+        sources_cursor=sources_cursor,
+        sources_reverse=sources_reverse,
+        selected_sources=(focused_source,) if focused_source else (),
     )
     form.fields["operation"].choices = [
         (key, spec.label) for key, spec in operations.items()
@@ -425,6 +475,7 @@ def create(request, case_id, kind=None, evidence_id=None):
             form.initial["sources"] = [focused_source]
     if (
         request.method == "POST"
+        and not browse
         and not getattr(form, "is_mapping_edit", False)
         and form.is_valid()
     ):
@@ -451,6 +502,10 @@ def create(request, case_id, kind=None, evidence_id=None):
                 "Analysis queued." if created else "This analysis was already queued.",
             )
             return redirect(_url(case, run))
+    if browse:
+        from django.forms.utils import ErrorDict
+
+        form._errors = ErrorDict()
     return render(
         request,
         "core/analysis/create.html",
@@ -464,6 +519,7 @@ def create(request, case_id, kind=None, evidence_id=None):
                     form.readiness.get(str(choice.data["value"])),
                 )
                 for choice in form["sources"]
+                if str(choice.data["value"]) in dict(form.source_page)
             ],
             "operation": operation,
             "operation_label": OPERATIONS[operation].label,
@@ -704,7 +760,7 @@ def detail(request, case_id, run_id):
         key: value for key, value in run.parameters.items() if key != "_execution"
     }
     context["assumptions"] = measurement_formatter(
-        assumptions, case=case, sources=sources
+        assumptions, case=case, sources=sources, query=request.GET
     )(assumptions)
     if not context.get("source_unavailable"):
         result = AnalysisResult.objects.filter(
@@ -760,6 +816,7 @@ def detail(request, case_id, run_id):
                 [finding.get("values", {}) for _, finding in entries],
                 case=case,
                 sources=sources,
+                query=request.GET,
             )
             artifacts = result.artifacts.filter(case=case)
             previews = (
@@ -828,7 +885,10 @@ def detail(request, case_id, run_id):
                 else [],
                 "data": result.data,
                 "metrics": measurement_formatter(
-                    result.data.get("metrics", {}), case=case, sources=sources
+                    result.data.get("metrics", {}),
+                    case=case,
+                    sources=sources,
+                    query=request.GET,
                 )(result.data.get("metrics", {})),
                 "items": items,
                 "focused_finding": focused,

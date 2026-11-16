@@ -116,8 +116,21 @@ def prepare_case_analysis_batch(batch_id):
             batch = CaseAnalysisBatch.objects.select_for_update().get(pk=batch_id)
             if batch.status != CaseAnalysisBatch.Status.QUEUED:
                 return batch.status
-            rows = _next_sources(batch, case)
-            if batch.scope and rows:
+            automatic_import = batch.scope.get("automatic") is True
+            if automatic_import:
+                from phone.analysis.ingest import next_messages, prepare_import_analysis
+
+                selected = next_messages(batch, case)
+                rows = [(message.pk, message.pk) for message in selected]
+            else:
+                rows = _next_sources(batch, case)
+            if automatic_import and rows:
+                prepare_import_analysis(batch, case, selected)
+                batch.source_cursor = rows[-1][0]
+                batch.source_kind = "text-message"
+                batch.processed_sources += len(rows)
+                rows_to_prepare = []
+            elif batch.scope and rows:
                 from core.analysis.import_checks import prepare_import_checks
 
                 prepare_import_checks(batch, case, rows)

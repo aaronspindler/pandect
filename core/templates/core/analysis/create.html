@@ -20,22 +20,19 @@
 </details>
 {% endfor %}
 {% else %}
-{% if not evidence %}
-<form method="get" action="#analysis-selection" class="analysis-section analysis-picker" aria-label="Find evidence">
-  <input type="hidden" name="operation" value="{{ operation }}">
-  <div class="field">
-    <label for="analysis-query">Find evidence by title</label>
-    <input type="search" id="analysis-query" name="q" maxlength="200" value="{{ query }}">
-  </div>
-  <div class="form-actions">
-    <button class="button button-secondary" type="submit">Find evidence</button>
-    {% if query %}<a class="button button-secondary" href="?operation={{ operation }}">Clear title filter</a>{% endif %}
-  </div>
-</form>
-{% endif %}
-
 <form method="post" action="{% querystring %}" id="analysis-selection" class="analysis-section analysis-form" novalidate data-unsaved-form>
   {% csrf_token %}{{ form.operation }}{{ form.submission_id }}
+  <input type="hidden" name="sources_page" value="{{ form.source_page.number }}">
+  <input type="hidden" name="sources_cursor" value="{{ form.sources_cursor }}">
+  <input type="hidden" name="sources_reverse" value="{% if form.sources_reverse %}1{% endif %}">
+  <input type="hidden" name="source_before" value="{{ form.source_page.before }}">
+  <input type="hidden" name="source_after" value="{{ form.source_page.after }}">
+  {% for value,label in form.retained_sources %}<input type="hidden" name="sources" value="{{ value }}">{% endfor %}
+  {% if form.retained_sources %}<details class="disclosure" open><summary>Selected on other pages · {{ form.retained_sources|length }}</summary><ul>{% for value,label in form.retained_sources %}<li>{{ label }} <button class="button button-secondary" type="submit" name="remove_source" value="{{ value }}" formnovalidate>Remove selection</button></li>{% endfor %}</ul></details>{% endif %}
+  {% if not evidence %}<div class="analysis-picker" role="group" aria-label="Find evidence">
+    <div class="field"><label for="analysis-query">Find evidence by title</label><input type="search" id="analysis-query" name="q" maxlength="200" value="{{ query }}"></div>
+    <div class="form-actions"><button class="button button-secondary" type="submit" name="browse_sources" value="search" formnovalidate>Find evidence</button>{% if query %}<button class="button button-secondary" type="submit" name="browse_sources" value="clear" formnovalidate>Clear title filter</button>{% endif %}</div>
+  </div>{% endif %}
   {% if form.errors %}
   <div class="error-summary" role="alert" tabindex="-1" data-error-summary>
     <h2>Review your selection</h2>
@@ -52,8 +49,8 @@
     <legend class="sr-only">{{ form.sources.label }}</legend>
     {% if source_options %}
       <p class="help-text" id="analysis-source-guidance">
-        Showing {{ source_options|length }} available source{{ source_options|length|pluralize }}{% if query %} matching “{{ query }}”{% endif %}. Check the prerequisites before selecting.
-        {% if source_options|length == 500 %}Search by title to narrow the list.{% endif %}
+        Showing {{ form.source_page|length }} available sources{% if query %} matching “{{ query }}”{% endif %}. Check the prerequisites before selecting.
+
       </p>
       {% for source,is_original,readiness in source_options %}
       <div class="analysis-source-option">
@@ -67,7 +64,6 @@
         <h3>No suitable sources</h3>
         {% if query %}
         <p>No eligible sources match “{{ query }}”.</p>
-        <a class="button button-secondary" href="?operation={{ operation }}">Clear title filter</a>
         {% elif evidence %}
         <p>Choose another analysis, or open the evidence to check its retained content.</p>
         <a class="button button-secondary" href="{{ evidence_url }}">Back to evidence</a>
@@ -78,6 +74,7 @@
       </div>
     {% endif %}
   </fieldset>
+  {% if form.source_page.has_other_pages %}<nav class="pagination" aria-label="Source choice pages">{% if form.source_page.has_previous %}<button class="button button-secondary" type="submit" name="browse_sources" value="previous" formnovalidate>Previous sources</button>{% endif %}<span>Page {{ form.source_page.number }}</span>{% if form.source_page.has_next %}<button class="button button-secondary" type="submit" name="browse_sources" value="next" formnovalidate>Next sources</button>{% endif %}</nav>{% endif %}
 
   {% if form.task_fields %}
   <fieldset class="form-layout analysis-task-fields">
@@ -120,7 +117,7 @@
     {% if form.backend %}{% include 'ui/components/form_field.html' with field=form.backend only %}{% endif %}
     {% if form.external_processing.is_hidden %}{{ form.external_processing }}{% else %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}
     <div class="form-actions">
-      <button class="button button-primary" type="submit"{% if not source_options %} disabled{% endif %}>Start analysis</button>
+      <button class="button button-primary" type="submit"{% if not source_options and not form.retained_sources %} disabled{% endif %}>Start analysis</button>
       <a class="button button-secondary" href="{% if evidence %}{{ evidence_url }}{% else %}{% url 'core:analysis:index' case.pk %}{% endif %}">Cancel</a>
     </div>
   </div>

@@ -8,10 +8,12 @@ def list_params(request):
 def collection_params(values):
     params = values.copy()
     for key in list(params):
-        if key not in {"q", "type", "state", "page", "person"}:
+        if key not in {"q", "type", "state", "page", "person", "checksum"}:
             del params[key]
     if "q" in params:
         params["q"] = params["q"][:200]
+    if "checksum" in params:
+        params["checksum"] = params["checksum"][:64]
     return params
 
 

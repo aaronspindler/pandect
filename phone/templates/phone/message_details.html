@@ -1,0 +1,12 @@
+<div class="conversation-details-content">
+  <h3>{{ item.title }}</h3>
+  <dl class="metadata-grid">
+    <div><dt>Reported sender</dt><dd><a href="{% url 'people:detail' case.pk item.sender_id %}">{{ item.sender }}</a></dd></div>
+    <div><dt>Reported recipient</dt><dd><a href="{% url 'people:detail' case.pk item.recipient_id %}">{{ item.recipient }}</a></dd></div>
+    <div><dt>Sent at</dt><dd>{% if item.occurred_at %}<time datetime="{{ item.occurred_at|date:'c' }}">{{ item.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Not recorded{% endif %}</dd></div>
+    <div><dt>Status</dt><dd>{% if item.is_archived %}Archived{% else %}Active{% endif %}</dd></div>
+    {% if item.source %}<div><dt>Source</dt><dd>{{ item.source }}</dd></div>{% endif %}
+    {% if item.collected_at %}<div><dt>Collected</dt><dd><time datetime="{{ item.collected_at|date:'c' }}">{{ item.collected_at|date:'j M Y, H:i:s T' }}</time></dd></div>{% endif %}
+  </dl>
+  {% include 'phone/imported_context.html' %}
+</div>

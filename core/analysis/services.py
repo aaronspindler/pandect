@@ -739,6 +739,10 @@ def process_run(run_id):
         data = operation.function(sources, parameters, **kwargs)
         if not isinstance(data, dict):
             raise AnalysisError("invalid_result")
+        if "_import_analysis" in parameters:
+            from phone.analysis.ingest import describe_import_selection
+
+            describe_import_selection(data, run)
         artifacts = data.pop("artifacts", [])
         if not isinstance(artifacts, list) or len(artifacts) > 500:
             raise AnalysisError("invalid_preview")
@@ -836,6 +840,13 @@ def process_run(run_id):
                 from core.analysis.automatic import follow_up_extraction
 
                 follow_up_extraction(run, result)
+            if (
+                run.operation == "imazing_import"
+                and run.parameters.get("phase") == "import"
+            ):
+                from phone.analysis.ingest import start_import_analysis
+
+                start_import_analysis(run, data)
             publication_finished = True
             return str(result.pk)
     except PermissionDenied, Http404:
