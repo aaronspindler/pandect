@@ -88,6 +88,9 @@ Open `/admin/` → **Cases**. Scoped administration requires active staff status
 global model permissions, and current case access. Superusers have no access
 bypass; membership grants no global permissions.
 
+Anonymous admin sign-in requests redirect to the normal allauth sign-in flow,
+including email verification and shared authentication rate limits.
+
 Domain inspection requires `view_<model>` or `change_<model>` and any case role.
 Creation requires `add_<model>` and owner/editor access; editing requires
 `change_<model>` and owner/editor access. Permission names use the owning app,

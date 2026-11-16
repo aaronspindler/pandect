@@ -7,7 +7,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from cases.models import CaseMembership
@@ -218,7 +218,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "2 ready")
         self.assertContains(response, "17055550100")
         self.assertContains(response, "Message preview")
-        self.assertContains(response, "Excerpts from the first 2 source rows")
+        self.assertContains(response, "Retained excerpts from the first 2 source rows")
         self.assertLess(
             response.content.index(b'id="imessage-preview-heading"'),
             response.content.index(b'name="account-mode"'),
@@ -345,7 +345,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(invalid.status_code, 400)
         self.assertIn("confirm_timezone", invalid.context["form"].errors)
         self.assertIn("timezone", invalid.context["form"].errors)
-        response = self.client.get(self.review_url(preview))
+        response = self.client.get(self.review_url(preview) + "?page=1")
         self.assertContains(response, "&lt;script&gt;")
         self.assertNotContains(response, '<script>alert("x")</script>')
         self.assertEqual(
@@ -470,14 +470,132 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         with self.settings(PANDECT_MAX_TEXT_BYTES=6000):
             preview = self.prepare(message_csv({"Text": body}))
         with self.settings(PANDECT_MAX_TEXT_BYTES=1024):
-            page = self.client.get(self.review_url(preview))
+            page = self.client.get(self.review_url(preview) + "?page=1")
         self.assertEqual(page.context["metrics"]["ready_rows"], 1)
         self.assertEqual(page.context["rows"].object_list[0]["text"], body)
         document = DocumentEvidence.objects.get()
         with document.file.storage.open(document.file.name, "wb") as stream:
             stream.write(message_csv({"Text": "Changed source bytes"}))
-        changed = self.client.get(self.review_url(preview))
+        changed = self.client.get(self.review_url(preview) + "?page=1")
         self.assertEqual(changed.context["samples"], [])
         self.assertNotContains(changed, "Retained message")
         self.assertNotContains(changed, "Changed source bytes")
         self.assertNotContains(changed, 'name="account-mode"')
+
+    def test_summary_and_progress_never_parse_the_csv(self):
+        preview = self.prepare()
+        with patch("phone.imessage_views.read_import_page") as read:
+            summary = self.client.get(self.review_url(preview))
+            self.assertContains(summary, "Retained excerpts")
+            self.assertContains(summary, "Review all message rows")
+            self.assertEqual(list(summary.context["rows"]), [])
+            read.assert_not_called()
+        self.client.post(self.review_url(preview), self.new_people())
+        final = AnalysisRun.objects.get(parameters__phase="import")
+        with (
+            patch("phone.imessage_views.preview_source") as source,
+            patch("phone.imessage_views.resolve_inputs") as resolve,
+            patch("phone.imessage_views.read_import_page") as read,
+        ):
+            for run in (preview, final):
+                response = self.client.get(
+                    self.review_url(run) + "?page=1", HTTP_X_PANDECT_LIVE="1"
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["X-Pandect-Live"], "1")
+                self.assertIn("no-store", response["Cache-Control"])
+                self.assertNotContains(response, "Original café")
+            source.assert_not_called()
+            resolve.assert_not_called()
+            read.assert_not_called()
+        AnalysisRun.objects.filter(pk=final.pk).update(status="complete")
+        ready = self.client.get(self.review_url(final), HTTP_X_PANDECT_LIVE="1")
+        self.assertContains(ready, "Open message import")
+        self.assertContains(ready, 'data-live-poll="false"')
+
+    def test_confirmation_still_verifies_changed_bytes_and_interpretation(self):
+        for drift in ("bytes", "interpretation"):
+            with self.subTest(drift=drift):
+                preview = self.prepare()
+                if drift == "bytes":
+                    document = DocumentEvidence.objects.get(
+                        pk=preview.inputs[0]["evidence_id"]
+                    )
+                    with document.file.storage.open(document.file.name, "wb") as stream:
+                        stream.write(message_csv({"Text": "Changed source bytes"}))
+                else:
+                    data = deepcopy(preview.result.data)
+                    data["imessage"]["interpretation_sha256"] = "0" * 64
+                    AnalysisResult.objects.filter(run=preview).update(data=data)
+                denied = self.client.post(self.review_url(preview), self.new_people())
+                self.assertEqual(denied.status_code, 409)
+                self.assertFalse(
+                    AnalysisRun.objects.filter(
+                        parameters__phase="import", previous_run=preview
+                    ).exists()
+                )
+                AnalysisRun.objects.all().delete()
+                DocumentEvidence.objects.all().delete()
+
+    def test_progress_rechecks_case_access(self):
+        preview = self.prepare()
+        for role, status in (("viewer", 200), ("outsider", 404)):
+            self.login(role)
+            response = self.client.get(
+                self.review_url(preview), HTTP_X_PANDECT_LIVE="1"
+            )
+            self.assertEqual(response.status_code, status)
+        self.login("editor")
+        CaseMembership.objects.filter(
+            case=self.case, user=self.users["editor"]
+        ).delete()
+        self.assertEqual(
+            self.client.get(
+                self.review_url(preview), HTTP_X_PANDECT_LIVE="1"
+            ).status_code,
+            404,
+        )
+
+    @override_settings(ACCOUNT_RATE_LIMITS={"imessage_row_review": "2/m/user"})
+    def test_full_csv_reviews_and_confirmation_share_the_user_limit(self):
+        preview = self.prepare()
+        for _ in range(2):
+            self.assertEqual(
+                self.client.get(self.review_url(preview) + "?page=1").status_code,
+                200,
+            )
+        with patch("phone.imessage_views.read_import_page") as read:
+            self.assertEqual(
+                self.client.get(self.review_url(preview) + "?page=1").status_code,
+                429,
+            )
+            self.assertEqual(
+                self.client.post(
+                    self.review_url(preview), self.new_people()
+                ).status_code,
+                429,
+            )
+            # Routine navigation and automatic progress remain available.
+            self.assertEqual(self.client.get(self.review_url(preview)).status_code, 200)
+            self.assertEqual(
+                self.client.get(
+                    self.review_url(preview) + "?page=1", HTTP_X_PANDECT_LIVE="1"
+                ).status_code,
+                200,
+            )
+            read.assert_not_called()
+        self.assertFalse(
+            AnalysisRun.objects.filter(parameters__phase="import").exists()
+        )
+
+    @override_settings(ACCOUNT_RATE_LIMITS={"imessage_row_review": "2/m/key"})
+    def test_full_csv_reviews_share_the_case_limit_across_members(self):
+        preview = self.prepare()
+        for role, status in (("owner", 200), ("editor", 200), ("viewer", 429)):
+            self.login(role)
+            response = self.client.get(self.review_url(preview) + "?page=1")
+            self.assertEqual(response.status_code, status)
+        self.login("outsider")
+        self.assertEqual(
+            self.client.get(self.review_url(preview) + "?page=1").status_code, 404
+        )

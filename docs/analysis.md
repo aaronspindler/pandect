@@ -107,8 +107,12 @@ in progress until deliberate review finishes. See [progress/recovery](background
 Owners/editors use **Processing → Run more checks → Rerun all analysis** for active
 evidence and all retained call additions at request time. Background steps prepare
 25 sources at most, reporting progress, unavailable counts and queued checks.
-Resubmitting recovers the request; a fresh click after refresh deliberately starts
-a new batch, preserving results/reviews. Empty calls supply no content. This runs
+Resubmitting recovers the request. Fresh requests from any owner/editor are rejected
+while the existing case-wide batch is preparing checks or any of its checks are
+queued/running. Processing explains that work is already in progress. Once that
+work has finished, a fresh request starts another batch, preserving results/reviews.
+Scoped import checks and selected reprocessing remain separate. Empty calls supply
+no content. This runs
 basic local checks; **Reprocess evidence** runs the broader suite. CSV publication
 still requires timezone/vehicle confirmation and queues saved trips. Summaries
 need no geocoding/review; plotted estimates require review. Conversation imports

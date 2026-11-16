@@ -474,22 +474,24 @@ def read_import_page(source, parameters, *, page, per_page=25):
     total = 0
     for index, item in enumerate(iter_import_rows(source, parameters)):
         if index < 3:
-            values = item["values"]
-            samples.append(
-                {
-                    "text": item["text"][:240],
-                    "values": {
-                        "source_row": values["source_row"],
-                        "direction": values["direction"][:255],
-                        "raw_timestamp": values["raw_timestamp"][:255],
-                        "unresolved_reason": values.get("unresolved_reason", ""),
-                    },
-                }
-            )
+            samples.append(_sample(item))
         if start <= index < start + per_page:
             rows.append(item)
         total += 1
     return rows, total, samples
+
+
+def _sample(item):
+    values = item["values"]
+    return {
+        "text": item["text"][:240],
+        "values": {
+            "source_row": values["source_row"],
+            "direction": values["direction"][:255],
+            "raw_timestamp": values["raw_timestamp"][:255],
+            "unresolved_reason": values.get("unresolved_reason", ""),
+        },
+    }
 
 
 def prepare_import(sources, parameters):
@@ -504,8 +506,11 @@ def prepare_import(sources, parameters):
         for key, value in parameters.items()
         if not key.startswith("_imessage_")
     }
-    for _ in _stream_rows(sources[0], parameters, state):
-        pass
+    samples = []
+    retain_samples = parameters.get("phase", "preview") == "preview"
+    for item in _stream_rows(sources[0], parameters, state):
+        if retain_samples and len(samples) < 3:
+            samples.append(_sample(item))
     unresolved = state["metrics"]["unresolved_rows"]
     data = output(
         "Prepared message CSV rows for participant and timezone review."
@@ -523,6 +528,8 @@ def prepare_import(sources, parameters):
         outcome="partial" if unresolved else "complete",
     )
     data["imessage"] = state["imessage"]
+    if retain_samples:
+        data["imessage_samples"] = samples
     return data
 
 

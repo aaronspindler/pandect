@@ -6,6 +6,7 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.http import Http404
 
 from cases.permissions import get_case
@@ -13,7 +14,7 @@ from core.analysis.automatic import start_evidence_analysis
 from core.analysis.errors import AnalysisError, error_message
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KINDS
-from core.models import CaseAnalysisBatch
+from core.models import AnalysisRun, CaseAnalysisBatch
 from phone.models import CallEvidenceAttachment
 
 SOURCES_PER_STEP = 25
@@ -39,6 +40,27 @@ def start_case_analysis(actor, case_id, *, submission_id, scope=None):
                 "This submission was already used for another analysis."
             )
         return existing, False
+    if not scope:
+        # The case lock serializes fresh requests as well as preparation. Keep
+        # one case-wide run active until its prepared checks also finish.
+        active = (
+            CaseAnalysisBatch.objects.filter(case=case, scope={})
+            .filter(
+                Q(status=CaseAnalysisBatch.Status.QUEUED)
+                | Q(
+                    runs__status__in=(
+                        AnalysisRun.Status.QUEUED,
+                        AnalysisRun.Status.RUNNING,
+                    )
+                )
+            )
+            .exists()
+        )
+        if active:
+            raise ValidationError(
+                "Case-wide analysis is already in progress. "
+                "Follow its progress in Processing."
+            )
     try:
         with transaction.atomic():
             batch = CaseAnalysisBatch.objects.create(

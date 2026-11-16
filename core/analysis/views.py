@@ -172,10 +172,8 @@ def rerun_all(request, case_id):
             _, created = start_case_analysis(
                 request.user, case.pk, submission_id=form.cleaned_data["submission_id"]
             )
-        except ValidationError:
-            messages.error(
-                request, "This request could not be used. Try rerunning analysis again."
-            )
+        except ValidationError as error:
+            messages.error(request, " ".join(error.messages))
         except DatabaseError:
             messages.error(request, "Analysis could not be queued. Please try again.")
         else:

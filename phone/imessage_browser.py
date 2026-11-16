@@ -1,14 +1,17 @@
 """No-JavaScript review, deliberate person creation, and responsive message intake."""
 
 import re
+from urllib.parse import urlsplit
 from uuid import UUID
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from playwright.sync_api import expect
 
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
-from core.analysis.services import process_run
+from core.analysis.services import process_run, start_run
 from core.models import AnalysisRun
+from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import TextMessageEvidence
 from phone.tests.test_imessage_views import message_csv
@@ -59,6 +62,15 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("region", name="Message preview")
                 ).to_contain_text("Original café")
+                page.get_by_role(
+                    "link", name="Review all message rows", exact=True
+                ).click()
+                expect(
+                    page.get_by_text("Showing 1–2 of 2 rows.", exact=False)
+                ).to_be_visible()
+                expect(page.locator("#imessage-message-rows")).to_contain_text(
+                    "Original café"
+                )
                 account = page.get_by_role(
                     "group", name="Export account — outgoing sender", exact=True
                 )
@@ -149,7 +161,8 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 self.capture(page, engine, "review-forced-colors")
                 page.emulate_media(color_scheme="light", forced_colors="none")
                 page.get_by_role("button", name="Import messages", exact=True).click()
-                final_id = UUID(page.url.rstrip("/").split("/")[-1])
+                page.wait_for_url(re.compile(r"/imessage/[0-9a-f-]+/(?:#.*)?$"))
+                final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
                 self.assertEqual(self.db(Person.objects.count), before)
                 self.db(process_run, final_id)
                 page.reload()
@@ -194,3 +207,49 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     page.get_by_text("Preparing message analysis", exact=True).first
                 ).to_be_visible()
                 self.capture(page, engine, "automatic-analysis-processing")
+
+    def test_progress_completion_opens_prepared_review(self):
+        for engine in self.engines:
+            document = DocumentEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title="Synthetic live message review",
+                file=SimpleUploadedFile("messages.csv", message_csv(), "text/csv"),
+            )
+            preview, _ = start_run(
+                self.owner,
+                self.case.pk,
+                "imessage_import",
+                [{"kind": "document", "id": str(document.pk)}],
+                parameters={"phase": "preview", "timezone": "UTC"},
+            )
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(
+                    self.url(
+                        "phone:imessage_review", case_id=self.case.pk, run_id=preview.pk
+                    )
+                )
+                expect(
+                    page.get_by_text("Preparing message review", exact=True)
+                ).to_be_visible()
+                self.capture(page, engine, "cheap-progress")
+                self.db(process_run, preview.pk)
+                ready = page.get_by_role(
+                    "link", name="Review prepared messages", exact=True
+                )
+                expect(ready).to_be_visible(timeout=15000)
+                expect(page.locator("#message-import")).to_have_attribute(
+                    "data-live-poll", "false"
+                )
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.capture(page, engine, "cheap-progress-ready-mobile")
+                ready.focus()
+                expect(ready).to_be_focused()
+                page.keyboard.press("Enter")
+                expect(
+                    page.get_by_role("button", name="Import messages", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("region", name="Message preview")
+                ).to_contain_text("Original café")

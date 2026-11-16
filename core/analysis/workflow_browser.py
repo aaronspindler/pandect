@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+from django.urls import reverse
 from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
@@ -174,11 +175,13 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 related.focus()
                 related.press("Enter")
                 self.assertIn(f"person={self.person.pk}", page.url)
-                expect(
-                    page.get_by_role(
-                        "link", name="Participant correspondence", exact=False
-                    ).first
-                ).to_be_visible()
+                message_path = reverse(
+                    "core:evidence:detail",
+                    args=[self.case.pk, "text-message", self.message.pk],
+                )
+                message_link = page.locator(f'a[href^="{message_path}"]').first
+                expect(message_link).to_be_visible()
+                expect(message_link).to_contain_text("person-00@example.test")
 
                 page.goto(self.url("core:analysis:connections", case_id=self.case.pk))
                 self.capture_layouts(page, engine, "connections")

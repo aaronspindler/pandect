@@ -203,8 +203,12 @@ Trust `X-Forwarded-Proto` only behind the controlled proxy; retain secure
 session/CSRF cookies. `DJANGO_TRUST_PROXY_HEADERS` defaults to `false`; the Dokploy
 example explicitly enables it for this ingress. `DJANGO_SECURE_SSL_REDIRECT`
 defaults to `false` because the edge owns the redirect; enable it only when the
-application can reliably identify HTTPS requests. HSTS defaults off; this example
-sets `DJANGO_SECURE_HSTS_SECONDS=86400`. Verify edge HTTP-to-HTTPS
+application can reliably identify HTTPS requests. HTTPS public origins default to
+one-day HSTS; HTTP origins default to zero. `DJANGO_SECURE_HSTS_SECONDS` explicitly
+overrides either default, including `0` to disable it. The Dokploy example also
+sets `86400`. HSTS is emitted only when Django recognizes the request as secure.
+Verify `Strict-Transport-Security: max-age=86400` on the public HTTPS response,
+edge HTTP-to-HTTPS
 redirects, sign-in CSRF, and proxy behavior on the actual domain. Assess Django's
 deployment findings against edge configuration and the one-day HSTS policy.
 
@@ -212,9 +216,19 @@ For allauth rate limits, `PANDECT_TRUSTED_PROXY_COUNT=0` uses the directly conne
 address and ignores `X-Forwarded-For`. Set the count only when the controlled proxy
 chain supplies the genuine client address, its hop count is fixed, and clients
 cannot bypass the proxy. Verify distinct clients have separate limits and forged
-forwarding headers do not bypass them. Use a shared cache for reliable limits
-across multiple web processes. Restrict or rate-limit `/admin/login/` at the edge
-because Django admin has its own sign-in flow.
+forwarding headers do not bypass them. Authentication limits use Django's
+PostgreSQL cache across web processes, created by the accounts migration; no
+separate cache service or `createcachetable` command is needed. Cache entries
+expire and Django bounds the table at 100,000 entries with automatic culling.
+The admin sign-in URL redirects anonymous requests to the same allauth sign-in
+flow, including its verification and shared rate limits. Staff, model permissions,
+and current case access are still required. Edge limits remain useful for request
+volume before it reaches Django.
+
+Apply the accounts migration before activating this revision's web process; the
+previous revision can continue using its own process-local cache during rollout.
+The migration adds only the Django cache table and does not change retained
+investigation data. A web rollback can leave this disposable cache table in place.
 
 After activation, run in the deployed web Application terminal:
 
@@ -334,6 +348,13 @@ supplied transcripts allow 10 MiB UTF-8. These application limits are defined in
 `config/settings.py`, not environment variables. Django's memory threshold controls
 temporary storage, not file size. Call audio uses normal file limits/private
 storage; transcription is a separate [analysis operation](analysis.md).
+
+Multipart file parts require an active authorized account before temporary
+storage. Product uploads check account access before CSRF parses the body and
+current owner/editor case access before accepting a file part; anonymous,
+unverified, viewer, unrelated, and revoked requests are rejected before file
+bytes are written. Proxy request-body and concurrency
+limits remain necessary because ingress servers may buffer requests before Django.
 
 Vehicle CSV imports accept up to 100 MiB and 100,000 data rows. Message CSV imports
 also retain a separate 100 MiB file limit, 131,072-character field limit and 1 MiB

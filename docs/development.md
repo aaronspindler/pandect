@@ -110,6 +110,7 @@ measurement, qualification and upgrading older local text configurations.
 | `PANDECT_PUBLIC_ORIGIN` | Public HTTP(S) origin used in invitation emails. Compose defaults to `http://localhost:<PANDECT_WEB_PORT>`; host Django defaults to `http://localhost:8000`. No path, credentials, query, or fragment; override for another deployment address. |
 | `DJANGO_ALLOWED_HOSTS` | Optional comma-separated override; defaults to the public-origin hostname and loopback names. |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Optional comma-separated override; defaults to the public origin. |
+| `DJANGO_SECURE_HSTS_SECONDS` | Defaults to `86400` for an HTTPS public origin and `0` for HTTP. An explicit value overrides the default; Django must recognize HTTPS to emit the header. |
 | `PANDECT_ALLOW_SIGNUPS` | Defaults to `true`; disable public registration with `false`. This also blocks registration by new invitees. |
 | `PANDECT_TRUSTED_PROXY_COUNT` | Proxy hops trusted by allauth for client IP detection. Defaults to `0`. Set only behind a [controlled proxy chain](operations.md#first-dokploy-deployment). |
 | `POSTGRES_DB`, `POSTGRES_USER` | Default to `pandect`. |
@@ -124,6 +125,11 @@ measurement, qualification and upgrading older local text configurations.
 Empty host, CSRF-origin and sender overrides use their derived defaults.
 Deployment-specific proxy trust, HTTPS redirect and HSTS settings are described
 in [operations](operations.md#first-dokploy-deployment).
+
+Authentication rate limits share Django's PostgreSQL cache between web processes.
+Normal migrations create its upstream cache table; do not run `createcachetable`
+or configure a separate service. Anonymous admin sign-in requests use allauth's
+sign-in and verification flow.
 
 Files allow 1 GiB each, captured text allows 10 MiB UTF-8, and browser batches
 allow 100 sequential uploads. Invitations expire after seven days. These are

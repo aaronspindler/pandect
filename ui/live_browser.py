@@ -365,10 +365,19 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                         self.db(process_run, record.pk)
                         expect(
                             page.get_by_role(
-                                "button", name="Import messages", exact=True
+                                "link", name="Review prepared messages", exact=True
                             )
                         ).to_be_visible(timeout=15000)
                     expect(page.locator("[data-live-region]")).to_have_attribute(
                         "data-live-poll", "false"
                     )
                     self.assertEqual(page.evaluate("window.liveSentinel"), 42)
+                    if kind == "message":
+                        page.get_by_role(
+                            "link", name="Review prepared messages", exact=True
+                        ).click()
+                        expect(
+                            page.get_by_role(
+                                "button", name="Import messages", exact=True
+                            )
+                        ).to_be_visible()
