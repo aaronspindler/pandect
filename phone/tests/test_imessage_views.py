@@ -15,7 +15,7 @@ from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.analysis.deterministic.imazing import HEADERS, iter_import_rows
+from phone.analysis.deterministic.imessage import HEADERS, iter_import_rows
 from phone.models import CommunicationContext, TextMessageEvidence
 
 
@@ -43,12 +43,12 @@ def message_csv(*rows):
     return stream.getvalue().encode("utf-8")
 
 
-class IMazingImportViewTests(EvidenceViewTestMixin, TestCase):
+class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
     def upload_url(self, case=None):
-        return reverse("phone:imazing_upload", args=[(case or self.case).pk])
+        return reverse("phone:imessage_upload", args=[(case or self.case).pk])
 
     def review_url(self, run, case=None):
-        return reverse("phone:imazing_review", args=[(case or self.case).pk, run.pk])
+        return reverse("phone:imessage_review", args=[(case or self.case).pk, run.pk])
 
     def prepare(self, content=None):
         self.login("owner")
@@ -66,7 +66,7 @@ class IMazingImportViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(response.status_code, 302)
         run = AnalysisRun.objects.get(
-            operation="imazing_import", parameters__phase="preview"
+            operation="imessage_import", parameters__phase="preview"
         )
         process_run(run.pk)
         run.refresh_from_db()
@@ -126,7 +126,7 @@ class IMazingImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "Message preview")
         self.assertContains(response, "Excerpts from the first 2 source rows")
         self.assertLess(
-            response.content.index(b'id="imazing-preview-heading"'),
+            response.content.index(b'id="imessage-preview-heading"'),
             response.content.index(b'name="account-mode"'),
         )
         self.assertFalse(TextMessageEvidence.objects.exists())

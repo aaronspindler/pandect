@@ -23,7 +23,7 @@ SOURCES_PER_STEP = 25
 def start_case_analysis(actor, case_id, *, submission_id, scope=None):
     case = get_case(actor, case_id, edit=True, lock=True)
     scope = scope or {}
-    if scope:
+    if scope and scope.get("type") != "reprocess":
         from core.analysis.import_checks import imported_sources
 
         if not imported_sources(case, scope)[1].exists():
@@ -116,8 +116,28 @@ def prepare_case_analysis_batch(batch_id):
             batch = CaseAnalysisBatch.objects.select_for_update().get(pk=batch_id)
             if batch.status != CaseAnalysisBatch.Status.QUEUED:
                 return batch.status
-            rows = _next_sources(batch, case)
-            if batch.scope and rows:
+            reprocessing = batch.scope.get("type") == "reprocess"
+            automatic_import = batch.scope.get("automatic") is True
+            if reprocessing:
+                from core.analysis.reprocessing import prepare_reprocessing
+
+                rows = [True] if prepare_reprocessing(batch, case) else []
+            elif automatic_import:
+                from phone.analysis.ingest import next_messages, prepare_import_analysis
+
+                selected = next_messages(batch, case)
+                rows = [(message.pk, message.pk) for message in selected]
+            else:
+                rows = _next_sources(batch, case)
+            if reprocessing:
+                rows_to_prepare = []
+            elif automatic_import and rows:
+                prepare_import_analysis(batch, case, selected)
+                batch.source_cursor = rows[-1][0]
+                batch.source_kind = "text-message"
+                batch.processed_sources += len(rows)
+                rows_to_prepare = []
+            elif batch.scope and rows:
                 from core.analysis.import_checks import prepare_import_checks
 
                 prepare_import_checks(batch, case, rows)
@@ -168,6 +188,8 @@ def prepare_case_analysis_batch(batch_id):
             return batch.status
     except Http404, PermissionDenied:
         error = "access_removed"
+    except AnalysisError as failure:
+        error = failure.code
     except Exception:
         # Keep operational exceptions and source details out of product messages.
         error = "preparation_failed"

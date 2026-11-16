@@ -1,4 +1,4 @@
-"""Streaming iMazing CSV review and atomic, case-authorized publication."""
+"""Streaming message CSV review and atomic, case-authorized publication."""
 
 import csv
 import hashlib
@@ -22,7 +22,7 @@ from core.storage import canonical_bytes
 from people.models import Person
 from phone.models import CommunicationContext, TextMessageEvidence
 
-PARSER_VERSION = "imazing-csv-v1"
+PARSER_VERSION = "imessage-csv-v1"
 MAX_FIELD_CHARS = 131072
 BATCH_SIZE = 500
 BATCH_CHARS = 2 * 1024 * 1024
@@ -75,14 +75,14 @@ def _identifier(value):
     try:
         return UUID(str(value))
     except (ValueError, TypeError, AttributeError) as error:
-        raise AnalysisError("imazing_invalid_confirmation") from error
+        raise AnalysisError("imessage_invalid_confirmation") from error
 
 
 def _zone(parameters):
     try:
         return ZoneInfo(parameters.get("timezone", ""))
     except (ZoneInfoNotFoundError, ValueError, TypeError) as error:
-        raise AnalysisError("imazing_invalid_confirmation") from error
+        raise AnalysisError("imessage_invalid_confirmation") from error
 
 
 def _text_limit():
@@ -120,17 +120,17 @@ def _people(parameters, case):
     preview_id = _identifier(parameters.get("preview_run_id"))
     selections = parameters.get("people")
     if not isinstance(selections, dict) or set(selections) != set(ROLES):
-        raise AnalysisError("imazing_invalid_confirmation")
+        raise AnalysisError("imessage_invalid_confirmation")
     people = {}
     for role in ROLES:
         selected = selections[role]
         if not isinstance(selected, dict) or set(selected) != {"id", "create"}:
-            raise AnalysisError("imazing_invalid_confirmation")
+            raise AnalysisError("imessage_invalid_confirmation")
         identifier = _identifier(selected["id"])
         create = selected["create"]
         if create is None:
             if not Person.objects.filter(case=case, pk=identifier).exists():
-                raise AnalysisError("imazing_invalid_confirmation")
+                raise AnalysisError("imessage_invalid_confirmation")
         else:
             if (
                 identifier != uuid5(preview_id, role)
@@ -138,13 +138,13 @@ def _people(parameters, case):
                 or set(create) - PERSON_FIELDS
                 or any(not isinstance(value, str) for value in create.values())
             ):
-                raise AnalysisError("imazing_invalid_confirmation")
+                raise AnalysisError("imessage_invalid_confirmation")
             try:
                 Person(pk=identifier, case=case, **create).full_clean(
                     validate_unique=False
                 )
             except ValidationError as error:
-                raise AnalysisError("imazing_invalid_confirmation") from error
+                raise AnalysisError("imessage_invalid_confirmation") from error
         people[role] = {"id": str(identifier), "create": create}
     return people
 
@@ -165,7 +165,7 @@ class _BoundedReader(io.RawIOBase):
         chunk = self.original.read(min(len(buffer), self.limit - self.size + 1))
         self.size += len(chunk)
         if self.size > self.limit:
-            raise AnalysisError("imazing_import_limit")
+            raise AnalysisError("imessage_import_limit")
         self.digest.update(chunk)
         buffer[: len(chunk)] = chunk
         return len(chunk)
@@ -188,7 +188,7 @@ class _CSVLines:
             raise StopIteration
         self.record_chars += len(line)
         if self.record_chars > MAX_RECORD_CHARS:
-            raise AnalysisError("imazing_import_limit")
+            raise AnalysisError("imessage_import_limit")
         self.offset += len(line)
         return line
 
@@ -205,7 +205,7 @@ def _raw_rows(source):
                 reader = csv.reader(lines, strict=True)
                 header = next(reader, [])
                 if len(header) != len(HEADERS) or set(header) != set(HEADERS):
-                    raise AnalysisError("imazing_invalid_format")
+                    raise AnalysisError("imessage_invalid_format")
                 number = 1
                 while True:
                     lines.record_chars = 0
@@ -219,9 +219,9 @@ def _raw_rows(source):
                     if len(cells) != len(header) or any(
                         "\x00" in value for value in cells
                     ):
-                        raise AnalysisError("imazing_invalid_format")
+                        raise AnalysisError("imessage_invalid_format")
                     if any(len(value) > MAX_FIELD_CHARS for value in cells):
-                        raise AnalysisError("imazing_import_limit")
+                        raise AnalysisError("imessage_import_limit")
                     yield (
                         number,
                         start,
@@ -229,21 +229,21 @@ def _raw_rows(source):
                         dict(zip(header, cells, strict=True)),
                     )
                 if number == 1:
-                    raise AnalysisError("imazing_invalid_format")
+                    raise AnalysisError("imessage_invalid_format")
                 if (
                     bounded.digest.hexdigest() != source.item.sha256
                     or bounded.size != source.item.byte_size
                 ):
-                    raise AnalysisError("imazing_source_changed")
+                    raise AnalysisError("imessage_source_changed")
     except csv.Error as error:
         code = (
-            "imazing_import_limit"
+            "imessage_import_limit"
             if str(error).startswith("field larger than field limit")
-            else "imazing_invalid_format"
+            else "imessage_invalid_format"
         )
         raise AnalysisError(code) from error
     except UnicodeDecodeError as error:
-        raise AnalysisError("imazing_invalid_format") from error
+        raise AnalysisError("imessage_invalid_format") from error
     except (OSError, ValueError) as error:
         raise AnalysisError("source_unavailable") from error
 
@@ -362,15 +362,15 @@ def _stream_rows(source, parameters, state):
     zone = _zone(parameters)
     phase = parameters.get("phase", "preview")
     if phase not in ("preview", "import"):
-        raise AnalysisError("imazing_invalid_confirmation")
+        raise AnalysisError("imessage_invalid_confirmation")
     people = _people(parameters, source.item.case) if phase == "import" else None
     limit = (
-        parameters.get("_imazing_text_limit_bytes", _text_limit())
+        parameters.get("_imessage_text_limit_bytes", _text_limit())
         if phase == "preview"
         else _text_limit()
     )
     if type(limit) is not int or not 0 < limit <= 1024 * 1024:
-        raise AnalysisError("imazing_invalid_confirmation")
+        raise AnalysisError("imessage_invalid_confirmation")
     summary = {
         "chat_session": "",
         "sender_id": "",
@@ -405,7 +405,7 @@ def _stream_rows(source, parameters, state):
         session = raw["Chat Session"]
         if session:
             if session_label and session_label != session:
-                raise AnalysisError("imazing_multiple_chats")
+                raise AnalysisError("imessage_multiple_chats")
             session_label = session
             summary["chat_session"] = session[:255]
             summary["chat_session_truncated"] = len(session) > 255
@@ -414,7 +414,7 @@ def _stream_rows(source, parameters, state):
             identifier = raw["Sender ID"]
             if identifier:
                 if sender_identifier and sender_identifier != identifier:
-                    raise AnalysisError("imazing_multiple_chats")
+                    raise AnalysisError("imessage_multiple_chats")
                 sender_identifier = identifier
                 summary["sender_id"] = identifier[:255]
                 summary["sender_id_truncated"] = len(identifier) > 255
@@ -437,17 +437,17 @@ def _stream_rows(source, parameters, state):
         _update_digest(digest, item)
         yield item
     summary["interpretation_sha256"] = digest.hexdigest()
-    expected = parameters.get("_imazing_interpretation_sha256")
+    expected = parameters.get("_imessage_interpretation_sha256")
     if expected is not None and expected != summary["interpretation_sha256"]:
-        raise AnalysisError("imazing_invalid_confirmation")
-    state.update(imazing=summary, metrics=metrics)
+        raise AnalysisError("imessage_invalid_confirmation")
+    state.update(imessage=summary, metrics=metrics)
 
 
 def iter_import_rows(source, parameters):
     """Yield row items; exhaust to verify checksum, chat shape, and optional digest.
 
-    Historical review may supply `_imazing_text_limit_bytes` and
-    `_imazing_interpretation_sha256` from its retained compact summary. Import
+    Historical review may supply `_imessage_text_limit_bytes` and
+    `_imessage_interpretation_sha256` from its retained compact summary. Import
     publication always uses the current operator text limit.
     """
     return _stream_rows(source, parameters, {})
@@ -461,7 +461,7 @@ def read_import_page(source, parameters, *, page, per_page=25):
         or type(per_page) is not int
         or not 1 <= per_page <= 100
     ):
-        raise AnalysisError("imazing_invalid_confirmation")
+        raise AnalysisError("imessage_invalid_confirmation")
     rows, samples = [], []
     start = (page - 1) * per_page
     total = 0
@@ -489,21 +489,21 @@ def prepare_import(sources, parameters):
     """Retain a compact summary and digest; never store a per-row result payload."""
     sources = list(sources)
     if len(sources) != 1 or sources[0].kind != "document" or sources[0].attachment:
-        raise AnalysisError("imazing_invalid_format")
+        raise AnalysisError("imessage_invalid_format")
     state = {}
     # Retained display overrides belong only to read_import_page/iter_import_rows.
     parameters = {
         key: value
         for key, value in parameters.items()
-        if not key.startswith("_imazing_")
+        if not key.startswith("_imessage_")
     }
     for _ in _stream_rows(sources[0], parameters, state):
         pass
     unresolved = state["metrics"]["unresolved_rows"]
     data = output(
-        "Prepared iMazing CSV rows for participant and timezone review."
+        "Prepared message CSV rows for participant and timezone review."
         if parameters.get("phase", "preview") == "preview"
-        else "Prepared confirmed iMazing messages for atomic publication.",
+        else "Prepared confirmed CSV messages for atomic publication.",
         metrics=state["metrics"],
         warnings=[
             "The original CSV remains the retained source. Text preserves the "
@@ -515,7 +515,7 @@ def prepare_import(sources, parameters):
         ],
         outcome="partial" if unresolved else "complete",
     )
-    data["imazing"] = state["imazing"]
+    data["imessage"] = state["imessage"]
     return data
 
 
@@ -561,7 +561,7 @@ def _create_people(case, people, contexts):
                     | Q(message__recipient_id=identifier)
                 ).exists()
             ):
-                raise AnalysisError("imazing_conflict")
+                raise AnalysisError("imessage_conflict")
             continue
         person = Person(pk=identifier, case=case, **selected["create"])
         person.full_clean()
@@ -571,14 +571,14 @@ def _create_people(case, people, contexts):
 def apply_import(run, data, sources):
     """Publish bounded batches atomically; any failure rolls back the import."""
     if not transaction.get_connection().in_atomic_block:
-        raise RuntimeError("iMazing publication requires a transaction.")
+        raise RuntimeError("Message CSV publication requires a transaction.")
     case = get_case(run.requested_by, run.case_id, edit=True, lock=True)
     if (
-        run.operation != "imazing_import"
+        run.operation != "imessage_import"
         or run.method_version != "2"
         or run.parameters.get("phase") != "import"
     ):
-        raise AnalysisError("imazing_invalid_confirmation")
+        raise AnalysisError("imessage_invalid_confirmation")
     if (
         len(sources) != 1
         or sources[0].kind != "document"
@@ -591,18 +591,18 @@ def apply_import(run, data, sources):
         or run.inputs[0].get("evidence_id") != str(source.item.pk)
         or run.inputs[0].get("sha256") != source.item.sha256
     ):
-        raise AnalysisError("imazing_source_changed")
+        raise AnalysisError("imessage_source_changed")
     try:
         preview = AnalysisRun.objects.select_related("result").get(
             pk=_identifier(run.parameters.get("preview_run_id")),
             case=case,
-            operation="imazing_import",
+            operation="imessage_import",
             method_version="2",
             status__in=("complete", "partial"),
             result__case=case,
         )
     except AnalysisRun.DoesNotExist as error:
-        raise AnalysisError("imazing_invalid_confirmation") from error
+        raise AnalysisError("imessage_invalid_confirmation") from error
     if (
         preview.parameters.get("phase") != "preview"
         or len(preview.inputs) != 1
@@ -610,22 +610,22 @@ def apply_import(run, data, sources):
         or preview.inputs[0].get("sha256") != source.item.sha256
         or run.parameters.get("timezone") != preview.parameters.get("timezone")
     ):
-        raise AnalysisError("imazing_invalid_confirmation")
+        raise AnalysisError("imessage_invalid_confirmation")
     expected = prepare_import(sources, run.parameters)
-    if _unpublished(data) != expected or expected["imazing"][
+    if _unpublished(data) != expected or expected["imessage"][
         "interpretation_sha256"
-    ] != preview.result.data.get("imazing", {}).get("interpretation_sha256"):
-        raise AnalysisError("imazing_invalid_confirmation")
+    ] != preview.result.data.get("imessage", {}).get("interpretation_sha256"):
+        raise AnalysisError("imessage_invalid_confirmation")
     people = _people(run.parameters, case)
     contexts = CommunicationContext.objects.filter(source_document=source.item)
     scope = Q(case=case, message__in=scoped_evidence(case, "text-message"))
     if contexts.exclude(scope).exists():
-        raise AnalysisError("imazing_conflict")
+        raise AnalysisError("imessage_conflict")
     contexts = contexts.filter(scope)
     if expected["metrics"]["ready_rows"]:
         _create_people(case, people, contexts)
     parameters = run.parameters | {
-        "_imazing_interpretation_sha256": expected["imazing"]["interpretation_sha256"]
+        "_imessage_interpretation_sha256": expected["imessage"]["interpretation_sha256"]
     }
     created = reused = 0
     for batch in _publication_batches(iter_import_rows(source, parameters)):
@@ -657,7 +657,7 @@ def apply_import(run, data, sources):
                         for name, value in fields.items()
                     )
                 ):
-                    raise AnalysisError("imazing_conflict")
+                    raise AnalysisError("imessage_conflict")
                 reused += 1
                 continue
             message = TextMessageEvidence(
@@ -672,10 +672,10 @@ def apply_import(run, data, sources):
                 else None,
                 source=source.item.source,
                 source_description=(
-                    f"Retained iMazing CSV export {source.item.pk}, "
+                    f"Retained message CSV export {source.item.pk}, "
                     f"row {values['source_row']}; {PARSER_VERSION}"
                 ),
-                submission_id=uuid5(source.item.pk, f"imazing:{values['source_row']}"),
+                submission_id=uuid5(source.item.pk, f"imessage:{values['source_row']}"),
             )
             message.full_clean()
             message.save()

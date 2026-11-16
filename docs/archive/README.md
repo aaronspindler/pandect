@@ -1,9 +1,9 @@
 # Historical documentation
 
-These records preserve past planning, reviews, and experiments. They are frozen
-snapshots: paths, capability notes, scores, test counts, and local artifacts may
-describe an older checkout. They do not establish current behavior or live health.
-Use the [documentation index](../README.md) for maintained guidance.
+These dated snapshots preserve past planning, reviews, and experiments. Paths,
+capabilities, scores, test counts, and local artifacts may be outdated; they do
+not establish current behavior or live health. Use the [documentation index](../README.md)
+for maintained guidance.
 
 - [Analysis planning catalogue, October 2026](evidence-analysis-2026-10.md)
 - [Code review, 30 October 2026](code-review-2026-10.md)

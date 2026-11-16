@@ -1,0 +1,52 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Reprocess evidence · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'core:analysis:processing' case.pk %}">Back to Processing</a>
+<header class="page-header">
+  <div><h1>Reprocess evidence</h1><p>Run all applicable processing and analysis on selected evidence types. Originals and earlier results are kept.</p></div>
+</header>
+
+<form method="post" class="analysis-section analysis-form form-layout" novalidate data-unsaved-form>
+  {% csrf_token %}{{ form.submission_id }}{{ form.execution_confirmation }}
+  {% if form.errors %}
+  <div class="error-summary" role="alert" tabindex="-1" data-error-summary>
+    <h2>Review your selection</h2>
+    <ul>
+      {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+      {% for field in form %}{% for error in field.errors %}<li>{% if field.is_hidden %}{{ error }}{% else %}<a href="#{{ field.auto_id }}">{{ field.label }}: {{ error }}</a>{% endif %}</li>{% endfor %}{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <fieldset class="analysis-sources{% if form.evidence_types.errors %} field-error{% endif %}" id="{{ form.evidence_types.auto_id }}" aria-describedby="reprocess-types-help{% if form.evidence_types.aria_describedby %} {{ form.evidence_types.aria_describedby }}{% endif %}" tabindex="-1">
+    <legend>Choose evidence types</legend>
+    <p class="help-text" id="reprocess-types-help">Select any combination. Only active evidence already in this case when you submit is included.</p>
+    <div class="reprocess-types">
+      {% for choice in form.evidence_types %}<label for="{{ choice.id_for_label }}">{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>{% endfor %}
+    </div>
+    {{ form.evidence_types.errors }}
+  </fieldset>
+
+  <fieldset class="analysis-sources{% if form.mode.errors %} field-error{% endif %}" id="{{ form.mode.auto_id }}" aria-describedby="reprocess-mode-help{% if form.mode.aria_describedby %} {{ form.mode.aria_describedby }}{% endif %}" tabindex="-1">
+    <legend>Choose processing location</legend>
+    {% for choice in form.mode %}<label for="{{ choice.id_for_label }}">{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>{% endfor %}
+    {{ form.mode.errors }}
+    <p class="help-text" id="reprocess-mode-help">Local includes checks and AI on this server or the operator's private network. External / AI uses external methods, with local text extraction where needed. Both runs local checks once and AI separately in each location. Local failures never switch to external processing.</p>
+    <p class="help-text">Lookups use the operator's configured location: {% for lookup in lookup_locations %}{{ lookup.label }} — {% if lookup.external %}external{% else %}local/private network{% endif %}{% if not forloop.last %}; {% endif %}{% endfor %}. Only lookups matching your selection run.</p>
+  </fieldset>
+
+  <details class="disclosure">
+    <summary>Included methods and coverage</summary>
+    <p>Supported file inspection, text extraction, image text and plate reading, transcription, identifiers, writing profiles and wording comparisons, topics, claims, message patterns and summaries, location checks, movement patterns, and lookups run where applicable.</p>
+    <p>Comparisons use bounded groups. Each result records its selected sources; comparisons across separate groups are not exhaustive. Text extracted from files receives follow-up analysis. Unsupported files and unavailable services keep visible outcomes in Processing.</p>
+    <p>Questions, two-sample writing comparisons, chosen-area searches, claimed-event comparisons, and import mapping need your input. Use <a href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a> for these methods.</p>
+  </details>
+
+  {% include 'ui/components/form_field.html' with field=form.external_processing only %}
+  {% if not active_count %}<p class="notice" role="status">No active evidence is available. <a href="{% url 'core:evidence:create' case.pk %}">Add evidence</a> to start processing.</p>{% endif %}
+  <div class="form-actions">
+    <button class="button button-primary" type="submit"{% if not active_count %} disabled{% endif %}>Start reprocessing</button>
+    <a class="button button-secondary" href="{% url 'core:analysis:processing' case.pk %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

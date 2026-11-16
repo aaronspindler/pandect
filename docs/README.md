@@ -1,10 +1,9 @@
 # Pandect documentation
 
-[AGENTS.md](../AGENTS.md) owns contributor requirements;
-[DESIGN.md](../DESIGN.md) owns durable interface standards. The guides below own
-current behavior and procedures. Start with the guide for the task; follow its
-links for domain details. Historical reports are kept in the [archive](archive/README.md)
-and are not current implementation or validation guidance.
+[PRINCIPLES.md](../PRINCIPLES.md) owns principles, [AGENTS.md](../AGENTS.md)
+contributor requirements, and [DESIGN.md](../DESIGN.md) interface standards.
+The guides below describe current behavior and procedures; the
+[archive](archive/README.md) contains historical reports.
 
 ## Setup and operation
 
@@ -41,35 +40,31 @@ and are not current implementation or validation guidance.
 
 ## Codex project configuration
 
-[`.codex/config.toml`](../.codex/config.toml) is the source of project defaults.
-Start a new trusted Codex session to load it; session overrides and managed
-requirements may take precedence. See the official
+[`.codex/config.toml`](../.codex/config.toml) supplies defaults to new trusted
+sessions; session overrides and managed requirements may take precedence. See
 [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 and [configuration layering](https://learn.chatgpt.com/docs/config-file/config-basic).
 
-The planning preference is GPT-6 Astra with Ultra reasoning; implementation uses
-GPT-6.1 Sol with Extra high reasoning. Select the model explicitly when changing
-modes: `plan_mode_reasoning_effort` sets effort only. In the CLI, use `/model`,
-then `/plan`; after leaving Plan mode, select the implementation model again.
-Keep Fast enabled for both. Model/effort availability depends on the client and
-account; project defaults do not change an already-running conversation.
+Planning uses GPT-6 Astra/Ultra; implementation uses GPT-6.1 Sol/Extra high, both
+with Fast enabled. Switch models explicitly: `plan_mode_reasoning_effort` sets
+only effort. In the CLI, use `/model`, then `/plan`; reselect the implementation
+model after leaving Plan mode. Availability depends on the client/account;
+defaults do not change running conversations.
 
-Automatic review handles eligible approval requests, not all actions. Sandbox
-permissions and shell network restrictions still apply; built-in live web search
-does not grant unrestricted shell networking.
+Automatic review handles eligible approval requests. Sandbox and shell network
+restrictions still apply, including when live web search is enabled.
 
 ### Simplicity review
 
-Use the shared Agentics
-[`simplicity_reviewer`](https://github.com/aaronspindler/agentics) for the
-[required handoff review](../AGENTS.md#simplicity-and-maintainability). It inherits
-the parent model/reasoning and stays read-only within the parent permissions.
-Supply task requirements, the final scoped diff including new files, and the
-relevant Pandect safeguards. Exclude unrelated changes. Wait for findings, resolve
-material issues, and rerun affected checks/review after substantive fixes.
+Use Agentics' [`simplicity_reviewer`](https://github.com/aaronspindler/agentics)
+for the [required handoff review](../AGENTS.md#simplicity-and-maintainability).
+It inherits parent model/reasoning and permissions and stays read-only. Supply
+requirements, the final scoped diff (including new files), and Pandect safeguards;
+exclude unrelated work. Wait for findings, fix material issues, and rerun affected
+checks/review after substantive fixes.
 
-Install with `agentics install --agent simplicity_reviewer`; Codex loads the
-reviewer from `${CODEX_HOME:-~/.codex}/agents/` in a new session. If the client
-cannot load custom agents, delegate the shared reviewer instructions and disclose
-the fallback. This is an agent handoff requirement, not a Git or CI hook. See
+Install with `agentics install --agent simplicity_reviewer`; start a new session
+to load it from `${CODEX_HOME:-~/.codex}/agents/`. If custom agents cannot load,
+delegate the shared instructions and disclose the fallback. Review is a handoff
+requirement, not a Git/CI hook. See
 [custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents#custom-agents).

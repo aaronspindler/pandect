@@ -1,16 +1,16 @@
 # Local analysis and private inference runtimes
 
-Pandect defaults to **Local** for deliberately selected model-based analysis.
-Local includes the Pandect host and an explicitly configured operator-controlled
-private LAN service. Cloudflare remains an optional, separately selected and
-approved external route. A missing model, failed runtime or context limit never
-sends evidence to the cloud automatically.
+Model analysis defaults to **Local**: the Pandect host or an explicitly configured
+operator-controlled private LAN service. This includes confirmed CSV message
+imports' automatic suite. Cloudflare requires separate selection/approval; model,
+runtime or context failures never trigger cloud fallback.
 
-Printed-English OCR, native document text, metadata inspection, rule-based
-identifiers, keywords, writing comparisons, conversation timing and spatial
-calculations run locally. The automatic checks and **Run checks**/**Run checks
-again** use the [local batch](analysis.md#retained-processing); LLM analysis and
-transcription remain deliberate.
+Printed-English OCR, native text extraction, metadata, rule-based identifiers,
+keywords, writing comparisons, timing and spatial calculations run locally through
+the [local batch](analysis.md#retained-processing). CSV message imports additionally
+queue bounded topics, claims, session summaries and semantic exchanges. Other
+LLM analysis/transcription remains deliberate. Missing inference leaves recoverable
+runs without undoing messages or independent results.
 
 ## Current methods and limits
 
@@ -25,29 +25,26 @@ transcription remain deliberate.
 | Geocoding | Operator-controlled Nominatim-compatible service. | Loaded area, dataset freshness, ambiguous/no matches and candidate review. |
 | Geographic context | Operator-controlled Overpass-compatible service; geometry matching already runs locally. | Loaded area, map timestamps, retained snapshots and actual historical coverage. |
 
-These are supported execution paths, not claims of model accuracy or equivalence
-to the remote 70B model. The baseline text model is
-[Qwen3-8B Q4_K_M](https://huggingface.co/Qwen/Qwen3-8B-GGUF) in non-thinking mode.
-The optional CPU-first image pins llama.cpp **v0.8.0** at
+Execution support does not establish accuracy or equivalence to the remote 70B
+model. The baseline is [Qwen3-8B Q4_K_M](https://huggingface.co/Qwen/Qwen3-8B-GGUF)
+in non-thinking mode. The optional CPU image pins llama.cpp **v0.8.0** at
 `8642541b255bfb5dc39cd351a178be09013a55d6` and whisper.cpp **v1.9.5** at
-`d1be6fde11ac6e0407606b4e42fe72d34add8037`. Model licenses are separate from
-runtime licenses: the selected Qwen artifact is Apache-2.0 and Whisper is MIT.
-Retain upstream model metadata/license notices with the operator's model files.
+`d1be6fde11ac6e0407606b4e42fe72d34add8037`. Qwen's Apache-2.0 and Whisper's MIT
+model licenses are separate from runtime licenses. Retain upstream metadata/notices
+with model files.
 
 ## Start the optional CPU runtimes
 
-The ordinary Compose stack works without these services. Model files are never
-downloaded during application startup or inference. First obtain the single-file
-Q4_K_M artifact from the official Qwen repository and the
-[Whisper large-v3-turbo weights](https://huggingface.co/ggerganov/whisper.cpp/tree/main)
-for whisper.cpp. Verify their SHA-256 against upstream file metadata and retain
-the source revision. Put the reviewed files at ignored `data/models/text.gguf`
-and `data/models/transcription.bin`, or configure the two `*_MODEL_FILE` paths.
-Do not place models under the source-controlled `inference/` directory.
+The ordinary stack needs no inference services. Startup/inference never downloads
+models. Obtain the official single-file Qwen Q4_K_M artifact and
+[Whisper large-v3-turbo weights](https://huggingface.co/ggerganov/whisper.cpp/tree/main).
+Verify SHA-256 against upstream metadata and retain the source revision. Store
+reviewed files in ignored `data/models/text.gguf` and
+`data/models/transcription.bin`, or set `*_MODEL_FILE`; never put them under
+source-controlled `inference/`.
 
-After the normal local setup has created `.env`, this initial configuration reads
-the model bytes, records their digests, and adds a private runtime token without
-printing it:
+After [local setup](development.md#first-run) creates `.env`, record model digests
+and add a private runtime token without printing it:
 
 ```sh
 uv run --locked python - <<'PY'
@@ -73,42 +70,34 @@ docker compose --profile local-ai build local-text local-transcription
 docker compose --profile local-ai up -d --wait
 ```
 
-The setup example uses the default file names; use your configured paths when
-computing hashes for alternative files. Rerunning it rotates the runtime token,
-so recreate web, worker and both runtimes together. It does not reset any database
-or evidence. Missing files, digest mismatches and missing tokens prevent runtime
-startup. No configured inference URL means analysis reports a recoverable
-configuration error; it does not disable case management.
+Use configured paths when hashing alternative files. Rerunning rotates the token;
+recreate web, worker and both runtimes together. No database/evidence is reset.
+Missing files/tokens or digest mismatches block runtime startup. Unconfigured URLs
+produce recoverable analysis errors; case management stays usable.
 
-Each runtime verifies its mounted, read-only model before launching the pinned
-native engine. It rejects a model that changes during verification and stops the
-engine if the verified file changes or becomes unavailable. Its authenticated
-`/identity` reports the model digest and engine
-revision. Before evidence is sent, the application compares that identity with
-the queued execution snapshot. Every POST also supplies the expected identity;
-the runtime compares it under its request lock before reading/forwarding content,
-so replacing an engine under the same model alias cannot silently change a run.
-The native engine listens only on the runtime
-container's loopback interface. Its front door exposes only identity, readiness,
-and the concrete inference/tokenization routes required by Pandect.
+Runtimes verify read-only mounted models before launching pinned engines. Changes
+during verification are rejected; later changes/unavailability stop the engine.
+Authenticated `/identity` reports model digest/engine revision. Before sending
+evidence, Pandect compares these against the queued snapshot. Each POST carries
+expected identity, checked under the runtime request lock before content is read
+or forwarded. Replacing an engine under an alias cannot silently change a run.
+Native engines listen only on container loopback; the front door exposes only
+identity, readiness and required inference/tokenization routes.
 
-The `inference` Docker network is internal, with no published ports and no
-internet route for either runtime. Web/worker also join it. Runtime containers
-have a read-only filesystem, private temporary memory, no evidence-storage mount,
-no Gateway credentials, no privileged capabilities and no payload logging.
-They accept one request at a time. A request deadline kills and reaps the native
-process group; the container restarts and reloads its verified model. A cancelled
-case run withholds publication; an already submitted local request can continue
-until it finishes or reaches that deadline.
+The internal `inference` network joins web/workers and runtimes, with no published
+ports or runtime internet route. Runtimes have read-only filesystems, private
+temporary memory, no evidence mount/Gateway credentials/privileged capabilities,
+and no payload logging. Each accepts one request at a time. Deadlines kill/reap
+the native process group; container restart reloads the verified model.
+Cancellation withholds publication, but submitted requests may continue until
+completion/deadline.
 
 ## Configuration and capacity
 
-Set identical application configuration on web and worker. `*_URL` explicitly
-designates an operator-controlled inference endpoint; a private-looking hostname
-is not an automatic trust decision. Only the supplied private front door and its
-identity contract are supported. For a separate LAN inference host, use TLS or a
-trusted encrypted tunnel and firewall it to the Pandect workers. Do not publish
-the runtimes to an untrusted network.
+Set identical web/worker values. `*_URL` explicitly designates operator control;
+a private hostname alone does not. Only the supplied front door/identity contract
+is supported. LAN services need TLS or a trusted encrypted tunnel and a firewall
+restricting access to Pandect workers. Never expose runtimes to untrusted networks.
 
 | Variable | Default / purpose |
 | --- | --- |
@@ -124,18 +113,16 @@ the runtimes to an untrusted network.
 | `PANDECT_LOCAL_AI_THREADS`, `PANDECT_LOCAL_AI_CPUS` | Four native threads / four Compose CPUs per service. |
 | `PANDECT_LOCAL_TEXT_MEMORY`, `PANDECT_LOCAL_TRANSCRIPTION_MEMORY` | Compose memory ceilings of `24g` / `4g`; configurable, not host minimum checks. |
 
-Q4_K_M text weights alone are about 5 GB. Context/KV caches, scratch buffers and
-the application/database add memory. A 16–24 GB inference allocation is a
-planning allowance, not a measured requirement or a throughput guarantee. GPU
-inference is optional: a separately qualified private native runtime can retain
-the same identity/API contract. The supplied reproducible image is CPU-only and
-does not silently offload work or select a smaller model.
+Text weights alone occupy about 5 GB; context/KV caches, buffers, web and database
+need more. A 16–24 GB inference allowance is a planning estimate, not a measured
+requirement or throughput guarantee. The reproducible image is CPU-only and never
+silently offloads or selects a smaller model. Separately qualified GPU runtimes
+can preserve the identity/API contract.
 
-For an NVIDIA deployment, build a separately pinned image with the same
-`server.py`/`revisions.json` and native source commits, `-DGGML_CUDA=ON` for both
-native builds, the matching CUDA runtime libraries, and the required host GPU
-driver. Keep model files, authentication, read-only storage and the internal
-network unchanged. After qualifying that image, use a Compose override such as:
+For NVIDIA, separately pin an image retaining `server.py`/`revisions.json` and
+native commits. Build both with `-DGGML_CUDA=ON`, matching CUDA libraries and host
+driver. Preserve model/authentication/read-only/internal-network configuration.
+After qualification, use an override such as:
 
 ```yaml
 services:
@@ -151,63 +138,52 @@ services:
       PANDECT_RUNTIME_GPU: "true"
 ```
 
-Save it outside source control as `/tmp/pandect-gpu.yaml`, set
-`PANDECT_LOCAL_GPU_IMAGE` to the reviewed image digest, and start with:
+Save outside source control as `/tmp/pandect-gpu.yaml`, set
+`PANDECT_LOCAL_GPU_IMAGE` to the reviewed digest, then run:
 
 ```sh
 docker compose -f compose.yaml -f /tmp/pandect-gpu.yaml --profile local-ai up -d --no-build
 ```
 
-The two GPU controls only change offload; they do not add GPU support
-to the CPU image. No GPU driver/image or throughput is claimed as qualified by
-the CPU build.
+GPU controls enable offload only; they add no GPU support to the CPU image.
+The CPU build qualifies no GPU driver/image or throughput.
 
-The text client counts the fully rendered prompt with the engine tokenizer and
-reserves output tokens. Oversized content fails with a request to narrow the
-selection; it is never silently truncated. Session summaries retain the existing
-message-preserving chunks. Local inference runs separately from the file
-parser's 1 GiB/20-second boundary. Deterministic extraction retains that boundary.
+The text client tokenizes the full rendered prompt and reserves output tokens.
+Oversized selections fail with narrowing instructions, never silent truncation;
+session chunks preserve messages. Inference runs outside the deterministic
+parser's 1 GiB/20-second boundary.
 
-Starting a new run records the selected backend, model artifact, runtime,
-inference settings, adapter version and location. Request/interpretation changes
-must update the adapter version. Historical runs remain unchanged. Queued model
-or endpoint drift fails recoverably; start another run to select new settings.
-Adapter version 2 shares the local/Gateway evidence prompt and strict JSON rules:
-nonfinite numbers (including exponent overflow) and malformed output are rejected.
-Queued inference runs retaining version 1 fail with `execution_changed` before
-dispatch; after upgrading both web and worker, start a new run to record version 2.
-Cloud requests retain their separate `GatewayRequest` accounting and approval.
-There is no implicit local-to-cloud failover.
+New runs retain backend, artifact, runtime, settings, adapter version and location.
+Request/interpretation changes require adapter-version changes, preserving history.
+Queued model/endpoint drift fails recoverably; select new settings in a new run.
+Adapter version 2 shares local/Gateway prompts and strict JSON validation,
+rejecting nonfinite numbers (including exponent overflow) and malformed output.
+Queued version-1 inference fails with `execution_changed` before dispatch; upgrade
+web/worker together and start a version-2 run. Cloud requests retain separate
+`GatewayRequest` accounting/approval; there is no implicit failover.
 
 ## Reuse private map services
 
-Geocoding and map context already accept Nominatim/Overpass-compatible private
-URLs. After verifying the endpoint is operated under your control, set
-`PANDECT_GEOCODER_LOCAL=true` or `PANDECT_MAP_CONTEXT_LOCAL=true`. Otherwise each
-lookup requires external-processing approval. Record source name, dataset version
-and attribution as described in the focused geographic guides.
+Geocoding/context accept Nominatim/Overpass private URLs. Verify operator control
+before setting `PANDECT_GEOCODER_LOCAL=true` or `PANDECT_MAP_CONTEXT_LOCAL=true`;
+otherwise lookup requires external approval. Record source name/version/attribution
+as specified in the geographic guides.
 
-Before connecting an existing private service, verify query behavior, geographic
-coverage, dataset timestamp, replication freshness, and restart and recovery
-procedures. Size initial imports separately from routine queries. Record any
-regional limits so investigators can interpret gaps.
+Verify query behavior, coverage, dataset/replication freshness, restart and recovery
+before connection. Size initial imports separately from routine queries and disclose
+regional limits. Leave `PANDECT_MAP_CONTEXT_HISTORY_START` empty without verified
+history. Current OSM cannot reconstruct historical states or prove real-world
+conditions. Retained snapshots/reviews survive service outages.
 
-Leave `PANDECT_MAP_CONTEXT_HISTORY_START` empty unless the configured Overpass
-service has verified historical coverage. Current OSM data cannot reconstruct old
-map states or establish real-world conditions. Pandect retains reference snapshots
-and geocode reviews independently of service availability.
-
-Background tiles are separate from analysis and load automatically when configured,
-including public tiles. See [map configuration and privacy](maps.md#external-tiles-and-privacy)
-before an egress-blocked qualification; leave `PANDECT_MAP_TILE_URL` empty or use a
-private tile provider.
+Basemap tiles are separate: configured tiles, including public tiles, load
+automatically. For blocked-egress qualification, leave `PANDECT_MAP_TILE_URL` empty
+or use a private provider; see [map privacy](maps.md#external-tiles-and-privacy).
 
 ## Qualification and recovery
 
-Routine automated tests use synthetic fixtures and mocked inference; they do not
-download models or establish recognition or reasoning quality. After provisioning
-reviewed model artifacts, run a separate qualification on synthetic or sanitized
-material, with third-party egress blocked and only the private endpoints allowed:
+Routine synthetic/mocked tests neither download models nor establish quality.
+Provision reviewed artifacts, then qualify synthetic/sanitized material with
+third-party egress blocked and only private endpoints allowed:
 
 ```sh
 uv run --locked --env-file .env python manage.py evaluate_local_analysis > /tmp/local-analysis-qualification.json
@@ -217,54 +193,48 @@ uv run --locked --env-file .env python manage.py evaluate_local_analysis --audio
 uv run --locked --env-file .env python manage.py evaluate_local_analysis --method transcription --audio /absolute/synthetic.wav > /tmp/local-transcription.json
 ```
 
-The command exercises the model-based text methods listed above through the real
-local adapters and existing citation validators on fixed synthetic messages. It
-writes no database records, makes no Gateway calls, and exits nonzero if any
-selected method fails. Optional audio uses the existing PCM parser and
-chunk/timeline path. Its JSON includes
-expected distinctions, actual validated output, usage and elapsed time, without
-assigning an unsupported quality grade. Keep audio/output appropriately private.
+The command runs listed text methods through real local adapters/citation validators
+on fixed synthetic messages. It writes no database records, calls no Gateway and
+exits nonzero on any selected failure. Optional audio exercises PCM parsing and
+chunk/timeline handling. JSON records expected distinctions, validated output,
+usage and elapsed time without assigning a quality grade. Keep audio/output private.
 
-1. Exercise all listed paths and confirm external AI/geographic processing require
-   the appropriate choice/approval. Control basemap egress as described above.
-2. Transcribe known speech with names, accents, overlap and non-speech. Inspect
-   word errors, omissions and original-timeline intervals. Score against the
-   retained transcript; unavailable confidence scores stay unknown.
-3. Evaluate each text method separately against analyst-written expected findings,
-   including supporting/contrary evidence, negation, conflicting messages, hearsay,
-   cancellation, repeated quotations, ambiguous references and abstention.
-   Report citation validity separately from interpretation precision and recall.
+1. Exercise every path and required external AI/geographic choice/approval;
+   control basemap egress too.
+2. Transcribe names, accents, overlap and non-speech. Compare errors, omissions
+   and timeline intervals against retained transcripts; absent confidence is unknown.
+3. Evaluate each text method against analyst expectations: supporting/contrary
+   evidence, negation, conflict, hearsay, cancellation, repeated quotes, ambiguous
+   references and abstention. Separate citation validity from interpretation
+   precision/recall.
 4. Record model/runtime digests, hardware, prompt/context sizes, cold/warm latency,
-   peak process/container memory and queue completion time. Start with one active
-   inference request; do not infer capacity from model-file size.
-5. Test missing models, wrong hashes, engine crashes, deadline termination,
-   oversized context, cancellation and revoked case access between chunks.
-   No invalid or unauthorized result may be published.
-6. Qualify map no-match/ambiguity, data freshness, current versus historical
-   coverage, exact retained snapshots, restart and recovery independently.
+   peak process/container memory and queue completion. Begin with one active
+   request; file size does not establish capacity.
+5. Test missing/wrong models, crashes, deadline termination, oversized context,
+   cancellation and access revocation between chunks. Publish no invalid or
+   unauthorized result.
+6. Independently qualify map ambiguity/no-match, freshness, current/history
+   coverage, exact snapshots, restart and recovery.
 
-An exact quotation validates its source anchor, not the interpretation. Keep
-model outputs labelled as suggestions and preserve unresolved outcomes. Do not
-advertise parity with remote inference or worldwide map readiness from mocked
-tests. Record per-method qualification results with the deployment, including
-any disabled or experimental modes.
+Exact quotations validate anchors, not interpretation. Label suggestions, preserve
+unresolved outcomes and record per-method deployment qualification, including
+disabled/experimental modes. Mocked tests prove neither remote-inference parity
+nor worldwide map readiness.
 
-The baseline 8B model remains unqualified for dependable interpretation or semantic
-linking. The [29 October 2026 synthetic trial](archive/local-inference-qualification-2026-10-29.md)
-found unsupported specificity despite valid quotations and did not include question
-synthesis. Those historical results do not qualify current models, runtime
-versions, capacity, or map services. Different models and GPU execution require
-separate evaluation.
+The baseline 8B model remains unqualified for dependable interpretation/semantic
+linking. The [29 October trial](archive/local-inference-qualification-2026-10-29.md)
+found unsupported specificity despite valid quotes and excluded question synthesis.
+It qualifies no current model/runtime, capacity or map service. Different models
+and GPU execution require separate evaluation.
 
-Recover local failures by correcting configuration/capacity and starting another
-run. Do not edit retained runs, force-reset task rows, or delete originals.
-Restart a stopped runtime with `docker compose --profile local-ai restart
-local-text local-transcription`. Keep model files and their source/checksum
-metadata in operator backups separately from evidence; keep PostgreSQL/private
-storage backups coordinated as described in [operations](operations.md).
+Correct configuration/capacity and start another run to recover. Never edit
+retained runs, force-reset tasks or delete originals. Restart stopped runtimes
+with `docker compose --profile local-ai restart local-text local-transcription`.
+Back up models/source/checksum metadata separately from evidence; coordinate
+PostgreSQL/private storage backups as described in [operations](operations.md).
 
-Primary runtime references: [llama.cpp server](https://github.com/ggml-org/llama.cpp/blob/8642541b255bfb5dc39cd351a178be09013a55d6/tools/server/README.md),
+Primary references: [llama.cpp server](https://github.com/ggml-org/llama.cpp/blob/8642541b255bfb5dc39cd351a178be09013a55d6/tools/server/README.md),
 [whisper.cpp server](https://github.com/ggml-org/whisper.cpp/blob/d1be6fde11ac6e0407606b4e42fe72d34add8037/examples/server/README.md),
 [Whisper limitations](https://huggingface.co/openai/whisper-large-v3-turbo),
-[Nominatim administration](https://nominatim.org/release-docs/latest/admin/Installation/),
-and [Overpass own-instance setup](https://dev.overpass-api.de/overpass-doc/en/more_info/setup.html).
+[Nominatim administration](https://nominatim.org/release-docs/latest/admin/Installation/)
+and [Overpass setup](https://dev.overpass-api.de/overpass-doc/en/more_info/setup.html).

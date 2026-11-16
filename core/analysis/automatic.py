@@ -156,6 +156,16 @@ def start_evidence_analysis(
 
 def follow_up_extraction(run, result):
     """Publish local text work in the same transaction as its batch's extraction."""
+    if (
+        run.batch_id
+        and run.batch.scope.get("type") == "reprocess"
+        and run.operation in {"native_text", "ocr", "transcription"}
+        and run.parameters.get("automatic_followup")
+    ):
+        from core.analysis.reprocessing import follow_up_reprocessing
+
+        follow_up_reprocessing(run, result)
+        return
     batch = run.parameters.get("automatic_batch")
     if (
         run.operation not in {"native_text", "ocr"}

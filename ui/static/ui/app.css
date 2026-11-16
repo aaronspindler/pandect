@@ -28,7 +28,8 @@
   max-width:84rem;
   padding:2rem;
   margin:auto;
-  min-width:0
+  min-width:0;
+  overflow-wrap:anywhere
 }
 
 .main-content:focus {
@@ -194,6 +195,7 @@
   justify-content:center;
   gap:.5rem;
   min-height:44px;
+  max-width:100%;
   padding:.5rem 1rem;
   border:1px solid var(--boundary);
   border-radius:var(--radius);

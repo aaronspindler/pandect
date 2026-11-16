@@ -1,69 +1,60 @@
 # Shared selections and briefs
 
-Open **Case tools → Selections** to create named collections of exact retained
-sources and individual findings. Owners and editors create, rename, add/remove
-members, and delete selections. Viewers inspect and export. Every request checks
-current case access; a selection cannot grant access to another case.
+**Case tools → Selections** creates named collections of exact retained sources
+and findings. Owners/editors create, rename, add/remove members, and delete;
+viewers inspect/export. Every request checks current case access; selections
+cannot grant access across cases.
 
-A selection has at most 500 members. It stores references, not copies of original
-content, analysis text, or titles. Source references preserve original and optional
-call-addition IDs, checksums, exact extraction result IDs, and accepted geocode
-candidate/review references. Finding references identify the immutable result and
-zero-based item index. Selecting a finding does not accept or verify it.
+Each selection holds at most 500 references, without copying original content,
+analysis text, or titles. Source references retain original/optional call-addition
+IDs, checksums, exact extraction result IDs, and accepted geocode candidate/review
+references. Findings identify immutable results and zero-based item indexes;
+selection does not accept or verify a finding.
 
 ## Saving and reusing material
 
-Use **Save to selection** in an evidence reader's More menu, on a retained call
-addition, or beside an individual finding. Choose an existing selection or create
-one. A selection's **Add sources** view searches the evidence collection; after
-choosing an original, **Other retained versions** offers bounded retained
-extraction/transcript choices. The selected version is never replaced by a newer
-result. Duplicate exact references are ignored.
+Choose **Save to selection** in an evidence reader's More menu, on a call addition,
+or beside a finding. Select/create a collection. **Add sources** searches Evidence;
+after choosing an original, **Other retained versions** offers bounded extraction/
+transcript choices. Newer results never replace selected versions. Exact duplicate
+references are ignored.
 
-Collection edits check a signed revision under the case/selection lock. A stale
-rename preserves the proposed name and shows the current saved name. Stale
-membership/removal/deletion submissions require a refreshed review. Deleting a
-selection removes only its references; original evidence, results, and reviews
-remain retained.
+Edits check signed revisions under the case/selection lock. Stale renames preserve
+the proposed name beside the saved value; stale membership/removal/deletion needs
+refreshed review. Deleting a selection removes references only, retaining originals,
+results, and reviews.
 
-**Analyze sources** offers ordinary analysis for source-only selections, with
-current integrity, eligibility, configuration, and approval checks. Incompatible
-members are not silently dropped. Selections containing findings use **Ask a
-question** instead. A changed geocode approval requires reviewing the retained
-selection before ordinary analysis rather than silently rewriting its snapshot.
-Archived evidence remains usable.
+**Analyze sources** supports source-only selections with current integrity,
+eligibility, configuration, and approval checks. Incompatible members are never
+silently dropped. Selections containing findings use **Ask a question**. Changed
+geocode approval requires selection review before ordinary analysis; snapshots
+are never silently rewritten. Archived evidence remains usable.
 
 ## Portable brief
 
-**Download brief** generates one standalone printable HTML file with its exact
-JSON provenance manifest embedded. The file's **Download provenance manifest**
-control saves those same embedded bytes. There are no stored export artifacts or
-remote assets. Browser print is available; Pandect does not generate a PDF or
-bundle original files.
+**Download brief** creates standalone printable HTML with an embedded exact JSON
+provenance manifest. **Download provenance manifest** saves those same bytes.
+There are no stored exports or remote assets. Browser printing is supported;
+PDF generation and original-file bundles are not.
 
-The brief records the case, selection ID/revision, generation time, exact source
-references/checksums, original attribution, cited anchors, method/version and
-execution provenance, current review decisions/reasons/reviewer/times, retained
-location approvals, and partial-coverage warnings. Synthesis findings preserve
-exact prior-finding quotations and their result/item/character references, with
-underlying original attribution shown separately. Original and finding excerpts
-are limited to 4,000 characters and label their character range and truncation.
-An export is limited to 16 MiB; larger exports require a smaller selection.
+Briefs record case, selection ID/revision, generation time, exact source references/
+checksums, attribution, cited anchors, method/version, execution provenance,
+current review decisions/reasons/reviewer/times, location approvals, and partial
+coverage. Synthesis findings retain prior-finding quotations and result/item/
+character references, separately from underlying original attribution. Original/
+finding excerpts cap at 4,000 characters with ranges/truncation labels. Exports
+cap at 16 MiB; larger exports require smaller selections.
 
-Reviews shown in the application are current. The generated brief freezes the
-review state at export time, and remains readable independently of later app
-changes. Rejected and unresolved findings retain those labels. Whole-result
-review remains distinct from individual finding review.
+The app shows current reviews; briefs freeze export-time reviews and remain
+readable independently of later changes. Rejected/unresolved labels remain, and
+whole-result review stays distinct from individual review.
 
-All required sources are revalidated, including every contributing input to a
-selected result. Missing, deleted, changed, cross-case, or otherwise unavailable
-members block export with an actionable member list. No selected material is
-silently omitted. Newer geocode review is disclosed while historical inspection
-preserves the selected approval. Synthesis findings also validate their retained
-prior-finding dependencies.
+All required sources, including every contributing result input, are revalidated.
+Missing, deleted, changed, cross-case, or unavailable members block export with
+an actionable list; nothing is silently omitted. Newer geocode review is disclosed
+while historical inspection preserves selected approval. Synthesis also validates
+retained prior-finding dependencies.
 
-Individual evidence deletion inventories include affected selection references
-and collection revisions. After confirmed deletion, references remain as
-unavailable placeholders; copied deleted content is never retained in selections.
-Changed relevant membership invalidates the deletion confirmation. Whole-case
-deletion removes its selections.
+Evidence-deletion inventories include affected references/revisions. Confirmed
+deletion leaves unavailable placeholders without copied content. Changed relevant
+membership invalidates confirmation; whole-case deletion removes selections.

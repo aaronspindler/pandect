@@ -1,211 +1,172 @@
 # Text, writing, and conversation analysis
 
-These operations use the shared case-scoped analysis run, source, result, and
-review workflow. Originals and supplied transcripts remain unchanged. Every
-selection and parameter belongs to a retained run version. Review or rerun an
-inferred result without changing a source-native relationship.
+These methods use shared case-scoped runs, selections, parameters, results and
+reviews. Originals/transcripts stay unchanged. Rerunning/reviewing inferred output
+never changes source-native relationships.
 
 ## Supported text operations
 
-`entities` extracts explicit email, phone, HTTP(S) URL, bare domain, date,
-currency-marked amount, patterned identifier, and coordinate strings. Results
-retain raw strings and character spans. Phone country, ambiguous date order, currency-symbol
-meaning, ownership, names, and free-form addresses remain unresolved. URL host
-and email-domain case normalization preserves paths and email local parts. This
-rule-based subset works without Gateway credentials. Bare domains require ASCII
-labels of at most 63 characters, at most 253 characters overall, and a suffix in
-the conservative allowlist in [`text/analysis/deterministic.py`](../text/analysis/deterministic.py).
-This rejects common file extensions and dotted prose. Other suffixes and IDNs
-remain unsupported; domain appearances inside an extracted email or URL are
-already represented by that occurrence, rather than duplicated as bare domains.
-No DNS lookup, availability test, URL navigation, or ownership inference occurs.
-It accepts retained Text, Text messages, identified supplied call transcripts, and explicitly selected
-completed extraction text. Source-result versions must remain identifiable.
+`entities` retains explicit email, phone, HTTP(S) URL, bare domain, date,
+currency-marked amount, patterned identifier and coordinate strings with original
+spans. Phone country, ambiguous dates/currency symbols, ownership, names and free
+addresses remain unresolved. Host/email-domain normalization preserves URL paths
+and email local parts. No Gateway credentials are needed.
 
-`copied_text` compares at most 50 sources, 100,000 characters total, and 5,000
-words per source. It reports the longest case-folded exact token run of at least
-8 words by default; `minimum_words` may select 5–30. A whole-text token alignment
-of at least 85% can also propose lightly edited wording when both sources have
-at most 1,000 words. These are comparison rules, not calibrated probabilities.
-Whitespace and punctuation are ignored for matching while offsets and displayed
-passages use the original text. The first 200 matching source pairs are retained;
-a reached limit is partial coverage. Shared wording can reflect quotation,
-boilerplate, a repeated export, or source dependence and is not authorship proof.
-Each result supplies candidate spans for investigator-reviewed style exclusions.
+Bare domains allow ASCII labels up to 63 characters, 253 overall, and the
+[conservative suffix allowlist](../text/analysis/deterministic.py), excluding file
+extensions/dotted prose. Other suffixes and IDNs are unsupported. Domains inside
+emails/URLs are not duplicated. No DNS/availability/ownership lookup or navigation
+occurs. Inputs are retained Text/messages, identified call transcripts and selected
+completed extractions, with identifiable result versions.
 
-`text_topics` supports observed keywords with `include_summary: false` and
-model-based source-cited topic suggestions and short summaries otherwise.
-The keyword baseline uses English stop words, with a disclosed language limit.
-`content_events` uses the same model-content path to propose attributed claims,
-plans, commitments, cancellations, reported events, questions, and candidate
-answers. Metadata-only calls have no content to extract.
+`copied_text` allows 50 sources, 100,000 total characters and 5,000 words/source.
+It reports longest case-folded exact token runs, defaulting to eight words
+(`minimum_words`: 5–30). Whole-text alignment of at least 85% can suggest lightly
+edited wording when both sources have 1,000 words or fewer. Matching ignores
+punctuation/whitespace; displayed spans preserve originals. The first 200 matched
+pairs are retained, with reached limits marked partial. These uncalibrated rules
+establish no authorship: quotation, boilerplate, copied exports and dependence
+remain possible. Candidate spans support reviewed style exclusions.
 
-Model content requests include only the selected text and require exact quoted
-passages from selected sources. An absent quote, unknown source, bad offset, or
-ambiguous repeated quotation is rejected. A valid quotation verifies the source
-anchor, not the model's interpretation. Negation, sarcasm, hearsay, quotations,
-relative dates, missing exchanges, conflicting statements, and proposed versus
-completed actions remain review concerns. Each request is limited to 64,000
-selected characters and 100 returned suggestions. A local runtime additionally
-checks its complete token budget without truncation. Unavailable inference is a
-recoverable limitation; missing text is insufficient evidence. Inference defaults
-to the configured private runtime through the shared backend. External inference
-uses Cloudflare AI Gateway only when separately selected and approved, with no
-automatic fallback. See [local analysis](local-analysis.md) for setup and
-per-method quality qualification.
+`text_topics` supplies observed keywords with `include_summary: false`; otherwise
+it adds cited model topics/short summaries. English stop words impose a disclosed
+language limit. `content_events` proposes attributed claims, plans, commitments,
+cancellations, events, questions and candidate answers through the same content
+path. Metadata-only calls provide no speech.
+
+Model requests send only selected text and require exact source quotations.
+Absent/unknown/ambiguous repeated quotes or invalid offsets are rejected. Valid
+anchors do not establish interpretation accuracy: negation, sarcasm, hearsay, quotation, relative
+dates, missing exchanges, conflicts and planned/completed actions need review.
+Requests allow 64,000 characters and 100 suggestions; local runtime token budgets
+also apply without truncation. Missing text is insufficient; unavailable inference
+fails recoverably. Private inference defaults; separately selected/approved
+Cloudflare Gateway has no automatic fallback. See [setup/qualification](local-analysis.md).
 
 ## Descriptive writing profiles
 
-`style_profiles` uses original Text and Text message samples. Derived OCR,
-transcription, and translation formatting are excluded from writing habits.
-Counts include punctuation, capitalization, vocabulary and function words,
-selected spelling variants, message/sentence length, abbreviations, Unicode
-symbols, repeated three-word phrases, greetings, and sign-offs. Exact examples
-link to retained character offsets. Unicode-symbol counts include some symbols
-that are not emoji and count code points rather than full emoji sequences.
-Spelling variants are observed forms, not diagnoses of spelling errors.
+`style_profiles` uses original Text/messages, excluding derived OCR/transcription/
+translation formatting. It counts punctuation, capitals, vocabulary/function words,
+spelling variants, message/sentence lengths, abbreviations, Unicode symbols,
+three-word phrases, greetings and sign-offs, with exact spans. Symbol counts use
+code points, not full emoji sequences, and include non-emoji. Spelling variants
+are observations, not error diagnoses.
 
-Parameters preserve preparation decisions:
+Preparation parameters retain:
 
-- `exclusions` maps selected source IDs to `[start, end]` character-span lists.
-- `exclude_quotes` defaults to true for quoted lines and straight/curly paired
-  double-quoted passages. These are disclosed quotation candidates.
-- `contexts` maps selected source IDs to supplied context, including `language`,
-  `origin`, channel, topic, audience, and attribution. An origin other than
-  `original` excludes that sample from writer-formatting measurements.
+- `exclusions`: source IDs mapped to `[start, end]` character spans.
+- `exclude_quotes`: default true for quoted lines and paired straight/curly double
+  quotes; these remain disclosed candidates.
+- `contexts`: source language, `origin`, channel, topic, audience and attribution.
+  Non-`original` origins exclude writer-formatting measurements.
 
-Language is supplied context; this baseline does not automatically identify
-languages or locate code-switching boundaries. Mixed labels and unknown language
-remain visible. Attribution may refer to shared accounts. Topic, genre, channel,
-audience, autocorrect, dictation, editing, translation, OCR, and transcription can
-change observed features without a change of writer.
+Language is supplied, never automatically identified or split at code switches.
+Mixed/unknown labels remain visible; attribution can describe shared accounts.
+Topic, genre, channel, audience, autocorrect, dictation, editing, translation,
+OCR and transcription can change features without changing writer.
 
-The initial display guard needs at least 30 usable words, 12 distinct words, and
-a vocabulary ratio of at least 0.1 for a useful descriptive profile. These are
-explicit conservative product rules, not validated attribution thresholds.
-Short, repetitive, or heavily excluded selections yield **insufficient evidence**;
-raw counts remain inspectable without a conclusion. Profiles do not infer
-identity, personality, protected traits, truthfulness, intent, or mental state.
-See the primary research on [style versus topic/genre effects](https://aclanthology.org/C18-1238/).
+Useful profiles require at least 30 usable words, 12 distinct words and a vocabulary
+ratio of 0.1 or more. These conservative display rules are not validated attribution thresholds.
+Short/repetitive/heavily excluded selections retain counts with **insufficient
+evidence**, without conclusions. Profiles infer no identity, personality, protected
+traits, truthfulness, intent or mental state; see
+[style/topic/genre research](https://aclanthology.org/C18-1238/).
 
-`style_change` compares two disjoint lists of selected source IDs, `group_a` and
-`group_b`. It reuses the prepared usable text, counts, and exclusions, exposes
-sample coverage, and compares each feature with exact usable-text examples.
-Per-source feature measurements provide supporting, contrary, or mixed/shared
-examples relative to group aggregates. An absence of contrary examples is not
-proof of a uniform writer. Example spans never cross excluded passages.
-Recurring three-word wording is compared between groups with counts and exact
-original spans; excluded gaps never create artificial word sequences.
-Insufficient groups do not produce change conclusions. Unequal sample sizes, different periods,
-recipients, channels, languages, and topics remain confounders; no author ranking
-or new-author conclusion is produced.
+`style_change` compares disjoint `group_a`/`group_b` source lists, reusing prepared
+text/counts/exclusions and exposing coverage. Feature examples show supporting,
+contrary or mixed/shared evidence against group aggregates. An absence of contrary
+examples does not prove a uniform writer. Spans never cross exclusions. Three-word comparisons retain
+counts/exact spans without artificial sequences across gaps. Insufficient groups
+produce no conclusions. Size, period, recipient, channel, language and topic
+confound comparison; no author ranking/new-writer conclusion is produced.
 
-Each group reports available and missing reported message-event times and its
-selected channel context. Upload and collection times never become writing
-times. A possible observed-style comparison interval appears only when both
-groups are adequate, every usable sample has a reported event time, the periods
-do not overlap, and their measured features differ. Its bounds are the last
-selected earlier-period message and first later-period message. It does not
-locate an actual change point, fill a missing period, or establish a new writer.
-Unknown or overlapping periods produce no interval.
+Groups disclose channel context and present/missing reported message times;
+upload/collection times never become writing times. An observed-style interval
+requires adequate groups, timed usable samples, disjoint periods and differing
+features. It spans the last earlier-period message to first later-period message,
+without locating an actual change, filling gaps or establishing a new writer.
+Unknown/overlapping periods produce no interval.
 
 ## Conversation sessions and interaction
 
-**Read inferred message sessions**, **Inspect message timing**, and **Summarize
-message sessions** accept Text message evidence. Phone calls, FaceTime
-records, and their transcripts are not message-session inputs. To summarize or
-inspect claims in supplied call transcripts or retained transcriptions, select
-their exact retained sources in **Inspect keywords and topics** or **Suggest
-claims and commitments**. Cross-channel comparison below also accepts calls.
+**Case Tools → Conversations** [reads retained messages](evidence.md#reading-conversations)
+from imports/individual entries, optionally filtered by export, with inline details
+without reload. No analysis/session inference is needed. The methods below use
+exact selections, potentially covering only part of a conversation.
 
-`sessions` orders selected messages by reported event time, breaking equal-time
-ties by retained message/source IDs. Missing-time messages form unresolved
-singletons and never bridge timed exchanges. Source-native participant context,
-when present, remains scoped to its retained export. Otherwise same-case reported
-participant pairs determine a comparison stream; these links do not verify
-identity. The investigator form starts with a 60-minute gap boundary and accepts
-1–10,080 minutes. If `gap_minutes` is omitted, including when the optional field
-is cleared, the processor uses 120 minutes. A greeting after a farewell and at
-least five observed minutes is a disclosed content boundary, enabled by default;
-the internal `greeting_boundaries` parameter is not an investigator form control.
+**Read inferred message sessions**, **Inspect message timing** and **Summarize
+message sessions** accept Text messages, excluding calls/FaceTime/transcripts.
+Select exact call transcripts/transcriptions under **Inspect keywords and topics**
+or **Suggest claims and commitments**; cross-channel comparison also accepts calls.
 
-The session reader retains original messages, order, boundary reasons, reported
-participant associations, native message/thread/reply references when supplied,
-and observed first/last timestamps. An inferred session number is independent
-of native thread identity. `break_before` and `join_before` record adjustments
-using selected source IDs in a new retained run version. Missing exchanges and
-simultaneous topics can split or combine discussions incorrectly.
+`sessions` orders reported times, breaking ties by message/source IDs. Untimed
+messages form unresolved singletons and never bridge exchanges. Source-native
+participant context stays scoped to its export; otherwise same-case reported
+pairs define streams without verifying identity. Forms default to 60-minute gaps,
+range 1–10,080; omitted/cleared `gap_minutes` uses the processor's 120 minutes.
+Greeting after farewell plus five observed minutes enables a disclosed boundary
+by default; internal `greeting_boundaries` has no form control.
 
-`comm_patterns` measures selected message counts, reported UTC hours, observed
-turn changes, apparent session initiations, observed session spans, and response
-intervals using the session reader's exact grouping, greeting/farewell cues, and
-investigator `break_before`/`join_before` adjustments. Each session's source order,
-boundary reason, and measurements remain inspectable. An interval is elapsed
-recorded time between consecutive selected messages from different senders within a participant group/time window. It does
-not prove a response to that message, reading time, deliberate nonresponse,
-relationship quality, motive, or emotion. Self-addressed records do not show a
-response by another participant. `compare_split_at` accepts an explicit ISO
-timestamp with timezone and displays both groups' denominators and coverage.
-A period beginning midway through a session does not create another apparent
-initiation; it reports a fragment of the same disclosed session. Unknown-time
-sessions have unknown spans. Missing export periods are unknown coverage.
+Readers retain messages/order, boundary reasons, participant associations,
+supplied native message/thread/reply references and first/last times. Inferred
+session numbers are independent of native threads. `break_before`/`join_before`
+adjust selected source IDs in new run versions. Missing exchanges/simultaneous
+topics can cause incorrect boundaries.
 
-`conversation_link` proposes adjacent exchanges across messages, Phone calls,
-and FaceTime using recorded participant/time context. The investigator form starts
-with a 10-minute comparison window and accepts 0–1,440 minutes, saved as
-`time_window_minutes`. If no window is supplied, the processor uses 180 minutes;
-its internal `window_minutes` parameter supports 0–10,080 minutes. Zero compares
-only equal recorded times. Content wording overlap is labelled as a separate
-weak cue. Metadata-only calls supply ordering, not invented speech. Optional
-`semantic_links` uses model-based two-sided quotation citations to propose
-continued topics, events, and earlier references. A completed semantic candidate
-needs exact citations to at least two distinct selected sources. One-sided or repeated citations to one source retain an
-unresolved suggestion and a partial result rather than becoming a completed
-link. Temporal adjacency and shared topics do not prove the same event or
-causation; “that place” can retain several possible referents. Temporal output is
-limited to 250 candidates with omitted counts and partial coverage disclosed.
+`comm_patterns` measures counts, UTC hours, turn changes, apparent initiations,
+spans and response intervals using those exact groups/cues/adjustments. Each
+session's order, reasons and measurements remain inspectable. Intervals measure
+consecutive different-sender selected messages within a participant/time group,
+not verified replies, reading, deliberate nonresponse, relationship quality,
+motive or emotion. Self-addressing shows no other participant's response.
+`compare_split_at` requires an explicitly zoned ISO timestamp; groups show
+denominators/coverage. Mid-session periods retain fragments, not new initiations.
+Untimed spans/export gaps remain unknown.
 
-`session_summaries` sends only selected Text messages in inferred-session chunks
-to the shared content path: at most 16,000 characters per chunk and 20 chunks per run.
-Every summary states its chunk/source selection. A missing or oversized chunk
-must not silently become an apparently complete history. These concepts adapt
-[iMessageLLM's documented workflow](https://github.com/aaronspindler/iMessageLLM)
-without its two-person reduction or bypassing Pandect's shared inference boundary.
+`conversation_link` proposes adjacent message/call/FaceTime exchanges using
+participant/time context. Forms default to ten minutes, range 0–1,440, saved as
+`time_window_minutes`; omission uses 180 minutes. Internal `window_minutes`
+allows 0–10,080. Zero compares equal times only. Wording overlap is a separate weak
+cue; metadata invents no speech. Optional `semantic_links` uses two-sided model
+quotations for topics/events/earlier references. Completed links require citations
+to at least two distinct selected sources; one-sided/repeated-source citations remain
+unresolved/partial. Adjacency/topics prove neither shared events nor causation;
+ambiguous references retain alternatives. Temporal output caps at 250 candidates,
+with omissions/partial coverage disclosed.
+
+`session_summaries` sends selected messages through shared content processing in
+inferred-session chunks, up to 16,000 characters/chunk and 20 chunks/run. Each
+summary discloses chunk/selection; oversized/missing chunks never imply complete
+history. This adapts [iMessageLLM](https://github.com/aaronspindler/iMessageLLM)
+without two-person reduction or inference-boundary bypass.
 
 ## Retained iMessage HTML import
 
-The supported `imessage-html-v1` profile begins with the specific
-[inspected parser structure](https://github.com/aaronspindler/iMessageLLM/blob/14a46b9826ad2d8a0c0777d3cfd4394a49f3ce9a/process.py):
-`div.message` with exactly one `span.timestamp`, `span.sender`, and `span.bubble`.
-This does not claim general compatibility with all imessage-exporter releases.
-Select one retained UTF-8 HTML Document, at most 2 MiB and 500 messages. Parsing
-bounds nesting (40 levels) and nodes (20,000), never executes scripts, and never
-fetches links or attachment paths. The original HTML is retained; extracted
-message bodies are decoded visible text, not original Messages database bytes.
+`imessage-html-v1` supports the [inspected structure](https://github.com/aaronspindler/iMessageLLM/blob/14a46b9826ad2d8a0c0777d3cfd4394a49f3ce9a/process.py):
+`div.message` with exactly one `span.timestamp`, `span.sender` and `span.bubble`,
+without claiming all imessage-exporter versions. Select one retained UTF-8 HTML
+Document up to 2 MiB/500 messages. Parsing limits nesting to 40 and nodes to 20,000,
+executes no scripts and fetches no links/attachments. Bodies are decoded visible
+text; original HTML is retained, not original Messages database bytes.
 
-Choose an explicit IANA `timezone`. ISO timestamps with offsets retain their
-interpretation; the inspected `%b %d, %Y  %I:%M:%S %p` display format requires the
-selected zone. Ambiguous or nonexistent daylight-saving times, timestamps over
-255 characters, and malformed rows remain unresolved. Missing times remain
-unknown.
+Choose IANA `timezone`. Offset ISO timestamps keep their interpretation;
+`%b %d, %Y  %I:%M:%S %p` needs the selected zone. Ambiguous/nonexistent DST times,
+malformed rows and timestamps above 255 characters remain unresolved; missing
+times stay unknown.
 
-The investigator form supports **1–100 source account labels**, initially `Me`
-and `Them`. Add or remove mapping rows without JavaScript; these actions preserve
-the selected document and entered values without queuing analysis. Enter each
-exact label once and choose an existing same-case person. Each label may also
-have an explicit **Recipient when the source omits one**. Leaving that selection
-blank keeps recipient-less rows unresolved; another mapped person is never
-automatically chosen.
+Forms accept **1–100 source account labels**, initially `Me`/`Them`. Mapping-row
+changes work without JavaScript, retaining document/values without queuing work.
+Enter exact labels once and select same-case people. Explicit **Recipient when
+the source omits one** is optional; blank leaves unresolved rows, never an inferred
+other person.
 
-The form creates the retained `sender_map` and explicit per-sender
-`recipient_map`. An optional `span.recipient` uses its own label's person mapping;
-unmapped explicit recipients remain unresolved even when a fallback is selected.
-No person is guessed from a label, display name, or timing. Each imported message
-still has one sender and one recipient. Group labels retain full source context
-without asserting that those are the group's only members. Existing parser
-versions and retained interpretation/idempotency checks are unchanged.
+Forms retain `sender_map`/`recipient_map`. Optional `span.recipient` uses its own
+mapped label; unmapped recipients stay unresolved despite fallbacks. No identity
+is guessed from labels/names/timing. Messages retain one sender/recipient;
+group labels preserve context without asserting exclusive membership. Retained
+interpretation/idempotency checks and parser-version provenance remain intact.
 
-The tested optional context extension preserves only what the source supplies:
+Optional context retains only supplied fields:
 
 | Source field | Retained context |
 | --- | --- |
@@ -215,115 +176,123 @@ The tested optional context extension preserves only what the source supplies:
 | `data-reaction`, `data-edited`, `data-deleted`, `data-forwarded`, `data-group-id` | Source context markers |
 | Elements with class `attachment` | Original href/src/label reference; bytes remain un-ingested |
 
-Missing fields stay unknown. An edit/deletion marker does not recover earlier
-or deleted content. Attachment references are not private file access or verified
-availability. No arbitrary path is opened and no public storage URL is created.
+Missing fields remain unknown. Edit/deletion markers recover no history;
+attachment references grant neither access nor verified availability. Paths are
+never opened and no public URL is created.
 
-**Start analysis** queues parsing and publication with the selected mapping and
-timezone. There is no separate row-preview confirmation step as in vehicle CSV
-imports. Preparation writes no messages. At current-authorized atomic publication,
-`apply_import` creates each mapped message and immutable `CommunicationContext`
-with the retained document, checksum, parser version, timezone, row and exact
-HTML character range. Unresolved rows stay visible in the partial result for
-recovery. Whole publication rollback removes newly created messages/context.
-Retries reuse the same document/row identity; a conflicting mapping or content
-interpretation is rejected for review instead of replacing the earlier original.
-Each mapped body is stored once in the retained result as the finding text used
-for publication. The shared analysis result limit still applies to the complete
-result.
+**Start analysis** queues parsing/publication using selected mappings/timezone,
+without a separate vehicle-style row confirmation. Preparation creates no messages.
+Authorized atomic `apply_import` creates mapped messages and immutable
+`CommunicationContext` with document/checksum, parser, timezone, row and exact
+HTML range. Unresolved rows remain in partial results. Rollback removes new
+messages/context; retries reuse document/row identity. Conflicting interpretations
+require review, never replace originals. Each body appears once as finding text
+within the shared total-result limit.
 
-Imported messages do not individually queue automatic local checks. A completed
-import offers **Run local checks on imported evidence**, with its eligible count
-and a link to the resulting Processing batch. Atomic publication records each
-row's exact message ID and whether it was newly created or already retained.
-Only newly created rows enter that import's checks; unresolved and skipped
-duplicate rows do not. Independent entity and keyword checks use bounded groups;
-session, relationship and movement analysis remain deliberate whole-population
-choices. Repeated submission of the same request does not enqueue another batch.
+Imports queue no checks per message. Completed imports offer **Run local checks
+on imported evidence**, eligible counts and Processing links. Publication records
+exact message IDs and new/reused status; only new rows receive import checks.
+Unresolved/skipped duplicates are excluded. Entity/keyword groups stay bounded;
+session, relationship and movement analysis remain deliberate population choices.
+Resubmission creates no duplicate batch. Historical results lacking membership
+explain the limit instead of guessing; individual analysis/case reruns remain usable.
 
-Historical results without publication membership retain an explanatory message
-instead of guessing which rows were new. Their messages remain available for
-individual analysis or case **Rerun all analysis**.
+Method 3/parser `imessage-html-v3` preserves the profile, handles valueless optional
+attributes, flags oversized times and stores bodies once. Version 2's LF/closing-tag
+exact ranges remain. Existing provenance stays unchanged; agreeing reruns reuse
+messages. Finish queued old imports before upgrading where possible. Queued methods
+1/2 otherwise report unavailable versions; start another run with the same source/
+settings. No data migration is needed.
 
-Import method version `3` uses parser `imessage-html-v3` with the same supported
-HTML profile. It handles valueless optional attributes, flags oversized timestamps
-for review, and stores mapped message text once. It preserves version 2's exact
-source ranges based on literal LF line positions and closing tags. Existing results
-and imported messages retain their recorded provenance. A new run reuses previous
-messages when their interpretation agrees.
+## Message CSV imports
 
-Finish queued imports with the old worker before upgrading when possible. Queued
-method `1` or `2` runs otherwise report that their method version is unavailable.
-Start a new run with the same source and settings. The upgrade requires no data
-migration.
+CSV uses `imessage_import`, parser `imessage-csv-v1` and result key `imessage`,
+within the fresh pre-release database/queue baseline. Earlier identifiers have no
+aliases; prior serialized CSV runs/contexts are unsupported and runtime imports
+are not migrated. Source files/historical provenance remain unchanged.
 
-## iMazing CSV message imports
+Choose **Add evidence → Import records → Import iMessage · CSV** or a retained
+Document's **More** action. Upload/select one CSV and explicitly choose export
+timezone. These 18 headers are required in any order:
 
-Choose **Add evidence → More ways to add evidence → Import messages · iMazing
-CSV**, or use the same action in a retained Document's **More** menu. Upload one
-CSV or choose a retained Document and explicitly select its export timezone.
-The supported profile is the 18-column iMazing message export, from **Chat
-Session** through **Attachment type**, in any column order. UTF-8 with an optional
-BOM, quoted commas, and quoted multiline text are supported. There is no
-message-row limit. The normal configured upload limit applies (100 MiB by
-default), with 131,072 characters per field and the configured message-text byte
-limit. CSV preparation, review, and publication read rows incrementally rather
-than collecting the entire conversation in an analysis result.
+`Chat Session`, `Message ID`, `Message Date`, `Delivered Date`, `Read Date`,
+`Edited Date`, `Deleted Date`, `Service`, `Type`, `Sender ID`, `Sender Name`,
+`Status`, `Replying to`, `Subject`, `Text`, `Reactions`, `Attachment`, and
+`Attachment type`.
 
-Preparation runs in the background and creates no people or messages. The review
-shows the source contact labels, message counts, reported times, text, and excluded
-rows with reasons. Select existing same-case people or explicitly create missing
-people for **Export account** and **Other participant**. Source names and numbers
-are suggestions, not verified identities or automatic matches; names are not
-automatically split. A person may be identified by a name, phone number, or email.
-The account's phone number is not required when selecting an existing person.
+UTF-8/optional BOM, quoted commas and multiline text are supported; other layouts
+are not. No message-row ceiling applies. Configured uploads default to 100 MiB;
+fields allow 131,072 characters within message-text byte limits. Preparation,
+review and publication stream rows rather than accumulating conversations in results.
 
-Confirm that this is one direct conversation. Multiple chat sessions or incoming
-sender identifiers are rejected; group and mixed-chat imports are unsupported.
-The displayed chat label alone cannot establish who participated. Outgoing
-messages use the export account as sender and the other person as recipient;
-incoming messages reverse those associations. Changing the timezone prepares a
-new review. Missing event times remain unknown; malformed, ambiguous, or
-nonexistent local event times are excluded. Attachment-only rows and unsupported
-directions are also excluded. Confirming imports the valid text rows while
-retaining excluded material in the CSV and preview.
+Background preparation creates no people/messages. Review shows contact labels,
+counts, times, text and excluded-row reasons. Select same-case people or explicitly
+create **Export account**/**Other participant**. Names/numbers are unverified
+suggestions, never automatic matches or split names. New person records can use a
+name, phone number or email; selecting an existing person needs no account phone number.
 
-Confirmation queues publication through `imazing_import` method `2`. The preview
-and confirmed import are separate immutable analysis runs. Publication rechecks
-current editing access and source integrity, then creates requested people,
-messages, immutable source contexts, and the result atomically. Repeated
-confirmation and worker retries do not create another set of people or messages.
-An already imported source row with a different interpretation is a conflict;
-earlier originals are never replaced. As with HTML imports, document/row identity
-does not deduplicate distinct retained exports using native message IDs.
+Confirm one direct conversation. Multiple chats/incoming sender IDs are rejected;
+group/mixed imports are unsupported. Chat labels alone identify no participants.
+Outgoing uses account→other; incoming reverses them. Timezone changes prepare
+fresh review. Missing times stay unknown; malformed/ambiguous/nonexistent local
+times, attachment-only rows and unsupported directions are excluded. Confirmation
+imports valid text while retaining exclusions in CSV/preview.
 
-Method `2` retains a compact summary and a digest of the reviewed row
-interpretation. Review pages read 25 rows at a time from the checksum-verified
-original using the retained timezone and text limit; the first three rows supply
-visible excerpts. Changes to row eligibility or time interpretation require a
-new review. The general analysis-result item and byte ceilings do not truncate
-imports because messages are not stored as individual result items. Publication
-uses bounded groups inside one transaction and rolls back the whole import on a
-conflict or failure. Completed message links are paginated too.
+Confirmation queues method 2, separate from the immutable preview run. Publication
+rechecks edit access/integrity and atomically creates requested people, messages,
+contexts and results. Repeated confirmation/retries create no duplicates. Conflicting
+source-row interpretations preserve originals. Document/row identity, as in HTML,
+does not deduplicate distinct exports by native IDs.
 
-Newly created message contexts retain their publishing run through the nullable
-`CommunicationContext.import_run` link. Apply its additive migration before
-starting the updated web and worker processes. Existing imported messages and
-source contexts are not rewritten. Historical method `1` results and local-check
-membership remain readable; prepare a new review from the retained CSV before
-confirming an old preview. Queued method `1` runs require a new method `2` run
-after upgrading.
+Method 2 retains compact summaries/digests of reviewed interpretation. Review
+reads 25 rows at a time from checksum-verified originals using retained timezone/
+text limits; three initial rows supply excerpts. Eligibility/time changes need
+fresh review. Result item/byte ceilings never truncate imports: messages are not
+individual result items. Bounded publication groups share one transaction and
+roll back entirely on conflict/failure. Completed message links paginate.
 
-Each message preserves the decoded **Text** without trimming and links to its
-source row and exact character range. The original CSV retains its exact bytes.
-**Message ID** and **Replying to** remain source-native references. **Chat Session**
-remains a label, not an asserted native thread ID. **Info → Imported source
-context** exposes service, direction, source contact details, subject, status,
-delivery/read/edit/delete dates, reactions, and attachment references. These are
-source claims; reactions do not become separate messages and edit/deletion
-markers do not recover missing history. Attachment paths are never opened or
-fetched, and referenced files are not ingested.
+Nullable `CommunicationContext.import_run` retains publishing runs; apply its
+additive migration before updated web/workers. Existing messages/contexts stay
+unchanged. Within `imessage_import`, historical method-1 results/local-check
+membership remain readable; old previews need fresh reviews, and queued method 1
+needs a method-2 run.
 
-Completed CSV imports offer **Run local checks on imported evidence** for exactly
-the messages newly created by that import. Checks remain deliberate. The existing
-HTML import operation and its recorded parser versions are unchanged.
+Decoded **Text** is preserved untrimmed with source row/exact character range;
+CSV bytes stay exact. **Message ID**/**Replying to** retain native references;
+**Chat Session** stays a label, not a native thread ID. **Info → Imported source
+context** shows service/direction, contact claims, subject/status, delivery/read/
+edit/delete dates, reactions and attachment references. Reactions create no
+messages, markers recover no history and attachments are never opened/fetched.
+
+Publication atomically queues analysis only for newly created messages. Previews,
+excluded/reused rows start no batch. **Follow message analysis** opens Processing;
+**Run message analysis again** creates a new batch preserving history. Historical
+imports receive no automatic backfill; HTML retains its deliberate action.
+
+The suite covers identifiers/dates, keywords, sessions/timing, writing profiles,
+repeated wording, temporal exchanges, local topics/claims/session summaries and
+semantic exchanges. Writing profiles separate reported senders. Comparisons split
+each sender's earlier/later timed samples near the middle at a distinct timestamp,
+never dividing ties. Fewer than two times cannot compare; adequacy guards yield
+insufficient evidence, never authorship attribution.
+
+Preparation walks reported-time order, unknowns last, in steps of 250 messages or
+the configured lower source limit, within one million characters. Repeated wording
+uses 50-message/100,000-character groups; models use 20-message/16,000-character
+groups. Oversized messages remain whole; unsupported analyses fail visibly without
+truncation. Results retain exact selections/counts against import population.
+Smaller selections disclose partial coverage; sessions, timing, writing and
+wording do not span groups or imply whole-conversation/case conclusions.
+
+Temporal exchanges additionally select unarchived same-case call/FaceTime metadata
+for reported participant pairs within ten minutes of message windows, up to
+remaining source capacity. Other calls, transcripts and unselected material stay
+unexamined. Semantic suggestions cover imported messages only.
+
+Automatic models use pinned private execution/quotation validation. Missing
+configuration, drift, capacity and provider/output errors remain visible/retryable,
+preserving messages and independent checks. No automatic external selection/cloud
+fallback occurs. Preparation/execution recheck verified editing access. Cursor,
+runs and continuation commit together; retries queue no duplicates. After confirming
+the old worker stopped, rerun failed preparation from the import page; individual
+failures use normal Processing recovery.

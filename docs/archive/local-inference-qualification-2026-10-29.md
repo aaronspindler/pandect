@@ -1,17 +1,15 @@
 # Local inference qualification — 29 October 2026
 
-This is a frozen report of the dated trial, not qualification of the current
-checkout, runtime versions, or deployment. Use the [local inference guide](../local-analysis.md)
-for current setup, qualification commands, and recovery. The local artifacts
-named below are not included in the repository.
+Historical trial only; it does not qualify current code, runtimes, or deployment.
+The [local inference guide](../local-analysis.md) owns current procedures. Named
+local artifacts are outside the repository.
 
-The four text paths and transcription listed below completed against the real
-pinned engines and verified model files. This historical qualification predates
-question synthesis and does not qualify that method. Forward/reverse geocoding
-and geographic context also completed
-against a synthetic private HTTP service, including real geometry parsing and a
-validated retained reference. The Docker network was internal; an external TCP
-probe failed. No investigation records or Gateway requests were created.
+Four text paths and transcription completed with real pinned engines and
+verified models; question synthesis was not yet implemented or qualified.
+Forward/reverse geocoding and geographic context used synthetic private HTTP,
+real geometry parsing, and a validated retained reference. Docker networking was
+internal; external TCP failed. No investigation records or Gateway requests
+were created.
 
 | Method | Observed result | Elapsed time |
 | --- | --- | --- |
@@ -23,23 +21,20 @@ probe failed. No investigation records or Gateway requests were created.
 | Geocoding | Forward and reverse HTTP lookups returned the synthetic candidate without external approval. | Not benchmarked |
 | Geographic context | Private HTTP lookup, bounded parsing and the retained reference passed against the synthetic map response. | Not benchmarked |
 
-The CPU-only Linux/arm64 runtimes had four CPUs each on a 16 GiB host with an
-approximately 7.75 GiB Docker VM. Text trials used a **4,096-token context and
-1,024 output tokens**, below the configured defaults. Observed native-process
-high-water RSS reached approximately **5.96 GiB for text** and **1.70 GiB for
-transcription**. The initial topic trial overlapped builds/tests; later text
-trials used the warm runtime. Runtimes were evaluated serially; combined-service
-memory was not qualified. These observations do not establish production
-throughput, maximum-context capacity, accuracy rates or remote-model parity.
+CPU-only Linux/arm64 runtimes each had four CPUs on a 16 GiB host with a ~7.75 GiB
+Docker VM. Text used **4,096 context / 1,024 output tokens**, below defaults.
+Native peak RSS was ~**5.96 GiB text / 1.70 GiB transcription**. The first topic
+trial overlapped builds/tests; later text trials used a warm runtime. Serial
+trials did not qualify combined-service memory, production throughput, maximum
+context, accuracy rates, or remote-model parity.
 
 The 8B model remains unqualified for dependable interpretation or semantic linking.
 Reject unsupported specificity even when quotations validate. Different models and
 GPU execution require separate evaluation.
 
-At review time, raw synthetic results were retained locally in ignored
-`data/validation/local-analysis/2026-10-29-qualification.json`; verified model
-files and source/checksum metadata are in ignored `data/models/`. The initial
-multi-method run lost runtime availability during an interrupted session;
-separate completed trials supersede those interrupted method results.
-These inference trials do not establish map coverage, replication freshness, or
-historical data availability. Qualify those against the configured map services.
+Raw synthetic results were retained in ignored
+`data/validation/local-analysis/2026-10-29-qualification.json`; verified models
+and source/checksum metadata in ignored `data/models/`. Completed separate trials
+superseded an interrupted multi-method run that lost runtime availability.
+Qualify map coverage, replication freshness, and historical availability against
+configured map services; these trials did not establish them.

@@ -44,14 +44,14 @@ def imported_sources(case, scope):
             run = AnalysisRun.objects.get(
                 pk=identifier,
                 case=case,
-                operation__in=("conversation_import", "imazing_import"),
+                operation__in=("conversation_import", "imessage_import"),
                 status__in=("complete", "partial"),
                 result__case=case,
             )
         except AnalysisRun.DoesNotExist:
             raise Http404("Completed import not found.") from None
         if (
-            run.operation == "imazing_import"
+            run.operation == "imessage_import"
             and run.parameters.get("phase") != "import"
         ):
             raise Http404("Completed import not found.")
@@ -59,7 +59,7 @@ def imported_sources(case, scope):
         if len(sources) != 1:
             raise Http404("Import source unavailable.")
         if (
-            run.operation == "imazing_import"
+            run.operation == "imessage_import"
             and run.result.data.get("import_publication_version") == 2
         ):
             return "text-message", scoped_evidence(case, "text-message").filter(
@@ -151,6 +151,17 @@ def start(request, case_id, import_type, import_id):
 
     case = get_case(request.user, case_id, edit=True)
     scope = {"type": import_type, "id": str(import_id)}
+    if (
+        import_type == "messages"
+        and AnalysisRun.objects.filter(
+            case=case,
+            pk=import_id,
+            operation="imessage_import",
+            method_version="2",
+            parameters__phase="import",
+        ).exists()
+    ):
+        scope["automatic"] = True
     try:
         imported_sources(case, scope)
     except AnalysisError as error:
@@ -168,21 +179,21 @@ def start(request, case_id, import_type, import_id):
         except ValidationError, DatabaseError, AnalysisError:
             messages.error(
                 request,
-                "Local checks could not be queued. Return to the import and try again.",
+                "Analysis could not be queued. Return to the import and try again.",
             )
         else:
             messages.success(
                 request,
-                "Local checks requested."
+                "Message analysis requested."
+                if created and scope.get("automatic")
+                else "Local checks requested."
                 if created
-                else "These local checks were already requested.",
+                else "This analysis was already requested.",
             )
             return redirect(
                 reverse("core:analysis:processing", args=[case.pk])
                 + f"?batch={batch.pk}"
             )
     else:
-        messages.error(
-            request, "Return to the import and submit its local checks again."
-        )
+        messages.error(request, "Return to the import and submit its analysis again.")
     return redirect("core:analysis:processing", case_id=case.pk)

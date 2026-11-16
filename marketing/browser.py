@@ -46,7 +46,14 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
         ).resolve()
         artifacts.mkdir(parents=True, exist_ok=True)
         pages = ("home", "product", "trust", "roadmap", "hosting")
-        viewports = ((1440, 900), (1440, 1024), (768, 1024), (390, 844), (320, 844))
+        viewports = (
+            (1440, 900),
+            (1440, 1024),
+            (768, 1024),
+            (390, 844),
+            (360, 900),
+            (320, 844),
+        )
         with sync_playwright() as playwright:
             for engine in engines:
                 with self.subTest(engine=engine):
@@ -109,7 +116,6 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         page.locator("html").evaluate(
                             "element => element.style.removeProperty('font-size')"
                         )
-
                     for href in sorted(local_links):
                         path, _, fragment = href.partition("#")
                         response = context.request.get(self.live_server_url + path)
@@ -150,7 +156,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         ("header", "Sign in", reverse("account_login")),
                         (
                             "main",
-                            "See available features",
+                            "Explore the product",
                             reverse("marketing:product"),
                         ),
                         (
@@ -214,9 +220,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             else "none",
                         )
                         appearance_pages = (
-                            ("home",)
-                            if appearance == "reduced-motion"
-                            else ("home", "product")
+                            ("home",) if appearance == "reduced-motion" else pages
                         )
                         for name in appearance_pages:
                             page.goto(

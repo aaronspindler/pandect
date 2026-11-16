@@ -511,7 +511,7 @@ def selection_analyze(request, case_id, selection_id):
         operations = {
             key: value
             for key, value in OPERATIONS.items()
-            if key not in {"question_synthesis", "imazing_import"}
+            if key not in {"question_synthesis", "imessage_import"}
         }
         try:
             choices = selection_choices(resolved)

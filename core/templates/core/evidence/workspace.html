@@ -17,7 +17,9 @@
         {% if item %}<h2>Evidence</h2>{% else %}<h1>Evidence</h1>{% endif %}
         {% if can_edit %}<div class="evidence-create-actions"><a class="button button-primary" href="{% url 'core:evidence:create' case_id=case.pk %}">Add<span class="visually-hidden"> evidence</span></a></div>{% endif %}
       </div>
+      {% if checksum %}<p class="muted">Matching original checksum. <a href="{% url 'core:evidence:list' case.pk %}">Show all evidence</a></p>{% endif %}
       <form method="get" action="{% url 'core:evidence:list' case_id=case.pk %}" class="evidence-search" role="search" aria-label="Search case evidence">
+        {% if checksum %}<input type="hidden" name="checksum" value="{{ checksum }}">{% endif %}
         <label class="visually-hidden" for="evidence-query">Search evidence</label>
         <div class="evidence-search-row">
           <div class="evidence-search-field">{% include 'ui/components/icon.html' with name='search' %}<input id="evidence-query" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Search evidence…"></div>

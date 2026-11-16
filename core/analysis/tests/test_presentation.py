@@ -83,8 +83,9 @@ class AnalysisPresentationTests(EvidenceViewTestMixin, TestCase):
 
     def test_display_bounds_do_not_silently_hide_remaining_values(self):
         content = self.show({"Recorded intervals": list(range(205))})
-        self.assertIn("First 200 values shown", content)
-        self.assertIn("download retains all values", content)
+        self.assertIn("1–200 of 205", content)
+        self.assertIn("Next values", content)
+        self.assertIn("=2#values_", content)
 
     def test_structured_instants_are_localized_without_rewriting_source_values(self):
         values = {

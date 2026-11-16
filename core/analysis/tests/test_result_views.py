@@ -12,7 +12,7 @@ class ResultViewsTests(SimpleTestCase):
             operation for group in OPERATION_GROUPS.values() for operation in group
         ]
         # CSV imports have a dedicated preparation/confirmation flow.
-        self.assertCountEqual(OPERATIONS.keys() - {"imazing_import"}, setup_operations)
+        self.assertCountEqual(OPERATIONS.keys() - {"imessage_import"}, setup_operations)
         for operation in OPERATIONS:
             with self.subTest(operation=operation):
                 items = [

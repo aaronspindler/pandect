@@ -1,0 +1,35 @@
+{% extends 'ui/base.html' %}
+{% load static %}
+{% block title %}Conversations · {{ case.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'phone/conversations.css' %}"><script src="{% static 'phone/conversations.js' %}" defer></script>{% endblock %}
+{% block body_class %}conversation-page{% endblock %}
+{% block content %}
+<header class="page-header conversation-header">
+  <div><h1>Conversations</h1><p class="muted">Read messages grouped by their reported participants.</p></div>
+</header>
+{% if page_obj.object_list %}
+<p class="result-count secondary">{{ page_obj.paginator.count }} conversation{{ page_obj.paginator.count|pluralize }} · Includes archived messages.</p>
+<section data-conversation-scroll data-scroll-label="conversations" aria-label="Conversations in {{ case }}">
+  {% include 'phone/conversation_paging.html' with direction='previous' %}
+<div class="record-list" data-conversation-items data-page="{{ page_obj.number }}">
+  {% for conversation in page_obj %}
+  <a class="collection-row" id="conversation-{{ conversation.first_id }}-{{ conversation.second_id }}" href="{{ conversation.url }}">
+    {% include 'ui/components/icon.html' with name='message' %}
+    <span class="collection-row-content">
+      <strong class="collection-row-title">{{ conversation.first_person }}{% if conversation.first_person.pk != conversation.second_person.pk %} and {{ conversation.second_person }}{% endif %}</strong>
+      <span class="collection-row-meta">{{ conversation.message_count }} message{{ conversation.message_count|pluralize }} · {% if conversation.last_recorded_at %}Latest recorded <time datetime="{{ conversation.last_recorded_at|date:'c' }}">{{ conversation.last_recorded_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</span>
+    </span>
+    {% include 'ui/components/icon.html' with name='chevron-right' %}
+  </a>
+  {% endfor %}
+</div>
+  {% include 'phone/conversation_paging.html' with direction='next' %}
+</section>
+{% else %}
+<section class="empty-state">
+  <h2>No conversations yet</h2>
+  <p>Messages appear here when they are added to this case or published from a retained export.</p>
+  {% if can_edit %}<a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>{% else %}<p class="secondary">The owner or an editor can add messages.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,26 @@
+<div class="record-row">
+  <div><strong><a class="record-link" href="{% url 'vehicle:detail' case.pk item.vehicle_id %}">{{ item.vehicle }}</a> · {{ item.get_status_display }}</strong>
+    <p>{{ item.processed_sources }} of {{ item.total_sources }} observations processed · Requested {{ item.created_at|date:'j M Y, H:i T' }}</p>
+    {% if item.status == 'failed' %}<p role="status">Trip processing stopped. {% if item.error_code == 'access_removed' %}The requester no longer has the required access.{% else %}Review the source evidence and worker status before retrying.{% endif %}</p>{% endif %}
+    {% if item.status == 'complete' %}<a class="record-link" href="{% url 'geo:case_map' case.pk %}?vehicle_id={{ item.vehicle_id }}">View current trips</a>{% endif %}
+    {% if item.status == 'complete' %}
+      {% if item.geocode_status == 'queued' or item.geocode_status == 'running' %}<p role="status">Preparing local address lookups. Trips are ready to inspect.</p>{% elif item.geocode_status == 'failed' %}<p role="status">Local address lookup preparation needs attention. Trips remain available.</p>{% endif %}
+      {% if can_edit and item.geocode_attempts < 3 %}
+        {% if item.geocode_status == 'failed' or item.geocode_status == 'running' or item.geocode_status == 'queued' %}
+        <form method="post" action="{% url 'geo:prepare_trips' case.pk %}">{% csrf_token %}<input type="hidden" name="vehicle_id" value="{{ item.vehicle_id }}"><input type="hidden" name="retry" value="1">
+          {% if item.geocode_status == 'running' %}<label class="checkbox-label"><input type="checkbox" name="worker_stopped" value="1" required> I confirmed the previous worker has stopped.</label>{% endif %}
+          <button class="button button-secondary" type="submit">{% if item.geocode_status == 'running' %}Recover address lookup preparation{% else %}Retry address lookup preparation{% endif %}</button>
+        </form>
+        {% endif %}
+      {% endif %}
+    {% endif %}
+    {% if can_edit and item.attempts < 3 %}
+      {% if item.status == 'failed' or item.status == 'running' or item.status == 'queued' %}
+      <form method="post" action="{% url 'geo:prepare_trips' case.pk %}">{% csrf_token %}<input type="hidden" name="vehicle_id" value="{{ item.vehicle_id }}"><input type="hidden" name="retry" value="1">
+        {% if item.status == 'running' %}<label class="checkbox-label"><input type="checkbox" name="worker_stopped" value="1" required> I confirmed the previous worker has stopped.</label>{% endif %}
+        <button class="button button-secondary" type="submit">{% if item.status == 'running' %}Recover trip processing{% else %}Retry trip processing{% endif %}</button>
+      </form>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>

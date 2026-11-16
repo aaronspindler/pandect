@@ -63,9 +63,8 @@ def vehicle_list(request, case_id):
 def vehicle_detail(request, case_id, vehicle_id):
     case = get_case(request.user, case_id)
     vehicle = get_object_or_404(Vehicle, case=case, pk=vehicle_id)
-    trip_report = report(case, "vehicle-trips", vehicle_id=vehicle.pk)
-    more_trips = len(trip_report["items"]) > 5
-    trip_report["items"] = trip_report["items"][:5]
+    trip_report = report(case, "vehicle-trips", vehicle_id=vehicle.pk, page_size=5)
+    more_trips = trip_report["page_obj"].paginator.count > 5
     return render(
         request,
         "vehicle/detail.html",
@@ -74,9 +73,12 @@ def vehicle_detail(request, case_id, vehicle_id):
             "vehicle": vehicle,
             "trip_report": trip_report,
             "more_trips": more_trips,
-            "locations": same_case_evidence(
-                vehicle.location_evidence.filter(case=case)
-            ).order_by("-observed_at", "-created_at")[:25],
+            "locations": Paginator(
+                same_case_evidence(
+                    vehicle.location_evidence.filter(case=case)
+                ).order_by("-observed_at", "-created_at", "pk"),
+                25,
+            ).get_page(request.GET.get("locations_page")),
             "list_query": list_query(request),
         },
     )

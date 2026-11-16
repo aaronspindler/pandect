@@ -1,31 +1,24 @@
 # Pandect interface design standard
 
-Make careful investigative work approachable for people without investigative or
-software engineering experience. Users should understand where they are, what
-they are looking at, and their next action without learning the implementation.
+Make investigative work approachable without specialist or software knowledge.
+Users should understand where they are, what they are viewing, and their next action.
 
-This file defines durable design requirements, not implementation status. Screen
+This file applies [the project principles](PRINCIPLES.md) through durable
+interface design requirements, not implementation status. Screen
 specifications belong in [interface design](docs/interface-design.md); check
 selection and executable procedures belong in [validation](docs/validation.md).
 
 ## Principles
 
-- Give each screen a clear task, title, and primary action. Keep controls beside
-  the material they affect, choose sensible defaults, and ask only for necessary
-  decisions. Simplify confusing interactions before adding explanations.
-- Open cases to **Case Tools**, with clear routes into evidence, findings, and
-  supporting views. Keep **Evidence** and **Processing** directly available. Put
-  active work, processing history, and rerun controls in Processing. Disclose
-  optional metadata, saved notes, and history through a compact Info control on
-  evidence readers.
-- Use compact navigation, aligned rows, and progressive disclosure. Prioritize
-  useful material, readable text, and generous hit targets over decoration.
-- Follow web conventions: real links, native forms, predictable Back and
-  Save/Cancel behavior. Core tasks must work with a keyboard and without JavaScript.
-- Separate originals, source details, saved descriptions, and derived suggestions.
-  Preserve entered values on errors and explain recovery and consequential actions.
-- Take inspiration from Apple's clarity, hierarchy, consistency, and accessibility
-  without reproducing operating-system chrome.
+- Give each screen a task, title, and primary action. Keep controls beside their
+  material, choose sensible defaults, and ask only for necessary decisions.
+  Simplify confusing interactions before adding explanations.
+- Open cases to **Case Tools** with routes to evidence, findings, and supporting
+  views. Keep **Evidence** and **Processing** directly available; Processing owns
+  active work, history, and rerun controls.
+- Favor compact navigation, aligned rows, and progressive disclosure. Follow
+  Apple's clarity, hierarchy, consistency, and accessibility without copying
+  operating-system chrome. Prioritize readable material and usable controls over decoration.
 
 ## Visual foundations
 
@@ -72,14 +65,14 @@ system-font text in forced colors and the standalone arch on ivory for app icons
 ## Layout and density
 
 Investigator screens use case navigation, a compact record list, and a substantial
-reading pane. Marketing shares the brand, fonts, colors, and accessibility rules
+reader. Marketing shares the brand, fonts, colors, and accessibility rules
 in an editorial layout; its introductory headings may scale from `2rem` to `4rem`.
 Label workspace illustrations as fictional and show only implemented capabilities.
 
 - At `80rem` and above, evidence uses a `5rem` navigation rail, `21rem` record
-  list, and flexible reader across the available viewport. All investigator screens
-  share this compact rail, including case tools, All cases, and account screens.
-  From `64rem` to `80rem`, retain the rail with a full-width list or detail page. Below `64rem`, use compact top navigation;
+  list, and flexible reader. All investigator screens share the rail, including
+  case tools, All cases, and account screens. From `64rem` to `80rem`, retain the
+  rail with a full-width list or detail page. Below `64rem`, use compact top navigation;
   below `48rem`, stack fields and supporting metadata.
 - Desktop evidence rows have a `3.5rem` minimum height, a readable title link
   covering the row, and one metadata line. Keep secondary actions in the detail
@@ -91,18 +84,19 @@ Label workspace illustrations as fictional and show only implemented capabilitie
 - Name each pane accessibly. Independent scrolling needs visible scrollbars and
   keyboard access. At narrow widths/high zoom, use document scrolling and
   canonical detail pages.
-- Give every item a real URL. Selection updates it, Back restores the previous
+- Give every item a real URL. Selection updates it; Back restores the previous
   selection, and returning to a list retains filters/page. Full-page navigation
   is the baseline; partial updates are optional.
 
 ## Accessibility
 
 Target [WCAG 2.2 Level AA](https://www.w3.org/TR/WCAG22/); automated and keyboard
-checks do not establish full compliance. Manual screen-reader testing is optional,
-requires an explicit user request, and must not block handoff.
+checks do not establish full compliance. Manual screen-reader testing and system
+accessibility changes require an explicit user request and must not block handoff.
 
-- Use landmarks, a skip link, one page heading, logical section headings, native
-  controls, and an explicit current-navigation state.
+- Core tasks must work with a keyboard and without JavaScript. Use native forms
+  and controls, landmarks, a skip link, one page heading, logical section headings,
+  and an explicit current-navigation state.
 - Maintain `4.5:1` text contrast (`3:1` for qualifying large text and essential
   control/state indicators). Convey status and selection beyond color.
 - Provide `44 × 44` CSS-pixel hit areas for standalone controls and record links;
@@ -127,9 +121,9 @@ requires an explicit user request, and must not block handoff.
 
 | Pattern | Required behavior |
 | --- | --- |
-| Navigation | Stable case context, real links, current location, predictable Back. |
-| Create/edit | Named fields, explicit Save/Cancel, values retained after errors. |
-| Read-only | Explain the role; omit unavailable mutations. Enforce access server-side. |
+| Navigation | Stable case context and predictable Back, following the URL rules above. |
+| Create/edit | Named fields and explicit Save/Cancel. |
+| Read-only | Explain the role and omit unavailable mutations; permissions follow [AGENTS.md](AGENTS.md#case-authorization-and-evidence-integrity). |
 | Search/filter | Labeled controls, submit fallback, result count, clear action, filters in URL. |
 | Empty/no results | Explain the collection or retain the query; offer a permitted next action. |
 | Busy/success | Name the action, prevent repeat submission, confirm changes with a useful next link. |
@@ -137,48 +131,43 @@ requires an explicit user request, and must not block handoff.
 | Edit conflict | Preserve proposed values and require review of newer saved details. |
 | Archive/delete | Explain retention or removal, identify the target/consequences, provide safe cancellation; mutate through POST. |
 
-Use everyday action names: **Create case**, **Add evidence**, **Save changes**,
+Use everyday actions: **Create case**, **Add evidence**, **Save changes**,
 **Invite collaborator**, **Archive**, **Restore**, **Download original**. Routine
 flows must not require knowledge of parsers, models, queues, or deployment settings.
 Use exact dates and an explicit timezone where time matters; relative dates may
 supplement an accessible exact value.
 
-Keep guidance local and brief. Put optional technical detail and history in named
-disclosures; keep required fields, next actions, and decision-critical context
-visible. Explain deletion, external processing, and consequential uncertainty
-where they matter. Preserve confirmations and source attribution without repeated
-warning banners or general caveats. Labels such as **AI suggestion** and
-**Unreviewed** should distinguish results without an accompanying essay.
+Keep guidance local and brief. Disclose optional detail/history; keep required
+fields, next actions, and decision-critical context visible. Explain deletion,
+external processing, and consequential uncertainty at the decision. Preserve
+confirmations and source attribution without repeated warnings. Use concise
+labels such as **AI suggestion** and **Unreviewed**.
 
 ## Evidence reader
 
-- Keep the original and Findings together with one title/download header. Disclose
-  supporting metadata and history through a clearly named header control; keep
-  actions grouped separately. Long originals need keyboard-accessible navigation.
+- Keep the original and Findings together under one title/download header. Use
+  **Info** for supporting metadata, saved notes, and history; **More** for actions.
+  Long originals need keyboard-accessible navigation.
 - Give original text stronger desktop emphasis (`1.5rem` at wide sizes, `1rem` on
-  narrow screens). Keep supporting controls concise; use Info for record details
-  and More for secondary actions.
-- Originals are read-only; changes create new evidence. Label saved investigator
-  descriptions read-only and distinguish declared metadata from extracted values.
+  narrow screens).
+- Originals are read-only; changes create new evidence. Distinguish declared
+  metadata, saved read-only investigator descriptions, and derived suggestions.
   Checksums establish integrity, not truth, file format, or identity.
 - Keep a concise source line near the original, with full metadata/checksums in
   the supporting details. Shortened checksums need full inspection/copy access.
-- Follow [evidence retention and deletion](docs/evidence.md): owners/editors can
-  archive/restore; individual deletion requires a superuser with current case
-  access and confirmation of the complete removal inventory. Changed inventories
-  require renewed review. Keep ordinary-investigator whole-case deletion owner-only.
+- Apply the [retention and deletion contract](docs/evidence.md#permanent-deletion)
+  when presenting authorized actions and confirmation inventories.
 - Provide a file picker alongside optional drag/drop, visible batch states, and
   individual recovery. Show processing only when the server actually processes.
-- Preserve captured text without trimming/normalization; browser newlines may
-  differ from the source. Offer document upload when exact file bytes matter.
-- Serve originals through authorized case routes. Never expose storage URLs or
-  embed untrusted HTML, SVG, or documents as application content.
+- Follow [original capture rules](docs/evidence.md#investigator-workflow); offer
+  document upload when exact file bytes matter. Never expose storage URLs or embed
+  untrusted HTML, SVG, or documents as application content.
 
 ## Completion and design review
 
-Walk through the task as a first-time user, including empty, error, and recovery
-states and each relevant case role. Check current permissions, cross-case
-isolation, retained originals, and full-page fallbacks.
+Walk through the task as a first-time user across relevant case roles, empty/error
+states, recovery, and full-page fallbacks. Apply the
+[contributor validation requirements](AGENTS.md#validation-and-handoff).
 
 Inspect `1440 × 900`, `1440 × 1024`, `768 × 1024`, and `390 × 844`, plus `320px`
 reflow and zoom. Verify keyboard/focus behavior, labels/status announcements,

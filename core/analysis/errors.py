@@ -8,29 +8,29 @@ class AnalysisError(Exception):
 
 
 ERROR_MESSAGES = {
-    "imazing_invalid_format": (
-        "This file does not match the supported 18-column iMazing CSV export. "
+    "imessage_invalid_format": (
+        "This file does not match the supported 18-column message CSV export. "
         "Export messages as UTF-8 CSV and prepare a new review."
     ),
-    "imazing_multiple_chats": (
+    "imessage_multiple_chats": (
         "This export contains multiple conversations or incoming sender identifiers. "
         "Export one direct conversation and prepare a new review."
     ),
-    "imazing_import_limit": (
+    "imessage_import_limit": (
         "This CSV exceeds the configured upload size or the limit of "
         "131,072 characters per field. There is no message-row limit. "
         "Review the file size and individual fields before trying again."
     ),
-    "imazing_source_changed": (
+    "imessage_source_changed": (
         "The retained CSV no longer matches the reviewed original. "
         "Retain the correct source and prepare a new review."
     ),
-    "imazing_conflict": (
+    "imessage_conflict": (
         "An imported row or person association conflicts with this confirmation. "
         "Review the retained messages and selected people before preparing "
         "another import."
     ),
-    "imazing_invalid_confirmation": (
+    "imessage_invalid_confirmation": (
         "This import no longer agrees with its prepared review. "
         "Return to the retained CSV and prepare a new review."
     ),

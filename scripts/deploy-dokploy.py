@@ -1,4 +1,4 @@
-"""Deploy tested GHCR digests through Dokploy's native application provider."""
+"""Deploy one tested GHCR image to Dokploy's separate web and worker applications."""
 
 import json
 import os
@@ -196,6 +196,10 @@ def deploy(application_id, image, sha, service):
         {
             "applicationId": application_id,
             "replicas": 1,
+            "command": "sh" if service == "worker" else None,
+            "args": ["/app/scripts/docker-entrypoint-worker.sh"]
+            if service == "worker"
+            else None,
             "updateConfigSwarm": {
                 "Parallelism": 1,
                 "Order": "stop-first" if service == "worker" else "start-first",
@@ -263,22 +267,22 @@ def main():
     required("DOKPLOY_API_KEY")
     required("DOKPLOY_REGISTRY_PASSWORD")
     required("CI_RUN_ID")
+    image = required("PANDECT_IMAGE")
+    expected = f"ghcr.io/{repository.lower()}@sha256:"
+    if not image.startswith(expected) or not re.fullmatch(
+        r"[0-9a-f]{64}", image.removeprefix(expected)
+    ):
+        raise DeploymentError(
+            "Image must identify this repository by immutable digest."
+        )
     services = []
     for service in ("worker", "web"):
-        image = required(f"{service.upper()}_IMAGE")
-        expected = f"ghcr.io/{repository.lower()}-{service}@sha256:"
-        if not image.startswith(expected) or not re.fullmatch(
-            r"[0-9a-f]{64}", image.removeprefix(expected)
-        ):
-            raise DeploymentError(
-                "Image must identify this repository by immutable digest."
-            )
         services.append(
-            (required(f"DOKPLOY_{service.upper()}_APPLICATION_ID"), image, service)
+            (required(f"DOKPLOY_{service.upper()}_APPLICATION_ID"), service)
         )
     if services[0][0] == services[1][0]:
         raise DeploymentError("Web and worker must use separate Dokploy applications.")
-    for application_id, image, service in services:
+    for application_id, service in services:
         deploy(application_id, image, sha, service)
     with open(output_path, "a", encoding="utf-8") as output:
         output.write("deployed=true\n")
