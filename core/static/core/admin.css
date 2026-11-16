@@ -1,4 +1,8 @@
 /* Retained originals and full checksums must remain readable on narrow screens. */
+.delete-confirmation #site-name {
+    overflow-wrap: anywhere;
+}
+
 .aligned .readonly {
     overflow-wrap: anywhere;
 }

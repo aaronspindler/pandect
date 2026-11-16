@@ -77,6 +77,15 @@ class BulkEvidenceAdminBrowserTests(BrowserTestCase):
                     page.evaluate("document.documentElement.scrollWidth - innerWidth"),
                     1,
                 )
+                # Platform font metrics must not make branding overflow at 200%.
+                branding = page.locator("#site-name")
+                branding.evaluate("node => node.style.fontFamily = 'monospace'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth - innerWidth"),
+                    1,
+                )
+                self.capture(page, engine, "bulk-delete-large-text-wide-font")
+                branding.evaluate("node => node.style.fontFamily = ''")
                 page.evaluate("document.documentElement.style.fontSize = ''")
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
                 self.capture(page, engine, "bulk-delete-dark")
