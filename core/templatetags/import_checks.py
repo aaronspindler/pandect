@@ -19,7 +19,7 @@ def import_checks(context, import_type, import_id):
         and AnalysisRun.objects.filter(
             case=case,
             pk=import_id,
-            operation="imazing_import",
+            operation="imessage_import",
             method_version="2",
             parameters__phase="import",
         ).exists()

@@ -1,27 +1,24 @@
 # Investigator interface specification
 
 **Status: core interfaces implemented; validation results are separate.**
-This specification owns screen-specific behavior. [DESIGN.md](../DESIGN.md) owns
-shared visual, accessibility, and interaction rules; [validation](validation.md)
-owns check selection and procedures. Generated mockups are references, not rendered evidence.
+This guide owns screen behavior; [DESIGN.md](../DESIGN.md) owns shared design and
+accessibility rules; [validation](validation.md) owns checks and procedures.
+Generated mockups are references, not rendered evidence.
 
 ## Navigation and screens
 
-Cases open to **Case Tools**, a home for exploring evidence and results. It
-links to the Findings catalogue, Map, Chronology, Conversations, Connections,
-People, Vehicles, Selections, and reports, with concise recent evidence and
-source-linked findings.
-A native **Case details** disclosure keeps supporting information and owner-only
-Settings available. Normal investigators need no staff access. Graphs, an
-inferred event timeline, ownership transfer, and self-service account deletion
-remain planned; show only implemented destinations.
+Cases open to **Case Tools**: recent evidence/findings and links to the Findings
+catalogue, Map, Chronology, Conversations, Connections, People, Vehicles,
+Selections, and reports. Native **Case details** discloses supporting information
+and owner-only Settings. Investigators need no staff access. Graphs, inferred
+event timelines, ownership transfer, and self-service account deletion remain
+planned; show only implemented destinations.
 
-All investigator screens share the navigation rail and shared controls, including
-All cases and account settings. Case screens have direct, labelled links to
-**Case Tools**, **Evidence**, and **Processing**. At narrow widths the rail becomes
-a compact top bar. The current destination is marked; supporting pages also show
-a linked case name. Case Tools is a full page, rather than a navigation popup.
-Disclosures work without JavaScript.
+All investigator screens, including All cases and account settings, share the
+rail and controls. Case screens link directly to **Case Tools**, **Evidence**,
+and **Processing**. The rail becomes a compact top bar on narrow screens. Mark
+the current destination and link the case name on supporting pages. Case Tools
+is a full page. Disclosures work without JavaScript.
 
 Cases, People, Vehicles, and Evidence use shared whole-row links with readable
 titles and secondary metadata. Detail pages and forms share the reader's heading,
@@ -44,50 +41,45 @@ disappear on mobile.
 | Invitation | Named recipient confirmation after authentication and email verification; **Accept invitation**. |
 | Account | Allauth email/password management, timezone preference, and POST sign-out, with the shared shell. |
 
-The public `/` page serves marketing to anonymous visitors and sends signed-in
-visitors to All cases. Product routes require an active authenticated account
-with a verified email. Preserve safe local return destinations through sign-in
-and verification. Email settings identify the current address/status and put
-removal behind a named confirmation.
+Public `/` serves marketing anonymously and redirects signed-in visitors to All
+cases. Product routes require an active authenticated account and verified email.
+Preserve safe local return destinations through sign-in/verification. Email
+settings show address/status and require named removal confirmation.
 
-Display timestamps and date/time fields in the user's timezone, detected from the
-device by default or explicitly chosen under **Account → Timezone**. Show the
-applicable timezone beside times and use local dates at midnight boundaries.
-Source-export timezone choices remain explicit and independent of display settings.
+Display times and date/time fields in the device-detected timezone or the user's
+**Account → Timezone** choice. Label the timezone and respect local midnight
+boundaries. Source-export timezone choices remain explicit and independent.
 
 ## Visual reference and density
 
-The selected [quiet workspace reference](design/quiet-evidence-reference.png)
-guides the evidence rail, collection, and focused reader. It is a synthetic mockup;
-actual processing output takes precedence over illustrative findings. Earlier
-references remain historical design context.
+The synthetic [quiet workspace reference](design/quiet-evidence-reference.png)
+guides the rail, collection, and reader. Actual processing output takes precedence
+over illustrative findings; earlier references are historical.
 
 ![Quiet evidence workspace](design/quiet-evidence-reference.png)
 
-Use [DESIGN.md](../DESIGN.md#layout-and-density) for pane dimensions, responsive
-breakpoints, row sizes, and visible-row targets. Keep the heading/Add action,
-search, and Filters compact; target at most `164px` for this chrome and `44px`
-for pagination at default zoom. Original text uses a comfortable reading measure
-of about `65ch`; supporting metadata is grouped in the Info inspector.
+Follow [DESIGN.md](../DESIGN.md#layout-and-density) for panes, breakpoints, rows,
+and density. At default zoom, target at most `164px` for heading/Add/search/Filters
+and `44px` for pagination. Use about `65ch` for original text; group supporting
+metadata in Info.
 
-Use 25 records per page and one whole-row link. Longer titles and larger text
-can expand rows; never crop the accessible name to fit another row. Mobile
-selection opens the canonical detail page with Back to evidence. At short
-heights or high zoom, use ordinary document scrolling.
+Use 25 records per page and one whole-row link. Let long titles/larger text
+expand rows; never crop the accessible name. Mobile opens the canonical detail
+with Back to evidence. Use document scrolling at short heights or high zoom.
 
 ## Cases and investigative records
 
-Case creation asks for a name and assigns the current user as owner on the
-server. Search covers accessible case names/descriptions, with owned/shared
-filters and stable newest-updated ordering. Empty cases offer the next action;
-empty filtered results offer Clear filters. Only owners edit case metadata or
-manage collaborators. Saved descriptions remain read-only.
+Case creation asks for a name and assigns the current user as owner server-side.
+Search accessible names/descriptions with owned/shared filters and stable
+newest-updated ordering. Empty cases offer a next action; empty search offers
+Clear filters. Only owners edit metadata or collaborators; saved descriptions
+remain read-only.
 
-Person details include reported social accounts and POIs. Owners/editors manage
-social accounts with confirmed removal; viewers read them. Search includes
-platform/usernames. Saved notes and history are disclosed as read-only details.
-See [people](people.md) and [vehicles](vehicles.md) for identity, role, and deletion rules,
-including retained location links that can block individual deletion.
+Person details show reported social accounts and POIs. Owners/editors manage
+accounts with confirmed removal; viewers inspect. Search includes platforms and
+usernames. Disclose saved notes/history read-only. [People](people.md) and
+[vehicles](vehicles.md) own identity, role, and deletion rules, including
+retained-location protection.
 
 Case deletion is a separate owner confirmation naming the case and inventory,
 including people, vehicles, active/archived evidence, collaborators, and pending
@@ -97,28 +89,25 @@ retain copies; do not promise verified erasure.
 
 ## Evidence browsing and reading
 
-Use ordinary record links with `aria-current`, rather than a custom listbox.
-The selected title is the page's single `h1`; the collection heading is lower
-level. Each record has a canonical URL containing its case, allowlisted evidence
-type, and UUID. Preserve query, type, archive state, and collection page when
-moving between records or returning to the list.
+Use ordinary links with `aria-current`. The selected title is the single `h1`;
+the collection heading is lower-level. Canonical URLs contain case, allowlisted
+type, and UUID. Preserve query, type, archive state, and collection page through
+selection and return navigation.
 
-Search stays visible and is capped at 200 characters. It searches metadata,
-captured text/messages, supplied call transcripts, and supported completed
-extraction text. Matching excerpts lead to the relevant original or retained
-result; this is literal search, not semantic retrieval. See [analysis](analysis.md)
-for extraction coverage. **Filters** contains type and Active/Archived/All,
-with an explicit **Apply filters** submit. Non-default filters reopen on
-navigation. Rows omit repeated ingestion dates; exact dates remain in history.
+Visible literal search accepts up to 200 characters across metadata, captured
+text/messages, supplied transcripts, and supported completed extraction. Excerpts
+link to originals/results; [analysis](analysis.md) owns extraction coverage.
+**Filters** holds type and Active/Archived/All with **Apply filters**; reopen
+non-default filters after navigation. Omit repeated ingestion dates from rows;
+retain exact dates in history.
 
-The reader has one header with the title, concise type/source/collection metadata,
-archive state, and authorized download. Original content and source-linked
-Findings appear together below it, without separate tabs or jump navigation.
-Findings show coverage and status. **Run checks** appears beside empty findings;
-reruns for populated findings are in More. Detailed reviews belong to individual results rather than a repeated “Awaiting review”
-label on every highlight.
+One reader header holds title, concise type/source/collection metadata, archive
+state, and authorized download. Originals and source-linked Findings appear
+together without tabs or jump navigation. Findings show coverage/status and
+**Run checks** when empty; populated findings use More for reruns. Keep detailed
+reviews on individual results instead of repeating “Awaiting review” on highlights.
 
-Header disclosures keep supporting material available:
+Header disclosures:
 
 - **Info** holds full source metadata, file details, saved descriptions, declared
   technical fields, record/integrity history, imported source context, retained
@@ -127,14 +116,13 @@ Header disclosures keep supporting material available:
 - **More** holds permitted edits, archive/restore, additional analysis, and
   superuser deletion. Viewers can still open Info and download originals.
 
-Use native disclosures with keyboard and no-JavaScript access. Validation errors
-reveal their containing controls before focus moves to a field.
+Native disclosures support keyboards and no JavaScript. Reveal invalid controls
+before focusing their fields.
 
-Show a private download for every case role. Escape text and never embed
-untrusted documents as application HTML. Missing originals show a safe recovery
-message while retaining access to metadata. Checksums have full selectable text
-and an optional copy action. Editing details never changes original content;
-a changed original is new evidence.
+Every case role can download privately. Escape text; never embed untrusted
+documents as application HTML. Missing originals retain metadata and show safe
+recovery. Checksums remain fully selectable, with optional copy. Metadata edits
+never change originals; changed originals become new evidence.
 
 Archive/restore are explicit owner/editor POSTs. Archiving keeps the selected
 detail visible, with Archived and **More → Restore**, while removing it from
@@ -163,16 +151,14 @@ source attribution beside each message, preserve overlapping-export records, and
 mark archived records. Explain the reported-participant grouping once rather
 than suggesting a verified native thread or complete history.
 
-Use a native **Message details** disclosure beneath each message for reported
-participants/time, archive state, source details, and available imported context.
-Render those details with the message page so opening or closing them requires
-no reload or fetch and keeps keyboard focus and the reader's place. This works
-without JavaScript and uses the same inline layout at every screen size.
+Each message has native **Message details** for reported participants/time,
+archive state, source, and imported context. Render details inline at every
+screen size, without fetch/reload or JavaScript, preserving focus and position.
 
-Keep **Open evidence** beside each message's source for the canonical reader and
-native reply/thread relationship lists. **View in conversation** there resolves the
-exact message and its page, opens its details, and marks the target beyond color.
-Retain the selected export and conversation list page on this round trip.
+Beside each source, **Open evidence** opens the canonical reader and native
+reply/thread lists. Its **View in conversation** returns to the exact message
+and page, opens details, and marks the target beyond color. Preserve export and
+conversation-list page throughout.
 
 Filtering and evidence links use ordinary GET navigation. Scrolling near either
 loaded boundary adds the adjacent page in place, keeping the export/list context,
@@ -187,18 +173,15 @@ See [evidence](evidence.md#reading-conversations) for interpretation limits.
 
 ## Evidence creation and batch uploads
 
-**Add evidence** starts with mixed-file upload under **Upload files**, followed by
-always-visible **Add a record** links for text, locations, and communications and
-**Import records** links for vehicle locations and CSV messages. Single-record
-forms name their type in the title and offer a labelled **Change type** disclosure
-with **Choose type** submit. All ten types
-remain available without JavaScript. A single-file document form is the upload
-fallback.
+**Add evidence** leads with mixed-file **Upload files**, then visible **Add a
+record** links for text/locations/communications and **Import records** links for
+vehicle locations and CSV messages. Single-record forms name the type and offer
+**Change type → Choose type**. All ten types work without JavaScript; single-file
+Document is the upload fallback.
 
-Required title/original fields stay visible. Optional source and declared
-technical fields open on request, when editing, or after validation errors.
-Saved freeform descriptions/notes remain readable; new note authoring is retired.
-Source citation and finding review reasons remain available.
+Keep title/original fields visible. Disclose optional source/technical fields
+on request, editing, or validation errors. Saved descriptions/notes remain
+readable; new note authoring is retired. Retain citations and review reasons.
 
 The default limits are 20 batch entries, 100 MiB per file, and 1 MiB UTF-8 captured
 text; show configured operator limits. Each file is a separate request. A batch
@@ -237,12 +220,10 @@ CSV and attribution remain accessible. See [imports](vehicle-location-imports.md
 
 ## Case Tools, Processing, and additional analysis
 
-Case Tools leads with useful destinations, up to five recent findings, and up to
-five recent active evidence records. Five **Explore patterns** links open the
-current reports. The home links to full findings and reports instead of expanding
-technical measurements or processing history. Source attribution remains visible
-on recent findings; exact results, review controls, coverage, and uncertainty remain
-in the linked readers and reports.
+Case Tools shows destinations, up to five recent findings, and five recent active
+records. Five **Explore patterns** links open reports. Link full findings/reports
+rather than expanding measurements/history. Recent findings retain attribution;
+linked readers/reports retain exact output, reviews, coverage, and uncertainty.
 
 Processing separates **In progress** from paginated **History**, which retains all
 check outcomes and has evidence-type and outcome filters. Those filters do not
@@ -253,6 +234,15 @@ distinct from execution: **Checks queued** does not mean those checks have finis
 Owners and editors have **Run more checks → Rerun all analysis** here; it starts
 supported local checks across active evidence, preserves earlier results, and
 reports background preparation progress.
+The prominent **Reprocess evidence** button opens a dedicated screen. Native
+checkboxes select multiple evidence types with active counts; Local is the default
+processing location, with External / AI and Both as alternatives. Explain local
+extraction prerequisites, separate local/external AI runs, configured lookup
+locations, retained originals/results and bounded comparison coverage. Keep
+external-transfer approval visible beside the action. Invalid submissions retain
+choices and link errors to their controls. Submit returns to the selected batch
+in Processing; viewers have no reprocessing action. Methods needing a question,
+explicit samples, area, event or import interpretation link to Choose analysis.
 Confirmed message CSV imports automatically start message, writing, and local model
 analysis. Their review page links to **Follow message analysis** in Processing;
 completed or stopped preparation offers **Run message analysis again**. Each
@@ -260,13 +250,12 @@ result discloses its bounded message selection. Other additional AI and external
 operations remain in the deliberate analysis flow.
 
 **Case Tools → More tools → Additional analysis** and **Processing → Run more
-checks → Choose analysis** open deliberate analysis. It first groups tasks;
-selecting one opens its source/context form. Required samples, areas, and claimed-event inputs stay visible. **Options**
-holds optional tuning and opens after errors. Source versions remain explicit,
-and external processing requires approval. Source choices use 25-record pages;
-native POST navigation and title search retain checked sources and entered options.
-Show selections from other pages with an explicit remove action. Browsing never
-queues analysis; the existing execution and inference selection limits still apply.
+checks → Choose analysis** group tasks, then open a source/context form. Keep
+required samples, areas, and claimed events visible; disclose tuning in **Options**,
+opening after errors. Keep versions explicit and require external approval.
+Sources use 25-record pages; native POST navigation/title search preserve choices
+and options. Show off-page selections with Remove. Browsing never queues work;
+execution/inference limits still apply.
 
 Use the shared field renderer for labels, help, errors, approvals, and reviews.
 Progress uses a native indicator; failures expose retry/recovery controls. Results
@@ -275,16 +264,14 @@ regions/crops, recording intervals, paired passages, message sequences, and
 observation maps when supplied by the operation. Identifier normalization lives
 in **Value details**.
 
-Reports put a concise summary before chronological/grouped source rows. Keep
-coverage warnings visible; **About this report** holds fixed methods and totals.
-Source rows use 25-record pages while totals and comparisons cover the complete
-filtered selection. Participant-pair counts paginate independently. Native thread
-and reply lists and vehicle observations also retain complete paginated access.
-Long structured result lists/mappings use independent 200-value pages rather than
-discarding the remaining values; retain filter/finding context and full downloads.
-Narrow rows stack with labels intact. Trip rows show dates, endpoints, observed
-duration, and disclosed source observations; vehicle pages omit repeated names.
-These display rules do not imply exhaustive coverage or verified journeys.
+Reports lead with a summary and visible coverage warnings; **About this report**
+holds methods/totals. Chronological/grouped sources use 25-record pages; totals
+and comparisons cover the complete filtered selection. Participant pairs paginate
+independently; thread/reply lists and vehicle observations retain complete paged
+access. Structured lists/mappings use independent 200-value pages, preserving
+filter/finding context and full downloads. Narrow rows stack with labels. Trips
+show dates, endpoints, observed duration, and disclosed observations; omit repeated
+vehicle names. Pagination does not imply exhaustive coverage or verified journeys.
 
 ## Collaboration and request behavior
 

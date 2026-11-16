@@ -41,7 +41,7 @@ FILE_OPERATIONS = {
     "plate_ocr",
     "transcription",
     "conversation_import",
-    "imazing_import",
+    "imessage_import",
 }
 UNSUPPORTED_FORMATS = {
     "unsupported_document_format",

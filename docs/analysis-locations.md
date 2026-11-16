@@ -1,45 +1,38 @@
 # Location analysis methods
 
-Location analysis compares a selected set of up to 500 same-case observations.
-Every result retains its selected source references and method parameters. The
-original address, coordinates, event time, source row and checksum stay intact.
-For counts, grouping and movement, select only one interpretation of each
-original observation: selecting an original plus a geocoded/extracted version of
-the same record is rejected. Location quality deliberately allows alternatives,
-labels them as versions of one original and reports unique-observation counts.
-The methods are shared by person and vehicle observations; a plain Location
-record acquires no assumed person or vehicle association.
+Retained runs compare up to 500 same-case observations, preserving selection,
+parameters and original addresses, coordinates, times, rows and checksums.
+Counts/grouping/movement require one interpretation per original; selecting both
+original and geocoded/extracted versions is rejected. Quality review allows
+labelled alternatives and counts unique observations. Person/vehicle methods
+also accept plain Locations without assigning subjects.
 
-The deterministic methods use reported coordinates or an explicitly selected,
-reviewed geocode. Address-only vehicle CSV rows need that spatial interpretation
-before distance or retained coordinate-based movement analysis can use them;
-the [automatic vehicle trips](#automatic-vehicle-trips) report also works directly
-from reported addresses. Derived coordinates never replace reported coordinates.
-A comparison can retain both and flag disagreement.
-No method verifies a person's presence, identifies a driver or infers an engine
-state from zero reported speed.
+Deterministic methods use reported coordinates or selected reviewed geocodes.
+Address-only CSV rows need interpretation for spatial analysis; [automatic
+trips](#automatic-vehicle-trips) also work from addresses. Derived coordinates
+never replace reported ones; comparisons can retain both and flag disagreement.
+No method verifies presence, identifies drivers or infers engine state from zero speed.
 
 ## Available comparisons
 
 | Method | Result and interpretation |
 | --- | --- |
-| Compare address wording | Retains raw text and conservative Unicode/whitespace derivatives, a leading street number when recognizable, and explicit unit identifiers. Limited street-suffix aliases can propose equivalent wording; units and unrecognized international formats remain distinguishable. Common street names do not establish geographic equivalence. |
-| Review location quality | Separates event, receipt, collection and upload times. Shows source export timezone, absent event time/position, repeated-observation candidates, negative receipt delays, and event times reversed in retained export-row order. Selection order alone is not chronology. |
-| Group nearby observations | Creates deterministic anchor-radius candidate groups. Each group exposes its anchor and original members; nearby groups do not establish visits, meetings or occupancy. There is no external road/building reference layer in this method. |
-| Compare distance or geofence | The investigator enters a centre latitude/longitude and radius, or a polygon boundary. Compares each usable coordinate with that area and shows inside/outside candidate classifications and an explicit near-boundary ambiguity band. Missing coordinates remain excluded with a count. |
-| Find candidate visits | Segments each retained subject association separately. Consecutive nearby samples must meet the minimum observed span; long gaps split candidates. Counts visits separately from samples, with first/last observed bounds and UTC visit-start patterns. Each excluded large gap is a separate finding linking its endpoint observations and actual elapsed interval. Frequent places are never automatically labelled home/work. |
-| Find candidate journeys | Uses timed, associated observations, candidate stationary intervals and the maximum gap to delimit journeys. Links every included sample and exposes endpoints, largest sampling interval, elapsed time and straight-segment distance sum. Each excluded large gap exposes its last/next observations and actual elapsed interval. A straight segment is not a road route. |
-| Compare movement patterns | Groups directed origin/destination pairs among the candidate journeys. Shows supporting samples, observed durations, UTC departure distributions and monthly counts with observation coverage. Explicit two-period comparisons expose denominators, pair shares, observed changes and interior-sample corridor candidates. Reversed pairs remain separate; missing periods and changing reporting density limit comparison. |
-| Find candidate nearby subjects | Compares different retained person/vehicle associations within distance/time tolerances. Outputs the exact sample pair, distance and time difference. Point samples within a tolerance do not establish an overlapping presence interval, a meeting or a relationship. |
-| Review travel discrepancies | Compares adjacent timed observations from the same retained subject association. Exposes same-time distant positions, unusually rapid transitions, source-row chronology problems and unsupported long gaps. Thresholds screen possible data/interpretation problems; no transport mode or deception is inferred. |
-| Compare same-event location claims | Requires the investigator to describe the claimed event/place and explicitly select at least two observations. Presents their source claims, associations and time/distance differences side by side. Similar timestamps alone do not establish a contradiction. |
+| Compare address wording | Raw text, conservative Unicode/whitespace derivatives, recognizable leading street numbers and explicit units. Limited street-suffix aliases suggest equivalent wording; units and unrecognized international formats remain distinct. Common street names prove no geographic equivalence. |
+| Review location quality | Event/receipt/collection/upload times, export timezone, missing times/positions, possible repeats, negative receipt delays and reversed event times in export-row order. Selection order is not chronology. |
+| Group nearby observations | Deterministic anchor-radius groups with original members. Proximity proves no visits, meetings or occupancy; no road/building reference layer is used. |
+| Compare distance or geofence | Compares coordinates to an investigator-supplied centre/radius or polygon, showing inside/outside candidates and boundary ambiguity. Missing coordinates are counted exclusions. |
+| Find candidate visits | Segments subjects separately. Consecutive nearby samples need the minimum observed span; large gaps split candidates. Retains visit/sample counts, first/last bounds, UTC start patterns and each excluded gap's endpoints/elapsed time. Frequent places receive no home/work labels. |
+| Find candidate journeys | Uses timed subject observations, stationary candidates and maximum gaps. Retains every included sample, endpoints, largest sampling interval, elapsed time, straight-segment distance sum and each excluded gap's endpoints/interval. Segments are not road routes. |
+| Compare movement patterns | Directed journey endpoint pairs, samples, durations, UTC departures and monthly counts/coverage. Two-period comparisons expose denominators, pair shares, differences and interior-sample corridor candidates. Reversed pairs stay separate; missing periods/reporting density limit comparison. |
+| Find candidate nearby subjects | Exact pairs of different person/vehicle associations within time/distance tolerances. Point samples establish no overlapping presence interval, meeting or relationship. |
+| Review travel discrepancies | Adjacent same-subject times/positions: equal-time distant points, rapid transitions, row-order problems and unsupported gaps. Thresholds screen interpretation/data issues, without inferring transport mode or deception. |
+| Compare same-event location claims | At least two selected observations plus an investigator-described event/place. Compares claims, associations and time/distance differences; similar timestamps alone establish no contradiction. |
 
-Coordinates have decimal precision but no retained measured accuracy. A reviewed
-geocode may represent a venue, street or broad area. Candidate proximity and
-boundary classifications therefore remain uncertain even when the arithmetic is
-precise. Offline grouping uses coordinates alone. The separate
-[geographic-context lookup](analysis-geographic-context.md) adds
-retained map references with source, date, attribution and visible coverage limits.
+Coordinates retain decimal precision, not measured accuracy; reviewed geocodes
+may describe broad areas. Precise arithmetic does not remove proximity/boundary
+uncertainty. Offline grouping uses coordinates alone; separate
+[geographic lookup](analysis-geographic-context.md) retains attributed, dated
+references and coverage limits.
 
 ## Parameters and bounds
 
@@ -54,183 +47,146 @@ retained map references with source, date, attribution and visible coverage limi
 | Proximity query radius | 100 m | 1–500,000 m |
 | Near-boundary ambiguity band | 10 m | 0–10,000 m |
 
-Each form exposes only the assumptions its method uses. Location quality compares
-reported and reviewed coordinates against the discrepancy threshold; travel checks
-also use it for equal-time positions. Same-event comparison presents the selected
-claims directly and has no distance or time tolerance setting.
+Forms expose only relevant assumptions. Quality review compares reported/reviewed
+coordinates against the discrepancy threshold; travel checks use it for equal-time
+positions. Same-event comparison has no time/distance tolerance.
 
-The proximity processor uses a 1,000 m radius when `radius_m` is omitted,
-including when the optional form field is cleared. Its internal
-`reference_source_id` parameter can use a selected coordinate-bearing observation
-as the centre, but the investigator form exposes only manual centre coordinates
-or a polygon; it does not offer a reference-observation selector.
+Omitted or cleared `radius_m` uses the processor's 1,000 m default. Internal
+`reference_source_id` can designate a selected coordinate-bearing centre, but
+forms offer only manual coordinates or polygons.
 
-Distances use a spherical Earth approximation, including observations near the
-poles and dateline. Polygon inside/outside classification uses latitude/longitude
-ray crossing, with a local projected boundary-distance approximation. Polygons
-need 3–100 vertices. Split polygons crossing the dateline into separate queries;
-self-intersecting and degenerate polygons are rejected. Very broad polygons
-need investigator care and are not a surveying tool. Radius queries avoid this
-polygon limitation.
+Distances use a spherical Earth approximation, including poles/dateline. Polygon
+classification uses latitude/longitude ray crossing and locally projected boundary
+distances. Polygons require 3–100 vertices; self-intersections/degeneracy are
+rejected. Split dateline-crossing polygons into queries. Broad polygons need care;
+this is no surveying tool. Radius queries avoid the polygon limitation.
 
-Spatial groups are bounded by their first member anchor, rather than transitive
-chains of nearby observations. Repeating the same selected originals and
-parameters yields the same grouping. A candidate visit's observed first/last
-samples do not establish continuous presence between samples or actual
-arrival/departure times outside them. A gap can mean unavailable reporting rather
-than inactivity. Co-location output is capped at 1,000 candidate pairs, with a
-partial outcome and a request to narrow the selection when the cap is reached.
+Groups use first-member anchors, without transitive proximity chains. Identical
+originals/parameters give identical groups. Visit first/last samples establish
+neither continuous presence nor actual arrival/departure. Gaps can reflect missing
+reporting. Co-location stops at 1,000 pairs with partial coverage and narrowing
+instructions.
 
 ## Comparing movement across periods
 
-Movement-pattern comparison accepts four timestamps together:
-`period_a_start`, `period_a_end`, `period_b_start` and `period_b_end`. Each uses
-an ISO timestamp with an explicit timezone, normalized to UTC; for example,
-`2026-10-01T00:00:00+00:00`. A period includes its start and excludes its end.
-Each end must follow its start, and the two periods must not overlap. Incomplete,
-naive, reversed or overlapping windows are rejected. Journeys are segmented
-independently within each period; a period boundary can truncate a candidate.
+Supply all four ISO timestamps with explicit timezones:
+`period_a_start`, `period_a_end`, `period_b_start`, `period_b_end`, e.g.
+`2026-10-01T00:00:00+00:00`. Times normalize to UTC; windows include starts and
+exclude ends. Ends must follow starts, without overlap. Incomplete, naive, reversed
+or overlapping windows are rejected. Separate segmentation can truncate journeys
+at period boundaries.
 
-For each retained subject association, the result first exposes window duration,
-selected timed observations, usable positions, positions missing from timed
-observations, first/last usable observation, observed span, largest sampling
-interval and excluded gap count. The sum of intervals under the maximum-gap
-threshold is a sampling measure, not proof of continuous observation or presence.
-Unknown event times cannot be assigned to a period. When a period has no samples,
-its zero denominator and unknown interval measures remain visible, with links to
-the overall selection context.
+Per subject/window, results retain duration, timed observations, usable/missing
+positions, first/last usable observations, observed span, largest sampling interval
+and excluded-gap count. Summed intervals below the gap threshold measure sampling,
+not continuous observation/presence. Unknown times remain unassigned. Empty periods
+show zero denominators, unknown interval measures and overall selection links.
 
-Directed endpoint pairs report their journey counts and their share of all
-selected subject journeys in each period, UTC departure-hour distributions and
-observed durations. A new or absent pair, or a changing share, is an observed
-selection difference rather than suspicious behavior. Missing journey coverage
-in either period yields an insufficient-comparison description instead of an
-asserted behavior change. Without explicit periods, monthly counts retain full
-calendar-month denominators and the selected observation coverage.
+Directed pairs retain journey counts/shares, UTC departure distributions and
+observed durations. New/absent pairs or changed shares describe selections, not
+suspicious behavior. Missing journey coverage produces insufficient comparison,
+not asserted behavior change. Without periods, monthly counts retain full-month
+denominators and selected coverage.
 
-When both periods have journeys with at least one distinct observed interior
-spatial group, the result compares ordered sample-group sequences. It exposes
-shared and newly observed sequences and the group anchor coordinates, with
-source links that include those reference anchors. A sparse journey without
-interior samples cannot establish a corridor from its endpoints. Different
-reporting density can change a sequence even along the same actual route;
-these comparisons reconstruct no road-network path.
+When each period has journeys containing a distinct interior spatial group,
+ordered group sequences expose shared/new sequences, anchors and source links.
+Endpoints alone cannot establish corridors; reporting density can change sequences
+along the same actual route. No road-network path is reconstructed.
 
 ## Geocoding configuration and review
 
-Geocoding supports an operator-configured Nominatim-compatible service. It has no
-public default, and explicitly rejects `nominatim.openstreetmap.org` as a batch
-processing endpoint. Operators must arrange an appropriate service/reference
-dataset and follow its license and operating limits. The public service's
-[usage policy](https://operations.osmfoundation.org/policies/nominatim/) has strict
-traffic, application identification, caching and attribution requirements;
-Pandect does not offer it as a generic geocoding backend.
-
-Configuration is supplied to Django through these settings/environment mappings:
+Use an operator-configured Nominatim-compatible service. No public default exists;
+`nominatim.openstreetmap.org` is rejected for batch processing. Operators arrange
+capacity/datasets/licensing. The public [usage policy](https://operations.osmfoundation.org/policies/nominatim/)
+restricts traffic and requires identification, caching and attribution; Pandect
+does not offer that service as a generic backend.
 
 | Name | Meaning |
 | --- | --- |
-| `PANDECT_GEOCODER_URL` | Operator's Nominatim-compatible base endpoint. Empty disables lookups. |
-| `PANDECT_GEOCODER_LOCAL` | Default `false`. Set `true` only for an operator-controlled endpoint; private-looking hostnames do not establish trust. |
-| `PANDECT_GEOCODER_NAME` | Human-readable lookup source. |
-| `PANDECT_GEOCODER_VERSION` | Operator-supplied reference dataset/version identifier. |
-| `PANDECT_GEOCODER_ATTRIBUTION` | Required dataset attribution/license notice. |
-| `PANDECT_GEOCODER_USER_AGENT` | Application/operator identification accepted by that service. |
-| `PANDECT_GEOCODER_TIMEOUT` | Per-request timeout, default 10 seconds, bounded to 1–30 seconds. |
+| `PANDECT_GEOCODER_URL` | Nominatim-compatible base endpoint; empty disables lookup. |
+| `PANDECT_GEOCODER_LOCAL` | Default `false`; set `true` only for operator control, never inferred from a private hostname. |
+| `PANDECT_GEOCODER_NAME` | Human-readable source. |
+| `PANDECT_GEOCODER_VERSION` | Dataset/version identifier. |
+| `PANDECT_GEOCODER_ATTRIBUTION` | Required attribution/license notice. |
+| `PANDECT_GEOCODER_USER_AGENT` | Application/operator identification accepted by the service. |
+| `PANDECT_GEOCODER_TIMEOUT` | Seconds; default 10, range 1–30. |
 
-A lookup requires current edit permission and explicit external-processing
-confirmation unless its endpoint is designated local. Authorization is rechecked
-immediately before each request and before
-publication by the processing service. The lookup sends only the selected
-address or coordinate query, rather than case names, people, vehicle identifiers
-or the evidence record. Already submitted requests cannot be recalled.
+Current edit access and explicit external approval are required unless designated
+local. Processing rechecks access immediately before requests and publication.
+Only selected addresses/coordinate queries are sent, without case/person/vehicle
+identifiers or evidence records. Sent requests cannot be recalled.
 
-Each run is bounded to 25 distinct queries, with repeated identical queries
-shared only within that same selected case/run. Requests accept at most five
-candidate matches and 256 KiB of response data. Addresses longer than 2,000
-characters are unsupported for lookup; the retained original may be longer.
-Redirects are not followed. There are no client-side automatic retries.
+Runs allow 25 distinct queries, sharing identical queries only within that case/run.
+Responses allow five matches and 256 KiB. Lookup addresses above 2,000 characters
+are unsupported; originals can be longer. No redirects or automatic retries occur.
 
-Forward lookup recognizes imported comma-delimited Canadian addresses with at
-least street, municipality, province, `CAN`, and a trailing Canadian-format
-postcode. It submits the `CAN` component as Nominatim's `countrycodes=ca` filter
-instead of free-text content, retaining the other address fields, including the
-postcode. Other address formats are submitted unchanged. Each finding retains
-the submitted query; adjusted lookups also retain the exact original address,
-country filter and adjustment explanation, including no-match and failed lookups.
-This makes one request per distinct original query, without broadening to a
-street/city-only search. Returned addresses can still disagree with the source,
-including its postcode; candidates remain estimates requiring review.
+For imported comma-delimited Canadian addresses containing street, municipality,
+province, `CAN` and trailing Canadian-format postcode, forward lookup sends
+`CAN` as `countrycodes=ca`, preserving other fields/postcode. Other formats pass
+unchanged. Findings retain submitted queries; adjustments retain original address,
+country filter and explanation even on failure/no match. Each distinct original
+gets one request, without street/city-only broadening. Returned addresses can
+still disagree, including postcodes; candidates require review.
 
-This query handling is geocoding method version 2. Upgrade web and worker together
-and start a new run for previous no-match results. Queued version 1 work fails
-recoverably with `processing_version_unavailable` on a version 2 worker; earlier
-results and originals remain retained. No database migration is required.
+This is geocoding version 2. Upgrade web/workers together and rerun prior no-matches.
+Queued version 1 fails recoverably with `processing_version_unavailable`; originals
+and prior results remain unchanged. No database migration is needed.
 
 [Forward lookup](https://nominatim.org/release-docs/latest/api/Search/) retains
-candidate coordinates, display address, match granularity, bounding box, source
-reference, attribution, lookup time, query and reference version. Alternatives
-remain distinct. [Reverse lookup](https://nominatim.org/release-docs/latest/api/Reverse/)
-returns a nearby indexed map object and can disagree with the address of the
-actual point. Neither direction establishes measured accuracy.
+coordinates, display address, granularity, bounding box, source reference,
+attribution, lookup time, query and version, keeping alternatives distinct.
+[Reverse lookup](https://nominatim.org/release-docs/latest/api/Reverse/) returns
+a nearby indexed object that may disagree with the actual point's address.
+Neither establishes measured accuracy.
 
-A geocode begins unresolved. Investigators review a specific candidate before it
-can be selected as a spatial input; accepting an entire run must not silently
-choose among alternatives. Rejections, unresolved outcomes, explanations and
-later reruns retain their history. No-match, unsupported, quota/authentication,
-invalid response and unavailable-service outcomes remain distinguishable. A
-partly failed batch retains completed candidates with a partial outcome instead
-of claiming every lookup succeeded. A selection with no eligible addresses or
-coordinates is reported as insufficient and does not contact the lookup service.
+Geocodes begin unresolved. Review a specific candidate before spatial use;
+whole-run acceptance selects no alternative. Rejections, explanations, unresolved
+outcomes and reruns retain history. No-match, unsupported, quota/authentication,
+invalid-response and unavailable-service outcomes stay distinct. Partly failed
+batches retain candidates with partial coverage. No eligible address/coordinate
+means insufficient evidence and no service request.
 
-The [investigation map](maps.md#local-address-lookup) automatically prepares
-configured-local lookups for saved trip sources. Source inspection links to
-candidate review. Only a specifically accepted candidate can supply an estimated
-trip position; unreviewed or ambiguous alternatives leave a break. Originals remain
-unchanged. The map never invokes an external geocoder.
+The [Map](maps.md#local-address-lookup) prepares configured-local lookup for saved
+trip sources, linking inspection to review. Only a specifically accepted candidate
+supplies an estimated trip position; unresolved/ambiguous points leave breaks.
+Originals stay unchanged. The map never invokes external geocoding.
 
 ## Automatic vehicle trips
 
-The Map, Vehicle trips report and vehicle detail pages read the same saved possible
-trips. New observations, completed CSV imports and archive/restore changes queue
-per-vehicle background rebuilding. Existing cases offer an idempotent **Prepare
-trips** POST; owners/editors start it automatically when opening the map with
-JavaScript, or use the normal form. Viewers inspect completed results. Processing
-shows progress, retained generations, safe failures and deliberate recovery.
+Map, Vehicle trips and vehicle pages share saved possible trips. New observations,
+completed CSV imports and archive/restore queue vehicle rebuilding. Existing cases
+use idempotent **Prepare trips** POSTs, automatically started by owners/editors
+opening the JavaScript map or through the normal form. Viewers inspect results;
+Processing shows progress, generations, safe failures and recovery.
 
-Processing reads the complete eligible vehicle history in chronological chunks of
-500 observations, without a total-source cutoff. One generation retains every
-source/checksum and produces active, archived and all-evidence variants. Each chunk
-rechecks current authorization and source revision. Only a complete matching
-revision is published; retries and duplicate delivery cannot publish partial trips.
-A source change supersedes obsolete work. Confirm the old worker stopped before
-recovering abandoned running work. There are at most three attempts per recovery
-phase. No startup task or migration processes runtime evidence.
+Background chunks read 500 observations from complete chronological histories,
+without a total-source cutoff. Generations retain every source/checksum and
+active/archived/all variants. Each chunk rechecks access/revision; only complete
+matching work publishes. Source changes supersede work; retries/duplicate delivery
+cannot publish partial trips. Confirm stopped workers before recovery, with at
+most three attempts per recovery phase. Startup/migrations never process evidence.
 
-Vehicle pages show five recent trips; reports and map lists paginate 25 trips.
-Date filters select complete trips overlapping the interval, rather than shorten
-the input sequence. Times use the active account/device timezone, with UTC as the
-fallback. Archived observations are excluded by default. Every source remains
-accessible from paginated trip detail, including imported CSV row provenance.
+Vehicle pages show five recent trips; map/report pages show 25. Date filters retain
+complete overlapping trips, without shortening input sequences. Times use account/
+device timezone, falling back to UTC. Archived observations are excluded by default.
+Paginated detail exposes every source and imported row provenance.
 
-Each vehicle is segmented independently using only same-case observations and
-consistent import/document relationships. Untimed observations are retained in
-processing coverage but cannot form trips. Coordinates take precedence when both
-observations have them; positions within 100 metres are nearby. Otherwise
-conservative normalized address wording compares places without inferring
-coordinates. A stationary group lasting at least five observed minutes, with no
-positive speed anywhere in that group, separates trips. Gaps longer than one hour,
-conflicting positions at the same time and incomparable positions also separate
-sequences. Stationary observations alone produce no trip.
+Vehicles segment independently using same-case observations and consistent import/
+document relationships. Untimed rows remain in coverage but cannot form trips.
+Coordinates take precedence when both exist; positions within 100 metres are
+nearby. Otherwise conservative address normalization compares places without
+inferring coordinates. Stationary groups split trips after five observed minutes
+with no positive speed anywhere. Gaps above one hour, conflicting equal-time
+positions and incomparable positions also split sequences. Stationary-only
+observations form no trip.
 
-Address-only CSV records can form trips before any lookup or candidate review.
-Configured private local lookup is prepared separately after trip publication.
-The map connects reported coordinates or exactly one specifically accepted local
-candidate, retaining estimate attribution and breaks for unresolved positions.
-Reviews affect geometry, not original-based segmentation. See
-[map lookup and review](maps.md#local-address-lookup).
+Address-only CSV trips need no lookup/review. After publication, configured private
+lookup separately prepares candidates. Maps connect reported positions or exactly
+one accepted local estimate, retaining attribution and unresolved breaks. Reviews
+change geometry, not original-based segmentation; see
+[map lookup/review](maps.md#local-address-lookup).
 
-Trips show first/last observed place/time and elapsed observed minutes. Actual
-departure, arrival, road route, distance travelled, driver and continuous presence
-remain unknown. The separate deliberately selected retained journey analysis
-remains available for versioned analysis with its existing source bounds.
+Trips retain first/last observed places/times and elapsed minutes. Actual departure,
+arrival, road route, travelled distance, driver and continuous presence remain
+unknown. Deliberately selected retained journey analysis remains separately
+available within its source limits.

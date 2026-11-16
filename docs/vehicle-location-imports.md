@@ -1,181 +1,148 @@
 # Vehicle locations and Asset Location CSV imports
 
-Owners and editors can add **Vehicle location** evidence inside a case, or choose
-**Import vehicle locations** from Vehicles or Add evidence. Viewers can inspect
-retained sources, reviews, imported observations, and private downloads. Every
-vehicle choice and object request is scoped to the current case; superusers have
-no case-access bypass.
+Owners/editors add **Vehicle location** evidence or choose **Import vehicle
+locations** from Vehicles/Add evidence. Viewers inspect sources, reviews,
+observations, and private downloads. Every vehicle choice/request is case-scoped;
+superusers have no access bypass.
 
 ## Import workflow
 
-1. Choose a UTF-8 Asset Location CSV, an optional case vehicle for the whole file,
-   and its export timezone. The initial timezone is **America/Toronto** and remains
-   editable to match the exporting account.
-   [miTrail's Profile Preferences documentation](https://info.mitrail.com/en-US/profile-preferences-password-change-740866)
-   tells users to set their timezone and does not establish a universal export
-   timezone. Check the exporting account's preference, never infer it from an
-   address. Supply an optional source name/citation and explicitly confirm that
-   **Created Time** represents the reported observation time.
-2. **Upload CSV** saves the exact file as Document evidence with its
-   SHA-256 and creates a retained import record. The CSV may have a UTF-8 BOM.
-   The worker prepares the review in the background, with progress and a
-   **Refresh status** link. No location observations exist yet. Leaving retains
-   the source; reopen its Document evidence and choose **Continue vehicle location
-   import**.
-3. Inspect the paginated original values and interpreted timestamps, displayed in
-   your [account/device timezone](cases.md#account-settings). The selected export
-   timezone still determines how the CSV is interpreted. The
-   upload vehicle preselects every distinct `(Asset, Serial Number)` pair; change
-   individual choices if needed, or select them all here if none was chosen.
-   Assets do not automatically create vehicles or overwrite vehicle details.
-4. Confirm the vehicle associations and import. Leave **Keep the possible
-   duplicates as separate observations** unchecked to skip matching rows, or
-   select it to keep them. The worker imports the selected rows in the
-   background. The result reports imported and skipped counts. All observations
-   and completion status commit together. A
-   failure retains the source and adds no observations. Completed results are
-   paginated as well.
+1. Choose a UTF-8 Asset Location CSV, an optional vehicle for the whole file, and
+   the export timezone (initially **America/Toronto**, editable).
+   [miTrail's Profile Preferences](https://info.mitrail.com/en-US/profile-preferences-password-change-740866)
+   describes account timezone selection, not a universal export timezone. Check
+   that preference; never infer timezone from an address. Optionally supply a
+   source/citation and explicitly confirm **Created Time** means observation time.
+2. **Upload CSV** retains the exact file (optional UTF-8 BOM) as Document evidence
+   with SHA-256 and an import record. The worker prepares review with progress
+   and **Refresh status**; no observations exist yet. To return later, open the
+   Document and choose **Continue vehicle location import**.
+3. Review paginated original cells and interpreted timestamps in your
+   [account/device timezone](cases.md#account-settings); the export timezone still
+   controls interpretation. The upload vehicle preselects every `(Asset, Serial Number)` pair. Change these choices or select all vehicles now if none was
+   chosen. Assets never create vehicles or overwrite their details automatically.
+4. Confirm associations/import. Leave **Keep the possible duplicates as separate
+   observations** unchecked to skip matches, or check it to retain them. Background
+   publication commits all observations and completion together, reporting imported
+   and skipped counts with paginated results. Failure retains the source and adds
+   no observations.
 
-This flow works without JavaScript. Correct invalid rows in a new CSV and upload
-it; the earlier source stays retained. Repeating a completed confirmation returns
-the saved result. Repeating an upload with its original submission ID, identical
-file, uploader, case, timezone, and selected upload vehicle reopens its review
-without retaining another file. Changing those values requires a new submission.
-An owner or editor can finish a review begun by another collaborator. Each
-observation records the user who confirmed it separately from the original
-file's uploader. The worker rechecks the requester's case edit access and
-verified email during preparation and publication. A verified owner or editor
-can retry if the original requester loses access or verification.
+The flow works without JavaScript. Invalid rows require a corrected new CSV;
+earlier sources remain retained. Reconfirming a completed import returns its
+saved result. Retrying the original submission ID with identical file, uploader,
+case, timezone, and upload vehicle reopens review without another file; changed
+values require a new submission.
 
-The import screen leads with progress and vehicle matching. **Source and time
-interpretation** and the paginated source-row preview are native disclosures;
-invalid rows open the preview for correction. On completion, **View findings**
-opens the case findings and trips, with raw observations in a disclosure. Saved trips are processed in the background from retained addresses/times
-without needing geocoding or review; see
-[automatic vehicle trips](analysis-locations.md#automatic-vehicle-trips).
-Individual observations retain **Original CSV row and interpretation**, including
-receipt time, source cells, asset labels and parser provenance.
+Any owner/editor can finish a collaborator's review. Observations attribute the
+confirmer separately from the source uploader. Workers recheck edit access and
+verified email during preparation/publication. A verified owner/editor can retry
+if the original requester loses access/verification.
+
+Screens lead with progress and matching. **Source and time interpretation** and
+source rows use native disclosures; invalid rows open the preview. **View findings**
+opens findings/trips with raw observations in a disclosure. Saved trips process
+retained addresses/times without geocoding or review; see [automatic trips](analysis-locations.md#automatic-vehicle-trips).
+Each observation retains **Original CSV row and interpretation**, including receipt
+time, source cells, asset labels, and parser provenance.
 
 ## Supported columns and interpretation
 
-Exactly these nine headers are required, in any order. Duplicate, missing, or
-additional headers are rejected. Quoted commas and newlines use standard CSV
-rules. Empty physical records are ignored; malformed rows remain visible with
-errors and block completion.
+Exactly these nine headers are required in any order. Duplicate/missing/additional
+headers are rejected. Standard CSV quoting supports commas/newlines. Empty physical
+records are ignored; malformed rows remain visible and block completion.
 
 | Column | Interpretation |
 | --- | --- |
 | Asset | Retained source label; either this or Serial Number must be nonblank. |
-| Serial Number | Retained text, including leading zeros. A source asset/device identifier, never a VIN. |
-| Address | Required reported address, preserved without trimming. No coordinates are inferred. |
-| Speed | Optional nonnegative `km/h` value, up to six integer and three fractional digits. Blank or `-` means unavailable, not zero. A real zero stays zero. Raw text is also retained. |
-| Heading | Optional N, NE, E, SE, S, SW, W, or NW. Case/outer spaces are accepted, with the original retained. |
-| Trigger | Retained source description, without inferring engine state or activity. |
-| Time Summary | Retained text. No duration, start time, end time, or presence interval is inferred. |
-| Created Time | Required `2026-09-16, 2:57:22 PM` format, interpreted in the explicitly selected timezone and stored as `observed_at` in UTC. |
-| Received Time | Optional timestamp in the same format/timezone, retained separately as `received_at`. It is not source collection time or Pandect upload time. |
+| Serial Number | Retained text, including leading zeros; an asset/device identifier, never a VIN. |
+| Address | Required reported address, preserved without trimming; no inferred coordinates. |
+| Speed | Optional nonnegative `km/h`, at most six integer/three fractional digits. Blank or `-` means unavailable; real zero stays zero. Raw text is retained. |
+| Heading | Optional N, NE, E, SE, S, SW, W, or NW. Case/outer spaces are accepted; original retained. |
+| Trigger | Retained description; no inferred engine state/activity. |
+| Time Summary | Retained text; no inferred duration, start/end time, or presence interval. |
+| Created Time | Required `2026-09-16, 2:57:22 PM` format, interpreted in the selected export timezone and stored as UTC `observed_at`. |
+| Received Time | Optional same-format/timezone timestamp, retained as `received_at`; separate from collection/upload time. |
 
-At least one asset/device identifier and an address are required for every row.
-Ambiguous autumn times and nonexistent spring times are rejected rather than
-silently choosing an offset. Obtain an unambiguous source export before importing
-those rows. Invalid dates, unsupported units/headings, null characters, oversized
-fields, invalid UTF-8, and malformed CSV produce recoverable errors.
+Every row requires an asset/device identifier and address. Ambiguous autumn and
+nonexistent spring times require an unambiguous new export; no offset is chosen
+silently. Invalid dates, units/headings, nulls, oversized fields, UTF-8, or CSV
+produce recoverable errors.
 
-Identical original rows within a file or in existing vehicle imports with the
-same case and export timezone are flagged as **possible duplicates**, including
-archived observations. They are not proof of the same event or vehicle. By
-default, import the first occurrence in the CSV and skip later identical rows;
-if a matching retained observation already exists, skip every matching row.
-Select **Keep the possible duplicates as separate observations** to import
-them all instead. Matches are checked again under the case lock before import.
-Observations imported or deleted after review can change which rows are skipped.
-If every row is skipped, the import completes with zero new
-observations. The complete original CSV and reviewed rows stay retained.
-No fuzzy matching or automatic cross-export merging occurs. Exact retries of
-the same completed batch never add rows again.
+Identical rows within a file or retained imports in the same case/export timezone
+are **possible duplicates**, including archived observations; matches do not prove
+the same event/vehicle. By default, retain the first CSV occurrence and skip later
+copies; an existing observation causes all matching rows to be skipped. Check
+**Keep the possible duplicates as separate observations** to retain all. Import
+rechecks under the case lock, so intervening imports/deletions can change skips.
+All-skipped imports complete with zero observations; the full CSV/review remains.
+There is no fuzzy matching/cross-export merging. Completed-batch retries add no rows.
 
 ## Retention and integrity
 
-`geo.VehicleLocationEvidence` extends the abstract `geo.LocationContent` model
-with a required same-case `vehicle` link. Manual additions use the ordinary
-location fields and shared source metadata. Imported records additionally retain
-the import batch, logical CSV record number (header is 1), every original cell,
-normalized speed, and source receipt time. These values are immutable originals;
-editing descriptions/source details cannot replace them.
+`geo.VehicleLocationEvidence` extends abstract `geo.LocationContent` with a
+required same-case vehicle. Manual records use ordinary location/source fields;
+imports also retain batch, logical CSV record number (header is 1), every cell,
+normalized speed, and receipt time. These originals are immutable; metadata edits
+cannot replace them.
 
-Private **Download original** returns canonical UTF-8 JSON with schema
-`pandect.vehicle-location.v1`. It includes the vehicle UUID, location, optional
-telemetry, original row, and import provenance: source document UUID and checksum,
-record number, export timezone, and parser version `asset-location.v2`. Original
-CSV bytes remain downloadable from the linked Document evidence. Shared editable
-source metadata and current vehicle display details are outside this checksum.
-Future parser versions must deliberately support or reject pending old imports;
-they must not reinterpret a pending review silently.
+**Download original** returns canonical UTF-8 `pandect.vehicle-location.v1` JSON:
+vehicle UUID, location, optional telemetry, row, source document UUID/checksum,
+record number, export timezone, and parser `asset-location.v2`. The linked
+Document retains exact CSV bytes. Editable metadata/current vehicle details are
+outside the checksum. Future parsers must support or reject pending old imports
+explicitly, never silently reinterpret them.
 
-Parser `asset-location.v2` accepts `-` in Speed as unavailable while retaining
-the original cell. Existing `asset-location.v1` reviews and jobs keep their
-original rules, including rejection of that placeholder; valid v1 imports can
-still complete. To import a CSV rejected only for `-` speeds, start a new upload
-of the unchanged original with the updated application. The earlier retained
-source and review stay unchanged. New imports default to parser v2 in the fresh
-`geo` schema.
+Parser v2 accepts `-` Speed as unavailable and retains the cell. Existing
+`asset-location.v1` reviews/jobs retain v1 rules, including rejecting `-`; valid
+v1 imports can complete. For a CSV rejected only for `-`, upload the unchanged
+original anew with the updated app. Earlier sources/reviews remain unchanged.
+New imports default to v2 in the fresh `geo` schema.
 
-Archiving retains the observation and all links. Retained observations prevent
-individual vehicle deletion. Superusers with current case access can confirm
-source-document deletion from Evidence Details; its exact inventory includes the
-CSV, import batch, every staged row and imported observation, and their dependent
-analysis/files. A changed inventory requires another review. People and vehicles
-are retained. Owner-confirmed whole-case deletion also remains available. Files
-are removed after database commit. The `geo` app owns `VehicleLocationImport`,
-`VehicleLocationImportRow`, and `VehicleLocationEvidence`, along with their
-constraints, parser, jobs, and import UI. Source files remain
-`document.DocumentEvidence` records; vehicle identities remain `vehicle.Vehicle`.
+Archiving retains links; observations protect individual vehicle deletion.
+Superusers with case access may confirm source-document deletion from Evidence
+Details. Its inventory covers CSV, batch, staged/imported rows, dependent analysis,
+and files; changed inventories require review again. People/vehicles remain.
+Owner-confirmed whole-case deletion is also available. File cleanup follows commit.
 
-`geo.vehicle_imports` contains the bounded CSV parser;
-`geo.vehicle_import_jobs` owns preparation, publication, and recovery. The
-`geo.tasks.process_vehicle_import` queue entry point accepts identifiers only.
-Import templates live under `geo/templates/geo/`; shared evidence deletion
-continues through `core.evidence.deletion`.
+`geo` owns `VehicleLocationImport`, `VehicleLocationImportRow`, and
+`VehicleLocationEvidence`, their constraints, parser, jobs, and UI. Source files
+remain `document.DocumentEvidence`; entities remain `vehicle.Vehicle`.
+`geo.vehicle_imports` is the bounded parser; `geo.vehicle_import_jobs` owns
+preparation/publication/recovery. `geo.tasks.process_vehicle_import` accepts IDs
+only. Templates live in `geo/templates/geo/`; shared deletion uses
+`core.evidence.deletion`.
 
 ## Operational bounds and scope
 
-Imports are limited to **100,000 data rows and 100 MiB**, additionally respecting
-a smaller `PANDECT_MAX_FILE_BYTES`. At most **100 distinct asset/serial pairs**
-may be mapped in one import. The upload handler streams with the smaller byte
-limit; the worker bounds its reads, processes chunks, and stores private review
-rows in PostgreSQL. Review and result pages show 50 rows at a time. Addresses are
-limited to 20,000 characters, triggers to 2,000, and other cells to 255. Logical
-CSV records are bounded to 64 Ki characters, including quoted multiline cells.
-Each processing phase has a ten-minute deadline, with sixty-second database
-statement and ten-second lock limits; split files if these bounds are reached.
+Limits are **100,000 data rows**, **100 MiB** (or smaller `PANDECT_MAX_FILE_BYTES`),
+and **100 asset/serial pairs**. Uploads stream within that byte limit; workers
+bound reads, process chunks, and store private review rows in PostgreSQL. Review
+and results show 50 rows per page. Addresses allow 20,000 characters, triggers
+2,000, other cells 255, and logical records 64 Ki characters including multiline
+cells. Each phase has a ten-minute deadline, sixty-second statement timeout, and
+ten-second lock timeout. Split files that reach these limits.
 
-Preparation/publication use the [PostgreSQL worker](background-tasks.md), with
-atomic domain/queue insertion. Publication locks the case/import, rechecks edit
-access, source integrity and mappings, then commits bounded inserts and completion
-together. Repeated delivery/confirmation cannot duplicate observations; partial
-publication never becomes visible.
+Preparation/publication use the [PostgreSQL worker](background-tasks.md) with
+atomic domain/queue insertion. Publication locks case/import and rechecks edit
+access, integrity, and mappings before committing inserts/completion together.
+Repeated delivery/confirmation cannot duplicate rows or expose partial publication.
 
-Keep the worker running as described in [background tasks](background-tasks.md).
-Queued work waits safely while it is stopped. Failures display a sanitized reason
-and permit up to three attempts per phase. Retry after fixing the reported
-problem; malformed source rows require a corrected new CSV. Recovery of work
-left running requires confirmation that the original worker stopped, rather than
-assuming elapsed time means it is dead. Use the
-[fresh migration baseline](architecture.md#primary-keys-and-the-initial-schema)
-and matching web/worker revisions; old queued task paths are incompatible. No
-application command automatically resets runtime data.
+Keep the worker running; stopped workers leave jobs queued safely. Sanitized
+failures allow three attempts per phase. Fix the cause before retrying; malformed
+rows need a new CSV. Recover running jobs only after confirming the original
+worker stopped; elapsed time is insufficient. Use the [fresh baseline](architecture.md#primary-keys-and-the-initial-schema)
+and matching web/worker revisions: old task paths are incompatible. Commands never
+reset runtime data automatically.
 
-The importer makes no external lookup or AI request and does not verify tracking
-claims. Completed publication queues saved trip processing; separately configured
-private-geocoder preparation may subsequently queue address lookups for trip maps. Imported observations can feed the [Map](maps.md) and
-[automatic trip reports](analysis-locations.md#automatic-vehicle-trips).
-The CSV format alone establishes no vendor timestamp, event, duration, or identifier
-semantics; the import retains the investigator's explicit interpretation.
+Import performs no external lookup/AI request and verifies no tracking claims.
+Publication queues trips; configured private-geocoder preparation may separately
+queue address lookups. Observations feed [Map](maps.md) and [trip reports](analysis-locations.md#automatic-vehicle-trips).
+CSV format alone establishes no vendor timestamp, event, duration, or identifier
+semantics; the investigator's explicit interpretation is retained.
 
 ## Checking published observations
 
-After completion, **Run local checks on imported evidence** queues bounded local
-quality/address checks for this import's retained observations. Skipped duplicate
-rows are excluded. The linked Processing batch separates preparation from execution;
-no model, external lookup, or per-row batch is started. Vehicle trip reports remain
-available independently. See [processing](background-tasks.md#investigator-progress-and-completed-imports).
+**Run local checks on imported evidence** queues bounded quality/address checks
+for retained observations, excluding skipped duplicates. The Processing batch
+separates preparation/execution; no model, external lookup, or per-row batch is
+started. Trips remain independent. See [processing](background-tasks.md#investigator-progress-and-completed-imports).

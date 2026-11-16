@@ -1,19 +1,18 @@
 # Local development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) at the version
-pinned in [`mise.toml`](../mise.toml) and
-Docker with Compose v2. uv manages Python, the `.venv`, and Python dependencies;
-there is no requirements.txt or separate pip installation step. If you already
-use [mise](https://mise.jdx.dev/), `mise install` installs the tools in `mise.toml`.
-mise is optional.
+Install Docker with Compose v2 and
+[uv](https://docs.astral.sh/uv/getting-started/installation/) at the version in
+[`mise.toml`](../mise.toml). uv manages Python, `.venv`, and dependencies; no
+requirements.txt or separate pip step is needed. Optional
+[mise](https://mise.jdx.dev/) users can run `mise install` for the pinned tools.
 
 ## Pre-release database baseline
 
-The domain-app reorganization requires a fresh database and empty queue. Existing
-pre-release databases cannot be upgraded by applying the rewritten initial
-migrations; do not use `--fake`. Use a new isolated Compose project/volumes or
-new database, as described in [architecture](architecture.md#primary-keys-and-the-initial-schema).
-Startup never deletes existing databases or media.
+The domain-app reorganization requires a fresh database and empty queue. Use a
+new isolated Compose project/volumes or database; rewritten initial migrations
+cannot upgrade old pre-release databases, including with `--fake`. See
+[architecture](architecture.md#primary-keys-and-the-initial-schema). Startup never
+deletes existing databases or media.
 
 ## First run
 
@@ -37,38 +36,31 @@ PY
 make run
 ```
 
-After this setup, use `make run` whenever you want to start the website locally.
-It builds the shared application image, starts PostgreSQL, the website, and a
-background worker, and waits for web/database health and worker startup. Verify
-actual queue execution with
+Use `make run` for subsequent starts. It builds the shared image, starts
+PostgreSQL, web, and worker, and waits for web/database health and worker startup.
+Verify queue execution with
 `docker compose exec web python manage.py check_task_worker --timeout 30`.
-Stop them with
-`docker compose stop`; the database and evidence volumes are retained.
+`docker compose stop` retains database and evidence volumes.
 
-Open <http://localhost:8000/> (or your configured `PANDECT_WEB_PORT`). Create an
-account and follow its email-verification link before opening case material.
-The development container applies migrations on startup and runs Django's
-development server. With `DJANGO_DEBUG=true`,
-verification and invitation emails appear in `docker compose logs web`; these
-messages contain private links, so keep development logs private. Production uses
-the configured SMTP mailer instead.
+Open <http://localhost:8000/> (or `PANDECT_WEB_PORT`), create an account, and verify
+its email before opening case material. The development container migrates on
+startup and runs Django's development server. With `DJANGO_DEBUG=true`, private
+verification/invitation links appear in `docker compose logs web`; keep those
+logs private. Production uses SMTP.
 
-Static assets use WhiteNoise in both the development server and production.
-Debug mode serves source files with immediate cache revalidation; non-debug
-builds use content-hashed filenames from `collectstatic`. Rebuild with `make run`
-after changing templates or static assets in the container workflow. Host-based
-debug development picks up source asset changes without collecting them.
+WhiteNoise serves assets in development and production. Debug mode revalidates
+source files immediately; non-debug builds use `collectstatic` content hashes.
+After template/static changes, rebuild containers with `make run`. Host debug
+development picks up source assets without collection.
 
 After verification, create a case from **All cases** and use **Add evidence**.
 Ordinary investigators do not need staff permissions. See
 [case workflows](cases.md), [evidence](evidence.md), and
 [vehicle-location imports](vehicle-location-imports.md) for task-specific guidance.
 
-The optional `createsuperuser` command creates an operator for `/admin/`. Staff
-permissions remain separate from product access; even superusers can inspect only
-cases they own or share. `/health/` returns 200 when PostgreSQL is reachable and
-503 otherwise. Compose waits for this readiness check. If operator administration
-is needed, create that separate account with:
+Staff permissions are separate from product access; even superusers can inspect
+only cases they own or share. Compose waits for `/health/`: 200 when PostgreSQL
+is reachable, 503 otherwise. To create an optional `/admin/` operator:
 
 ```sh
 docker compose exec web python manage.py createsuperuser
@@ -76,12 +68,11 @@ docker compose exec web python manage.py createsuperuser
 
 ## Run Python on the host
 
-To use your editor and Django's autoreloader while keeping PostgreSQL in Docker,
-install Tesseract and its English data on the host first. On macOS use
-`brew install tesseract`; on Debian/Ubuntu use
-`sudo apt-get install tesseract-ocr tesseract-ocr-eng`. Verify with
-`tesseract --version` and `tesseract --list-langs` (which must include `eng`).
-The Docker image already includes both packages. Then run:
+For Django's host autoreloader with PostgreSQL in Docker, first install Tesseract
+and English data: `brew install tesseract` on macOS, or
+`sudo apt-get install tesseract-ocr tesseract-ocr-eng` on Debian/Ubuntu. Check
+`tesseract --version` and that `tesseract --list-langs` includes `eng`. The
+application image already includes both packages. Then run:
 
 ```sh
 docker compose stop web worker
@@ -90,21 +81,20 @@ uv run --locked --env-file .env python manage.py migrate
 uv run --locked --env-file .env python manage.py runserver
 ```
 
-Use `uv run --locked --env-file .env python manage.py <command>` for other
-management commands. uv explicitly loads `.env`; Django does not implicitly load
-files. Compose reads `.env` itself and sets the database hostname to `db`.
-Run `uv run --locked --env-file .env python manage.py db_worker --no-reload`
-in another terminal to process tasks while using the host web server. See
-[background tasks](background-tasks.md) for diagnostics, recovery, and pruning.
-Invitations send mail synchronously. Vehicle-location CSV preparation and
-publication use the worker, as do eligible automatic evidence checks.
+Use `uv run --locked --env-file .env python manage.py <command>` for management
+commands; uv loads `.env`, Django does not. Compose loads it separately and uses
+database hostname `db`. In another terminal, run
+`uv run --locked --env-file .env python manage.py db_worker --no-reload` to process
+background jobs, including vehicle CSV preparation/publication and automatic
+checks. Invitation mail is synchronous. See [background tasks](background-tasks.md)
+for diagnostics, recovery, and pruning.
 
 ## Configuration
 
-Optional private text/transcription runtimes use the `local-ai` Compose profile.
-They require reviewed local model files, hashes and a runtime token; ordinary
-startup does not download models. Follow [local analysis](local-analysis.md) for
-setup, explicit cloud selection, capacity measurement and model qualification.
+Optional text/transcription runtimes use the `local-ai` profile and require
+reviewed local model files, hashes, and a runtime token. Startup never downloads
+models. See [local analysis](local-analysis.md) for setup, cloud selection,
+capacity measurement, and qualification.
 
 | Variable | Behavior |
 | --- | --- |
@@ -134,12 +124,10 @@ when changing the externally visible web port. The containers always use 5432 an
 8000 internally. Compose is a local development configuration and passes only
 the variables it declares; hosted configuration is supplied directly to Django.
 
-Keep `.env`, databases, uploads, and backups out of Git. Store all local test
-evidence and validation output under ignored `data/` (for example,
-`data/test-evidence/`) or outside the checkout, including synthetic imports and
-exports. Generate committed test fixtures in code instead of retaining sample
-evidence files. See [repository hygiene](validation.md#repository-hygiene) for
-the commit/push hooks and their limits.
+Keep `.env`, databases, uploads, and backups out of Git. Put all test evidence and
+validation output, including synthetic imports/exports, under ignored `data/`
+or outside the checkout. Generate committed fixtures in code. See
+[repository hygiene](validation.md#repository-hygiene) for commit/push hooks and limits.
 
 ## Manage dependencies
 
@@ -151,9 +139,7 @@ uv lock --upgrade-package <package>
 uv sync --locked
 ```
 
-Commit `pyproject.toml` and the generated `uv.lock` together. Do not edit the
-lockfile by hand. Use `uv lock --upgrade` for a deliberate whole-graph update.
-`uv sync --locked` and `uv run --locked` reject stale lockfiles rather than
-silently resolving different versions. Runtime pins and coordinated upgrades are
-explained in [architecture](architecture.md); run the [checks](validation.md)
-before submitting changes.
+Commit `pyproject.toml` and generated `uv.lock` together; never edit the lockfile
+by hand. Use `uv lock --upgrade` for deliberate whole-graph updates. `--locked`
+rejects stale lockfiles. Follow [architecture](architecture.md) for coordinated
+runtime upgrades and run [validation](validation.md) before submission.

@@ -11,35 +11,30 @@ docker compose stop
 docker compose down
 ```
 
-`stop` and `down` retain named volumes. `postgres_data` holds PostgreSQL;
-`app_data` holds private evidence originals. Do not use `down --volumes` on data
-you want to retain. Existing legacy runtime files are not mounted or migrated.
+`stop` and `down` retain `postgres_data` (PostgreSQL) and `app_data` (private
+evidence). Never use `down --volumes` on retained data. Legacy runtime files are
+not mounted or migrated.
 
-On first run the database must become healthy before the application applies
-migrations. On subsequent starts Django applies only pending migrations. The
-application health check calls `/health/`, which checks PostgreSQL. If startup
-fails, inspect logs, verify environment variables, correct the problem, and rerun
-`make run`. Changed database passwords in `.env` do not
-change passwords already stored in an initialized PostgreSQL volume; rotate them
-with PostgreSQL before updating configuration.
+The application migrates after database readiness; later starts apply only pending
+migrations. `/health/` checks PostgreSQL. On startup failure, inspect logs and
+environment variables, fix the cause, and rerun `make run`. Changing `.env` does
+not rotate passwords in initialized PostgreSQL volumes: rotate in PostgreSQL first.
 
 HTTP readiness does not prove queue execution. Use the [worker diagnostic and
 recovery procedures](background-tasks.md#startup-and-diagnostics) after startup.
 
 ## Database backup and restoration
 
-Keep coordinated database and private-file backups in encrypted off-host storage.
-The database includes accounts, case and evidence metadata, captured text, and
-private task arguments and results. The `app_data` volume holds original and
-derived files. Retain the matching application revision and PostgreSQL major
-version with the snapshot.
+Keep coordinated database/private-file backups encrypted off-host, with their
+application revision and PostgreSQL major version. The database holds accounts,
+case/evidence metadata, captured text, and private task arguments/results;
+`app_data` holds originals and derived files.
 
 ### Capture a matching backup
 
-Run this from the checkout used by the running local Compose project. Stop any
-additional writers, such as a host-based web server or worker, before starting.
-The commands stage each attempt in a new owner-only directory. Use a backup
-only after both archive checks succeed and the `COMPLETE` marker exists.
+Run from the active local Compose checkout after stopping additional writers
+(including host web/worker processes). Each attempt uses a new owner-only directory.
+Use a backup only after both archive checks pass and `COMPLETE` exists.
 
 ```sh
 (
@@ -61,20 +56,18 @@ only after both archive checks succeed and the `COMPLETE` marker exists.
 )
 ```
 
-A capture or archive check failure leaves an incomplete directory and stops the
-sequence before restarting writers. Inspect the failure, then retry with a new
-snapshot or restart the original project with `docker compose up --wait web
-worker`. Copy completed snapshots off-host through your private backup process.
-Archive checks inspect the snapshot structure. Test restoration to verify recovery.
+A capture/check failure leaves writers stopped and the snapshot incomplete.
+Inspect it, then retry with a new snapshot or restart with
+`docker compose up --wait web worker`. Copy completed snapshots off-host.
+Archive checks verify structure; test restoration to qualify recovery.
 
 ### Restore in a separate Compose project
 
-Use a trusted completed snapshot and a checkout matching its application revision
-and PostgreSQL major version. Prepare a separate owner-only recovery environment
-file using the [local setup guide](development.md), with fresh secrets, closed
-signups, and optional external services unset. Start from a shell without
-production Django, PostgreSQL, Pandect, or Compose overrides. Use a new project
-name so recovery has fresh database and file volumes.
+Use a trusted completed snapshot and matching application revision/PostgreSQL
+major version. Follow [local setup](development.md) for a separate owner-only
+recovery environment with fresh secrets, closed signups, and external services
+unset. Clear production Django/PostgreSQL/Pandect/Compose shell overrides and use
+a new project name for fresh database/file volumes.
 
 ```sh
 (
@@ -106,19 +99,16 @@ name so recovery has fresh database and file volumes.
 )
 ```
 
-Both restores must succeed before web starts. The recovery project uses random
-loopback ports. Verify expected records and compare recovered originals against
-their retained checksums. For a failed restore, inspect the isolated project
-and retry in a fresh one. Keep the original project and volumes available until
-the recovered copy is qualified. Stop the recovery project by repeating its
-Compose flags with `stop`.
+Web starts only after both restores succeed, on random loopback ports. Verify
+records and original checksums. On failure, inspect the isolated project and retry
+in a fresh one. Retain the original project/volumes until recovery is qualified.
+To stop recovery, repeat its Compose flags with `stop`.
 
-Before enabling a worker or putting a recovered application back into use,
-inspect queued and running tasks for possible replay of earlier external
-effects. Review [background recovery](background-tasks.md) and run the worker
-diagnostic after startup. With external storage, use its coordinated snapshot
-and restore procedure and preserve the original storage keys. See [evidence
-lifecycle and failed cleanup recovery](evidence.md#private-storage-and-deletion).
+Before enabling workers or resuming use, inspect queued/running tasks for replay
+of external effects. Follow [background recovery](background-tasks.md) and run the
+worker diagnostic after startup. External storage needs coordinated snapshots,
+restoration, and preserved storage keys. See
+[evidence lifecycle and cleanup recovery](evidence.md#private-storage-and-deletion).
 
 ## Local image text extraction
 
@@ -129,14 +119,13 @@ credentials or remote fallback; supported profiles and version recovery are in
 
 ## Upgrades and hosted deployment
 
-Back up before upgrades. The additive findings catalogue migrations backfill
-retained JSON/input snapshots in bounded, per-result transactions. Stop old web
-writers and workers before migration; interrupted backfill is resumable. It does
-not read originals, rerun analysis, contact providers, rewrite result/review JSON,
-or rebuild at application startup. Migration time grows with retained findings.
-Use these additive migrations only on the current baseline described in
-[architecture](architecture.md); they do not provide migration from older rewritten
-pre-release baselines. The PDF renderer is pinned in the application lockfile.
+Back up before upgrades and stop old web writers/workers before migration.
+Findings catalogue migrations backfill retained JSON/input snapshots in bounded,
+resumable per-result transactions. They do not read originals, rerun analysis,
+contact providers, rewrite result/review JSON, or rebuild at startup. Duration
+grows with retained findings. These additive migrations require the current
+[baseline](architecture.md); they cannot upgrade rewritten pre-release baselines.
+The PDF renderer is pinned in the application lockfile.
 
 After reviewing dependency/runtime compatibility:
 
@@ -147,32 +136,24 @@ docker compose run --rm web python manage.py migrate --noinput
 docker compose up --wait
 ```
 
-Gunicorn serves the application and WhiteNoise serves public assets collected
-at image build time. Rebuild after template/static changes and deploy templates
-with their matching hashed-asset manifest. Host production installations must run
-`python manage.py collectstatic --noinput` before serving.
-Private evidence remains separate from collected static files and must never be
-published by the proxy or a public storage bucket.
+Gunicorn serves the application; WhiteNoise serves build-collected public assets.
+Rebuild after template/static changes and deploy matching templates/hashed-asset
+manifests. Host production installs need `python manage.py collectstatic --noinput`
+before serving. Never publish private evidence through a proxy or public bucket.
 
-The default `compose.yaml` remains a local development configuration. Use the
-[Dokploy recipe](#first-dokploy-deployment) for hosted operation. Other hosted
-deployments must explicitly configure HTTPS, allowed hosts,
-secure secret storage, SMTP, a matching `PANDECT_PUBLIC_ORIGIN`, private persistent
-storage, database backups, and a separate migration step before starting web or
-worker replicas. Debug is disabled by default; session/CSRF cookies require HTTPS
-in that mode.
-Run `python manage.py check --deploy` with the actual deployment configuration and
-resolve its findings. Trusted proxy headers must only be configured for a
-controlled reverse proxy. Installations predating the domain-app reorganization
-require the [fresh baseline](architecture.md#primary-keys-and-the-initial-schema),
-not an additive migration or faked history. Retain their old database and media.
+`compose.yaml` is for local development; use the [Dokploy recipe](#first-dokploy-deployment)
+for hosting. Other hosts need HTTPS, allowed hosts, secure secrets, SMTP, matching
+`PANDECT_PUBLIC_ORIGIN`, private persistent storage, database backups, and migration
+before web/worker startup. Debug defaults off, requiring HTTPS session/CSRF cookies.
+Run `python manage.py check --deploy` with actual configuration and resolve findings.
+Trust proxy headers only behind a controlled proxy. Older installations require a
+[fresh baseline](architecture.md#primary-keys-and-the-initial-schema), with their
+old database/media retained; do not fake migration history.
 
 ## First Dokploy deployment
 
-CI builds one versioned GHCR image, CD resolves its immutable digest, and Dokploy
-runs separate native Docker Applications for **web** and **worker**, plus a managed
-**PostgreSQL** resource.
-The local `compose.yaml` remains a development tool; it is not used in Dokploy.
+CI builds one GHCR image; CD resolves its immutable digest. Dokploy runs native
+**web** and **worker** Applications plus managed **PostgreSQL**, without Compose.
 
 1. In the production project, create a managed PostgreSQL resource using
    `postgres:18.6`, with a new database, role, and strong password.
@@ -206,24 +187,20 @@ The local `compose.yaml` remains a development tool; it is not used in Dokploy.
    running task, image digest, and release marker before deploying web. Web
    starts Gunicorn directly and serves build-collected WhiteNoise assets.
 
-Keep native push autodeployment disabled: the GitHub CD workflow owns activation
-after successful CI. The database is provisioned independently and is not
-recreated on application releases. The worker's stop-first, one-replica rollout
-keeps migration ownership singular. Use additive migrations compatible with the
-currently running web release; destructive schema changes need a separately
-planned rollout. Never run migrations concurrently from another process.
+Disable native push autodeployment; GitHub CD owns activation after CI. Application
+releases never recreate the independently provisioned database. The singleton,
+stop-first worker owns migrations; never migrate concurrently elsewhere. Migrations
+must support the running web release; plan destructive changes separately.
 
-Registration is rejected on both GET and POST, including new invited accounts;
-existing accounts can still sign in. No AI runtime or inference credentials are
-needed for this first deployment. Leave every inference URL and token unset.
-SMTP may remain unconfigured for the marketing launch; password resets, email
-verification, and invitation delivery require working SMTP before use.
+Closed registration rejects GET/POST, including new invitees; existing accounts
+can sign in. Leave inference URLs/tokens unset for this first deployment. SMTP is
+optional for the marketing launch but required before password resets,
+verification, or invitation delivery.
 
-The deployment trusts `X-Forwarded-Proto` only behind the existing controlled
-proxy and sets the exact HTTPS CSRF origin. Secure session/CSRF cookies remain
-enabled. The edge owns HTTPS redirection. Verify public HTTP redirects, HTTPS
-sign-in CSRF, and proxy behavior on the actual domain. Assess Django's deployment
-check findings against the edge configuration and the one-day HSTS policy.
+Trust `X-Forwarded-Proto` only behind the controlled proxy; set the exact HTTPS
+CSRF origin and retain secure session/CSRF cookies. Verify edge HTTP-to-HTTPS
+redirects, sign-in CSRF, and proxy behavior on the actual domain. Assess Django's
+deployment findings against edge configuration and the one-day HSTS policy.
 
 For allauth rate limits, `PANDECT_TRUSTED_PROXY_COUNT=0` uses the directly connected
 address and ignores `X-Forwarded-For`. Set the count only when the controlled proxy
@@ -242,28 +219,23 @@ python manage.py migrate --check
 python manage.py check_task_worker --timeout 30
 ```
 
-`/health/` checks PostgreSQL and reports the image's build commit. It does not
-prove queue execution: the worker diagnostic enqueues one harmless probe. Do not
-use that diagnostic as a recurring container health check. Verify the expected
-image digests and commit on the actual running tasks, the public marketing routes
-(`/`, `/product/`, `/trust/`, `/hosting/`), their static assets, and the closed
-signup page. Local tests do not establish live service health.
+`/health/` checks PostgreSQL and reports the build commit; the worker diagnostic
+checks queue execution with one harmless probe. Never use that probe as a recurring
+health check. Verify running-task digests/commit, marketing routes (`/`, `/product/`,
+`/trust/`, `/hosting/`), static assets, and closed signup on the live deployment.
 
-Back up the managed database and shared private evidence volume together, with
-application writers stopped, and retain private off-host copies. A database dump
-alone is incomplete. Keep native resource identities, volume names, server, and
-placement stable across redeploys. Do not use the local Compose backup commands
-against Dokploy resources. An older image may not support a newer schema;
-rollback or matching backup restoration is a separately reviewed recovery action.
+Back up the managed database and evidence volume together with writers stopped;
+retain private off-host copies. A database dump alone is incomplete. Preserve
+resource identities, volume names, server, and placement across redeploys. Local
+Compose backup commands do not apply. Review rollback/restoration separately:
+older images may not support newer schemas.
 
 ### Continuous deployment
 
-After all CI checks pass on a push to Pandect's upstream `main`, CI builds
-one Linux amd64 image and publishes it to the private
-`ghcr.io/<owner>/<repository>` package. It has the commit tag and a
-`build-<CI run ID>` tag; the build summary records its immutable digest.
-The image embeds `APP_COMMIT_SHA` so live health identifies its source revision.
-Pull requests and manually dispatched CI do not publish or activate releases.
+After checks pass for an upstream `main` push, CI publishes one Linux amd64 image
+to private `ghcr.io/<owner>/<repository>`, tagged with the commit and
+`build-<CI run ID>`. The summary records its digest; embedded `APP_COMMIT_SHA`
+identifies the live revision. PRs and manual CI runs do not publish/activate releases.
 
 Under GitHub **Settings → Environments → production**, set **Deployment branches
 and tags** to **Selected branches and tags** and allow only the protected
@@ -280,29 +252,23 @@ See [GitHub's deployment branch and environment settings](https://docs.github.co
 | `DOKPLOY_WORKER_APPLICATION_ID` | Existing native worker Application ID. |
 | `DOKPLOY_REGISTRY_PASSWORD` | Registry credential with read access to the private GHCR package. |
 
-The registry username is the repository owner. CI uses its scoped GitHub token
-for package publication; the long-lived Dokploy pull credential stays in secrets
-and the Docker provider configuration. Application environment, mounts, domain,
-database, and secret-store configuration remain under their operator owners.
-The deployment helper does not replace those settings or redeploy PostgreSQL.
+The registry username is the repository owner. CI publishes with its scoped GitHub
+token; Dokploy's long-lived pull credential stays in secrets and Docker provider
+configuration. The helper preserves operator-owned environments, mounts, domains,
+database, and secret-store settings; it never redeploys PostgreSQL.
 
-The separate CD workflow activates only successful `CI` runs from same-repository
-pushes to `main`. It checks the current `main` commit and skips stale results.
-For the [domain-app migration baseline](architecture.md#primary-keys-and-the-initial-schema),
-retain the previous database and evidence volume, prepare a fresh PostgreSQL
-database with an empty queue, and configure both Dokploy Applications to use it.
-Once both are configured, set the GitHub
-**production** environment variable `PANDECT_PRODUCTION_DATABASE_BASELINE` to
-`domain-apps-v1`. The deployment helper stops before changing either Application
-until this setting is present. Rerun the failed **Deploy production** workflow
-for the successful CI run on current `main` once the database is ready.
+CD accepts successful `CI` runs only from same-repository `main` pushes and skips
+stale commits. For the [domain-app baseline](architecture.md#primary-keys-and-the-initial-schema),
+retain the old database/evidence volume, prepare a fresh PostgreSQL database and
+empty queue, and point both Applications to it. Then set **production** environment
+variable `PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1`; the helper refuses
+mutations without it. Once ready, rerun **Deploy production** for successful CI
+on current `main`.
 
-The successful run's tag and commit tag must resolve to the same digest. CD passes
-that shared reference to the deployment helper as `PANDECT_IMAGE`; both Dokploy
-Applications receive the same `repository@sha256:...`, never a moving tag. CD
-checks out only the trusted `main` deployment helper and executes no downloaded
-CI artifacts. Its production concurrency group waits for the active rollout
-instead of cancelling it when a newer commit arrives.
+The run and commit tags must resolve to the same digest. CD supplies it as
+`PANDECT_IMAGE`; both Applications receive `repository@sha256:...`. CD uses only the
+trusted `main` helper, never downloaded CI artifacts. Production concurrency waits
+for active rollouts without cancelling them for newer commits.
 
 CD updates each native Application's Docker provider, sets worker's Command to
 `sh` with `/app/scripts/docker-entrypoint-worker.sh` as its sole Argument, and
@@ -317,13 +283,10 @@ on its exact image. An accepted deploy request alone does not count as success.
 Queue execution still requires the bounded `check_task_worker` diagnostic above;
 CD's worker checks establish startup and task identity.
 
-When upgrading from the separate `-web` and `-worker` packages, keep the existing
-Dokploy Application IDs, environment, database, and shared evidence volume.
-Ensure the pull credential can read the new shared GHCR package before rollout.
-The first successful CI/CD run switches both Applications to the shared image and
-configures their startup commands. Retain the previous image digests and command
-settings for separately reviewed recovery; changing image packaging requires no
-database reset or additional migration.
+When replacing separate `-web`/`-worker` packages, preserve Application IDs,
+environments, database, and shared volume. Check pull access to the shared GHCR
+package first. Successful CI/CD switches both images and startup commands without
+a database reset or extra migration. Retain old digests/commands for reviewed recovery.
 
 Only after both services pass verification does the deployment helper emit its
 `deployed=true` output. A dependent job then publishes a GitHub release tagged
@@ -351,23 +314,19 @@ current default branch and the token lacks workflow-modification authority;
 inspect the target and repository rules rather than adding fallback credentials.
 See [GitHub's release API](https://docs.github.com/en/rest/releases/releases#create-a-release).
 
-Requests and readiness waits are bounded. The helper rejects HTTP redirects and
-leaves failed mutations for operator review. A readiness timeout identifies the
-service and the check it was waiting on. Inspect the native deployment/task
-status before rerunning because the remote rollout can continue after a timeout.
-The helper refuses another deployment when it detects an active one. A worker
-or web failure stops the remaining steps and can leave a partial release
-requiring operator review. Keep migrations compatible with the running release
-and take backups before schema upgrades.
+Requests/waits are bounded; redirects are rejected. Timeouts identify the service
+and pending check. Inspect native deployment/task status before retrying: rollout
+may continue after timeout, and the helper refuses detected active deployments.
+Failures stop remaining steps and may leave partial releases for operator review.
+Back up before schema upgrades and preserve compatibility with the running release.
 
 ## Upload limits and request handling
 
-The application streams one file per request, bounded by `PANDECT_MAX_FILE_BYTES`.
-The browser queues up to `PANDECT_MAX_BATCH_FILES` sequential requests;
-`PANDECT_MAX_TEXT_BYTES` bounds captured text, messages, and call transcripts.
-Django's upload memory threshold controls temporary storage, not maximum file size.
-Call audio uses the normal file limit/private storage. Uploading it does not
-request transcription; inference is a separate [analysis operation](analysis.md).
+Uploads stream one file per request, bounded by `PANDECT_MAX_FILE_BYTES`. The
+browser queues up to `PANDECT_MAX_BATCH_FILES` sequential requests;
+`PANDECT_MAX_TEXT_BYTES` bounds text, messages, and transcripts. Django's memory
+threshold controls temporary storage, not file size. Call audio uses normal file
+limits/private storage; transcription is a separate [analysis operation](analysis.md).
 
 Vehicle CSV imports accept up to 100 MiB and 100,000 data rows, respecting any
 smaller operator file limit. Worker parsing, paginated review, and atomic
@@ -387,17 +346,15 @@ submission ID so retry can reconcile a committed record without creating another
 
 ## Invitations, mail, and private logs
 
-Set `PANDECT_PUBLIC_ORIGIN` to the externally visible HTTP(S) origin, without a
-path or credentials. It is used in invitation emails rather than trusting an
-incoming Host header. Invitations require verified recipient email and expire
-after `PANDECT_INVITATION_DAYS` (default seven). Failed delivery leaves an
-invitation available for owner-initiated resend; correct SMTP settings first.
-Sign-in resumes the invitation through the session without carrying its token
-in the login URL.
+Set `PANDECT_PUBLIC_ORIGIN` to the external HTTP(S) origin, without path/credentials;
+invitation email uses it instead of the Host header. Invitations require verified
+recipient email and expire after `PANDECT_INVITATION_DAYS` (default seven). After
+delivery failure, fix SMTP before owner-initiated resend. Sign-in resumes invitations
+through the session, without tokens in login URLs.
 
-Production SMTP uses the configured sender, STARTTLS, and bounded timeout. Console
-mail is a development-only feature and deliberately prints verification/invitation
-links; keep those local logs private and do not enable debug for hosted operation.
+Production SMTP uses the configured sender, STARTTLS, and a bounded timeout.
+Development console mail prints private verification/invitation links; keep logs
+private and hosted debug disabled.
 
 Case, account, and invitation responses disable caching and use
 `Referrer-Policy: same-origin`. This preserves native same-origin form CSRF

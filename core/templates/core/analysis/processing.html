@@ -3,7 +3,7 @@
 {% block content %}
 <header class="page-header">
   <div><h1>Processing</h1><p class="muted">Follow work in progress and revisit earlier results.</p></div>
-  <a class="button button-secondary" href="{% querystring %}">Refresh progress</a>
+  <div class="actions">{% if can_edit %}<a class="button button-primary" href="{% url 'core:analysis:reprocess' case.pk %}">Reprocess evidence</a>{% endif %}<a class="button button-secondary" href="{% querystring %}">Refresh progress</a></div>
 </header>
 
 <section class="analysis-section" aria-labelledby="in-progress-heading">
@@ -11,7 +11,7 @@
   {% if active_batches.paginator.count %}
   <h3>Preparing checks</h3>
   {% for item in active_batches %}
-  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>{% if item.scope.automatic %}Preparing message analysis{% else %}Preparing local checks{% endif %}</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p></div></a>
+  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>{% if item.scope.type == 'reprocess' %}Preparing selected checks{% elif item.scope.automatic %}Preparing message analysis{% else %}Preparing local checks{% endif %}</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p></div></a>
   {% endfor %}
   {% if active_batches.has_other_pages %}<nav class="pagination" aria-label="Preparation in progress pages">{% if active_batches.has_previous %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_batches.number }} of {{ active_batches.paginator.num_pages }}</span>{% if active_batches.has_next %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
   {% endif %}
@@ -34,9 +34,10 @@
   <div class="section-header"><h2 id="processing-history-heading">History</h2><a class="record-link" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a></div>
   {% if batch %}
   <div class="notice"><p><strong>Selected batch · {{ batch.get_status_display }}</strong></p><p>Requested {{ batch.created_at|date:'j M Y, H:i T' }} · {{ batch.processed_sources }} sources prepared · {{ batch.queued_runs }} initial checks queued.</p>
+  {% if batch.scope.type == 'reprocess' %}<p>Reprocessing · {% if batch.scope.mode == 'both' %}Local and external / AI{% elif batch.scope.mode == 'external' %}External / AI{% else %}Local{% endif %}. Earlier results are retained. Each comparison covers its selected sources.</p>{% endif %}
   {% if batch.status == 'queued' %}<p role="status">Checks are still being prepared. Queued checks may continue after preparation finishes.</p>{% elif batch.status == 'failed' %}<p role="status">Preparation stopped. {% if batch.error_code == 'access_removed' %}The requester no longer has the required access.{% else %}Review the checks below before making another request.{% endif %}</p>{% endif %}
-  {% if batch.status == 'complete' and not batch.processed_sources %}<p>No active evidence was available for local checks.</p>{% endif %}
-  {% if batch.unavailable_sources %}<details><summary>{{ batch.unavailable_sources }} source{{ batch.unavailable_sources|pluralize }} could not be prepared</summary><ul>{% for failure in batch.preparation_errors %}<li><a href="{% url 'core:evidence:detail' case.pk failure.kind failure.evidence_id %}">Open {{ failure.kind }} source</a> · {{ failure.message }}</li>{% endfor %}</ul></details>{% endif %}
+  {% if batch.status == 'complete' and not batch.processed_sources %}<p>No active evidence was available for the selected checks.</p>{% endif %}
+  {% if batch.unavailable_sources %}<details><summary>{% if batch.scope.type == 'reprocess' %}{{ batch.unavailable_sources }} preparation failure{{ batch.unavailable_sources|pluralize }}{% else %}{{ batch.unavailable_sources }} source{{ batch.unavailable_sources|pluralize }} could not be prepared{% endif %}</summary>{% if batch.scope.type == 'reprocess' %}<p>Showing up to 100 failed preparation attempts. Other checks and earlier results are kept.</p>{% endif %}<ul>{% for failure in batch_failures %}<li><a href="{% url 'core:evidence:detail' case.pk failure.kind failure.evidence_id %}">Open {{ failure.kind }} source</a>{% if failure.operation_label %} · {{ failure.operation_label }}{% endif %} · {{ failure.message }}</li>{% endfor %}</ul></details>{% endif %}
   <a class="record-link" href="{% url 'core:analysis:processing' case.pk %}#processing-history">All processing history</a></div>
   {% endif %}
   {% if page_obj.paginator.count or history_filters %}

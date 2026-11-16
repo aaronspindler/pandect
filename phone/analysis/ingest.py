@@ -20,7 +20,7 @@ def start_import_analysis(run, data):
         start_case_analysis(
             run.requested_by,
             run.case_id,
-            submission_id=uuid5(run.pk, "imazing-analysis-v1"),
+            submission_id=uuid5(run.pk, "imessage-analysis-v1"),
             scope={"type": "messages", "id": str(run.pk), "automatic": True},
         )
 

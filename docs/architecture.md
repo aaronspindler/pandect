@@ -1,21 +1,20 @@
 # Application foundation
 
-Pandect has one Django configuration and user model for self-hosted and
-operator-hosted operation. Environment variables supply deployment differences.
-The [documentation index](README.md) routes to implemented domain workflows.
-The UI uses Django templates, local CSS, and focused
-vanilla JavaScript for the sequential upload queue and interface enhancements.
+Self-hosted and operator-hosted Pandect share one Django configuration and user
+model, with deployment differences supplied by environment variables. The UI uses
+Django templates, local CSS, and focused vanilla JavaScript. See the
+[documentation index](README.md) for domain workflows.
 
 ## Runtime decisions
 
 Exact runtime versions belong to [`.python-version`](../.python-version),
 [`mise.toml`](../mise.toml), [`pyproject.toml`](../pyproject.toml), and the resolved
 [`uv.lock`](../uv.lock); container pins belong to the [Dockerfile](../Dockerfile)
-and [Compose configuration](../compose.yaml). The project stays on Python 3.14
-until a separate upgrade validates the full dependency stack and both CI
-architectures. uv manages a non-packaged project with a committed cross-platform
-lockfile; commands run from the checkout. Development and integration tests use
-PostgreSQL, with a separate test database through Django's built-in test runner.
+and [Compose configuration](../compose.yaml). Stay on Python 3.14 until an upgrade
+validates the full dependency stack on both CI architectures. uv manages this
+non-packaged project with a committed cross-platform lockfile; run commands from
+the checkout. Development and integration tests use PostgreSQL; Django's test
+runner creates a separate test database.
 
 Sources: [Django downloads](https://www.djangoproject.com/download/),
 [Django's Python compatibility table](https://docs.djangoproject.com/en/6.1/faq/install/#what-python-version-can-i-use-with-django),
@@ -28,58 +27,50 @@ architectures. uv's required version, mise version, Docker stage, and workflow
 version must also agree. Docker disables Python downloads: an incompatible base
 fails immediately rather than installing a second interpreter into the image.
 
-Headless OpenCV supplies the bounded geometric plate-region detector; it uses the
-existing NumPy dependency and adds no GUI, trained model or network service. Its
-native processing runs only in the isolated file parser, with one OpenCV thread
-and OpenCL disabled. See [plate extraction](analysis-extraction.md#vehicle-plate-candidates).
+Headless OpenCV provides bounded geometric plate detection using NumPy, without a
+GUI, trained model, or network service. It runs only in the isolated file parser,
+with one thread and OpenCL disabled. See
+[plate extraction](analysis-extraction.md#vehicle-plate-candidates).
 
-The Docker image installs locked Python dependencies plus distribution-packaged
-Tesseract and English OCR data, runs as an
-unprivileged user, and defaults to `gunicorn config.wsgi:application`. Its build
-context excludes local secrets and data. App-local templates/static assets are
-included explicitly; `collectstatic` runs during the image build and WhiteNoise
-serves public application assets. Private evidence is outside its static root.
-One application image supplies both web and worker services. Web uses the image's
-default Gunicorn command; the production worker overrides it with
-`sh /app/scripts/docker-entrypoint-worker.sh`. In native Dokploy deployment, the
-singleton worker applies migrations and emits its release
-preparation marker before starting queue processing; web activation follows
-worker preparation. `APP_COMMIT_SHA` is baked into the shared image and its
-OCI revision label. Healthy `/health/` responses report it as `commit`, allowing
-deployment checks to distinguish the running release from a healthy older image.
-Compose overrides the command for local development. PostgreSQL 18 stores its named volume at `/var/lib/postgresql`, as
-required by that image's version-specific layout.
+The unprivileged Docker image installs locked Python dependencies, Tesseract, and
+English OCR data. Its build context excludes local secrets/data and explicitly
+includes app-local templates/assets. Build-time `collectstatic` supplies public
+assets to WhiteNoise; private evidence stays outside the static root.
 
-Django's native Tasks API uses `django-tasks-db` with the existing PostgreSQL
-database and one `default` queue. Compose runs a separate worker from the same
-application image after web readiness confirms migrations. This keeps self-hosting
-to PostgreSQL plus application processes, with no separate broker. The dependency
-is beta software; integration and restart behavior are covered locally and in CI.
-The queue supplies transport and operational records; [case analysis](analysis.md)
-adds domain-level authorization, immutable results, progress, and recovery. See
-[background tasks](background-tasks.md) for operator diagnostics.
+Web and worker share one image. Production web defaults to
+`gunicorn config.wsgi:application`; the worker uses
+`sh /app/scripts/docker-entrypoint-worker.sh`. In Dokploy, the singleton worker
+migrates and emits its release preparation marker before processing tasks; web
+activation follows. `APP_COMMIT_SHA` is baked into the image and OCI revision label
+and returned as `commit` by healthy `/health/` responses. Compose overrides startup
+commands for development. PostgreSQL 18's named volume mounts at `/var/lib/postgresql`.
+
+Django's Tasks API uses the beta `django-tasks-db` dependency, PostgreSQL, and one
+`default` queue, without a separate broker. Compose starts its worker after web
+readiness confirms migrations. Integration/restart behavior is covered locally
+and in CI. The queue supplies transport and operational records;
+[case analysis](analysis.md) adds authorization, immutable results, progress, and
+recovery. See [background tasks](background-tasks.md) for diagnostics.
 
 ## Modules and identity
 
 - `config/` contains settings, routes, readiness, and WSGI/ASGI entry points.
-- `accounts/` contains an `AbstractUser` subclass and its initial migration.
-  `AUTH_USER_MODEL = "accounts.User"` is configured before any initial migration.
+- `accounts/` owns the `AbstractUser` subclass and initial migration;
+  `AUTH_USER_MODEL = "accounts.User"` is set before any initial migration.
 - django-allauth supplies username/email sign-in, registration, mandatory email
   verification, password recovery, and sign-out under `/accounts/`.
 - Django admin uses the custom user model and requires staff permissions.
-- `cases/` contains `Case`, the root record for investigation and evidence
-  relationships, and `CaseMembership` for viewer/editor collaboration. Ownership
-  is separate from membership. Case metadata and the UUID-keyed `CaseInvitation`
-  model support the product workflows. `cases.permissions` provides current case
-  authorization shared by product views. See [case workflows and permissions](cases.md).
+- `cases/` owns the investigation boundary (`Case`), viewer/editor collaboration
+  (`CaseMembership`), and UUID-keyed `CaseInvitation`. Ownership is separate from
+  membership. `cases.permissions` supplies current case authorization to product
+  views. See [case workflows and permissions](cases.md).
 - `/health/` checks database connectivity without returning secrets or case data.
 - `core/` is one Django app owning abstract evidence/file bases, common evidence
   management and the unified workspace, plus durable analysis runs, results,
   reviews, artifacts, source resolution, inference adapters, and job orchestration.
   `core.evidence` and `core.analysis` are focused Python packages, not Django apps.
-  Core also owns the synthetic worker probe, the bounded `check_task_worker`
-  diagnostic, and the safeguard disabling global queue administration because
-  operational task records have no case authorization.
+  Core also owns the synthetic probe, bounded `check_task_worker` diagnostic, and
+  disabled global queue admin: operational task records have no case authorization.
 - `text/`, `image/`, `audio/`, and `document/` own their concrete evidence models,
   forms, reader templates, administration, processing, and tests.
 - `geo/` owns location/person-location/vehicle-location evidence, points of
@@ -103,19 +94,17 @@ Every concrete Pandect model uses an explicit, non-editable UUID primary key
 with `default=uuid4`. Django/allauth internals and automatic join tables retain
 upstream schemas. UUIDs do not replace case authorization.
 
-The pre-release domain reorganization replaces Pandect's migration history with a
-fresh baseline. Shared processing models use the `core` app label; concrete
-models use their owning domain labels. Old `evidence`, `analysis`, and `vehicles`
-app labels, table names, permissions, imports, and queued task paths are not
-supported. `accounts.User` remains in its initial migration; upstream Django,
-allauth, and queue migrations are unchanged.
+The pre-release reorganization replaces Pandect's migration history with a fresh
+baseline. Shared processing models use `core`; concrete models use domain app
+labels. Old `evidence`, `analysis`, and `vehicles` labels, tables, permissions,
+imports, and queued task paths are unsupported. `accounts.User` remains in its
+initial migration; upstream Django, allauth, and queue migrations are unchanged.
 
-Use a new PostgreSQL database and empty queue for this baseline. Do not apply it
-on top of an old installation's migration history or use `--fake` to bridge the
-schemas. No data conversion is provided. Retain existing databases and media
-until an operator deliberately authorizes their replacement or removal; startup
-never resets them. Validate with an isolated database first. Web and worker
-processes must use the same revision and the new database.
+Use a new PostgreSQL database and empty queue. Do not apply this baseline over old
+migration history or bridge schemas with `--fake`; no data conversion is provided.
+Retain existing databases/media until an operator authorizes replacement or
+removal; startup never resets them. Validate in isolation first, then use the same
+revision and new database for web and worker.
 
 ### Dependency boundaries
 
@@ -125,22 +114,18 @@ registries compose domain models/forms/readers and processing callables at the
 application layer; there is no plugin autodiscovery. Shared file cleanup runs
 only after transaction commit, with receivers registered by the owning apps.
 
-The core parser runner retains isolated Python subprocesses, resource limits,
-bounded input/output, and a fixed dispatch allowlist. Domain parser modules are
-Django-free; they never load settings or models in a parser child. Type-specific
-processing remains in the matching domain app, including text methods reused
-for extracted document or conversation text.
+The core parser runner uses isolated Python subprocesses, resource limits,
+bounded input/output, and a fixed dispatch allowlist. Domain parsers are Django-free
+and never load settings/models in a child process. Type-specific processing stays
+in its domain, including text methods reused for document or conversation text.
 
-Each domain's `analysis/` package separates deterministic calculations, metadata
-inspection, model-based AI, and external service lookups into `deterministic`,
-`metadata`, `ai`, and `external` modules or subpackages as applicable. Local OCR
-uses `image.analysis.ai_parser` inside the bounded parser process. Private geocoding
-belongs to External while retaining its private processing route. Category names
-describe code ownership, not network destination or approval requirements.
-Existing mixed operations use domain `workflows.py` modules to combine categories;
-their investigator-facing choices and parameters remain unchanged. Shared report
-dispatch stays in core, with call calculations in phone and vehicle-location
-calculations in geo.
+Domain `analysis/` packages separate `deterministic`, `metadata`, `ai`, and
+`external` processing. Local OCR uses `image.analysis.ai_parser` in the bounded
+parser. Private geocoding belongs to External but retains its private route:
+categories describe code ownership, not destination or approval. Domain
+`workflows.py` modules combine categories without changing investigator choices
+or parameters. Core dispatches reports; phone owns call calculations and geo
+owns vehicle-location calculations.
 
 ## Interface delivery and migrations
 
@@ -155,17 +140,15 @@ and parent-case ownership are checked on every relevant request and again inside
 case-locked mutations. Invitation acceptance is bound to the invited verified
 email and never silently changes an existing membership or transfers ownership.
 
-The app split preserves browser paths and evidence-kind identifiers. Shared
-routes use `core:evidence:*` and `core:analysis:*`; specialized routes belong to
-`geo`, `phone`, `socialmedia`, and `vehicle`. Case/people/evidence edits continue
-to detect stale revisions and preserve drafts for review.
+Browser paths and evidence-kind identifiers are preserved. Shared routes use
+`core:evidence:*` and `core:analysis:*`; specialized routes belong to `geo`,
+`phone`, `socialmedia`, and `vehicle`. Case/people/evidence edits detect stale
+revisions and preserve drafts for review.
 
-Application assets use WhiteNoise; originals remain in private Django storage.
-Account, case, and invitation responses disable caching and suppress cross-origin
-referrers while preserving native same-origin CSRF validation. Routine
-access logging redacts invitation, email confirmation, and password reset keys
-and query strings. Deployment proxies
-need matching treatment. See [operations](operations.md).
+Account, case, and invitation responses disable caching and cross-origin
+referrers while preserving same-origin CSRF validation. Access logs redact query
+strings and invitation, email-confirmation, and password-reset keys; proxies need
+matching treatment. See [operations](operations.md).
 
 ## Capability boundaries
 

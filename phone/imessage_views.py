@@ -93,7 +93,7 @@ def imessage_review(request, case_id, run_id):
     case = get_case(request.user, case_id, edit=request.method == "POST")
     requested = get_object_or_404(
         AnalysisRun.objects.select_related("result", "previous_run").filter(
-            case=case, operation="imazing_import"
+            case=case, operation="imessage_import"
         ),
         pk=run_id,
     )
@@ -102,7 +102,7 @@ def imessage_review(request, case_id, run_id):
             AnalysisRun.objects.select_related("result"),
             pk=requested.parameters.get("preview_run_id"),
             case=case,
-            operation="imazing_import",
+            operation="imessage_import",
             parameters__phase="preview",
         )
     else:
@@ -116,7 +116,7 @@ def imessage_review(request, case_id, run_id):
     final = (
         AnalysisRun.objects.filter(
             case=case,
-            operation="imazing_import",
+            operation="imessage_import",
             parameters__phase="import",
             parameters__preview_run_id=str(preview.pk),
         )
@@ -144,8 +144,8 @@ def imessage_review(request, case_id, run_id):
                 source,
                 preview.parameters
                 | {
-                    "_imazing_text_limit_bytes": data["imazing"]["text_limit_bytes"],
-                    "_imazing_interpretation_sha256": data["imazing"][
+                    "_imessage_text_limit_bytes": data["imessage"]["text_limit_bytes"],
+                    "_imessage_interpretation_sha256": data["imessage"][
                         "interpretation_sha256"
                     ],
                 },
@@ -153,7 +153,7 @@ def imessage_review(request, case_id, run_id):
                 per_page=25,
             )
             if actual_total != total:
-                raise AnalysisError("imazing_source_changed")
+                raise AnalysisError("imessage_source_changed")
             rows.object_list = selected
         except AnalysisError as error:
             source_error = error_message(error.code)
@@ -266,7 +266,7 @@ def imessage_review(request, case_id, run_id):
             "run": current,
             "document": document,
             "source_error": source_error,
-            "summary": data.get("imazing", {}),
+            "summary": data.get("imessage", {}),
             "samples": samples,
             "metrics": metrics,
             "rows": rows,

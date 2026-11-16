@@ -66,7 +66,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(response.status_code, 302)
         run = AnalysisRun.objects.get(
-            operation="imazing_import", parameters__phase="preview"
+            operation="imessage_import", parameters__phase="preview"
         )
         process_run(run.pk)
         run.refresh_from_db()

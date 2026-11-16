@@ -103,7 +103,7 @@ class IMessagePersonForm(forms.Form):
         self.fields["person"].queryset = Person.objects.filter(case=case)
         self.fields["mode"].initial = "existing" if case.people.exists() else "create"
         if role == "correspondent":
-            identifier = preview.result.data.get("imazing", {}).get("sender_id", "")
+            identifier = preview.result.data.get("imessage", {}).get("sender_id", "")
             if len(identifier) <= 64 and re.fullmatch(r"[+\d(). -]+", identifier):
                 self.fields["phone_number"].initial = identifier
 

@@ -1,134 +1,120 @@
 # Background-worker foundation
 
-Pandect uses Django's native Tasks API with `django-tasks-db` and its existing
-PostgreSQL database. One `default` queue is shared by web and worker processes.
-There is no Redis service, scheduler, or external queue. Shared queue diagnostics
-and AI integration belong to `core`; case analysis lives in its `core.analysis`
-subpackage. The backend remains asynchronous when `DEBUG=true`.
+Django's Tasks API and `django-tasks-db` use Pandect's PostgreSQL database and one
+`default` queue shared by web/workers, asynchronously even with `DEBUG=true`.
+There is no Redis, scheduler or external queue. `core` owns diagnostics/AI
+integration; its `core.analysis` subpackage owns case analysis.
 
-The synthetic diagnostic returns a nonce; [case analysis](analysis.md) and
-[vehicle-location CSV imports](vehicle-location-imports.md) also use this queue
-with separate durable case-scoped records, progress, and recovery.
-Eligible investigator evidence and its automatic checks are committed together
-through the existing PostgreSQL queue. Original retention, invitations, and file
-cleanup are synchronous. Other lengthy ingestion must add its own
-authorization, idempotency, and recovery before using this foundation.
+The nonce diagnostic, [analysis](analysis.md) and
+[vehicle CSV imports](vehicle-location-imports.md) share this queue. Domain records
+retain case-scoped progress/recovery independently. Eligible evidence and its
+checks commit together; original retention, invitations and file cleanup remain
+synchronous. Other lengthy ingestion must implement authorization, idempotency
+and recovery before using the queue.
 
-Case-wide **Rerun all analysis** retains a case-scoped `CaseAnalysisBatch` cursor.
-Each preparation task queues local runs for at most 25 active sources and commits
-the cursor, those runs and the next task atomically. Calls are traversed by retained
-addition, so large call histories do not exceed per-run source limits. Each step
-rechecks the requester's current editing access and verified account; individual
-analysis workers recheck access again. Unavailable originals are counted and skipped; up to 100 source-specific safe
-preparation errors are retained. Preparation failures stop the batch with a safe message; investigators
-can make a fresh request from Processing. Previously committed runs remain retained.
-As with other tasks, abrupt worker loss can leave preparation pending. Confirm the
-old worker has stopped before making a fresh request; the queue does not reclaim
-stale work automatically.
+**Rerun all analysis** retains a `CaseAnalysisBatch` cursor. Preparation queues at
+most 25 active sources per task, traversing call additions within source limits,
+and commits runs, cursor and continuation atomically. Each step rechecks verified
+requester/edit access; run workers check again. Unavailable originals are counted
+and skipped, retaining up to 100 safe source errors. Preparation failures stop
+with a safe message; fresh requests preserve committed runs. Abrupt worker loss
+may leave preparation pending. Confirm the old worker stopped before restarting;
+there is no stale-task reclamation.
+
+**Reprocess evidence** uses a `reprocess` batch scope retaining evidence types,
+mode and reviewed execution snapshots. Bounded continuations prepare independent
+and grouped methods plus extraction/transcription follow-ups. External-only file
+analysis may need local prerequisites. AI retains separate local/Gateway identities;
+geographic lookup follows configured service classification. Continuations recheck
+verified edit access and approved settings; drift stops preparation, while queued
+runs enforce their own drift checks. Method failures preserve other results.
+Failed preparation attempts are counted separately from sources, with up to 100
+safe source/method errors. Grouped comparisons disclose their retained coverage.
 
 ## Investigator progress and completed imports
 
-The main **Processing** screen separates active work from retained history, and
-batch preparation from run execution. A batch marked **Checks queued** has
-finished preparing work; its runs and extraction follow-ups may still be queued
-or running. New runs carry an explicit parent-batch
-reference. Retries and their automatic follow-ups preserve that reference, including
-when another authorized editor requests the retry. Historical runs without that
-reference are not assigned a guessed batch.
+**Processing** separates active work/history and preparation/execution.
+**Checks queued** means preparation finished; runs/follow-ups may still be active.
+New runs carry explicit parent-batch references, preserved through retries and
+follow-ups even when another authorized editor retries. Historical membership is
+never guessed. See the [Processing workflow](interface-design.md#case-tools-processing-and-additional-analysis)
+for filters, review and recovery. Refresh supplies completion feedback; there is
+no notification scheduler.
 
-See the [Processing workflow](interface-design.md#case-tools-processing-and-additional-analysis)
-for history filters, import review, and recovery controls. Refresh provides in-app
-completion feedback; there is no notification scheduler.
+Completed vehicle and HTML iMessage imports offer deliberate **Run local checks
+on imported evidence**. Scope comes from retained relationships, published
+message IDs/source rows on historical results or publishing runs on new CSV
+contexts, never browser-supplied IDs. Each step queues at most 500 sources or the
+configured lower limit; text groups also respect one million characters. Skipped
+duplicates are excluded. These independent checks run no models, transcription,
+external lookup or split context-dependent movement/conversation analysis.
+Repeated submissions recover the same batch. Continuations recheck access;
+preparation/run failures remain recoverable.
 
-Completed vehicle and HTML iMessage imports offer **Run local checks on imported
-evidence** deliberately. Scope comes from retained import relationships (and the
-published iMessage IDs and source rows for historical results, or the publishing
-run on new CSV message contexts), never browser-supplied evidence IDs. Each
-local-check step queues independent local checks for at most 500 sources or the configured lower
-source limit; text groups also respect the one-million-character analysis bound.
-Skipped duplicate rows are absent. This does not run models, transcription,
-external lookups, or split context-dependent movement/conversation analyses.
-Duplicate submissions recover the same batch. Each continuation rechecks access;
-preparation and run failures remain recoverable through existing workflows.
-
-Confirmed message CSV imports instead start their message-analysis batch
-automatically in the publication transaction. The existing batch cursor and task
-continuations prepare bounded selections in reported-time order. They queue both
-independent local checks and the message/writing/model suite described in
-[automatic message analysis](analysis-communications.md#message-csv-imports).
-Processing separates preparation from execution; **Checks queued** does not mean
-model work has finished. Model failures preserve the import and independent
-results, and never trigger cloud fallback. Preview, excluded, and reused rows do
-not start a batch. No database migration or startup backfill is required.
-
-Message CSV imports have no row-count ceiling. They stream within the configured
-file and per-message limits, retain compact analysis summaries, and paginate
-source review and completed messages. Publication still commits all messages and
-requested new people atomically; internal processing groups are not import limits.
+Confirmed message CSV publication instead atomically starts an automatic batch
+for new messages. Bounded continuations walk reported-time order, preparing
+independent checks and the [message/writing/model suite](analysis-communications.md#message-csv-imports).
+Model failures preserve imports/independent results without cloud fallback.
+Preview, excluded and reused rows start no batch. No database migration or startup
+backfill is needed. Imports stream without a row ceiling within file/message
+limits, retaining compact summaries and paginated reviews/messages. All messages
+and requested people still publish atomically; processing groups are not import
+limits.
 
 ## Saved vehicle trips
 
-`geo` owns durable per-vehicle trip state, generations, every retained input and
-ordered trip membership. Authorized evidence/import/archive mutations invalidate
-the vehicle revision and atomically queue replacement work. Each task handles at
-most 500 observations and commits staged output, its cursor/token and continuation
-together. Active/archived/all variants share one generation. Current verified
-editor access, source relationships and revision are checked during processing;
-only a complete current generation is published. Failed or superseded work is
-never exposed as complete. Input history has no 100/500-observation cutoff.
+`geo` owns vehicle trip state, generations, retained inputs and ordered membership.
+Authorized evidence/import/archive changes invalidate the revision and atomically
+queue rebuilding. Each task handles 500 observations at most, committing staged
+output, cursor/token and continuation together. Active/archived/all variants share
+a generation. Processing rechecks verified edit access, source relationships and
+revision; only complete current generations publish. Failed/superseded work stays
+unpublished. Total history has no 100/500-observation cutoff.
 
-The Map, report and vehicle pages read saved trips. Existing evidence is initialized
-through **Prepare trips**, a case-authorized idempotent POST; GET and application
-startup remain read-only. Processing exposes progress and generation history.
-Retries preserve prior generations, use new delivery tokens and allow three
-attempts. Recovering running work requires explicit confirmation that its previous
-worker stopped. Confirmed source deletion inventories include all dependent
-generations, including those affected by observations that produced no trip;
-remaining evidence is invalidated/rebuilt in the deletion transaction. A
-superuser with viewer-only case access can confirm deletion of its complete
-inventory but cannot queue a rebuild;
-a current owner/editor prepares the replacement.
+Map/report/vehicle pages read saved trips. **Prepare trips** initializes existing
+evidence through an authorized idempotent POST; GET/startup remain read-only.
+Processing exposes progress/history. Retries preserve prior generations, use new
+delivery tokens and allow three attempts. Running-work recovery requires explicit
+confirmation that its worker stopped. Source deletion inventories include every
+dependent generation, including observations producing no trip; deletion
+transactions invalidate/rebuild remaining evidence. A superuser with viewer-only
+access can confirm complete-inventory deletion but cannot queue rebuilding; an
+owner/editor prepares the replacement.
 
-After publication a separate bounded continuation prepares existing local geocode
-runs, at most 25 distinct addresses and the configured source ceiling per run.
-Lookup preparation has its own progress/recovery and never blocks trip summaries.
-The trip map uses only reported positions or specifically reviewed local estimates;
-lookup/review changes refresh geometry without resegmenting originals. See
-[trip rules](analysis-locations.md#automatic-vehicle-trips) and
+After publication, separate continuations prepare local geocode runs with at most
+25 distinct addresses and the configured source ceiling per run. Their progress
+and recovery never block trip summaries. Maps use reported positions or reviewed
+local estimates; lookup/review changes refresh geometry without resegmentation.
+See [trip rules](analysis-locations.md#automatic-vehicle-trips) and
 [map lookups](maps.md#local-address-lookup).
 
 ## Startup and diagnostics
 
-Start the stack using [local development](development.md#first-run), then verify
-queue execution and inspect worker logs:
+After [local setup](development.md#first-run), verify execution and inspect logs:
 
 ```sh
 docker compose exec web python manage.py check_task_worker --timeout 30
 docker compose logs --tail 100 worker
 ```
 
-The worker uses the same image, configuration, and private storage volume as web.
-It starts after web becomes healthy, following migrations, and runs
-`python manage.py db_worker --no-reload`. Compose restarts unexpected worker exits
-and allows 30 seconds for graceful shutdown before forcing termination. Restart
-or rebuild the worker after source changes; it does not reload automatically.
-For hosted deployments, apply migrations once before starting web and workers.
+Workers share web's image, configuration and private volume. After migrations/web
+readiness they run `python manage.py db_worker --no-reload`. Compose restarts
+unexpected exits and allows 30 seconds before forced shutdown. Rebuild/restart
+workers after source changes; they do not reload. Hosted deployments apply
+migrations once before starting web/workers.
 
-Core's `check_task_worker` command enqueues `core.tasks.worker_probe` with a fresh
-random nonce, waits for its matching result, and prints the task UUID and `OK`.
-It exits nonzero for failure, mismatch, database
-errors, or a timeout (default 30 seconds; positive integer seconds only). It never
-executes the task itself and refuses an inline backend. A timeout leaves the
-probe queued or running for later inspection; it does not cancel it. Probe rows
-remain until pruned.
+`check_task_worker` enqueues `core.tasks.worker_probe` with a fresh nonce, waits
+for its matching result and prints the task UUID and `OK`. Failure, mismatch,
+database error or timeout exits nonzero. Timeout defaults to 30 positive integer
+seconds. The command refuses inline backends and never executes the task itself;
+a timeout leaves it queued/running, and probe rows remain until pruned.
 
-`docker compose up --wait` confirms HTTP/database readiness and that the worker
-container is running. `/health/` remains a web/database check; only the diagnostic
-above verifies that a worker actually processes this queue. Run it after startup
-or deployment, rather than repeatedly using it as a container health check.
+`docker compose up --wait` verifies HTTP/database readiness and a running worker
+container; `/health/` checks web/database only. The diagnostic verifies queue
+execution. Run it after startup/deployment, not as a recurring container health check.
 
-For [host-based development](development.md#run-python-on-the-host), run the
-diagnostic after starting the documented web and worker processes:
+For [host development](development.md#run-python-on-the-host), start web/workers,
+then run:
 
 ```sh
 uv run --locked --env-file .env python manage.py check_task_worker --timeout 30
@@ -136,13 +122,11 @@ uv run --locked --env-file .env python manage.py check_task_worker --timeout 30
 
 ## Failure inspection and recovery
 
-Task state is `READY`, `RUNNING`, `SUCCESSFUL`, or `FAILED`. The backend's task
-rows and UUIDs are operational records, not case authorization. Its upstream
-global admin registration is disabled by `core.admin`, including for superusers.
-The case Processing screen exposes case-scoped processing history;
-operational task rows are never the product authorization boundary.
+Task states are `READY`, `RUNNING`, `SUCCESSFUL` and `FAILED`. Operational rows/UUIDs
+grant no case access. `core.admin` disables upstream global queue administration,
+including for superusers; Processing exposes case-scoped domain history.
 
-Use the operator shell for a metadata-only summary:
+Inspect metadata in a trusted operator shell:
 
 ```sh
 docker compose exec web python manage.py shell
@@ -163,24 +147,19 @@ list(
 )
 ```
 
-Worker logs record task identifiers, paths, and status through the existing private
-logging handler. Exception tracebacks are excluded from routine task logs because
-exception messages can contain sensitive input. The backend retains arguments,
-results, exception details, and tracebacks in PostgreSQL. Treat that store and its
-backups as private; inspect an individual traceback only in a trusted operator
-session, and do not copy it into shared logs or tickets without sanitizing it.
+Private worker logs contain task IDs, paths and status, excluding exception
+tracebacks because messages may contain sensitive input. PostgreSQL retains
+arguments, results, exceptions and tracebacks. Protect it and its backups; inspect
+tracebacks only in trusted sessions and sanitize before sharing.
 
-There are no automatic task retries or stale-task reclamation. `READY` work waits
-while workers are stopped and can run after restart. A crash or forced shutdown
-can leave work `RUNNING`, even if some effects already completed; elapsed time
-alone does not prove a worker is dead. Confirm the original worker has stopped,
-review effects, and follow the operation's documented idempotent recovery procedure
-before enqueueing replacement work. Do not blindly reset running rows or create a
-generic retry loop. For the harmless probe, correct the problem and rerun the
-diagnostic. Failed and abandoned rows remain available for inspection.
+No automatic retries or stale-task reclamation exist. `READY` tasks wait for
+workers; crashes can leave `RUNNING` tasks with some effects completed. Elapsed
+time alone does not establish that a worker stopped. Confirm the original worker stopped, review effects
+and follow operation-specific idempotent recovery before replacement. Never
+blindly reset rows or add generic retry loops. Correct problems and rerun harmless
+probes. Failed/abandoned rows remain inspectable.
 
-Review retention manually. The supported housekeeping policy is 14 days for
-successful results and 30 days for failures:
+Manually review retention: successful results keep 14 days, failures 30 days.
 
 ```sh
 docker compose exec web python manage.py prune_db_task_results \
@@ -189,24 +168,20 @@ docker compose exec web python manage.py prune_db_task_results \
   --min-age-days 14 --failed-min-age-days 30
 ```
 
-There is no automatic housekeeping schedule. Pruning removes finished task
-results only; queued and running rows need deliberate review. Evidence provenance
-and processing history live in case-scoped domain records, independent of
-disposable operational history.
+Housekeeping is unscheduled and removes only finished results. Review queued/running
+rows deliberately. Case-scoped evidence provenance/history outlive operational rows.
 
 ## Adding a future task
 
-Use module-level `@task` functions in an application's `tasks.py`, calling ordinary
-domain functions. Pass JSON-compatible identifiers, such as UUID strings, and
-reload records in the worker. Do not enqueue model objects, file objects, evidence
-bodies, credentials, or invitation tokens. Return small operational results rather
-than evidence contents. Changing task import paths or argument shapes requires
-draining or deliberately migrating old queued work before deployment.
+Define module-level `@task` functions in the owning app's `tasks.py`, calling domain
+functions. Pass JSON-compatible IDs and reload records; enqueue no models, files,
+evidence bodies, credentials or invitation tokens. Return small operational
+results. Drain or deliberately migrate queued work before changing task paths or
+argument shapes.
 
-For this backend, enqueue the task in the same database transaction as its
-originating domain write. Both records use Django's default PostgreSQL connection:
-other connections cannot see either before commit, and rollback removes both.
-For example, within a future authorized submission service:
+Enqueue inside the originating domain transaction. Both records use the default
+PostgreSQL connection, so neither is visible before commit and rollback removes
+both. For example, in a future authorized service:
 
 ```python
 from django.db import transaction
@@ -217,21 +192,17 @@ with transaction.atomic():
     process_submission.enqueue(str(submission.pk))
 ```
 
-Do not defer that database queue insert to `on_commit`: doing so would introduce a
-gap between committing the submission and saving its queued work. This atomicity
-depends on the current same-database backend; reassess it if the backend changes.
+Using `on_commit` would leave a domain-write/queue-insert gap. Reassess this
+atomicity if the backend changes.
 
-Each future processing feature must enforce current case access and the required
-role inside the worker, check same-case references, and account for revocation
-before further processing or publication. Bound time, input sizes, external
-requests, and concurrency; make effects idempotent and publish complete results
-atomically. Preserve originals and processing provenance. Sanitize errors and
-implement visible progress and a bounded recovery policy for that operation.
-Follow [local analysis](local-analysis.md) for inference routing and separate runtime
-limits; [extraction](analysis-extraction.md) owns local OCR support and limits.
-The queue itself supplies none of these domain safeguards.
+Workers must recheck current case/role access, same-case references and revocation
+before further processing/publication. Bound time, inputs, requests and concurrency;
+make effects idempotent and publication atomic. Preserve originals/provenance,
+sanitize errors and provide progress/bounded recovery. The queue supplies none of
+these safeguards. See [local inference](local-analysis.md) for routing/runtime
+limits, [extraction](analysis-extraction.md) for OCR,
+[operations](operations.md) for backup/upgrades and [validation](validation.md)
+for PostgreSQL/separate-process checks.
 
-See [operations](operations.md) for coordinated backup and upgrades and
-[validation](validation.md) for PostgreSQL and separate-process smoke coverage.
 References: [Django Tasks](https://docs.djangoproject.com/en/6.1/topics/tasks/),
 [django-tasks-db](https://github.com/RealOrangeOne/django-tasks-db).

@@ -176,7 +176,7 @@ OPERATIONS = {
         ("document",),
         version="3",
     ),
-    "imazing_import": Operation(
+    "imessage_import": Operation(
         "Import iMessage CSV", imessage.prepare_import, ("document",), version="2"
     ),
     "normalize_addresses": Operation(

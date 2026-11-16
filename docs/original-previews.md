@@ -1,62 +1,53 @@
 # Original document and recording inspection
 
-The Evidence reader provides private local previews for supported originals and
-retained call recordings. Viewing a preview does not create an analysis run,
-change an original, or require inference credentials. Original downloads remain
-available for unsupported formats and preview failures.
+The Evidence reader offers private local previews of supported originals/call
+recordings without analysis runs, original changes, or inference credentials.
+Unsupported formats and preview failures retain original downloads.
 
 ## Documents
 
-UTF-8 documents appear as escaped, read-only text. The display preserves decoded
-characters, whitespace, and line endings; an initial UTF-8 byte-order mark is
-omitted and disclosed. HTML-like text is displayed literally, never executed.
-Download original returns the exact uploaded bytes.
+UTF-8 documents display escaped read-only text, preserving decoded characters,
+whitespace, and line endings. An initial BOM is omitted and disclosed. HTML-like
+text is never executed; downloads preserve exact uploaded bytes.
 
-PDFs use local page images with Previous page and Next page navigation, including
-without JavaScript. Rendering uses the pinned `pypdfium2==5.15.2` dependency and
-its bundled PDFium, in the existing isolated parser child process. The application
-never embeds the uploaded PDF as executable application content. No previews are
-stored and no remote document service is contacted.
+PDFs render local page images with Previous/Next navigation, including without
+JavaScript. Pinned `pypdfium2==5.15.2` and bundled PDFium run in the isolated parser
+child process. Uploaded PDFs are never embedded as executable app content;
+previews are neither stored nor sent to remote services.
 
-Document previews accept at most 16 MiB of original bytes, at most 2 MiB of
-decoded UTF-8 text, and PDFs with 1–100 pages. One requested PDF page is rendered
-per image request, at no more than 2048 pixels per side and 4,194,304 pixels total.
-The existing parser bounds apply: 20-second wall deadline, 15-second CPU limit,
-1 GiB process memory bound, and 8 MiB output bound. Encrypted PDFs, malformed
-documents, invalid page requests, and exhausted limits receive a useful fallback
-while retaining Download original.
+Limits: 16 MiB original, 2 MiB decoded text, PDFs of 1–100 pages. Each image request
+renders one page at up to 2048 pixels per side/4,194,304 total. Parser bounds are
+20 seconds wall time, 15 seconds CPU, 1 GiB memory, and 8 MiB output. Encrypted or
+malformed PDFs, invalid pages, and exhausted limits show a fallback with Download original.
 
 ## Recordings
 
-Standalone audio evidence and retained call audio have native playback controls.
-No previous analysis run is needed. Supported recordings are intact, uncompressed
-signed 16-bit PCM WAV, mono or stereo, with sample rates from 8–48 kHz, positive
-duration up to 30 minutes, and file size up to 16 MiB. Other formats retain their
-download action; playback does not transcode files.
+Audio evidence/call recordings offer native playback without prior analysis.
+Supported WAVs are intact, uncompressed signed 16-bit PCM, mono/stereo, 8–48 kHz,
+with positive duration up to 30 minutes and size up to 16 MiB. Other formats keep
+downloads; playback does not transcode.
 
-Playback supports a single HTTP byte range, including open-ended and suffix
-ranges, for browser seeking. Invalid or multiple ranges return `416`. The
-recording is fully validated within the bounded parser before bytes are returned.
-Each new range request rechecks case access and retained byte integrity.
+Seeking supports one HTTP byte range, including open-ended/suffix ranges.
+Invalid/multiple ranges return `416`. The bounded parser validates the entire
+recording before returning bytes. Each range request rechecks access and integrity.
 
 ## Privacy and validation
 
-Every preview/playback route requires a verified, currently authorized case
-member. Viewers may inspect originals, including archived evidence. Call playback
-also checks the exact case and parent call of the attachment. Requests verify
-file size and SHA-256 before decoding, use private/no-store responses and
-`nosniff`, and never expose storage paths.
+Every route requires a verified, currently authorized case member; viewers may
+inspect archived originals. Call playback checks the attachment's exact case and
+parent. Requests verify file size/SHA-256 before decoding and return private/no-store
+responses with `nosniff`, without storage paths.
 
-Run the focused PostgreSQL integration and parser checks with:
+Run focused PostgreSQL integration/parser checks:
 
 ```sh
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings document.tests.test_previews audio.tests.test_previews document.tests.test_analysis audio.tests.test_analysis core.analysis.tests.test_parser_dispatch --noinput
 ```
 
-Synthetic fixtures cover access revocation, cross-case and foreign-attachment
-requests, unchanged original downloads, UTF-8 escaping, real PDF rendering,
-encrypted/malformed files, page limits, recording integrity, and byte-range
-seeking. These checks do not qualify arbitrary document fidelity or audio content.
+Synthetic fixtures cover revocation, cross-case/foreign attachments, unchanged
+downloads, UTF-8 escaping, real PDF rendering, encryption/malformed files, page
+limits, recording integrity, and seeking. They do not qualify arbitrary document
+fidelity or audio content.
 
 Renderer references: [Python API](https://pypdfium2.readthedocs.io/en/stable/python_api.html),
 [package and bundled-library licensing](https://pypdfium2.readthedocs.io/en/stable/readme.html#licensing).

@@ -44,14 +44,14 @@ def imported_sources(case, scope):
             run = AnalysisRun.objects.get(
                 pk=identifier,
                 case=case,
-                operation__in=("conversation_import", "imazing_import"),
+                operation__in=("conversation_import", "imessage_import"),
                 status__in=("complete", "partial"),
                 result__case=case,
             )
         except AnalysisRun.DoesNotExist:
             raise Http404("Completed import not found.") from None
         if (
-            run.operation == "imazing_import"
+            run.operation == "imessage_import"
             and run.parameters.get("phase") != "import"
         ):
             raise Http404("Completed import not found.")
@@ -59,7 +59,7 @@ def imported_sources(case, scope):
         if len(sources) != 1:
             raise Http404("Import source unavailable.")
         if (
-            run.operation == "imazing_import"
+            run.operation == "imessage_import"
             and run.result.data.get("import_publication_version") == 2
         ):
             return "text-message", scoped_evidence(case, "text-message").filter(
@@ -156,7 +156,7 @@ def start(request, case_id, import_type, import_id):
         and AnalysisRun.objects.filter(
             case=case,
             pk=import_id,
-            operation="imazing_import",
+            operation="imessage_import",
             method_version="2",
             parameters__phase="import",
         ).exists()

@@ -67,7 +67,7 @@ def index(request, case_id):
     for run in displayed_runs:
         operation = OPERATIONS.get(run.operation)
         run.label = operation.label if operation else "Retained analysis"
-        if run.operation == "imazing_import" and run.import_phase == "preview":
+        if run.operation == "imessage_import" and run.import_phase == "preview":
             run.label = "Prepare message review"
         run.failure_message = error_message(run.error_code) if run.error_code else ""
         run.source_title = titles.get(
@@ -131,6 +131,17 @@ def index(request, case_id):
             "trip_history": trip_history,
             "batches": batches,
             "batch": batch,
+            "batch_failures": [
+                failure
+                | {
+                    "operation_label": OPERATIONS[failure["operation"]].label
+                    if failure.get("operation") in OPERATIONS
+                    else ""
+                }
+                for failure in batch.preparation_errors
+            ]
+            if batch
+            else [],
             "history_filters": filters,
             "history_suffix": query_suffix(
                 filters | ({"history_page": page.number} if page.number > 1 else {})

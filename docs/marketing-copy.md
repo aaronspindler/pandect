@@ -1,10 +1,9 @@
 # Project descriptions and reusable marketing copy
 
-Use these descriptions for repository summaries, project introductions, and
-announcements. They describe the current application; review them against the
-implementation before reuse. The public site is documented in
-[marketing](marketing.md). Feature details and supported inputs belong in
-[case analysis](analysis.md), [evidence](evidence.md), and the other domain guides.
+Descriptions for repository summaries, introductions, and announcements. Verify
+against current implementation before reuse. [Marketing](marketing.md) owns the
+public site; [analysis](analysis.md), [evidence](evidence.md), and domain guides
+own feature details and supported inputs.
 
 ## One line
 
@@ -13,46 +12,41 @@ searching within a case, and reviewing source-linked findings with collaborators
 
 ## Short description
 
-Bring the material you have gathered into one private case. Pandect keeps original
-files, messages, and location observations together, helps you search and examine
-them, and links findings back to their sources. Run it on your own infrastructure
-and invite collaborators as viewers or editors. Pandect is in active development.
+Bring gathered material into a private case. Pandect keeps original files,
+messages, and location observations together, helps you search and examine them,
+and links findings to sources. Run it on your infrastructure and invite viewers
+or editors. Pandect is in active development.
 
 ## Project introduction
 
 Pandect is a self-hostable investigation workspace built with Django and
-PostgreSQL. It helps investigators organize collected material, including
-open-source intelligence, into private cases with their own people, vehicles,
-evidence, and access permissions.
+PostgreSQL. Organize collected material, including open-source intelligence,
+in private cases with their own people, vehicles, evidence, and permissions.
 
-Today, you can retain original documents, images, audio, text, communications,
-and location observations; search supported text within a case; and inspect
-source-linked findings. Eligible evidence receives local checks, including native
-document text extraction and printed-English image recognition. Maps, supported
-imports, exact identifier connections, and structured chronology help you examine
-recorded activity. Browse all retained findings, inspect supported originals in
-private readers, and share exact selections as printable briefs with provenance.
-Collaborators can review the case or contribute as editors.
+Retain documents, images, audio, text, communications, and location observations;
+search supported case text; and review source-linked findings. Eligible evidence
+receives local checks, including native document text extraction and
+printed-English image recognition. Maps, supported imports, exact identifier
+connections, and recorded chronology help examine activity. Inspect supported
+originals privately and share exact selections as printable briefs with
+provenance. Invite collaborators to inspect or edit.
 
-Transcription and model-assisted suggestions, including synthesis over explicitly
-selected text and findings, need separately configured services.
-External AI requires deliberate selection and approval, with no automatic cloud
-fallback. Pandect is in active development: inferred event timelines, relationship
-graphs, and broader evidence discovery are planned. Self-hosting is available;
-managed hosting is planned.
+Transcription and model suggestions, including synthesis over explicitly selected
+text and findings, need configured services. External AI requires deliberate
+selection and approval, with no automatic cloud fallback. Inferred event timelines,
+graphs, and broader discovery are planned. Pandect is in active development;
+self-hosting is available and managed hosting is planned.
 
 ## Announcement copy
 
-Pandect brings gathered evidence into a private investigation workspace you can
-self-host. Organize files, messages, and locations; search within a case; and
-inspect the sources behind findings with your collaborators. Local checks cover
-supported document text, printed-English image recognition, metadata, and more.
-Explore exact identifier matches, recorded chronology, and shared selections with
-printable briefs. Transcription and synthesis over selected text/findings need
-additional configuration. The project is in active development, with inferred
-event timelines, graphs, and broader discovery on the roadmap. Explore the source
-and setup guide on
-[GitHub](https://github.com/aaronspindler/pandect).
+Pandect brings evidence into a private investigation workspace you can self-host.
+Organize files, messages, and locations; search a case; and inspect sources behind
+findings with collaborators. Local checks cover supported document text,
+printed-English image recognition, and metadata. Explore identifier matches,
+recorded chronology, and printable shared briefs. Transcription and synthesis
+over selected text/findings need configuration. In active development, with
+inferred timelines, graphs, and broader discovery planned.
+[Source and setup](https://github.com/aaronspindler/pandect).
 
 ## Short social post
 
@@ -63,29 +57,26 @@ briefs. In active development; model-assisted analysis needs configuration.
 
 ## Feature language
 
-Keep availability beside each claim, including in slides, screenshots, and short
-announcements. Follow the [content boundaries](marketing.md#content-boundaries)
-and check the linked domain guides before reusing capability-specific copy.
+Keep availability beside claims, including in slides, screenshots, and short
+announcements. Follow [content boundaries](marketing.md#content-boundaries) and
+verify capability-specific copy against its domain guide.
 
 ## Editorial boundaries
 
-- Lead with the investigation task: gather material, organize a case, search,
-  inspect sources, and collaborate. Use **Findings** for the case destination.
-- Describe imports by their supported export profile. Recording a social account
-  is manual record keeping; live account collection and vendor API integrations
-  are outside the current feature set.
-- Keep configuration requirements beside transcription, model assistance,
-  geographic lookup, and map backgrounds. Core case work remains usable without
-  AI credentials. OCR runs locally and never uses an external fallback.
-- Distinguish possible trips, candidate plate readings, exact identifier matches,
-  inferred sessions, and model suggestions from verified facts. Recorded chronology
-  does not verify an event, and shared selections do not accept findings. Original
-  preservation and checksums describe retained content and integrity, not truth
-  or identity.
-- Treat the roadmap as provisional. Avoid release dates, implied completion
-  percentages, prices, hosted signup promises, guarantees, certifications,
-  endorsements, and accuracy claims without supporting evidence.
-- Use fictional cases and synthetic material in previews. Label illustrations
-  and avoid showing future controls as part of the available workspace.
-- Keep licensing wording aligned with the [license section](../README.md#license)
-  and [LICENSE](../LICENSE); product copy does not introduce new legal terms.
+- Lead with gathering material, organizing cases, searching, inspecting sources,
+  and collaborating. Use **Findings** for the case destination.
+- Name supported import profiles. Social accounts are manually recorded; live
+  account collection and vendor API integrations are unavailable.
+- State configuration requirements for transcription, model assistance,
+  geographic lookups, and basemaps. Core work needs no AI credentials; OCR stays
+  local with no external fallback.
+- Separate possible trips, plate candidates, identifier matches, inferred
+  sessions, and model suggestions from facts. Recorded chronology does not verify
+  events; selections do not accept findings. Originals/checksums establish
+  retained content and integrity, not truth or identity.
+- Keep plans provisional. Require evidence for dates, completion percentages,
+  pricing, hosted signup, guarantees, certifications, endorsements, and accuracy
+  claims.
+- Label fictional/synthetic previews; do not show future controls as available.
+- Follow [license wording](../README.md#license) and [LICENSE](../LICENSE);
+  product copy creates no legal terms.

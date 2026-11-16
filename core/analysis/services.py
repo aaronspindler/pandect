@@ -743,6 +743,10 @@ def process_run(run_id):
             from phone.analysis.ingest import describe_import_selection
 
             describe_import_selection(data, run)
+        if "_reprocessing" in parameters:
+            from core.analysis.reprocessing import describe_reprocessing_selection
+
+            describe_reprocessing_selection(data, run)
         artifacts = data.pop("artifacts", [])
         if not isinstance(artifacts, list) or len(artifacts) > 500:
             raise AnalysisError("invalid_preview")
@@ -758,7 +762,7 @@ def process_run(run_id):
                 apply_import(run, data, sources)
                 data = validate_output(data, sources)
             elif (
-                run.operation == "imazing_import"
+                run.operation == "imessage_import"
                 and run.parameters.get("phase") == "import"
             ):
                 from phone.analysis.deterministic.imessage import apply_import
@@ -841,7 +845,7 @@ def process_run(run_id):
 
                 follow_up_extraction(run, result)
             if (
-                run.operation == "imazing_import"
+                run.operation == "imessage_import"
                 and run.parameters.get("phase") == "import"
             ):
                 from phone.analysis.ingest import start_import_analysis

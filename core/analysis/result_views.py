@@ -37,7 +37,7 @@ RESULT_VIEWS = {
             "conversation_link",
             "session_summaries",
             "conversation_import",
-            "imazing_import",
+            "imessage_import",
         ),
         (phone.present, GROUPED_RESULTS),
     ),

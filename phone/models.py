@@ -403,7 +403,7 @@ class CommunicationContext(models.Model):
             run = self.import_run
             if (
                 run.case_id != self.case_id
-                or run.operation != "imazing_import"
+                or run.operation != "imessage_import"
                 or run.parameters.get("phase") != "import"
                 or len(run.inputs) != 1
                 or run.inputs[0].get("kind") != "document"

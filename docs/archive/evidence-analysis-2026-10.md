@@ -1,18 +1,15 @@
 # Archived evidence analysis and extraction catalogue
 
-This planning catalogue was scored on **2026-10-27** against the working tree of
-**2026-10-26**. Scores retain that historical baseline; they are not current
-estimates or availability claims. Archived on **2026-11-15**; implementation
-notes below reflect the archived snapshot and are not maintained as features ship.
-Use [case analysis](../analysis.md) for supported operations and
-[the roadmap](../evidence-analysis-roadmap.md) for proposed priorities.
+Scored **2026-10-27** against the **2026-10-26** worktree; archived **2026-11-15**.
+Scores and implementation notes preserve that snapshot, not current estimates
+or availability. [Analysis](../analysis.md) owns supported operations; the
+[roadmap](../evidence-analysis-roadmap.md) owns proposed priorities.
 
 ## Scoring: investigative value and implementation ease
 
-Each row has independent **value** and **ease** scores from 1–5; higher means
-more investigative benefit or easier implementation. These are approximate
-product/engineering judgments, not measured accuracy, user research, probabilities,
-or effort estimates. Do not multiply them into a composite ranking.
+Independent **value** and **ease** scores range from 1–5 (higher is better/easier).
+They are approximate product/engineering judgments, not accuracy, research,
+probabilities, or effort estimates. Do not multiply them into a ranking.
 
 | Score | Investigative value | Implementation ease |
 | --- | --- | --- |
@@ -22,25 +19,22 @@ or effort estimates. Do not multiply them into a composite ranking.
 | **2** | Situational: narrower usefulness or substantial ambiguity limits dependable investigative benefit. | Hard: several missing prerequisites, substantial data/relationship work, or difficult reliability evaluation. |
 | **1** | Limited: little dependable incremental benefit in a general investigation; potentially useful in exceptional cases. | Hardest: a new modality or research-sensitive reliability problem with substantial implementation uncertainty. |
 
-Value assumes a general investigation with usable relevant inputs. Ease covers the
-whole row, including missing ingestion, provenance, case permissions, recovery,
-and validation. The scoring baseline had no shared retained results, Gateway
-client, or geocoder, and its worker ran diagnostics only. Shared foundations can
-make later work easier; overlapping rows and scores are not additive.
+Value assumes usable inputs in a general investigation. Ease includes ingestion,
+provenance, authorization, recovery, and validation. The baseline lacked shared
+retained results, a Gateway client, and geocoder; workers ran diagnostics only.
+Shared foundations may reduce later effort; overlapping scores are not additive.
 
-Combined rows include their harder parts: near-duplicate comparison is more than
-hash grouping, document OCR includes scans, and face comparison needs quality,
-false-match, and inconclusive-outcome evaluation. Every output remains a candidate
-unless independently established. The tables describe proposed scope; current
-support is documented separately.
+Combined scores include harder work: visual near-duplicates, scanned OCR, and
+face-quality/false-match/inconclusive evaluation. Outputs remain candidates
+unless independently established. Tables propose scope; current support is
+documented separately.
 
 ## Image
 
-Current decoding, metadata, OCR, and plate input profiles are in
-[document and media extraction](../analysis-extraction.md). The broader scope below
-is a planning reference.
+[Extraction](../analysis-extraction.md) owns supported decoding, metadata, OCR,
+and plate profiles; the table proposes broader scope.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Metadata extraction: investigate capture context | 4 | 4 | One supported image with embedded metadata | EXIF/XMP fields, orientation, device/software claims, capture times, GPS candidates | Metadata may be absent, edited, stripped, or lack a timezone; capture time differs from upload time. |
 | OCR and handwriting recognition: search visible text | 5 | 2 | Image containing legible text | Text, bounding boxes, reading order, language, uncertain characters | Blur, scripts, layout, and handwriting affect results; retain original crops and alternatives. |
@@ -61,11 +55,10 @@ another. See [NIST FRTE 1:1 Verification](https://pages.nist.gov/frvt/html/frvt1
 
 ## Audio
 
-These methods also apply to identified audio additions on Phone call and
-FaceTime records; see [extraction](../analysis-extraction.md) for supported WAV and
-transcription profiles.
+Methods also apply to identified Phone call/FaceTime audio additions.
+[Extraction](../analysis-extraction.md) owns WAV/transcription profiles.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Technical metadata and quality checks: assess usable material | 3 | 4 | One supported audio file | Decoded duration, codec, channels, sample rate, clipping/noise/dropout flags | Compare with supplied metadata; supported, resource-bounded decoding is needed. |
 | Speech/activity segmentation: navigate recordings | 3 | 3 | Decodable audio | Speech, silence, overlap, and uncertain intervals | Noise, music, and quiet speech can be confused; silence does not establish absence of relevant activity. |
@@ -79,10 +72,10 @@ transcription profiles.
 
 ## Document
 
-Native text/PDF extraction and the vehicle-location CSV parser have bounded
-profiles. Broader formats and document structure below require separate support.
+Native text/PDF and vehicle CSV extraction are bounded; broader formats and
+structure need separate support.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Native text and OCR: make contents searchable | 5 | 2 | Supported text/PDF/office formats or scanned pages | Text, page/section anchors, reading order, coordinates, extraction method | Native text and rendered appearance may disagree; OCR introduces errors. |
 | Layout, tables, and forms: recover structure | 4 | 2 | Pages with headings, tables, lists, or fields | Section hierarchy, rows/cells, field/value pairs, page regions | Merged cells, footnotes, and columns need review; preserve units and headers. |
@@ -96,11 +89,11 @@ profiles. Broader formats and document structure below require separate support.
 
 ## Text
 
-Text evidence preserves server-received browser text. Retain a text file as
-Document evidence when exact original bytes matter. These methods also apply
-to extracted document text, OCR, messages, and transcripts with origin labels.
+Text preserves server-received browser content; use Document for exact file
+bytes. Methods also apply to origin-labelled extraction, OCR, messages, and
+transcripts.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Language and translation: understand content | 4 | 3 | Text or mixed-language segments | Language candidates and aligned translations | Short/slang-heavy text is ambiguous; translation must not replace originals or enter an unlabeled style comparison. |
 | Entity/indicator extraction: find useful references | 5 | 3 | Text with surrounding context | Names, organizations, phones, emails, URLs/domains, addresses, coordinates, identifiers, dates, amounts | Mentions do not establish ownership/association; retain exact spans and ambiguous formats. |
@@ -112,10 +105,10 @@ to extracted document text, OCR, messages, and transcripts with origin labels.
 
 ## Location
 
-Ordinary Location records have no subject association. Their position in a list
-or timeline must not turn them into a person's or vehicle's journey.
+Ordinary Locations have no subject association; list/timeline position does not
+make them a person's or vehicle's journey.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Address normalization/place matching: group equivalent descriptions | 4 | 3 | Addresses; reference data where needed | Parsed components, normalized derivatives, candidate equivalent places | Keep originals; units, aliases, and historical addresses can distinguish similar locations. |
 | Geocoding/reverse geocoding: connect addresses and coordinates | 4 | 3 | Address or coordinates plus an explicitly selected geocoder/dataset | Candidate coordinates/addresses, match granularity, lookup provenance | A centroid is not an observed coordinate; external queries disclose location data. See [configured geocoding](../analysis-locations.md#geocoding-configuration-and-review). |
@@ -126,11 +119,10 @@ or timeline must not turn them into a person's or vehicle's journey.
 
 ## Person location
 
-These analyses extend location methods across observations associated with a
-case person. That association does not prove presence or identify a device's
-carrier.
+Methods extend across person-associated observations. Association does not prove
+presence or identify a device's carrier.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Candidate journeys/stops: reconstruct possible movement | 4 | 2 | Ordered, timed observations with coordinates/geocodes | Candidate journeys, stop intervals, origins/destinations, gaps | Sparse samples cannot establish a continuous route, transport mode, or exact departure/arrival. |
 | Frequently visited places: find recurring locations | 4 | 2 | Repeated timed observations with sufficient coverage | Place clusters, candidate visits, weekday/time recurrence, observed dwell intervals | Visits differ from samples; presence between reports is inferred. Frequent does not automatically mean home or workplace. |
@@ -141,13 +133,12 @@ carrier.
 
 ## Vehicle location
 
-Manual records provide ordinary location fields. The existing CSV format has
-**addresses, not coordinate columns**. It also retains speed, heading, trigger
-text, time-summary text, event/receipt times, and device labels; some remain only
-in the original row. Geospatial analysis needs derived geocodes or additional
-sources containing coordinates.
+Manual records have ordinary location fields. CSV has **addresses, not coordinate
+columns**, plus speed, heading, trigger/time-summary text, event/receipt times,
+and device labels; some remain only in original rows. Geospatial methods need
+derived geocodes or additional coordinate sources.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Candidate drives/trip segmentation: organize movement | 4 | 2 | Vehicle observations with sufficient times; spatial data for movement | Candidate trips, start/end observations, stops, durations, gaps | Sampling gaps and unknown ignition state limit boundaries. Vehicle/device movement does not identify the driver. |
 | Stops/frequent destinations: identify recurring activity | 4 | 2 | Repeated timed observations and place estimates | Stop/visit clusters, dwell intervals, counts, recurring time windows | Zero speed does not establish parking or engine-off; one address can contain separate visits. |
@@ -159,12 +150,12 @@ sources containing coordinates.
 
 ## Text message
 
-Records hold one message and two reported case-person links. The bounded
+Each record holds one message and two reported person links. Bounded
 [iMessage import](../analysis-communications.md#retained-imessage-html-import) retains
-source-native context when supplied. Richer native relationships need supported
-source inputs; missing fields must stay unknown.
+supplied native context; richer relationships need supported inputs. Missing
+fields stay unknown.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Source-format extraction: retain message context | 5 | 2 | Supported exports/screenshots; new source-specific ingestion | Bodies, raw account/participant labels, event times/timezones, source anchors | Broader ingestion needs supported source profiles. Screenshot labels are not equivalent to native metadata. |
 | Native thread/reply reconstruction: recover explicit structure | 5 | 2 | Source thread/message/reply IDs, group membership, attachments where available | Explicit thread, reply, attachment, participant links | Needs new inputs/model support; missing identifiers must not become asserted relationships. |
@@ -176,11 +167,11 @@ source inputs; missing fields must stay unknown.
 
 ## Phone call
 
-**Metadata-only calls** support analysis of reported participants, time, and
-duration when present. Content analysis needs identified transcript/audio
-additions. A supplied transcript is not proof of exactly what was said.
+**Metadata-only calls** provide reported participants, time, and duration where
+present. Content methods need identified transcript/audio additions; supplied
+transcripts do not prove exact speech.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Call patterns: describe recorded interaction | 4 | 5 | Multiple records with relevant time/duration fields | Counts, reported-duration distributions, recurring time windows, participant-pair summaries | Unknown duration differs from zero; current records lack answered/missed status and network verification. |
 | Cross-channel continuity: connect calls/messages | 4 | 3 | Calls and relevant case messages/records | Candidate before/after sequences, topic/event links | Temporal adjacency does not prove discussion content or causation. |
@@ -190,10 +181,10 @@ additions. A supplied transcript is not proof of exactly what was said.
 
 ## FaceTime
 
-FaceTime currently represents a call with optional audio/transcript additions.
-Its name does not imply a retained video stream, screen share, or frame sequence.
+FaceTime is a call with optional audio/transcript additions, without retained
+video, screen share, or frames.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Call/cross-channel patterns: place a call in context | 4 | 3 | Metadata and related case communications | Counts, reported durations, time patterns, candidate sequences | Apply Phone call's time/status and causal limits; do not infer who appeared on camera. |
 | Audio/transcript analysis: extract retained content | 5 | 2 | Identified audio/transcript additions | Transcription, turns, topics, claims, commitments, cited summaries/comparisons | Apply Audio/Phone call methods; a transcript's visual description remains an attributed statement. |
@@ -201,11 +192,10 @@ Its name does not imply a retained video stream, screen share, or frame sequence
 
 ## Writing styles and candidate authorship
 
-Describe **how a sample is written** before asking whether samples share an
-author. Linguistic style is also separate from handwriting recognition and
-signature appearance comparison.
+Describe **how samples are written** before comparing authorship. Linguistic
+style differs from handwriting recognition and signature appearance.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Style profiles: explain expression | 3 | 3 | Original authored text with language/channel context | Punctuation, capitalization, spelling variants, vocabulary, function words, sentence/message lengths, abbreviations, emoji, repeated phrases, greetings/sign-offs, code-switching | Report distributions/examples, sample sizes, and exclusions; not personality labels. |
 | Candidate-author comparison: identify useful comparisons | 3 | 1 | Questioned text and explicitly supplied, attributed case reference samples | Ranked similarities/differences, supporting and contrary examples | Permit **insufficient evidence** and **none of the supplied candidates**; similarity is not identity proof or a calibrated probability. |
@@ -213,7 +203,7 @@ signature appearance comparison.
 | Copied wording/templates: separate reuse from style | 4 | 4 | Multiple samples and identifiable quotations/templates | Shared passages, boilerplate, forwarded/quoted text, comparisons with exclusions | Copied language is not independent evidence of habits; common phrases remain weak attribution signals. |
 | Anonymous style grouping: explore patterns | 2 | 2 | Sufficient comparable texts with unresolved authorship | Candidate groups and representative features/examples | Groups may follow topic, language, platform, or template; do not merge people or assign names from clusters. |
 
-Sample preparation determines what these outputs mean:
+Sample preparation:
 
 - Preserve supplied attribution and its uncertainty, including shared accounts.
   Disclose language, genre, topic, recipient, channel, date range, and amount of
@@ -254,7 +244,7 @@ synthesis, and cached answers. Adapt these concepts, not its direct local-model
 execution or two-person assumptions. Dedicated stylometry and evidence-grade
 result provenance are additional work; Pandect's integration requirements apply.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits or prerequisites |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Preserve native structure: recover source-recorded relationships | 5 | 2 | Retained export, source IDs, timezone, participant/reply/attachment/group metadata | Explicit links, source offsets, raw-to-normalized mappings | Needs richer ingestion/context support; missing fields stay unknown rather than being inferred from display names. |
 | Infer sessions: create reviewable exchanges | 4 | 3 | Chronological messages with participant/time/content context | Boundaries and reasons, alternative groupings, reviewer adjustments | Timing/topic cues are heuristics; keep inferred sessions distinct from native thread identity. |
@@ -301,11 +291,10 @@ not an expansion of the bounded methods documented in [location analysis](../ana
 
 ## Analysis across evidence
 
-These workflows operate within one authorized case. Cross-case matching is not
-assumed. Explain whether a proposed link comes from an explicit source
-relationship, shared value, proximity, or model similarity.
+Workflows stay within one authorized case. Label links as source-recorded, shared
+values, proximity, or model similarity; cross-case matching is not assumed.
 
-| Capability and investigative use | Value (1–5) | Ease (1–5) | Required inputs | Proposed output | Limits |
+| Capability and use | Value | Ease | Inputs | Proposed output | Limits |
 | --- | --- | --- | --- | --- | --- |
 | Entity/identifier linking: find related records | 5 | 2 | Extracted names, phones, emails, plates, accounts, addresses, identifiers | Candidate same-entity links, evidence-backed graph edges, conflicting attributes | Shared/reassigned identifiers and namesakes prevent automatic identity/ownership conclusions; preserve raw values and normalization. |
 | Unified event timeline: compare reported activity | 5 | 2 | Event times, extracted time expressions, communications, observations | Events with anchors, precision/intervals, planned/reported/observed distinctions | Resolve relative dates only with context; retain conflicting clocks and uncertain order. Upload order is not event order. |

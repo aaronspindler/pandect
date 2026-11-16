@@ -44,7 +44,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         preview, _ = start_run(
             self.users["editor"],
             self.case.pk,
-            "imazing_import",
+            "imessage_import",
             [{"kind": "document", "id": str(document.pk)}],
             parameters={"phase": "preview", "timezone": "America/Toronto"},
         )
@@ -122,7 +122,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         repeated, _ = start_run(
             self.users["editor"],
             self.case.pk,
-            "imazing_import",
+            "imessage_import",
             [{"kind": "document", "id": final.inputs[0]["evidence_id"]}],
             parameters=final.parameters,
         )
