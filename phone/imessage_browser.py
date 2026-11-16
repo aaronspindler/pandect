@@ -11,15 +11,15 @@ from core.analysis.services import process_run
 from core.models import AnalysisRun
 from people.models import Person
 from phone.models import TextMessageEvidence
-from phone.tests.test_imazing_views import message_csv
+from phone.tests.test_imessage_views import message_csv
 
 
-class IMazingImportBrowserTests(BrowserTestCase):
+class IMessageImportBrowserTests(BrowserTestCase):
     artifact_subdirectory = "message-csv-browser"
 
     def setUp(self):
         super().setUp()
-        self.owner = self.make_user("imazing-browser-owner")
+        self.owner = self.make_user("imessage-browser-owner")
         self.case = Case.objects.create(owner=self.owner, name="Synthetic direct chat")
 
     def test_no_javascript_upload_review_people_and_import(self):
@@ -29,8 +29,8 @@ class IMazingImportBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("phone:imazing_upload", case_id=self.case.pk))
-                page.get_by_label("Message CSV", exact=True).set_input_files(
+                page.goto(self.url("phone:imessage_upload", case_id=self.case.pk))
+                page.get_by_label("iMessage CSV", exact=True).set_input_files(
                     {
                         "name": "synthetic-messages.csv",
                         "mimeType": "text/csv",

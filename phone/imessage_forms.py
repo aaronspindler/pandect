@@ -11,11 +11,11 @@ from document.models import DocumentEvidence
 from people.models import Person
 
 
-class IMazingUploadForm(forms.Form):
+class IMessageUploadForm(forms.Form):
     submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
     file = forms.FileField(
         required=False,
-        label="Message CSV",
+        label="iMessage CSV",
         help_text=(
             "Use the supported 18-column export, from Chat Session "
             "through Attachment type."
@@ -72,7 +72,7 @@ class IMazingUploadForm(forms.Form):
         return data
 
 
-class IMazingPersonForm(forms.Form):
+class IMessagePersonForm(forms.Form):
     mode = forms.ChoiceField(
         label="Person record",
         choices=(
@@ -138,7 +138,7 @@ class IMazingPersonForm(forms.Form):
         }
 
 
-class IMazingConfirmForm(forms.Form):
+class IMessageConfirmForm(forms.Form):
     direct_chat = forms.BooleanField(
         label="I confirm this export is a direct conversation between these two people"
     )

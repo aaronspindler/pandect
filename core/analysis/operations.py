@@ -17,7 +17,7 @@ from image.analysis import metadata as image_metadata
 from image.analysis.plates import plate_ocr
 from phone.analysis import ai as phone_ai
 from phone.analysis import workflows as phone_workflows
-from phone.analysis.deterministic import conversations, imazing
+from phone.analysis.deterministic import conversations, imessage
 from phone.analysis.deterministic import imports as communication_imports
 from text.analysis import ai as text_ai
 from text.analysis import deterministic as text
@@ -177,7 +177,7 @@ OPERATIONS = {
         version="3",
     ),
     "imazing_import": Operation(
-        "Import message CSV", imazing.prepare_import, ("document",), version="2"
+        "Import iMessage CSV", imessage.prepare_import, ("document",), version="2"
     ),
     "normalize_addresses": Operation(
         "Compare recorded addresses",

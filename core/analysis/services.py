@@ -761,7 +761,7 @@ def process_run(run_id):
                 run.operation == "imazing_import"
                 and run.parameters.get("phase") == "import"
             ):
-                from phone.analysis.deterministic.imazing import apply_import
+                from phone.analysis.deterministic.imessage import apply_import
 
                 apply_import(run, data, sources)
                 # Publication adds exact message membership; it shares the result bound.

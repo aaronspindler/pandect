@@ -26,7 +26,7 @@ from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.analysis.deterministic.imazing import (
+from phone.analysis.deterministic.imessage import (
     HEADERS,
     MAX_FIELD_CHARS,
     PARSER_VERSION,
@@ -63,7 +63,7 @@ def csv_content(*rows, **overrides):
     return stream.getvalue().encode("utf-8")
 
 
-class IMazingImportTests(EvidenceViewTestMixin, TestCase):
+class IMessageImportTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.correspondent = Person.objects.create(
@@ -563,12 +563,12 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(json.dumps(data).count("A unique synthetic message."), 0)
 
 
-class ConcurrentIMazingConfirmationTests(TransactionTestCase):
+class ConcurrentIMessageConfirmationTests(TransactionTestCase):
     def test_parallel_confirmations_queue_one_run_without_creating_people(self):
-        from phone.imazing_imports import confirm_import
+        from phone.imessage_imports import confirm_import
 
         owner = get_user_model().objects.create_user(
-            username="concurrent-imazing-owner"
+            username="concurrent-imessage-owner"
         )
         case = Case.objects.create(owner=owner, name="Synthetic concurrent import")
         with TemporaryDirectory() as directory, self.settings(MEDIA_ROOT=directory):

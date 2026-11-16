@@ -19,9 +19,9 @@ from core.models import CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.imazing_imports import confirm_import
+from phone.imessage_imports import confirm_import
 from phone.models import PhoneCallEvidence, TextMessageEvidence
-from phone.tests.test_imazing_views import message_csv
+from phone.tests.test_imessage_views import message_csv
 
 
 class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
@@ -375,7 +375,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         final = self.publish()
         batch = CaseAnalysisBatch.objects.get()
         self.login("viewer")
-        review = reverse("phone:imazing_review", args=[self.case.pk, final.pk])
+        review = reverse("phone:imessage_review", args=[self.case.pk, final.pk])
         response = self.client.get(review)
         self.assertContains(response, "Follow message analysis")
         self.assertNotContains(response, "Run message analysis again")

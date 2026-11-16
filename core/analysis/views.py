@@ -716,7 +716,7 @@ def detail(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
     if run.operation == "imazing_import" and request.GET.get("processing") != "1":
-        return redirect("phone:imazing_review", case_id=case.pk, run_id=run.pk)
+        return redirect("phone:imessage_review", case_id=case.pk, run_id=run.pk)
     history = history_query(request.GET)
     history_page = history.get("history_page")
     history_back = history_filters(history) | (

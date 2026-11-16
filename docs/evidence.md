@@ -28,7 +28,7 @@ Inside a case, owners and editors choose **Add evidence** to select or drop
 documents, images, and audio together under **Upload files**. The
 **Add a record** section links to Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime forms. **Import records** links
-to **Import vehicle locations** and **Import messages · CSV**. The
+to **Import vehicle locations** and **Import iMessage · CSV**. The
 message importer retains the CSV, prepares a background review, and requires
 confirmed people and timezone before creating valid text-message rows. See
 [message CSV imports](analysis-communications.md#message-csv-imports).

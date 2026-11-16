@@ -266,7 +266,7 @@ migration.
 
 ## Message CSV imports
 
-Choose **Add evidence → Import records → Import messages · CSV**, or use the same
+Choose **Add evidence → Import records → Import iMessage · CSV**, or use the same
 action in a retained Document's **More** menu. Upload one CSV or choose a retained
 Document and explicitly select its export timezone. The supported profile requires
 these 18 column headers, in any order:
