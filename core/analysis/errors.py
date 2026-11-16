@@ -9,7 +9,7 @@ class AnalysisError(Exception):
 
 ERROR_MESSAGES = {
     "imazing_invalid_format": (
-        "This file does not match the supported 18-column iMazing CSV export. "
+        "This file does not match the supported 18-column message CSV export. "
         "Export messages as UTF-8 CSV and prepare a new review."
     ),
     "imazing_multiple_chats": (

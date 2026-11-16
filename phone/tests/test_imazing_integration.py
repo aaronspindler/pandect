@@ -217,9 +217,7 @@ class IMazingPipelineTests(EvidenceViewTestMixin, TestCase):
         self.assertRedirects(self.client.get(detail), review)
         self.assertContains(self.client.get(detail + "?processing=1"), "Synthetic CSV")
         processing = reverse("core:analysis:processing", args=[self.case.pk])
-        self.assertContains(
-            self.client.get(processing), "Prepare iMazing message review"
-        )
+        self.assertContains(self.client.get(processing), "Prepare message review")
         source = reverse(
             "core:evidence:detail", args=[self.case.pk, "document", self.document.pk]
         )

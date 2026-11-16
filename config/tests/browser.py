@@ -476,7 +476,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     "Add text message",
                     "Add phone call",
                     "Add facetime",
-                    "Import messages · iMazing CSV",
+                    "Import messages · CSV",
                     "Import vehicle locations",
                 )
                 for label in methods:

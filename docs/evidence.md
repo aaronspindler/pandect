@@ -28,10 +28,10 @@ Inside a case, owners and editors choose **Add evidence** to select or drop
 documents, images, and audio together under **Upload files**. The
 **Add a record** section links to Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime forms. **Import records** links
-to **Import vehicle locations** and **Import messages · iMazing CSV**. The
+to **Import vehicle locations** and **Import messages · CSV**. The
 message importer retains the CSV, prepares a background review, and requires
 confirmed people and timezone before creating valid text-message rows. See
-[iMazing imports](analysis-communications.md#imazing-csv-message-imports).
+[message CSV imports](analysis-communications.md#message-csv-imports).
 
 File categories describe the submitted material; no parser verifies them. Text
 captures one browser-submitted original; to preserve a text file's exact bytes,
@@ -179,9 +179,13 @@ deletion, including for archived evidence; whole-case deletion removes both.
 
 **Case Tools → Conversations** groups retained Text messages by their reported
 pair of case people, regardless of sending direction. The list shows message
-counts and the latest recorded time, with 25 pairs per page. Open a pair to read
-50 messages per page in recorded-time order, oldest first. Unknown times appear
-last; UUID order breaks equal or unknown-time ties without implying an event order.
+counts and the latest recorded time. Scrolling loads more pairs in batches of 25.
+Open a pair to read messages in recorded-time order, oldest first; scrolling loads
+more in batches of 50. When opening a linked message, scrolling up also loads
+earlier messages without moving your place. Unknown times appear last; UUID order
+breaks equal or unknown-time ties without implying an event order. Earlier/later
+links remain available for keyboard navigation, without JavaScript, and if loading
+fails. Each batch checks current case access.
 
 The default **All sources** includes imported and individually entered messages.
 Choose a retained export to narrow the reader to that source. Archived messages

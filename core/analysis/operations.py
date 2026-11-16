@@ -177,7 +177,7 @@ OPERATIONS = {
         version="3",
     ),
     "imazing_import": Operation(
-        "Import iMazing messages", imazing.prepare_import, ("document",), version="2"
+        "Import message CSV", imazing.prepare_import, ("document",), version="2"
     ),
     "normalize_addresses": Operation(
         "Compare recorded addresses",

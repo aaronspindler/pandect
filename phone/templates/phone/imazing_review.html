@@ -1,10 +1,10 @@
 {% extends 'ui/base.html' %}
 {% load import_checks %}
-{% block title %}Review iMazing messages · {{ case.name }}{% endblock %}
+{% block title %}Review message CSV · {{ case.name }}{% endblock %}
 {% block content %}
 <div class="page-content">
   <a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>
-  <header class="page-header"><div><h1>{% if final and run.status == 'complete' or final and run.status == 'partial' %}Messages imported{% else %}Review iMazing messages{% endif %}</h1><p>{% if final %}Follow the confirmed message import below.{% else %}Review the source and choose who sent and received these messages.{% endif %}</p></div></header>
+  <header class="page-header"><div><h1>{% if final and run.status == 'complete' or final and run.status == 'partial' %}Messages imported{% else %}Review message CSV{% endif %}</h1><p>{% if final %}Follow the confirmed message import below.{% else %}Review the source and choose who sent and received these messages.{% endif %}</p></div></header>
   {% if document %}<dl class="metadata-grid"><div><dt>Retained CSV</dt><dd><a href="{% url 'core:evidence:detail' case.pk 'document' document.pk %}">{{ document.title }}</a></dd></div><div><dt>Confirmed export timezone</dt><dd>{{ preview.parameters.timezone }}</dd></div></dl>{% endif %}
   {% if source_error %}<p class="notice" role="alert">{{ source_error }}</p>{% endif %}
   {% if final and form.errors %}{% include 'ui/components/form_errors.html' with form=form %}{% endif %}

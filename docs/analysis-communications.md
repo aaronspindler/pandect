@@ -264,14 +264,20 @@ method `1` or `2` runs otherwise report that their method version is unavailable
 Start a new run with the same source and settings. The upgrade requires no data
 migration.
 
-## iMazing CSV message imports
+## Message CSV imports
 
-Choose **Add evidence → More ways to add evidence → Import messages · iMazing
-CSV**, or use the same action in a retained Document's **More** menu. Upload one
-CSV or choose a retained Document and explicitly select its export timezone.
-The supported profile is the 18-column iMazing message export, from **Chat
-Session** through **Attachment type**, in any column order. UTF-8 with an optional
-BOM, quoted commas, and quoted multiline text are supported. There is no
+Choose **Add evidence → Import records → Import messages · CSV**, or use the same
+action in a retained Document's **More** menu. Upload one CSV or choose a retained
+Document and explicitly select its export timezone. The supported profile requires
+these 18 column headers, in any order:
+
+`Chat Session`, `Message ID`, `Message Date`, `Delivered Date`, `Read Date`,
+`Edited Date`, `Deleted Date`, `Service`, `Type`, `Sender ID`, `Sender Name`,
+`Status`, `Replying to`, `Subject`, `Text`, `Reactions`, `Attachment`, and
+`Attachment type`.
+
+UTF-8 with an optional BOM, quoted commas, and quoted multiline text are supported.
+Other CSV layouts are unsupported. There is no
 message-row limit. The normal configured upload limit applies (100 MiB by
 default), with 131,072 characters per field and the configured message-text byte
 limit. CSV preparation, review, and publication read rows incrementally rather
@@ -295,8 +301,8 @@ nonexistent local event times are excluded. Attachment-only rows and unsupported
 directions are also excluded. Confirming imports the valid text rows while
 retaining excluded material in the CSV and preview.
 
-Confirmation queues publication through `imazing_import` method `2`. The preview
-and confirmed import are separate immutable analysis runs. Publication rechecks
+Confirmation queues publication using import method `2`. The preview and
+confirmed import are separate immutable analysis runs. Publication rechecks
 current editing access and source integrity, then creates requested people,
 messages, immutable source contexts, and the result atomically. Repeated
 confirmation and worker retries do not create another set of people or messages.

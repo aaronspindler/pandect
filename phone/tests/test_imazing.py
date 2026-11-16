@@ -1,4 +1,4 @@
-"""Synthetic iMazing CSV interpretation, provenance, and publication regressions."""
+"""Synthetic message CSV interpretation, provenance, and publication regressions."""
 
 import csv
 import io
@@ -74,7 +74,7 @@ class IMazingImportTests(EvidenceViewTestMixin, TestCase):
         document = DocumentEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
-            title="Synthetic iMazing export",
+            title="Synthetic message CSV export",
             file=ContentFile(content or csv_content(), name="messages.csv"),
         )
         return Source(str(uuid4()), "document", document)

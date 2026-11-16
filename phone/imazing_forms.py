@@ -1,4 +1,4 @@
-"""Explicit source time and participant choices for one iMazing conversation."""
+"""Explicit source time and participant choices for one CSV conversation."""
 
 import re
 from uuid import uuid4, uuid5
@@ -15,7 +15,11 @@ class IMazingUploadForm(forms.Form):
     submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
     file = forms.FileField(
         required=False,
-        label="iMazing message CSV",
+        label="Message CSV",
+        help_text=(
+            "Use the supported 18-column export, from Chat Session "
+            "through Attachment type."
+        ),
         widget=forms.ClearableFileInput(attrs={"accept": ".csv,text/csv"}),
     )
     document = forms.ModelChoiceField(

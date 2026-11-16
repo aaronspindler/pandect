@@ -1,4 +1,4 @@
-"""Automatic, bounded analysis of newly published iMazing messages."""
+"""Automatic, bounded analysis of newly published CSV messages."""
 
 from collections import defaultdict
 from datetime import timedelta

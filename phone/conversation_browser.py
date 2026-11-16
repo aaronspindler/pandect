@@ -1,5 +1,6 @@
 """Conversation inspection and exact evidence navigation with native links."""
 
+import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
@@ -109,7 +110,7 @@ class ConversationBrowserTests(BrowserTestCase):
                     + self.reader_path
                     + f"?source={self.export.pk}"
                 )
-                page.get_by_role("link", name="Later", exact=True).click()
+                page.get_by_role("link", name="Later messages", exact=True).click()
                 target = self.messages[51]
                 target_row = page.locator(f"#message-{target.pk}")
                 target_details = page.locator(f"#message-details-{target.pk}")
@@ -206,6 +207,215 @@ class ConversationBrowserTests(BrowserTestCase):
                 "evidence_id": message.pk,
             },
         )
+
+    def test_scrolling_appends_filtered_messages_without_navigation(self):
+        instant = self.messages[-1].occurred_at + timedelta(days=1)
+        for number in range(55, 105):
+            message = TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                sender=self.alex,
+                recipient=self.blair,
+                occurred_at=instant + timedelta(minutes=number),
+                title=f"Synthetic message {number:03}",
+                body=f"Original message {number:03} on the following day.",
+            )
+            CommunicationContext.objects.create(
+                case=self.case,
+                message=message,
+                source_document=self.export,
+                source_sha256=self.export.sha256,
+                source_row=number,
+                source_start=number - 1,
+                source_end=number,
+                parser_version="synthetic-v1",
+                timezone="America/Toronto",
+                raw_sender="Alex",
+                native_message_id=f"synthetic-{number}",
+            )
+            self.messages.append(message)
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                url = (
+                    self.live_server_url
+                    + self.reader_path
+                    + f"?source={self.export.pk}&list_page=2"
+                )
+                page.goto(url)
+                page.evaluate("window.conversationDocument = document")
+                messages = page.locator(".conversation-message")
+                expect(messages).to_have_count(50)
+                self.assertLessEqual(messages.first.bounding_box()["height"], 190)
+                edge = page.locator('[data-conversation-edge="next"]')
+                with page.expect_request(
+                    lambda request: request.resource_type == "fetch"
+                ) as requested:
+                    edge.scroll_into_view_if_needed()
+                params = parse_qs(urlsplit(requested.value.url).query)
+                self.assertEqual(
+                    params,
+                    {
+                        "source": [str(self.export.pk)],
+                        "list_page": ["2"],
+                        "page": ["2"],
+                    },
+                )
+                expect(messages).to_have_count(100)
+                expect(edge.locator("a")).to_have_attribute(
+                    "href", re.compile(r"&page=3$")
+                )
+                edge.scroll_into_view_if_needed()
+                expect(messages).to_have_count(104)
+                expect(edge).to_contain_text("End of messages.")
+                expect(edge.locator("a")).to_be_hidden()
+                expect(page.locator(".conversation-date")).to_have_count(2)
+                expect(page).to_have_url(url)
+                self.assertTrue(
+                    page.evaluate("window.conversationDocument === document")
+                )
+                ids = messages.evaluate_all("rows => rows.map(row => row.id)")
+                self.assertEqual(ids, [f"message-{row.pk}" for row in self.messages])
+                target = self.messages[-1]
+                details = page.locator(f"#message-details-{target.pk}")
+                details.locator(":scope > summary").press("Enter")
+                expect(details).to_have_attribute("open", "")
+                expect(details).to_contain_text("synthetic-104")
+                expect(
+                    page.locator(f"#message-{target.pk}").get_by_role(
+                        "link", name="Open evidence", exact=False
+                    )
+                ).to_have_attribute(
+                    "href",
+                    self.evidence_path(target)
+                    + f"?conversation_source={self.export.pk}&conversation_list_page=2",
+                )
+                self.capture(page, engine, "scrolled-filtered-messages")
+
+    def test_scrolling_prepends_without_moving_linked_message_or_focus(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                pending = []
+
+                def hold_earlier_page(route, _request, pending=pending):
+                    if route.request.resource_type == "fetch":
+                        pending.append(route)
+                    else:
+                        route.continue_()
+
+                page.route("**" + self.reader_path + "?**", hold_earlier_page)
+                target = self.messages[51]
+                page.goto(
+                    self.live_server_url
+                    + self.reader_path
+                    + f"?source={self.export.pk}&message={target.pk}"
+                    + f"#message-{target.pk}"
+                )
+                edge = page.locator('[data-conversation-edge="previous"]')
+                edge.scroll_into_view_if_needed()
+                expect(edge).to_contain_text("Loading messages")
+                summary = page.locator(f"#message-details-{target.pk} > summary")
+                summary.focus()
+                position = summary.bounding_box()["y"]
+                self.assertEqual(len(pending), 1)
+                pending[0].continue_()
+                expect(page.locator(".conversation-message")).to_have_count(54)
+                expect(summary).to_be_focused()
+                self.assertAlmostEqual(summary.bounding_box()["y"], position, delta=2)
+                expect(page.locator(".conversation-date")).to_have_count(1)
+                expect(page.locator("[data-selected-message]")).to_have_count(1)
+                expect(page.locator(f"#message-details-{target.pk}")).to_have_attribute(
+                    "open", ""
+                )
+                expect(edge).to_contain_text("Start of messages.")
+
+    def test_failed_scroll_recovers_with_full_page_navigation(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+
+                def fail_fetch(route):
+                    if route.request.resource_type == "fetch":
+                        route.abort()
+                    else:
+                        route.continue_()
+
+                page.route("**" + self.reader_path + "?page=2", fail_fetch)
+                page.goto(self.live_server_url + self.reader_path)
+                edge = page.locator('[data-conversation-edge="next"]')
+                edge.scroll_into_view_if_needed()
+                expect(edge).to_contain_text("Could not load messages.")
+                expect(page.locator(".conversation-message")).to_have_count(50)
+                link = edge.get_by_role("link", name="Later messages", exact=True)
+                link.focus()
+                page.keyboard.press("Enter")
+                expect(page).to_have_url(
+                    self.live_server_url + self.reader_path + "?page=2"
+                )
+                expect(
+                    page.locator(f"#message-{self.manual_message.pk}")
+                ).to_be_attached()
+
+    def test_revoked_access_blocks_the_next_scroll_batch(self):
+        for engine in self.engines:
+            # Restore the synthetic membership before checking the next engine.
+            CaseMembership.objects.get_or_create(
+                case=self.case, user=self.viewer, defaults={"role": "viewer"}
+            )
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.live_server_url + self.reader_path)
+                self.db(
+                    lambda: CaseMembership.objects.filter(
+                        case=self.case, user=self.viewer
+                    ).delete()
+                )
+                edge = page.locator('[data-conversation-edge="next"]')
+                edge.scroll_into_view_if_needed()
+                expect(edge).to_contain_text("Could not load messages.")
+                expect(page.locator(".conversation-message")).to_have_count(50)
+                expect(page.locator(f"#message-{self.messages[-1].pk}")).to_have_count(
+                    0
+                )
+
+    def test_conversation_list_scrolls_and_retains_link_page_context(self):
+        for number in range(26):
+            person = Person.objects.create(
+                case=self.case, first_name=f"Correspondent {number:02}"
+            )
+            TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                sender=self.alex,
+                recipient=person,
+                title=f"Additional pair {number}",
+                body="Synthetic correspondence for list scrolling.",
+            )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.url("phone:conversation_list", case_id=self.case.pk))
+                rows = page.locator("[data-conversation-items] > a")
+                expect(rows).to_have_count(25)
+                self.capture(page, engine, "compact-conversation-list")
+                edge = page.locator('[data-conversation-edge="next"]')
+                edge.scroll_into_view_if_needed()
+                expect(rows).to_have_count(27)
+                expect(edge).to_contain_text("End of conversations.")
+                ids = rows.evaluate_all("rows => rows.map(row => row.id)")
+                self.assertEqual(len(set(ids)), 27)
+                expect(rows.last).to_have_attribute(
+                    "href", re.compile(r"\?list_page=2$")
+                )
+                rows.last.click()
+                expect(
+                    page.get_by_role("link", name="All conversations")
+                ).to_have_attribute(
+                    "href",
+                    reverse("phone:conversation_list", args=(self.case.pk,))
+                    + "?page=2",
+                )
 
     def test_reader_inline_details_reflow_themes_and_keyboard_focus(self):
         for engine in self.engines:

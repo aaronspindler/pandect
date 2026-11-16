@@ -23,7 +23,7 @@ def start_preview(actor, case_id, values):
             metadata = file_integrity(DocumentEvidence(file=original).file)
             title = (
                 values.get("title")
-                or f"iMazing messages: {metadata['original_filename']}"[:255]
+                or f"Messages: {metadata['original_filename']}"[:255]
             )
             document = DocumentEvidence.objects.filter(
                 submission_id=values["submission_id"]

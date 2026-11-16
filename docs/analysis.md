@@ -148,11 +148,11 @@ Completed vehicle and HTML iMessage imports offer a deliberate **Run local check
 imported evidence** action. Independent checks use bounded groups rather than one
 batch per imported row; skipped duplicates are excluded. See
 [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
-Confirmed iMazing CSV imports automatically queue the message, writing, and local
+Confirmed message CSV imports automatically queue the message, writing, and local
 model suite for newly published messages. Their **Follow message analysis** link
 opens the retained batch. Each run discloses its bounded selection; local model
 failures remain recoverable without undoing the import. See
-[iMazing imports](analysis-communications.md#imazing-csv-message-imports).
+[message CSV imports](analysis-communications.md#message-csv-imports).
 
 Source choices display prerequisites and retained inspection status. A source may
 need exact extraction, a transcript, or accepted coordinates. Unknown file support
@@ -182,7 +182,7 @@ message sessions** select Text messages only. For retained call transcripts, use
 exchanges across channels** still accepts messages, phone calls and FaceTime.
 Earlier runs retain their original selections and results.
 
-Outside the automatic iMazing suite, model processing is deliberately selected.
+Outside the automatic message CSV suite, model processing is deliberately selected.
 **Local** is the default; **Cloudflare AI Gateway** requires explicit
 external-processing approval. Local failure never causes cloud
 fallback. Geographic services require approval unless the operator designates the
@@ -213,7 +213,7 @@ separate finding/overall reviews:
 - Wording/style comparisons show both samples; model suggestions cite supporting
   passages. Conversation/import findings preserve participants, source labels,
   timing, and reasons for unresolved rows.
-- [iMazing CSV imports](analysis-communications.md#imazing-csv-message-imports)
+- [message CSV imports](analysis-communications.md#message-csv-imports)
   prepare a separate review before publishing messages and any confirmed new
   people. A completed preview means the review is ready, not that messages were
   imported.

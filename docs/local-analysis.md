@@ -1,7 +1,7 @@
 # Local analysis and private inference runtimes
 
 Pandect defaults to **Local** for model-based analysis, including the automatic
-suite after a confirmed iMazing message import.
+suite after a confirmed CSV message import.
 Local includes the Pandect host and an explicitly configured operator-controlled
 private LAN service. Cloudflare remains an optional, separately selected and
 approved external route. A missing model, failed runtime or context limit never
@@ -10,8 +10,8 @@ sends evidence to the cloud automatically.
 Printed-English OCR, native document text, metadata inspection, rule-based
 identifiers, keywords, writing comparisons, conversation timing and spatial
 calculations run locally. The automatic checks and **Run checks**/**Run checks
-again** use the [local batch](analysis.md#retained-processing). Confirmed iMazing
-imports additionally queue bounded local topics, claims, session summaries, and
+again** use the [local batch](analysis.md#retained-processing). Confirmed message
+CSV imports additionally queue bounded local topics, claims, session summaries, and
 semantic exchange suggestions. Other LLM analysis and transcription remain
 deliberate. Missing local inference leaves recoverable failed runs while the
 imported messages and independent rule-based results remain usable.

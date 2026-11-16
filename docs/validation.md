@@ -143,7 +143,7 @@ are listed below. Artifacts are ignored local output; keep fixtures synthetic.
 | Suite | Default captures |
 | --- | --- |
 | `config.tests.browser` | `data/validation/browser` |
-| `phone.imazing_browser` | `data/validation/imazing-browser` |
+| Message CSV import | `data/validation/message-csv-browser` |
 | `marketing.browser` | `data/validation/marketing-browser` |
 | `core.analysis.browser` | `data/validation/analysis-browser` |
 | `core.analysis.context_browser` | `data/validation/context-browser` |

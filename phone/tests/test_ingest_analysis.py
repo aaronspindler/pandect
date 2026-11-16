@@ -38,7 +38,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         document = DocumentEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["editor"],
-            title="Synthetic iMazing CSV",
+            title="Synthetic message CSV",
             file=ContentFile(message_csv(*rows), name="synthetic-messages.csv"),
         )
         preview, _ = start_run(

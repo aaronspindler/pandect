@@ -15,7 +15,7 @@ from phone.tests.test_imazing_views import message_csv
 
 
 class IMazingImportBrowserTests(BrowserTestCase):
-    artifact_subdirectory = "imazing-browser"
+    artifact_subdirectory = "message-csv-browser"
 
     def setUp(self):
         super().setUp()
@@ -30,7 +30,7 @@ class IMazingImportBrowserTests(BrowserTestCase):
             ):
                 self.sign_in(page)
                 page.goto(self.url("phone:imazing_upload", case_id=self.case.pk))
-                page.get_by_label("iMazing message CSV", exact=True).set_input_files(
+                page.get_by_label("Message CSV", exact=True).set_input_files(
                     {
                         "name": "synthetic-messages.csv",
                         "mimeType": "text/csv",

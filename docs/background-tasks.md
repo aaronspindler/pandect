@@ -43,25 +43,25 @@ completion feedback; there is no notification scheduler.
 Completed vehicle and HTML iMessage imports offer **Run local checks on imported
 evidence** deliberately. Scope comes from retained import relationships (and the
 published iMessage IDs and source rows for historical results, or the publishing
-run on new iMazing message contexts), never browser-supplied evidence IDs. Each local-check step
-queues independent local checks for at most 500 sources or the configured lower
+run on new CSV message contexts), never browser-supplied evidence IDs. Each
+local-check step queues independent local checks for at most 500 sources or the configured lower
 source limit; text groups also respect the one-million-character analysis bound.
 Skipped duplicate rows are absent. This does not run models, transcription,
 external lookups, or split context-dependent movement/conversation analyses.
 Duplicate submissions recover the same batch. Each continuation rechecks access;
 preparation and run failures remain recoverable through existing workflows.
 
-Confirmed iMazing CSV imports instead start their message-analysis batch
+Confirmed message CSV imports instead start their message-analysis batch
 automatically in the publication transaction. The existing batch cursor and task
 continuations prepare bounded selections in reported-time order. They queue both
 independent local checks and the message/writing/model suite described in
-[automatic message analysis](analysis-communications.md#imazing-csv-message-imports).
+[automatic message analysis](analysis-communications.md#message-csv-imports).
 Processing separates preparation from execution; **Checks queued** does not mean
 model work has finished. Model failures preserve the import and independent
 results, and never trigger cloud fallback. Preview, excluded, and reused rows do
 not start a batch. No database migration or startup backfill is required.
 
-iMazing CSV imports have no row-count ceiling. They stream within the configured
+Message CSV imports have no row-count ceiling. They stream within the configured
 file and per-message limits, retain compact analysis summaries, and paginate
 source review and completed messages. Publication still commits all messages and
 requested new people atomically; internal processing groups are not import limits.

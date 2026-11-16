@@ -1,4 +1,4 @@
-"""Streaming iMazing CSV review and atomic, case-authorized publication."""
+"""Streaming message CSV review and atomic, case-authorized publication."""
 
 import csv
 import hashlib
@@ -501,9 +501,9 @@ def prepare_import(sources, parameters):
         pass
     unresolved = state["metrics"]["unresolved_rows"]
     data = output(
-        "Prepared iMazing CSV rows for participant and timezone review."
+        "Prepared message CSV rows for participant and timezone review."
         if parameters.get("phase", "preview") == "preview"
-        else "Prepared confirmed iMazing messages for atomic publication.",
+        else "Prepared confirmed CSV messages for atomic publication.",
         metrics=state["metrics"],
         warnings=[
             "The original CSV remains the retained source. Text preserves the "
@@ -571,7 +571,7 @@ def _create_people(case, people, contexts):
 def apply_import(run, data, sources):
     """Publish bounded batches atomically; any failure rolls back the import."""
     if not transaction.get_connection().in_atomic_block:
-        raise RuntimeError("iMazing publication requires a transaction.")
+        raise RuntimeError("Message CSV publication requires a transaction.")
     case = get_case(run.requested_by, run.case_id, edit=True, lock=True)
     if (
         run.operation != "imazing_import"
@@ -672,7 +672,7 @@ def apply_import(run, data, sources):
                 else None,
                 source=source.item.source,
                 source_description=(
-                    f"Retained iMazing CSV export {source.item.pk}, "
+                    f"Retained message CSV export {source.item.pk}, "
                     f"row {values['source_row']}; {PARSER_VERSION}"
                 ),
                 submission_id=uuid5(source.item.pk, f"imazing:{values['source_row']}"),

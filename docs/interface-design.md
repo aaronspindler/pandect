@@ -149,11 +149,13 @@ See [evidence](evidence.md) for the deletion and private-storage contract.
 ## Conversation reading
 
 **Case Tools → Conversations** lists reported participant pairs, message counts,
-and latest recorded times, with 25 pairs per page. Opening a pair shows a chat
-reader with 50 messages per page, oldest recorded time first and unknown times
-last. Keep sender names explicit and participant alignment consistent; do not
-label either participant as the signed-in user. Date separators and timestamps
-use the display timezone. Preserve message whitespace and escape source content.
+and latest recorded times, loading 25 more pairs when scrolling to the end.
+Opening a pair shows a compact chat reader loading 50 messages at a time, oldest
+recorded time first and unknown times last. Put sender and time on one wrapping
+line, with reduced bubble padding and spacing. Keep sender names explicit and
+participant alignment consistent; do not label either participant as the signed-in
+user. Date separators and timestamps use the display timezone. Preserve message
+whitespace and escape source content.
 
 **All sources** includes imported and individually entered messages. A labelled
 retained-export selector narrows the pair and resets pagination/selection. Keep
@@ -172,17 +174,22 @@ native reply/thread relationship lists. **View in conversation** there resolves 
 exact message and its page, opens its details, and marks the target beyond color.
 Retain the selected export and conversation list page on this round trip.
 
-Filtering, pagination, and evidence links use ordinary GET navigation. Browser
-Back preserves source/page context. Use ordinary page scrolling at every screen
-size. Empty conversations and empty export-filtered results retain case navigation
-and offer the appropriate evidence or clear-filter link.
+Filtering and evidence links use ordinary GET navigation. Scrolling near either
+loaded boundary adds the adjacent page in place, keeping the export/list context,
+deduplicating date headings and retaining focus and position when prepending.
+Announce loading, completion, and failures; retain ordinary earlier/later links
+for keyboard use, without JavaScript, and as full-page recovery after a failed
+request. Each request uses the same authorized, bounded page route. Browser Back
+preserves the original source/page context. Use ordinary page scrolling at every
+screen size. Empty conversations and empty export-filtered results retain case
+navigation and offer the appropriate evidence or clear-filter link.
 See [evidence](evidence.md#reading-conversations) for interpretation limits.
 
 ## Evidence creation and batch uploads
 
 **Add evidence** starts with mixed-file upload under **Upload files**, followed by
 always-visible **Add a record** links for text, locations, and communications and
-**Import records** links for vehicle locations and iMazing messages. Single-record
+**Import records** links for vehicle locations and CSV messages. Single-record
 forms name their type in the title and offer a labelled **Change type** disclosure
 with **Choose type** submit. All ten types
 remain available without JavaScript. A single-file document form is the upload
@@ -246,7 +253,7 @@ distinct from execution: **Checks queued** does not mean those checks have finis
 Owners and editors have **Run more checks → Rerun all analysis** here; it starts
 supported local checks across active evidence, preserves earlier results, and
 reports background preparation progress.
-Confirmed iMazing imports automatically start message, writing, and local model
+Confirmed message CSV imports automatically start message, writing, and local model
 analysis. Their review page links to **Follow message analysis** in Processing;
 completed or stopped preparation offers **Run message analysis again**. Each
 result discloses its bounded message selection. Other additional AI and external

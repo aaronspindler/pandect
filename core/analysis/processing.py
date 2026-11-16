@@ -68,7 +68,7 @@ def index(request, case_id):
         operation = OPERATIONS.get(run.operation)
         run.label = operation.label if operation else "Retained analysis"
         if run.operation == "imazing_import" and run.import_phase == "preview":
-            run.label = "Prepare iMazing message review"
+            run.label = "Prepare message review"
         run.failure_message = error_message(run.error_code) if run.error_code else ""
         run.source_title = titles.get(
             (run.first_kind, run.first_evidence), "Source unavailable"
