@@ -10,7 +10,7 @@ from text.models import TextEvidence
 
 
 class MarketingPageTests(TestCase):
-    pages = ("home", "product", "evidence", "trust", "roadmap", "hosting")
+    pages = ("home", "evidence", "trust", "roadmap", "hosting")
 
     @classmethod
     def setUpTestData(cls):
@@ -38,10 +38,15 @@ class MarketingPageTests(TestCase):
                 self.assertTemplateUsed(response, "marketing/base.html")
                 self.assertContains(response, 'href="#main-content"')
                 self.assertContains(response, reverse("account_login"))
+                html = response.content.decode()
+                header = html.split("<header", 1)[1].split("</header>", 1)[0]
+                footer = html.split("<footer", 1)[1].split("</footer>", 1)[0]
                 for destination in self.pages:
-                    self.assertContains(
-                        response, f'href="{reverse(f"marketing:{destination}")}"'
+                    self.assertIn(
+                        f'href="{reverse(f"marketing:{destination}")}"', footer
                     )
+                self.assertNotIn(reverse("marketing:roadmap"), header)
+                self.assertNotIn(reverse("marketing:product"), html)
                 self.assertEqual(
                     self.client.head(reverse(f"marketing:{name}")).status_code, 200
                 )
@@ -50,11 +55,24 @@ class MarketingPageTests(TestCase):
                 )
 
     def test_marketing_loads_its_styles_without_the_product_stylesheet(self):
-        response = self.client.get(reverse("marketing:product"))
+        response = self.client.get(reverse("marketing:home"))
         self.assertContains(response, static("ui/primitives.css"))
         self.assertContains(response, static("marketing/marketing.css"))
         self.assertNotContains(response, static("ui/app.css"))
         self.assertNotContains(response, static("core/evidence.js"))
+
+    def test_previous_product_url_redirects_to_the_public_overview(self):
+        for user in (None, self.owner):
+            if user:
+                self.client.force_login(user)
+            response = self.client.get(reverse("marketing:product"))
+            self.assertRedirects(response, reverse("marketing:home"), status_code=301)
+            self.assertEqual(
+                self.client.head(reverse("marketing:product")).status_code, 301
+            )
+            self.assertEqual(
+                self.client.post(reverse("marketing:product")).status_code, 405
+            )
 
     @override_settings(
         PANDECT_LOCAL_AI={},
@@ -87,7 +105,7 @@ class MarketingPageTests(TestCase):
             self.client.logout()
             if user:
                 self.client.force_login(user)
-            for name in self.pages if user is None else self.pages[1:]:
+            for name in self.pages:
                 with self.subTest(user=str(user), page=name):
                     response = self.client.get(reverse(f"marketing:{name}"))
                     for private_value in (
@@ -101,11 +119,9 @@ class MarketingPageTests(TestCase):
 
     def test_signed_in_visitors_keep_the_workspace_shortcut(self):
         self.client.force_login(self.owner)
-        self.assertRedirects(
-            self.client.get(reverse("marketing:home")), reverse("cases:case_list")
-        )
-        for name in self.pages[1:]:
+        for name in self.pages:
             response = self.client.get(reverse(f"marketing:{name}"))
+            self.assertEqual(response.status_code, 200)
             header = (
                 response.content.decode()
                 .split("<header", 1)[1]
@@ -122,7 +138,7 @@ class MarketingPageTests(TestCase):
         )
         EmailAddress.objects.filter(user=self.owner).update(verified=False)
         self.client.force_login(self.owner)
-        self.assertEqual(self.client.get(reverse("marketing:product")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("marketing:home")).status_code, 200)
         self.assertRedirects(self.client.get(case_url), reverse("account_email"))
         response = self.client.get(case_url, HTTP_ACCEPT="application/json")
         self.assertEqual(response.status_code, 403)

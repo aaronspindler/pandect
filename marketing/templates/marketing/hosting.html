@@ -15,8 +15,7 @@
 <section class="marketing-section wrap split-section" aria-labelledby="questions-heading">
   <div><p class="section-label">Before you begin</p><h2 id="questions-heading">A few practical questions.</h2></div>
   <div class="marketing-faq">
-    <details><summary>Do I need an AI service?</summary><p>No. Cases, evidence, search, imports, maps, and local checks work without one. Transcription and model-assisted analysis require <a href="{% url 'marketing:product' %}#configured-services">separately configured services</a>.</p></details>
-    <details><summary>Can analysis stay on my infrastructure?</summary><p>Supported AI defaults to configured local or private-LAN runtimes, with no cloud fallback. External AI requires explicit selection and approval. Maps have separate privacy settings. <a href="{% url 'marketing:trust' %}">See processing and privacy.</a></p></details>
+    <details><summary>What should I configure for analysis?</summary><p>Check the <a href="{% url 'marketing:evidence' %}#requirements">requirements for your evidence and analysis methods</a>. Review <a href="{% url 'marketing:trust' %}">processing and privacy</a> before choosing local, private, or approved external services.</p></details>
     <details><summary>Where do I sign in?</summary><p>Use your own or your operator’s installation. This site’s sign-in opens accounts on this installation.</p></details>
     <details><summary>How do I update and back up?</summary><p>Follow the <a href="https://github.com/aaronspindler/pandect/blob/main/docs/operations.md">operations guide</a> for upgrades, backups, and recovery. Check compatibility requirements before updating.</p></details>
   </div>

@@ -7,16 +7,22 @@ announcements with the same availability boundaries.
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Introduction, fictional workspace, core workflow, and self-hosting next step. |
-| `/product/` | Current capabilities, fictional examples at `#analysis`, configured services, and input limits. |
+| `/` | Combined product overview, core workflow, fictional examples at `#analysis`, and routes to capabilities and self-hosting. |
 | `/evidence/` | Complete evidence and analysis catalogue, supported imports/reports, input profiles, and setup requirements. |
 | `/trust/` | Case access, originals, analysis approval, and map tile privacy. |
-| `/roadmap/` | Available capabilities, planned work, and exploration without release dates. |
+| `/roadmap/` | Planned work and exploration without release dates; linked from the footer. |
 | `/hosting/` | Self-hosting and the planned hosted service. |
 
-All pages are public. Signed-in `/` visitors go to **All cases**; other public
-pages offer **Open workspace**. Authentication and email verification protect
-case material, which public pages never query or display. Illustrations use
+These five pages are public, including the overview for signed-in visitors. All
+offer **Open workspace** when signed in; authentication still leads to **All cases**.
+The former `/product/` route permanently redirects to `/`. Its `#available`,
+`#analysis`, `#configured-services`, and `#limits` fragments remain valid on the
+overview; service and format details now live in the catalogue. The primary
+navigation contains Overview, Evidence & analysis, Trust, and Hosting; Roadmap is
+in the footer navigation, with an explicit current-page state.
+
+Authentication and email verification protect case material, which public pages
+never query or display. Illustrations use
 labelled fictional cases; examples retain source links, candidate-finding limits,
 and configuration requirements. Trust explains [tile-provider privacy](maps.md#external-tiles-and-privacy).
 
@@ -24,17 +30,21 @@ Templates live in `marketing/templates/marketing/`; styling is
 `marketing/static/marketing/marketing.css`. The editorial layout shares the
 approved brand and [design standard](../DESIGN.md): prominent headings, readable
 text, fine dividers, responsive/dark/forced-color layouts, keyboard focus, and a
-skip link. Introductions lead to useful actions; separate pages own product,
-trust, and planning details. Format limits and hosting questions use native
+skip link. The overview owns the product story and examples; the catalogue owns
+input profiles and method requirements; Trust owns access, retention, and
+processing privacy; Hosting owns setup and operator responsibilities; Roadmap
+owns future work. Keep short configuration and uncertainty notes beside relevant
+claims without repeating full explanations. Hosting questions use native
 disclosures. Navigation and actions work without JavaScript.
 
 ## Evidence and analysis catalogue
 
-**Evidence & analysis** groups every addable evidence type into its own section,
-with analysis descriptions and requirements beside each method. Shared methods
-appear in every applicable section. Pattern reports and supported import workflows
-are listed separately from analysis. The same table content stacks at narrow
-widths, retaining visible labels and table relationships.
+**Evidence & analysis** gives every addable evidence type a profile with its
+intake, supported formats, prerequisites, and links to applicable tools. Separate
+analysis, pattern report, and import tables describe each tool once, retaining
+requirements and uncertainty notes alongside it. Each entry links back to its
+applicable evidence types. The same table content stacks at narrow widths,
+retaining visible labels and table relationships.
 
 `marketing/catalogue.py` owns the public presentation data, keyed by current
 evidence-kind, analysis-operation, report, and import identifiers. It describes

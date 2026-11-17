@@ -7,28 +7,29 @@
     <h1 id="home-heading">A clearer view<br><em>of your case.</em></h1>
     <p class="lead">Bring evidence together. Search within a case, review findings with their sources, and work with collaborators on infrastructure you control.</p>
     <div class="hero-actions">
-      <a class="marketing-button" href="{% url 'marketing:product' %}">Explore the product <span aria-hidden="true">→</span></a>
+      <a class="marketing-button" href="{% url 'marketing:evidence' %}">Explore capabilities <span aria-hidden="true">→</span></a>
       <a class="text-link" href="{% url 'marketing:hosting' %}">Self-host Pandect <span aria-hidden="true">→</span></a>
     </div>
-    <p class="intro-note">In active development. <a href="{% url 'marketing:roadmap' %}">See what’s available and planned.</a></p>
+    <p class="intro-note">In active development. Core case work needs no AI credentials or hosted subscription.</p>
   </div>
   {% include 'marketing/workspace.html' %}
 </section>
-<section class="marketing-section wrap" aria-labelledby="workflow-heading">
+<section class="marketing-section wrap" id="available" aria-labelledby="workflow-heading">
   <div class="section-heading">
     <p class="section-label">Available now</p>
     <h2 id="workflow-heading">From gathered material to shared understanding.</h2>
   </div>
   <div class="principles">
-    <article><span class="step-number" aria-hidden="true">01</span><h3>Gather the evidence</h3><p>Keep files, conversations, and location observations in a private case, alongside its people and vehicles.</p><a class="text-link" href="{% url 'marketing:product' %}#available">Explore current features <span aria-hidden="true">→</span></a></article>
-    <article><span class="step-number" aria-hidden="true">02</span><h3>Follow the sources</h3><p>Search supported text, inspect local findings, and trace patterns back to the original material.</p><a class="text-link" href="{% url 'marketing:product' %}#analysis">See analysis examples <span aria-hidden="true">→</span></a></article>
-    <article><span class="step-number" aria-hidden="true">03</span><h3>Review together</h3><p>Invite viewers or editors. Save shared selections and export cited briefs with review decisions intact.</p><a class="text-link" href="{% url 'marketing:trust' %}">Evidence and privacy <span aria-hidden="true">→</span></a></article>
+    <article><span class="step-number" aria-hidden="true">01</span><h3>Gather the evidence</h3><p>Keep files, messages, and reported locations alongside the people and vehicles in a private case.</p></article>
+    <article><span class="step-number" aria-hidden="true">02</span><h3>Follow the sources</h3><p>Search within a case, inspect findings, and follow recorded chronology or possible trips back to their sources.</p></article>
+    <article><span class="step-number" aria-hidden="true">03</span><h3>Review together</h3><p>Invite viewers or editors, review findings, and export cited briefs from shared selections.</p></article>
   </div>
 </section>
-<section class="availability-section" aria-labelledby="hosting-heading">
+{% include 'marketing/analysis_examples.html' %}
+<section class="availability-section" id="configured-services" aria-labelledby="limits">
   <div class="marketing-section wrap split-section">
-    <div><p class="section-label">Your infrastructure</p><h2 id="hosting-heading">Start with a workspace you control.</h2><a class="marketing-button" href="{% url 'marketing:hosting' %}">Explore self-hosting <span aria-hidden="true">→</span></a></div>
-    <div><p>Ordinary case work and supported local checks need no external AI credentials or hosted subscription.</p><p>Transcription, model suggestions, and geographic lookups require configured services. Managed hosting is planned.</p><div class="hero-actions"><a class="text-link" href="{% url 'marketing:product' %}#configured-services">See service requirements <span aria-hidden="true">→</span></a><a class="text-link" href="{% url 'marketing:roadmap' %}">Read the roadmap <span aria-hidden="true">→</span></a></div></div>
+    <h2 id="limits">Find the right tools for your evidence.</h2>
+    <div><p>Supported formats and optional services vary by method. Check the catalogue for input limits and setup requirements.</p><div class="hero-actions"><a class="text-link" href="{% url 'marketing:evidence' %}#requirements">Evidence types and requirements <span aria-hidden="true">→</span></a><a class="text-link" href="{% url 'marketing:trust' %}">Processing and privacy <span aria-hidden="true">→</span></a></div></div>
   </div>
 </section>
 {% endblock %}

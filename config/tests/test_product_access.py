@@ -54,12 +54,16 @@ class ProductAccessTests(TestCase):
         self.assertNotContains(response, case.name, status_code=403)
         self.assertEqual(response.json()["code"], "verification_required")
 
-    def test_home_and_login_lead_to_cases_after_verification(self):
+    def test_verified_login_leads_to_cases_and_home_remains_public(self):
         EmailAddress.objects.create(
             user=self.user, email=self.user.email, verified=True, primary=True
         )
-        self.client.force_login(self.user)
-        self.assertRedirects(self.client.get("/"), reverse("cases:case_list"))
+        response = self.client.post(
+            reverse("account_login"),
+            {"login": self.user.email, "password": "synthetic"},
+        )
+        self.assertRedirects(response, reverse("cases:case_list"))
+        self.assertEqual(self.client.get(reverse("marketing:home")).status_code, 200)
 
     def test_unverified_session_keeps_invitation_through_confirmation(self):
         self.client.force_login(self.user)

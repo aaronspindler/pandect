@@ -1,6 +1,9 @@
 """Public capability coverage follows the product's supported inventories."""
 
-from django.test import SimpleTestCase
+from django.contrib.auth.models import AnonymousUser
+from django.template.loader import render_to_string
+from django.test import RequestFactory, SimpleTestCase
+from django.utils.html import escape
 
 from core.analysis.execution import GEOGRAPHIC as GEOGRAPHIC_OPERATIONS
 from core.analysis.execution import requires_inference
@@ -17,6 +20,7 @@ from marketing.catalogue import (
     MODEL,
     OPTIONAL_AI,
     REPORTS,
+    capability_sections,
     evidence_groups,
 )
 
@@ -46,6 +50,59 @@ class CapabilityCatalogueTests(SimpleTestCase):
                     )
                 self.assertTrue(group["formats"])
                 self.assertTrue(group["intake"])
+
+    def test_shared_reference_lists_every_capability_once_with_correct_inputs(self):
+        sections = capability_sections()
+        self.assertEqual(
+            [section["id"] for section in sections], ["analysis", "reports", "imports"]
+        )
+        for section, inventory in zip(
+            sections, (ANALYSES, REPORTS, IMPORTS), strict=True
+        ):
+            self.assertEqual([row["id"] for row in section["rows"]], list(inventory))
+            for row in section["rows"]:
+                with self.subTest(category=section["id"], method=row["id"]):
+                    self.assertCountEqual(
+                        [evidence["kind"] for evidence in row["evidence_types"]],
+                        inventory[row["id"]]["kinds"],
+                    )
+                    for evidence in row["evidence_types"]:
+                        self.assertIn(
+                            evidence,
+                            [
+                                {"kind": item["kind"], "label": item["label"]}
+                                for item in EVIDENCE_TYPES
+                            ],
+                        )
+
+    def test_type_profiles_link_to_one_complete_description_per_capability(self):
+        request = RequestFactory().get("/evidence/")
+        request.user = AnonymousUser()
+        html = render_to_string(
+            "marketing/evidence.html",
+            {
+                "evidence_groups": evidence_groups(),
+                "capability_sections": capability_sections(),
+            },
+            request=request,
+        )
+        for section in capability_sections():
+            for row in section["rows"]:
+                with self.subTest(category=section["id"], method=row["id"]):
+                    anchor = f"{section['id']}-{row['id']}"
+                    self.assertEqual(html.count(f'id="{anchor}"'), 1)
+                    self.assertEqual(html.count(f'href="#{anchor}"'), len(row["kinds"]))
+                    start = html.index(f'<tr role="row" id="{anchor}">')
+                    end = html.index("</tr>", start)
+                    method_html = html[start:end]
+                    self.assertIn(escape(row["description"]), method_html)
+                    self.assertIn(escape(row["detail"]), method_html)
+                    self.assertIn(escape(row["requirement"]), method_html)
+                    for evidence in row["evidence_types"]:
+                        self.assertInHTML(
+                            f'<a href="#{evidence["kind"]}">{evidence["label"]}</a>',
+                            method_html,
+                        )
 
     def test_analysis_and_import_coverage_matches_registered_operations(self):
         registered_imports = {

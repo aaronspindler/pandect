@@ -42,7 +42,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
         )
         self.assertTrue(engines and not set(engines) - {"chromium", "webkit"})
         artifacts = artifact_directory("marketing-browser")
-        pages = ("home", "product", "evidence", "trust", "roadmap", "hosting")
+        pages = ("home", "evidence", "trust", "roadmap", "hosting")
         viewports = (
             (1440, 900),
             (1440, 1024),
@@ -85,8 +85,9 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         if name == "evidence":
                             page.locator("#main-content").focus()
                             self.assertCountEqual(
-                                page.locator(".catalogue-section[id]").evaluate_all(
-                                    "sections => sections.map(s => s.id)"
+                                page.locator(".catalogue-overview").evaluate_all(
+                                    "overviews => overviews.map(overview => "
+                                    "overview.closest('section').id)"
                                 ),
                                 KINDS,
                             )
@@ -98,10 +99,20 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                                     ".every(r => r.querySelector('th[scope=row]')))"
                                 )
                             )
-                        if name != "home":
-                            expect(
-                                page.locator("header [aria-current='page']")
-                            ).to_have_attribute("href", reverse(f"marketing:{name}"))
+                        current_scope = "footer" if name == "roadmap" else "header"
+                        expect(
+                            page.locator(f"{current_scope} [aria-current='page']")
+                        ).to_have_attribute("href", reverse(f"marketing:{name}"))
+                        expect(
+                            page.locator("header").get_by_role(
+                                "link", name="Roadmap", exact=True
+                            )
+                        ).to_have_count(0)
+                        expect(
+                            page.locator("footer").get_by_role(
+                                "link", name="Roadmap", exact=True
+                            )
+                        ).to_have_count(1)
                         self.assertTrue(
                             page.locator("img").evaluate_all(
                                 "images => images.every(image => "
@@ -144,6 +155,17 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                                         artifacts
                                         / (
                                             f"{engine}-evidence-section-"
+                                            f"{width}x{height}.png"
+                                        )
+                                    )
+                                )
+                                page.locator(
+                                    ".catalogue-table tbody tr"
+                                ).first.screenshot(
+                                    path=str(
+                                        artifacts
+                                        / (
+                                            f"{engine}-evidence-method-"
                                             f"{width}x{height}.png"
                                         )
                                     )
@@ -196,35 +218,33 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                     ).to_be_focused()
                     page.keyboard.press("Enter")
                     expect(page.locator("#main-content")).to_be_focused()
-                    analysis_url = reverse("marketing:product") + "#analysis"
                     for scope, name, href in (
-                        ("header", "Product", reverse("marketing:product")),
+                        ("header", "Overview", reverse("marketing:home")),
                         (
                             "header",
                             "Evidence & analysis",
                             reverse("marketing:evidence"),
                         ),
                         ("header", "Trust", reverse("marketing:trust")),
-                        ("header", "Roadmap", reverse("marketing:roadmap")),
                         ("header", "Hosting", reverse("marketing:hosting")),
                         ("header", "Sign in", reverse("account_login")),
+                        ("footer", "Roadmap", reverse("marketing:roadmap")),
                         (
                             "main",
-                            "Explore the product",
-                            reverse("marketing:product"),
+                            "Explore capabilities",
+                            reverse("marketing:evidence"),
                         ),
                         (
                             "main",
-                            "Explore current features",
-                            reverse("marketing:product") + "#available",
+                            "Self-host Pandect",
+                            reverse("marketing:hosting"),
                         ),
                         (
                             "main",
-                            "See service requirements",
-                            reverse("marketing:product") + "#configured-services",
+                            "Evidence types and requirements",
+                            reverse("marketing:evidence") + "#requirements",
                         ),
-                        ("main", "Read the roadmap", reverse("marketing:roadmap")),
-                        ("main", "See analysis examples", analysis_url),
+                        ("main", "Processing and privacy", reverse("marketing:trust")),
                     ):
                         page.goto(self.live_server_url + reverse("marketing:home"))
                         link = page.locator(scope).get_by_role(
@@ -247,7 +267,24 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         expect(page).to_have_url(self.live_server_url + href)
                         if "#" in href:
                             expect(page.locator(":target")).to_be_in_viewport()
-                    expect(page.locator("#analysis:target")).to_be_in_viewport()
+
+                    for fragment in (
+                        "available",
+                        "analysis",
+                        "configured-services",
+                        "limits",
+                    ):
+                        page.goto(
+                            self.live_server_url
+                            + reverse("marketing:product")
+                            + f"#{fragment}"
+                        )
+                        expect(page).to_have_url(
+                            self.live_server_url
+                            + reverse("marketing:home")
+                            + f"#{fragment}"
+                        )
+                        expect(page.locator(f"#{fragment}:target")).to_be_in_viewport()
 
                     page.goto(self.live_server_url + reverse("marketing:evidence"))
                     for kind in KINDS:
@@ -260,6 +297,26 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             + f"#{kind}"
                         )
                         expect(page.locator(f"#{kind}:target")).to_be_in_viewport()
+
+                    page.goto(
+                        self.live_server_url
+                        + reverse("marketing:evidence")
+                        + "#document"
+                    )
+                    method_link = page.locator("#document").get_by_role(
+                        "link", name="Extract identifiers and dates", exact=True
+                    )
+                    method_link.focus()
+                    method_link.press("Enter")
+                    expect(
+                        page.locator("#analysis-entities:target")
+                    ).to_be_in_viewport()
+                    type_link = page.locator("#analysis-entities").get_by_role(
+                        "link", name="Document", exact=True
+                    )
+                    type_link.focus()
+                    type_link.press("Enter")
+                    expect(page.locator("#document:target")).to_be_in_viewport()
 
                     page.goto(self.live_server_url + reverse("marketing:hosting"))
                     faqs = page.locator(".marketing-faq details")

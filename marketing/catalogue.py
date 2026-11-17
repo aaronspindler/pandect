@@ -668,7 +668,7 @@ IMPORTS = {
 
 
 def evidence_groups():
-    """Repeat shared capability copy for each supported evidence section."""
+    """Associate each input profile with its supported catalogue entries."""
     return [
         {
             **evidence,
@@ -686,4 +686,31 @@ def evidence_groups():
             },
         }
         for evidence in EVIDENCE_TYPES
+    ]
+
+
+def capability_sections():
+    """Describe each capability once, with links to its applicable input profiles."""
+    return [
+        {
+            "id": category,
+            "title": title,
+            "rows": [
+                {
+                    "id": identifier,
+                    **row,
+                    "evidence_types": [
+                        {"kind": evidence["kind"], "label": evidence["label"]}
+                        for evidence in EVIDENCE_TYPES
+                        if evidence["kind"] in row["kinds"]
+                    ],
+                }
+                for identifier, row in inventory.items()
+            ],
+        }
+        for category, title, inventory in (
+            ("analysis", "Analysis methods", ANALYSES),
+            ("reports", "Pattern reports", REPORTS),
+            ("imports", "Supported imports", IMPORTS),
+        )
     ]

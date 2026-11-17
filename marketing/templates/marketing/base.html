@@ -17,10 +17,9 @@
   <header class="marketing-header wrap">
     <a class="wordmark" href="{% url 'marketing:home' %}" aria-label="Pandect">{% include 'ui/components/brand.html' %}</a>
     <nav class="marketing-nav" aria-label="Main navigation">
-      <a href="{% url 'marketing:product' %}" {% if request.resolver_match.url_name == 'product' %}aria-current="page"{% endif %}>Product</a>
+      <a href="{% url 'marketing:home' %}" {% if request.resolver_match.url_name == 'home' %}aria-current="page"{% endif %}>Overview</a>
       <a href="{% url 'marketing:evidence' %}" {% if request.resolver_match.url_name == 'evidence' %}aria-current="page"{% endif %}>Evidence &amp; analysis</a>
       <a href="{% url 'marketing:trust' %}" {% if request.resolver_match.url_name == 'trust' %}aria-current="page"{% endif %}>Trust</a>
-      <a href="{% url 'marketing:roadmap' %}" {% if request.resolver_match.url_name == 'roadmap' %}aria-current="page"{% endif %}>Roadmap</a>
       <a href="{% url 'marketing:hosting' %}" {% if request.resolver_match.url_name == 'hosting' %}aria-current="page"{% endif %}>Hosting</a>
       {% if user.is_authenticated %}
         <a class="account-link" href="{% url 'cases:case_list' %}">Open workspace</a>
@@ -38,11 +37,11 @@
       <p>A self-hostable investigation workspace.<br>In active development.</p>
     </div>
     <nav aria-label="Footer navigation">
-      <a href="{% url 'marketing:product' %}">Product</a>
-      <a href="{% url 'marketing:evidence' %}">Evidence &amp; analysis</a>
-      <a href="{% url 'marketing:trust' %}">Trust</a>
-      <a href="{% url 'marketing:roadmap' %}">Roadmap</a>
-      <a href="{% url 'marketing:hosting' %}">Hosting</a>
+      <a href="{% url 'marketing:home' %}" {% if request.resolver_match.url_name == 'home' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="{% url 'marketing:evidence' %}" {% if request.resolver_match.url_name == 'evidence' %}aria-current="page"{% endif %}>Evidence &amp; analysis</a>
+      <a href="{% url 'marketing:trust' %}" {% if request.resolver_match.url_name == 'trust' %}aria-current="page"{% endif %}>Trust</a>
+      <a href="{% url 'marketing:hosting' %}" {% if request.resolver_match.url_name == 'hosting' %}aria-current="page"{% endif %}>Hosting</a>
+      <a href="{% url 'marketing:roadmap' %}" {% if request.resolver_match.url_name == 'roadmap' %}aria-current="page"{% endif %}>Roadmap</a>
       <a href="https://github.com/aaronspindler/pandect">Source on GitHub <span aria-hidden="true">↗</span></a>
     </nav>
   </footer>
