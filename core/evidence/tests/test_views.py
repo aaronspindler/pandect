@@ -30,9 +30,29 @@ from phone.models import (
     TextMessageEvidence,
 )
 from text.models import TextEvidence
+from vehicle.models import Vehicle
 
 
 class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
+    def test_vehicle_location_preselection_uses_only_current_case_choices(self):
+        foreign = Vehicle.objects.create(
+            case=self.other_case, model="Private foreign vehicle"
+        )
+        self.login("editor")
+        for value in (str(self.vehicle.pk), str(foreign.pk), "invalid"):
+            with self.subTest(vehicle=value):
+                response = self.client.get(
+                    self.url("create"),
+                    {"kind": "vehicle-location", "vehicle": value},
+                )
+                self.assertEqual(response.status_code, 200)
+                widget = str(response.context["form"]["vehicle"])
+                if value == str(self.vehicle.pk):
+                    self.assertIn(f'<option value="{value}" selected>', widget)
+                else:
+                    self.assertNotIn(f'value="{value}"', widget)
+                self.assertNotIn("Private foreign vehicle", widget)
+
     def test_message_labels_show_content_sender_and_local_time(self):
         message = TextMessageEvidence.objects.create(
             case=self.case,

@@ -19,7 +19,8 @@ are unsupported.
 
 Details show related evidence/findings, populated contacts, social accounts,
 POIs, and an unverified-record caption. **Record details** holds saved read-only
-notes, name components, timestamps, and owner-only **Delete person**.
+notes, name components, and timestamps. Owner-only **Delete person** is visible
+below that disclosure and opens the separate confirmation.
 
 Only owners can delete people, after named-target confirmation. Unlinked-person
 deletion retains evidence, login accounts, and matching people. Retained

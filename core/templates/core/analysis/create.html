@@ -11,14 +11,16 @@
 </header>
 
 {% if not operation %}
+<nav class="analysis-choice-groups" aria-label="Available analysis">
 {% for group,choices in operation_groups %}
-<details class="analysis-section">
-  <summary>{{ group }}</summary>
+<section class="analysis-section">
+  <h2>{{ group }}</h2>
   <div class="analysis-options">
     {% for choice in choices %}<a href="?operation={{ choice.key }}" aria-labelledby="analysis-{{ choice.key }}-label" aria-describedby="analysis-{{ choice.key }}-description"><span><strong id="analysis-{{ choice.key }}-label">{{ choice.label }}</strong><small id="analysis-{{ choice.key }}-description">{{ choice.description }}</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}
   </div>
-</details>
+</section>
 {% endfor %}
+</nav>
 {% else %}
 <form method="post" action="{% querystring %}" id="analysis-selection" class="analysis-section analysis-form" novalidate data-unsaved-form>
   {% csrf_token %}{{ form.operation }}{{ form.submission_id }}{{ form.execution_confirmation }}

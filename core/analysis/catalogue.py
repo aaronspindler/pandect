@@ -74,7 +74,10 @@ class CatalogueForm(forms.Form):
         label="Specific evidence", required=False, widget=forms.HiddenInput
     )
     person = forms.ModelChoiceField(
-        label="Person", queryset=Person.objects.none(), required=False
+        label="Person",
+        queryset=Person.objects.none(),
+        required=False,
+        empty_label="All people",
     )
     review = forms.ChoiceField(
         label="Finding review",
@@ -86,11 +89,11 @@ class CatalogueForm(forms.Form):
         ],
     )
     history = forms.ChoiceField(
-        label="Run versions",
+        label="Result history",
         required=False,
         choices=[
-            ("", "Latest equivalent successful runs"),
-            ("all", "All retained runs"),
+            ("", "Latest results"),
+            ("all", "All saved results"),
         ],
     )
 
@@ -265,6 +268,7 @@ def finding_rows(case, findings):
             "item_index": finding.item_index,
             "label": "Finding unavailable" if unavailable else finding.label,
             "excerpt": "" if unavailable else finding.excerpt,
+            "preview": "" if unavailable else finding.preview,
             "url": finding_url(
                 case.pk, run.pk, finding.item_index, show_weak=finding.weak
             ),
@@ -315,7 +319,7 @@ def catalogue_page(case, params, *, person=None, page_parameter="page", labels=N
         if filters.get("q")
         else F("preview"),
         run_id=F("result__run_id"),
-    ).only("id", "case_id", "result_id", "item_index", "label", "weak")
+    ).only("id", "case_id", "result_id", "item_index", "label", "weak", "preview")
     page = Paginator(queryset, PER_PAGE).get_page(params.get(page_parameter))
     page.object_list = finding_rows(case, page.object_list)
     query = {

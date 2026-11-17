@@ -30,6 +30,10 @@
   <h2>{{ data.summary }}</h2>
   {% if data.warnings %}<ul class="notice analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
 </section>
+{% if data.primary_measurements %}<section class="analysis-section" aria-labelledby="report-totals">
+  <h2 id="report-totals" tabindex="-1">Report totals</h2>
+  {% include 'core/analysis/measurements.html' with measurements=data.primary_measurements only %}
+</section>{% endif %}
 {% if data.items %}
   <section aria-labelledby="report-records">
     <h2 id="report-records" tabindex="-1">Records</h2>
@@ -48,8 +52,7 @@
 <details class="analysis-section disclosure">
   <summary>About this report</summary>
   {% if data.limitations %}<ul class="analysis-notes">{% for limitation in data.limitations %}<li>{{ limitation }}</li>{% endfor %}</ul>{% endif %}
-  <h2 id="report-totals" tabindex="-1">Report totals</h2>
-  {% if data.primary_measurements %}{% include 'core/analysis/measurements.html' with measurements=data.primary_measurements only %}{% endif %}
+  <h2>Additional report details</h2>
   {% if data.measurements %}{% include 'core/analysis/measurements.html' with measurements=data.measurements only %}{% endif %}
 </details>
 {% endif %}

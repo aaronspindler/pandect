@@ -7,7 +7,7 @@
 <p>{{ connection.original_count }} retained original{{ connection.original_count|pluralize }}. Repeated extraction versions of the same original are grouped together.</p>
 {% if connection.checksum_count < connection.original_count %}<p class="notice">Some originals have identical checksums. Copies are not independent corroboration.</p>{% endif %}
 <a class="record-link" href="{% url 'core:analysis:connections' case.pk %}">All connection groups</a>
-{% include 'core/analysis/_catalogue_rows.html' with rows=rows only %}
+{% include 'core/analysis/_catalogue_rows.html' with rows=rows case=case can_edit=can_edit only %}
 {% else %}
 <details class="evidence-filters"{% if request.GET %} open{% endif %}><summary>Filter connections</summary>
 <form method="get" class="form-layout" aria-label="Filter connections">{% include 'ui/components/form_errors.html' %}{{ form.evidence }}{{ form.evidence.errors }}{% for field in form.visible_fields %}<div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}<div class="actions"><button class="button button-primary" type="submit">Apply filters</button><a class="button button-secondary" href="{% url 'core:analysis:connections' case.pk %}">Clear filters</a></div></form></details>

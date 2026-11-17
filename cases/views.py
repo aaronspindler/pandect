@@ -420,9 +420,12 @@ def membership_remove(request, case_id, membership_id):
     )
 
 
-def _invitation_unavailable(request, reason, status=400):
+def _invitation_unavailable(request, reason, status=400, *, account_help=False):
     return render(
-        request, "cases/invitation_unavailable.html", {"reason": reason}, status=status
+        request,
+        "cases/invitation_unavailable.html",
+        {"reason": reason, "account_help": account_help},
+        status=status,
     )
 
 
@@ -462,6 +465,7 @@ def invitation_accept(request, token):
                 "Sign in with the invited account, or verify the invited email "
                 "in your account settings.",
                 403,
+                account_help=True,
             )
         if invitation.revoked_at:
             return _invitation_unavailable(

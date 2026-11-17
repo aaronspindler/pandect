@@ -338,7 +338,9 @@ class ContextBrowserTests(BrowserTestCase):
                 limits = page.locator("summary").filter(
                     has_text=re.compile(r"^Limitations$")
                 )
-                limits.press("Enter")
+                expect(page.locator(".analysis-result-limits")).to_have_attribute(
+                    "open", ""
+                )
                 expect(
                     page.get_by_text(
                         "Printed English OCR runs locally; no image is sent "

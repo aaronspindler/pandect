@@ -234,11 +234,11 @@ class AnalysisBrowserTests(BrowserTestCase):
                     "Summarize message sessions",
                 ):
                     page.goto(chooser)
-                    group = page.locator(".analysis-section > summary").filter(
-                        has_text="Inspect communications"
-                    )
-                    group.focus()
-                    group.press("Enter")
+                    expect(
+                        page.get_by_role(
+                            "heading", name="Inspect communications", exact=True
+                        )
+                    ).to_be_visible()
                     link = page.get_by_role("link", name=label, exact=True)
                     link.focus()
                     expect(link).to_be_focused()
@@ -527,12 +527,11 @@ class AnalysisBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 expect(page.locator(".analysis-assumptions")).to_have_count(0)
                 expect(page.locator('input[name="sources"]')).to_have_count(0)
-                category = page.locator("summary").filter(
-                    has_text=re.compile(r"^Extract and inspect files$")
-                )
-                category.focus()
-                expect(category).to_be_focused()
-                category.press("Space")
+                choices = page.get_by_role("navigation", name="Available analysis")
+                expect(choices.locator("details")).to_have_count(0)
+                for choice in choices.get_by_role("link").all():
+                    expect(choice).to_be_visible()
+                self.capture(page, engine, "analysis-chooser")
                 task = page.get_by_role(
                     "link", name="Extract document text", exact=True
                 )
@@ -566,7 +565,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     page.get_by_role("navigation", name="Investigation")
                     .get_by_role("link", name="Evidence", exact=True)
                     .bounding_box()["height"],
-                    88,
+                    128,
                 )
                 self.capture(page, engine, "analysis-selection-large-text")
                 task.focus()
@@ -718,8 +717,20 @@ class AnalysisBrowserTests(BrowserTestCase):
                         "PRIVATE UNVALIDATED RESPONSE"
                     )
                     limitations = page.get_by_text("Limitations", exact=True)
+                    expect(
+                        page.get_by_role("link", name="Download results", exact=True)
+                    ).to_be_visible()
+                    expect(
+                        page.get_by_role(
+                            "button",
+                            name="Start another run with these inputs",
+                            exact=True,
+                        )
+                    ).to_be_visible()
                     limitations.focus()
-                    limitations.press("Enter")
+                    expect(page.locator(".analysis-result-limits")).to_have_attribute(
+                        "open", ""
+                    )
                     expect(
                         page.get_by_text(
                             "Topic suggestions could not be validated "
@@ -1088,9 +1099,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                             "table", name="Report records"
                         ).locator('time[datetime="2026-10-27T12:00:00+00:00"]')
                         expect(observed).to_have_text("27 Oct 2026, 12:00:00 UTC")
-                        expect(page.locator("#report-totals")).to_be_hidden()
-                        page.get_by_text("About this report", exact=True).press("Enter")
                         expect(page.locator("#report-totals")).to_be_visible()
+                    page.locator("#report-totals").scroll_into_view_if_needed()
+                    self.capture(page, engine, f"analysis-report-totals-{name}-320")
                     self._assert_reflow(page)
                     page.get_by_role("table").scroll_into_view_if_needed()
                     self.capture(page, engine, f"analysis-report-{name}-320")
@@ -1150,12 +1161,11 @@ class AnalysisBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Choose an analysis", exact=True)
                 ).to_be_visible()
                 expect(page.locator('input[name="sources"]')).to_have_count(0)
-                category = page.locator("summary").filter(
-                    has_text=re.compile(r"^Extract and inspect files$")
-                )
-                category.focus()
-                expect(category).to_be_focused()
-                category.press("Enter")
+                expect(
+                    page.get_by_role(
+                        "heading", name="Extract and inspect files", exact=True
+                    )
+                ).to_be_visible()
                 task = page.get_by_role(
                     "link", name="Extract document text", exact=True
                 )
@@ -1424,7 +1434,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     reduced_motion="reduce",
                 )
                 self.capture(page, engine, "process-evidence-results-forced-colors")
-                self.open_evidence_panel(page, "more")
+                page.locator(".evidence-analyze > summary").press("Enter")
                 page.get_by_role(
                     "link", name="Suggest claims and commitments", exact=True
                 ).click()
@@ -1505,8 +1515,6 @@ class AnalysisBrowserTests(BrowserTestCase):
                         exact=True,
                     )
                 ).to_be_visible()
-                expect(page.get_by_text("Selected records", exact=True)).to_be_hidden()
-                page.get_by_text("About this report", exact=True).press("Enter")
                 expect(page.get_by_text("Selected records", exact=True)).to_be_visible()
                 expect(
                     page.get_by_text("Reported duration (seconds)", exact=True).first

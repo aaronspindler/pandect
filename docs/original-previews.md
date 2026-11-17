@@ -2,7 +2,10 @@
 
 The Evidence reader offers private local previews of supported originals/call
 recordings without analysis runs, original changes, or inference credentials.
-Unsupported formats and preview failures retain original downloads.
+Unsupported formats and preview failures retain the original-download control.
+Missing or checksum-changed files ask the administrator to check the retained
+original and storage; the reader does not promise that an unavailable file can
+be downloaded.
 
 ## Documents
 
@@ -10,8 +13,10 @@ UTF-8 documents display escaped read-only text, preserving decoded characters,
 whitespace, and line endings. An initial BOM is omitted and disclosed. HTML-like
 text is never executed; downloads preserve exact uploaded bytes.
 
-PDFs render local page images with Previous/Next navigation, including without
-JavaScript. Pinned `pypdfium2==5.15.2` and bundled PDFium run in the isolated parser
+PDFs render local page images with Previous/Next navigation and a **Page number**
+field with **Go to page**, including without JavaScript. Page changes retain the
+evidence-list filters. Invalid page requests offer **Open first page** while
+retaining those filters. Pinned `pypdfium2==5.15.2` and bundled PDFium run in the isolated parser
 child process. Uploaded PDFs are never embedded as executable app content;
 previews are neither stored nor sent to remote services.
 
@@ -26,6 +31,8 @@ Audio evidence/call recordings offer native playback without prior analysis.
 Supported WAVs are intact, uncompressed signed 16-bit PCM, mono/stereo, 8–48 kHz,
 with positive duration up to 30 minutes and size up to 16 MiB. Other formats keep
 downloads; playback does not transcode.
+Unsupported recordings explain that playback is unavailable and direct the user
+to download the original to listen.
 
 Seeking supports one HTTP byte range, including open-ended/suffix ranges.
 Invalid/multiple ranges return `416`. The bounded parser validates the entire

@@ -14,8 +14,10 @@ registered placeholder without an evidence category.
 ## Reading and editing evidence
 
 Readers keep originals beside source-linked findings. **Info** exposes provenance,
-integrity, retained descriptions, and processing history; **More** holds permitted
-actions. **Processing** shows case-wide history. See [screen specifications](interface-design.md#evidence-browsing-and-reading)
+integrity, retained descriptions, and processing history. **Edit details**, **Save
+to selection**, and **Analyze evidence** are directly visible to owners/editors;
+**More** holds secondary actions such as archive/restore. **Processing** shows
+case-wide history. See [screen specifications](interface-design.md#evidence-browsing-and-reading)
 and [automatic checks/recovery](analysis.md#retained-processing).
 
 Text messages use a compact message excerpt, reported sender, and reported time
@@ -38,12 +40,17 @@ Categories describe submitted material; parsers do not verify them. Text capture
 one browser-submitted original. Upload a text file as Document to preserve exact
 bytes: textareas may normalize line endings, though the server never trims or
 normalizes received text.
+If a person location or vehicle location has no matching case records to choose
+from, the form explains the prerequisite and links to **Add person** or
+**Add vehicle**. People and vehicles from another case never fill those choices.
 
 Review titles, categories, and provenance before upload. Filenames seed titles;
 browser-declared image/audio types suggest categories, otherwise Document.
 **Shared source details** supplies source name, URL, description, and collection
 time until an individual field is edited/cleared; **Use shared details** relinks
 it. Saved/unconfirmed submissions retain submitted values.
+Collection-time labels in shared and per-file details use the active display
+timezone, matching how the server interprets those times.
 
 Without browser support/JavaScript, intake links to a single-document form;
 **Change type** selects other records. Forms show configured limits. Saved entries
@@ -56,6 +63,9 @@ to avoid duplication. **Stop after this file** pauses pending entries. Queues li
 in page memory, may require reselection after reload, and cannot resume uploads.
 The [interface specification](interface-design.md#evidence-creation-and-batch-uploads)
 owns detailed states, shared fields, keyboard access, and fallbacks.
+Validation errors name the affected field and open its source details so the
+correction is visible. A failed file can be retried independently; successful
+files stay saved.
 
 Evidence searches titles, descriptions, source details/URLs, filenames, location
 addresses, and linked people/contacts, with type, explicit person, and Active/
@@ -81,7 +91,7 @@ routes. Supported documents/WAV recordings also have [private readers](original-
 Duplicate warnings show a preview and **Review all matches**, a private paginated
 checksum-filtered list including archived originals, without resubmitting uploads.
 
-**More → Edit details** corrects metadata; stale drafts appear beside newer values
+**Edit details** corrects metadata; stale drafts appear beside newer values
 and require **Save reviewed changes**. **Archive/Restore** retains original access.
 Individual deletion requires a superuser with current case access and [confirmation](#permanent-deletion);
 ordinary investigators retain evidence until owner-confirmed whole-case deletion.

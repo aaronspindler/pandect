@@ -1,6 +1,6 @@
 """Read synthetic originals and seek recordings in both supported browsers."""
 
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from django.core.files.base import ContentFile
 from playwright.sync_api import expect
@@ -77,6 +77,31 @@ class OriginalPreviewBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("img", name="Page 2 of Two-page original")
                 ).to_have_js_property("naturalWidth", 400)
+                page.goto(
+                    self.detail_url(self.pdf) + "?q=original&state=all&document_page=2"
+                )
+                page.get_by_label("Page number", exact=True).fill("1")
+                page.get_by_role("button", name="Go to page", exact=True).press("Enter")
+                expect(page.get_by_text("Page 1 of 2", exact=True)).to_be_visible()
+                self.assertEqual(
+                    parse_qs(urlsplit(page.url).query),
+                    {"q": ["original"], "state": ["all"], "document_page": ["1"]},
+                )
+                page.goto(
+                    self.detail_url(self.pdf) + "?q=original&state=all&document_page=99"
+                )
+                expect(
+                    page.get_by_text("That page is not in this document.", exact=False)
+                ).to_be_visible()
+                self.capture(page, engine, "pdf-invalid-page")
+                page.get_by_role("link", name="Open first page", exact=True).press(
+                    "Enter"
+                )
+                expect(page.get_by_text("Page 1 of 2", exact=True)).to_be_visible()
+                self.assertEqual(
+                    parse_qs(urlsplit(page.url).query),
+                    {"q": ["original"], "state": ["all"]},
+                )
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -89,6 +114,13 @@ class OriginalPreviewBrowserTests(BrowserTestCase):
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
                     self.capture(page, engine, f"pdf-{width}x{height}")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 321
+                )
+                expect(page.get_by_label("Page number", exact=True)).to_be_visible()
+                self.capture(page, engine, "pdf-200-percent-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
                 page.goto(self.detail_url(self.text))
                 expect(
                     page.get_by_role("region", name="Decoded document text")

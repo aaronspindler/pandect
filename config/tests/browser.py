@@ -148,6 +148,45 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.get_by_role("button", name="Save changes").click()
                 expect(page.locator("main")).to_contain_text("America/Toronto")
 
+    def test_upload_queue_timezone_label_matches_saved_collection_time(self):
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, timezone_id="America/Toronto") as (_, page),
+            ):
+                self.sign_in(page)
+                for query, mode in (("", "bulk"), ("?kind=document", "single")):
+                    page.goto(
+                        self.url("core:evidence:create", case_id=self.case.pk) + query
+                    )
+                    filename = f"{engine}-{mode}-timezone.txt"
+                    page.locator('input[type="file"]').set_input_files(
+                        {
+                            "name": filename,
+                            "mimeType": "text/plain",
+                            "buffer": filename.encode(),
+                        }
+                    )
+                    entry = page.locator(".upload-entry")
+                    entry.locator("summary").press("Enter")
+                    collected = entry.get_by_label(
+                        "Source collected at (America/Toronto)", exact=True
+                    )
+                    expect(collected).to_be_visible()
+                    collected.fill("2026-07-01T09:15")
+                    collected.scroll_into_view_if_needed()
+                    self.capture(page, engine, f"queue-timezone-{mode}")
+                    page.get_by_role("button", name="Upload file", exact=True).click()
+                    expect(entry).to_have_attribute("data-state", "added")
+                    record = self.db(
+                        DocumentEvidence.objects.get,
+                        case=self.case,
+                        original_filename=filename,
+                    )
+                    self.assertEqual(
+                        record.collected_at, datetime(2026, 7, 1, 13, 15, tzinfo=UTC)
+                    )
+
     def test_timezone_setting_works_without_javascript(self):
         for engine in self.engines:
             with (
@@ -206,6 +245,13 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         page.set_viewport_size({"width": width, "height": height})
                         page.evaluate("new Promise(requestAnimationFrame)")
                         control = page.get_by_role("link", name="All cases", exact=True)
+                        expect(page.locator(".app-rail-label")).to_have_count(
+                            5 if kwargs else 2
+                        )
+                        for label in page.locator(".app-rail-label").all():
+                            expect(label).to_be_visible()
+                            self.assertGreaterEqual(label.bounding_box()["width"], 30)
+                            self.assertGreaterEqual(label.bounding_box()["height"], 14)
                         control.evaluate("node => node.blur()")
                         control.focus()
                         tip = page.get_by_role("tooltip")
@@ -267,6 +313,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.evaluate("document.documentElement.style.fontSize = '200%'")
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), 1441
+                    )
+                    self.assertLessEqual(
+                        page.locator("h1").bounding_box()["height"],
+                        page.locator("h1").evaluate(
+                            "node => parseFloat(getComputedStyle(node).lineHeight) * 3"
+                        ),
                     )
                     for icon in page.locator(".app-navigation .icon").all():
                         if icon.is_visible():
@@ -527,8 +579,15 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.get_by_label("Original text", exact=True)).to_be_visible()
                 for kind, label in (
                     ("text", "Original text"),
+                    ("document", "Original file"),
+                    ("image", "Original file"),
+                    ("audio", "Original file"),
                     ("location", "Address"),
+                    ("person-location", "Person"),
+                    ("vehicle-location", "Vehicle"),
+                    ("text-message", "Sender"),
                     ("phone-call", "Sender"),
+                    ("facetime", "Sender"),
                 ):
                     expect(
                         page.get_by_label("Evidence type", exact=True)
@@ -542,6 +601,50 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         page.evaluate("document.documentElement.scrollWidth"), 321
                     )
                     self.capture(page, engine, f"refined-create-{kind}-320x844")
+
+    def test_location_forms_explain_missing_case_records(self):
+        other = Case.objects.create(owner=self.owner, name="Separate synthetic case")
+        Person.objects.create(case=other, first_name="Foreign person")
+        Vehicle.objects.create(case=other, make="Foreign vehicle")
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                for kind, field, action, message in (
+                    (
+                        "person-location",
+                        "Person",
+                        "Add person",
+                        "Add a person to this case before recording a person location.",
+                    ),
+                    (
+                        "vehicle-location",
+                        "Vehicle",
+                        "Add vehicle",
+                        "Add a vehicle to this case before recording "
+                        "a vehicle location.",
+                    ),
+                ):
+                    with self.subTest(kind=kind):
+                        page.goto(
+                            self.url("core:evidence:create", case_id=self.case.pk)
+                            + f"?kind={kind}"
+                        )
+                        expect(
+                            page.get_by_label(field, exact=True).locator("option")
+                        ).to_have_count(1)
+                        self.capture(page, engine, f"missing-{kind}")
+                        expect(page.get_by_text(message, exact=False)).to_be_visible()
+                        link = page.get_by_role("link", name=action, exact=True)
+                        expect(link).to_be_visible()
+                        expect(link).to_have_attribute(
+                            "href",
+                            reverse(
+                                "people:create"
+                                if kind == "person-location"
+                                else "vehicle:create",
+                                args=[self.case.pk],
+                            ),
+                        )
 
     def test_evidence_disclosures_preserve_keyboard_and_error_recovery(self):
         self.case.description += " Historical case context." * 8
@@ -689,7 +792,6 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_text("Synthetic source context", exact=True)
                 ).to_be_visible()
-                self.open_evidence_panel(page, "more")
                 page.get_by_role("link", name="Edit details", exact=True).click()
                 expect(extra).to_have_attribute("open", "")
                 expect(page.get_by_label("Source URL", exact=True)).to_have_value(
@@ -1392,6 +1494,20 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name=title, exact=True)
                 ).to_be_visible()
+                vehicle = self.db(
+                    Vehicle.objects.get,
+                    case=self.case,
+                    license_plate=f"SYN-{engine}",
+                )
+                detail_url = page.url
+                page.get_by_role("link", name="Add a location", exact=True).press(
+                    "Enter"
+                )
+                expect(page.get_by_label("Vehicle", exact=True)).to_have_value(
+                    str(vehicle.pk)
+                )
+                self.capture(page, engine, "vehicle-location-preselected")
+                page.goto(detail_url)
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -1479,11 +1595,13 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.get_by_role("link", name="Add vehicle").first.click()
                 page.get_by_label("License plate", exact=True).fill(f"DELETE-{engine}")
                 page.get_by_role("button", name="Add vehicle", exact=True).click()
-                details = page.locator("details").filter(
-                    has=page.locator("summary", has_text="Record details")
-                )
-                details.locator("summary").focus()
-                details.locator("summary").press("Enter")
+                expect(
+                    page.get_by_role("link", name="Delete vehicle", exact=True)
+                ).to_be_visible()
+                page.get_by_role(
+                    "link", name="Delete vehicle"
+                ).scroll_into_view_if_needed()
+                self.capture(page, engine, "vehicle-delete-entry")
                 page.get_by_role("link", name="Delete vehicle").click()
                 expect(
                     page.get_by_role("heading", name=f"Delete DELETE-{engine}?")
@@ -1674,7 +1792,6 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     )
                     self.assertEqual(hashlib.sha256(content).hexdigest(), record.sha256)
                     self.assertEqual(json.loads(content)["latitude"], "0.000000")
-                    self.open_evidence_panel(page, "more")
                     page.get_by_role("link", name="Edit details", exact=True).click()
                     expect(page.locator("#id_address")).to_have_count(0)
                     page.get_by_label("Source", exact=True).fill(
@@ -1794,10 +1911,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
+                self.capture(page, engine, "cases-list")
                 page.get_by_role("link", name="Create case", exact=True).first.click()
                 name = f"Synthetic browser case {engine}"
                 page.get_by_label("Case name", exact=True).fill(name)
                 expect(page.get_by_label("Description", exact=True)).to_have_count(0)
+                self.capture(page, engine, "case-create")
                 page.get_by_role("button", name="Create case", exact=True).click()
                 case = self.db(Case.objects.get, name=name, owner=self.owner)
                 expect(page).to_have_url(
@@ -1825,6 +1944,13 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.get_by_label("Email", exact=True).fill("alex@example.test")
                 page.get_by_role("button", name="Save changes", exact=True).click()
                 expect(page.get_by_text("Earlier synthetic context.")).to_be_hidden()
+                expect(
+                    page.get_by_role("link", name="Delete person", exact=True)
+                ).to_be_visible()
+                page.get_by_role(
+                    "link", name="Delete person"
+                ).scroll_into_view_if_needed()
+                self.capture(page, engine, "person-delete-entry")
                 page.locator("details > summary").filter(
                     has_text="Record details"
                 ).click()
@@ -1957,6 +2083,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.get_by_role("link", name="Invite collaborator", exact=True).click()
                 page.get_by_label("Email address", exact=True).fill(guest.email)
                 page.get_by_label("Case access", exact=True).select_option("editor")
+                self.capture(page, engine, "invitation-create")
                 page.get_by_role("button", name="Send invitation", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Case settings")
@@ -1973,6 +2100,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 with self.browser_page(engine) as (_, guest_page):
                     self.sign_in(guest_page, guest)
                     guest_page.goto(self.url("invitation_accept", token=token[1]))
+                    self.capture(guest_page, engine, "invitation-accept")
                     guest_page.get_by_role(
                         "button", name="Accept invitation", exact=True
                     ).click()
@@ -1996,6 +2124,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         "link", name=f"Change access for {guest.username}", exact=True
                     ).click()
                     page.locator("select[name='role']").select_option("viewer")
+                    self.capture(page, engine, "collaboration-change-access")
                     page.get_by_role("button", name="Save access", exact=True).click()
                     expect(
                         page.get_by_role("heading", name="Case settings")
@@ -2015,6 +2144,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         name=f"Remove {guest.username} from this case",
                         exact=True,
                     ).click()
+                    self.capture(page, engine, "collaboration-remove")
                     page.get_by_role("checkbox").check()
                     page.get_by_role(
                         "button", name="Remove collaborator", exact=True
@@ -2030,6 +2160,13 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         )
                     )
                 self.capture(page, engine, "collaboration-settings")
+                page.goto(self.url("cases:case_delete", case_id=case.pk))
+                for width, height in ((1440, 900), (390, 844), (320, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"case-delete-{width}")
 
     def test_file_upload_and_recovery_without_javascript(self):
         for engine in self.engines:
@@ -2610,7 +2747,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.get_by_role("button", name="Upload files", exact=True).click()
                 expect(second).to_have_attribute("data-state", "failed")
                 expect(third).to_have_attribute("data-state", "added")
-                second.get_by_text("Source details", exact=True).click()
+                self.capture(page, engine, "bulk-source-validation")
+                expect(second.get_by_label("Source URL", exact=True)).to_be_visible()
+                expect(second.locator(".upload-status")).to_contain_text("Source URL:")
                 second.get_by_label("Source URL", exact=True).fill(
                     "https://example.com/corrected"
                 )
@@ -2757,7 +2896,8 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         ).to_be_visible()
                     if width < 1024:
                         self.assertLessEqual(
-                            page.locator(".app-navigation").bounding_box()["height"], 80
+                            page.locator(".app-navigation").bounding_box()["height"],
+                            144,
                         )
                 self.capture(page, engine, "workspace-ultrawide")
                 expect(page.locator(".evidence-row")).to_have_count(25)
@@ -2832,7 +2972,6 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.emulate_media(forced_colors="none")
                 page.emulate_media(color_scheme="light", reduced_motion="no-preference")
 
-                self.open_evidence_panel(page, "more")
                 edit = page.get_by_role("link", name="Edit details", exact=True)
                 edit.focus()
                 expect(edit).to_be_focused()
@@ -2900,6 +3039,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             title="Long synthetic retained source",
             body=original,
             source="Synthetic long-source fixture",
+            source_description="\n".join(
+                f"Retained attribution line {number}" for number in range(60)
+            ),
         )
         url = self.url(
             "core:evidence:detail",
@@ -2938,6 +3080,14 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     ).scroll_into_view_if_needed()
                     self.capture(page, engine, f"quiet-long-findings-{width}x{height}")
                     self.open_evidence_panel(page, "info")
+                    panel = page.locator(".evidence-info-panel")
+                    self.assertGreater(
+                        panel.evaluate("node => node.scrollHeight"),
+                        panel.evaluate("node => node.clientHeight"),
+                    )
+                    panel.focus()
+                    panel.press("PageDown")
+                    expect(panel).not_to_have_js_property("scrollTop", 0)
                     expect(page.get_by_text("Added by", exact=True)).to_be_visible()
                     expect(
                         page.get_by_text("Record history", exact=True)
@@ -3050,7 +3200,21 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.locator(".analysis-finding-rows > li").first
                 ).to_be_visible()
                 expect(page.locator(".evidence-info-panel")).to_be_hidden()
-                expect(page.locator(".evidence-more-panel")).to_be_hidden()
+                expect(
+                    page.locator(".evidence-more > .evidence-more-panel")
+                ).to_be_hidden()
+                for label in ("Edit details", "Save to selection"):
+                    expect(
+                        page.get_by_role("link", name=label, exact=True)
+                    ).to_be_visible()
+                analysis = page.locator(".evidence-analyze")
+                analysis.locator("summary").press("Enter")
+                expect(
+                    analysis.get_by_role("link", name="Choose analysis")
+                ).to_be_visible()
+                page.keyboard.press("Escape")
+                expect(analysis).not_to_have_attribute("open", "")
+                expect(analysis.locator("summary")).to_be_focused()
                 expect(page.get_by_role("link", name="Jump to findings")).to_have_count(
                     0
                 )
@@ -3079,7 +3243,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     expect(info.locator(":scope > summary")).to_be_focused()
                     more = self.open_evidence_panel(page, "more")
                     expect(
-                        more.get_by_role("link", name="Edit details")
+                        page.get_by_role("link", name="Edit details")
                     ).to_be_visible()
                     expect(
                         more.get_by_role("button", name="Archive", exact=True)

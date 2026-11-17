@@ -3,7 +3,7 @@
 {% block content %}
 <header class="page-header">
   <div><h1>Processing</h1><p class="muted">Follow work in progress and revisit earlier results.</p></div>
-  <div class="actions">{% if can_edit %}<a class="button button-primary" href="{% url 'core:analysis:reprocess' case.pk %}">Reprocess evidence</a>{% endif %}</div>
+  <div class="actions">{% if can_edit %}<a class="button button-secondary" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a><a class="button button-primary" href="{% url 'core:analysis:reprocess' case.pk %}">Reprocess evidence</a>{% endif %}</div>
 </header>
 
 {% include 'ui/components/live_updates.html' %}
@@ -58,7 +58,7 @@
     </form>
   </details>
   {% endif %}
-  {% for run in page_obj %}{% include 'core/analysis/processing_run.html' %}{% empty %}<p class="muted">{% if history_filters %}No checks match these filters.{% else %}No processing history yet. Supported checks start when evidence is added.{% endif %}</p>{% endfor %}
+  {% for run in page_obj %}{% include 'core/analysis/processing_run.html' %}{% empty %}<p class="muted">{% if history_filters %}No checks match these filters.{% else %}No individual checks to show yet. Supported checks start when eligible evidence is added.{% endif %}</p>{% endfor %}
   {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Processing pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#processing-history">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#processing-history">Next</a>{% endif %}</nav>{% endif %}
 </section>
 
@@ -91,7 +91,7 @@
 <details class="analysis-section">
   <summary>Run more checks</summary>
   <p class="muted" id="rerun-all-help">Rerun supported local checks on all active evidence. Earlier results are kept.</p>
-  <div class="actions"><form method="post" action="{% url 'core:analysis:rerun_all' case.pk %}">{% csrf_token %}{{ case_analysis_form.submission_id }}<button class="button button-secondary" type="submit" aria-describedby="rerun-all-help">Rerun all analysis</button></form><a class="button button-secondary" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a></div>
+  <div class="actions"><form method="post" action="{% url 'core:analysis:rerun_all' case.pk %}">{% csrf_token %}{{ case_analysis_form.submission_id }}<button class="button button-secondary" type="submit" aria-describedby="rerun-all-help">Rerun all analysis</button></form></div>
 </details>
 {% endif %}
 {% endblock %}

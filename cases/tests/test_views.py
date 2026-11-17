@@ -402,6 +402,8 @@ class CaseInterfaceTests(TestCase):
         response = self.client.post(reverse("invitation_accept", args=(token,)))
         self.assertEqual(response.status_code, 403)
         self.assertNotContains(response, "Harbour records", status_code=403)
+        self.assertContains(response, "Manage email addresses", status_code=403)
+        self.assertContains(response, "Sign in with another account", status_code=403)
         self.assertFalse(
             CaseMembership.objects.filter(case=self.case, user=self.outsider).exists()
         )
@@ -424,7 +426,12 @@ class CaseInterfaceTests(TestCase):
         url = reverse("invitation_accept", args=(token,))
         invitation.expires_at = timezone.now() - timedelta(seconds=1)
         invitation.save()
-        self.assertEqual(self.client.post(url).status_code, 400)
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 400)
+        self.assertNotContains(response, "Manage email addresses", status_code=400)
+        self.assertNotContains(
+            response, "Sign in with another account", status_code=400
+        )
         invitation.expires_at = timezone.now() + timedelta(days=1)
         invitation.revoked_at = timezone.now()
         invitation.save()

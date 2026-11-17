@@ -6,6 +6,7 @@
   <div class="actions">
     <a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Evidence{% if evidence_count %} · {{ evidence_count }}{% endif %}</a>
     <a class="button button-secondary" href="{% url 'core:analysis:processing' case.pk %}">Processing</a>
+    {% if is_owner %}<a class="button button-secondary" href="{% url 'cases:case_settings' case.pk %}">Case settings</a>{% endif %}
     {% if can_edit %}<a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>{% endif %}
   </div>
 </header>
@@ -62,6 +63,5 @@
 <details class="disclosure case-details-body"><summary>Case details</summary>
   <dl class="metadata-grid"><div><dt>Owner</dt><dd>{{ case.owner.get_username }}</dd></div><div><dt>Your role</dt><dd>{{ case_role|capfirst }}</dd></div><div><dt>Created</dt><dd><time datetime="{{ case.created_at|date:'c' }}">{{ case.created_at|date:'j M Y, H:i T' }}</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ case.updated_at|date:'c' }}">{{ case.updated_at|date:'j M Y, H:i T' }}</time></dd></div></dl>
   {% if case.description %}<div class="prose"><h2>Case description</h2>{{ case.description|linebreaks }}</div>{% endif %}
-  {% if is_owner %}<a class="button button-secondary" href="{% url 'cases:case_settings' case.pk %}">Settings</a>{% endif %}
 </details>
 {% endblock %}

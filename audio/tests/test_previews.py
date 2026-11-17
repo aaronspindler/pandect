@@ -101,7 +101,7 @@ class RecordingPreviewTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(self.client.get(self.play_url(bad)).status_code, 422)
             self.assertContains(
                 self.client.get(self.url("detail", bad, kind="audio")),
-                "Inline playback supports",
+                "This recording cannot be played in the reader.",
             )
         AudioEvidence.objects.filter(pk=item.pk).update(sha256="0" * 64)
         self.assertEqual(self.client.get(url).status_code, 422)

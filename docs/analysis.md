@@ -24,9 +24,21 @@ findings before search/review filters. Equivalence includes method/version,
 execution settings, meaningful parameters and ordered exact source versions/hashes,
 excluding automatic-check bookkeeping/requester identity. Successful empty runs
 supersede; failed, unsupported, insufficient, cancelled or pending runs do not.
-**All retained runs** exposes history. Different settings/extraction versions stay
-distinct. Changed/missing sources show unavailable rows without finding content.
+**Result history → All saved results** exposes history. Different settings and
+extraction versions stay distinct. Changed/missing sources show unavailable rows without finding content.
 Historical geocode decisions remain inspectable with changed-review warnings.
+
+Finding filters are open initially. The useful finding preview leads each row;
+bounded **Matching search details** retain the exact matching text when it differs
+from that preview. Current owners/editors can **Save to selection** from the
+catalogue and connection occurrences; viewers inspect these rows without that action.
+Result limitations are open initially. **Download results** is beside the title,
+and **Run again** is outside technical processing details, with any required
+external-transfer explanation and approval kept beside the rerun action.
+
+Pattern reports show key **Report totals** before the record list. Supporting
+calculations, selection details and method explanations remain under **About this
+report**; pagination does not limit the totals' full selected scope.
 
 Person filters use explicitly linked person locations and cited communication
 senders/recipients. Other run sources, matching names and contact strings establish

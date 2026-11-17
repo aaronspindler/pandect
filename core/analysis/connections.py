@@ -30,7 +30,7 @@ def _page_rows(case, queryset, number):
         queryset.annotate(
             run_id=F("result__run_id"),
             excerpt=F("preview"),
-        ).only("id", "case_id", "result_id", "item_index", "label", "weak"),
+        ).only("id", "case_id", "result_id", "item_index", "label", "weak", "preview"),
         25,
     ).get_page(number)
     page.object_list = finding_rows(case, page.object_list)
@@ -127,7 +127,9 @@ def connections(request, case_id):
                 run_id=F("result__run_id"),
                 excerpt=Substr("match_key", 1, 300),
             )
-            .only("id", "case_id", "result_id", "item_index", "label", "weak")
+            .only(
+                "id", "case_id", "result_id", "item_index", "label", "weak", "preview"
+            )
         )
         checked = {row["id"]: row for row in finding_rows(case, samples)}
         for group in retained:

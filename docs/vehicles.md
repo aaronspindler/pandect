@@ -20,8 +20,9 @@ all current details and require **Save reviewed changes**; deleted records canno
 be recreated. Case reassignment is unsupported.
 
 Details show reported identifiers, locations, and an unverified-record caption.
-**Record details** holds saved read-only notes, component fields, timestamps, and
-owner-only **Delete vehicle**.
+**Record details** holds saved read-only notes, component fields, and timestamps.
+Owner-only **Delete vehicle** is visible below that disclosure and opens the
+separate confirmation.
 
 Only owners delete individual vehicles after named-target confirmation. Retained
 vehicle locations, including archived observations, block deletion. Deleting an
@@ -30,8 +31,10 @@ whole-case deletion removes vehicles and observations together. Product users
 need no staff permissions.
 
 Details paginate all locations, including archived evidence, at 25 per page.
-Owners/editors add **Vehicle location** evidence or **Import vehicle locations**
-to review an Asset Location CSV and map assets explicitly. Source identifiers
+Owners/editors have **Add a location** and **Import vehicle locations** beside
+**Edit vehicle** in the header, including before any trips exist. Adding a location
+preselects this vehicle from the current case's choices. Imports review an Asset
+Location CSV and map assets explicitly. Source identifiers
 never overwrite plates/VINs or verify identity, ownership, or presence. See
 [CSV imports](vehicle-location-imports.md) for formats, retention, limits, and recovery.
 

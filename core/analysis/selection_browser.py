@@ -105,6 +105,12 @@ class SelectionBrowserTests(BrowserTestCase):
         ):
             page.set_viewport_size({"width": width, "height": height})
             self._reflow(page)
+            if name == "selection" and width < 768:
+                member = page.locator(".selection-members .record-row").first
+                self.assertGreaterEqual(
+                    member.locator(":scope > div").bounding_box()["width"],
+                    member.bounding_box()["width"] - 1,
+                )
             self.capture(page, engine, f"{name}-{label}")
         page.evaluate("document.documentElement.style.fontSize='200%'")
         self._reflow(page)
@@ -133,8 +139,7 @@ class SelectionBrowserTests(BrowserTestCase):
                         evidence_id=self.source.pk,
                     )
                 )
-                panel = self.open_evidence_panel(page, "more")
-                panel.get_by_role("link", name="Save to selection", exact=True).press(
+                page.get_by_role("link", name="Save to selection", exact=True).press(
                     "Enter"
                 )
                 page.get_by_role("link", name="Create selection", exact=True).press(

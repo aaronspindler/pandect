@@ -146,7 +146,8 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(pages).to_contain_text("Page 2")
                 self.capture_layouts(page, engine, "catalogue-page-two")
                 page.get_by_label("Search findings").fill("person-00@example.test")
-                page.locator(".evidence-filters > summary").press("Enter")
+                expect(page.get_by_label("Person")).to_be_visible()
+                expect(page.get_by_label("Result history")).to_be_visible()
                 page.get_by_label("Person").select_option(str(self.person.pk))
                 page.get_by_role("button", name="Search").press("Enter")
                 expect(page.locator(".analysis-finding-rows > li")).to_have_count(1)
@@ -258,4 +259,19 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                     user=self.viewer,
                     role="viewer",
                 )
+            with self.browser_page(engine, java_script_enabled=False) as (_, page):
+                self.sign_in(page, self.owner)
+                page.goto(self.url("core:analysis:browse", case_id=self.case.pk))
+                save = page.get_by_role("link", name="Save to selection").first
+                expect(save).to_be_visible()
+                self.capture_layouts(page, engine, "catalogue-owner")
+                save.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Save to selection", exact=True)
+                ).to_be_visible()
+                page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
+                expect(
+                    page.get_by_role("link", name="Choose analysis", exact=True)
+                ).to_be_visible()
+                self.capture_layouts(page, engine, "processing-owner")
         self.assertEqual(self.db(AnalysisRun.objects.filter(case=self.case).count), 3)

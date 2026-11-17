@@ -9,22 +9,24 @@ Generated mockups are references, not rendered evidence.
 
 Cases open to **Case Tools**: recent evidence/findings and links to the Findings
 catalogue, Map, Chronology, Conversations, Connections, People, Vehicles,
-Selections, and reports. Native **Case details** discloses supporting information
-and owner-only Settings. Investigators need no staff access. Graphs, inferred
+Selections, and reports. Native **Case details** discloses supporting information.
+Owners reach **Case settings** directly from the page header. Investigators need
+no staff access. Graphs, inferred
 event timelines, ownership transfer, and self-service account deletion remain
 planned; show only implemented destinations.
 
 All investigator screens, including All cases and account settings, share the
-rail and controls. Case screens link directly to **Case Tools**, **Evidence**,
+labeled rail and controls. Case screens link directly to **Case Tools**, **Evidence**,
 and **Processing**. The rail becomes a compact top bar on narrow screens. Mark
 the current destination and link the case name on supporting pages. Case Tools
 is a full page. Disclosures work without JavaScript.
 
 Cases, People, Vehicles, and Evidence use shared whole-row links with readable
 titles and secondary metadata. Detail pages and forms share the reader's heading,
-action, divider, and spacing styles. Info/More use the shared
-[icon-control and tooltip rules](../DESIGN.md#visual-foundations) when their words
-disappear on mobile.
+action, divider, and spacing styles. Info, More, and Filters retain their visible
+labels on mobile. Edit details, Save to selection, and Analyze evidence are directly
+available to owners/editors in the reader. Analysis choices use a named disclosure;
+More keeps secondary actions.
 
 People and Vehicles retain list searches and pages through creation, editing,
 deletion, and cancellation. Shared forms name choice groups with native legends;
@@ -81,7 +83,10 @@ remain read-only.
 
 Person details show reported social accounts and POIs. Owners/editors manage
 accounts with confirmed removal; viewers inspect. Search includes platforms and
-usernames. Disclose saved notes/history read-only. [People](people.md) and
+usernames. Disclose saved notes/history read-only. Person/vehicle deletion links
+sit below Record details, outside its disclosure, for owners. Vehicle headers
+expose Add a location and Import vehicle locations beside Edit vehicle; adding a
+location preselects the same-case vehicle. [People](people.md) and
 [vehicles](vehicles.md) own identity, role, and deletion rules, including
 retained-location protection.
 
@@ -117,11 +122,20 @@ Header disclosures:
   technical fields, record/integrity history, imported source context, retained
   attachment attribution, and processing history. History uses `results_page`
   independently of the collection's `page`; pagination keeps Info open.
-- **More** holds permitted edits, archive/restore, additional analysis, and
-  superuser deletion. Viewers can still open Info and download originals.
+- **Analyze evidence** lists the analysis available for the selected original.
+  **Edit details** and **Save to selection** are visible beside it.
+- **More** holds archive/restore, reruns, supported imports, and superuser deletion.
+  Viewers can still open Info and download originals.
 
+The Info pane has a named keyboard focus stop so Page Down can scroll long
+attribution, integrity, and history without moving the original reader.
 Native disclosures support keyboards and no JavaScript. Reveal invalid controls
 before focusing their fields.
+
+PDF originals provide Previous/Next links and a labeled **Page number** with
+**Go to page**. Both preserve collection filters; invalid page requests offer
+**Open first page**. Unsupported audio uses a plain playback-unavailable message
+with a download action.
 
 Every case role can download privately. Escape text; never embed untrusted
 documents as application HTML. Missing originals retain metadata and show safe
@@ -240,7 +254,8 @@ hide current work. Vehicle-location CSV imports retain their own progress and
 review links; imports ready for review remain with current work. Preparation and
 vehicle-import histories use separate native disclosures. Preparation batches stay
 distinct from execution: **Checks queued** does not mean those checks have finished.
-Owners and editors have **Run more checks → Rerun all analysis** here; it starts
+Owners and editors have a direct **Choose analysis** header link and
+**Run more checks → Rerun all analysis** here; the latter starts
 supported local checks across active evidence, preserves earlier results, and
 reports background preparation progress.
 
@@ -269,13 +284,26 @@ completed or stopped preparation offers **Run message analysis again**. Each
 result discloses its bounded message selection. Other additional AI and external
 operations remain in the deliberate analysis flow.
 
-**Case Tools → Additional analysis** and **Processing → Run more
-checks → Choose analysis** group tasks, then open a source/context form. Keep
+**Case Tools → Additional analysis** and **Processing → Choose analysis** show
+all available tasks in labeled groups, without collapsed categories, then open
+a source/context form. Finding filters are open initially, with a visible
+**Result history** choice and plain latest/all saved results labels. Keep
 required samples, areas, and claimed events visible; disclose tuning in **Options**,
 opening after errors. Keep versions explicit and require external approval.
 Sources use 25-record pages; native POST navigation/title search preserve choices
 and options. Show off-page selections with Remove. Browsing never queues work;
 execution/inference limits still apply.
+
+Selection members keep their excerpts and current review reasons readable.
+On phones, Remove sits below each excerpt so it does not squeeze the source text
+into a narrow column.
+
+Saved results expose **Download results** beside the title. Limitations are open
+initially, and the visible **Run again** section keeps any external approval and
+destination explanation with its action. Technical method/settings remain under
+Processing details. Findings lists lead with the useful preview; distinct bounded
+search matches remain under **Matching search details**. Owners/editors can save
+findings to a selection directly from the catalogue and connection occurrences.
 
 Use the shared field renderer for labels, help, errors, approvals, and reviews.
 Progress uses a native indicator; failures expose retry/recovery controls. Results
@@ -284,8 +312,9 @@ regions/crops, recording intervals, paired passages, message sequences, and
 observation maps when supplied by the operation. Identifier normalization lives
 in **Value details**.
 
-Reports lead with a summary and visible coverage warnings; **About this report**
-holds methods/totals. Chronological/grouped sources use 25-record pages; totals
+Reports lead with a summary, visible coverage warnings and key **Report totals**
+before the record list. **About this report** holds methods and additional
+calculations/selection details. Chronological/grouped sources use 25-record pages; totals
 and comparisons cover the complete filtered selection. Participant pairs paginate
 independently; thread/reply lists and vehicle observations retain complete paged
 access. Structured lists/mappings use independent 200-value pages, preserving

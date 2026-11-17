@@ -69,11 +69,12 @@ reader. Marketing shares the brand, fonts, colors, and accessibility rules
 in an editorial layout; its introductory headings may scale from `2rem` to `4rem`.
 Label workspace illustrations as fictional and show only implemented capabilities.
 
-- At `80rem` and above, evidence uses a `5rem` navigation rail, `21rem` record
+- At `80rem` and above, evidence uses a `7rem` labeled navigation rail, `21rem` record
   list, and flexible reader. All investigator screens share the rail, including
   case tools, All cases, and account screens. From `64rem` to `80rem`, retain the
   rail with a full-width list or detail page. Below `64rem`, use compact top navigation;
-  below `48rem`, stack fields and supporting metadata.
+  below `48rem`, stack fields and supporting metadata. Keep navigation labels visible
+  at every width, wrapping the navigation onto its own row when needed.
 - Desktop evidence rows have a `3.5rem` minimum height, a readable title link
   covering the row, and one metadata line. Keep secondary actions in the detail
   page. Target 12 complete rows at `1440 × 900` and 14 at `1440 × 1024` with ordinary
@@ -146,7 +147,9 @@ labels such as **AI suggestion** and **Unreviewed**.
 ## Evidence reader
 
 - Keep the original and Findings together under one title/download header. Use
-  **Info** for supporting metadata, saved notes, and history; **More** for actions.
+  **Info** for supporting metadata, saved notes, and history; **Edit details**,
+  **Save to selection**, and **Analyze evidence** for everyday actions. Keep
+  secondary actions under **More**.
   Long originals need keyboard-accessible navigation.
 - Give original text stronger desktop emphasis (`1.5rem` at wide sizes, `1rem` on
   narrow screens).

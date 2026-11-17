@@ -82,6 +82,34 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
     def page(self, **params):
         return catalogue_page(self.case, QueryDict(urlencode(params)))
 
+    def test_save_actions_follow_current_case_role(self):
+        first = snapshot_sources(self.case, [{"kind": "text", "id": self.note.pk}])
+        other = self.text()
+        second = snapshot_sources(self.case, [{"kind": "text", "id": other.pk}])
+        self.publish(
+            sources=first + second,
+            items=[
+                {
+                    "label": "Email",
+                    "text": "person@example.test",
+                    "values": {"raw": "person@example.test"},
+                    "source_ids": [first[0]["id"], second[0]["id"]],
+                }
+            ],
+        )
+        group_url = reverse("core:analysis:connections", args=[self.case.pk])
+        for role in ("owner", "editor", "viewer"):
+            self.login(role)
+            groups = self.client.get(group_url)
+            occurrence_url = groups.context["groups"][0]["url"]
+            for url in (self.url, occurrence_url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                if role == "viewer":
+                    self.assertNotContains(response, "Save to selection")
+                else:
+                    self.assertContains(response, "Save to selection")
+
     def test_all_runs_and_items_are_paginated_without_highlight_limits(self):
         for index in range(45):
             self.publish(parameters={"sample": index})
@@ -391,6 +419,8 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(page["page_obj"].paginator.count, 1)
         self.assertIn("Unique tail value", page["rows"][0]["excerpt"])
         self.assertLessEqual(len(page["rows"][0]["excerpt"]), 300)
+        self.assertNotIn("Unique tail value", page["rows"][0]["preview"])
+        self.assertLessEqual(len(page["rows"][0]["preview"]), 300)
 
     def test_historical_geocode_review_is_retained_with_changed_review_warning(self):
         location = LocationEvidence.objects.create(

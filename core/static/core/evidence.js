@@ -71,6 +71,7 @@
   const bulk = form.hasAttribute("data-bulk-upload");
   const sharedDetails = form.querySelector("[data-shared-details]");
   const sharedInputs = Array.from(sharedDetails?.querySelectorAll("input, textarea") || []);
+  const collectedLabel = form.querySelector('[name="collected_at"]')?.labels?.[0]?.textContent || "Source collected at";
   const newBatch = form.querySelector("[data-new-batch]");
   const uploadActions = form.querySelector("[data-upload-actions]");
   let running = false, stopRequested = false, blocked = false;
@@ -185,7 +186,7 @@
     inputField(details, entry, "source", "Source", "text", defaults.source);
     inputField(details, entry, "source_description", "Source description", "textarea", defaults.source_description);
     inputField(details, entry, "source_url", "Source URL", "url", defaults.source_url);
-    inputField(details, entry, "collected_at", "Source collected at (UTC)", "datetime-local", defaults.collected_at);
+    inputField(details, entry, "collected_at", collectedLabel, "datetime-local", defaults.collected_at);
     if (bulk) {
       details.append(element("p", "Source fields follow shared details until you edit them here. Clearing a field also overrides its shared value.", {class:"muted"}));
       entry.resetShared = element("button", "Use shared details", {type:"button", class:"button button-secondary"});
@@ -300,12 +301,22 @@
         entry.frozen = null;
         entry.id = crypto.randomUUID();
         const errors = result?.errors || {};
-        const fieldErrors = Object.values(errors).flat().map((error) => typeof error === "string" ? error : error.message).filter(Boolean).join(" ");
-        entry.inputs.forEach((input) => {
-          const name = input.dataset.fieldName;
-          if (errors[name]) {input.setAttribute("aria-invalid", "true"); input.setAttribute("aria-describedby", entry.status.id);}
-        });
-        const message = xhr.status === 413 ? "This file exceeds the server's upload limit. Remove it and select a smaller file, or ask the operator to review the configured limit." : fieldErrors || result?.message || "Review this file and its details, then retry.";
+        const fieldErrors = [];
+        for (const [name, messages] of Object.entries(errors)) {
+          const input = entry.inputs.find((field) => field.dataset.fieldName === name);
+          if (input) {
+            input.setAttribute("aria-invalid", "true");
+            input.setAttribute("aria-describedby", entry.status.id);
+            const details = input.closest("details");
+            if (details) details.open = true;
+          }
+          const label = input?.labels?.[0]?.textContent;
+          for (const error of messages) {
+            const message = typeof error === "string" ? error : error.message;
+            if (message) fieldErrors.push(label ? `${label}: ${message}` : message);
+          }
+        }
+        const message = xhr.status === 413 ? "This file exceeds the server's upload limit. Remove it and select a smaller file, or ask the operator to review the configured limit." : fieldErrors.join(" ") || result?.message || "Review this file and its details, then retry.";
         setStatus(entry, "failed", message);
         announce(`${entry.file.name}: ${message}`);
       } else {

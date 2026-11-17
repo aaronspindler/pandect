@@ -2,8 +2,6 @@
   <summary class="button button-secondary" aria-label="More" data-tooltip="More" title="More">{% include 'ui/components/icon.html' with name='dots' %}<span class="evidence-toolbar-label">More</span></summary>
   <div class="evidence-more-panel">
     {% if can_edit %}
-    <a class="record-link" href="{% url 'core:analysis:selection_pick' case.pk %}?kind={{ kind }}&amp;evidence={{ item.pk }}">Save to selection</a>
-    <a class="record-link" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">{% include 'ui/components/icon.html' with name='pencil' %} Edit details</a>
     {% if kind == 'document' %}<a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}?document={{ item.pk }}">Import iMessage · CSV</a>{% endif %}
     {% partialdef checks inline %}
     <div id="evidence-rerun" data-live-region data-live-poll="false">
@@ -11,9 +9,6 @@
     </div>
     {% endpartialdef %}
     <form method="post" action="{% if item.is_archived %}{% url 'core:evidence:restore' case_id=case.pk kind=kind evidence_id=item.pk %}{% else %}{% url 'core:evidence:archive' case_id=case.pk kind=kind evidence_id=item.pk %}{% endif %}{{ list_suffix }}">{% csrf_token %}<button type="submit">{% include 'ui/components/icon.html' with name='archive' %} {% if item.is_archived %}Restore{% else %}Archive{% endif %}</button></form>
-    <h3>Additional analysis</h3>
-    {% for key,spec in additional_operations %}<a class="record-link" href="{% url 'core:analysis:external_evidence' case.pk kind item.pk %}?operation={{ key }}">{{ spec.label }}</a>{% endfor %}
-    <a class="record-link" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a>
     {% endif %}
     {% if can_delete_evidence %}<a class="record-link evidence-delete-link" href="{% url 'core:evidence:delete' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Delete evidence</a>{% endif %}
   </div>

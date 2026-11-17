@@ -2,18 +2,18 @@
 {% block title %}Browse all findings · {{ case.name }}{% endblock %}
 {% block content %}
 <header class="page-header"><div><h1>Browse all findings</h1><p class="muted">Search retained analysis, including archived evidence and all review states.</p></div><a class="button button-secondary" href="{% url 'core:analysis:index' case.pk %}">Case Tools</a></header>
-<form method="get" class="form-layout" aria-label="Filter findings">
+<form method="get" class="form-layout analysis-catalogue-filters" aria-label="Filter findings">
   {% include 'ui/components/form_errors.html' %}
   {{ form.evidence }}{{ form.evidence.errors }}
   <div class="field">{{ form.q.label_tag }}{{ form.q }}{{ form.q.errors }}</div>
   {% if evidence_title %}<p>Evidence: {{ evidence_title }} · <a class="record-link" href="{% querystring evidence=None kind=None page=None %}">Clear evidence filter</a></p>{% endif %}
-  <details class="evidence-filters"{% if advanced_filters %} open{% endif %}><summary>More filters{% if advanced_filters %} · Applied{% endif %}</summary>
+  <details class="evidence-filters" open><summary>Filters{% if advanced_filters %} · Applied{% endif %}</summary>
     <div class="analysis-history-filters">{% for field in form.visible_fields %}{% if field.name != 'q' %}<div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endif %}{% endfor %}</div>
   </details>
   <div class="actions"><button class="button button-primary" type="submit">Search</button><a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Clear filters</a></div>
 </form>
-<p class="muted">{{ page_obj.paginator.count }} finding{{ page_obj.paginator.count|pluralize }}{% if filters.history != 'all' %} from the latest equivalent successful runs{% endif %}. A match is an observation or suggestion, not proof.</p>
-{% include 'core/analysis/_catalogue_rows.html' with rows=rows only %}
+<p class="muted">{{ page_obj.paginator.count }} finding{{ page_obj.paginator.count|pluralize }}{% if filters.history != 'all' %} from the latest successful results for each selection and set of options{% endif %}. A match is an observation or suggestion, not proof.</p>
+{% include 'core/analysis/_catalogue_rows.html' with rows=rows case=case can_edit=can_edit only %}
 {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Finding pages">
   {% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}
 </nav>{% endif %}

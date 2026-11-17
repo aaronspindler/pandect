@@ -144,5 +144,12 @@ class DocumentPreviewTests(EvidenceViewTestMixin, TestCase):
             byte_size=item.byte_size, sha256="0" * 64
         )
         self.assertEqual(self.client.get(self.page_url(item)).status_code, 422)
+        detail = self.client.get(self.url("detail", item, kind="document"))
+        self.assertContains(detail, "check the retained original and storage")
+        self.assertNotContains(detail, "The original download remains available")
         item.file.delete(save=False)
         self.assertEqual(self.client.get(self.page_url(item)).status_code, 422)
+        detail = self.client.get(self.url("detail", item, kind="document"))
+        self.assertContains(detail, "The original file is unavailable")
+        self.assertContains(detail, "check the retained original and storage")
+        self.assertNotContains(detail, "The original download remains available")

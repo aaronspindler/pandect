@@ -12,8 +12,9 @@ and opens **Case Tools**, as do saved case URLs. Shared navigation links to
 **Case Tools**, **Evidence**, and **Processing**. Case Tools groups evidence views,
 organizing tools, and reports in one directory, with recent evidence and
 source-linked findings below. Its header also links to Evidence and Processing
-and offers **Add evidence** to owners/editors. **Case details** holds ownership,
-timestamps, your role, saved read-only descriptions, and owner-only Settings.
+and offers **Add evidence** to owners/editors and **Case settings** to owners.
+**Case details** holds ownership, timestamps, your role, and saved read-only
+descriptions. Navigation labels stay visible on desktop and mobile.
 All cases searches accessible names/descriptions and filters owned/shared cases.
 
 Viewers inspect material and download originals. Editors also add/edit records
@@ -30,10 +31,12 @@ and backup limits.
 
 ## Account settings
 
-The Account icon opens email, password, and timezone settings. Verified secondary
+The Account link opens email, password, and timezone settings. Verified secondary
 addresses offer **Make primary**; unverified addresses offer **Resend verification**.
 Removing secondary addresses requires confirmation. Address changes follow
 allauth's verification/authorization rules.
+Invalid password-reset links use plain recovery guidance and a direct new-reset
+action; valid links retain allauth's password form and confirmation behavior.
 
 Times and date/time fields default to the device's IANA timezone, detected by
 JavaScript and stored in the `pandect_timezone` cookie. **Account → Timezone**
@@ -59,6 +62,9 @@ resend, revoke, or change pending roles; resend/role changes invalidate old toke
 Mail failure retains an actionable pending invitation: check SMTP before resending.
 Pending/failed invitations remain visible; accepted/revoked records appear under
 **Invitation history**. `PANDECT_PUBLIC_ORIGIN` supplies email link origins.
+Unavailable invitations explain the needed recovery. Email-management and account-
+switching actions appear for an invited-email mismatch; expired/revoked links ask
+for a new invitation instead.
 
 Records retain token digests. Sessions may retain continuation URLs: treat them
 as secrets and never log them. Acceptance rechecks expiry, revocation, verified

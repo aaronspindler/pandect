@@ -283,7 +283,11 @@ def create(request, case_id):
         return _error(request, "invalid_type", "Choose a supported evidence type.")
     form_class = evidence_form(kind)
     form = form_class(
-        kind=kind, instance=KINDS[kind](case=case, uploaded_by=request.user)
+        kind=kind,
+        instance=KINDS[kind](case=case, uploaded_by=request.user),
+        initial={"vehicle": request.GET.get("vehicle")}
+        if kind == "vehicle-location"
+        else None,
     )
     status = 200
     duplicates = None
@@ -426,8 +430,14 @@ def create(request, case_id):
         "is_file": kind in FILE_KINDS,
         "is_communication": kind in COMMUNICATION_KINDS,
         "is_call": kind in CALL_KINDS,
-        "has_people": kind not in COMMUNICATION_KINDS
-        or form.fields["sender"].queryset.exists(),
+        "has_people": (
+            form.fields["person"].queryset.exists()
+            if kind == "person-location"
+            else kind not in COMMUNICATION_KINDS
+            or form.fields["sender"].queryset.exists()
+        ),
+        "has_vehicles": kind != "vehicle-location"
+        or form.fields["vehicle"].queryset.exists(),
         "nav_section": "evidence",
         "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
         "max_batch_files": settings.PANDECT_MAX_BATCH_FILES,

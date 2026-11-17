@@ -13,7 +13,7 @@ selection does not accept or verify a finding.
 
 ## Saving and reusing material
 
-Choose **Save to selection** in an evidence reader's More menu, on a call addition,
+Choose **Save to selection** beside the evidence reader's original, on a call addition,
 or beside a finding. Select/create a collection. **Add sources** searches Evidence;
 after choosing an original, **Other retained versions** offers bounded extraction/
 transcript choices. Newer results never replace selected versions. Exact duplicate

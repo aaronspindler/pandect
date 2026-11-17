@@ -18,7 +18,4 @@ def playback_message(error):
         return "The retained recording is unavailable or its checksum has changed."
     if error.code in {"input_limit", "audio_duration_limit"}:
         return "Inline playback supports recordings up to 16 MiB and 30 minutes."
-    return (
-        "Inline playback supports intact, uncompressed 16-bit PCM WAV recordings "
-        "with one or two channels at 8–48 kHz."
-    )
+    return "This recording cannot be played in the reader."
