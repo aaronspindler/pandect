@@ -17,6 +17,7 @@ from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import retry_execution_confirmation
 from core.analysis.services import process_run, start_run
+from core.analysis.tests.test_gateway import CONFIG
 from core.models import CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -69,19 +70,13 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         return final
 
     def analysis_settings(self, mode):
-        backends = (
-            ("local", "gateway")
-            if mode == "both"
-            else ("gateway" if mode == "external" else "local",)
-        )
+        executions = {} if mode == "local" else import_analysis_executions()
         return {
             "mode": mode,
-            "executions": {
-                key: value
-                for key, value in import_analysis_executions().items()
-                if key.split(":", 1)[1] in backends
-            },
-            "external_processing": mode != "local",
+            "executions": executions,
+            "external_processing": any(
+                route["backend"] == "gateway" for route in executions.values()
+            ),
         }
 
     def drain(self, batch):
@@ -93,11 +88,12 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
                 return
         self.fail("Import analysis preparation did not finish")
 
-    def test_external_mode_queues_only_approved_gateway_analysis(self):
-        settings = self.analysis_settings("external")
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_ai_mode_queues_only_one_approved_gateway_backend(self):
+        settings = self.analysis_settings("ai")
         self.publish(analysis=settings)
         batch = CaseAnalysisBatch.objects.get()
-        self.assertEqual(batch.scope["mode"], "external")
+        self.assertEqual(batch.scope["mode"], "ai")
         self.assertEqual(batch.scope["executions"], settings["executions"])
         self.drain(batch)
         self.assertCountEqual(
@@ -112,7 +108,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
                 settings["executions"][f"{run.operation}:gateway"],
             )
 
-    def test_both_mode_runs_rules_once_and_models_in_each_location(self):
+    def test_both_without_gateway_runs_rules_and_local_models_once(self):
         self.publish(analysis=self.analysis_settings("both"))
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
@@ -129,10 +125,10 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             )
             self.assertCountEqual(
                 model_runs.values_list("parameters__backend", flat=True),
-                ["local", "gateway"],
+                ["local"],
             )
 
-    def test_local_selection_retains_its_routes_and_never_queues_gateway(self):
+    def test_local_selection_runs_rules_without_any_model_analysis(self):
         settings = self.analysis_settings("local")
         self.publish(analysis=settings)
         batch = CaseAnalysisBatch.objects.get()
@@ -140,18 +136,83 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.drain(batch)
         self.assertTrue(batch.runs.filter(operation="entities").exists())
         self.assertFalse(batch.runs.filter(external_processing=True).exists())
-        self.assertFalse(batch.runs.filter(parameters__backend="gateway").exists())
+        self.assertFalse(batch.runs.filter(parameters__has_key="_execution").exists())
+        self.assertFalse(batch.runs.filter(parameters__has_key="backend").exists())
 
+    @override_settings(PANDECT_AI_GATEWAY={})
+    def test_ai_without_gateway_uses_local_models_without_transfer_approval(self):
+        self.publish(analysis=self.analysis_settings("ai"))
+        batch = CaseAnalysisBatch.objects.get()
+        self.drain(batch)
+        self.assertEqual(batch.runs.count(), 4)
+        self.assertFalse(batch.scope["external_processing"])
+        self.assertEqual(batch.scope["approved_by"], "")
+        self.assertEqual(
+            set(batch.runs.values_list("parameters__backend", flat=True)), {"local"}
+        )
+
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG | {"gateway_token": ""})
+    def test_partial_gateway_configuration_uses_local_ai_once(self):
+        self.publish(analysis=self.analysis_settings("ai"))
+        batch = CaseAnalysisBatch.objects.get()
+        self.drain(batch)
+        self.assertEqual(batch.runs.count(), 4)
+        self.assertFalse(batch.runs.filter(external_processing=True).exists())
+        self.assertEqual(
+            set(batch.runs.values_list("parameters__backend", flat=True)), {"local"}
+        )
+
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_both_with_gateway_runs_rules_once_and_gateway_models_once(self):
+        self.publish(analysis=self.analysis_settings("both"))
+        batch = CaseAnalysisBatch.objects.get()
+        self.drain(batch)
+        self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
+        self.assertEqual(batch.runs.filter(operation="sessions").count(), 1)
+        models = batch.runs.filter(parameters__has_key="_execution")
+        self.assertEqual(models.count(), 4)
+        self.assertEqual(
+            set(models.values_list("parameters__backend", flat=True)), {"gateway"}
+        )
+
+    @override_settings(PANDECT_AI_GATEWAY={})
+    def test_local_ai_selection_cannot_switch_to_newly_configured_gateway(self):
+        self.publish(analysis=self.analysis_settings("both"))
+        batch = CaseAnalysisBatch.objects.get()
+        with override_settings(PANDECT_AI_GATEWAY=CONFIG):
+            self.assertEqual(prepare_case_analysis_batch(batch.pk), "execution_changed")
+        self.assertFalse(batch.runs.exists())
+        self.assertEqual(TextMessageEvidence.objects.count(), 6)
+
+    def test_incompatible_old_import_scope_stops_without_sending_ai(self):
+        self.publish()
+        batch = CaseAnalysisBatch.objects.get()
+        for mode, executions in (
+            ("external", import_analysis_executions()),
+            ("local", import_analysis_executions()),
+        ):
+            with self.subTest(mode=mode):
+                batch.scope |= {"mode": mode, "executions": executions}
+                batch.status = "queued"
+                batch.save()
+                self.assertEqual(
+                    prepare_case_analysis_batch(batch.pk), "execution_changed"
+                )
+                self.assertFalse(batch.runs.exists())
+        self.assertEqual(TextMessageEvidence.objects.count(), 6)
+
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_gateway_selection_requires_external_approval(self):
-        settings = self.analysis_settings("external")
+        settings = self.analysis_settings("ai")
         settings["external_processing"] = False
         with self.assertRaises(ValidationError):
             self.publish(analysis=settings)
         self.assertFalse(CaseAnalysisBatch.objects.exists())
         self.assertFalse(TextMessageEvidence.objects.exists())
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_reviewed_gateway_route_drift_stops_preparation_after_import(self):
-        self.publish(analysis=self.analysis_settings("external"))
+        self.publish(analysis=self.analysis_settings("ai"))
         batch = CaseAnalysisBatch.objects.get()
         changed = import_analysis_executions()
         changed["content_events:gateway"]["model"] = "changed-model"
@@ -164,8 +225,9 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(batch.runs.exists())
         self.assertEqual(TextMessageEvidence.objects.count(), 6)
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_gateway_failure_keeps_import_and_allows_approved_retry(self):
-        self.publish(analysis=self.analysis_settings("external"))
+        self.publish(analysis=self.analysis_settings("ai"))
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
         run = batch.runs.get(operation="content_events")
@@ -175,6 +237,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         ):
             self.assertEqual(process_run(run.pk), "gateway_unavailable")
         self.assertEqual(TextMessageEvidence.objects.count(), 6)
+        self.assertFalse(batch.runs.filter(parameters__backend="local").exists())
         submission = uuid4()
         retry, _ = start_run(
             self.users["editor"],
@@ -223,8 +286,6 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
                 "style_change",
                 "copied_text",
                 "conversation_link",
-                "content_events",
-                "session_summaries",
             },
         )
         ids = set(TextMessageEvidence.objects.values_list("pk", flat=True))
@@ -234,8 +295,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.assertLessEqual(
                 {entry["evidence_id"] for entry in run.inputs}, set(map(str, ids))
             )
-            if "_execution" in run.parameters:
-                self.assertEqual(run.parameters["_execution"]["backend"], "local")
+            self.assertNotIn("_execution", run.parameters)
             if run.operation in {"style_profiles", "style_change"}:
                 self.assertEqual(
                     TextMessageEvidence.objects.filter(
@@ -307,7 +367,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
 
     @override_settings(PANDECT_LOCAL_AI={})
     def test_missing_local_runtime_does_not_block_rules_or_change_originals(self):
-        self.publish()
+        self.publish(analysis=self.analysis_settings("both"))
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
         originals = list(
@@ -328,7 +388,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
 
     def test_every_model_operation_publishes_validated_suggestions(self):
-        self.publish()
+        self.publish(analysis=self.analysis_settings("ai"))
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
 
@@ -386,7 +446,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
 
     def test_mocked_model_failure_and_retry_keep_independent_results(self):
-        self.publish()
+        self.publish(analysis=self.analysis_settings("both"))
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
         run = batch.runs.get(operation="content_events")
@@ -534,6 +594,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             CaseAnalysisBatch.objects.filter(scope__id=str(final.pk)).count(), 2
         )
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_external_rerun_requires_fresh_approval_and_shows_latest_choice(self):
         final = self.publish(analysis=self.analysis_settings("both"))
         initial_batch = CaseAnalysisBatch.objects.get()
@@ -548,7 +609,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         payload = {
             "submission_id": form["submission_id"].value(),
             "execution_confirmation": form["execution_confirmation"].value(),
-            "mode": "external",
+            "mode": "ai",
         }
         response = self.client.post(endpoint, payload)
         self.assertEqual(response.status_code, 400)
@@ -559,21 +620,22 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.status_code, 302)
         latest = CaseAnalysisBatch.objects.exclude(pk=initial_batch.pk).get()
         self.assertEqual(latest.requested_by, self.users["owner"])
-        self.assertEqual(latest.scope["mode"], "external")
+        self.assertEqual(latest.scope["mode"], "ai")
         self.assertTrue(latest.scope["external_processing"])
         self.assertEqual(
-            latest.scope["executions"], self.analysis_settings("external")["executions"]
+            latest.scope["executions"], self.analysis_settings("ai")["executions"]
         )
         review = reverse("phone:imessage_review", args=[self.case.pk, final.pk])
         response = self.client.get(review)
-        self.assertContains(response, "Selected analysis: External / AI")
+        self.assertContains(response, "Selected analysis: AI")
         self.assertNotContains(response, "Selected analysis: Both")
         processing = reverse("core:analysis:processing", args=[self.case.pk])
         self.assertContains(response, f"{processing}?batch={latest.pk}")
         self.assertNotContains(response, f"?batch={initial_batch.pk}")
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_external_rerun_rejects_other_requester_and_tampered_tokens(self):
-        final = self.publish(analysis=self.analysis_settings("external"))
+        final = self.publish(analysis=self.analysis_settings("ai"))
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
         endpoint = reverse(
@@ -584,7 +646,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         payload = {
             "submission_id": form["submission_id"].value(),
             "execution_confirmation": form["execution_confirmation"].value(),
-            "mode": "external",
+            "mode": "ai",
             "external_processing": "on",
         }
         self.login("owner")
@@ -606,12 +668,13 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(response.context["form"].non_field_errors())
         self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_import_retry_by_another_actor_needs_fresh_gateway_approval(self):
         with patch(
             "core.analysis.tasks.prepare_case_analysis",
             **{"enqueue.side_effect": OperationalError},
         ):
-            failed = self.publish(analysis=self.analysis_settings("external"))
+            failed = self.publish(analysis=self.analysis_settings("ai"))
         self.assertEqual(failed.status, "failed")
         self.assertFalse(TextMessageEvidence.objects.exists())
         retry, _ = start_run(
@@ -642,7 +705,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             {
                 "submission_id": form["submission_id"].value(),
                 "execution_confirmation": form["execution_confirmation"].value(),
-                "mode": "external",
+                "mode": "ai",
                 "external_processing": "on",
             },
         )
@@ -653,7 +716,8 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(approved.runs.count(), 4)
         self.assertTrue(all(run.external_processing for run in approved.runs.all()))
 
-    def test_import_retry_by_approving_actor_keeps_both_locations(self):
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_import_retry_by_approving_actor_keeps_selected_ai_backend(self):
         with patch(
             "core.analysis.tasks.prepare_case_analysis",
             **{"enqueue.side_effect": OperationalError},
@@ -677,5 +741,5 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             batch.runs.filter(operation="content_events").values_list(
                 "parameters__backend", flat=True
             ),
-            ["local", "gateway"],
+            ["gateway"],
         )

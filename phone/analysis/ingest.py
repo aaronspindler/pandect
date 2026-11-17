@@ -10,6 +10,7 @@ from django.db.models import F, Q
 from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import snapshot_execution
+from core.analysis.gateway import gateway_configured
 from core.analysis.import_checks import imported_sources
 from core.analysis.services import start_run
 from core.analysis.sources import source_id
@@ -25,12 +26,12 @@ MODEL_PARAMETERS = {
 
 def import_analysis_executions():
     """Snapshot reviewable message-analysis routes without credentials."""
+    backend = "gateway" if gateway_configured("text", "content_events") else "local"
     return {
         f"{operation}:{backend}": snapshot_execution(
             operation, parameters | {"backend": backend}
         )
         for operation, parameters in MODEL_PARAMETERS.items()
-        for backend in ("local", "gateway")
     }
 
 
@@ -41,15 +42,14 @@ def import_analysis_scope(run):
     )
 
 
-def _analysis_backends(scope):
+def _analysis_backend(scope):
     mode = scope.get("mode", "local")
-    if mode not in {"local", "external", "both"}:
+    if mode not in {"local", "ai", "both"}:
         raise AnalysisError("execution_changed")
-    return {
-        "local": ("local",),
-        "external": ("gateway",),
-        "both": ("local", "gateway"),
-    }[mode]
+    expected = {} if mode == "local" else import_analysis_executions()
+    if scope.get("executions", {}) != expected:
+        raise AnalysisError("execution_changed")
+    return next(iter(expected.values()))["backend"] if expected else ""
 
 
 def start_import_analysis(run, data):
@@ -105,24 +105,13 @@ def _groups(messages, *, count, characters):
 
 def prepare_import_analysis(batch, case, messages):
     """Queue independent operations; model/provider failures cannot undo ingestion."""
-    backends = _analysis_backends(batch.scope)
-    if "gateway" in backends and (
+    backend = _analysis_backend(batch.scope)
+    if backend == "gateway" and (
         not batch.scope.get("external_processing")
         or batch.scope.get("approved_by") != str(batch.requested_by_id)
     ):
         raise AnalysisError("retry_approval_required")
-    # Earlier imports had no retained route selection and used local AI only.
-    # New selections must remain bound to the destinations reviewed at import.
-    executions = batch.scope.get("executions")
-    if "mode" in batch.scope or executions is not None:
-        current = import_analysis_executions()
-        if not isinstance(executions, dict) or any(
-            executions.get(f"{operation}:{backend}")
-            != current[f"{operation}:{backend}"]
-            for operation in MODEL_PARAMETERS
-            for backend in backends
-        ):
-            raise AnalysisError("execution_changed")
+    executions = batch.scope.get("executions", {})
     _, imported = imported_sources(case, batch.scope)
     total = imported.count()
     limit = settings.PANDECT_ANALYSIS_MAX_SOURCES
@@ -156,7 +145,7 @@ def prepare_import_analysis(batch, case, messages):
         )
         batch.queued_runs += created
 
-    if batch.scope.get("mode", "local") != "external":
+    if batch.scope.get("mode", "local") != "ai":
         queue("entities", messages)
         queue("text_topics", messages, {"include_summary": False})
         queue("sessions", messages, {"gap_minutes": 60})
@@ -224,8 +213,8 @@ def prepare_import_analysis(batch, case, messages):
 
         for group in _groups(messages, count=min(50, limit), characters=100_000):
             queue("copied_text", group)
-    for group in _groups(messages, count=min(20, limit), characters=16_000):
-        for backend in backends:
+    if backend:
+        for group in _groups(messages, count=min(20, limit), characters=16_000):
             for operation, parameters in MODEL_PARAMETERS.items():
                 queue(operation, group, parameters | {"backend": backend})
 

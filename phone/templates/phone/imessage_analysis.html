@@ -8,7 +8,8 @@
   {% csrf_token %}{{ form.submission_id }}{{ form.execution_confirmation }}
   {% include 'ui/components/form_errors.html' with form=form %}
   {% include 'ui/components/form_field.html' with field=form.mode only %}
-  {% include 'ui/components/form_field.html' with field=form.external_processing only %}
+  <p class="help-text">{{ form.ai_destination }}</p>
+  {% if form.external_ai %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}
   <div class="actions"><button class="button button-primary" type="submit">Run message analysis</button><a class="button button-secondary" href="{% url 'phone:imessage_review' case.pk run.pk %}">Cancel</a></div>
 </form>
 </div>

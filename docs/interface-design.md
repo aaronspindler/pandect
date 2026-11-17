@@ -278,11 +278,14 @@ external-transfer approval visible beside the action. Invalid submissions retain
 choices and link errors to their controls. Submit returns to the selected batch
 in Processing; viewers have no reprocessing action. Methods needing a question,
 explicit samples, area, event or import interpretation link to Choose analysis.
-Message CSV import review offers Local (the default), External / AI, or Both for
-automatic analysis of newly published messages. Explain that Local includes
-checks/private AI, External / AI uses Gateway models, and Both runs checks once
-with AI in each location. Keep reviewed destinations and external-transfer
-approval beside this choice. Their completed review page shows the selected mode
+Message CSV import review offers Local checks (the default), AI, or Both for
+automatic analysis of newly published messages. Explain that Local checks runs
+no models, AI uses one model suite, and Both combines those checks and that suite
+without duplicate local/external AI runs. Resolve AI to Gateway when fully
+configured, otherwise local/private inference, and show that destination before
+submission. Keep external-transfer approval beside the choice when Gateway is
+selected. Retain the reviewed route through execution; runtime failure never
+changes it. The completed review page shows the selected mode
 and links to **Follow message analysis** in Processing; completed or stopped
 preparation offers **Run message analysis again** with the same choice and fresh
 external approval. Each result discloses its bounded message selection. Other

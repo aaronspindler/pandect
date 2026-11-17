@@ -123,8 +123,11 @@ Follow [analysis](docs/analysis.md), [local inference](docs/local-analysis.md), 
   evidence or present partial results as complete. The PostgreSQL queue supplies
   neither case authorization, automatic retries, nor stale-task recovery.
 - Queue bounded local checks for eligible new investigator evidence. Confirmed
-  message CSV imports queue the selected local, external AI, or combined analysis
-  for newly published messages, defaulting to local checks/private inference.
+  message CSV imports queue local checks, AI, or both for newly published messages,
+  defaulting to local checks without model inference. Both runs local checks and
+  one AI suite; it never duplicates AI across local and external backends.
+  Resolve AI to a fully configured Gateway or otherwise the configured private
+  service before review; never redirect the selected route on runtime failure.
   Retain reviewed execution destinations, explicit external-transfer approval,
   selection coverage, and recoverable failures.
   Other LLM analysis, transcription, context-dependent analysis, and bulk import

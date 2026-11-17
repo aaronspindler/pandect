@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django import forms
 from django.core import signing
-from django.utils.html import escape
 
 from core.analysis.execution import gateway_destination
 from core.evidence.forms import validate_file
@@ -18,9 +17,9 @@ from phone.analysis.deterministic.imessage import import_file_limit
 from phone.analysis.ingest import import_analysis_executions
 
 ANALYSIS_MODES = (
-    ("local", "Local"),
-    ("external", "External / AI"),
-    ("both", "Both local and external / AI"),
+    ("local", "Local checks"),
+    ("ai", "AI"),
+    ("both", "Both"),
 )
 ANALYSIS_CONFIRMATION_SALT = "phone.imessage.analysis"
 
@@ -172,16 +171,17 @@ class IMessageAnalysisForm(forms.Form):
         initial="local",
         widget=forms.RadioSelect,
         help_text=(
-            "Local runs checks and AI on this server or the operator's private "
-            "network. External / AI runs AI through Cloudflare AI Gateway. Both "
-            "runs local checks once and AI in both locations."
+            "Local checks inspect identifiers, writing, and message timing. "
+            "AI suggests topics, claims, summaries, and links. "
+            "Both runs local checks and AI. Each AI analysis runs once."
         ),
     )
     external_processing = forms.BooleanField(
         required=False,
         label="I approve external AI processing of the newly imported messages",
         help_text=(
-            "Required for External / AI or Both. Selected message text and its "
+            "Required for AI or Both when external AI is configured. "
+            "Selected message text and its "
             "source references will be sent through the operator's Cloudflare AI "
             "Gateway. Operator and provider retention policies apply. Sent "
             "requests cannot be recalled."
@@ -192,6 +192,20 @@ class IMessageAnalysisForm(forms.Form):
     def __init__(self, *args, actor, case, run, **kwargs):
         super().__init__(*args, **kwargs)
         self.executions = import_analysis_executions()
+        self.external_ai = any(
+            route["backend"] == "gateway" for route in self.executions.values()
+        )
+        self.ai_destination = (
+            "AI will use "
+            + "; ".join(
+                dict.fromkeys(
+                    gateway_destination(route) for route in self.executions.values()
+                )
+            )
+            + "."
+            if self.external_ai
+            else "AI will run locally because external AI is not configured."
+        )
         self.confirmation = [
             str(actor.pk),
             str(case.pk),
@@ -200,16 +214,6 @@ class IMessageAnalysisForm(forms.Form):
                 json.dumps(self.executions, sort_keys=True).encode()
             ).hexdigest(),
         ]
-        destinations = dict.fromkeys(
-            escape(gateway_destination(route))
-            for route in self.executions.values()
-            if route["backend"] == "gateway"
-        )
-        self.fields["external_processing"].help_text = (
-            "; ".join(destinations)
-            + ". "
-            + self.fields["external_processing"].help_text
-        )
         if not self.is_bound:
             self.initial["execution_confirmation"] = signing.dumps(
                 self.confirmation, salt=ANALYSIS_CONFIRMATION_SALT
@@ -217,8 +221,10 @@ class IMessageAnalysisForm(forms.Form):
 
     def clean(self):
         data = super().clean()
-        if data.get("mode") in {"external", "both"} and not data.get(
-            "external_processing"
+        if (
+            self.external_ai
+            and data.get("mode") in {"ai", "both"}
+            and not data.get("external_processing")
         ):
             self.add_error(
                 "external_processing", "Approve external processing to continue."
@@ -247,20 +253,13 @@ class IMessageAnalysisForm(forms.Form):
 
     def specification(self):
         mode = self.cleaned_data["mode"]
-        backends = (
-            {"local", "gateway"}
-            if mode == "both"
-            else {"local" if mode == "local" else "gateway"}
-        )
         return {
             "mode": mode,
-            "executions": {
-                key: route
-                for key, route in self.executions.items()
-                if route["backend"] in backends
-            },
+            "executions": self.executions if mode != "local" else {},
             "external_processing": bool(
-                mode != "local" and self.cleaned_data["external_processing"]
+                mode != "local"
+                and self.external_ai
+                and self.cleaned_data["external_processing"]
             ),
         }
 

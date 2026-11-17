@@ -156,9 +156,12 @@ Completed vehicle/HTML iMessage imports offer deliberate **Run local checks on
 imported evidence**, using bounded groups and excluding duplicates; see
 [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
 Confirmed CSV messages automatically queue the analysis chosen during import
-review: **Local** (checks and private AI, the default), **External / AI** (Gateway
-model analysis), or **Both** (local checks once and AI in each location).
-External/Both require explicit transfer approval of reviewed destinations.
+review: **Local checks** (no models, the default), **AI** (one model suite), or
+**Both** (local checks and that AI suite). AI uses Gateway when fully configured,
+otherwise local/private inference; review shows the resolved destination.
+Both does not duplicate model runs across backends. Gateway processing requires
+explicit transfer approval. Execution keeps the selected route, with no runtime
+fallback.
 **Follow message analysis** opens the batch; reruns offer the same choice and
 require renewed external approval. Model failures preserve imports and remain
 recoverable. See

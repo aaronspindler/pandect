@@ -40,7 +40,8 @@
       {{ form.execution_confirmation }}
       <section aria-labelledby="import-analysis-heading"><h2 id="import-analysis-heading">Automatic analysis</h2><p>Analyze newly imported messages after this import completes.</p>
       {% include 'ui/components/form_field.html' with field=form.mode only %}
-      {% include 'ui/components/form_field.html' with field=form.external_processing only %}</section>
+      <p class="help-text">{{ form.ai_destination }}</p>
+      {% if form.external_ai %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}</section>
       {% include 'ui/components/form_field.html' with field=form.direct_chat only %}
       {% include 'ui/components/form_field.html' with field=form.confirm only %}
       <div class="actions"><button class="button button-primary" type="submit">Import messages</button><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Cancel</a></div>

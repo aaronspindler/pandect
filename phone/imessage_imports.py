@@ -108,8 +108,9 @@ def confirm_import(actor, case_id, preview_id, people, *, analysis=None):
     document = preview_source(preview, case)
     if not preview.result.data.get("metrics", {}).get("ready_rows"):
         raise ValidationError("This review has no ready messages to import.")
-    if analysis is not None:
-        analysis = validate_import_analysis(analysis, actor=actor)
+    if analysis is None:
+        analysis = {"mode": "local", "executions": {}, "external_processing": False}
+    analysis = validate_import_analysis(analysis, actor=actor)
     return start_run(
         actor,
         case.pk,
@@ -120,8 +121,8 @@ def confirm_import(actor, case_id, preview_id, people, *, analysis=None):
             "timezone": preview.parameters["timezone"],
             "preview_run_id": str(preview.pk),
             "people": people,
-        }
-        | ({"analysis": analysis} if analysis is not None else {}),
+            "analysis": analysis,
+        },
         submission_id=uuid5(preview.pk, "confirmed-import"),
         previous_run=preview,
     )
@@ -129,30 +130,19 @@ def confirm_import(actor, case_id, preview_id, people, *, analysis=None):
 
 def validate_import_analysis(analysis, *, actor):
     mode = analysis.get("mode") if isinstance(analysis, dict) else None
-    if mode not in {"local", "external", "both"}:
-        raise ValidationError("Choose local, external AI, or both for analysis.")
-    if mode != "local" and not analysis.get("external_processing"):
-        raise ValidationError("Approve external processing to continue.")
-    backends = (
-        {"local", "gateway"}
-        if mode == "both"
-        else {"local" if mode == "local" else "gateway"}
-    )
-    current = {
-        key: route
-        for key, route in import_analysis_executions().items()
-        if route["backend"] in backends
-    }
-    reviewed = analysis.get("executions")
-    if not isinstance(reviewed, dict) or any(
-        reviewed.get(key) != route for key, route in current.items()
-    ):
+    if mode not in {"local", "ai", "both"}:
+        raise ValidationError("Choose local checks, AI, or both for analysis.")
+    current = {} if mode == "local" else import_analysis_executions()
+    if analysis.get("executions") != current:
         raise ValidationError(
-            "Processing configuration changed. Review the processing locations again."
+            "Processing configuration changed. Review the analysis settings again."
         )
+    external = any(route["backend"] == "gateway" for route in current.values())
+    if external and not analysis.get("external_processing"):
+        raise ValidationError("Approve external processing to continue.")
     return {
         "mode": mode,
         "executions": current,
-        "external_processing": mode != "local",
-        "approved_by": str(actor.pk) if mode != "local" else "",
+        "external_processing": external,
+        "approved_by": str(actor.pk) if external else "",
     }

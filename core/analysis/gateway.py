@@ -17,18 +17,15 @@ from core.analysis.inference_payloads import decode_json, encode_json, evidence_
 from core.models import GatewayRequest
 
 
-class GatewayClient:
-    def __init__(self, run, authorize):
-        self.run = run
-        self.authorize = authorize
-
-    def request(self, purpose, payload):
-        config = settings.PANDECT_AI_GATEWAY
+def gateway_configured(purpose, operation):
+    """Check the selected Gateway configuration without contacting a provider."""
+    config = settings.PANDECT_AI_GATEWAY
+    try:
         account, gateway = config["account"], config["gateway"]
-        execution = gateway_execution(purpose, self.run.operation)
+        execution = gateway_execution(purpose, operation)
         model, provider = execution["model"], execution["provider"]
         workers = provider == "workers-ai"
-        if not (
+        return bool(
             purpose in {"text", "transcription"}
             and re.fullmatch(r"[a-fA-F0-9]{32}", account)
             and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", gateway)
@@ -42,8 +39,24 @@ class GatewayClient:
                 and re.fullmatch(r"gpt-[A-Za-z0-9._-]{1,100}", model)
                 and re.fullmatch(r"[A-Za-z0-9_-]{1,100}", execution["key_alias"])
             )
-        ):
+        )
+    except KeyError, TypeError, AttributeError:
+        return False
+
+
+class GatewayClient:
+    def __init__(self, run, authorize):
+        self.run = run
+        self.authorize = authorize
+
+    def request(self, purpose, payload):
+        if not gateway_configured(purpose, self.run.operation):
             raise AnalysisError("gateway_not_configured")
+        config = settings.PANDECT_AI_GATEWAY
+        account, gateway = config["account"], config["gateway"]
+        execution = gateway_execution(purpose, self.run.operation)
+        model, provider = execution["model"], execution["provider"]
+        workers = provider == "workers-ai"
         if not self.run.external_processing:
             raise AnalysisError("external_processing_not_approved")
         validate_execution(self.run)

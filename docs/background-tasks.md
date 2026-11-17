@@ -52,10 +52,13 @@ Repeated submissions recover the same batch. Continuations recheck access;
 preparation/run failures remain recoverable.
 
 Confirmed message CSV publication instead atomically starts an automatic batch
-for new messages with the import review's selected mode: Local, External / AI,
-or Both. Local defaults to checks/private inference; External / AI runs Gateway
-model analysis; Both runs local checks once and inference in both locations.
-External transfer requires explicit approval. Bounded continuations walk
+for new messages with the import review's selected mode: Local checks, AI,
+or Both. Local checks is the default and runs no models; AI runs one model suite;
+Both runs local checks and that suite. AI selects Gateway when fully configured,
+otherwise local/private inference, before submission. The resolved route is
+reviewed and retained; external transfer requires explicit approval. AI is never
+duplicated across backends or redirected after a runtime failure.
+Bounded continuations walk
 reported-time order, preparing the selected
 [message/writing/model suite](analysis-communications.md#message-csv-imports).
 Reviewed execution destinations remain bound to the batch and are rechecked

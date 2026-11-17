@@ -182,12 +182,13 @@ def start(request, case_id, import_type, import_id):
             scope__id=str(run.pk),
             scope__automatic=True,
         ).first()
+        mode = (latest.scope if latest else scope).get("mode", "local")
         form = IMessageAnalysisRetryForm(
             request.POST if request.method == "POST" else None,
             actor=request.user,
             case=case,
             run=run,
-            initial={"mode": (latest.scope if latest else scope).get("mode", "local")},
+            initial={"mode": mode if mode in {"local", "ai", "both"} else "local"},
         )
     else:
         form = EvidenceAnalysisForm(request.POST)

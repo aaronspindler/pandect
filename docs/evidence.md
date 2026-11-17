@@ -34,8 +34,10 @@ audio together. **Add a record** offers Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime. **Import records** offers vehicle
 locations and iMessage CSV. Message import retains its CSV, prepares background
 review, and requires confirmed people/timezone before publishing valid messages.
-Choose Local, External / AI, or Both for automatic analysis of new messages;
-external processing requires explicit transfer approval. Local is the default;
+Choose Local checks, AI, or Both for automatic analysis of new messages.
+Local checks is the default and runs no models; Both adds one AI suite.
+AI uses Gateway when configured, otherwise local/private inference. Review shows
+the destination; external AI requires explicit transfer approval;
 see [message imports](analysis-communications.md#message-csv-imports).
 
 Categories describe submitted material; parsers do not verify them. Text captures
