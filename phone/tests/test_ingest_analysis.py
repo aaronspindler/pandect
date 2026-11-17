@@ -18,7 +18,7 @@ from core.analysis.errors import AnalysisError
 from core.analysis.execution import retry_execution_confirmation
 from core.analysis.services import process_run, start_run
 from core.analysis.tests.test_gateway import CONFIG
-from core.models import CaseAnalysisBatch
+from core.models import AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
@@ -589,9 +589,128 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
                 "mode": "local",
             },
         )
-        self.assertEqual(response.status_code, 302)
+        latest = CaseAnalysisBatch.objects.exclude(pk=batch.pk).get()
+        status_url = reverse(
+            "phone:imessage_analysis_status", args=[self.case.pk, latest.pk]
+        )
+        self.assertRedirects(response, status_url)
+        self.assertRedirects(
+            self.client.post(
+                endpoint,
+                {
+                    "submission_id": form["submission_id"].value(),
+                    "execution_confirmation": form["execution_confirmation"].value(),
+                    "mode": "local",
+                },
+            ),
+            status_url,
+        )
         self.assertEqual(
             CaseAnalysisBatch.objects.filter(scope__id=str(final.pk)).count(), 2
+        )
+
+    def test_analysis_status_tracks_preparation_execution_and_failure(self):
+        final = self.publish()
+        batch = CaseAnalysisBatch.objects.get()
+        self.login("viewer")
+        url = reverse("phone:imessage_analysis_status", args=[self.case.pk, batch.pk])
+        response = self.client.get(url)
+        self.assertContains(response, "Preparing message analysis")
+        self.assertContains(response, 'data-live-poll="true"')
+        self.assertContains(
+            response, reverse("phone:imessage_review", args=[self.case.pk, final.pk])
+        )
+        self.assertIn("private", response["Cache-Control"])
+        self.assertIn("no-store", response["Cache-Control"])
+        self.drain(batch)
+        response = self.client.get(url)
+        self.assertContains(response, "Checks queued")
+        self.assertContains(response, 'data-live-poll="true"')
+        for run in batch.runs.all():
+            self.assertContains(
+                response, reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+            )
+            process_run(run.pk)
+        batch.runs.update(status="failed", error_code="backend_unavailable")
+        response = self.client.get(url, headers={"X-Pandect-Live": "1"})
+        self.assertContains(response, 'data-live-poll="false"')
+        self.assertContains(response, "Failed")
+        self.assertNotContains(response, "<h1>")
+        self.assertEqual(response["X-Pandect-Live"], "1")
+        self.assertIn("no-store", response["Cache-Control"])
+        batch.status = "failed"
+        batch.error_code = "access_removed"
+        batch.save()
+        self.assertContains(self.client.get(url), "Preparation stopped")
+
+    def test_analysis_status_is_case_scoped_read_only_and_paginated(self):
+        self.publish()
+        batch = CaseAnalysisBatch.objects.get()
+        self.drain(batch)
+        selected = batch.runs.first()
+        AnalysisRun.objects.bulk_create(
+            AnalysisRun(
+                case=self.case,
+                requested_by=self.users["editor"],
+                batch=batch,
+                operation=selected.operation,
+                method_version=selected.method_version,
+                inputs=selected.inputs,
+            )
+            for _ in range(26)
+        )
+        unrelated = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="native_text",
+            method_version="1",
+        )
+        foreign = CaseAnalysisBatch.objects.create(
+            case=self.other_case, requested_by=self.users["outsider"], scope=batch.scope
+        )
+        url = reverse("phone:imessage_analysis_status", args=[self.case.pk, batch.pk])
+        for role, expected in (
+            ("owner", 200),
+            ("editor", 200),
+            ("viewer", 200),
+            ("outsider", 404),
+        ):
+            self.login(role)
+            for headers in ({}, {"X-Pandect-Live": "1"}):
+                with self.subTest(role=role, headers=headers):
+                    response = self.client.get(url, {"page": 2}, headers=headers)
+                    self.assertEqual(response.status_code, expected)
+                    if expected == 200:
+                        self.assertEqual(response.context["page_obj"].number, 2)
+                        self.assertEqual(
+                            response.context["page_obj"].paginator.count,
+                            batch.runs.count(),
+                        )
+                        self.assertNotContains(
+                            response,
+                            reverse(
+                                "core:analysis:detail",
+                                args=[self.case.pk, unrelated.pk],
+                            ),
+                        )
+                        self.assertIn("private", response["Cache-Control"])
+                        self.assertIn("no-store", response["Cache-Control"])
+        self.login("editor")
+        self.assertEqual(self.client.post(url).status_code, 405)
+        self.assertEqual(
+            self.client.get(
+                reverse(
+                    "phone:imessage_analysis_status", args=[self.case.pk, foreign.pk]
+                )
+            ).status_code,
+            404,
+        )
+        CaseMembership.objects.filter(
+            case=self.case, user=self.users["editor"]
+        ).delete()
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(
+            self.client.get(url, headers={"X-Pandect-Live": "1"}).status_code, 404
         )
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
@@ -617,8 +736,11 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
 
         response = self.client.post(endpoint, payload | {"external_processing": "on"})
-        self.assertEqual(response.status_code, 302)
         latest = CaseAnalysisBatch.objects.exclude(pk=initial_batch.pk).get()
+        status_url = reverse(
+            "phone:imessage_analysis_status", args=[self.case.pk, latest.pk]
+        )
+        self.assertRedirects(response, status_url)
         self.assertEqual(latest.requested_by, self.users["owner"])
         self.assertEqual(latest.scope["mode"], "ai")
         self.assertTrue(latest.scope["external_processing"])
@@ -629,9 +751,13 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(review)
         self.assertContains(response, "Selected analysis: AI")
         self.assertNotContains(response, "Selected analysis: Both")
-        processing = reverse("core:analysis:processing", args=[self.case.pk])
-        self.assertContains(response, f"{processing}?batch={latest.pk}")
-        self.assertNotContains(response, f"?batch={initial_batch.pk}")
+        self.assertContains(response, status_url)
+        self.assertNotContains(
+            response,
+            reverse(
+                "phone:imessage_analysis_status", args=[self.case.pk, initial_batch.pk]
+            ),
+        )
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_external_rerun_rejects_other_requester_and_tampered_tokens(self):

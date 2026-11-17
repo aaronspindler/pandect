@@ -7,19 +7,19 @@ own feature details and supported inputs.
 
 ## One line
 
-Pandect is a self-hostable investigation workspace for organizing evidence,
+Pandect is an investigation workspace for organizing evidence,
 searching within a case, and reviewing source-linked findings with collaborators.
 
 ## Short description
 
 Bring gathered material into a private case. Pandect keeps original files,
 messages, and location observations together, helps you search and examine them,
-and links findings to sources. Run it on your infrastructure and invite viewers
-or editors. Pandect is in active development.
+and links findings to sources. Invite viewers or editors to review the case
+together. Pandect is in active development.
 
 ## Project introduction
 
-Pandect is a self-hostable investigation workspace built with Django and
+Pandect is an investigation workspace built with Django and
 PostgreSQL. Organize collected material, including open-source intelligence,
 in private cases with their own people, vehicles, evidence, and permissions.
 
@@ -39,7 +39,7 @@ self-hosting is available and managed hosting is planned.
 
 ## Announcement copy
 
-Pandect brings evidence into a private investigation workspace you can self-host.
+Pandect brings evidence into a private investigation workspace.
 Organize files, messages, and locations; search a case; and inspect sources behind
 findings with collaborators. Local checks cover supported document text,
 printed-English image recognition, and metadata. Explore identifier matches,
@@ -50,7 +50,7 @@ inferred timelines, graphs, and broader discovery planned.
 
 ## Short social post
 
-Pandect is a self-hostable investigation workspace. Organize evidence in private
+Pandect is an investigation workspace. Organize evidence in private
 cases, browse source-linked findings, follow recorded chronology, and share cited
 briefs. In active development; model-assisted analysis needs configuration.
 [Explore Pandect](https://github.com/aaronspindler/pandect).
@@ -65,8 +65,11 @@ verify capability-specific copy against its domain guide.
 
 - Lead with gathering material, organizing cases, searching, inspecting sources,
   and collaborating. Use **Findings** for the case destination.
-- Name supported import profiles. Social accounts are manually recorded; live
-  account collection and vendor API integrations are unavailable.
+- Keep self-hosting as a supporting setup detail rather than a headline or
+  primary call to action.
+- Name supported import profiles: iMessage uses the documented CSV export only.
+  Social accounts are manually recorded; live account collection and vendor API
+  integrations are unavailable.
 - State configuration requirements for transcription, model assistance,
   geographic lookups, and basemaps. Core work needs no AI credentials; OCR stays
   local with no external fallback.

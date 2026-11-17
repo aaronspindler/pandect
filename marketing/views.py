@@ -1,7 +1,7 @@
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_safe
 
-from .catalogue import capability_sections, evidence_groups
+from .catalogue import catalogue_context
 
 
 @require_safe
@@ -19,8 +19,5 @@ def evidence(request):
     return render(
         request,
         "marketing/evidence.html",
-        {
-            "evidence_groups": evidence_groups(),
-            "capability_sections": capability_sections(),
-        },
+        catalogue_context(request.GET.get("type", "")),
     )

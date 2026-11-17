@@ -181,6 +181,17 @@ or response. Calls/inferred sessions have separate views.
 time, attribution, retained export/row, native references, reactions/status, and
 attachment references. Referenced attachments are never fetched/opened.
 
+Saved single-message analysis appears beneath its message as **Findings · N**
+with a short preview. Expand for three findings; **More findings** opens the
+complete list at that message, 25 per page. **Conversation findings** above the
+stream holds session results and findings citing multiple sources, with separate
+pagination and links to cited messages. Findings follow the retained-export
+filter through their exact citations; results may also cite sources outside the
+current view and say so. **Open finding** retains full context, source inventory,
+history, and review. AI suggestions, review decisions and partial coverage remain
+labelled; changed/unavailable analyzed sources withhold the finding content.
+Opening the conversation or its disclosures never starts analysis.
+
 **Open evidence** shows original, findings, integrity, native reply/thread links,
 and actions. **View in conversation** returns to that message with details open,
 beyond page one, preserving export and list-page filters.

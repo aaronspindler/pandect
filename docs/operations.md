@@ -243,7 +243,7 @@ python manage.py check_task_worker --timeout 30
 `/health/` checks PostgreSQL and reports the build commit; the worker diagnostic
 checks queue execution with one harmless probe. Never use that probe as a recurring
 health check. Verify running-task digests/commit, marketing pages (`/`, `/evidence/`,
-`/trust/`, `/hosting/`, `/roadmap/`), the `/product/` redirect, static assets, and
+`/trust/`, `/roadmap/`), the `/product/` redirect, static assets, and
 closed signup on the live deployment.
 
 Back up the managed database and evidence volume together with writers stopped;

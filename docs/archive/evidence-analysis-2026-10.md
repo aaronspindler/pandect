@@ -151,7 +151,7 @@ derived geocodes or additional coordinate sources.
 ## Text message
 
 Each record holds one message and two reported person links. Bounded
-[iMessage import](../analysis-communications.md#retained-imessage-html-import) retains
+[iMessage import](../analysis-communications.md#message-csv-imports) retains
 supplied native context; richer relationships need supported inputs. Missing
 fields stay unknown.
 

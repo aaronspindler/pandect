@@ -1,16 +1,16 @@
 {% extends 'marketing/base.html' %}
-{% block title %}A self-hostable investigation workspace{% endblock %}
+{% block title %}An investigation workspace{% endblock %}
 {% block content %}
 <section class="marketing-hero home-intro wrap" aria-labelledby="home-heading">
   <div>
-    <p class="section-label">The self-hostable investigation workspace</p>
+    <p class="section-label">The investigation workspace</p>
     <h1 id="home-heading">A clearer view<br><em>of your case.</em></h1>
-    <p class="lead">Bring evidence together. Search within a case, review findings with their sources, and work with collaborators on infrastructure you control.</p>
+    <p class="lead">Bring evidence together. Search within a case, review findings with their sources, and work with collaborators.</p>
     <div class="hero-actions">
       <a class="marketing-button" href="{% url 'marketing:evidence' %}">Explore capabilities <span aria-hidden="true">→</span></a>
-      <a class="text-link" href="{% url 'marketing:hosting' %}">Self-host Pandect <span aria-hidden="true">→</span></a>
+      <a class="text-link" href="#analysis">See it in practice <span aria-hidden="true">→</span></a>
     </div>
-    <p class="intro-note">In active development. Core case work needs no AI credentials or hosted subscription.</p>
+    <p class="intro-note">Core case work needs no AI credentials.</p>
   </div>
   {% include 'marketing/workspace.html' %}
 </section>

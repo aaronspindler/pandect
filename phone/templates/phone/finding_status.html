@@ -1,0 +1,1 @@
+{% if item.ai_suggestion %}<strong>AI suggestion</strong> · {% endif %}{{ item.review|capfirst }}{% if item.result_review %} · Whole result: {{ item.result_review|capfirst }}{% endif %}{% if item.partial %} · Partial coverage{% endif %}

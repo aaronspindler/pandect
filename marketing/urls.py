@@ -18,9 +18,4 @@ urlpatterns = [
         TemplateView.as_view(template_name="marketing/trust.html"),
         name="trust",
     ),
-    path(
-        "hosting/",
-        TemplateView.as_view(template_name="marketing/hosting.html"),
-        name="hosting",
-    ),
 ]

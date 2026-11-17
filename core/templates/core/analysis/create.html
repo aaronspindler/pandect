@@ -86,25 +86,6 @@
   </fieldset>
   {% endif %}
 
-  {% if operation == 'conversation_import' %}
-  <fieldset class="form-layout">
-    <legend>Export account mapping</legend>
-    <p>Map each source label to a case person. An explicit recipient label uses the same mapping. Otherwise, choose a recipient for that sender or leave its rows unresolved. These selections do not verify identity.</p>
-    {% if form.mapping_message %}<p class="notice" role="status">{{ form.mapping_message }}</p>{% endif %}
-    {{ form.mapping_formset.management_form }}
-    {{ form.mapping_formset.non_form_errors }}
-    {% for mapping in form.mapping_formset %}
-    <fieldset class="form-layout">
-      <legend>Account mapping {{ forloop.counter }}</legend>
-      {% for field in mapping %}{% include 'ui/components/form_field.html' with field=field only %}{% endfor %}
-      {% if form.mapping_formset|length > 1 %}<button class="button button-secondary" type="submit" name="mapping_action" value="remove:{{ forloop.counter0 }}" formnovalidate>Remove mapping {{ forloop.counter }}</button>{% endif %}
-    </fieldset>
-    {% endfor %}
-    {% if form.mapping_formset|length < 100 %}<button class="button button-secondary" type="submit" name="mapping_action" value="add" formnovalidate>Add account mapping</button>{% endif %}
-    {% include 'ui/components/form_field.html' with field=form.timezone only %}
-  </fieldset>
-  {% endif %}
-
   {% if form.assumptions %}<details class="analysis-assumptions"{% if form.errors %} open{% endif %}>
     <summary>Options</summary>
     <div class="form-layout">

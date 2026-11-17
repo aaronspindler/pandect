@@ -18,7 +18,6 @@ from image.analysis.plates import plate_ocr
 from phone.analysis import ai as phone_ai
 from phone.analysis import workflows as phone_workflows
 from phone.analysis.deterministic import conversations, imessage
-from phone.analysis.deterministic import imports as communication_imports
 from text.analysis import ai as text_ai
 from text.analysis import deterministic as text
 from text.analysis import workflows as text_workflows
@@ -71,11 +70,6 @@ INPUT_GUIDANCE = {
         "English, uncompressed 16-bit mono/stereo PCM WAV. Supplied "
         "transcripts remain separate. Automatic text, uncertain intervals and "
         "omissions require review."
-    ),
-    "conversation_import": (
-        "The documented iMessage HTML export profile, up to 2 MiB/500 rows. "
-        "Map exact source account labels to case people and select the "
-        "export timezone. Unmapped labels stay unresolved."
     ),
     "sessions": (
         "Retained text messages, grouped by reported participants and message "
@@ -169,12 +163,6 @@ OPERATIONS = {
         "Compare exchanges across channels",
         phone_workflows.cross_channel_links,
         COMMUNICATIONS,
-    ),
-    "conversation_import": Operation(
-        "Import an iMessage export",
-        communication_imports.prepare_import,
-        ("document",),
-        version="3",
     ),
     "imessage_import": Operation(
         "Import iMessage CSV", imessage.prepare_import, ("document",), version="2"
@@ -287,9 +275,6 @@ OPERATION_GROUPS = {
         ),
         "session_summaries": (
             "Review source-cited summaries of selected message sessions."
-        ),
-        "conversation_import": (
-            "Import mapped message rows and identify rows that need correction."
         ),
     },
     "Compare locations and movement": {

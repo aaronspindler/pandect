@@ -50,7 +50,6 @@ from core.analysis.operations import (
     INPUT_GUIDANCE,
     OPERATION_GROUPS,
     OPERATIONS,
-    get_operation,
 )
 from core.analysis.presentation import (
     measurement_formatter,
@@ -474,12 +473,7 @@ def create(request, case_id, kind=None, evidence_id=None):
             raise Http404("Source not available for this analysis.")
         if request.method == "GET":
             form.initial["sources"] = [focused_source]
-    if (
-        request.method == "POST"
-        and not browse
-        and not getattr(form, "is_mapping_edit", False)
-        and form.is_valid()
-    ):
+    if request.method == "POST" and not browse and form.is_valid():
         try:
             run, created = start_run(
                 request.user,
@@ -723,7 +717,11 @@ def detail(request, case_id, run_id):
         "history_suffix": analysis_query_suffix(history),
         "back_to_analysis": reverse("core:analysis:processing", args=[case.pk])
         + analysis_query_suffix(history_back),
-        "operation_label": get_operation(run.operation).label,
+        "operation_label": (
+            OPERATIONS[run.operation].label
+            if run.operation in OPERATIONS
+            else "Retained analysis"
+        ),
         "retry_submission_id": uuid4(),
         "error_message": error_message(run.error_code),
         "processing": _processing_details(run),
@@ -906,7 +904,7 @@ def detail(request, case_id, run_id):
                 "latest_result_review": latest_result_review,
                 "reference_snapshots": snapshots,
             }
-    context["can_retry"] = run.status in {
+    context["can_retry"] = run.operation in OPERATIONS and run.status in {
         "failed",
         "cancelled",
         "partial",
@@ -1067,7 +1065,11 @@ def review(request, case_id, run_id):
                 else _url(case, run) + run_suffix
             ),
             "run_suffix": run_suffix,
-            "operation_label": get_operation(run.operation).label,
+            "operation_label": (
+                OPERATIONS[run.operation].label
+                if run.operation in OPERATIONS
+                else "Retained analysis"
+            ),
         },
         status=400,
     )

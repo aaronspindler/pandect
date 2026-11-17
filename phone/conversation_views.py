@@ -16,6 +16,7 @@ from config.access import product_login_required
 from core.evidence.queries import get_evidence, scoped_evidence
 from document.models import DocumentEvidence
 from people.models import Person
+from phone.conversation_analysis import conversation_analysis_context
 from phone.conversations import (
     conversation_list_page,
     imported_contexts,
@@ -84,7 +85,14 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         )
         params = {
             key: request.GET[key]
-            for key in ("source", "page", "message", "list_page")
+            for key in (
+                "source",
+                "page",
+                "message",
+                "list_page",
+                "analysis_page",
+                "conversation_analysis_page",
+            )
             if request.GET.get(key)
         }
         return redirect(url + (f"?{urlencode(params)}" if params else ""))
@@ -106,7 +114,9 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         if source.pk not in {document.pk for document in sources}:
             sources.append(source)
         messages = messages.filter(
-            pk__in=contexts.filter(source_document=source).values("message_id")
+            communication_context__case=case,
+            communication_context__source_document=source,
+            communication_context__source_document__case=case,
         )
     messages = messages.order_by(F("occurred_at").asc(nulls_last=True), "pk")
     selected = None
@@ -174,4 +184,15 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         "page_query": urlencode(source_params),
         "nav_section": "analysis",
     }
+    context.update(
+        conversation_analysis_context(
+            case,
+            messages,
+            rows,
+            selected=selected,
+            params=request.GET,
+            source=source,
+            list_page=list_page,
+        )
+    )
     return render(request, "phone/conversation_detail.html", context)

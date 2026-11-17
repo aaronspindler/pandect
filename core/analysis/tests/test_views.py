@@ -25,7 +25,12 @@ from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from image.models import ImageEvidence
 from people.models import Person
-from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
+from phone.models import (
+    CallEvidenceAttachment,
+    CommunicationContext,
+    PhoneCallEvidence,
+    TextMessageEvidence,
+)
 from text.models import TextEvidence
 from vehicle.models import Vehicle
 
@@ -1248,7 +1253,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             any(value.endswith(str(addition.pk)) for value, label in choices)
         )
 
-    def test_import_confirmation_exposes_native_context_through_private_message(self):
+    def test_retained_import_context_remains_private_and_escaped(self):
         account = "Account <unsafe>"
         html = (
             '<div class="message" data-message-id="native-1" '
@@ -1264,30 +1269,28 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             file=ContentFile(html.encode(), name="export.html"),
         )
         other = Person.objects.create(case=self.case, first_name="Explicit recipient")
-        self.login("owner")
-        payload = self.payload(
-            operation="conversation_import",
-            sources=[f"document:{document.pk}"],
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Previously imported message",
+            body="A proposed meeting.",
+            sender=self.person,
+            recipient=other,
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=message,
+            source_document=document,
+            source_sha256=document.sha256,
+            source_row=1,
+            source_start=0,
+            source_end=len(html),
+            parser_version="imessage-html-v3",
             timezone="UTC",
+            raw_sender=account,
+            native_message_id="native-1",
+            native_thread_id="native-thread",
         )
-        payload |= {
-            "participants-TOTAL_FORMS": "2",
-            "participants-INITIAL_FORMS": "2",
-            "participants-0-source_label": account,
-            "participants-0-person": str(self.person.pk),
-            "participants-0-fallback_recipient": str(other.pk),
-            "participants-1-source_label": "Other account",
-            "participants-1-person": str(other.pk),
-            "participants-1-fallback_recipient": str(self.person.pk),
-        }
-        self.assertEqual(
-            self.client.post(self.analysis_url("create"), payload).status_code, 302
-        )
-        run = AnalysisRun.objects.get()
-        process_run(run.pk)
-        run.refresh_from_db()
-        self.assertEqual(run.status, "complete", run.error_code)
-        message = TextMessageEvidence.objects.get()
         self.login("viewer")
         url = reverse(
             "core:evidence:detail",

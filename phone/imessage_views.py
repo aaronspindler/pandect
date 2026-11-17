@@ -7,16 +7,18 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import DatabaseError
+from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
+from core.analysis.operations import OPERATIONS
 from core.analysis.services import resolve_inputs
 from core.evidence.queries import get_evidence, scoped_evidence
-from core.models import AnalysisRun
+from core.models import AnalysisRun, CaseAnalysisBatch
 from phone.analysis.deterministic.imessage import import_file_limit, read_import_page
 from phone.imessage_forms import (
     IMessageConfirmForm,
@@ -25,6 +27,55 @@ from phone.imessage_forms import (
 )
 from phone.imessage_imports import confirm_import, preview_source, start_preview
 from ui.live import render_live
+
+
+@product_login_required
+@require_safe
+def imessage_analysis_status(request, case_id, batch_id):
+    case = get_case(request.user, case_id)
+    batch = get_object_or_404(
+        CaseAnalysisBatch,
+        case=case,
+        pk=batch_id,
+        scope__type="messages",
+        scope__automatic=True,
+    )
+    imported = get_object_or_404(
+        AnalysisRun,
+        case=case,
+        pk=batch.scope["id"],
+        operation="imessage_import",
+        parameters__phase="import",
+    )
+    runs = batch.runs.filter(case=case).defer("parameters", "inputs")
+    counts = runs.aggregate(
+        total=Count("pk"),
+        pending=Count("pk", filter=Q(status__in=("queued", "running"))),
+    )
+    page = Paginator(runs, 25).get_page(request.GET.get("page"))
+    for run in page:
+        operation = OPERATIONS.get(run.operation)
+        run.label = operation.label if operation else "Retained analysis"
+        run.failure_message = error_message(run.error_code) if run.error_code else ""
+    return render_live(
+        request,
+        "phone/imessage_analysis_status.html",
+        case_context(case, request.user)
+        | {
+            "nav_section": "processing",
+            "batch": batch,
+            "imported": imported,
+            "analysis_mode": {"local": "Local checks", "ai": "AI", "both": "Both"}.get(
+                batch.scope.get("mode"), "Earlier analysis settings"
+            ),
+            "page_obj": page,
+            "finished_count": counts["total"] - counts["pending"],
+            "live_pending": batch.status == "queued" or bool(counts["pending"]),
+            "preparation_error": error_message(batch.error_code)
+            if batch.error_code
+            else "",
+        },
+    )
 
 
 @product_login_required

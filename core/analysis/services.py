@@ -705,7 +705,10 @@ def process_run(run_id):
     try:
         case = _authorize_run(run)
         sources = resolve_inputs(run, case)
-        operation = get_operation(run.operation)
+        try:
+            operation = get_operation(run.operation)
+        except ValidationError as error:
+            raise AnalysisError("processing_version_unavailable") from error
         if operation.version != run.method_version:
             raise AnalysisError("processing_version_unavailable")
         from core.analysis.gateway import GatewayClient
@@ -759,12 +762,7 @@ def process_run(run_id):
             current = AnalysisRun.objects.select_for_update().get(pk=run.pk)
             if current.status != "running":
                 return current.status
-            if run.operation == "conversation_import":
-                from phone.analysis.deterministic.imports import apply_import
-
-                apply_import(run, data, sources)
-                data = validate_output(data, sources)
-            elif (
+            if (
                 run.operation == "imessage_import"
                 and run.parameters.get("phase") == "import"
             ):

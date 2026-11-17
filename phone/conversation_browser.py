@@ -10,6 +10,10 @@ from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.catalogue import project_result
+from core.analysis.operations import get_operation
+from core.analysis.services import snapshot_sources
+from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import CommunicationContext, TextMessageEvidence
@@ -489,3 +493,231 @@ class ConversationBrowserTests(BrowserTestCase):
         self.assertLessEqual(
             page.evaluate("document.documentElement.scrollWidth"), width + 1
         )
+
+    def make_saved_findings(self):
+        """Retain synthetic mixed-method results without invoking inference."""
+        first, last = self.messages[0], self.messages[51]
+        inputs = snapshot_sources(self.case, [{"kind": "text-message", "id": first.pk}])
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="text_topics",
+            method_version=get_operation("text_topics").version,
+            inputs=inputs,
+            status="partial",
+        )
+        items = [
+            {
+                "label": f"Retained observation {number + 1:02}",
+                "text": (
+                    "A possible harbour meeting is suggested."
+                    if number == 1
+                    else f"Literal wording observation {number + 1:02}: "
+                    "<script> remains quoted text, not executable content."
+                ),
+                "source_ids": [inputs[0]["id"]],
+                "values": {"status": "unresolved"} if number == 1 else {},
+            }
+            for number in range(28)
+        ]
+        result = AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={"summary": "Synthetic saved wording observations", "items": items},
+        )
+        project_result(result)
+        AnalysisReview.objects.create(
+            case=self.case,
+            result=result,
+            reviewed_by=self.owner,
+            item_index=1,
+            decision="rejected",
+            comment="Synthetic suggestion needs more context.",
+        )
+        AnalysisReview.objects.create(
+            case=self.case,
+            result=result,
+            reviewed_by=self.owner,
+            decision="unresolved",
+        )
+        shared_inputs = snapshot_sources(
+            self.case,
+            [
+                {"kind": "text-message", "id": first.pk},
+                {"kind": "text-message", "id": last.pk},
+            ],
+        )
+        shared_run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="session_summaries",
+            method_version=get_operation("session_summaries").version,
+            inputs=shared_inputs,
+            status="complete",
+        )
+        shared_result = AnalysisResult.objects.create(
+            case=self.case,
+            run=shared_run,
+            data={
+                "summary": "Synthetic source-cited session suggestions",
+                "items": [
+                    {
+                        "label": f"Shared exchange {number + 1:02}",
+                        "text": "The selected messages mention a possible meeting.",
+                        "source_ids": [source["id"] for source in shared_inputs],
+                        "values": {"status": "unresolved"},
+                    }
+                    for number in range(27)
+                ],
+            },
+        )
+        project_result(shared_result)
+
+    def test_saved_findings_without_javascript_paging_and_message_links(self):
+        self.make_saved_findings()
+        run_count = AnalysisRun.objects.count()
+        first, target = self.messages[0], self.messages[51]
+        url = (
+            self.live_server_url
+            + self.reader_path
+            + f"?source={self.export.pk}&list_page=2"
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(url)
+                inline = page.locator(f"#message-analysis-{first.pk}")
+                shared = page.locator("#conversation-analysis")
+                summary = inline.locator(":scope > summary")
+                expect(summary).to_contain_text("Findings · 28")
+                expect(inline.locator(".conversation-analysis-preview")).to_be_visible()
+                expect(inline).not_to_have_attribute("open", "")
+                summary.focus()
+                page.keyboard.press("Enter")
+                expect(inline).to_have_attribute("open", "")
+                expect(summary).to_be_focused()
+                expect(page).to_have_url(url)
+                expect(inline.locator(".conversation-analysis-preview")).to_be_hidden()
+                findings = inline.locator(".conversation-finding")
+                expect(findings).to_have_count(3)
+                expect(findings.nth(0)).not_to_contain_text("AI suggestion")
+                expect(findings.nth(0)).to_contain_text("<script>")
+                expect(findings.nth(0).locator("script")).to_have_count(0)
+                expect(findings.nth(1)).to_contain_text("AI suggestion")
+                expect(findings.nth(1)).to_contain_text("Rejected")
+                expect(findings.nth(1)).to_contain_text("Whole result: Unresolved")
+                expect(findings.nth(1)).to_contain_text("Partial coverage")
+                expect(inline).not_to_contain_text("Shared exchange")
+                expect(shared.locator(":scope > summary")).to_contain_text(
+                    "Conversation findings · 27"
+                )
+                summary.scroll_into_view_if_needed()
+                self.capture(page, engine, "saved-findings-inline-preview")
+                inline.get_by_role("link", name="More findings", exact=False).click()
+                params = parse_qs(urlsplit(page.url).query)
+                self.assertEqual(params["source"], [str(self.export.pk)])
+                self.assertEqual(params["list_page"], ["2"])
+                self.assertEqual(params["message"], [str(first.pk)])
+                self.assertEqual(params["analysis_page"], ["1"])
+                expect(inline).to_have_attribute("open", "")
+                expect(findings).to_have_count(25)
+                inline.get_by_role("link", name="Next findings", exact=True).click()
+                expect(findings).to_have_count(3)
+                expect(inline).to_contain_text("Retained observation 28")
+                page.go_back()
+                expect(findings).to_have_count(25)
+                findings.first.get_by_role(
+                    "link", name="Open finding", exact=False
+                ).click()
+                expect(page.locator(".analysis-finding")).to_be_visible()
+                page.go_back()
+                expect(inline).to_have_attribute("open", "")
+                expect(findings).to_have_count(25)
+                shared.locator(":scope > summary").press("Enter")
+                expect(shared.locator(".conversation-finding")).to_have_count(25)
+                shared.get_by_role("link", name="Next findings", exact=True).click()
+                expect(shared).to_have_attribute("open", "")
+                expect(shared.locator(".conversation-finding")).to_have_count(2)
+                expect(findings).to_have_count(25)
+                shared.get_by_role("link", name="Previous findings", exact=True).click()
+                shared.locator(f'a[href*="message={target.pk}"]').first.click()
+                expect(page.locator(f"#message-{target.pk}")).to_be_in_viewport()
+                expect(page.locator(f"#message-details-{target.pk}")).to_have_attribute(
+                    "open", ""
+                )
+                params = parse_qs(urlsplit(page.url).query)
+                self.assertEqual(params["message"], [str(target.pk)])
+                self.assertEqual(params["source"], [str(self.export.pk)])
+                self.assertEqual(params["list_page"], ["2"])
+                self.assertEqual(self.db(AnalysisRun.objects.count), run_count)
+
+    def test_saved_findings_reflow_focus_and_scrolling_preserve_context(self):
+        self.make_saved_findings()
+        first = self.messages[0]
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                url = (
+                    self.live_server_url
+                    + self.reader_path
+                    + f"?source={self.export.pk}&list_page=2"
+                    + f"&message={first.pk}&analysis_page=1"
+                    + "&conversation_analysis_page=1"
+                    + f"#message-analysis-{first.pk}"
+                )
+                page.goto(url)
+                inline = page.locator(f"#message-analysis-{first.pk}")
+                shared = page.locator("#conversation-analysis")
+                summary = inline.locator(":scope > summary")
+                expect(inline).to_have_attribute("open", "")
+                expect(shared).to_have_attribute("open", "")
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    summary.scroll_into_view_if_needed()
+                    self.assert_reflow(page, width)
+                    self.capture(page, engine, f"saved-findings-{width}-{height}")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                summary.focus()
+                page.keyboard.press("Enter")
+                expect(inline).not_to_have_attribute("open", "")
+                expect(summary).to_be_focused()
+                self.capture(page, engine, "saved-findings-dark-reduced-motion")
+                page.emulate_media(forced_colors="active")
+                page.keyboard.press("Enter")
+                expect(inline).to_have_attribute("open", "")
+                expect(summary).to_be_focused()
+                self.capture(page, engine, "saved-findings-forced-colors")
+                page.emulate_media(color_scheme="light", forced_colors="none")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assert_reflow(page, 1440)
+                self.capture(page, engine, "saved-findings-text-200-percent")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.set_viewport_size({"width": 360, "height": 225})
+                self.assert_reflow(page, 360)
+                self.capture(page, engine, "saved-findings-400-percent-reflow")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                edge = page.locator('[data-conversation-edge="next"]')
+                with page.expect_request(
+                    lambda request: request.resource_type == "fetch"
+                ) as requested:
+                    edge.scroll_into_view_if_needed()
+                self.assertEqual(
+                    parse_qs(urlsplit(requested.value.url).query),
+                    {
+                        "source": [str(self.export.pk)],
+                        "list_page": ["2"],
+                        "page": ["2"],
+                    },
+                )
+                expect(page.locator(".conversation-message")).to_have_count(54)
+                expect(page).to_have_url(url)

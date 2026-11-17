@@ -11,6 +11,7 @@ from playwright.sync_api import expect, sync_playwright
 
 from config.tests.browser_artifacts import artifact_directory
 from core.evidence.types import KINDS
+from marketing.catalogue import ANALYSES, IMPORTS, REPORTS
 
 
 class MarketingBrowserTests(StaticLiveServerTestCase):
@@ -24,7 +25,8 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
 
     def assert_control_sizes(self, page):
         undersized = page.locator(
-            "header a, footer a, .marketing-button, .text-link, .page-links a, summary"
+            "header a, footer a, .marketing-button, .text-link, .page-links a, "
+            ".catalogue-families a, summary"
         ).evaluate_all(
             "elements => elements.flatMap(element => { const rect = "
             "element.getBoundingClientRect(); return rect.width < 44 || "
@@ -42,7 +44,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
         )
         self.assertTrue(engines and not set(engines) - {"chromium", "webkit"})
         artifacts = artifact_directory("marketing-browser")
-        pages = ("home", "evidence", "trust", "roadmap", "hosting")
+        pages = ("home", "evidence", "trust", "roadmap")
         viewports = (
             (1440, 900),
             (1440, 1024),
@@ -82,23 +84,40 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             )
                         )
                         expect(page.get_by_role("heading", level=1)).to_have_count(1)
+                        expect(page.locator('a[href="/hosting/"]')).to_have_count(0)
+                        expect(
+                            page.locator("footer").get_by_role(
+                                "link", name="Self-hosting docs"
+                            )
+                        ).to_have_attribute(
+                            "href",
+                            "https://github.com/aaronspindler/pandect/blob/main/docs/README.md",
+                        )
                         if name == "evidence":
                             page.locator("#main-content").focus()
                             self.assertCountEqual(
-                                page.locator(".catalogue-overview").evaluate_all(
-                                    "overviews => overviews.map(overview => "
-                                    "overview.closest('section').id)"
+                                page.locator(".catalogue-profile").evaluate_all(
+                                    "profiles => profiles.map(profile => profile.id)"
                                 ),
                                 KINDS,
                             )
-                            self.assertTrue(
-                                page.locator(".catalogue-table").evaluate_all(
-                                    "tables => tables.length > 0 && tables.every(t => "
-                                    "t.caption?.textContent.trim() && t.tHead && "
-                                    "t.tBodies.length && Array.from(t.tBodies[0].rows)"
-                                    ".every(r => r.querySelector('th[scope=row]')))"
-                                )
+                            self.assertCountEqual(
+                                page.locator(".catalogue-method").evaluate_all(
+                                    "methods => methods.map(method => method.id)"
+                                ),
+                                [
+                                    f"{category}-{identifier}"
+                                    for category, inventory in (
+                                        ("analysis", ANALYSES),
+                                        ("reports", REPORTS),
+                                        ("imports", IMPORTS),
+                                    )
+                                    for identifier in inventory
+                                ],
                             )
+                            expect(
+                                page.locator(".catalogue-families [aria-current]")
+                            ).to_have_text("All analysis")
                         current_scope = "footer" if name == "roadmap" else "header"
                         expect(
                             page.locator(f"{current_scope} [aria-current='page']")
@@ -123,26 +142,16 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             page.set_viewport_size({"width": width, "height": height})
                             self.assert_reflow(page)
                             self.assert_control_sizes(page)
-                            if name == "evidence" and width <= 768:
-                                labels = page.locator(".catalogue-cell-label")
-                                self.assertGreater(labels.count(), 0)
+                            if name == "evidence":
+                                summaries = page.locator(".catalogue-method > summary")
                                 self.assertTrue(
-                                    labels.evaluate_all(
-                                        "labels => labels.every(label => "
-                                        "label.getBoundingClientRect().height > 0)"
-                                    )
-                                )
-                                self.assertTrue(
-                                    page.locator(
-                                        ".catalogue-table tbody tr"
-                                    ).evaluate_all(
-                                        "rows => rows.every(row => Math.abs("
-                                        "row.querySelector('th').getBoundingClientRect()"
-                                        ".width - row.getBoundingClientRect()"
-                                        ".width) < 1)"
+                                    summaries.evaluate_all(
+                                        "summaries => summaries.every(summary => "
+                                        "summary.getBoundingClientRect().height > 0)"
                                     ),
-                                    "Stacked headings must use the full row width",
+                                    "Every method stays visible at every viewport",
                                 )
+                            page.locator("header").scroll_into_view_if_needed()
                             page.screenshot(
                                 path=str(
                                     artifacts / f"{engine}-{name}-{width}x{height}.png"
@@ -150,18 +159,9 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                                 full_page=name != "evidence",
                             )
                             if name == "evidence" and width in (1440, 390):
-                                page.locator(".catalogue-section[id]").first.screenshot(
-                                    path=str(
-                                        artifacts
-                                        / (
-                                            f"{engine}-evidence-section-"
-                                            f"{width}x{height}.png"
-                                        )
-                                    )
-                                )
-                                page.locator(
-                                    ".catalogue-table tbody tr"
-                                ).first.screenshot(
+                                method = page.locator(".catalogue-method").first
+                                method.locator("summary").click()
+                                method.screenshot(
                                     path=str(
                                         artifacts
                                         / (
@@ -170,6 +170,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                                         )
                                     )
                                 )
+                                method.locator("summary").click()
                         page.locator("html").evaluate(
                             "element => element.style.fontSize = '200%'"
                         )
@@ -226,7 +227,6 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             reverse("marketing:evidence"),
                         ),
                         ("header", "Trust", reverse("marketing:trust")),
-                        ("header", "Hosting", reverse("marketing:hosting")),
                         ("header", "Sign in", reverse("account_login")),
                         ("footer", "Roadmap", reverse("marketing:roadmap")),
                         (
@@ -236,8 +236,8 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         ),
                         (
                             "main",
-                            "Self-host Pandect",
-                            reverse("marketing:hosting"),
+                            "See it in practice",
+                            reverse("marketing:home") + "#analysis",
                         ),
                         (
                             "main",
@@ -286,49 +286,90 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         )
                         expect(page.locator(f"#{fragment}:target")).to_be_in_viewport()
 
-                    page.goto(self.live_server_url + reverse("marketing:evidence"))
+                    catalogue_url = self.live_server_url + reverse("marketing:evidence")
+                    page.goto(catalogue_url)
                     for kind in KINDS:
-                        link = page.locator(f'.page-links a[href="#{kind}"]')
-                        link.focus()
-                        link.press("Enter")
-                        expect(page).to_have_url(
-                            self.live_server_url
-                            + reverse("marketing:evidence")
-                            + f"#{kind}"
-                        )
-                        expect(page.locator(f"#{kind}:target")).to_be_in_viewport()
+                        page.goto(catalogue_url + f"#{kind}")
+                        profile = page.locator(f".catalogue-profile#{kind}")
+                        expect(profile).to_be_in_viewport()
+                        profile.locator("summary").focus()
+                        profile.locator("summary").press("Enter")
+                        expect(profile).to_have_attribute("open", "")
+                        profile.locator("summary").press("Enter")
+                        expect(profile).not_to_have_attribute("open", "")
 
-                    page.goto(
-                        self.live_server_url
-                        + reverse("marketing:evidence")
-                        + "#document"
+                    page.goto(catalogue_url)
+                    families = page.locator(".catalogue-families")
+                    messages = families.get_by_role(
+                        "link", name="Messages & calls", exact=True
                     )
-                    method_link = page.locator("#document").get_by_role(
-                        "link", name="Extract identifiers and dates", exact=True
+                    messages.focus()
+                    messages.press("Enter")
+                    expect(page).to_have_url(catalogue_url + "?type=communications")
+                    expect(families.locator("[aria-current]")).to_have_text(
+                        "Messages & calls"
                     )
-                    method_link.focus()
-                    method_link.press("Enter")
-                    expect(
-                        page.locator("#analysis-entities:target")
-                    ).to_be_in_viewport()
-                    type_link = page.locator("#analysis-entities").get_by_role(
-                        "link", name="Document", exact=True
+                    expect(page.locator("#analysis-colocation")).to_have_count(0)
+                    expect(page.locator(".catalogue-profile")).to_have_count(3)
+                    expect(page.locator("#reports-calls")).to_be_visible()
+                    expect(page.locator("#imports-imessage_import")).to_be_visible()
+                    summary_method = page.locator("#analysis-session_summaries")
+                    summary = summary_method.locator("summary")
+                    expect(summary).to_contain_text("Requires AI setup")
+                    expect(summary_method).not_to_have_attribute("open", "")
+                    summary.focus()
+                    summary.press("Enter")
+                    expect(summary_method).to_have_attribute("open", "")
+                    detail = summary_method.locator(".catalogue-method-detail")
+                    expect(detail).to_be_visible()
+                    expect(detail).to_contain_text(
+                        ANALYSES["session_summaries"]["detail"]
+                    )
+                    self.assertEqual(
+                        summary.evaluate(
+                            "element => getComputedStyle(element).outlineWidth"
+                        ),
+                        "3px",
+                    )
+                    for width, height in viewports:
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assert_reflow(page)
+                        self.assert_control_sizes(page)
+                        if width in (1440, 390):
+                            page.locator("header").scroll_into_view_if_needed()
+                            page.screenshot(
+                                path=str(
+                                    artifacts
+                                    / f"{engine}-communications-{width}x{height}.png"
+                                )
+                            )
+                    type_link = summary_method.get_by_role(
+                        "link", name="Text message", exact=True
                     )
                     type_link.focus()
                     type_link.press("Enter")
-                    expect(page.locator("#document:target")).to_be_in_viewport()
-
-                    page.goto(self.live_server_url + reverse("marketing:hosting"))
-                    faqs = page.locator(".marketing-faq details")
-                    self.assertGreater(faqs.count(), 0)
-                    for index in range(faqs.count()):
-                        faq = faqs.nth(index)
-                        summary = faq.locator("summary")
-                        summary.focus()
-                        summary.press("Enter")
-                        expect(faq.locator("p")).to_be_visible()
-                        summary.press("Enter")
-                        expect(faq.locator("p")).not_to_be_visible()
+                    expect(page.locator("#text-message:target")).to_be_in_viewport()
+                    page.go_back()
+                    expect(page).to_have_url(catalogue_url + "?type=communications")
+                    families.get_by_role("link", name="Images", exact=True).click()
+                    expect(page).to_have_url(catalogue_url + "?type=images")
+                    expect(families.locator("[aria-current]")).to_have_text("Images")
+                    expect(page.locator("#analysis-plate_ocr")).to_be_visible()
+                    expect(page.locator("#analysis-session_summaries")).to_have_count(0)
+                    page.go_back()
+                    expect(page).to_have_url(catalogue_url + "?type=communications")
+                    expect(families.locator("[aria-current]")).to_have_text(
+                        "Messages & calls"
+                    )
+                    page.goto(catalogue_url + "?type=unknown")
+                    expect(families.locator("[aria-current]")).to_have_text(
+                        "All analysis"
+                    )
+                    expect(page.locator(".catalogue-profile")).to_have_count(len(KINDS))
+                    families.get_by_role(
+                        "link", name="All analysis", exact=True
+                    ).click()
+                    expect(page).to_have_url(catalogue_url)
 
                     for appearance in ("dark", "reduced-motion", "forced-colors"):
                         if appearance == "forced-colors" and engine != "chromium":
@@ -362,5 +403,16 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                                 ),
                                 full_page=name != "evidence",
                             )
+                        page.goto(catalogue_url + "?type=communications")
+                        self.assert_reflow(page)
+                        self.assert_control_sizes(page)
+                        expect(
+                            page.locator(".catalogue-families [aria-current]")
+                        ).to_have_text("Messages & calls")
+                        page.screenshot(
+                            path=str(
+                                artifacts / f"{engine}-communications-{appearance}.png"
+                            )
+                        )
                     context.close()
                     browser.close()

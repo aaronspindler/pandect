@@ -19,6 +19,14 @@ findings/page and method/type/evidence/explicit-person/finding-review filters.
 sources, weak plate regions and every review state remain labelled. Whole-result
 review is separate and accepts no individual finding.
 
+Conversation readers also expose saved findings: single-message findings appear
+inline, while session and multiple-source findings appear once above the stream.
+They use the same latest-result and current-source checks as the catalogue,
+matching individual finding citations to the conversation/source filter rather
+than merely matching a run's inputs. Mixed-method runs retain per-finding **AI
+suggestion** labels. Finding pagination is independent of message pagination;
+the reader starts no work. See [conversation reading](evidence.md#reading-conversations).
+
 By default, the newest requested successful equivalent run supersedes earlier
 findings before search/review filters. Equivalence includes method/version,
 execution settings, meaningful parameters and ordered exact source versions/hashes,
@@ -150,9 +158,9 @@ location quality/movement and geographic lookup. Derived-text follow-ups bind
 exact results. Grouped comparisons disclose selection limits, without claiming
 exhaustive cross-group comparisons. Unsupported formats/failures remain visible.
 Questions, two-sample writing comparison, area searches, claimed-event comparison
-and import mapping require **Choose analysis**; geographic candidates need review.
+require **Choose analysis**; geographic candidates need review.
 
-Completed vehicle/HTML iMessage imports offer deliberate **Run local checks on
+Completed vehicle imports offer deliberate **Run local checks on
 imported evidence**, using bounded groups and excluding duplicates; see
 [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
 Confirmed CSV messages automatically queue the analysis chosen during import
@@ -257,7 +265,7 @@ historical results with warnings.
 - [Extraction](analysis-extraction.md): formats, parser isolation, anchors, partial
   coverage and synthetic evaluation for documents/images/audio/OCR/transcription.
 - [Communications](analysis-communications.md): text spans, sample adequacy,
-  native/inferred sessions, mapping and supported iMessage formats.
+  native/inferred sessions, participant review and supported iMessage CSV imports.
 - [Locations](analysis-locations.md): gaps, grouping, dwell, proximity, co-location,
   geographic estimates and source limits.
 - [Geographic context](analysis-geographic-context.md): feature candidates,

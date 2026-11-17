@@ -40,7 +40,6 @@ FILE_OPERATIONS = {
     "ocr",
     "plate_ocr",
     "transcription",
-    "conversation_import",
     "imessage_import",
 }
 UNSUPPORTED_FORMATS = {

@@ -1,0 +1,4 @@
+<span class="conversation-analysis-title">{% if shared %}Conversation findings{% else %}Findings{% endif %} · {{ analysis.count }}</span>
+{% with item=analysis.rows.0 %}
+{% if item %}<span class="conversation-analysis-preview"><span>{{ analysis.preview|truncatechars:110 }}</span>{% if not item.unavailable %}<span class="conversation-finding-status muted">{% include 'phone/finding_status.html' %}</span>{% endif %}</span>{% endif %}
+{% endwith %}

@@ -23,14 +23,14 @@ diff used the starting worktree to exclude its existing analysis UI refactor.
 | [Geographic analysis](../../geo/analysis/external/geocoding.py) | Geocoding initialized a client even when every selected source was ineligible, and reported that result as partial. Two consent tests inherited the operator’s locality setting. | Initialize lookup only for eligible sources, return insufficient input when all are skipped, and set test locality explicitly. |
 | [Vehicle CSV import](../../geo/vehicle_import_jobs.py) | Duplicate flags could stay set after a matching observation was deleted. Duplicate lookup transferred repeated hashes, the upload path hashed the same file twice, and review loaded the vehicle choices for each mapping. | Recompute flags before publication, fetch distinct matches, reuse the upload fingerprint and rollback path, and load vehicle choices once. |
 | [Map estimates](../../geo/map_geocoding.py) | The map queried reviews per visible geocoding run. | Fetch reviews once for the visible page. |
-| [Conversation import](../../phone/analysis/deterministic/imports.py) | Valueless HTML attributes could break parsing, oversized timestamps could reach publication, and equivalent UUID spellings could disagree at confirmation. Valid message bodies were held in three result fields and could exhaust the result limit. | Normalize source and mapping fields, publish from the retained finding text, validate same-case links before loading retained bodies, and record the new parser and method version. |
+| [Conversation import](../analysis-communications.md#message-csv-imports) | Valueless HTML attributes could break parsing, oversized timestamps could reach publication, and equivalent UUID spellings could disagree at confirmation. Valid message bodies were held in three result fields and could exhaust the result limit. | Normalize source and mapping fields, publish from the retained finding text, validate same-case links before loading retained bodies, and record the new parser and method version. |
 | [Local inference](../../inference/server.py) | Replacement files could inherit stale digests; native engines survived loss of their verified model. | Check file identity during verification and stop the engine when its model changes or becomes unavailable. |
 | [Deployment verification](../../scripts/deploy-dokploy.py) | Incomplete transport responses escaped error handling; malformed health responses aborted readiness polling. | Convert transport failures into bounded deployment errors and require a valid readiness object before counting a probe as healthy. |
 
 The development guide identified existing [worker operations](../background-tasks.md).
 No schema migration was required. Finish queued iMessage imports before upgrading
 or start fresh with the same source/settings afterward; see
-[import provenance](../analysis-communications.md#retained-imessage-html-import).
+[import provenance](../analysis-communications.md#message-csv-imports).
 
 ## Local validation
 

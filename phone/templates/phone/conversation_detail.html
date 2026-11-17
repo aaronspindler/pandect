@@ -19,6 +19,15 @@
 </form>
 {% if page_obj.object_list %}
 <section class="conversation-reader" aria-labelledby="conversation-messages-heading" data-conversation-scroll data-scroll-label="messages">
+  {% if conversation_analysis.count %}
+  <details class="conversation-analysis conversation-shared-analysis" id="conversation-analysis"{% if conversation_analysis.open %} open{% endif %}>
+    <summary>{% include 'phone/analysis_summary.html' with analysis=conversation_analysis shared=True %}</summary>
+    <div class="conversation-analysis-content">
+      <p class="muted">Saved findings about sessions or multiple sources. Each describes the sources selected for its analysis.</p>
+      {% include 'phone/conversation_findings.html' with analysis=conversation_analysis shared=True %}
+    </div>
+  </details>
+  {% elif not has_conversation_findings %}<p class="conversation-analysis-empty muted">No saved findings for this conversation.</p>{% endif %}
   <div class="section-header conversation-section-header"><h2 id="conversation-messages-heading">Messages</h2><p class="muted">{{ page_obj.paginator.count }} message{{ page_obj.paginator.count|pluralize }} · Includes archived</p></div>
   {% include 'phone/conversation_paging.html' with direction='previous' %}
   <div class="conversation-stream">
@@ -30,7 +39,13 @@
           <header class="conversation-message-header"><strong id="message-sender-{{ message.pk }}">{{ message.sender }}</strong>{% if selected_message.pk == message.pk %}<span class="conversation-selected-label">Linked message</span>{% endif %}{% if message.is_archived %}<span class="status">Archived</span>{% endif %}<span class="conversation-message-time muted">{% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</span></header>
           <div class="conversation-message-body">{{ message.body }}</div>
           <p class="conversation-message-source muted">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %} · <a href="{{ message.evidence_url }}">Open evidence<span class="sr-only">: {{ message.title }}</span></a></p>
-          <details class="conversation-message-details" id="message-details-{{ message.pk }}" data-message-details{% if selected_message.pk == message.pk %} open{% endif %}>
+          {% if message.analysis.count %}
+          <details class="conversation-analysis conversation-message-analysis" id="message-analysis-{{ message.pk }}" data-message-analysis{% if message.analysis.open %} open{% endif %}>
+            <summary>{% include 'phone/analysis_summary.html' with analysis=message.analysis shared=False %}<span class="sr-only"> for {{ message.title }}</span></summary>
+            <div class="conversation-analysis-content">{% include 'phone/conversation_findings.html' with analysis=message.analysis shared=False %}</div>
+          </details>
+          {% endif %}
+          <details class="conversation-message-details" id="message-details-{{ message.pk }}" data-message-details{% if selected_message.pk == message.pk and not message.analysis.open %} open{% endif %}>
             <summary>Message details<span class="sr-only">: {{ message.title }}</span></summary>
             {% include 'phone/message_details.html' with item=message communication_context=message.imported_source hide_native_links=True %}
           </details>

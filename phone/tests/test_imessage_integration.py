@@ -229,7 +229,7 @@ class IMessagePipelineTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.client.post(review, {}).status_code, 403)
 
     def test_csv_operation_is_not_offered_by_generic_analysis_creation(self):
-        self.assertEqual(get_operation("conversation_import").version, "3")
+        self.assertEqual(get_operation("imessage_import").version, "2")
         self.login("editor")
         url = reverse("core:analysis:create", args=[self.case.pk])
         before = AnalysisRun.objects.count()

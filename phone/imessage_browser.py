@@ -239,8 +239,15 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 follow.focus()
                 expect(follow).to_be_focused()
                 page.keyboard.press("Enter")
+                expect(page).to_have_url(
+                    self.url(
+                        "phone:imessage_analysis_status",
+                        case_id=self.case.pk,
+                        batch_id=batch.pk,
+                    )
+                )
                 expect(
-                    page.get_by_role("heading", name="Processing", exact=True)
+                    page.get_by_role("heading", name="Message analysis", exact=True)
                 ).to_be_visible()
                 expect(
                     page.get_by_text("Preparing message analysis", exact=True).first
@@ -263,6 +270,13 @@ class IMessageImportBrowserTests(BrowserTestCase):
                         )
                     ),
                     {"gateway"},
+                )
+                page.get_by_role("link", name="Refresh status", exact=True).press(
+                    "Enter"
+                )
+                expect(page.get_by_text("Checks queued", exact=True)).to_be_visible()
+                expect(page.locator(".analysis-history-row")).to_have_count(
+                    self.db(batch.runs.count)
                 )
                 page.goto(
                     self.url(
@@ -321,7 +335,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     "button", name="Run message analysis", exact=True
                 ).click()
                 expect(
-                    page.get_by_role("heading", name="Processing", exact=True)
+                    page.get_by_role("heading", name="Message analysis", exact=True)
                 ).to_be_visible()
                 rerun = self.db(
                     CaseAnalysisBatch.objects.get,
@@ -331,6 +345,63 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 self.assertNotEqual(rerun.pk, batch.pk)
                 self.assertEqual(rerun.requested_by_id, self.owner.pk)
                 self.assertTrue(rerun.scope["external_processing"])
+                expect(page).to_have_url(
+                    self.url(
+                        "phone:imessage_analysis_status",
+                        case_id=self.case.pk,
+                        batch_id=rerun.pk,
+                    )
+                )
+                expect(page.locator(".analysis-history-row")).to_have_count(0)
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"analysis-status-{width}-{height}")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 321
+                )
+                self.capture(page, engine, "analysis-status-large-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "analysis-status-dark")
+                page.emulate_media(forced_colors="active")
+                refresh = page.get_by_role("link", name="Refresh status", exact=True)
+                refresh.focus()
+                expect(refresh).to_be_focused()
+                self.capture(page, engine, "analysis-status-forced-colors")
+                page.emulate_media(color_scheme="light", forced_colors="none")
+                with self.browser_page(engine) as (_, live_page):
+                    self.sign_in(live_page)
+                    status_url = self.url(
+                        "phone:imessage_analysis_status",
+                        case_id=self.case.pk,
+                        batch_id=rerun.pk,
+                    )
+                    live_page.goto(status_url)
+                    live_page.evaluate("window.statusSentinel = 42")
+                    self.db(prepare_case_analysis_batch, rerun.pk)
+                    self.db(prepare_case_analysis_batch, rerun.pk)
+                    expect(live_page.locator(".analysis-history-row")).to_have_count(
+                        self.db(rerun.runs.count), timeout=15000
+                    )
+                    region = live_page.locator("#message-analysis-status")
+                    expect(region).to_have_attribute("data-live-poll", "true")
+                    self.db(rerun.runs.update, status="cancelled")
+                    expect(region).to_have_attribute(
+                        "data-live-poll", "false", timeout=15000
+                    )
+                    self.assertEqual(live_page.evaluate("window.statusSentinel"), 42)
+                    expect(live_page).to_have_url(status_url)
+                    self.capture(live_page, engine, "analysis-status-finished")
                 page.goto(
                     self.url(
                         "phone:imessage_review", case_id=self.case.pk, run_id=final_id

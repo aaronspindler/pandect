@@ -15,6 +15,11 @@ urlpatterns = [
     ),
     path("imessage/new/", imessage_views.imessage_upload, name="imessage_upload"),
     path(
+        "imessage/analysis/<uuid:batch_id>/",
+        imessage_views.imessage_analysis_status,
+        name="imessage_analysis_status",
+    ),
+    path(
         "imessage/<uuid:run_id>/",
         imessage_views.imessage_review,
         name="imessage_review",

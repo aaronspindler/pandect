@@ -105,9 +105,9 @@ EVIDENCE_TYPES = (
         "description": (
             "Retain message text, reported participants and an optional message time."
         ),
-        "intake": "Add one message or import a supported iMessage CSV or HTML export.",
+        "intake": "Add one message or import a supported iMessage CSV export.",
         "formats": (
-            "Individual messages and the documented iMessage export profiles; "
+            "Individual messages and the documented iMessage CSV export profile; "
             "imported attachment references do not fetch attachment files."
         ),
         "prerequisites": (
@@ -617,21 +617,6 @@ REPORTS = {
 }
 
 IMPORTS = {
-    "conversation_import": {
-        "label": "Import an iMessage HTML export",
-        "description": (
-            "Publish mapped message records while retaining the source export and "
-            "row provenance."
-        ),
-        "kinds": ("document", "text-message"),
-        "source_kinds": ("document",),
-        "requirement": INCLUDED,
-        "detail": (
-            "The documented UTF-8 HTML profile, up to 2 MiB/500 messages. Choose "
-            "timezone and participant mappings; links and attachments are not "
-            "fetched. Imported local checks are a separate deliberate action."
-        ),
-    },
     "imessage_import": {
         "label": "Import iMessage CSV",
         "description": (
@@ -643,9 +628,9 @@ IMPORTS = {
         "requirement": INCLUDED,
         "detail": (
             "The documented 18-column UTF-8 profile, up to 100 MiB. Confirm "
-            "timezone and participants. Publication queues checks for new messages; "
-            "model follow-ups need private setup and fail recoverably if "
-            "unavailable. Attachment references are not fetched."
+            "timezone and participants, then choose Local checks, AI, or Both for "
+            "new messages. AI requires configured private inference or approved "
+            "external processing. Attachment references are not fetched."
         ),
     },
     "vehicle_locations": {
@@ -667,50 +652,132 @@ IMPORTS = {
 }
 
 
-def evidence_groups():
-    """Associate each input profile with its supported catalogue entries."""
-    return [
-        {
-            **evidence,
-            **{
-                name: [
-                    {"id": identifier, **row}
-                    for identifier, row in inventory.items()
-                    if evidence["kind"] in row["kinds"]
-                ]
-                for name, inventory in (
-                    ("analyses", ANALYSES),
-                    ("reports", REPORTS),
-                    ("imports", IMPORTS),
+EVIDENCE_FAMILIES = (
+    {
+        "id": "",
+        "label": "All analysis",
+        "description": "Explore supported methods, pattern reports and imports.",
+        "intake": (
+            "Add original files, text, messages, calls and locations. "
+            "Choose an evidence type to see its supported formats and limits."
+        ),
+        "kinds": tuple(evidence["kind"] for evidence in EVIDENCE_TYPES),
+    },
+    {
+        "id": "documents",
+        "label": "Documents & text",
+        "description": "Extract usable text, compare writing and review what it says.",
+        "intake": (
+            "Upload a document or add original text. Use a document upload "
+            "when exact source-file bytes matter."
+        ),
+        "kinds": ("document", "text"),
+    },
+    {
+        "id": "images",
+        "label": "Images",
+        "description": (
+            "Inspect image properties, read printed text and review possible plates."
+        ),
+        "intake": (
+            "Upload original images with their source details. "
+            "Analysis supports JPEG and single-frame PNG."
+        ),
+        "kinds": ("image",),
+    },
+    {
+        "id": "audio",
+        "label": "Audio",
+        "description": "Inspect recordings and review candidate transcripts.",
+        "intake": (
+            "Upload original recordings. Analysis supports the PCM WAV profile "
+            "described below; transcription supports English."
+        ),
+        "kinds": ("audio",),
+    },
+    {
+        "id": "communications",
+        "label": "Messages & calls",
+        "description": "Read conversations, inspect timing and compare what was said.",
+        "intake": (
+            "Add individual messages, phone calls or FaceTime records. "
+            "Import a supported iMessage CSV export."
+        ),
+        "kinds": COMMUNICATION_KINDS,
+    },
+    {
+        "id": "locations",
+        "label": "Locations",
+        "description": (
+            "Compare reported places, possible journeys and observation coverage."
+        ),
+        "intake": (
+            "Add locations, link observations to a case person or vehicle, "
+            "or import a supported vehicle-location CSV."
+        ),
+        "kinds": LOCATION_KINDS,
+    },
+)
+
+SHORT_REQUIREMENTS = {
+    INCLUDED: "Included",
+    OPTIONAL_AI: "AI optional",
+    MODEL: "Requires AI setup",
+    GEOGRAPHIC: "Geographic setup",
+}
+
+
+def catalogue_context(family_id=""):
+    """Filter public presentation data without inspecting cases or live services."""
+    family = next(
+        (family for family in EVIDENCE_FAMILIES if family["id"] == family_id),
+        EVIDENCE_FAMILIES[0],
+    )
+    profiles = [
+        evidence for evidence in EVIDENCE_TYPES if evidence["kind"] in family["kinds"]
+    ]
+    sections = []
+    for category, title, inventory in (
+        ("analysis", "Analysis methods", ANALYSES),
+        ("reports", "Pattern reports", REPORTS),
+        ("imports", "Supported imports", IMPORTS),
+    ):
+        rows = []
+        for identifier, row in inventory.items():
+            inputs = [
+                {"kind": evidence["kind"], "label": evidence["label"]}
+                for evidence in profiles
+                if evidence["kind"] in row["kinds"]
+            ]
+            if inputs:
+                rows.append(
+                    {
+                        "id": identifier,
+                        **row,
+                        "short_requirement": SHORT_REQUIREMENTS[row["requirement"]],
+                        "evidence_types": inputs,
+                    }
                 )
-            },
-        }
-        for evidence in EVIDENCE_TYPES
-    ]
-
-
-def capability_sections():
-    """Describe each capability once, with links to its applicable input profiles."""
-    return [
-        {
-            "id": category,
-            "title": title,
-            "rows": [
-                {
-                    "id": identifier,
-                    **row,
-                    "evidence_types": [
-                        {"kind": evidence["kind"], "label": evidence["label"]}
-                        for evidence in EVIDENCE_TYPES
-                        if evidence["kind"] in row["kinds"]
-                    ],
-                }
-                for identifier, row in inventory.items()
-            ],
-        }
-        for category, title, inventory in (
-            ("analysis", "Analysis methods", ANALYSES),
-            ("reports", "Pattern reports", REPORTS),
-            ("imports", "Supported imports", IMPORTS),
-        )
-    ]
+        if category == "analysis" and family["id"] == "communications":
+            first = (
+                "sessions",
+                "comm_patterns",
+                "conversation_link",
+                "session_summaries",
+            )
+            rows.sort(
+                key=lambda row: (
+                    first.index(row["id"]) if row["id"] in first else len(first)
+                )
+            )
+        if rows:
+            sections.append({"id": category, "title": title, "rows": rows})
+    return {
+        "evidence_families": [
+            {**item, "selected": item["id"] == family["id"]}
+            for item in EVIDENCE_FAMILIES
+        ],
+        "selected_family": family,
+        "evidence_groups": profiles,
+        "capability_sections": sections,
+    }

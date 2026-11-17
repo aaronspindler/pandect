@@ -158,7 +158,6 @@ output; keep fixtures synthetic.
 | `core.analysis.reprocessing_browser` | `data/validation/reprocessing-browser` |
 | `core.analysis.selection_browser` | `data/validation/selection-browser` |
 | `document.browser` | `data/validation/original-preview-browser` |
-| `phone.browser` | `data/validation/import-mapping-browser` |
 | `phone.conversation_browser` | `data/validation/conversations-browser` |
 | `image.browser` | `data/validation/plate-browser` |
 | `geo.map_browser` | `data/validation/maps` |

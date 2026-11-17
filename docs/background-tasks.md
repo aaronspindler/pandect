@@ -41,12 +41,12 @@ never guessed. See the [Processing workflow](interface-design.md#case-tools-proc
 for filters, review, recovery, and automatic updates to visible progress/results.
 Refresh remains available without JavaScript; there is no notification scheduler.
 
-Completed vehicle and HTML iMessage imports offer deliberate **Run local checks
-on imported evidence**. Scope comes from retained relationships, published
-message IDs/source rows on historical results or publishing runs on new CSV
-contexts, never browser-supplied IDs. Each step queues at most 500 sources or the
-configured lower limit; text groups also respect one million characters. Skipped
-duplicates are excluded. These independent checks run no models, transcription,
+Completed vehicle imports offer deliberate **Run local checks on imported
+evidence**. Scope comes from retained import relationships, never browser-supplied
+IDs. Historical message imports retain the action to run local checks using
+published message IDs/source rows or publishing runs on CSV contexts. Each step
+queues at most 500 sources or the configured lower limit; text groups also
+respect one million characters. Skipped duplicates are excluded. These independent checks run no models, transcription,
 external lookup or split context-dependent movement/conversation analysis.
 Repeated submissions recover the same batch. Continuations recheck access;
 preparation/run failures remain recoverable.

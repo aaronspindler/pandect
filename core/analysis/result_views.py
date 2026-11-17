@@ -36,7 +36,7 @@ RESULT_VIEWS = {
             "comm_patterns",
             "conversation_link",
             "session_summaries",
-            "conversation_import",
+            "conversation_import",  # Read retained HTML results; no import operation.
             "imessage_import",
         ),
         (phone.present, GROUPED_RESULTS),

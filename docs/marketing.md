@@ -7,19 +7,22 @@ announcements with the same availability boundaries.
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Combined product overview, core workflow, fictional examples at `#analysis`, and routes to capabilities and self-hosting. |
+| `/` | Combined product overview, core workflow, fictional examples at `#analysis`, and links to capabilities and GitHub documentation. |
 | `/evidence/` | Complete evidence and analysis catalogue, supported imports/reports, input profiles, and setup requirements. |
 | `/trust/` | Case access, originals, analysis approval, and map tile privacy. |
 | `/roadmap/` | Planned work and exploration without release dates; linked from the footer. |
-| `/hosting/` | Self-hosting and the planned hosted service. |
 
-These five pages are public, including the overview for signed-in visitors. All
+These four pages are public, including the overview for signed-in visitors. All
 offer **Open workspace** when signed in; authentication still leads to **All cases**.
 The former `/product/` route permanently redirects to `/`. Its `#available`,
 `#analysis`, `#configured-services`, and `#limits` fragments remain valid on the
 overview; service and format details now live in the catalogue. The primary
-navigation contains Overview, Evidence & analysis, Trust, and Hosting; Roadmap is
-in the footer navigation, with an explicit current-page state.
+navigation contains Overview, Evidence & analysis, and Trust; Roadmap is
+in the footer navigation, with an explicit current-page state. Product copy leads
+with evidence, findings, and collaboration. The overview links to capabilities
+and fictional examples; self-hosting remains a supporting documentation link in
+the footer. The catalogue links to project and analysis guides. There is no
+hosting marketing page.
 
 Authentication and email verification protect case material, which public pages
 never query or display. Illustrations use
@@ -32,19 +35,27 @@ approved brand and [design standard](../DESIGN.md): prominent headings, readable
 text, fine dividers, responsive/dark/forced-color layouts, keyboard focus, and a
 skip link. The overview owns the product story and examples; the catalogue owns
 input profiles and method requirements; Trust owns access, retention, and
-processing privacy; Hosting owns setup and operator responsibilities; Roadmap
-owns future work. Keep short configuration and uncertainty notes beside relevant
-claims without repeating full explanations. Hosting questions use native
-disclosures. Navigation and actions work without JavaScript.
+processing privacy; Roadmap owns future work. Setup and operator responsibilities
+belong in the GitHub documentation. Keep short configuration and uncertainty notes
+beside relevant claims without repeating full explanations. Navigation and actions
+work without JavaScript.
 
 ## Evidence and analysis catalogue
 
-**Evidence & analysis** gives every addable evidence type a profile with its
-intake, supported formats, prerequisites, and links to applicable tools. Separate
-analysis, pattern report, and import tables describe each tool once, retaining
-requirements and uncertainty notes alongside it. Each entry links back to its
-applicable evidence types. The same table content stacks at narrow widths,
-retaining visible labels and table relationships.
+**Evidence & analysis** leads with an analysis directory and evidence-family
+navigation: All analysis, Documents & text, Images, Audio, Messages & calls, and
+Locations. Ordinary `?type=` links filter methods, pattern reports, imports, and
+input profiles without JavaScript. Unknown categories show the complete catalogue.
+Messages & calls leads with session and timing tools before shared text/audio
+methods. All analysis retains every supported method once.
+
+Each method shows its outcome and short setup requirement. Native **Details**
+disclosures retain precise inputs, configuration, uncertainty, and links to the
+applicable input profiles. The supporting column explains intake and requirements;
+**Supported formats & limits** retains a disclosure for every selected evidence
+type. On narrow screens the supporting column follows the methods, with a direct
+link from each method to its inputs. Original method and evidence-kind fragment
+identifiers remain available on the complete catalogue.
 
 `marketing/catalogue.py` owns the public presentation data, keyed by current
 evidence-kind, analysis-operation, report, and import identifiers. It describes
@@ -55,8 +66,9 @@ and their owning guides when capabilities change. Catalogue coverage tests detec
 missing types/methods, incorrect source mappings, and changed model requirements;
 review descriptions and input prerequisites against the implementation as well.
 
-Requirements distinguish **Included**, **Included; AI optional**, **Private setup
-or approved external AI**, and **Configured geographic service**. Included OCR
+Visible requirements distinguish **Included**, **AI optional**, **Requires AI
+setup**, and **Geographic setup**. Details retain the complete setup descriptions,
+including private services and explicitly approved external processing. Included OCR
 and plate reading use the standard Docker image's local tools. Private models and
 geographic services need operator setup; external AI requires explicit approval
 through Cloudflare AI Gateway, and external geographic requests have their own
@@ -68,14 +80,15 @@ silently switches processing to a cloud service.
 Hosted service is **Planned**: no launch date, pricing, waitlist, payment flow,
 support commitment, certification, or availability guarantee is established.
 Account routes access this installation; source publication does not deploy or
-configure DNS for openpandect.com. Hosting copy does not replace live operator
+configure DNS for openpandect.com. Public copy does not replace live operator
 configuration or legal policies.
 
 Use **Available**, **Requires configuration**, **Planned**, and **Exploring**
 consistently. Verify claims against [cases](cases.md), [evidence](evidence.md),
 [analysis](analysis.md), and [maps](maps.md). Search is within a case. State the
 bounded native PDF, printed-English JPEG/PNG, WAV, and import profiles rather
-than implying every upload format is supported.
+than implying every upload format is supported. Message imports support the
+documented iMessage CSV profile only; HTML message imports are unavailable.
 
 The public roadmap summarizes [proposed priorities](evidence-analysis-roadmap.md);
 [analysis](analysis.md) owns implemented methods. Review public pages and the

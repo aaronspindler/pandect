@@ -221,6 +221,10 @@ def start(request, case_id, import_type, import_id):
                 if created
                 else "This analysis was already requested.",
             )
+            if run:
+                return redirect(
+                    "phone:imessage_analysis_status", case_id=case.pk, batch_id=batch.pk
+                )
             return redirect(
                 reverse("core:analysis:processing", args=[case.pk])
                 + f"?batch={batch.pk}"

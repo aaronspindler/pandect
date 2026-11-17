@@ -5,7 +5,7 @@
   {% elif automatic %}
     <p>Selected analysis: {{ analysis_mode }}</p>
     {% if batch %}<p>Analysis starts automatically for the {{ eligible_count }} newly imported message{{ eligible_count|pluralize }}. Follow its progress and review the results.</p>{% elif eligible_count %}<p>{{ eligible_count }} imported message{{ eligible_count|pluralize }} available for message analysis.</p>{% else %}<p>This import added no new messages to analyze. Previously retained messages keep their earlier results.</p>{% endif %}
-    {% if batch %}<p><a class="record-link" href="{% url 'core:analysis:processing' case.pk %}?batch={{ batch.pk }}">Follow message analysis</a></p>{% endif %}
+    {% if batch %}<p><a class="record-link" href="{% url 'phone:imessage_analysis_status' case.pk batch.pk %}">Follow message analysis</a></p>{% endif %}
     {% if can_edit and eligible_count and batch.status != 'queued' %}<p><a class="button button-secondary" href="{% url 'core:analysis:import_checks' case.pk import_type import_id %}">{% if batch %}Run message analysis again{% else %}Run message analysis{% endif %}</a></p>{% endif %}
   {% else %}
     <p>{{ eligible_count }} imported record{{ eligible_count|pluralize }} available for supported local checks. These checks do not use AI or external services.</p>

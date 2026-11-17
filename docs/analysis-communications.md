@@ -140,71 +140,12 @@ summary discloses chunk/selection; oversized/missing chunks never imply complete
 history. This adapts [iMessageLLM](https://github.com/aaronspindler/iMessageLLM)
 without two-person reduction or inference-boundary bypass.
 
-## Retained iMessage HTML import
-
-`imessage-html-v1` supports the [inspected structure](https://github.com/aaronspindler/iMessageLLM/blob/14a46b9826ad2d8a0c0777d3cfd4394a49f3ce9a/process.py):
-`div.message` with exactly one `span.timestamp`, `span.sender` and `span.bubble`,
-without claiming all imessage-exporter versions. Select one retained UTF-8 HTML
-Document up to 2 MiB/500 messages. Parsing limits nesting to 40 and nodes to 20,000,
-executes no scripts and fetches no links/attachments. Bodies are decoded visible
-text; original HTML is retained, not original Messages database bytes.
-
-Choose IANA `timezone`. Offset ISO timestamps keep their interpretation;
-`%b %d, %Y  %I:%M:%S %p` needs the selected zone. Ambiguous/nonexistent DST times,
-malformed rows and timestamps above 255 characters remain unresolved; missing
-times stay unknown.
-
-Forms accept **1–100 source account labels**, initially `Me`/`Them`. Mapping-row
-changes work without JavaScript, retaining document/values without queuing work.
-Enter exact labels once and select same-case people. Explicit **Recipient when
-the source omits one** is optional; blank leaves unresolved rows, never an inferred
-other person.
-
-Forms retain `sender_map`/`recipient_map`. Optional `span.recipient` uses its own
-mapped label; unmapped recipients stay unresolved despite fallbacks. No identity
-is guessed from labels/names/timing. Messages retain one sender/recipient;
-group labels preserve context without asserting exclusive membership. Retained
-interpretation/idempotency checks and parser-version provenance remain intact.
-
-Optional context retains only supplied fields:
-
-| Source field | Retained context |
-| --- | --- |
-| `data-message-id`, `data-thread-id`, `data-reply-to` | Native message/thread/reply references |
-| `data-participants` JSON label array | Source group participant labels |
-| `data-account`, `data-service` | Raw account/service identifiers |
-| `data-reaction`, `data-edited`, `data-deleted`, `data-forwarded`, `data-group-id` | Source context markers |
-| Elements with class `attachment` | Original href/src/label reference; bytes remain un-ingested |
-
-Missing fields remain unknown. Edit/deletion markers recover no history;
-attachment references grant neither access nor verified availability. Paths are
-never opened and no public URL is created.
-
-**Start analysis** queues parsing/publication using selected mappings/timezone,
-without a separate vehicle-style row confirmation. Preparation creates no messages.
-Authorized atomic `apply_import` creates mapped messages and immutable
-`CommunicationContext` with document/checksum, parser, timezone, row and exact
-HTML range. Unresolved rows remain in partial results. Rollback removes new
-messages/context; retries reuse document/row identity. Conflicting interpretations
-require review, never replace originals. Each body appears once as finding text
-within the shared total-result limit.
-
-Imports queue no checks per message. Completed imports offer **Run local checks
-on imported evidence**, eligible counts and Processing links. Publication records
-exact message IDs and new/reused status; only new rows receive import checks.
-Unresolved/skipped duplicates are excluded. Entity/keyword groups stay bounded;
-session, relationship and movement analysis remain deliberate population choices.
-Resubmission creates no duplicate batch. Historical results lacking membership
-explain the limit instead of guessing; individual analysis/case reruns remain usable.
-
-Method 3/parser `imessage-html-v3` preserves the profile, handles valueless optional
-attributes, flags oversized times and stores bodies once. Version 2's LF/closing-tag
-exact ranges remain. Existing provenance stays unchanged; agreeing reruns reuse
-messages. Finish queued old imports before upgrading where possible. Queued methods
-1/2 otherwise report unavailable versions; start another run with the same source/
-settings. No data migration is needed.
-
 ## Message CSV imports
+
+iMessage imports support only the CSV profile below. HTML message imports are
+unavailable. Previously retained source documents, messages, and imported context
+remain readable; historical HTML import runs cannot be rerun. No data migration
+or evidence deletion is required.
 
 CSV uses `imessage_import`, parser `imessage-csv-v1` and result key `imessage`,
 within the fresh pre-release database/queue baseline. Earlier identifiers have no

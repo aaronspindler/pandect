@@ -173,6 +173,24 @@ Each message has native **Message details** for reported participants/time,
 archive state, source, and imported context. Render details inline at every
 screen size, without fetch/reload or JavaScript, preserving focus and position.
 
+Messages with saved single-source findings show **Findings · N**, one short
+preview, and its AI/review/partial-coverage labels. Expanding shows three findings;
+**More findings** opens that message with 25 findings per page inside the reader.
+Keep finding pagination independent from message pagination. **Conversation
+findings · N** above the stream uses the same disclosure for session results and
+findings citing multiple sources, with 25 findings per page and **Show message**
+links to the cited messages. Show each shared finding once, explain citations
+outside the source-filtered view, and retain complete source details through
+**Open finding**. Do not repeat selected-message copies as analysis findings.
+
+Use latest equivalent saved results and label individual/whole-result reviews,
+including rejected findings. Mark individual model suggestions accurately when a
+run mixes AI and ordinary observations. Withhold finding content when analyzed
+sources are unavailable or changed. An empty collection says **No saved findings**;
+it does not establish complete analysis. Reading or expanding findings starts no
+analysis and requires no JavaScript. Review and processing remain in their
+existing flows.
+
 Beside each source, **Open evidence** opens the canonical reader and native
 reply/thread lists. Its **View in conversation** returns to the exact message
 and page, opens details, and marks the target beyond color. Preserve export and
@@ -286,10 +304,14 @@ configured, otherwise local/private inference, and show that destination before
 submission. Keep external-transfer approval beside the choice when Gateway is
 selected. Retain the reviewed route through execution; runtime failure never
 changes it. The completed review page shows the selected mode
-and links to **Follow message analysis** in Processing; completed or stopped
-preparation offers **Run message analysis again** with the same choice and fresh
-external approval. Each result discloses its bounded message selection. Other
-additional AI and external operations remain in the deliberate analysis flow.
+and links to **Follow message analysis** on its dedicated status page. Submitting
+**Run message analysis** opens that request's status page immediately, showing
+preparation and only its checks, with live updates and a manual refresh fallback.
+Preparation finishing means checks are queued, not that execution has finished.
+Completed or stopped preparation offers **Run message analysis again** with the
+same choice and fresh external approval. Each result discloses its bounded message
+selection. Other additional AI and external operations remain in the deliberate
+analysis flow.
 
 **Case Tools → Additional analysis** and **Processing → Choose analysis** show
 all available tasks in labeled groups, without collapsed categories, then open

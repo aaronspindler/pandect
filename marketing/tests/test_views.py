@@ -10,7 +10,7 @@ from text.models import TextEvidence
 
 
 class MarketingPageTests(TestCase):
-    pages = ("home", "evidence", "trust", "roadmap", "hosting")
+    pages = ("home", "evidence", "trust", "roadmap")
 
     @classmethod
     def setUpTestData(cls):
@@ -47,6 +47,7 @@ class MarketingPageTests(TestCase):
                     )
                 self.assertNotIn(reverse("marketing:roadmap"), header)
                 self.assertNotIn(reverse("marketing:product"), html)
+                self.assertNotIn('href="/hosting/"', html)
                 self.assertEqual(
                     self.client.head(reverse(f"marketing:{name}")).status_code, 200
                 )

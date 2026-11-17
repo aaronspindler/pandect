@@ -1,71 +1,85 @@
 {% extends 'marketing/base.html' %}
 {% block title %}Evidence &amp; analysis{% endblock %}
-{% block description %}Explore every evidence type available in Pandect, its supported analysis, and what runs within the installation or needs an additional private or approved external service.{% endblock %}
+{% block description %}Explore the analysis supported for your evidence, the results you can expect, and what each method needs.{% endblock %}
 {% block content %}
-<div class="evidence-catalogue">
-  <section class="marketing-hero wrap page-intro" aria-labelledby="catalogue-heading">
-    <p class="section-label">Evidence &amp; analysis · Available capabilities</p>
-    <h1 id="catalogue-heading">Start with your evidence.<br><em>See what you can learn.</em></h1>
-    <p class="lead">Explore what you can add, the analysis available for each type, and what each method needs.</p>
-    <p>Choose an evidence type for its input limits and supported tools, or browse the shared method reference below. You can retain files beyond the formats supported for analysis.</p>
-    <nav class="page-links" id="evidence-types" aria-label="Evidence types">
-      {% for group in evidence_groups %}<a href="#{{ group.kind }}">{{ group.label }}</a>{% endfor %}
-      <a href="#analysis">Analysis methods</a>
-      <a href="#reports">Pattern reports</a>
-      <a href="#imports">Supported imports</a>
-      <a href="#requirements">Understanding requirements</a>
-    </nav>
-  </section>
-  <section class="availability-section" id="requirements" aria-labelledby="requirements-heading">
-    <div class="wrap marketing-section">
-      <div class="section-heading">
-        <p class="section-label">Before you begin</p>
-        <h2 id="requirements-heading">Know what each tool needs.</h2>
-        <p>Private services can run on the operator’s server or private network. Additional setup does not necessarily mean sending evidence to a third party.</p>
-      </div>
-      <dl class="catalogue-legend">
-        <div><dt>Included</dt><dd>Runs within the standard installation. Local OCR and plate reading use bundled Tesseract tools and need no external service.</dd></div>
-        <div><dt>Included; AI optional</dt><dd>Basic analysis runs as included. Optional model suggestions need a configured private model or explicitly approved external AI.</dd></div>
-        <div><dt>Private setup or approved external AI</dt><dd>Needs a separately configured private model or transcription runtime, or an approved external AI service through Cloudflare AI Gateway.</dd></div>
-        <div><dt>Configured geographic service</dt><dd>Needs a private or explicitly approved external service for geocoding or map context. These lookups are separate from AI services.</dd></div>
-      </dl>
-      <p class="catalogue-note">External processing requires explicit approval. A private-service failure never triggers an automatic cloud fallback. This catalogue describes supported capabilities; availability depends on your installation’s setup.</p>
-      <a class="text-link" href="{% url 'marketing:trust' %}">Processing and privacy <span aria-hidden="true">→</span></a>
-    </div>
-  </section>
-  {% for group in evidence_groups %}
-    <section class="wrap marketing-section catalogue-section" id="{{ group.kind }}" aria-labelledby="{{ group.kind }}-heading">
-      <div class="catalogue-overview">
-        <div>
-          <p class="section-label">Evidence type</p>
-          <h2 id="{{ group.kind }}-heading">{{ group.label }}</h2>
-          <p>{{ group.description }}</p>
-        </div>
-        <dl class="catalogue-inputs">
-          <div><dt>How to add</dt><dd>{{ group.intake }}</dd></div>
-          <div><dt>Supported analysis input</dt><dd>{{ group.formats }}</dd></div>
-        </dl>
-      </div>
-      <p class="catalogue-note">{{ group.prerequisites }}</p>
-      <p class="catalogue-note"><strong>Analysis:</strong> {% for row in group.analyses %}<a href="#analysis-{{ row.id }}">{{ row.label }}</a>{% if not forloop.last %}; {% endif %}{% endfor %}.</p>
-      {% if group.reports %}<p class="catalogue-note"><strong>Pattern reports:</strong> {% for row in group.reports %}<a href="#reports-{{ row.id }}">{{ row.label }}</a>{% if not forloop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
-      {% if group.imports %}<p class="catalogue-note"><strong>Imports:</strong> {% for row in group.imports %}<a href="#imports-{{ row.id }}">{{ row.label }}</a>{% if not forloop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
-      <a class="text-link" href="#evidence-types">Back to evidence types <span aria-hidden="true">↑</span></a>
-    </section>
-  {% endfor %}
-  {% for section in capability_sections %}
-    <section class="wrap marketing-section catalogue-section" id="{{ section.id }}" aria-labelledby="{{ section.id }}-heading">
-      <h2 id="{{ section.id }}-heading">{{ section.title }}</h2>
-      {% include 'marketing/_catalogue_table.html' with rows=section.rows category=section.id title=section.title %}
-      <a class="text-link" href="#evidence-types">Back to evidence types <span aria-hidden="true">↑</span></a>
-    </section>
-  {% endfor %}
-  <section class="wrap marketing-section catalogue-section" aria-labelledby="catalogue-next-heading">
-    <h2 id="catalogue-next-heading">Ready to get started?</h2>
-    <div class="hero-actions">
-      <a class="marketing-button" href="{% url 'marketing:hosting' %}">Explore self-hosting</a>
+<div class="evidence-catalogue wrap">
+  <div class="catalogue-intro">
+    <h1>Explore analysis for your evidence.</h1>
+    <p class="lead">See what Pandect can do, what you need, and what the results mean.</p>
+  </div>
+  <nav class="catalogue-families" id="evidence-types" aria-label="Evidence types">
+    {% for family in evidence_families %}
+      <a href="{% url 'marketing:evidence' %}{% if family.id %}?type={{ family.id }}{% endif %}"{% if family.selected %} aria-current="page"{% endif %}>{{ family.label }}</a>
+    {% endfor %}
+  </nav>
+  <div class="catalogue-layout">
+    <div class="catalogue-results">
+      {% for section in capability_sections %}
+        <section class="catalogue-section" id="{{ section.id }}" aria-labelledby="{{ section.id }}-heading">
+          {% if section.id == 'analysis' %}
+            <h2 id="analysis-heading">{{ selected_family.label }}</h2>
+            <p class="catalogue-description">{{ selected_family.description }}</p>
+          {% else %}
+            <h2 id="{{ section.id }}-heading">{{ section.title }}</h2>
+          {% endif %}
+          <div class="catalogue-methods">
+            {% for row in section.rows %}
+              <details class="catalogue-method" id="{{ section.id }}-{{ row.id }}">
+                <summary aria-labelledby="{{ section.id }}-{{ row.id }}-label {{ section.id }}-{{ row.id }}-toggle" aria-describedby="{{ section.id }}-{{ row.id }}-description {{ section.id }}-{{ row.id }}-requirement">
+                  <span class="catalogue-method-copy">
+                    <strong id="{{ section.id }}-{{ row.id }}-label">{{ row.label }}</strong>
+                    <span id="{{ section.id }}-{{ row.id }}-description">{{ row.description }}</span>
+                  </span>
+                  <span class="catalogue-requirement" id="{{ section.id }}-{{ row.id }}-requirement">{{ row.short_requirement }}</span>
+                  <span class="catalogue-toggle" id="{{ section.id }}-{{ row.id }}-toggle">Details {% include 'ui/components/icon.html' with name='chevron-down' %}</span>
+                </summary>
+                <div class="catalogue-method-detail">
+                  <p class="catalogue-applicability"><strong>For</strong> {% for evidence in row.evidence_types %}<a href="#{{ evidence.kind }}">{{ evidence.label }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+                  <p><strong>{{ row.requirement }}.</strong> {{ row.detail }}</p>
+                </div>
+              </details>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+      <p class="catalogue-note">These are supported capabilities; availability depends on your installation’s setup. Findings and model suggestions remain linked to their sources for review.</p>
       <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/analysis.md">Read the analysis guide <span aria-hidden="true">↗</span></a>
     </div>
-  </section>
+    <aside class="catalogue-support" aria-label="Evidence inputs and requirements">
+      <section aria-labelledby="intake-heading">
+        <h2 id="intake-heading">Add your evidence</h2>
+        <p>{{ selected_family.intake }}</p>
+        <a class="text-link" href="#formats">Supported formats &amp; limits</a>
+        <nav class="catalogue-section-links" aria-label="More capabilities">
+          {% for section in capability_sections %}{% if section.id != 'analysis' %}<a class="text-link" href="#{{ section.id }}">{{ section.title }}</a>{% endif %}{% endfor %}
+        </nav>
+      </section>
+      <section id="requirements" aria-labelledby="requirements-heading">
+        <h2 id="requirements-heading">Understand requirements</h2>
+        <dl class="catalogue-legend">
+          <div><dt>Included</dt><dd>Runs in the standard installation. No AI service needed.</dd></div>
+          <div><dt>AI optional</dt><dd>Included checks, with optional model suggestions.</dd></div>
+          <div><dt>Requires AI setup</dt><dd>A configured private service or explicitly approved external AI.</dd></div>
+          {% if not selected_family.id or selected_family.id == 'locations' %}<div><dt>Geographic setup</dt><dd>A configured private service or an approved external map lookup.</dd></div>{% endif %}
+        </dl>
+        <p class="catalogue-note">External processing requires approval. A private-service failure never triggers a cloud fallback.</p>
+        <a class="text-link" href="{% url 'marketing:trust' %}">Processing and privacy</a>
+      </section>
+      <section id="formats" aria-labelledby="formats-heading">
+        <h2 id="formats-heading">Supported formats &amp; limits</h2>
+        <p>You can retain originals beyond the formats supported for analysis.</p>
+        {% for group in evidence_groups %}
+          <details class="catalogue-profile" id="{{ group.kind }}">
+            <summary>{{ group.label }} {% include 'ui/components/icon.html' with name='chevron-down' %}</summary>
+            <dl class="catalogue-inputs">
+              <div><dt>How to add</dt><dd>{{ group.intake }}</dd></div>
+              <div><dt>Supported analysis input</dt><dd>{{ group.formats }}</dd></div>
+            </dl>
+            <p>{{ group.prerequisites }}</p>
+          </details>
+        {% endfor %}
+      </section>
+    </aside>
+  </div>
 </div>
 {% endblock %}

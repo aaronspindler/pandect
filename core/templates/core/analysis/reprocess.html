@@ -39,7 +39,7 @@
     <summary>Included methods and coverage</summary>
     <p>Supported file inspection, text extraction, image text and plate reading, transcription, identifiers, writing profiles and wording comparisons, topics, claims, message patterns and summaries, location checks, movement patterns, and lookups run where applicable.</p>
     <p>Comparisons use bounded groups. Each result records its selected sources; comparisons across separate groups are not exhaustive. Text extracted from files receives follow-up analysis. Unsupported files and unavailable services keep visible outcomes in Processing.</p>
-    <p>Questions, two-sample writing comparisons, chosen-area searches, claimed-event comparisons, and import mapping need your input. Use <a href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a> for these methods.</p>
+    <p>Questions, two-sample writing comparisons, chosen-area searches, and claimed-event comparisons need your input. Use <a href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a> for these methods.</p>
   </details>
 
   {% include 'ui/components/form_field.html' with field=form.external_processing only %}

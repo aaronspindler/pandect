@@ -7,13 +7,16 @@ from core.analysis.result_views import RESULT_VIEWS, result_view
 
 class ResultViewsTests(SimpleTestCase):
     def test_registered_operations_keep_a_readable_legacy_fallback(self):
-        self.assertEqual(OPERATIONS.keys(), RESULT_VIEWS.keys())
+        # HTML imports are retired; their retained results remain readable.
+        self.assertEqual(
+            OPERATIONS.keys() | {"conversation_import"}, RESULT_VIEWS.keys()
+        )
         setup_operations = [
             operation for group in OPERATION_GROUPS.values() for operation in group
         ]
         # CSV imports have a dedicated preparation/confirmation flow.
         self.assertCountEqual(OPERATIONS.keys() - {"imessage_import"}, setup_operations)
-        for operation in OPERATIONS:
+        for operation in RESULT_VIEWS:
             with self.subTest(operation=operation):
                 items = [
                     {

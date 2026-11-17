@@ -22,6 +22,25 @@
 .conversation-message-time { font-size:.875rem; margin-left:auto; }
 .conversation-message-body { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.5; }
 .conversation-message-source { font-size:.875rem; margin:.25rem 0 0; overflow-wrap:anywhere; }
+.conversation-analysis { min-width:0; overflow-wrap:anywhere; scroll-margin:1rem; }
+.conversation-shared-analysis { margin-bottom:1rem; border-block:1px solid var(--divider); }
+.conversation-analysis summary { min-height:44px; padding:.5rem 0; cursor:pointer; }
+.conversation-analysis-title { color:var(--accent); font-weight:600; }
+.conversation-analysis-preview { display:block; margin-top:.25rem; line-height:1.5; }
+.conversation-analysis-preview>.conversation-finding-status { display:block; }
+.conversation-analysis[open]>summary .conversation-analysis-preview { display:none; }
+.conversation-analysis-content { border-top:1px solid var(--divider); padding-top:.75rem; }
+.conversation-analysis-content>p { margin:0 0 .75rem; }
+.conversation-findings-list { list-style:none; margin:0; padding:0; }
+.conversation-finding { padding-bottom:.75rem; }
+.conversation-finding+.conversation-finding { border-top:1px solid var(--divider); padding-top:.75rem; }
+.conversation-finding-label { margin:0 0 .25rem; }
+.conversation-finding-status,.conversation-finding-method { font-size:.875rem; margin:.25rem 0; }
+.conversation-finding-text { white-space:pre-wrap; line-height:1.5; }
+.conversation-finding-sources { list-style:none; padding:0; margin:.5rem 0; }
+.conversation-finding-sources li { margin:.25rem 0; }
+.conversation-analysis-paging { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; padding-bottom:.5rem; }
+.conversation-analysis-empty { margin-bottom:.75rem; }
 .conversation-message-details { overflow-wrap:anywhere; }
 .conversation-message-details summary { min-height:44px; padding:.5rem 0; cursor:pointer; color:var(--accent); }
 .conversation-details-content { border-top:1px solid var(--divider); padding-top:1rem; }

@@ -30,7 +30,6 @@ CONTEXT_REQUIRED_OPERATIONS = (
     "style_change",
     "proximity",
     "location_conflicts",
-    "conversation_import",
     "imessage_import",
 )
 REPROCESS_OPERATIONS = (
