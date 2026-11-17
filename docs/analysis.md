@@ -155,9 +155,13 @@ and import mapping require **Choose analysis**; geographic candidates need revie
 Completed vehicle/HTML iMessage imports offer deliberate **Run local checks on
 imported evidence**, using bounded groups and excluding duplicates; see
 [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
-Confirmed CSV messages automatically queue bounded message/writing/local-model
-analysis for newly published messages. **Follow message analysis** opens the batch;
-model failures preserve imports and remain recoverable. See
+Confirmed CSV messages automatically queue the analysis chosen during import
+review: **Local** (checks and private AI, the default), **External / AI** (Gateway
+model analysis), or **Both** (local checks once and AI in each location).
+External/Both require explicit transfer approval of reviewed destinations.
+**Follow message analysis** opens the batch; reruns offer the same choice and
+require renewed external approval. Model failures preserve imports and remain
+recoverable. See
 [CSV analysis](analysis-communications.md#message-csv-imports).
 
 Source choices expose prerequisites/retained inspection status. Some require exact

@@ -278,11 +278,15 @@ external-transfer approval visible beside the action. Invalid submissions retain
 choices and link errors to their controls. Submit returns to the selected batch
 in Processing; viewers have no reprocessing action. Methods needing a question,
 explicit samples, area, event or import interpretation link to Choose analysis.
-Confirmed message CSV imports automatically start message, writing, and local model
-analysis. Their review page links to **Follow message analysis** in Processing;
-completed or stopped preparation offers **Run message analysis again**. Each
-result discloses its bounded message selection. Other additional AI and external
-operations remain in the deliberate analysis flow.
+Message CSV import review offers Local (the default), External / AI, or Both for
+automatic analysis of newly published messages. Explain that Local includes
+checks/private AI, External / AI uses Gateway models, and Both runs checks once
+with AI in each location. Keep reviewed destinations and external-transfer
+approval beside this choice. Their completed review page shows the selected mode
+and links to **Follow message analysis** in Processing; completed or stopped
+preparation offers **Run message analysis again** with the same choice and fresh
+external approval. Each result discloses its bounded message selection. Other
+additional AI and external operations remain in the deliberate analysis flow.
 
 **Case Tools → Additional analysis** and **Processing → Choose analysis** show
 all available tasks in labeled groups, without collapsed categories, then open

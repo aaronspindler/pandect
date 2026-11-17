@@ -5,18 +5,18 @@ from uuid import UUID, uuid5
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError
-from django.http import Http404
-from django.shortcuts import redirect
+from django.http import Http404, HttpResponseNotAllowed
+from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods
 
-from cases.permissions import get_case
+from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.services import resolve_inputs, start_run
 from core.evidence.queries import scoped_evidence
-from core.models import AnalysisRun
+from core.models import AnalysisRun, CaseAnalysisBatch
 from geo.models import VehicleLocationImport
 
 
@@ -145,31 +145,62 @@ def prepare_import_checks(batch, case, rows):
 
 
 @product_login_required
-@require_POST
+@require_http_methods(["GET", "POST"])
 def start(request, case_id, import_type, import_id):
     from core.analysis.bulk import start_case_analysis
 
     case = get_case(request.user, case_id, edit=True)
     scope = {"type": import_type, "id": str(import_id)}
-    if (
-        import_type == "messages"
-        and AnalysisRun.objects.filter(
+    run = (
+        AnalysisRun.objects.filter(
             case=case,
             pk=import_id,
             operation="imessage_import",
             method_version="2",
             parameters__phase="import",
-        ).exists()
-    ):
-        scope["automatic"] = True
+        ).first()
+        if import_type == "messages"
+        else None
+    )
+    if run:
+        from phone.analysis.ingest import import_analysis_scope
+
+        scope = import_analysis_scope(run)
+    elif request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
     try:
         imported_sources(case, scope)
     except AnalysisError as error:
         messages.error(request, error_message(error.code))
         return redirect("core:analysis:processing", case_id=case.pk)
-    form = EvidenceAnalysisForm(request.POST)
-    if form.is_valid():
+    if run:
+        from phone.imessage_forms import IMessageAnalysisRetryForm
+
+        latest = CaseAnalysisBatch.objects.filter(
+            case=case,
+            scope__type="messages",
+            scope__id=str(run.pk),
+            scope__automatic=True,
+        ).first()
+        form = IMessageAnalysisRetryForm(
+            request.POST if request.method == "POST" else None,
+            actor=request.user,
+            case=case,
+            run=run,
+            initial={"mode": (latest.scope if latest else scope).get("mode", "local")},
+        )
+    else:
+        form = EvidenceAnalysisForm(request.POST)
+    if request.method == "POST" and form.is_valid():
         try:
+            if run:
+                from phone.imessage_imports import validate_import_analysis
+
+                scope = {
+                    "type": "messages",
+                    "id": str(run.pk),
+                    "automatic": True,
+                } | validate_import_analysis(form.specification(), actor=request.user)
             batch, created = start_case_analysis(
                 request.user,
                 case.pk,
@@ -177,9 +208,8 @@ def start(request, case_id, import_type, import_id):
                 scope=scope,
             )
         except ValidationError, DatabaseError, AnalysisError:
-            messages.error(
-                request,
-                "Analysis could not be queued. Return to the import and try again.",
+            form.add_error(
+                None, "Analysis could not be queued. Review the settings and try again."
             )
         else:
             messages.success(
@@ -194,6 +224,13 @@ def start(request, case_id, import_type, import_id):
                 reverse("core:analysis:processing", args=[case.pk])
                 + f"?batch={batch.pk}"
             )
-    else:
-        messages.error(request, "Return to the import and submit its analysis again.")
+    if run:
+        return render(
+            request,
+            "phone/imessage_analysis.html",
+            case_context(case, request.user)
+            | {"nav_section": "evidence", "form": form, "run": run},
+            status=400 if form.errors else 200,
+        )
+    messages.error(request, "Return to the import and submit its analysis again.")
     return redirect("core:analysis:processing", case_id=case.pk)

@@ -14,6 +14,7 @@ from core.models import AnalysisRun
 from core.storage import file_integrity, retain_uploaded_originals
 from document.models import DocumentEvidence
 from phone.analysis.deterministic.imessage import import_file_limit
+from phone.analysis.ingest import import_analysis_executions
 
 
 def start_preview(actor, case_id, values):
@@ -84,7 +85,7 @@ def preview_source(preview, case):
 
 
 @transaction.atomic
-def confirm_import(actor, case_id, preview_id, people):
+def confirm_import(actor, case_id, preview_id, people, *, analysis=None):
     case = get_case(actor, case_id, edit=True, lock=True)
     try:
         preview = (
@@ -107,6 +108,8 @@ def confirm_import(actor, case_id, preview_id, people):
     document = preview_source(preview, case)
     if not preview.result.data.get("metrics", {}).get("ready_rows"):
         raise ValidationError("This review has no ready messages to import.")
+    if analysis is not None:
+        analysis = validate_import_analysis(analysis, actor=actor)
     return start_run(
         actor,
         case.pk,
@@ -117,7 +120,39 @@ def confirm_import(actor, case_id, preview_id, people):
             "timezone": preview.parameters["timezone"],
             "preview_run_id": str(preview.pk),
             "people": people,
-        },
+        }
+        | ({"analysis": analysis} if analysis is not None else {}),
         submission_id=uuid5(preview.pk, "confirmed-import"),
         previous_run=preview,
     )
+
+
+def validate_import_analysis(analysis, *, actor):
+    mode = analysis.get("mode") if isinstance(analysis, dict) else None
+    if mode not in {"local", "external", "both"}:
+        raise ValidationError("Choose local, external AI, or both for analysis.")
+    if mode != "local" and not analysis.get("external_processing"):
+        raise ValidationError("Approve external processing to continue.")
+    backends = (
+        {"local", "gateway"}
+        if mode == "both"
+        else {"local" if mode == "local" else "gateway"}
+    )
+    current = {
+        key: route
+        for key, route in import_analysis_executions().items()
+        if route["backend"] in backends
+    }
+    reviewed = analysis.get("executions")
+    if not isinstance(reviewed, dict) or any(
+        reviewed.get(key) != route for key, route in current.items()
+    ):
+        raise ValidationError(
+            "Processing configuration changed. Review the processing locations again."
+        )
+    return {
+        "mode": mode,
+        "executions": current,
+        "external_processing": mode != "local",
+        "approved_by": str(actor.pk) if mode != "local" else "",
+    }

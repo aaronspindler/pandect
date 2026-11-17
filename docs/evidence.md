@@ -33,7 +33,9 @@ Owners/editors choose **Add evidence → Upload files** for documents, images, a
 audio together. **Add a record** offers Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime. **Import records** offers vehicle
 locations and iMessage CSV. Message import retains its CSV, prepares background
-review, and requires confirmed people/timezone before publishing valid messages;
+review, and requires confirmed people/timezone before publishing valid messages.
+Choose Local, External / AI, or Both for automatic analysis of new messages;
+external processing requires explicit transfer approval. Local is the default;
 see [message imports](analysis-communications.md#message-csv-imports).
 
 Categories describe submitted material; parsers do not verify them. Text captures

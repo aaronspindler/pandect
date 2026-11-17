@@ -1,15 +1,28 @@
 """Explicit source time and participant choices for one CSV conversation."""
 
+import hashlib
+import json
 import re
 from uuid import uuid4, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django import forms
+from django.core import signing
+from django.utils.html import escape
 
+from core.analysis.execution import gateway_destination
 from core.evidence.forms import validate_file
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.imessage import import_file_limit
+from phone.analysis.ingest import import_analysis_executions
+
+ANALYSIS_MODES = (
+    ("local", "Local"),
+    ("external", "External / AI"),
+    ("both", "Both local and external / AI"),
+)
+ANALYSIS_CONFIRMATION_SALT = "phone.imessage.analysis"
 
 
 class IMessageUploadForm(forms.Form):
@@ -152,7 +165,111 @@ class IMessagePersonForm(forms.Form):
         }
 
 
-class IMessageConfirmForm(forms.Form):
+class IMessageAnalysisForm(forms.Form):
+    mode = forms.ChoiceField(
+        label="Analysis after import",
+        choices=ANALYSIS_MODES,
+        initial="local",
+        widget=forms.RadioSelect,
+        help_text=(
+            "Local runs checks and AI on this server or the operator's private "
+            "network. External / AI runs AI through Cloudflare AI Gateway. Both "
+            "runs local checks once and AI in both locations."
+        ),
+    )
+    external_processing = forms.BooleanField(
+        required=False,
+        label="I approve external AI processing of the newly imported messages",
+        help_text=(
+            "Required for External / AI or Both. Selected message text and its "
+            "source references will be sent through the operator's Cloudflare AI "
+            "Gateway. Operator and provider retention policies apply. Sent "
+            "requests cannot be recalled."
+        ),
+    )
+    execution_confirmation = forms.CharField(widget=forms.HiddenInput)
+
+    def __init__(self, *args, actor, case, run, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.executions = import_analysis_executions()
+        self.confirmation = [
+            str(actor.pk),
+            str(case.pk),
+            str(run.pk),
+            hashlib.sha256(
+                json.dumps(self.executions, sort_keys=True).encode()
+            ).hexdigest(),
+        ]
+        destinations = dict.fromkeys(
+            escape(gateway_destination(route))
+            for route in self.executions.values()
+            if route["backend"] == "gateway"
+        )
+        self.fields["external_processing"].help_text = (
+            "; ".join(destinations)
+            + ". "
+            + self.fields["external_processing"].help_text
+        )
+        if not self.is_bound:
+            self.initial["execution_confirmation"] = signing.dumps(
+                self.confirmation, salt=ANALYSIS_CONFIRMATION_SALT
+            )
+
+    def clean(self):
+        data = super().clean()
+        if data.get("mode") in {"external", "both"} and not data.get(
+            "external_processing"
+        ):
+            self.add_error(
+                "external_processing", "Approve external processing to continue."
+            )
+        try:
+            reviewed = signing.loads(
+                data.get("execution_confirmation", ""),
+                salt=ANALYSIS_CONFIRMATION_SALT,
+            )
+        except signing.BadSignature:
+            reviewed = None
+        if reviewed != self.confirmation:
+            self.add_error(
+                None,
+                "Processing settings changed or this request expired. "
+                "Review the current settings and submit again.",
+            )
+            values = self.data.copy()
+            values["execution_confirmation"] = signing.dumps(
+                self.confirmation, salt=ANALYSIS_CONFIRMATION_SALT
+            )
+            values.pop("external_processing", None)
+            self.data = values
+            data["external_processing"] = False
+        return data
+
+    def specification(self):
+        mode = self.cleaned_data["mode"]
+        backends = (
+            {"local", "gateway"}
+            if mode == "both"
+            else {"local" if mode == "local" else "gateway"}
+        )
+        return {
+            "mode": mode,
+            "executions": {
+                key: route
+                for key, route in self.executions.items()
+                if route["backend"] in backends
+            },
+            "external_processing": bool(
+                mode != "local" and self.cleaned_data["external_processing"]
+            ),
+        }
+
+
+class IMessageAnalysisRetryForm(IMessageAnalysisForm):
+    submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
+
+
+class IMessageConfirmForm(IMessageAnalysisForm):
     direct_chat = forms.BooleanField(
         label="I confirm this export is a direct conversation between these two people"
     )

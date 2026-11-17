@@ -14,18 +14,21 @@ register = template.Library()
 def import_checks(context, import_type, import_id):
     case = context["case"]
     scope = {"type": import_type, "id": str(import_id)}
-    automatic = (
-        import_type == "messages"
-        and AnalysisRun.objects.filter(
+    run = (
+        AnalysisRun.objects.filter(
             case=case,
             pk=import_id,
             operation="imessage_import",
             method_version="2",
             parameters__phase="import",
-        ).exists()
+        ).first()
+        if import_type == "messages"
+        else None
     )
-    if automatic:
-        scope["automatic"] = True
+    if run:
+        from phone.analysis.ingest import import_analysis_scope
+
+        scope = import_analysis_scope(run)
     try:
         _, sources = imported_sources(case, scope)
         count = sources.count()
@@ -35,14 +38,28 @@ def import_checks(context, import_type, import_id):
         return {}
     except Http404, ValidationError:
         return {}
+    batches = CaseAnalysisBatch.objects.filter(case=case)
+    if run:
+        batches = batches.filter(
+            scope__type="messages", scope__id=str(import_id), scope__automatic=True
+        )
+    else:
+        batches = batches.filter(scope=scope)
+    batch = batches.first()
+    mode = (batch.scope if batch else scope).get("mode", "local")
     return {
         "case": case,
         "can_edit": context.get("can_edit"),
         "import_type": import_type,
         "import_id": import_id,
         "eligible_count": count,
-        "automatic": automatic,
+        "automatic": bool(run),
+        "analysis_mode": {
+            "local": "Local",
+            "external": "External / AI",
+            "both": "Both local and external / AI",
+        }.get(mode, "Local"),
         "form": EvidenceAnalysisForm(),
-        "batch": CaseAnalysisBatch.objects.filter(case=case, scope=scope).first(),
+        "batch": batch,
         "csrf_token": context.get("csrf_token"),
     }

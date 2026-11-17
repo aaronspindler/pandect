@@ -9,8 +9,9 @@ from playwright.sync_api import expect
 
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.services import process_run, start_run
-from core.models import AnalysisRun
+from core.models import AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import TextMessageEvidence
@@ -110,6 +111,17 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     "and the confirmed timezone",
                     exact=True,
                 ).check()
+                local = page.get_by_role("radio", name="Local", exact=True)
+                external = page.get_by_role("radio", name="External / AI", exact=True)
+                both = page.get_by_role(
+                    "radio", name="Both local and external / AI", exact=True
+                )
+                expect(local).to_be_checked()
+                expect(external).not_to_be_checked()
+                both.focus()
+                expect(both).to_be_focused()
+                both.press("Space")
+                expect(both).to_be_checked()
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -132,6 +144,27 @@ class IMessageImportBrowserTests(BrowserTestCase):
                             full_page=True,
                             animations="disabled",
                         )
+                page.get_by_role("button", name="Import messages", exact=True).click()
+                expect(page.get_by_role("alert")).to_contain_text(
+                    "Approve external processing to continue."
+                )
+                expect(both).to_be_checked()
+                expect(account.get_by_label("First name", exact=True)).to_have_value(
+                    "Account sender"
+                )
+                expect(
+                    correspondent.get_by_label("First name", exact=True)
+                ).to_have_value("Incoming sender")
+                self.assertEqual(self.db(Person.objects.count), before)
+                self.capture(page, engine, "external-approval-required")
+                approval = page.get_by_label(
+                    "I approve external AI processing of the newly imported messages",
+                    exact=True,
+                )
+                approval.focus()
+                expect(approval).to_be_focused()
+                approval.press("Space")
+                expect(approval).to_be_checked()
                 account.get_by_label("First name", exact=True).fill("")
                 page.get_by_role("button", name="Import messages", exact=True).click()
                 expect(page.get_by_role("alert")).to_be_visible()
@@ -171,6 +204,14 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 final = self.db(AnalysisRun.objects.get, pk=final_id)
                 self.assertEqual(final.status, "complete", final.error_code)
+                self.assertEqual(final.parameters["analysis"]["mode"], "both")
+                batch = self.db(CaseAnalysisBatch.objects.get, scope__id=str(final_id))
+                self.assertEqual(batch.scope["mode"], "both")
+                expect(
+                    page.get_by_text(
+                        "Selected analysis: Both local and external / AI", exact=True
+                    )
+                ).to_be_visible()
                 self.assertEqual(self.db(Person.objects.count), before + 2)
                 self.assertEqual(
                     self.db(TextMessageEvidence.objects.filter(case=self.case).count),
@@ -207,6 +248,86 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     page.get_by_text("Preparing message analysis", exact=True).first
                 ).to_be_visible()
                 self.capture(page, engine, "automatic-analysis-processing")
+                self.db(prepare_case_analysis_batch, batch.pk)
+                self.db(prepare_case_analysis_batch, batch.pk)
+                batch = self.db(CaseAnalysisBatch.objects.get, pk=batch.pk)
+                self.assertEqual(batch.status, "complete", batch.error_code)
+                page.goto(
+                    self.url(
+                        "phone:imessage_review", case_id=self.case.pk, run_id=final_id
+                    )
+                )
+                page.get_by_role(
+                    "link", name="Run message analysis again", exact=True
+                ).click()
+                expect(
+                    page.get_by_role(
+                        "heading", name="Analyze imported messages", exact=True
+                    )
+                ).to_be_visible()
+                expect(both).to_be_checked()
+                expect(approval).not_to_be_checked()
+                external.focus()
+                expect(external).to_be_focused()
+                external.press("Space")
+                page.get_by_role(
+                    "button", name="Run message analysis", exact=True
+                ).click()
+                expect(page.get_by_role("alert")).to_contain_text(
+                    "Approve external processing to continue."
+                )
+                expect(external).to_be_checked()
+                expect(approval).not_to_be_checked()
+                self.assertEqual(
+                    self.db(
+                        CaseAnalysisBatch.objects.filter(scope__id=str(final_id)).count
+                    ),
+                    1,
+                )
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"rerun-analysis-{width}-{height}")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "rerun-analysis-dark-reduced-motion")
+                page.emulate_media(forced_colors="active")
+                approval.focus()
+                expect(approval).to_be_focused()
+                self.capture(page, engine, "rerun-analysis-forced-colors")
+                page.emulate_media(color_scheme="light", forced_colors="none")
+                approval.press("Space")
+                expect(approval).to_be_checked()
+                page.get_by_role(
+                    "button", name="Run message analysis", exact=True
+                ).click()
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                rerun = self.db(
+                    CaseAnalysisBatch.objects.get,
+                    scope__id=str(final_id),
+                    scope__mode="external",
+                )
+                self.assertNotEqual(rerun.pk, batch.pk)
+                self.assertEqual(rerun.requested_by_id, self.owner.pk)
+                self.assertTrue(rerun.scope["external_processing"])
+                page.goto(
+                    self.url(
+                        "phone:imessage_review", case_id=self.case.pk, run_id=final_id
+                    )
+                )
+                expect(
+                    page.get_by_text("Selected analysis: External / AI", exact=True)
+                ).to_be_visible()
+                self.capture(page, engine, "rerun-analysis-processing")
 
     def test_progress_completion_opens_prepared_review(self):
         for engine in self.engines:

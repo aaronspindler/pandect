@@ -193,7 +193,7 @@ def imessage_review(request, case_id, run_id):
     status = 200
     if ready:
         posted = request.POST if request.method == "POST" else None
-        form = IMessageConfirmForm(posted)
+        form = IMessageConfirmForm(posted, actor=request.user, case=case, run=preview)
         account = IMessagePersonForm(
             posted, case=case, preview=preview, role="account", prefix="account"
         )
@@ -216,6 +216,7 @@ def imessage_review(request, case_id, run_id):
                             "account": account.specification(),
                             "correspondent": correspondent.specification(),
                         },
+                        analysis=form.specification(),
                     )
                 except ValidationError as error:
                     form.add_error(None, error.messages)

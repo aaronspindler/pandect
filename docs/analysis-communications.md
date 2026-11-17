@@ -239,6 +239,15 @@ fresh review. Missing times stay unknown; malformed/ambiguous/nonexistent local
 times, attachment-only rows and unsupported directions are excluded. Confirmation
 imports valid text while retaining exclusions in CSV/preview.
 
+Choose **Local**, **External / AI**, or **Both** for automatic analysis after
+publication. Local is the default: deterministic checks and AI on the configured
+private service. External / AI runs the model suite through Cloudflare AI Gateway.
+Both runs deterministic checks once and separate model runs in each location.
+External / AI and Both require explicit transfer approval beside the reviewed
+provider/model destination. Selected message text is sent; operator/provider
+retention policies apply. Approval is bound to the current investigator, import,
+and reviewed execution settings; changed settings require fresh review.
+
 Confirmation queues method 2, separate from the immutable preview run. Publication
 rechecks edit access/integrity and atomically creates requested people, messages,
 contexts and results. Repeated confirmation/retries create no duplicates. Conflicting
@@ -273,12 +282,20 @@ messages, markers recover no history and attachments are never opened/fetched.
 
 Publication atomically queues analysis only for newly created messages. Previews,
 excluded/reused rows start no batch. **Follow message analysis** opens Processing;
-**Run message analysis again** creates a new batch preserving history. Historical
-imports receive no automatic backfill; HTML retains its deliberate action.
+the completed import shows the latest selected mode. **Run message analysis
+again** offers the same location choice and creates a new batch preserving
+history; external processing requires fresh approval by the requesting
+investigator. Historical imports receive no automatic backfill; HTML retains its
+deliberate action.
 
-The suite covers identifiers/dates, keywords, sessions/timing, writing profiles,
-repeated wording, temporal exchanges, local topics/claims/session summaries and
-semantic exchanges. Writing profiles separate reported senders. Comparisons split
+If another editor retries failed CSV publication, messages can still publish,
+but inherited external approval cannot start analysis under that editor. Use
+**Run message analysis again** to review and approve the new request.
+
+The local checks cover identifiers/dates, keywords, sessions/timing, writing
+profiles, repeated wording, and temporal exchanges. Model analysis covers
+topics/claims/session summaries and semantic exchanges on each selected backend.
+Writing profiles separate reported senders. Comparisons split
 each sender's earlier/later timed samples near the middle at a distinct timestamp,
 never dividing ties. Fewer than two times cannot compare; adequacy guards yield
 insufficient evidence, never authorship attribution.
@@ -296,10 +313,12 @@ for reported participant pairs within ten minutes of message windows, up to
 remaining source capacity. Other calls, transcripts and unselected material stay
 unexamined. Semantic suggestions cover imported messages only.
 
-Automatic models use pinned private execution/quotation validation. Missing
+Automatic models use retained execution settings and quotation validation. Missing
 configuration, drift, capacity and provider/output errors remain visible/retryable,
-preserving messages and independent checks. No automatic external selection/cloud
-fallback occurs. Preparation/execution recheck verified editing access. Cursor,
+preserving messages and independent checks. Preparation checks the reviewed
+destinations before queueing model work; execution checks the retained route.
+No automatic external selection/cloud fallback occurs.
+Preparation/execution recheck verified editing access. Cursor,
 runs and continuation commit together; retries queue no duplicates. After confirming
 the old worker stopped, rerun failed preparation from the import page; individual
 failures use normal Processing recovery.

@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import OperationalError
 from django.test import TestCase, override_settings
@@ -14,18 +15,20 @@ from django_tasks_db.models import DBTaskResult
 from cases.models import CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
+from core.analysis.execution import retry_execution_confirmation
 from core.analysis.services import process_run, start_run
 from core.models import CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
+from phone.analysis.ingest import import_analysis_executions
 from phone.imessage_imports import confirm_import
 from phone.models import PhoneCallEvidence, TextMessageEvidence
 from phone.tests.test_imessage_views import message_csv
 
 
 class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
-    def publish(self, *rows):
+    def publish(self, *rows, analysis=None):
         start = datetime(2026, 11, 1, 12, tzinfo=UTC)
         rows = rows or tuple(
             {
@@ -59,10 +62,27 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
                 "account": {"id": str(self.person.pk), "create": None},
                 "correspondent": {"id": str(other.pk), "create": None},
             },
+            **({"analysis": analysis} if analysis is not None else {}),
         )
         process_run(final.pk)
         final.refresh_from_db()
         return final
+
+    def analysis_settings(self, mode):
+        backends = (
+            ("local", "gateway")
+            if mode == "both"
+            else ("gateway" if mode == "external" else "local",)
+        )
+        return {
+            "mode": mode,
+            "executions": {
+                key: value
+                for key, value in import_analysis_executions().items()
+                if key.split(":", 1)[1] in backends
+            },
+            "external_processing": mode != "local",
+        }
 
     def drain(self, batch):
         for _ in range(30):
@@ -72,6 +92,116 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(batch.status, "complete", batch.error_code)
                 return
         self.fail("Import analysis preparation did not finish")
+
+    def test_external_mode_queues_only_approved_gateway_analysis(self):
+        settings = self.analysis_settings("external")
+        self.publish(analysis=settings)
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertEqual(batch.scope["mode"], "external")
+        self.assertEqual(batch.scope["executions"], settings["executions"])
+        self.drain(batch)
+        self.assertCountEqual(
+            batch.runs.values_list("operation", flat=True),
+            ["text_topics", "content_events", "session_summaries", "conversation_link"],
+        )
+        for run in batch.runs.all():
+            self.assertTrue(run.external_processing)
+            self.assertEqual(run.parameters["backend"], "gateway")
+            self.assertEqual(
+                run.parameters["_execution"],
+                settings["executions"][f"{run.operation}:gateway"],
+            )
+
+    def test_both_mode_runs_rules_once_and_models_in_each_location(self):
+        self.publish(analysis=self.analysis_settings("both"))
+        batch = CaseAnalysisBatch.objects.get()
+        self.drain(batch)
+        self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
+        self.assertEqual(batch.runs.filter(operation="sessions").count(), 1)
+        for operation in (
+            "text_topics",
+            "content_events",
+            "session_summaries",
+            "conversation_link",
+        ):
+            model_runs = batch.runs.filter(
+                operation=operation, parameters__has_key="backend"
+            )
+            self.assertCountEqual(
+                model_runs.values_list("parameters__backend", flat=True),
+                ["local", "gateway"],
+            )
+
+    def test_local_selection_retains_its_routes_and_never_queues_gateway(self):
+        settings = self.analysis_settings("local")
+        self.publish(analysis=settings)
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertEqual(batch.scope["executions"], settings["executions"])
+        self.drain(batch)
+        self.assertTrue(batch.runs.filter(operation="entities").exists())
+        self.assertFalse(batch.runs.filter(external_processing=True).exists())
+        self.assertFalse(batch.runs.filter(parameters__backend="gateway").exists())
+
+    def test_gateway_selection_requires_external_approval(self):
+        settings = self.analysis_settings("external")
+        settings["external_processing"] = False
+        with self.assertRaises(ValidationError):
+            self.publish(analysis=settings)
+        self.assertFalse(CaseAnalysisBatch.objects.exists())
+        self.assertFalse(TextMessageEvidence.objects.exists())
+
+    def test_reviewed_gateway_route_drift_stops_preparation_after_import(self):
+        self.publish(analysis=self.analysis_settings("external"))
+        batch = CaseAnalysisBatch.objects.get()
+        changed = import_analysis_executions()
+        changed["content_events:gateway"]["model"] = "changed-model"
+        with patch(
+            "phone.analysis.ingest.import_analysis_executions", return_value=changed
+        ):
+            self.assertEqual(prepare_case_analysis_batch(batch.pk), "execution_changed")
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "failed")
+        self.assertFalse(batch.runs.exists())
+        self.assertEqual(TextMessageEvidence.objects.count(), 6)
+
+    def test_gateway_failure_keeps_import_and_allows_approved_retry(self):
+        self.publish(analysis=self.analysis_settings("external"))
+        batch = CaseAnalysisBatch.objects.get()
+        self.drain(batch)
+        run = batch.runs.get(operation="content_events")
+        with patch(
+            "core.analysis.gateway.GatewayClient.infer",
+            side_effect=AnalysisError("gateway_unavailable"),
+        ):
+            self.assertEqual(process_run(run.pk), "gateway_unavailable")
+        self.assertEqual(TextMessageEvidence.objects.count(), 6)
+        submission = uuid4()
+        retry, _ = start_run(
+            self.users["editor"],
+            self.case.pk,
+            run.operation,
+            [
+                {"kind": entry["kind"], "id": entry["evidence_id"]}
+                for entry in run.inputs
+            ],
+            parameters=run.parameters,
+            submission_id=submission,
+            previous_run=run,
+            external_processing=True,
+            retry_confirmation=retry_execution_confirmation(
+                self.users["editor"].pk,
+                run.pk,
+                submission,
+                run.parameters["_execution"],
+            ),
+        )
+        with patch(
+            "core.analysis.gateway.GatewayClient.infer", return_value={"items": []}
+        ):
+            process_run(retry.pk)
+        retry.refresh_from_db()
+        self.assertEqual(retry.status, "empty")
+        self.assertEqual(retry.batch_id, batch.pk)
 
     def test_publication_queues_full_suite_once_and_reuses_no_rows(self):
         final = self.publish()
@@ -387,6 +517,165 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         self.drain(batch)
         self.login("owner")
-        response = self.client.post(endpoint, {"submission_id": uuid4()})
+        response = self.client.get(endpoint)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="execution_confirmation"')
+        form = response.context["form"]
+        response = self.client.post(
+            endpoint,
+            {
+                "submission_id": form["submission_id"].value(),
+                "execution_confirmation": form["execution_confirmation"].value(),
+                "mode": "local",
+            },
+        )
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(CaseAnalysisBatch.objects.filter(scope=batch.scope).count(), 2)
+        self.assertEqual(
+            CaseAnalysisBatch.objects.filter(scope__id=str(final.pk)).count(), 2
+        )
+
+    def test_external_rerun_requires_fresh_approval_and_shows_latest_choice(self):
+        final = self.publish(analysis=self.analysis_settings("both"))
+        initial_batch = CaseAnalysisBatch.objects.get()
+        self.drain(initial_batch)
+        self.login("owner")
+        endpoint = reverse(
+            "core:analysis:import_checks", args=[self.case.pk, "messages", final.pk]
+        )
+        response = self.client.get(endpoint)
+        self.assertEqual(response.status_code, 200)
+        form = response.context["form"]
+        payload = {
+            "submission_id": form["submission_id"].value(),
+            "execution_confirmation": form["execution_confirmation"].value(),
+            "mode": "external",
+        }
+        response = self.client.post(endpoint, payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("external_processing", response.context["form"].errors)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+
+        response = self.client.post(endpoint, payload | {"external_processing": "on"})
+        self.assertEqual(response.status_code, 302)
+        latest = CaseAnalysisBatch.objects.exclude(pk=initial_batch.pk).get()
+        self.assertEqual(latest.requested_by, self.users["owner"])
+        self.assertEqual(latest.scope["mode"], "external")
+        self.assertTrue(latest.scope["external_processing"])
+        self.assertEqual(
+            latest.scope["executions"], self.analysis_settings("external")["executions"]
+        )
+        review = reverse("phone:imessage_review", args=[self.case.pk, final.pk])
+        response = self.client.get(review)
+        self.assertContains(response, "Selected analysis: External / AI")
+        self.assertNotContains(response, "Selected analysis: Both")
+        processing = reverse("core:analysis:processing", args=[self.case.pk])
+        self.assertContains(response, f"{processing}?batch={latest.pk}")
+        self.assertNotContains(response, f"?batch={initial_batch.pk}")
+
+    def test_external_rerun_rejects_other_requester_and_tampered_tokens(self):
+        final = self.publish(analysis=self.analysis_settings("external"))
+        batch = CaseAnalysisBatch.objects.get()
+        self.drain(batch)
+        endpoint = reverse(
+            "core:analysis:import_checks", args=[self.case.pk, "messages", final.pk]
+        )
+        self.login("editor")
+        form = self.client.get(endpoint).context["form"]
+        payload = {
+            "submission_id": form["submission_id"].value(),
+            "execution_confirmation": form["execution_confirmation"].value(),
+            "mode": "external",
+            "external_processing": "on",
+        }
+        self.login("owner")
+        response = self.client.post(endpoint, payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response.context["form"].non_field_errors())
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+
+        form = self.client.get(endpoint).context["form"]
+        response = self.client.post(
+            endpoint,
+            payload
+            | {
+                "submission_id": form["submission_id"].value(),
+                "execution_confirmation": "tampered",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response.context["form"].non_field_errors())
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+
+    def test_import_retry_by_another_actor_needs_fresh_gateway_approval(self):
+        with patch(
+            "core.analysis.tasks.prepare_case_analysis",
+            **{"enqueue.side_effect": OperationalError},
+        ):
+            failed = self.publish(analysis=self.analysis_settings("external"))
+        self.assertEqual(failed.status, "failed")
+        self.assertFalse(TextMessageEvidence.objects.exists())
+        retry, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            failed.operation,
+            [{"kind": "document", "id": failed.inputs[0]["evidence_id"]}],
+            parameters=failed.parameters,
+            previous_run=failed,
+        )
+        process_run(retry.pk)
+        retry.refresh_from_db()
+        self.assertEqual(retry.status, "complete", retry.error_code)
+        self.assertEqual(TextMessageEvidence.objects.count(), 6)
+        blocked = CaseAnalysisBatch.objects.get()
+        self.assertEqual(
+            prepare_case_analysis_batch(blocked.pk), "retry_approval_required"
+        )
+        self.assertFalse(blocked.runs.exists())
+
+        self.login("owner")
+        endpoint = reverse(
+            "core:analysis:import_checks", args=[self.case.pk, "messages", retry.pk]
+        )
+        form = self.client.get(endpoint).context["form"]
+        response = self.client.post(
+            endpoint,
+            {
+                "submission_id": form["submission_id"].value(),
+                "execution_confirmation": form["execution_confirmation"].value(),
+                "mode": "external",
+                "external_processing": "on",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        approved = CaseAnalysisBatch.objects.exclude(pk=blocked.pk).get()
+        self.assertEqual(approved.scope["approved_by"], str(self.users["owner"].pk))
+        self.drain(approved)
+        self.assertEqual(approved.runs.count(), 4)
+        self.assertTrue(all(run.external_processing for run in approved.runs.all()))
+
+    def test_import_retry_by_approving_actor_keeps_both_locations(self):
+        with patch(
+            "core.analysis.tasks.prepare_case_analysis",
+            **{"enqueue.side_effect": OperationalError},
+        ):
+            failed = self.publish(analysis=self.analysis_settings("both"))
+        self.assertEqual(failed.status, "failed")
+        retry, _ = start_run(
+            self.users["editor"],
+            self.case.pk,
+            failed.operation,
+            [{"kind": "document", "id": failed.inputs[0]["evidence_id"]}],
+            parameters=failed.parameters,
+            previous_run=failed,
+        )
+        process_run(retry.pk)
+        retry.refresh_from_db()
+        self.assertEqual(retry.status, "complete", retry.error_code)
+        batch = CaseAnalysisBatch.objects.get()
+        self.drain(batch)
+        self.assertCountEqual(
+            batch.runs.filter(operation="content_events").values_list(
+                "parameters__backend", flat=True
+            ),
+            ["local", "gateway"],
+        )

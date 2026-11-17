@@ -52,9 +52,16 @@ Repeated submissions recover the same batch. Continuations recheck access;
 preparation/run failures remain recoverable.
 
 Confirmed message CSV publication instead atomically starts an automatic batch
-for new messages. Bounded continuations walk reported-time order, preparing
-independent checks and the [message/writing/model suite](analysis-communications.md#message-csv-imports).
-Model failures preserve imports/independent results without cloud fallback.
+for new messages with the import review's selected mode: Local, External / AI,
+or Both. Local defaults to checks/private inference; External / AI runs Gateway
+model analysis; Both runs local checks once and inference in both locations.
+External transfer requires explicit approval. Bounded continuations walk
+reported-time order, preparing the selected
+[message/writing/model suite](analysis-communications.md#message-csv-imports).
+Reviewed execution destinations remain bound to the batch and are rechecked
+during preparation; changed settings stop preparation for fresh review. Reruns
+require renewed external approval. Model failures preserve imports/independent
+results without cloud fallback.
 Preview, excluded and reused rows start no batch. No database migration or startup
 backfill is needed. Imports stream without a row ceiling within file/message
 limits, retaining compact summaries and paginated reviews/messages. All messages
