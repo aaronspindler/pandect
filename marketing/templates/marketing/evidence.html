@@ -4,8 +4,9 @@
 {% block content %}
 <div class="evidence-catalogue wrap">
   <div class="catalogue-intro">
-    <h1>Explore analysis for your evidence.</h1>
-    <p class="lead">See what Pandect can do, what you need, and what the results mean.</p>
+    <p class="section-label">The investigation toolkit</p>
+    <h1>Your evidence.<br><em>A closer look.</em></h1>
+    <p class="lead">From the first document to the wider pattern. Explore the tools, the inputs they support, and what each result can tell you.</p>
   </div>
   <nav class="catalogue-families" id="evidence-types" aria-label="Evidence types">
     {% for family in evidence_families %}
@@ -17,7 +18,7 @@
       {% for section in capability_sections %}
         <section class="catalogue-section" id="{{ section.id }}" aria-labelledby="{{ section.id }}-heading">
           {% if section.id == 'analysis' %}
-            <h2 id="analysis-heading">{{ selected_family.label }}</h2>
+            <div class="catalogue-section-heading"><h2 id="analysis-heading">{{ selected_family.label }}</h2><span class="section-label">{{ section.rows|length }} methods</span></div>
             <p class="catalogue-description">{{ selected_family.description }}</p>
           {% else %}
             <h2 id="{{ section.id }}-heading">{{ section.title }}</h2>

@@ -30,10 +30,15 @@ labelled fictional cases; examples retain source links, candidate-finding limits
 and configuration requirements. Trust explains [tile-provider privacy](maps.md#external-tiles-and-privacy).
 
 Templates live in `marketing/templates/marketing/`; styling is
-`marketing/static/marketing/marketing.css`. The editorial layout shares the
-approved brand and [design standard](../DESIGN.md): prominent headings, readable
-text, fine dividers, responsive/dark/forced-color layouts, keyboard focus, and a
-skip link. The overview owns the product story and examples; the catalogue owns
+`marketing/static/marketing/marketing.css`. The public pages use the technical
+[marketing identity](../DESIGN.md#marketing-identity): graphite and teal surfaces,
+large system-font headings, numbered sections, fine rules, and structured evidence
+illustrations. The approved arch logo retains its oxblood/ivory artwork. Marketing
+tokens are scoped to the public shell; investigator styles remain owned by `ui/`.
+All pages share responsive light/dark/forced-color layouts, keyboard focus, and a
+skip link. Static showcases are labelled fictional, retain readable source and
+review context, and do not simulate interactive controls. The overview owns the
+product story and examples; the catalogue owns
 input profiles and method requirements; Trust owns access, retention, and
 processing privacy; Roadmap owns future work. Setup and operator responsibilities
 belong in the GitHub documentation. Keep short configuration and uncertainty notes

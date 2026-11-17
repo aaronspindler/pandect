@@ -2,22 +2,30 @@
 {% block title %}Roadmap{% endblock %}
 {% block description %}What Pandect plans to build next and what the project is exploring. No committed release dates.{% endblock %}
 {% block content %}
-<section class="marketing-hero wrap page-intro">
-  <p class="section-label">Project roadmap</p>
-  <h1>What comes<br><em>next.</em></h1>
-  <p class="lead">Planned improvements and ideas under exploration.</p>
-  <p class="intro-note">Plans may change. There are no committed release dates.</p>
-  <a class="text-link" href="{% url 'marketing:home' %}">Explore current capabilities <span aria-hidden="true">→</span></a>
+<section class="marketing-hero wrap page-intro roadmap-intro">
+  <div><p class="section-label">Project roadmap</p><h1>The next lines<br><em>of inquiry.</em></h1><p class="lead">A wider view of the case. More ways to examine the material. Here’s where Pandect is heading.</p></div>
+  <div class="roadmap-context"><span class="status-label">An open-source work in progress</span><p>Planned improvements and ideas under exploration. Plans may change. There are no committed release dates.</p><a class="text-link" href="{% url 'marketing:home' %}">Explore current capabilities <span aria-hidden="true">→</span></a></div>
 </section>
 <div class="wrap roadmap-sections">
-  <section class="feature-row" aria-labelledby="planned-heading">
-    <div><p class="status-label">Planned · Not yet available</p><h2 id="planned-heading">A wider case view</h2></div>
-    <ul class="feature-list"><li><strong>Inferred timelines.</strong> Reviewable events drawn from narrative evidence.</li><li><strong>Relationships and graphs.</strong> Evidence-backed exploration beyond exact identifier matches.</li><li><strong>Cross-case evidence search.</strong> Search material across cases you can access.</li><li><strong>Broader discovery.</strong> Retrieve supporting synthesis material without selecting every input.</li><li><strong>Managed hosting.</strong> A hosted Pandect service.</li></ul>
+  <section class="roadmap-group" aria-labelledby="planned-heading">
+    <div class="roadmap-group-heading"><p class="status-label">Planned · Not yet available</p><h2 id="planned-heading">A wider case view.</h2><p>Extend the investigation beyond individual records, while keeping the supporting evidence in reach.</p></div>
+    <ul class="roadmap-grid" role="list">
+      <li><span class="roadmap-number" aria-hidden="true">01</span><h3>Inferred timelines</h3><p>Reviewable events drawn from narrative evidence.</p></li>
+      <li><span class="roadmap-number" aria-hidden="true">02</span><h3>Relationships and graphs</h3><p>Evidence-backed exploration beyond exact identifier matches.</p></li>
+      <li><span class="roadmap-number" aria-hidden="true">03</span><h3>Cross-case evidence search</h3><p>Search material across cases you can access.</p></li>
+      <li><span class="roadmap-number" aria-hidden="true">04</span><h3>Broader discovery</h3><p>Retrieve supporting synthesis material without selecting every input.</p></li>
+      <li><span class="roadmap-number" aria-hidden="true">05</span><h3>Managed hosting</h3><p>A hosted Pandect service.</p></li>
+    </ul>
   </section>
-  <section class="feature-row" aria-labelledby="exploring-heading">
-    <div><p class="status-label">Exploring · Not yet available</p><h2 id="exploring-heading">More ways to examine evidence</h2></div>
-    <ul class="feature-list"><li>Find related passages by meaning.</li><li>Extract structured tables and forms with source locations.</li><li>Review visually similar images beyond exact-file matches.</li><li>Extend supported media formats and evaluate video analysis.</li></ul>
+  <section class="roadmap-group" aria-labelledby="exploring-heading">
+    <div class="roadmap-group-heading"><p class="status-label">Exploring · Not yet available</p><h2 id="exploring-heading">New ways into the evidence.</h2><p>Directions to investigate, with scope and feasibility still to assess.</p></div>
+    <ul class="roadmap-grid" role="list">
+      <li><span class="roadmap-number" aria-hidden="true">01</span><h3>Search by meaning</h3><p>Find related passages by meaning.</p></li>
+      <li><span class="roadmap-number" aria-hidden="true">02</span><h3>Structured extraction</h3><p>Extract structured tables and forms with source locations.</p></li>
+      <li><span class="roadmap-number" aria-hidden="true">03</span><h3>Image similarity</h3><p>Review visually similar images beyond exact-file matches.</p></li>
+      <li><span class="roadmap-number" aria-hidden="true">04</span><h3>More media formats</h3><p>Extend supported media formats and evaluate video analysis.</p></li>
+    </ul>
   </section>
 </div>
-<section class="availability-section"><div class="marketing-section wrap split-section"><h2>Help shape what comes next.</h2><div><p>Share a concrete workflow, reproducible issue, or suggestion using synthetic or sanitized examples.</p><a class="text-link" href="https://github.com/aaronspindler/pandect/issues">Discuss on GitHub <span aria-hidden="true">↗</span></a></div></div></section>
+<section class="availability-section"><div class="marketing-section wrap split-section"><div><p class="section-label">Built in the open</p><h2>Bring your next<br>line of inquiry.</h2></div><div><p>Share a concrete workflow, reproducible issue, or suggestion using synthetic or sanitized examples.</p><a class="text-link" href="https://github.com/aaronspindler/pandect/issues">Discuss on GitHub <span aria-hidden="true">↗</span></a></div></div></section>
 {% endblock %}

@@ -1,7 +1,9 @@
 # Pandect interface design standard
 
-Make investigative work approachable without specialist or software knowledge.
-Users should understand where they are, what they are viewing, and their next action.
+Make investigative work clear, precise, and approachable. Pandect should feel like
+a capable tool for examining evidence: structured, deliberate, and grounded in
+sources. Users should understand where they are, what they are viewing, and their
+next action without needing specialist software knowledge.
 
 This file applies [the project principles](PRINCIPLES.md) through durable
 interface design requirements, not implementation status. Screen
@@ -16,14 +18,18 @@ selection and executable procedures belong in [validation](docs/validation.md).
 - Open cases to **Case Tools** with routes to evidence, findings, and supporting
   views. Keep **Evidence** and **Processing** directly available; Processing owns
   active work, history, and rerun controls.
-- Favor compact navigation, aligned rows, and progressive disclosure. Follow
-  Apple's clarity, hierarchy, consistency, and accessibility without copying
-  operating-system chrome. Prioritize readable material and usable controls over decoration.
+- Favor compact navigation, aligned rows, and progressive disclosure. Use strong
+  hierarchy and consistent controls. Let evidence, source references, and useful
+  actions establish the product's investigative character; decoration must not
+  compete with reading or imply capabilities the product does not have.
 
 ## Visual foundations
 
-Share semantic CSS custom properties across screens; avoid page-specific colors,
-remote fonts, arbitrary spacing, and dependencies added only for styling.
+Use semantic CSS custom properties and shared components within each surface.
+Investigator screens use the palette below; public pages use the scoped
+[marketing identity](#marketing-identity). Both share the brand, system fonts,
+interaction conventions, and accessibility requirements. Avoid one-off page
+palettes, remote fonts, arbitrary spacing, and dependencies added only for styling.
 
 | Role | Light | Dark |
 | --- | --- | --- |
@@ -42,8 +48,9 @@ color. Verify actual foreground/background combinations for hover, selected,
 error, and disabled states. Decorative dividers cannot identify input boundaries.
 
 - Follow `prefers-color-scheme` without requiring an account preference.
-- Fonts: `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-  system monospace only for technical values such as checksums.
+- Fonts: `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`.
+  Use system monospace for technical values such as checksums and the short
+  indexes and metadata labels described in the marketing identity.
 - Body: `1rem`, line height `1.5`. Type scale: `0.875rem`, `1rem`, `1.25rem`,
   `1.5rem`, `2rem`. Do not shrink important text to increase density.
 - Spacing: `0.25`, `0.5`, `0.75`, `1`, `1.5`, `2`, `3`, `4rem`. Radii: `0.5rem`
@@ -62,12 +69,61 @@ proportions and clear space; lettering is artwork and needs no downloaded font.
 Linked logos need the accessible name **Pandect** and a `44px` hit area. Use readable
 system-font text in forced colors and the standalone arch on ivory for app icons.
 
+## Marketing identity
+
+Public pages introduce an investigation tool through evidence, analysis, and
+review. Use a crisp technical layout: confident typography, aligned columns,
+numbered sections, fine rules, and structured evidence illustrations. Keep the
+arch identity prominent; avoid surveillance imagery, fake terminal output,
+decorative network graphs, and generic claims about discovering truth.
+
+| Role | Light | Dark |
+| --- | --- | --- |
+| Page background | `#F4F7F7` | `#0B1519` |
+| Content surface | `#FFFFFF` | `#111F24` |
+| Primary text | `#14282E` | `#EDF4F5` |
+| Secondary text | `#4B6169` | `#B0C1C5` |
+| Decorative divider | `#D2DFE0` | `#30464C` |
+| Control boundary | `#71878B` | `#789196` |
+| Action and focus | `#12645E` | `#8BD5C4` |
+| Action text | `#FFFFFF` | `#0B1519` |
+| Selected surface | `#E3EFED` | `#173A36` |
+
+- Use graphite and teal as the public-page palette. The approved logo remains
+  oxblood in light mode and ivory in dark mode; do not recolor its artwork.
+- Introductory headings may scale fluidly from `2.5rem` to `5rem`, with a compact
+  line height and generous surrounding space. Keep supporting text readable and
+  short. Use monospace sparingly for section indexes, evidence identifiers, and
+  compact metadata; navigation, prose, and controls stay in system sans serif.
+- Build hierarchy with fine rules, grids, and open space. Use modest `0.25–0.5rem`
+  corners and restrained background patterns. Do not use decorative motion,
+  glass effects, or nested panels without a clear grouping purpose.
+- Static evidence showcases may use an ink surface (`#10262C`) in either theme,
+  with primary text `#EDF4F5`, secondary text `#B0C1C5`, and teal `#8BD5C4`.
+  Keep fictional labels, source attribution, and relevant uncertainty visible.
+  Illustrations explain current capabilities; they are not live case material or
+  interactive demonstrations. Do not draw controls that appear operable.
+- Give Overview, Evidence & analysis, Trust, and Roadmap a common header, footer,
+  heading treatment, and section rhythm. Adapt the content structure to the
+  page's task: product story, capability directory, processing choices, or future
+  work. Preserve direct links to formats, requirements, and source documentation.
+- Catalogue methods retain visible outcomes and setup requirements, with native
+  disclosures for detail. Filters and links work without JavaScript. Clearly
+  separate available capabilities from planned and exploratory work; never imply
+  that every installation has optional services configured.
+- Reflow structured illustrations and multi-column content into document order on
+  small screens. Keep essential labels and limitations readable at increased
+  text sizes. Forced colors replace custom fills and patterns with system colors;
+  selection and hierarchy must remain understandable without color.
+
+The implementation and content boundaries belong in
+[public marketing pages](docs/marketing.md), not in application screen rules.
+
 ## Layout and density
 
 Investigator screens use case navigation, a compact record list, and a substantial
-reader. Marketing shares the brand, fonts, colors, and accessibility rules
-in an editorial layout; its introductory headings may scale from `2rem` to `4rem`.
-Label workspace illustrations as fictional and show only implemented capabilities.
+reader. These density requirements apply to the investigator workspace;
+public pages follow the marketing identity above.
 
 - At `80rem` and above, evidence uses a `7rem` labeled navigation rail, `21rem` record
   list, and flexible reader. All investigator screens share the rail, including

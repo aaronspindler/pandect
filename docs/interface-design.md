@@ -47,8 +47,10 @@ error links focus the affected control or group.
 | Invitation | Named recipient confirmation after authentication and email verification; **Accept invitation**. |
 | Account | Allauth email/password management, timezone preference, and POST sign-out, with the shared shell. |
 
-Public `/` serves marketing anonymously and redirects signed-in visitors to All
-cases. Product routes require an active authenticated account and verified email.
+Public `/` serves the same marketing overview to anonymous and signed-in visitors;
+signed-in visitors have an **Open workspace** link to All cases. Public layouts
+and content are owned by [marketing](marketing.md). Product routes require an
+active authenticated account and verified email.
 Preserve safe local return destinations through sign-in/verification. Email
 settings show address/status and require named removal confirmation.
 
