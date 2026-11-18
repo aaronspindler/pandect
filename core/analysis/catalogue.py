@@ -6,40 +6,151 @@ from urllib.parse import urlencode
 from django import forms
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Exists, F, OuterRef, Q, Subquery
+from django.db.models import (
+    Exists,
+    F,
+    Func,
+    JSONField,
+    OuterRef,
+    Q,
+    Subquery,
+    TextField,
+    Value,
+)
+from django.db.models.functions import Cast
 from django.http import Http404
 
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import requires_inference
 from core.analysis.navigation import finding_url
 from core.analysis.operations import OPERATIONS
-from core.analysis.projection import finding_values
+from core.analysis.presentation import participant_names, participant_text
+from core.analysis.projection import finding_values, is_timing_only
+from core.analysis.ranking import rank_findings
+from core.analysis.review_signals import classify_review_signal_v1
 from core.evidence.queries import person_evidence, scoped_evidence
 from core.evidence.search import content_excerpt
 from core.evidence.types import KIND_LABELS, KINDS
 from core.models import (
     AnalysisFinding,
     AnalysisFindingSource,
-    AnalysisReview,
     AnalysisRun,
 )
 from people.models import Person
 
 SUCCESSFUL = ("complete", "partial", "empty")
 PER_PAGE = 25
+TIMING_ONLY_FINDINGS = Q(result__run__operation="conversation_link", weak=True)
+REPORT_OPERATIONS = (
+    "comm_patterns",
+    "session_summaries",
+    "style_profiles",
+    "text_topics",
+)
+REPORT_DETAIL_LABELS = {
+    "conversation_link": (
+        "Unresolved reference suggestion",
+        "continued_topic",
+        "correction",
+    ),
+    "style_change": (
+        "Group A coverage",
+        "Group B coverage",
+        "Mean message words",
+        "Mean sentence words",
+        "Possible observed-style change interval",
+        "Punctuation per 100 words",
+        "Recurring wording comparison",
+        "Uppercase letter ratio",
+        "Vocabulary ratio",
+    ),
+    "transcription": (
+        "Coarse transcript candidate",
+        "Interval without transcribed text",
+        "Unresolved recording interval",
+    ),
+}
+ADJACENCY_BASIS = "temporal adjacency; lexical overlap is a separate weak content cue"
+
+
+def is_result_detail(operation, item):
+    """Keep routine report rows in the saved run."""
+    label = item.get("label")
+    return (
+        operation in REPORT_OPERATIONS
+        or item.get("report_only") is True
+        or label in REPORT_DETAIL_LABELS.get(operation, ())
+        or (
+            operation == "conversation_link"
+            and label == "Candidate exchange sequence"
+            and item.get("values", {}).get("basis") == ADJACENCY_BASIS
+            and classify_review_signal_v1(operation, item) != "native_reply"
+        )
+        or (
+            operation == "transcription"
+            and label == "Transcript segment candidate"
+            and (
+                not item.get("text", "").strip()
+                or classify_review_signal_v1(operation, item) != "uncertain_speech"
+            )
+        )
+    )
+
+
+def result_detail_projections():
+    # Match known legacy projections without loading canonical result JSON.
+    details = (
+        Q(result__run__operation__in=REPORT_OPERATIONS)
+        | (
+            Q(
+                result__run__operation="conversation_link",
+                label="Candidate exchange sequence",
+                weak=False,
+                search_text__contains=f"\nbasis: {ADJACENCY_BASIS}",
+            )
+            & ~Q(review_signal="native_reply")
+        )
+        | (
+            Q(
+                result__run__operation="transcription",
+                label="Transcript segment candidate",
+            )
+            & ~Q(review_signal="uncertain_speech")
+        )
+    )
+    for operation, labels in REPORT_DETAIL_LABELS.items():
+        details |= Q(result__run__operation=operation, label__in=labels)
+    return details
+
+
+def raw_finding_item():
+    """Fetch a single canonical item without loading the rest of the result."""
+    return Func(
+        F("result__data"),
+        Value("items"),
+        Cast(F("item_index"), TextField()),
+        function="jsonb_extract_path",
+        output_field=JSONField(),
+    )
 
 
 @transaction.atomic
 def project_result(result):
     """Publish a rebuildable projection atomically alongside its canonical result."""
     inputs = {source["id"]: source for source in result.run.inputs}
-    for chunk in batched(enumerate(result.data.get("items", [])), 500, strict=False):
+    operation = result.run.operation
+    items = (
+        (index, item)
+        for index, item in enumerate(result.data.get("items", []))
+        if not (is_result_detail(operation, item) or is_timing_only(operation, item))
+    )
+    for chunk in batched(items, 500, strict=False):
         findings = [
             AnalysisFinding(
                 case_id=result.case_id,
                 result=result,
                 item_index=index,
-                **finding_values(result.run.operation, item),
+                **finding_values(operation, item, inputs=inputs),
             )
             for index, item in chunk
         ]
@@ -79,15 +190,6 @@ class CatalogueForm(forms.Form):
         required=False,
         empty_label="All people",
     )
-    review = forms.ChoiceField(
-        label="Finding review",
-        required=False,
-        choices=[
-            ("", "All review states"),
-            ("unreviewed", "Unreviewed"),
-            *AnalysisReview.Decision.choices,
-        ],
-    )
     history = forms.ChoiceField(
         label="Result history",
         required=False,
@@ -95,6 +197,12 @@ class CatalogueForm(forms.Form):
             ("", "Latest results"),
             ("all", "All saved results"),
         ],
+    )
+    weak = forms.ChoiceField(
+        label="Timing-only findings",
+        required=False,
+        choices=[("", "Hide"), ("1", "Show")],
+        widget=forms.HiddenInput,
     )
 
     def __init__(self, data, *, case):
@@ -117,15 +225,20 @@ class CatalogueForm(forms.Form):
 
 
 def finding_queryset(case, filters, *, person=None, labels=None):
-    """Return filtered items before pagination; review never revives an old run."""
-    queryset = AnalysisFinding.objects.filter(
-        case=case,
-        result__case=case,
-        result__run__case=case,
-        result__run__status__in=SUCCESSFUL,
-    ).filter(
-        Q(result__run__previous_run__isnull=True)
-        | Q(result__run__previous_run__case=case)
+    """Return filtered items before pagination."""
+    queryset = (
+        AnalysisFinding.objects.filter(
+            case=case,
+            result__case=case,
+            result__run__case=case,
+            result__run__status__in=SUCCESSFUL,
+            hidden_from_catalogue=False,
+        )
+        .filter(
+            Q(result__run__previous_run__isnull=True)
+            | Q(result__run__previous_run__case=case)
+        )
+        .exclude(result_detail_projections())
     )
     if filters.get("history") != "all":
         latest = (
@@ -139,32 +252,14 @@ def finding_queryset(case, filters, *, person=None, labels=None):
             .order_by("-created_at", "-pk")
         )
         queryset = queryset.filter(result__run_id=Subquery(latest.values("pk")[:1]))
-    reviews = AnalysisReview.objects.filter(
-        case=case,
-        result_id=OuterRef("result_id"),
-        item_index=OuterRef("item_index"),
-    ).order_by("-created_at", "pk")
-    whole_reviews = AnalysisReview.objects.filter(
-        case=case,
-        result_id=OuterRef("result_id"),
-        item_index__isnull=True,
-    ).order_by("-created_at", "pk")
-    queryset = queryset.annotate(
-        review=Subquery(reviews.values("decision")[:1]),
-        result_review=Subquery(whole_reviews.values("decision")[:1]),
-    )
+    if filters.get("weak") != "1":
+        queryset = queryset.exclude(TIMING_ONLY_FINDINGS)
     if query := filters.get("q"):
         queryset = queryset.filter(search_text__icontains=query)
     if method := filters.get("method"):
         queryset = queryset.filter(result__run__operation=method)
     if labels is not None:
         queryset = queryset.filter(label__in=labels)
-    if review := filters.get("review"):
-        queryset = (
-            queryset.filter(review__isnull=True)
-            if review == "unreviewed"
-            else queryset.filter(review=review)
-        )
     person = person or filters.get("person")
     if person and person.case_id != case.pk:
         raise Http404("Person not found.")
@@ -192,7 +287,7 @@ def finding_queryset(case, filters, *, person=None, labels=None):
     )
 
 
-def finding_rows(case, findings):
+def finding_rows(case, findings, *, show_weak=False):
     """Resolve only the page, without fetching canonical result payloads."""
     from core.analysis.services import (
         SourceResolutionCache,
@@ -242,7 +337,9 @@ def finding_rows(case, findings):
                 try:
                     require_current_geocode_reviews(run, sources)
                 except AnalysisError:
-                    warning = "The location review has changed since this run."
+                    warning = (
+                        "An address estimate used by this run is no longer selected."
+                    )
                 checked[run.pk] = (
                     {str(source.id): source for source in sources},
                     warning,
@@ -270,25 +367,47 @@ def finding_rows(case, findings):
             "excerpt": "" if unavailable else finding.excerpt,
             "preview": "" if unavailable else finding.preview,
             "url": finding_url(
-                case.pk, run.pk, finding.item_index, show_weak=finding.weak
+                case.pk,
+                run.pk,
+                finding.item_index,
+                show_weak=show_weak or finding.weak,
             ),
             "method": OPERATIONS[run.operation].label
             if run.operation in OPERATIONS
             else run.operation,
             "created_at": run.created_at,
             "uses_ai": bool(requires_inference(run.operation, run.parameters)),
-            "review": finding.review or "unreviewed",
-            "result_review": finding.result_review,
             "weak": finding.weak,
+            "weak_label": (
+                "Timing only"
+                if run.operation == "conversation_link"
+                else "Weak plate region"
+            )
+            if finding.weak
+            else "",
             "partial": run.status == "partial",
             "unavailable": unavailable,
             "warning": warning,
+            "review_reason": ""
+            if unavailable
+            else getattr(finding, "review_reason", ""),
             "sources": [],
             "additional_sources": max(0, len(cited) - 3),
         }
         if not unavailable:
+            row["participant_names"] = (
+                participant_names(
+                    source for key, source in sources.items() if key in cited
+                )
+                if row["uses_ai"]
+                else {}
+            )
+            row["preview"] = participant_text(row["preview"], row["participant_names"])
+            row["label"] = participant_text(row["label"], row["participant_names"])
+            row["excerpt"] = participant_text(row["excerpt"], row["participant_names"])
             row["sources"] = [
                 {
+                    "source_id": key,
                     "title": source.item.title,
                     "url": source.original_url,
                     "kind": KIND_LABELS[source.kind],
@@ -309,11 +428,22 @@ def catalogue_page(case, params, *, person=None, page_parameter="page", labels=N
     form = CatalogueForm(params, case=case)
     valid = form.is_valid()
     filters = form.cleaned_data if valid else {}
-    queryset = (
-        finding_queryset(case, filters, person=person, labels=labels)
+    all_findings = (
+        finding_queryset(case, filters | {"weak": "1"}, person=person, labels=labels)
         if valid
         else AnalysisFinding.objects.none()
     )
+    timing_only_count = (
+        all_findings.filter(TIMING_ONLY_FINDINGS).count() if valid else 0
+    )
+    show_timing_only = filters.get("weak") == "1"
+    queryset = (
+        all_findings
+        if show_timing_only or not valid
+        else all_findings.exclude(TIMING_ONLY_FINDINGS)
+    )
+    if filters.get("evidence"):
+        queryset = rank_findings(queryset, case)
     queryset = queryset.annotate(
         excerpt=content_excerpt("search_text", filters["q"])
         if filters.get("q")
@@ -321,11 +451,16 @@ def catalogue_page(case, params, *, person=None, page_parameter="page", labels=N
         run_id=F("result__run_id"),
     ).only("id", "case_id", "result_id", "item_index", "label", "weak", "preview")
     page = Paginator(queryset, PER_PAGE).get_page(params.get(page_parameter))
-    page.object_list = finding_rows(case, page.object_list)
+    page.object_list = finding_rows(case, page.object_list, show_weak=show_timing_only)
     query = {
-        key: value for key, value in params.items() if key != page_parameter and value
+        key: value for key, value in params.items() if key in form.fields and value
     }
     prefix = "?" + urlencode(query) + ("&" if query else "") + page_parameter + "="
+    visibility_query = query.copy()
+    if show_timing_only:
+        visibility_query.pop("weak", None)
+    else:
+        visibility_query["weak"] = "1"
     evidence_title = ""
     if evidence := filters.get("evidence"):
         for kind in [filters["kind"]] if filters.get("kind") else KINDS:
@@ -344,6 +479,9 @@ def catalogue_page(case, params, *, person=None, page_parameter="page", labels=N
         "filters": filters,
         "page_obj": page,
         "rows": page.object_list,
+        "timing_only_count": timing_only_count,
+        "show_timing_only": show_timing_only,
+        "timing_visibility_url": "?" + urlencode(visibility_query),
         "previous_url": prefix + str(page.previous_page_number())
         if page.has_previous()
         else "",
@@ -351,7 +489,6 @@ def catalogue_page(case, params, *, person=None, page_parameter="page", labels=N
         "evidence_title": evidence_title,
         "advanced_filters": bool(form.errors)
         or any(
-            filters.get(key)
-            for key in ("method", "kind", "person", "review", "history")
+            filters.get(key) for key in ("method", "kind", "person", "history", "weak")
         ),
     }

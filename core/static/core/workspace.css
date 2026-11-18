@@ -16,39 +16,16 @@
   box-shadow:0 .5rem 1.5rem rgb(0 0 0 / .12);
 }
 
-.workspace-page .evidence-workspace {
-  grid-template-columns:18rem minmax(0,1fr);
+.workspace-page .main-content {
+  padding:0;
+}
+
+.has-selection .evidence-list-pane {
+  display:none;
 }
 
 .workspace-page .evidence-list-toolbar {
   padding:0 .75rem .5rem;
-}
-
-.evidence-case-switch {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:.75rem;
-  min-height:3.5rem;
-  margin:0 -.75rem .5rem;
-  padding:.5rem 1rem;
-  border-bottom:1px solid var(--divider);
-  color:var(--text);
-  text-decoration:none;
-}
-
-.evidence-case-switch strong {
-  display:block;
-  overflow-wrap:anywhere;
-  line-height:1.25;
-}
-
-.evidence-case-switch small {
-  display:block;
-  margin-bottom:0;
-  color:var(--secondary);
-  font-size:.75rem;
-  line-height:1.25;
 }
 
 .workspace-page .evidence-list-heading {
@@ -57,6 +34,7 @@
 
 .workspace-page .evidence-search {
   display:block;
+  max-width:48rem;
 }
 
 .evidence-search-row {
@@ -68,11 +46,11 @@
 .evidence-search-field {
   display:flex;
   align-items:center;
-  gap:.5rem;
+  gap:.25rem;
   flex:1;
   min-width:0;
   min-height:44px;
-  padding-inline:.5rem;
+  padding-inline-start:.5rem;
   border:1px solid var(--boundary);
   border-radius:var(--radius);
   background:var(--surface);
@@ -139,17 +117,13 @@
 }
 
 .workspace-page .evidence-reader {
-  padding:1.5rem 2rem 3rem;
-}
-
-.workspace-page .evidence-content {
-  max-width:none;
+  padding:1rem clamp(1rem,2.5vw,2.5rem) 2rem;
 }
 
 .workspace-page .evidence-reader-header {
   position:relative;
   gap:.75rem 1rem;
-  margin:0 0 2rem;
+  margin:0 0 1.5rem;
   padding-bottom:1.5rem;
   border-bottom:1px solid var(--divider);
 }
@@ -442,15 +416,43 @@
   scroll-margin-block:1rem;
 }
 
-@media(min-width:80rem) {
-  .workspace-page .evidence-workspace {
-    grid-template-columns:21rem minmax(0,1fr);
+@media (min-width:72rem) and (min-height:36rem) {
+  .workspace-page .main-content {
+    height:100dvh;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
   }
+  .evidence-workspace {
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    flex:1;
+    min-height:0;
+  }
+  .evidence-workspace.has-selection {
+    grid-template-columns:clamp(20rem,23vw,26rem) minmax(0,1fr);
+  }
+  .has-selection .evidence-list-pane {
+    display:flex;
+    border-inline-end:1px solid var(--divider);
+  }
+  .evidence-records {
+    overflow:auto;
+  }
+  .evidence-reader {
+    overflow:auto;
+  }
+  .evidence-reader .back-link {
+    display:none;
+  }
+}
+
+@media(min-width:80rem) {
   .workspace-page .evidence-reader {
-    padding:2rem 2.5rem;
+    padding-block-start:2rem;
   }
   .workspace-page .evidence-reader-header {
-    margin-bottom:3rem;
+    margin-bottom:2rem;
   }
   .workspace-page .evidence-reader-header h1 {
     font-size:2rem;
@@ -475,50 +477,7 @@
   }
 }
 
-@media(max-width:79.999rem) {
-  .workspace-page .main-content {
-    height:auto;
-    min-height:100dvh;
-    overflow:visible;
-  }
-  .workspace-page .evidence-workspace {
-    display:block;
-  }
-  .workspace-page .evidence-reader {
-    overflow:visible;
-  }
-  .workspace-page .evidence-list-pane {
-    min-height:100dvh;
-  }
-  .workspace-page .evidence-reader-header {
-    margin-top:1rem;
-  }
-  .workspace-page .evidence-reader-header .actions {
-    flex-wrap:wrap;
-  }
-}
-
-@media(max-width:63.999rem) {
-  .workspace-page .main-content {
-    margin-left:0;
-    min-height:0;
-  }
-  .workspace-page .evidence-reader {
-    padding:1rem 1.5rem 2rem;
-  }
-  .workspace-page .evidence-reader-header {
-    margin-bottom:1.5rem;
-    padding-bottom:1.5rem;
-  }
-  .workspace-page .evidence-list-pane {
-    min-height:calc(100dvh - 60px);
-  }
-}
-
 @media(max-width:47.999rem) {
-  .workspace-page .evidence-reader {
-    padding:1rem 1rem 2rem;
-  }
   .workspace-page .evidence-reader-header>div:first-child {
     flex-basis:100%;
   }
@@ -529,9 +488,9 @@
     position:static;
     width:100%;
   }
-  .workspace-page .evidence-info>summary,.workspace-page .evidence-more>summary {
-    width:auto;
-    min-height:44px;
+  .workspace-page .evidence-reader-header .button,
+  .workspace-page :is(.evidence-info,.evidence-more)>summary {
+    padding-inline:.5rem;
   }
   .workspace-page .evidence-info[open]>summary {
     width:auto;

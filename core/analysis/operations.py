@@ -50,9 +50,9 @@ INPUT_GUIDANCE = {
         "claims and is kept separate from supplied details."
     ),
     "audio_metadata": (
-        "Uncompressed 16-bit mono/stereo PCM WAV, including retained call "
-        "additions. Other audio formats require a supported conversion "
-        "retained as separate evidence."
+        "Uncompressed 16-bit PCM WAV or AAC M4A, including retained call additions. "
+        "Mono/stereo, 8–48 kHz, up to 30 minutes; original and decoded audio "
+        "are each limited to 16 MiB."
     ),
     "ocr": (
         "Printed English in JPEG or PNG page images, processed locally. "
@@ -61,13 +61,14 @@ INPUT_GUIDANCE = {
         "against the original."
     ),
     "geographic_context": (
-        "Observed coordinates or explicitly accepted geographic estimates. "
-        "Address-only miTrail observations need reviewed geocoding first. "
+        "Reported coordinates or selected address estimates. "
+        "Address-only miTrail observations need a selected address estimate. "
         "Lookup sends bounded coordinate areas and the chosen map reference "
         "date to the configured service. Map features are contextual candidates."
     ),
     "transcription": (
-        "English, uncompressed 16-bit mono/stereo PCM WAV. Supplied "
+        "English PCM WAV or AAC M4A, mono/stereo at 8–48 kHz, up to 30 minutes. "
+        "Original and decoded audio are each limited to 16 MiB. Supplied "
         "transcripts remain separate. Automatic text, uncertain intervals and "
         "omissions require review."
     ),
@@ -100,6 +101,7 @@ OPERATIONS = {
         "Inspect audio metadata",
         audio_metadata.audio_metadata,
         ("audio", "phone-call", "facetime"),
+        version="2",
     ),
     "ocr": Operation(
         "Read text in images", image_ai.ocr, ("image", "document"), version="5"
@@ -116,6 +118,7 @@ OPERATIONS = {
         audio_ai.transcription,
         ("audio", "phone-call", "facetime"),
         additional_on_evidence=True,
+        version="2",
     ),
     "entities": Operation("Extract identifiers and dates", text.extract_entities, TEXT),
     "style_profiles": Operation(

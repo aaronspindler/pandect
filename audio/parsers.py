@@ -1,4 +1,4 @@
-"""Pure bounded WAV inspection and recording chunks."""
+"""Bounded WAV/AAC M4A decoding and recording chunks, without Django."""
 
 import base64
 import io
@@ -7,9 +7,96 @@ import struct
 import sys
 import wave
 
+import av
+
 from core.parser_contract import MAX_BYTES, ParserFailure
 
 MAX_AUDIO_SECONDS = 1800
+
+
+def _reject_external_audio(url, flags, options):
+    raise ParserFailure("external_audio_reference")
+
+
+def _m4a(content):
+    """Decode only self-contained, single-track AAC into bounded 16-bit PCM."""
+    try:
+        with av.open(
+            io.BytesIO(content),
+            format="mov",
+            options={
+                "enable_drefs": "0",
+                "use_absolute_path": "0",
+                "protocol_whitelist": "",
+            },
+            io_open=_reject_external_audio,
+        ) as container:
+            if len(container.streams) != 1 or len(container.streams.audio) != 1:
+                raise ParserFailure("unsupported_audio_encoding")
+            stream = container.streams.audio[0]
+            codec = stream.codec_context
+            rate, channels = codec.sample_rate, codec.channels
+            if codec.name != "aac" or channels not in {1, 2}:
+                raise ParserFailure("unsupported_audio_encoding")
+            if not 8000 <= rate <= 48000:
+                raise ParserFailure("unsupported_audio_rate")
+            if stream.duration is not None:
+                duration = stream.duration * stream.time_base
+                if duration > MAX_AUDIO_SECONDS:
+                    raise ParserFailure("audio_duration_limit")
+                if duration * rate * channels * 2 > MAX_BYTES:
+                    raise ParserFailure("input_limit")
+            codec.thread_count = 1
+            codec.options = {"err_detect": "explode"}
+            resampler = av.AudioResampler(
+                format="s16", layout="mono" if channels == 1 else "stereo", rate=rate
+            )
+            pcm = bytearray()
+            samples = 0
+            for packet in container.demux(stream):
+                if packet.is_corrupt:
+                    raise ParserFailure("malformed_audio")
+                for frame in packet.decode():
+                    # Chunk anchors assume a continuous original timeline from zero.
+                    if (
+                        frame.sample_rate != rate
+                        or len(frame.layout.channels) != channels
+                        or frame.pts is None
+                        or abs(frame.pts * frame.time_base * rate - samples) > 1
+                    ):
+                        raise ParserFailure("unsupported_audio_timeline")
+                    samples += frame.samples
+                    if samples / rate > MAX_AUDIO_SECONDS:
+                        raise ParserFailure("audio_duration_limit")
+                    if samples * channels * 2 > MAX_BYTES:
+                        raise ParserFailure("input_limit")
+                    for decoded in resampler.resample(frame):
+                        pcm.extend(
+                            bytes(decoded.planes[0])[: decoded.samples * channels * 2]
+                        )
+            for decoded in resampler.resample(None):
+                pcm.extend(bytes(decoded.planes[0])[: decoded.samples * channels * 2])
+            if not samples or len(pcm) != samples * channels * 2:
+                raise ParserFailure("malformed_audio")
+            if (
+                stream.duration is not None
+                and abs(samples - stream.duration * stream.time_base * rate) > 1
+            ):
+                raise ParserFailure("truncated_audio")
+            buffer = io.BytesIO()
+            with wave.open(buffer, "wb") as recording:
+                recording.setnchannels(channels)
+                recording.setsampwidth(2)
+                recording.setframerate(rate)
+                recording.writeframes(pcm)
+            version = "; ".join(
+                f"{name} {'.'.join(map(str, value))}"
+                for name, value in av.library_versions.items()
+                if name in {"libavcodec", "libavformat", "libswresample"}
+            )
+            return buffer.getvalue(), f"PyAV {av.__version__}; {version}"
+    except av.FFmpegError:
+        raise ParserFailure("malformed_audio") from None
 
 
 def _audio(content, *, inspect_only=False):
@@ -65,6 +152,7 @@ def _audio(content, *, inspect_only=False):
             return {
                 "status": "complete",
                 "format": "WAV",
+                "content_type": "audio/wav",
                 "codec": "PCM signed 16-bit little-endian",
                 "version": (
                     f"Python {sys.version_info.major}.{sys.version_info.minor} wave"
@@ -120,6 +208,22 @@ def _audio_chunk(content, options):
 
 
 def parse(operation, content, options):
+    m4a = content[4:8] == b"ftyp"
+    if m4a:
+        try:
+            content, version = _m4a(content)
+        except ParserFailure as error:
+            if not str(error).startswith("unsupported_audio_"):
+                raise
+            return {"status": "unsupported", "reason": str(error)}
     if operation == "audio_chunk":
         return _audio_chunk(content, options)
-    return _audio(content, inspect_only=operation == "audio_preview")
+    result = _audio(content, inspect_only=operation == "audio_preview")
+    if m4a and result["status"] == "complete":
+        result.update(
+            format="M4A",
+            codec="AAC decoded to PCM signed 16-bit little-endian",
+            content_type="audio/mp4",
+            version=version,
+        )
+    return result

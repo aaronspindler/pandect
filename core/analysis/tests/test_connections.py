@@ -43,7 +43,9 @@ class ConnectionTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.context["page_obj"].paginator.count, 0)
 
-    def test_group_collapses_versions_and_discloses_duplicates_and_partial_review(self):
+    def test_group_collapses_versions_and_discloses_duplicates_and_coverage(
+        self,
+    ):
         self.match(self.note, parameters={"version": 1})
         latest = self.match(self.note, parameters={"version": 2})
         other = self.text()
@@ -63,7 +65,7 @@ class ConnectionTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "Includes partial analysis")
         detail = self.client.get(groups[0]["url"])
         self.assertEqual(detail.context["page_obj"].paginator.count, 2)
-        self.assertContains(detail, "Finding review: Rejected")
+        self.assertNotContains(detail, "Finding review")
         self.assertContains(detail, "Partial coverage")
         self.assertContains(detail, "Copies are not independent corroboration")
 

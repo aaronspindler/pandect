@@ -12,7 +12,7 @@ from django_tasks_db.models import DBTaskResult
 
 from core.analysis.forms import analysis_form
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import process_run, review_result, start_run
+from core.analysis.services import process_run, start_run
 from core.evidence.types import COMMUNICATION_KINDS
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
@@ -121,7 +121,7 @@ class MessageAnalysisSelectionTests(EvidenceViewTestMixin, TestCase):
                         f"{kind}:{call.pk}:{self.transcripts[kind].pk}", choices
                     )
 
-    def test_earlier_mixed_selection_can_finish_and_remain_reviewable(self):
+    def test_earlier_mixed_selection_can_finish_and_remain_readable(self):
         operation = OPERATIONS["sessions"]
         selections = [
             {"kind": "text-message", "id": str(self.message.pk)},
@@ -141,9 +141,6 @@ class MessageAnalysisSelectionTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.status, "complete", run.error_code)
         self.assertEqual(run.inputs, original_inputs)
         self.assertEqual(run.result.data["metrics"]["selected_messages"], 1)
-        review = review_result(
-            self.users["editor"], self.case.pk, run.result.pk, "unresolved"
-        )
         self.login("viewer")
         for route in ("detail", "download"):
             with self.subTest(route=route):
@@ -151,7 +148,6 @@ class MessageAnalysisSelectionTests(EvidenceViewTestMixin, TestCase):
                     reverse(f"core:analysis:{route}", args=[self.case.pk, run.pk])
                 )
                 self.assertEqual(response.status_code, 200)
-        self.assertEqual(run.result.reviews.get().pk, review.pk)
         with self.assertRaises(ValidationError):
             start_run(
                 self.users["owner"],

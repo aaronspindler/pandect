@@ -2,6 +2,7 @@
 
 import re
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from django.core.files.base import ContentFile
@@ -12,7 +13,7 @@ from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.catalogue import project_result
 from core.analysis.operations import get_operation
-from core.analysis.services import snapshot_sources
+from core.analysis.services import resolve_inputs, snapshot_sources
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from document.models import DocumentEvidence
 from people.models import Person
@@ -89,7 +90,7 @@ class ConversationBrowserTests(BrowserTestCase):
             },
         )
 
-    def test_no_javascript_inline_details_filter_and_exact_evidence_roundtrip(self):
+    def test_no_javascript_message_selection_filter_and_exact_evidence_roundtrip(self):
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -102,9 +103,8 @@ class ConversationBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Conversations", exact=True)
                 ).to_be_visible()
                 page.locator(f'a[href="{self.reader_path}"]').click()
-                expect(page.locator("[data-message-details][open]")).to_have_count(0)
-                for message in self.messages[:2]:
-                    self.assert_inline_details_do_not_navigate(page, message)
+                panel = page.get_by_role("complementary", name="Message details")
+                expect(panel).to_be_hidden()
                 page.locator('select[name="source"]').select_option(str(self.export.pk))
                 page.locator(
                     'form:has(select[name="source"]) button[type="submit"]'
@@ -117,14 +117,24 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.get_by_role("link", name="Later messages", exact=True).click()
                 target = self.messages[51]
                 target_row = page.locator(f"#message-{target.pk}")
-                target_details = page.locator(f"#message-details-{target.pk}")
-                target_summary = target_details.locator(":scope > summary")
-                target_summary.click()
-                expect(target_details).to_have_attribute("open", "")
-                expect(target_details).to_contain_text("synthetic-52")
-                target_row.get_by_role(
-                    "link", name="Open evidence", exact=False
-                ).click()
+                target_link = target_row.locator("[data-message-select]")
+                target_link.press("Enter")
+                expect(panel).to_be_visible()
+                expect(panel.locator(".conversation-message-body")).to_have_text(
+                    target.body
+                )
+                expect(target_link).to_have_attribute("aria-current", "true")
+                source = panel.get_by_text("Message source", exact=True)
+                metadata = panel.get_by_role("link", name="View source metadata")
+                expect(metadata).to_be_hidden()
+                source.press("Enter")
+                expect(panel.get_by_text("Row 52", exact=False)).to_be_visible()
+                metadata.press("Enter")
+                expect(page.locator(".evidence-info")).to_have_attribute("open", "")
+                expect(page.locator(".evidence-info")).to_contain_text("synthetic-52")
+                page.get_by_role("link", name="View in conversation").press("Enter")
+                expect(target_link).to_have_attribute("aria-current", "true")
+                panel.get_by_role("link", name="Open evidence", exact=False).click()
                 expect(page).to_have_url(
                     self.live_server_url
                     + self.evidence_path(target)
@@ -154,68 +164,29 @@ class ConversationBrowserTests(BrowserTestCase):
                 self.assertEqual(params["source"], [str(self.export.pk)])
                 self.assertEqual(params["message"], [str(target.pk)])
                 expect(target_row).to_be_in_viewport()
-                expect(target_details).to_have_attribute("open", "")
+                expect(panel).to_be_visible()
+                expect(target_link).to_have_attribute("aria-current", "true")
                 expect(
-                    target_row.get_by_role("link", name="Open evidence", exact=False)
+                    panel.get_by_role("link", name="Open evidence", exact=False)
                 ).to_have_attribute(
                     "href",
                     self.evidence_path(target)
                     + f"?conversation_source={self.export.pk}",
                 )
-                expect(page.locator("[data-message-details][open]")).to_have_count(1)
                 self.capture(page, engine, "no-javascript-exact-message")
                 page.set_viewport_size({"width": 390, "height": 844})
-                target_summary.focus()
-                page.keyboard.press("Enter")
-                expect(target_details).not_to_have_attribute("open", "")
-                expect(target_summary).to_be_focused()
-                page.keyboard.press("Enter")
-                expect(target_details).to_have_attribute("open", "")
-                expect(target_summary).to_be_focused()
+                expect(panel).to_be_visible()
+                expect(panel.locator(".conversation-message-body")).to_have_text(
+                    target.body
+                )
                 self.assert_reflow(page, 390)
-                self.capture(page, engine, "mobile-inline-message-details")
-
-    def assert_inline_details_do_not_navigate(self, page, message):
-        page.wait_for_load_state("networkidle")
-        details = page.locator(f"#message-details-{message.pk}")
-        summary = details.locator(":scope > summary")
-        requests = []
-        navigations = []
-
-        def record_request(request):
-            requests.append(request.url)
-
-        def record_navigation(frame):
-            if frame == page.main_frame:
-                navigations.append(frame.url)
-
-        page.on("request", record_request)
-        page.on("framenavigated", record_navigation)
-        page.evaluate("window.inlineConversationDocument = document")
-        original_url = page.url
-        try:
-            expect(details).not_to_have_attribute("open", "")
-            summary.focus()
-            position = summary.bounding_box()["y"]
-            page.keyboard.press("Enter")
-            expect(details).to_have_attribute("open", "")
-            expect(summary).to_be_focused()
-            self.assertAlmostEqual(summary.bounding_box()["y"], position, delta=2)
-            expect(details).to_contain_text(
-                f"synthetic-{self.messages.index(message) + 1}"
-            )
-            page.keyboard.press("Enter")
-            expect(details).not_to_have_attribute("open", "")
-            expect(summary).to_be_focused()
-            expect(page).to_have_url(original_url)
-            self.assertTrue(
-                page.evaluate("window.inlineConversationDocument === document")
-            )
-            self.assertEqual(requests, [], "Inspecting a message issued a request")
-            self.assertEqual(navigations, [], "Inspecting a message navigated")
-        finally:
-            page.remove_listener("request", record_request)
-            page.remove_listener("framenavigated", record_navigation)
+                self.capture(page, engine, "mobile-message-details")
+                panel.get_by_role("link", name="Back to messages").press("Enter")
+                expect(panel).to_be_hidden()
+                expect(target_link).to_be_in_viewport()
+                self.assertEqual(
+                    parse_qs(urlsplit(page.url).query)["source"], [str(self.export.pk)]
+                )
 
     def evidence_path(self, message):
         return reverse(
@@ -228,6 +199,7 @@ class ConversationBrowserTests(BrowserTestCase):
         )
 
     def test_scrolling_appends_filtered_messages_without_navigation(self):
+        self.save_sessions(self.messages[48:52])
         instant = self.messages[-1].occurred_at + timedelta(days=1)
         for number in range(55, 105):
             message = TextMessageEvidence.objects.create(
@@ -265,6 +237,12 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.evaluate("window.conversationDocument = document")
                 messages = page.locator(".conversation-message")
                 expect(messages).to_have_count(50)
+                boundary_tint = messages.nth(49).get_attribute("data-session-tint")
+                self.assertTrue(boundary_tint)
+                expect(messages.nth(48)).to_contain_text("Session starts")
+                expect(
+                    messages.nth(49).locator(".conversation-session-marker")
+                ).to_have_count(0)
                 self.assertLessEqual(messages.first.bounding_box()["height"], 190)
                 edge = page.locator('[data-conversation-edge="next"]')
                 with page.expect_request(
@@ -281,6 +259,13 @@ class ConversationBrowserTests(BrowserTestCase):
                     },
                 )
                 expect(messages).to_have_count(100)
+                expect(messages.nth(50)).to_have_attribute(
+                    "data-session-tint", boundary_tint
+                )
+                expect(
+                    messages.nth(50).locator(".conversation-session-marker")
+                ).to_have_count(0)
+                expect(messages.nth(51)).to_contain_text("Session ends")
                 expect(edge.locator("a")).to_have_attribute(
                     "href", re.compile(r"&page=3$")
                 )
@@ -296,20 +281,38 @@ class ConversationBrowserTests(BrowserTestCase):
                 ids = messages.evaluate_all("rows => rows.map(row => row.id)")
                 self.assertEqual(ids, [f"message-{row.pk}" for row in self.messages])
                 target = self.messages[-1]
-                details = page.locator(f"#message-details-{target.pk}")
-                details.locator(":scope > summary").press("Enter")
-                expect(details).to_have_attribute("open", "")
-                expect(details).to_contain_text("synthetic-104")
+                page.locator(f"#message-{target.pk} [data-message-select]").press(
+                    "Enter"
+                )
+                panel = page.get_by_role("complementary", name="Message details")
+                expect(panel).to_be_visible()
+                expect(panel.locator(".conversation-message-body")).to_have_text(
+                    target.body
+                )
+                self.assertTrue(
+                    page.evaluate("window.conversationDocument === document")
+                )
                 expect(
-                    page.locator(f"#message-{target.pk}").get_by_role(
-                        "link", name="Open evidence", exact=False
-                    )
+                    panel.get_by_role("link", name="Open evidence")
                 ).to_have_attribute(
                     "href",
                     self.evidence_path(target)
                     + f"?conversation_source={self.export.pk}&conversation_list_page=2",
                 )
                 self.capture(page, engine, "scrolled-filtered-messages")
+
+                # A refresh retains the selected message but discards earlier pages.
+                page.reload()
+                items = page.locator("[data-conversation-items]")
+                expect(items).to_have_attribute("data-page", "3")
+                expect(panel.locator(".conversation-message-body")).to_have_text(
+                    target.body
+                )
+                page.go_back()
+                expect(page).to_have_url(url)
+                expect(items).to_have_attribute("data-page", "1")
+                expect(page.locator(f"#message-{self.messages[0].pk}")).to_be_attached()
+                expect(panel).to_be_hidden()
 
     def test_scrolling_prepends_without_moving_linked_message_or_focus(self):
         for engine in self.engines:
@@ -334,19 +337,20 @@ class ConversationBrowserTests(BrowserTestCase):
                 edge = page.locator('[data-conversation-edge="previous"]')
                 edge.scroll_into_view_if_needed()
                 expect(edge).to_contain_text("Loading messages")
-                summary = page.locator(f"#message-details-{target.pk} > summary")
-                summary.focus()
-                position = summary.bounding_box()["y"]
+                selected = page.locator(f"#message-{target.pk} [data-message-select]")
+                selected.focus()
+                position = selected.bounding_box()["y"]
                 self.assertEqual(len(pending), 1)
                 pending[0].continue_()
                 expect(page.locator(".conversation-message")).to_have_count(54)
-                expect(summary).to_be_focused()
-                self.assertAlmostEqual(summary.bounding_box()["y"], position, delta=2)
+                expect(selected).to_be_focused()
+                self.assertAlmostEqual(selected.bounding_box()["y"], position, delta=2)
                 expect(page.locator(".conversation-date")).to_have_count(1)
                 expect(page.locator("[data-selected-message]")).to_have_count(1)
-                expect(page.locator(f"#message-details-{target.pk}")).to_have_attribute(
-                    "open", ""
-                )
+                expect(selected).to_have_attribute("aria-current", "true")
+                expect(
+                    page.get_by_role("complementary", name="Message details")
+                ).to_be_visible()
                 expect(edge).to_contain_text("Start of messages.")
 
     def test_failed_scroll_recovers_with_full_page_navigation(self):
@@ -436,13 +440,114 @@ class ConversationBrowserTests(BrowserTestCase):
                     + "?page=2",
                 )
 
-    def test_reader_inline_details_reflow_themes_and_keyboard_focus(self):
+    def save_sessions(self, messages):
+        operation = get_operation("sessions")
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="sessions",
+            method_version=operation.version,
+            inputs=snapshot_sources(
+                self.case, [{"kind": "text-message", "id": m.pk} for m in messages]
+            ),
+            status="complete",
+            parameters={"gap_minutes": 15},
+        )
+        data = operation.function(resolve_inputs(run, self.case), run.parameters)
+        project_result(
+            AnalysisResult.objects.create(case=self.case, run=run, data=data)
+        )
+
+    def test_reader_selection_history_groupings_reflow_and_keyboard(self):
+        self.save_sessions(self.messages[:4])
+        self.save_sessions(self.messages[3:6])
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, self.viewer)
-                page.goto(self.live_server_url + self.reader_path)
-                for message in self.messages[:2]:
-                    self.assert_inline_details_do_not_navigate(page, message)
+                url = (
+                    self.live_server_url
+                    + self.reader_path
+                    + f"?source={self.export.pk}"
+                )
+                page.goto(url)
+                page.evaluate("window.conversationDocument = document")
+                rows = page.locator(".conversation-message")
+                first = rows.nth(0)
+                second = rows.nth(1)
+                conflict = rows.nth(3)
+                first_link = first.locator("[data-message-select]")
+                second_link = second.locator("[data-message-select]")
+                panel = page.get_by_role("complementary", name="Message details")
+                expect(panel).to_be_hidden()
+                expect(first.get_by_text("Session starts", exact=False)).to_be_visible()
+                tint = first.get_attribute("data-session-tint")
+                self.assertTrue(tint)
+                expect(second).to_have_attribute("data-session-tint", tint)
+                expect(
+                    conflict.get_by_text("Multiple groupings", exact=True)
+                ).to_be_visible()
+                self.assertIsNone(conflict.get_attribute("data-session-tint"))
+                expect(
+                    rows.nth(5).get_by_text("Session ends", exact=False)
+                ).to_be_visible()
+                self.assertIsNone(rows.nth(6).get_attribute("data-session-tint"))
+
+                # A selection drag must leave the original available for copying.
+                original = first.locator(".conversation-message-body")
+                self.assertEqual(original.text_content(), self.messages[0].body)
+                original.scroll_into_view_if_needed()
+                box = original.bounding_box()
+                x, y = box["x"] + 2, box["y"] + 9
+                page.mouse.move(x, y)
+                page.mouse.down()
+                page.mouse.move(x + 90, y, steps=12)
+                page.mouse.up()
+                self.assertIn(
+                    "Original", page.evaluate("window.getSelection().toString()")
+                )
+                expect(panel).to_be_hidden()
+                page.evaluate("window.getSelection().removeAllRanges()")
+
+                first_link.press("Enter")
+                expect(page.locator("#message-panel-title")).to_be_focused()
+                expect(first_link).to_have_attribute("aria-current", "true")
+                body = panel.locator(".conversation-message-body")
+                self.assertEqual(
+                    body.text_content(),
+                    self.messages[0].body,
+                )
+                first_url = page.url
+                second.locator(".conversation-message-body").click()
+                expect(second_link).to_have_attribute("aria-current", "true")
+                expect(body).to_have_text(self.messages[1].body)
+                second_url = page.url
+                self.assertNotEqual(first_url, second_url)
+                page.go_back()
+                expect(page).to_have_url(first_url)
+                expect(first_link).to_have_attribute("aria-current", "true")
+                expect(body).to_have_text(self.messages[0].body)
+                page.go_forward()
+                expect(page).to_have_url(second_url)
+                expect(second_link).to_have_attribute("aria-current", "true")
+                expect(body).to_have_text(self.messages[1].body)
+                page.keyboard.press("Escape")
+                expect(panel).to_be_hidden()
+                expect(second_link).to_be_focused()
+                self.assertTrue(
+                    page.evaluate("window.conversationDocument === document")
+                )
+                self.assertNotIn("message", parse_qs(urlsplit(page.url).query))
+                conflict.locator("[data-message-select]").click()
+                expect(body).to_have_text(self.messages[3].body)
+                groupings = panel.get_by_text("Multiple groupings", exact=True)
+                sessions = panel.locator(".conversation-session-groups")
+                expect(sessions).to_be_hidden()
+                groupings.press("Enter")
+                expect(sessions).to_be_visible()
+                expect(sessions.get_by_role("link")).to_have_count(2)
+                panel.locator("[data-message-close]").click()
+                expect(conflict.locator("[data-message-select]")).to_be_focused()
+
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -453,32 +558,35 @@ class ConversationBrowserTests(BrowserTestCase):
                     page.set_viewport_size({"width": width, "height": height})
                     self.assert_reflow(page, width)
                     self.capture(page, engine, f"reader-{width}-{height}")
-                first_details = page.locator(f"#message-details-{self.messages[0].pk}")
-                first_details.locator(":scope > summary").click()
-                expect(first_details).to_have_attribute("open", "")
-                self.assert_reflow(page, 320)
-                self.capture(page, engine, "inline-details-320")
-                page.goto(self.live_server_url + self.reader_path + "?page=2")
-                manual_details = page.locator(
-                    f"#message-details-{self.manual_message.pk}"
-                )
-                manual_details.locator(":scope > summary").click()
-                expect(manual_details).to_have_attribute("open", "")
-                self.assert_reflow(page, 320)
-                self.capture(page, engine, "unknown-time-long-identifier-320")
-                page.set_viewport_size({"width": 1440, "height": 900})
+                    first_link.click()
+                    self.assert_reflow(page, width)
+                    self.capture(page, engine, f"message-panel-{width}-{height}")
+                    if width < 768:
+                        expect(first_link).to_be_hidden()
+                        close = panel.get_by_role("link", name="Back to messages")
+                    else:
+                        close = panel.locator("[data-message-close]")
+                    close.click()
+                    expect(first_link).to_be_focused()
+                    expect(first_link).to_be_in_viewport()
                 page.goto(
                     self.live_server_url
                     + self.reader_path
-                    + f"?message={self.messages[0].pk}#message-{self.messages[0].pk}"
+                    + f"?message={self.manual_message.pk}"
+                    + f"#message-{self.manual_message.pk}"
                 )
-                first_summary = first_details.locator(":scope > summary")
-                expect(first_details).to_have_attribute("open", "")
+                expect(panel).to_be_visible()
+                self.assert_reflow(page, 320)
+                self.capture(page, engine, "unknown-time-long-identifier-320")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.goto(first_url)
+                expect(panel).to_be_visible()
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
                 self.capture(page, engine, "reader-dark-reduced-motion")
                 page.emulate_media(forced_colors="active")
-                first_summary.focus()
-                expect(first_summary).to_be_focused()
+                first_link.focus()
+                expect(first_link).to_be_focused()
+                expect(first.get_by_text("Session starts", exact=False)).to_be_visible()
                 self.capture(page, engine, "reader-forced-colors")
                 page.emulate_media(color_scheme="light", forced_colors="none")
                 page.evaluate("document.documentElement.style.fontSize = '200%'")
@@ -501,19 +609,30 @@ class ConversationBrowserTests(BrowserTestCase):
         run = AnalysisRun.objects.create(
             case=self.case,
             requested_by=self.owner,
-            operation="text_topics",
-            method_version=get_operation("text_topics").version,
+            operation="content_events",
+            method_version=get_operation("content_events").version,
             inputs=inputs,
             status="partial",
         )
         items = [
             {
-                "label": f"Retained observation {number + 1:02}",
+                "label": f"Reported sender **{first.sender_id}**"
+                if number == 1
+                else f"Retained observation {number + 1:02}",
                 "text": (
-                    "A possible harbour meeting is suggested."
+                    f"Reported sender **{first.sender_id}** suggests "
+                    f"a possible meeting with reported recipient {first.recipient_id}."
                     if number == 1
                     else f"Literal wording observation {number + 1:02}: "
                     "<script> remains quoted text, not executable content."
+                    + (
+                        " This synthetic observation records the wording of the"
+                        " first retained message and refers the reader to the"
+                        " source for the complete exchange. End of retained"
+                        " observation."
+                        if number == 0
+                        else ""
+                    )
                 ),
                 "source_ids": [inputs[0]["id"]],
                 "values": {"status": "unresolved"} if number == 1 else {},
@@ -550,11 +669,13 @@ class ConversationBrowserTests(BrowserTestCase):
         shared_run = AnalysisRun.objects.create(
             case=self.case,
             requested_by=self.owner,
-            operation="session_summaries",
-            method_version=get_operation("session_summaries").version,
+            operation="conversation_link",
+            method_version=get_operation("conversation_link").version,
             inputs=shared_inputs,
             status="complete",
+            parameters={"automatic_batch": str(first.pk), "import_run_id": str(run.pk)},
         )
+        self.shared_run = shared_run
         shared_result = AnalysisResult.objects.create(
             case=self.case,
             run=shared_run,
@@ -565,13 +686,81 @@ class ConversationBrowserTests(BrowserTestCase):
                         "label": f"Shared exchange {number + 1:02}",
                         "text": "The selected messages mention a possible meeting.",
                         "source_ids": [source["id"] for source in shared_inputs],
-                        "values": {"status": "unresolved"},
+                        "values": {
+                            "status": "unresolved",
+                            "native_thread_references": [
+                                f"{self.export.pk}:synthetic-thread"
+                            ],
+                        },
                     }
                     for number in range(27)
                 ],
             },
         )
         project_result(shared_result)
+
+    @patch("core.analysis.ranking.MAX_MATCH_KEYS", 1)
+    def test_open_message_loads_its_ranked_panel_when_visible_keys_exceed_budget(self):
+        first, peer, other = self.messages[:3]
+        inputs = snapshot_sources(
+            self.case,
+            [
+                {"kind": "text-message", "id": message.pk}
+                for message in (first, peer, other)
+            ],
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="entities",
+            method_version=get_operation("entities").version,
+            inputs=inputs,
+            status="complete",
+        )
+        items = [
+            {
+                "label": "Background",
+                "text": "Routine detail",
+                "source_ids": [inputs[0]["id"]],
+            },
+            {
+                "label": "Identifier candidate",
+                "text": "BOOK-7418",
+                "source_ids": [inputs[0]["id"]],
+            },
+            {
+                "label": "Identifier candidate",
+                "text": "BOOK-7418",
+                "source_ids": [inputs[1]["id"]],
+            },
+            {
+                "label": "Email",
+                "text": "contact@example.test",
+                "source_ids": [inputs[2]["id"]],
+            },
+        ]
+        project_result(
+            AnalysisResult.objects.create(
+                case=self.case, run=run, data={"items": items}
+            )
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.live_server_url + self.reader_path)
+                row = page.locator(f"#message-{first.pk}")
+                expect(row).to_have_attribute("data-load-panel-on-open", "")
+                row.locator("[data-message-select]").click()
+                panel = page.locator("[data-message-panel]")
+                top = panel.locator(".conversation-finding").first
+                expect(top).to_be_visible()
+                expect(top).to_contain_text("BOOK-7418")
+                expect(top).to_contain_text("another original")
+                expect(row).not_to_have_attribute("data-load-panel-on-open", "")
+                page.go_back()
+                expect(row).to_have_attribute("data-load-panel-on-open", "")
+                page.go_forward()
+                expect(top).to_contain_text("another original")
 
     def test_saved_findings_without_javascript_paging_and_message_links(self):
         self.make_saved_findings()
@@ -589,33 +778,52 @@ class ConversationBrowserTests(BrowserTestCase):
             ):
                 self.sign_in(page, self.viewer)
                 page.goto(url)
-                inline = page.locator(f"#message-analysis-{first.pk}")
+                row = page.locator(f"#message-{first.pk}")
+                expect(row).not_to_contain_text("Literal wording observation")
+                row.locator("[data-message-select]").press("Enter")
+                panel = page.get_by_role("complementary", name="Message details")
+                inline = panel.locator("[data-message-analysis]")
                 shared = page.locator("#conversation-analysis")
-                summary = inline.locator(":scope > summary")
-                expect(summary).to_contain_text("Findings · 28")
-                expect(inline.locator(".conversation-analysis-preview")).to_be_visible()
-                expect(inline).not_to_have_attribute("open", "")
-                summary.focus()
-                page.keyboard.press("Enter")
-                expect(inline).to_have_attribute("open", "")
-                expect(summary).to_be_focused()
-                expect(page).to_have_url(url)
-                expect(inline.locator(".conversation-analysis-preview")).to_be_hidden()
+                summary = inline.locator("summary")
+                expect(summary).to_have_text("Findings · 28")
                 findings = inline.locator(".conversation-finding")
+                expect(inline).to_have_attribute("open", "")
+                expect(findings.first).to_be_visible()
                 expect(findings).to_have_count(3)
                 expect(findings.nth(0)).not_to_contain_text("AI suggestion")
                 expect(findings.nth(0)).to_contain_text("<script>")
                 expect(findings.nth(0).locator("script")).to_have_count(0)
+                excerpt = findings.first.get_by_text(
+                    re.compile(r"^Literal wording observation 01:.*…$")
+                )
+                expect(excerpt).to_be_visible()
+                self.assertLessEqual(len(excerpt.inner_text()), 160)
+                full_text_end = "End of retained observation."
+                expect(findings.first).not_to_contain_text(full_text_end)
+                expect(inline.locator(".conversation-finding-method")).to_have_count(0)
                 expect(findings.nth(1)).to_contain_text("AI suggestion")
-                expect(findings.nth(1)).to_contain_text("Rejected")
-                expect(findings.nth(1)).to_contain_text("Whole result: Unresolved")
+                expect(findings.nth(1)).to_contain_text("Reported sender Alex")
+                expect(findings.nth(1)).to_contain_text("reported recipient Blair")
+                expect(findings.nth(1)).not_to_contain_text(str(first.sender_id))
+                expect(findings.nth(1)).not_to_contain_text("Rejected")
+                expect(findings.nth(1)).not_to_contain_text("Whole result: Unresolved")
                 expect(findings.nth(1)).to_contain_text("Partial coverage")
                 expect(inline).not_to_contain_text("Shared exchange")
                 expect(shared.locator(":scope > summary")).to_contain_text(
                     "Conversation findings · 27"
                 )
                 summary.scroll_into_view_if_needed()
-                self.capture(page, engine, "saved-findings-inline-preview")
+                self.capture(page, engine, "saved-findings-panel")
+                page.set_viewport_size({"width": 390, "height": 844})
+                summary.scroll_into_view_if_needed()
+                self.assert_reflow(page, 390)
+                self.capture(page, engine, "saved-findings-preview-mobile")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                findings.first.get_by_role(
+                    "link", name="Open finding: Retained observation 01", exact=True
+                ).click()
+                expect(page.locator(".analysis-finding")).to_contain_text(full_text_end)
+                page.go_back()
                 inline.get_by_role("link", name="More findings", exact=False).click()
                 params = parse_qs(urlsplit(page.url).query)
                 self.assertEqual(params["source"], [str(self.export.pk)])
@@ -624,6 +832,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 self.assertEqual(params["analysis_page"], ["1"])
                 expect(inline).to_have_attribute("open", "")
                 expect(findings).to_have_count(25)
+                expect(findings.first).to_contain_text(full_text_end)
                 inline.get_by_role("link", name="Next findings", exact=True).click()
                 expect(findings).to_have_count(3)
                 expect(inline).to_contain_text("Retained observation 28")
@@ -634,25 +843,70 @@ class ConversationBrowserTests(BrowserTestCase):
                 ).click()
                 expect(page.locator(".analysis-finding")).to_be_visible()
                 page.go_back()
-                expect(inline).to_have_attribute("open", "")
+                expect(inline).to_be_visible()
                 expect(findings).to_have_count(25)
                 shared.locator(":scope > summary").press("Enter")
                 expect(shared.locator(".conversation-finding")).to_have_count(25)
                 shared.get_by_role("link", name="Next findings", exact=True).click()
                 expect(shared).to_have_attribute("open", "")
+                expect(inline).to_contain_text("Reported sender Alex")
+                expect(inline).not_to_contain_text(str(first.sender_id))
                 expect(shared.locator(".conversation-finding")).to_have_count(2)
                 expect(findings).to_have_count(25)
                 shared.get_by_role("link", name="Previous findings", exact=True).click()
                 shared.locator(f'a[href*="message={target.pk}"]').first.click()
                 expect(page.locator(f"#message-{target.pk}")).to_be_in_viewport()
-                expect(page.locator(f"#message-details-{target.pk}")).to_have_attribute(
-                    "open", ""
+                expect(panel).to_be_visible()
+                expect(panel.locator(".conversation-message-body")).to_have_text(
+                    target.body
                 )
                 params = parse_qs(urlsplit(page.url).query)
                 self.assertEqual(params["message"], [str(target.pk)])
                 self.assertEqual(params["source"], [str(self.export.pk)])
                 self.assertEqual(params["list_page"], ["2"])
                 self.assertEqual(self.db(AnalysisRun.objects.count), run_count)
+
+                page.goto(
+                    self.url("core:analysis:browse", case_id=self.case.pk)
+                    + "?method=content_events"
+                )
+                suggestion = page.locator(".analysis-finding-rows > li").filter(
+                    has_text="Reported sender Alex"
+                )
+                expect(suggestion).to_contain_text("Reported sender Alex")
+                expect(suggestion).not_to_contain_text(str(first.sender_id))
+                self.capture(page, engine, "participant-names-catalogue")
+                suggestion.get_by_role(
+                    "link", name="Reported sender Alex", exact=True
+                ).click()
+                expect(
+                    page.get_by_role("heading", name="Reported sender Alex", exact=True)
+                ).to_be_visible()
+                text = page.locator(".analysis-finding-text")
+                expect(text).to_contain_text("Reported sender Alex")
+                expect(text).to_contain_text("reported recipient Blair")
+                expect(text).not_to_contain_text(str(first.sender_id))
+                self.capture(page, engine, "participant-names-detail")
+
+                page.goto(
+                    self.url(
+                        "core:analysis:detail",
+                        case_id=self.case.pk,
+                        run_id=self.shared_run.pk,
+                    )
+                    + "?finding=1"
+                )
+                thread = page.get_by_text(
+                    "Synthetic message export · Thread synthetic-thread", exact=True
+                )
+                if not thread.is_visible():
+                    page.locator("#finding-1").get_by_text("Details", exact=True).press(
+                        "Enter"
+                    )
+                expect(thread).to_be_visible()
+                assumptions = page.locator(".analysis-run-details")
+                expect(assumptions).not_to_contain_text(str(first.pk))
+                self.capture(page, engine, "readable-session-references")
 
     def test_saved_findings_reflow_focus_and_scrolling_preserve_context(self):
         self.make_saved_findings()
@@ -669,9 +923,10 @@ class ConversationBrowserTests(BrowserTestCase):
                     + f"#message-analysis-{first.pk}"
                 )
                 page.goto(url)
-                inline = page.locator(f"#message-analysis-{first.pk}")
+                panel = page.get_by_role("complementary", name="Message details")
+                inline = panel.locator("[data-message-analysis]")
                 shared = page.locator("#conversation-analysis")
-                summary = inline.locator(":scope > summary")
+                summary = inline.locator("summary")
                 expect(inline).to_have_attribute("open", "")
                 expect(shared).to_have_attribute("open", "")
                 for width, height in (
@@ -687,15 +942,13 @@ class ConversationBrowserTests(BrowserTestCase):
                     self.capture(page, engine, f"saved-findings-{width}-{height}")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
-                summary.focus()
-                page.keyboard.press("Enter")
-                expect(inline).not_to_have_attribute("open", "")
-                expect(summary).to_be_focused()
+                close = panel.locator("[data-message-close]")
+                close.focus()
+                expect(close).to_be_focused()
                 self.capture(page, engine, "saved-findings-dark-reduced-motion")
                 page.emulate_media(forced_colors="active")
-                page.keyboard.press("Enter")
-                expect(inline).to_have_attribute("open", "")
-                expect(summary).to_be_focused()
+                expect(inline).to_be_visible()
+                expect(close).to_be_focused()
                 self.capture(page, engine, "saved-findings-forced-colors")
                 page.emulate_media(color_scheme="light", forced_colors="none")
                 page.evaluate("document.documentElement.style.fontSize = '200%'")

@@ -2,9 +2,10 @@
 
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
+from cases.models import CaseMembership
 from core.analysis.services import process_run, start_run
 from core.models import AnalysisReview, AnalysisRun
 from geo.analysis.external.geocoding import Geocoder
@@ -64,6 +65,41 @@ class ReviewedTripGeometryTests(SavedTripFixtures, TestCase):
     def positions(self):
         return self.client.get(self.address_url, HTTP_ACCEPT="application/json").json()
 
+    def test_estimate_action_requires_current_case_edit_access(self):
+        run = self.lookup()
+        url = reverse("core:analysis:select_estimate", args=[self.case.pk, run.pk, 0])
+        detail = reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        self.assertNotContains(self.client.get(detail), "Use this estimate")
+        self.assertEqual(self.client.post(url, {"action": "use"}).status_code, 403)
+        self.client.force_login(self.outsider)
+        self.assertEqual(self.client.post(url, {"action": "use"}).status_code, 404)
+        self.client.force_login(self.editor)
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.editor)
+        self.assertEqual(csrf_client.post(url, {"action": "use"}).status_code, 403)
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.assertEqual(self.client.post(url, {"action": "invalid"}).status_code, 400)
+        invalid_index = reverse(
+            "core:analysis:select_estimate", args=[self.case.pk, run.pk, 1]
+        )
+        self.assertEqual(
+            self.client.post(invalid_index, {"action": "use"}).status_code, 404
+        )
+        for _ in range(2):
+            self.assertRedirects(
+                self.client.post(url, {"action": "use"}),
+                detail + "?page=1&finding=1#finding-1",
+            )
+        self.assertEqual(run.result.reviews.count(), 1)
+        self.assertContains(self.client.get(detail), "Stop using this estimate")
+        CaseMembership.objects.filter(case=self.case, user=self.editor).delete()
+        self.assertEqual(self.client.post(url, {"action": "stop"}).status_code, 404)
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.post(url, {"action": "stop"}).status_code, 302)
+        self.assertTrue(
+            all(row["position"] is None for row in self.positions()["positions"])
+        )
+
     def test_address_sources_require_review_before_mapping(
         self,
     ):
@@ -77,13 +113,13 @@ class ReviewedTripGeometryTests(SavedTripFixtures, TestCase):
         self.assertEqual(len(data["positions"]), 3)
         self.assertTrue(all(row["position"] is None for row in data["positions"]))
         detail = self.client.get(self.address_url)
-        self.assertContains(detail, "Review address lookup")
+        self.assertContains(detail, "Open address lookup")
         self.assertContains(detail, self.addresses[0].address)
         self.review(run)
         accepted = self.positions()
         self.assertEqual(accepted["positions"][0]["position"], [43.65, -79.39])
         self.assertIsNone(accepted["positions"][1]["position"])
-        self.assertEqual(accepted["positions"][0]["label"], "Reviewed address estimate")
+        self.assertEqual(accepted["positions"][0]["label"], "Selected address estimate")
         self.assertIn("Synthetic licence", accepted["positions"][0]["attribution"])
         self.assertNotEqual(data["revision"], accepted["revision"])
         self.addresses[0].refresh_from_db()
@@ -127,7 +163,7 @@ class ReviewedTripGeometryTests(SavedTripFixtures, TestCase):
         self.review(run, 1)
         data = self.positions()
         self.assertIsNone(data["positions"][0]["position"])
-        self.assertIn("Multiple accepted", data["positions"][0]["label"])
+        self.assertIn("Multiple estimates selected", data["positions"][0]["label"])
         self.review(run, 0, "rejected")
         self.assertEqual(self.positions()["positions"][0]["position"], [43.66, -79.4])
 

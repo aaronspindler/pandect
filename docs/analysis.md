@@ -3,24 +3,86 @@
 This guide owns analysis behavior, retained results and configuration; the
 [interface guide](interface-design.md#case-tools-processing-and-additional-analysis)
 owns navigation. Eligible evidence queues local checks automatically. Owners/editors
-start/cancel work and append reviews; viewers inspect originals/results without
-reviewing them. Case permissions apply to workers, search, downloads and playback.
+start and cancel work. Viewers inspect originals and results. Case permissions apply to workers, search, downloads and playback.
 
 Case highlights inspect 40 recent eligible published runs, keep the latest result
 per operation/source or attachment, and show 12 findings at most. Source validation
-excludes archived/unavailable, rejected and weak OCR findings. **Browse all
-findings** exposes the complete collection; Processing retains full run history.
+excludes archived or unavailable sources, weak OCR, and timing-only
+findings. **Browse all findings** provides access to saved findings; Processing
+retains the full results and run history.
 Vehicle trips share saved complete histories with Map/vehicle pages, including
 existing imports after preparation.
 
 **Browse all findings** searches retained labels, text and measurements, with 25
-findings/page and method/type/evidence/explicit-person/finding-review filters.
+findings per page and filters for method, evidence type, specific evidence, and person.
 **All findings from this evidence** applies the exact-source filter. Archived
-sources, weak plate regions and every review state remain labelled. Whole-result
-review is separate and accepts no individual finding.
+sources and weak plate regions remain labelled.
 
-Conversation readers also expose saved findings: single-message findings appear
-inline, while session and multiple-source findings appear once above the stream.
+Message timing reports, writing profile measurements and comparison intervals,
+keyword and topic reports, and AI session summaries are available under
+**Processing** and in downloads. The catalogue keeps inferred session groups for
+conversation navigation. Audio findings include candidate speech with a model
+uncertainty flag and a specific playback interval. Complete and partial
+transcripts remain available as searchable extracted text.
+
+New claims and semantic links must use a specific supported suggestion type and
+cite substantive passages. Factual claims and reported events must identify a
+specific event or action and quote its target. General personal evaluations and
+unbounded accounts of past experiences stay in Processing. Explicit corrections
+publish through claims analysis. Exchange comparisons retain them as context.
+
+Reference and shared-event links require both independent sources to name the
+same quoted target. Pronoun-only references, broad shared topics, and links whose
+wording still hedges the reference stay in Processing even if a model labels them
+resolved. The target uses at least two distinct content words from the English
+baseline, or an identifier containing letters and digits. Targets and scope stay
+in the saved measurements. Missing or unusable targets keep a suggestion in
+Processing. A short yes or no can support a link when a substantive question is also
+cited. Exact repeats of the same statement, status and source spans within a run
+stay in its results. These rules qualify candidates for review. Exact quotes
+establish source wording, and interpretation still requires reviewing those passages.
+
+The same reporting rules apply to known older result shapes. Existing saved
+items keep their indexes, links and downloads. Case-specific exclusions from the
+findings list preserve those items and their source links.
+
+Evidence highlights, exact-evidence catalogue pages, saved run findings and
+conversation finding lists use review priority before previews and pagination.
+The first occurrence of each distinct finding comes first. Repeated identifier
+readings and equivalent observations of the same source material follow in the
+full list, with each original finding link intact. Ties use the newest run and
+then the saved item order.
+
+A short reason beside a promoted finding identifies the next check. Examples
+include an address estimate used by another saved analysis, matching native
+reply IDs, differences between investigator-selected location claims, contrary
+material cited by a saved AI suggestion, and a timed interval of uncertain
+speech. For identifier matches, the comparison checks up to 64 keys with
+two to five distinct originals or attachments, starting with the least common.
+Promotion requires readable, active sources and at least two different content
+hashes. Address estimates are checked against the 32 most recent applicable
+acceptances and up to two recent saved uses per acceptance. Findings outside
+these contextual checks remain in the full list. Open a promoted identifier
+to compare the matching sources, or a used estimate to open an analysis that
+relied on it. If a page of conversation messages exceeds the identifier lookup
+limit, opening **Message details** checks the selected message on its own.
+These rules run locally on retained findings.
+
+Timing-only message-link candidates from new runs are available in the saved run
+and its download. Timing-only output is hidden by default in run results.
+Previously catalogued timing-only findings are also hidden by default in the
+catalogue, person findings and conversations. This applies only to known
+deterministic pairs with a valid elapsed interval, explicitly no shared words,
+and no native reply reference. Known lexical-only adjacency and AI topic
+continuations stay in the saved run. Exact native reply candidates, qualifying AI
+links and unknown historical shapes remain eligible findings.
+Where timing-only rows are available, **Show all findings** reveals them and
+preserves other filters. Exact result links reveal their target at its saved
+index. Candidate links require investigator review.
+
+Conversation readers show single-message findings in **Message details** and
+session and multiple-source findings under **Conversation findings**. Saved
+inferred sessions also supply the transcript colours and boundary markers.
 They use the same latest-result and current-source checks as the catalogue,
 matching individual finding citations to the conversation/source filter rather
 than merely matching a run's inputs. Mixed-method runs retain per-finding **AI
@@ -28,21 +90,31 @@ suggestion** labels. Finding pagination is independent of message pagination;
 the reader starts no work. See [conversation reading](evidence.md#reading-conversations).
 
 By default, the newest requested successful equivalent run supersedes earlier
-findings before search/review filters. Equivalence includes method/version,
+findings before search filters. Equivalence includes method/version,
 execution settings, meaningful parameters and ordered exact source versions/hashes,
 excluding automatic-check bookkeeping/requester identity. Successful empty runs
 supersede; failed, unsupported, insufficient, cancelled or pending runs do not.
 **Result history → All saved results** exposes history. Different settings and
 extraction versions stay distinct. Changed/missing sources show unavailable rows without finding content.
-Historical geocode decisions remain inspectable with changed-review warnings.
+Saved runs display the address estimate they used and warn if it is no longer selected.
 
 Finding filters are open initially. The useful finding preview leads each row;
 bounded **Matching search details** retain the exact matching text when it differs
-from that preview. Current owners/editors can **Save to selection** from the
-catalogue and connection occurrences; viewers inspect these rows without that action.
+from that preview.
 Result limitations are open initially. **Download results** is beside the title,
 and **Run again** is outside technical processing details, with any required
 external-transfer explanation and approval kept beside the rerun action.
+
+AI findings display explicit reported-sender/recipient UUID references using the
+names of participants in their cited communications. Source quotations and
+downloaded retained results stay exact. Model requests keep participant IDs;
+resolving display names adds no personal details to AI payloads. Reported
+associations do not verify identity.
+
+Finding headings and report participant filters use readable names. Session thread
+references pair the export title with the exact native thread ID. Processing
+bookkeeping IDs remain in downloaded results instead of the method assumptions;
+call-pair tables show the participant names without repeating internal IDs.
 
 Pattern reports show key **Report totals** before the record list. Supporting
 calculations, selection details and method explanations remain under **About this
@@ -55,7 +127,11 @@ no association. Person detail links to findings and related evidence.
 The relational catalogue publishes with immutable results. Its additive backfill
 reads saved JSON, commits/resumes per run, and neither reruns analysis nor reads
 originals. Stop old writers/workers before migration, then restart updated services.
-Startup never rebuilds projections.
+The timing-only migration updates only the existing `weak` projection flag and
+reverses to its former plate-only meaning on rollback. Startup never rebuilds
+projections. Core migrations 0009 and 0010 add review-priority fields and backfill
+the existing catalogue from retained results, resuming by result and preserving
+finding IDs, indexes and downloads.
 
 **Case Tools → Connections** groups exact retained candidate strings: emails,
 phones, complete URLs, bare domains, explicit identifiers and non-weak plate text.
@@ -67,7 +143,7 @@ ownership, association or independent corroboration.
 Counts collapse repeated runs/extractions into distinct original/attachment
 references; matching hashes warn of copies. Opening groups validates current-page
 sources, retaining unavailable rows. Identifiers appear only after representative
-source validation. Review/partial coverage stays visible; extraction may stop at
+source validation. Partial coverage stays visible. Extraction may stop at
 2,000 identifier occurrences. An empty view does not establish that no connection exists. Linked extraction/
 identifier checks can extend coverage.
 
@@ -110,7 +186,7 @@ inference service failures retain available keyword findings as a partial result
 with a safe explanation and rerun guidance. No rejected topic suggestions are
 published; source/access changes and runtime/model identity drift still stop the
 run. Pending version 1 fails with
-`processing_version_unavailable`; start a new run. Earlier results/reviews stay intact.
+`processing_version_unavailable`; start a new run. Earlier results are retained.
 
 Single/bulk investigator uploads queue applicable native text extraction, image
 metadata, printed-English OCR, plate search, audio metadata, available-text
@@ -118,8 +194,10 @@ identifiers/dates/keywords and location quality/address normalization. New call
 transcripts/recordings process independently. Extraction follow-ups bind that exact
 version. Unsupported/insufficient inputs remain visible outcomes.
 
-Evidence readers show three highlights per latest published operation, twelve
-total, excluding rejected/weak OCR findings while disclosing partial coverage.
+Evidence readers show up to twelve distinct highlights from the latest
+equivalent results citing that evidence. They check up to 50 ranked candidates
+for readable sources and usable content, omit weak OCR and timing-only
+findings, and disclose when the check limit leaves the preview incomplete.
 Processing retains every outcome. Batch preparation differs from execution and
 includes extraction follow-ups; queued counts are not completion. Imports stay
 in progress until deliberate review finishes. See [progress/recovery](background-tasks.md#investigator-progress-and-completed-imports).
@@ -130,12 +208,12 @@ evidence and all retained call additions at request time. Background steps prepa
 Resubmitting recovers the request. Fresh requests from any owner/editor are rejected
 while the existing case-wide batch is preparing checks or any of its checks are
 queued/running. Processing explains that work is already in progress. Once that
-work has finished, a fresh request starts another batch, preserving results/reviews.
+work has finished, a fresh request starts another batch, preserving results.
 Scoped import checks and selected reprocessing remain separate. Empty calls supply
 no content. This runs
 basic local checks; **Reprocess evidence** runs the broader suite. CSV publication
 still requires timezone/vehicle confirmation and queues saved trips. Summaries
-need no geocoding/review; plotted estimates require review. Conversation imports
+need no geocoding. For address-only map positions, choose a lookup estimate. Conversation imports
 keep their flow. Retrying uncertain saves with the original submission recovers
 the same evidence/checks.
 
@@ -158,7 +236,7 @@ location quality/movement and geographic lookup. Derived-text follow-ups bind
 exact results. Grouped comparisons disclose selection limits, without claiming
 exhaustive cross-group comparisons. Unsupported formats/failures remain visible.
 Questions, two-sample writing comparison, area searches, claimed-event comparison
-require **Choose analysis**; geographic candidates need review.
+require **Choose analysis**; choose address estimates before spatial use.
 
 Completed vehicle imports offer deliberate **Run local checks on
 imported evidence**, using bounded groups and excluding duplicates; see
@@ -176,13 +254,12 @@ recoverable. See
 [CSV analysis](analysis-communications.md#message-csv-imports).
 
 Source choices expose prerequisites/retained inspection status. Some require exact
-extractions, transcripts or accepted coordinates. **Not yet inspected** makes no
+extractions, transcripts or selected address estimates. **Not yet inspected** makes no
 format-support claim. Readiness checks local configuration; execution checks live
 connectivity/identity. Incompatible selections are never silently reduced.
-[Shared selections](shared-selections.md) retain repeatable references/briefs;
-[synthesis](synthesis.md) distinguishes text/finding citations;
+[Retained synthesis results](synthesis.md) distinguish text/finding citations;
 [chronology](chronology.md) separates observed/acquired times;
-[previews](original-previews.md) provide private PDF/text/WAV reading.
+[previews](original-previews.md) provide private PDF/text reading and WAV/M4A playback.
 
 **Additional analysis** selects task, exact retained sources and context for
 comparisons, lookup, model work or conversation imports. The picker shows 25/page,
@@ -211,36 +288,47 @@ Structured lists/mappings paginate independently at 200 values, retaining findin
 report and collection filters; complete downloads remain available. Parser,
 inference and result limits still apply.
 
-Results preserve sources, processing details, limitations and separate reviews:
+Results preserve sources, processing details, and limitations.
+
+Findings lead with their result, key measurements and supporting evidence.
+Secondary measurements and native references live under **Details**. Critical
+status, coverage, reasons and interpretation remain visible; metadata inspections
+retain their dedicated tables. Findings without a narrative or recognized
+primary measurements keep a readable structured fallback.
+
+Communication pairs show each message once, with reported participants, a
+timezone-labelled timestamp and source link. Their heading states the elapsed
+interval; nonempty shared wording and a concise limitation remain visible.
+Duplicate Before/After payloads and repeated source quotations are omitted from
+the reading view; exact anchors and native IDs remain inspectable in **Details**.
 
 Model findings show **AI suggestion** in the evidence reader, Case Tools,
-individual findings, selections, and briefs. The findings browser marks
+and individual findings. The findings browser marks
 **AI-assisted run** because a
 single run can combine observed keywords or timing with model suggestions.
 
 - Image metadata distinguishes embedded/supplied claims. OCR/plates retain
   regions/crops, separate plate/OCR scores and low-score notices. Identifier
-  normalization appears in **Value details**.
+  normalization appears in **Details**.
 - Document text retains native page/line anchors; recording intervals link to
   selected recording/transcript playback.
 - Writing/style comparisons show both samples; model claims cite passages.
   Conversations/imports retain participants, labels, times and unresolved reasons.
 - [CSV imports](analysis-communications.md#message-csv-imports) publish only after
   separate message/new-person review. Completed preview means ready to review.
-- Location schematics distinguish reported positions, reviewed estimates and
+- Location schematics distinguish reported positions, selected estimates and
   candidates; measurements/map references link to sources.
 
 Runs show 50 findings at most; derived inputs link extraction and original.
-Processing outcome, finding-review count and whole-result review remain distinct.
-**Awaiting review** means no decision; **Unresolved** is a choice. Owners/editors
-append reviews, per candidate for geocodes; viewers inspect.
+Owners and editors can select or clear an address estimate from its finding. Saved
+finding review reasons remain in the database for retention.
 
 **Download results** includes private result/source/provenance JSON. Missing/changed
 exact inputs withhold results/downloads. [Workers](background-tasks.md) execute
 queued runs, distinguishing queued/running/complete/partial/no-findings/insufficient/
 unsupported/failed/cancelled. Progress and completed results update in place with
 JavaScript; **Refresh status** remains available without it. Runs retain checksums,
-parameters, method, anchors and review history; reruns preserve earlier output.
+parameters, method, and anchors. Earlier output remains available after reruns.
 
 Cancellation blocks publication but recalls no sent request. Workers require
 currently active verified owners/editors and recheck sources before work, transfer
@@ -255,10 +343,10 @@ stopped before cancellation/recovery; it may already have sent requests. Cancell
 output remains withheld. New runs/queue inserts commit or roll back together.
 
 Originals/supplied metadata, extracted observations, suggestions and investigator
-conclusions stay distinct. Acceptance verifies no identity/truth. Every finding
-can retain review. Spatial inputs require candidate-specific geocode acceptance;
-downstream runs retain review IDs. Later changes block new processing, preserving
-historical results with warnings.
+conclusions stay distinct. Using an estimate does not verify a location. Spatial
+inputs require a selected geocode candidate. Downstream runs pin that selection.
+Clearing it blocks new processing with the estimate and preserves historical
+results.
 
 ## Supported operation guides
 
@@ -274,7 +362,7 @@ historical results with warnings.
 Tesseract English OCR is local, credential-free and never falls back remotely.
 Handwriting/mixed profiles are unsupported; old results stay readable. Context
 uses a separate reference service without AI credentials. Address-only miTrail
-spatial analysis needs reviewed geocodes; local grouping needs no external service.
+spatial analysis needs selected geocodes. Local grouping needs no external service.
 
 ## Local inference configuration
 
@@ -301,7 +389,7 @@ PANDECT_AI_ACCOUNT_ID=your_32_character_cloudflare_account_id
 PANDECT_AI_GATEWAY_ID=your_gateway_id
 PANDECT_AI_GATEWAY_TOKEN=your_gateway_authentication_token
 PANDECT_AI_TEXT_PROVIDER=openai
-PANDECT_AI_TEXT_MODEL=gpt-6.1-sol
+PANDECT_AI_TEXT_MODEL=auto
 PANDECT_AI_OPENAI_KEY_ALIAS=default
 ```
 
@@ -319,9 +407,23 @@ For native development, restart both processes using `uv run --locked --env-file
 external service, inspect its destination, and approve the selected transfer.
 Changing configuration does not enable automatic cloud processing.
 
-OpenAI uses the Gateway's `/openai/responses` endpoint with **high** reasoning
-effort for question-driven synthesis, claims and commitments, and semantic
-conversation links; topics and message-session summaries use **medium** effort.
+With `PANDECT_AI_TEXT_MODEL=auto`, Pandect selects the OpenAI model by task.
+The approval screen shows the resolved model, and the run retains that choice.
+
+| Text analysis | OpenAI model | Reasoning effort |
+| --- | --- | --- |
+| Topics with brief summaries | `gpt-6-luna` | Medium |
+| Claims and commitments | `gpt-6-luna` | High |
+| Message-session summaries | `gpt-6.1-terra` | Medium |
+| Semantic conversation links | `gpt-6.1-terra` | High |
+| Question-driven synthesis | `gpt-6.1-sol` | High |
+
+An explicit model ID pins all OpenAI text tasks to that model. To switch an
+existing single-model installation to task-based routing, set the value to
+`auto` for both web and worker. If a queued run's reviewed model changes, it
+requires fresh approval before evidence can be sent to the new model.
+
+OpenAI uses the Gateway's `/openai/responses` endpoint for these tasks.
 Each request has a 32,768-token total completion allowance, including reasoning,
 and a 300-second client timeout with the matching Cloudflare request-timeout
 header. These bounds allow room for reasoning alongside the cited JSON output;
@@ -331,8 +433,8 @@ and [Cloudflare request timeouts](https://developers.cloudflare.com/ai-gateway/c
 Requests use `store=false` and JSON-object output. Existing source-quotation and
 domain validation still apply. Refused, incomplete, malformed, or unsupported
 output publishes no result.
-`gpt-6.1-sol` is the documented starting configuration; another GPT model must
-support these Responses API parameters. Model availability/access and analysis
+An explicitly pinned GPT model must support these Responses API parameters.
+Model availability/access and analysis
 quality require live qualification. See [OpenAI JSON output](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 ### Provider configuration
@@ -343,7 +445,7 @@ quality require live qualification. See [OpenAI JSON output](https://developers.
 | `PANDECT_AI_GATEWAY_ID` | Operator gateway ID. |
 | `PANDECT_AI_GATEWAY_TOKEN` | Gateway authentication, sent as `cf-aig-authorization`. |
 | `PANDECT_AI_TEXT_PROVIDER` | `workers-ai` (default) or `openai`; text analysis only. |
-| `PANDECT_AI_TEXT_MODEL` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` by default; explicitly set a GPT model when choosing `openai`. |
+| `PANDECT_AI_TEXT_MODEL` | Defaults to `auto`. OpenAI uses the task table above. Workers AI uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. An explicit model ID pins the selected text provider to one model. |
 | `PANDECT_AI_OPENAI_KEY_ALIAS` | Stored OpenAI provider key alias; `default`. |
 | `PANDECT_AI_WORKERS_TOKEN` | Workers AI upstream credential; required only for Workers AI routes. |
 | `PANDECT_AI_TRANSCRIPTION_MODEL` | `@cf/openai/whisper-large-v3-turbo`; external transcription remains on Workers AI. |
@@ -351,6 +453,12 @@ quality require live qualification. See [OpenAI JSON output](https://developers.
 Workers AI uses `gateway.ai.cloudflare.com/v1/ACCOUNT/GATEWAY/workers-ai/MODEL`
 and sends its separate upstream token in `Authorization`. Text inference uses a
 4,096-token output allowance and temperature zero. OCR remains local Tesseract.
+For external recording transcription, set `PANDECT_AI_WORKERS_TOKEN` in both the
+web and worker environments, including when text uses OpenAI. Use a Cloudflare
+API token with the account's Workers AI Read permission. Pandect checks the
+transcription configuration before queueing a new attempt and again before
+sending audio. Once the configuration is available, reopen the failed run and
+approve a new attempt.
 There is no provider switching or fallback. See
 [Gateway authentication](https://developers.cloudflare.com/ai-gateway/configuration/authentication/)
 and [Workers AI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/workersai/).
@@ -394,14 +502,14 @@ model quality. Reports and deterministic checks need no AI credentials.
 references. `core.analysis.reports` dispatches phone/geo reports; duplicates and
 neutral helpers stay in core. [Architecture](architecture.md#dependency-boundaries)
 owns composition/parser boundaries. `core.analysis.services` handles access,
-snapshots, publication/reviews; `operations` dispatches explicit callables. UUID-only
-tasks separate durable runs/results/reviews/search from disposable queue records.
+snapshots, publication, and estimate selection. `operations` dispatches processors. UUID-only
+tasks separate durable runs, results, and search records from disposable queue records.
 
 Shared factories select domain forms; bases own selection/submission, processing
 location/approval, archive and periods. Domain forms validate/serialize operations.
 Source resolution reuses data within one validation pass, and search validates
 shared runs once/request. Requests/publication recheck access/sources afresh;
-reuse cannot preserve revoked access or changed acceptance.
+reuse cannot preserve revoked access or a cleared estimate selection.
 
 Core owns shared models; domain apps own processors. Follow the
 [fresh baseline](architecture.md#primary-keys-and-the-initial-schema) and coordinate

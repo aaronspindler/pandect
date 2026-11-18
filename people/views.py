@@ -78,6 +78,7 @@ def person_detail(request, case_id, person_id):
     related_evidence = collection_context(case, evidence_params)
     finding_params = QueryDict(mutable=True)
     finding_params["findings_page"] = request.GET.get("findings_page", "1")
+    finding_params["weak"] = request.GET.get("weak", "")
     related_findings = catalogue_page(
         case, finding_params, person=person, page_parameter="findings_page"
     )
@@ -93,7 +94,10 @@ def person_detail(request, case_id, person_id):
             "related_evidence_url": evidence_url,
             "related_findings_url": reverse("core:analysis:browse", args=[case.pk])
             + "?"
-            + urlencode({"person": str(person.pk)}),
+            + urlencode(
+                {"person": str(person.pk)}
+                | ({"weak": "1"} if related_findings["show_timing_only"] else {})
+            ),
             "poi_page": Paginator(person.points_of_interest.all(), 25).get_page(
                 request.GET.get("poi_page")
             ),

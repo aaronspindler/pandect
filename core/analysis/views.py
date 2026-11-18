@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import DatabaseError
 from django.db.models import Q
-from django.http import FileResponse, Http404, HttpResponse, QueryDict
+from django.http import Http404, HttpResponse, QueryDict
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import (
@@ -19,6 +19,7 @@ from django.views.decorators.http import (
     require_safe,
 )
 
+from audio.views import playback_response
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.artifacts import MAX_ARTIFACT_BYTES
@@ -35,10 +36,10 @@ from core.analysis.findings import additional_operations, case_highlights, findi
 from core.analysis.form_base import selection
 from core.analysis.forms import (
     EvidenceAnalysisForm,
-    ReviewForm,
     analysis_form,
     report_form,
 )
+from core.analysis.gateway import gateway_configured
 from core.analysis.navigation import (
     FINDINGS_PER_PAGE,
     finding_url,
@@ -56,13 +57,16 @@ from core.analysis.presentation import (
     prioritize_measurements,
     table_rows,
 )
+from core.analysis.projection import is_timing_only
+from core.analysis.ranking import rank_findings, review_context
 from core.analysis.reports import REPORT_NAMES, report
 from core.analysis.result_views import result_view
 from core.analysis.services import (
+    address_estimate,
     cancel_run,
     require_current_geocode_reviews,
     resolve_inputs,
-    review_result,
+    set_address_estimate,
     start_run,
 )
 from core.evidence.collection import collection_context
@@ -70,9 +74,11 @@ from core.evidence.navigation import list_params
 from core.evidence.queries import get_evidence
 from core.evidence.types import KIND_LABELS
 from core.evidence.views import render_detail
-from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
+from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
 from geo.analysis import presentation as geo_presentation
 from phone.analysis import presentation as phone_presentation
+from socialmedia import instagram_connector
+from socialmedia.models import InstagramMonitor
 from ui.live import render_live
 
 
@@ -138,6 +144,11 @@ def index(request, case_id):
                 :5
             ],
             "recent_evidence": evidence["rows"][:5],
+            "show_instagram_monitors": (
+                instagram_connector.available()
+                and instagram_connector.permits(request.user.pk, case.pk)
+            )
+            or InstagramMonitor.objects.filter(case=case).exists(),
             "evidence_count": evidence["page_obj"].paginator.count,
             "reports": (
                 ("vehicle-trips", "Vehicle trips", "Possible journeys and stops"),
@@ -604,7 +615,7 @@ def _finding_detail(
                     else None,
                     "coordinates": source.coordinates,
                     "coordinate_label": (
-                        "Reviewed estimate"
+                        "Address estimate"
                         if getattr(source.item, "latitude", None) is None
                         else "Reported coordinates"
                     ),
@@ -726,9 +737,6 @@ def detail(request, case_id, run_id):
         "error_message": error_message(run.error_code),
         "processing": _processing_details(run),
     }
-    context["can_review_result"] = (
-        context["can_edit"] and run.operation != "geocode_locations"
-    )
     try:
         sources = resolve_inputs(run, case, require_current_review=False)
         try:
@@ -760,16 +768,19 @@ def detail(request, case_id, run_id):
             case=case, run=run, run__case=case
         ).first()
         if result is not None:
-            reviews = list(
-                result.reviews.filter(case=case).select_related("reviewed_by")
-            )
             indexed_findings = list(enumerate(result.data.get("items", [])))
-            weak_indices = {
+            weak_plate_indices = {
                 index
                 for index, finding in indexed_findings
                 if run.operation == "plate_ocr"
                 and finding.get("values", {}).get("Weak plate region") is True
             }
+            timing_only_indices = {
+                index
+                for index, finding in indexed_findings
+                if is_timing_only(run.operation, finding)
+            }
+            weak_indices = weak_plate_indices | timing_only_indices
             try:
                 selected_index = int(request.GET.get("finding", "")) - 1
             except ValueError:
@@ -782,6 +793,21 @@ def detail(request, case_id, run_id):
                 for index, finding in indexed_findings
                 if show_weak or index not in weak_indices
             ]
+            projected = result.findings.filter(case=case)
+            if weak_indices and not show_weak:
+                projected = projected.filter(weak=False)
+            matches, estimates = review_context(projected, case)
+            ranked = rank_findings(projected, case, context=(matches, estimates))
+            priorities = {
+                index: (position, reason, pk)
+                for position, (index, reason, pk) in enumerate(
+                    ranked.values_list("item_index", "review_reason", "pk")
+                )
+            }
+            # Keep canonical items without a projection inspectable in saved order.
+            visible_findings.sort(
+                key=lambda entry: priorities.get(entry[0], (len(priorities), ""))[0]
+            )
             selected_position = next(
                 (
                     position
@@ -800,10 +826,23 @@ def detail(request, case_id, run_id):
             entries = finding_page.object_list
             if selected_position is not None:
                 entries = [entries[selected_position % FINDINGS_PER_PAGE]]
-            latest_reviews = {}
-            for review in reviews:
-                latest_reviews.setdefault(review.item_index, review)
-            latest_result_review = latest_reviews.pop(None, None)
+            if focused and entries and (priority := priorities.get(entries[0][0])):
+                _, reason, pk = priority
+                if reason and pk in matches:
+                    match_kind, digest = matches[pk]
+                    context["review_followup"] = (
+                        "Compare matching sources",
+                        reverse(
+                            "core:analysis:connections",
+                            args=[case.pk],
+                            query={"identifier": match_kind, "key": digest},
+                        ),
+                    )
+                elif reason and pk in estimates:
+                    context["review_followup"] = (
+                        "Open analysis that used this estimate",
+                        reverse("core:analysis:detail", args=[case.pk, estimates[pk]]),
+                    )
             source_map = {str(source.id): source for source in sources}
             formatter = measurement_formatter(
                 [finding.get("values", {}) for _, finding in entries],
@@ -849,11 +888,12 @@ def detail(request, case_id, run_id):
                     finding_row(
                         finding,
                         index,
-                        latest_reviews.get(index),
                         case,
                         run,
                         show_weak=show_weak,
                         history=history,
+                        sources=sources,
+                        review_reason=priorities.get(index, (0, ""))[1],
                     ),
                     source_map,
                     case,
@@ -865,7 +905,26 @@ def detail(request, case_id, run_id):
                 )
                 for index, finding in entries
             ]
-            groups, template = result_view(run.operation, items, formatter)
+            if run.operation == "geocode_locations":
+                decisions = (
+                    result.reviews.filter(
+                        case=case, item_index__in=[item["index"] for item in items]
+                    )
+                    .order_by("item_index", "-created_at", "id")
+                    .distinct("item_index")
+                    .values_list("item_index", "decision")
+                )
+                in_use = {
+                    index
+                    for index, decision in decisions
+                    if decision == AnalysisReview.Decision.ACCEPTED
+                }
+                for item in items:
+                    item["can_select_estimate"] = address_estimate(item) is not None
+                    item["estimate_in_use"] = item["index"] in in_use
+            groups, template = result_view(
+                run.operation, items, formatter, query=request.GET
+            )
             run_query = history | ({"weak": 1} if show_weak else {})
             context |= {
                 "result": result,
@@ -889,19 +948,16 @@ def detail(request, case_id, run_id):
                 "metadata_result": run.operation
                 in {"image_metadata", "audio_metadata"},
                 "finding_page": finding_page,
-                "reviews": reviews,
-                "reviewed_count": sum(
-                    index in latest_reviews for index, _ in visible_findings
-                ),
-                "show_weak_regions": show_weak,
+                "show_weak_regions": show_weak and bool(weak_plate_indices),
+                "show_timing_only": show_weak and bool(timing_only_indices),
+                "timing_only_count": len(timing_only_indices),
                 "weak_region_count": len(
                     {
                         str(finding.get("values", {}).get("Plate region number", index))
                         for index, finding in indexed_findings
-                        if index in weak_indices
+                        if index in weak_plate_indices
                     }
                 ),
-                "latest_result_review": latest_result_review,
                 "reference_snapshots": snapshots,
             }
     context["can_retry"] = run.operation in OPERATIONS and run.status in {
@@ -916,16 +972,27 @@ def detail(request, case_id, run_id):
     if context["can_edit"] and context["can_retry"]:
         execution = snapshot_execution(run.operation, _retry_parameters(run))
         if execution and execution["location"] == "external":
-            context["retry_destination"] = _retry_destination(execution)
-            context["retry_data"] = {
-                "text": "selected evidence content",
-                "transcription": "selected recordings",
-                "geocode": "selected addresses or coordinates",
-                "map_context": "coordinates and search areas",
-            }[execution["purpose"]]
-            context["retry_confirmation"] = retry_execution_confirmation(
-                request.user.pk, run.pk, context["retry_submission_id"], execution
-            )
+            purpose = execution["purpose"]
+            if purpose == "transcription" and not gateway_configured(
+                purpose, run.operation
+            ):
+                context["can_retry"] = False
+                unavailable = error_message("gateway_transcription_not_configured")
+                if run.error_code == "gateway_not_configured":
+                    context["error_message"] = unavailable
+                else:
+                    context["retry_blocked"] = unavailable
+            else:
+                context["retry_destination"] = _retry_destination(execution)
+                context["retry_data"] = {
+                    "text": "selected evidence content",
+                    "transcription": "selected recordings",
+                    "geocode": "selected addresses or coordinates",
+                    "map_context": "coordinates and search areas",
+                }[purpose]
+                context["retry_confirmation"] = retry_execution_confirmation(
+                    request.user.pk, run.pk, context["retry_submission_id"], execution
+                )
     return render_live(request, "core/analysis/detail.html", context)
 
 
@@ -990,7 +1057,8 @@ def retry(request, case_id, run_id):
             request,
             error_message(error.code)
             if isinstance(error, AnalysisError)
-            and error.code == "retry_approval_required"
+            and error.code
+            in {"retry_approval_required", "gateway_transcription_not_configured"}
             else (
                 "The inputs changed or are no longer available. Start a new analysis "
                 "and review its source selection."
@@ -1005,73 +1073,28 @@ def retry(request, case_id, run_id):
 
 @product_login_required
 @require_POST
-def review(request, case_id, run_id):
-    case = get_case(request.user, case_id, edit=True)
-    run = _run(case, run_id)
+def select_estimate(request, case_id, run_id, item_index):
+    action = request.POST.get("action")
+    if action not in {"use", "stop"}:
+        return HttpResponse("Choose whether to use this estimate.", status=400)
     try:
-        result = AnalysisResult.objects.get(case=case, run=run)
-    except AnalysisResult.DoesNotExist:
-        raise Http404("Result not found.") from None
-    form = ReviewForm(request.POST)
-    show_weak = request.GET.get("weak") == "1" and run.operation == "plate_ocr"
-    history = history_query(request.GET)
-    run_suffix = analysis_query_suffix(history | ({"weak": 1} if show_weak else {}))
-    if form.is_valid():
-        try:
-            review_result(
-                request.user,
-                case_id,
-                result.pk,
-                form.cleaned_data["decision"],
-                form.cleaned_data["comment"],
-                item_index=form.cleaned_data.get("item_index"),
-            )
-        except ValidationError as error:
-            form.add_error(None, error)
-        except AnalysisError:
-            form.add_error(
-                None,
-                "A selected source is unavailable or changed. "
-                "Your review has not been saved. Check the source before retrying.",
-            )
-        else:
-            messages.success(
-                request,
-                "Review recorded. Original evidence and earlier reviews are retained.",
-            )
-            index = form.cleaned_data.get("item_index")
-            return redirect(
-                _url(case, run) + run_suffix
-                if index is None
-                else finding_url(
-                    case.pk, run.pk, index, show_weak=show_weak, history=history
-                )
-            )
-    index = form.cleaned_data.get("item_index")
-    valid_index = index is not None and index < len(result.data.get("items", []))
-    return render(
-        request,
-        "core/analysis/review.html",
-        _context(request, case)
-        | {
-            "form": form,
-            "run": run,
-            "finding_number": index + 1 if valid_index else None,
-            "return_url": (
-                finding_url(
-                    case.pk, run.pk, index, show_weak=show_weak, history=history
-                )
-                if valid_index
-                else _url(case, run) + run_suffix
-            ),
-            "run_suffix": run_suffix,
-            "operation_label": (
-                OPERATIONS[run.operation].label
-                if run.operation in OPERATIONS
-                else "Retained analysis"
-            ),
-        },
-        status=400,
+        set_address_estimate(
+            request.user, case_id, run_id, item_index, use=action == "use"
+        )
+    except AnalysisError, ValidationError:
+        messages.error(
+            request,
+            "The sources changed or are unavailable. The estimate was not updated.",
+        )
+    else:
+        messages.success(
+            request,
+            "Address estimate selected."
+            if action == "use"
+            else "Address estimate cleared.",
+        )
+    return redirect(
+        finding_url(case_id, run_id, item_index, history=history_query(request.GET))
     )
 
 
@@ -1123,16 +1146,9 @@ def audio(request, case_id, run_id, source_id):
     )
     if not file or (source.kind != "audio" and source.attachment is None):
         raise Http404("Recording not found.")
-    try:
-        stream = file.open("rb")
-        header = stream.read(12)
-        stream.seek(0)
-        if header[:4] != b"RIFF" or header[8:12] != b"WAVE":
-            stream.close()
-            raise Http404("This recording cannot be played inline.")
-    except OSError:
-        raise Http404("Recording unavailable.") from None
-    return FileResponse(stream, content_type="audio/wav", as_attachment=False)
+    return playback_response(
+        request, source.item, kind=source.kind, attachment=source.attachment
+    )
 
 
 @product_login_required

@@ -40,6 +40,7 @@
   margin-left:7rem;
   max-width:none;
   min-height:100dvh;
+  padding:clamp(1.25rem,2vw,2rem) clamp(1rem,2vw,2rem);
 }
 
 .app-navigation {
@@ -184,10 +185,11 @@
 
 .eyebrow {
   display:block;
+  font-family:var(--mono);
   text-transform:uppercase;
   letter-spacing:.065em;
   font-size:.75rem;
-  font-weight:600;
+  font-weight:500;
   color:var(--secondary);
   margin-bottom:.5rem
 }
@@ -200,10 +202,10 @@
   height:36px;
   flex:none;
   border-radius:50%;
-  background:#dce3eb;
+  background:var(--selected);
   font-size:.8125rem;
   font-weight:500;
-  color:#283443
+  color:var(--text)
 }
 
 .button {
@@ -217,7 +219,7 @@
   border:1px solid var(--boundary);
   border-radius:var(--radius);
   font-size:.875rem;
-  font-weight:500;
+  font-weight:600;
   line-height:1.35;
   text-align:center;
   text-decoration:none;
@@ -829,14 +831,6 @@ dd {
   font-size:.875rem
 }
 
-.workspace-page .main-content {
-  padding:0;
-  height:100dvh;
-  overflow:hidden;
-  display:flex;
-  flex-direction:column
-}
-
 .workspace-page .messages {
   flex:none;
   margin:0;
@@ -847,19 +841,11 @@ dd {
   margin:0 0 .5rem
 }
 
-.evidence-workspace {
-  display:grid;
-  grid-template-columns:20rem minmax(0,1fr);
-  flex:1;
-  min-height:0
-}
-
 .evidence-list-pane {
   display:flex;
   flex-direction:column;
   min-width:0;
-  min-height:0;
-  border-right:1px solid var(--divider)
+  min-height:0
 }
 
 .evidence-list-toolbar {
@@ -934,8 +920,6 @@ dd {
 }
 
 .evidence-records {
-  overflow-y:auto;
-  overflow-x:hidden;
   scrollbar-width:thin;
   scrollbar-color:var(--divider) transparent;
   min-height:0;
@@ -1020,8 +1004,6 @@ dd {
 }
 
 .evidence-reader {
-  padding:1.25rem 2rem 2rem;
-  overflow:auto;
   min-width:0;
   min-height:0;
   scroll-padding:1rem
@@ -1029,10 +1011,6 @@ dd {
 
 .evidence-reader:focus-visible {
   outline-offset:-3px
-}
-
-.evidence-content {
-  max-width:60rem
 }
 
 .evidence-content .metadata-grid {
@@ -1153,18 +1131,6 @@ dd {
   margin-top:.75rem;
   color:var(--secondary);
   font-size:.875rem
-}
-
-.reader-empty {
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  min-height:75%
-}
-
-.reader-empty h2 {
-  font-size:1.5rem
 }
 
 .role-note {
@@ -1331,78 +1297,15 @@ dd {
     filter:none
   }
   .button-danger {
-    color:#111113
+    color:var(--accent-ink)
   }
   .button-danger .icon {
     filter:none
-  }
-  .avatar {
-    background:#344155;
-    color:#edf1f7
   }
 }
 
 @media(min-width:80rem) {
   .app-rail-panel { left:7.75rem; }
-  .workspace-page .evidence-reader .back-link {
-    display:none
-  }
-  .workspace-page .evidence-reader-header {
-    position:relative
-  }
-}
-
-@media(max-width:79.999rem) {
-  .workspace-page .main-content {
-    height:auto;
-    min-height:100dvh;
-    overflow:visible
-  }
-  .evidence-workspace {
-    display:block
-  }
-  .evidence-reader {
-    display:none;
-    overflow:visible
-  }
-  .evidence-workspace.has-selection .evidence-reader {
-    display:block
-  }
-  .evidence-workspace.has-selection .evidence-list-pane {
-    display:none
-  }
-  .evidence-list-pane {
-    border:0;
-    min-height:calc(100dvh - 1px)
-  }
-  .evidence-records {
-    overflow:visible;
-    padding:0 1rem
-  }
-  .evidence-list-toolbar {
-    padding:1rem
-  }
-  .evidence-search {
-    max-width:48rem
-  }
-  .evidence-list-heading {
-    margin-bottom:1rem
-  }
-  .evidence-row {
-    min-height:64px
-  }
-  .evidence-pagination {
-    height:56px
-  }
-  .evidence-reader {
-    padding:1.5rem 2rem
-  }
-  .original-text {
-    max-width:74ch
-  }
-  .evidence-reader-header .actions {
-    justify-content:flex-start
-  }
 }
 
 @media(max-width:63.999rem) {
@@ -1446,18 +1349,6 @@ dd {
   }
   .global-header nav {
     gap:1rem
-  }
-  .evidence-list-pane {
-    min-height:60dvh
-  }
-  .case-page.workspace-page .main-content {
-    min-height:0
-  }
-  .evidence-reader {
-    padding:1.5rem
-  }
-  .evidence-reader-header h1 {
-    font-size:1.5rem
   }
 }
 
@@ -1514,9 +1405,6 @@ dd {
   .auth-page h1 {
     font-size:1.75rem
   }
-  .evidence-reader {
-    padding:1rem
-  }
   .original-text {
     padding:1rem
   }
@@ -1537,9 +1425,6 @@ dd {
   }
   .record-row {
     flex-wrap:wrap
-  }
-  .reader-empty {
-    padding:3rem 1rem
   }
 }
 
@@ -1564,9 +1449,13 @@ dd {
   }
 
   .app-rail-panel { box-shadow:none; }
-  .button {
-    border:1px solid ButtonText
+  .button,.button:hover {
+    border:1px solid ButtonText;
+    background:Canvas;
+    color:ButtonText;
+    filter:none;
   }
+  .button .icon { filter:none; }
   .evidence-row.is-selected,.nav-link[aria-current] {
     outline:2px solid Highlight;
     outline-offset:-2px
@@ -1574,6 +1463,10 @@ dd {
   input,select,textarea {
     forced-color-adjust:auto
   }
+}
+
+@media(forced-colors:active) and (prefers-color-scheme:dark) {
+  .button .icon { filter:invert(1); }
 }
 
 /* Compact controls on the case index and access-management screens. */

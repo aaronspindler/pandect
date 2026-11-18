@@ -16,12 +16,12 @@ runs without undoing messages or independent results.
 
 | Method | Local implementation | Qualification needed |
 | --- | --- | --- |
-| Recording transcription | whisper.cpp with `large-v3-turbo`; existing English PCM WAV profile, 30-second chunks and original-timeline anchors. | Recognition and timing on names, accents, overlap and non-speech. No diarization or speaker identity. |
+| Recording transcription | whisper.cpp with `large-v3-turbo`; English PCM WAV or AAC-in-M4A recordings, 30-second WAV chunks and original-timeline anchors. | Recognition and timing on names, accents, overlap and non-speech. No diarization or speaker identity. |
 | Topics and short summaries | Ollama/Qwen3.5 with exact quotation validation. Keyword-only analysis remains independent. | Topic relevance, omitted qualifications and unsupported interpretation. |
 | Conversation summaries | The existing message-aware session chunks through the same local text runtime. | Coverage, conflicting messages and missing context. Current session grouping selects text messages. |
 | Claims, plans and commitments | Structured candidate statements with exact source quotations. | Attribution, negation, hearsay, tense and cancellation. |
-| Semantic conversation links | Two-sided quotation citations through the local text runtime. | False links and ambiguous references; candidates require investigator review. |
-| Question-driven synthesis | Selected text and findings through the local text runtime, with distinct original and prior-finding citations. See [synthesis](synthesis.md) for selection and output bounds. | Supporting/contrary evidence, negation, ambiguity, unknowns and abstention. Valid quotations do not establish interpretation quality. |
+| Semantic conversation links | Two-sided quotation citations through the local text runtime. | False links and ambiguous references; candidates are suggestions. |
+| Retained question-driven synthesis | Existing runs retain distinct original and prior-finding citations; the new-question form has been removed. See [synthesis](synthesis.md) for processing and output bounds. | Supporting/contrary evidence, negation, ambiguity, unknowns and abstention. Valid quotations do not establish interpretation quality. |
 | Geocoding | Operator-controlled Nominatim-compatible service. | Loaded area, dataset freshness, ambiguous/no matches and candidate review. |
 | Geographic context | Operator-controlled Overpass-compatible service; geometry matching already runs locally. | Loaded area, map timestamps, retained snapshots and actual historical coverage. |
 
@@ -32,12 +32,19 @@ whisper.cpp **v1.9.5** at `d1be6fde11ac6e0407606b4e42fe72d34add8037`.
 Model licenses are separate from runtime licenses; retain upstream
 metadata/notices with provisioned artifacts.
 
+Recording preparation supports signed 16-bit PCM WAV and single-stream AAC M4A
+without video, mono/stereo at 8–48 kHz, up to 30 minutes. Both original bytes and
+decoded signed 16-bit PCM are limited to 16 MiB. M4A decoding uses pinned PyAV
+19.0.2 and its wheel's bundled FFmpeg libraries inside the isolated local parser;
+no separate decoder executable is needed. Originals and their checksums remain
+unchanged. See [recording previews](original-previews.md#recordings).
+
 ## Use Ollama for local text analysis
 
 Ollama is the **Local** text backend for Qwen3.5, including `qwen3.5:9b`.
-It supplies topics, claims, session summaries, semantic links and question
-synthesis. Transcription uses the separate Whisper runtime, and printed-English
-OCR remains in the bounded Tesseract parser. Cloudflare configuration is
+It supplies topics, claims, session summaries, semantic links and processing for
+retained question-synthesis runs. Transcription uses the separate Whisper runtime,
+and printed-English OCR remains in the bounded Tesseract parser. Cloudflare configuration is
 unnecessary for Ollama; selecting **External AI service** continues to use
 Cloudflare.
 
@@ -122,6 +129,37 @@ Keep one active inference request and measure memory and latency alongside
 Pandect's other services. Qualify with synthetic/sanitized text using the existing
 `evaluate_local_analysis` command below. Successful execution does not establish
 investigation accuracy.
+
+## Private case-search embeddings
+
+Meaning search uses an independently pinned English embedding model on the
+operator's Ollama service. Provision `ollama pull all-minilm:22m` on that
+service and inspect `/api/version` and the model's local manifest digest in
+`/api/tags`. Set these in the web and worker environments:
+
+| Setting | Value |
+| --- | --- |
+| `PANDECT_LOCAL_EMBEDDING_URL` | Private Ollama origin as reached by the application, e.g. `http://host.docker.internal:11434` in Docker Desktop. |
+| `PANDECT_LOCAL_EMBEDDING_MODEL` | `all-minilm:22m` |
+| `PANDECT_LOCAL_EMBEDDING_SHA256` | Full 64-character installed manifest digest. |
+| `PANDECT_LOCAL_EMBEDDING_RUNTIME` | `ollama@<exact reviewed version>` |
+
+The client requests the digest-addressed local model and validates the response.
+Query text and source passages go only to this configured private endpoint.
+Keyword search works independently. See [case search](interface-design.md) for
+source coverage. Each chunk retains its source, offset and text fingerprint.
+Each case index records the embedding model, manifest digest, runtime, and
+chunking version. The worker embeds up to 32 passages of 246 UTF-8 bytes per
+request, with truncation disabled. A document becomes searchable after its last
+chunk commits. Changing the pins queues a rebuild under the new profile.
+
+Compose and the Dokploy worker enqueue missing case indexes after migrations.
+For a host-run worker, run `python manage.py prepare_case_search` with the
+same environment when enabling or changing the model. Processing shows
+case-specific progress and retry. Fix the reported runtime or access issue, then
+retry from Processing or run `python manage.py prepare_case_search --retry`.
+Workers resume from their last committed chunk. A previous delivery cannot
+publish after its replacement takes over.
 
 ## Start optional CPU transcription
 

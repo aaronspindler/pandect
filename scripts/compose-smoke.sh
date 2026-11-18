@@ -95,6 +95,7 @@ import io
 
 from PIL import Image
 from pypdf import PdfWriter
+from audio.testing import m4a_bytes
 from core.parsers import run_parser
 
 writer = PdfWriter()
@@ -106,6 +107,14 @@ assert preview["status"] == "complete" and preview["page_count"] == 1
 with Image.open(io.BytesIO(base64.b64decode(preview["image"]))) as image:
     assert image.format == "JPEG" and image.size == (400, 400)
 print("Bounded PDF rendering in the production container: OK")
+recording = m4a_bytes(channels=2, rate=44100)
+audio = run_parser("audio", recording)
+assert audio["status"] == "complete" and audio["format"] == "M4A"
+assert audio["channels"] == 2 and audio["sample_rate"] == 44100
+assert run_parser("audio_preview", recording)["content_type"] == "audio/mp4"
+chunk = run_parser("audio_chunk", recording, options={"start_frame": 0, "frame_count": 44100})
+assert base64.b64decode(chunk["audio"])[:4] == b"RIFF"
+print("Bounded AAC M4A decoding and WAV chunks in the production container: OK")
 PY
 compose stop worker
 compose exec -T web python manage.py shell <<'PY'
@@ -450,7 +459,8 @@ try:
     else:
         raise RuntimeError("The production WSGI server did not become ready.")
     for path, expected in (
-        ("/static/ui/app.css", b"evidence-workspace"),
+        ("/static/ui/app.css", b".global-header"),
+        ("/static/core/workspace.css", b".evidence-workspace"),
         ("/static/core/evidence.js", b"data-evidence-upload"),
         ("/static/ui/icons/file-text.svg", b"<svg"),
         ("/accounts/login/", b'name="login"'),

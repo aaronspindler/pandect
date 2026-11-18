@@ -2,9 +2,9 @@
 <article class="analysis-finding" id="finding-{{ item.number }}" tabindex="-1" aria-labelledby="finding-heading-{{ item.number }}">
   <header class="analysis-finding-heading">
     {% if focused_finding %}<h2 id="finding-heading-{{ item.number }}">{{ item.label }}</h2>{% else %}<h3 id="finding-heading-{{ item.number }}">{% include 'core/analysis/finding_link.html' %}</h3>{% endif %}
-    {% if can_edit and result.pk %}<a class="record-link" href="{% url 'core:analysis:selection_pick' case.pk %}?result={{ result.pk }}&amp;item={{ item.index }}">Save to selection</a>{% endif %}
   </header>
-  {% if item.ai_suggestion %}<p class="muted">AI suggestion · Check against the sources.</p>{% endif %}
+  {% if item.review_reason %}<p class="muted">{{ item.review_reason }}{% if focused_finding and review_followup %} <a href="{{ review_followup.1 }}">{{ review_followup.0 }}</a>{% endif %}</p>{% endif %}
+  {% if item.ai_suggestion %}<p class="muted analysis-finding-status">AI suggestion</p>{% endif %}
   {% if item.audio_url %}
   <p class="analysis-recording-time">
     {% if focused_finding %}Recording interval · {{ item.start_seconds }}–{{ item.end_seconds }} seconds
@@ -46,6 +46,7 @@
   {% endif %}
 
   {% if item.messages %}{% include 'phone/analysis/message_rows.html' %}{% endif %}
+  {% if item.measurement_note %}<p class="muted analysis-finding-limit">{{ item.measurement_note }}</p>{% endif %}
   {% if item.candidate_body %}<blockquote class="analysis-source-excerpt">{{ item.candidate_body }}</blockquote>{% endif %}
   {% if metadata_result and item.metadata_rows %}
     {% include 'core/analysis/measurement_table.html' with measurements=item.metadata_rows number=item.number only %}
@@ -55,40 +56,44 @@
       {% include 'core/analysis/measurements.html' with measurements=item.primary_measurements only %}
     </div>
     {% endif %}
-    {% if item.measurements %}
-      {% if run.operation == 'entities' %}<details class="disclosure"><summary>Value details</summary>{% elif item.primary_measurements and item.media_details %}<details class="disclosure"><summary>Processing details</summary>{% endif %}
+    {% if item.measurements and not item.collapse_measurements %}
       {% include 'core/analysis/measurements.html' with measurements=item.measurements only %}
-      {% if run.operation == 'entities' or item.primary_measurements and item.media_details %}</details>{% endif %}
+    {% endif %}
+    {% if item.measurements and item.collapse_measurements or item.message_details %}
+    <details class="analysis-finding-details disclosure"{% if item.details_open %} open{% endif %}>
+      <summary>Details</summary>
+      {% if item.collapse_measurements and item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
+      {% for message in item.message_details %}
+      <section class="analysis-message-details">
+        <p><a href="{{ message.source.url }}">{{ message.source.label }}</a></p>
+        {% if message.source.anchors %}<div class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=message.source.anchors %}</div>{% endif %}
+        {% if message.references %}{% include 'core/analysis/measurements.html' with measurements=message.references only %}{% endif %}
+      </section>
+      {% endfor %}
+    </details>
     {% endif %}
   {% endif %}
 
-  {% if item.sources %}
-  {% if item.prior_finding_links %}<h3>Quoted prior findings</h3><p class="muted">These quotations are from derived findings, not original evidence.</p>{% for citation in item.prior_finding_links %}<blockquote>{{ citation.quote }}</blockquote><p><a href="{{ citation.url }}">Open exact prior finding</a> · Review when processed: {{ citation.review_at_execution }}</p>{% endfor %}{% endif %}
+  {% if item.prior_finding_links %}<h3>Quoted prior findings</h3><p class="muted">These quotations are from derived findings, not original evidence.</p>{% for citation in item.prior_finding_links %}<blockquote>{{ citation.quote }}</blockquote><p><a href="{{ citation.url }}">Open exact prior finding</a></p>{% endfor %}{% endif %}
+  {% if item.display_sources %}
   {% if focused_finding %}<h3 class="analysis-finding-sources-heading">Sources</h3>{% else %}<h4 class="analysis-finding-sources-heading">Sources</h4>{% endif %}
   <div{% if item.comparison_sources %} class="analysis-source-comparison"{% endif %}>
-    {% include 'core/analysis/finding_sources.html' %}
+    {% include 'core/analysis/finding_sources.html' with sources=item.display_sources %}
   </div>
   {% endif %}
 
-  {% if focused_finding %}
-  <details class="analysis-finding-review disclosure">
-    <summary id="review-finding">Review this finding</summary>
-    <p class="muted">Finding review: <strong>{% if item.latest_review %}{{ item.latest_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if item.latest_review %} · {{ item.latest_review.reviewed_by }} · {{ item.latest_review.created_at|date:'d M Y, H:i:s T' }}{% endif %}</p>
+  {% if focused_finding and item.can_select_estimate %}
+    {% if item.estimate_in_use %}<p class="muted">Selected for use in maps and spatial analysis.</p>{% endif %}
     {% if can_edit %}
-      <form class="analysis-review-form form-layout" method="post" aria-label="Review {{ item.label }}" action="{% url 'core:analysis:review' case.pk run.pk %}{{ run_suffix }}" data-unsaved-form>
-        {% csrf_token %}<input type="hidden" name="item_index" value="{{ item.index }}">
-        <div class="field">
-          <label for="finding-decision-{{ item.number }}">Decision</label>
-          <select id="finding-decision-{{ item.number }}" name="decision"><option value="unresolved">Unresolved</option><option value="accepted">Accepted</option><option value="rejected">Rejected</option></select>
-        </div>
-        <div class="field">
-          <label for="finding-comment-{{ item.number }}">Reason</label>
-          <textarea id="finding-comment-{{ item.number }}" name="comment" maxlength="4000"></textarea>
-        </div>
-        <div class="form-actions"><button class="button button-primary" type="submit">Record finding review</button></div>
-      </form>
+    <form class="form-actions" method="post" action="{% url 'core:analysis:select_estimate' case.pk run.pk item.index %}{{ run_suffix }}">
+      {% csrf_token %}
+      {% if item.estimate_in_use %}
+        <button class="button button-secondary" type="submit" name="action" value="stop">Stop using this estimate</button>
+      {% else %}
+        <button class="button button-secondary" type="submit" name="action" value="use">Use this estimate</button>
+      {% endif %}
+    </form>
     {% endif %}
-  </details>
   {% endif %}
   {% if item.reference_snapshot %}<p><a class="record-link" href="{% url 'core:analysis:artifact' case.pk run.pk item.reference_snapshot.pk %}">Download the reference response for this finding</a></p>{% endif %}
 </article>

@@ -82,7 +82,7 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
     def page(self, **params):
         return catalogue_page(self.case, QueryDict(urlencode(params)))
 
-    def test_save_actions_follow_current_case_role(self):
+    def test_findings_remain_readable_without_selection_actions(self):
         first = snapshot_sources(self.case, [{"kind": "text", "id": self.note.pk}])
         other = self.text()
         second = snapshot_sources(self.case, [{"kind": "text", "id": other.pk}])
@@ -105,10 +105,7 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
             for url in (self.url, occurrence_url):
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, 200)
-                if role == "viewer":
-                    self.assertNotContains(response, "Save to selection")
-                else:
-                    self.assertContains(response, "Save to selection")
+                self.assertNotContains(response, "Save to selection")
 
     def test_all_runs_and_items_are_paginated_without_highlight_limits(self):
         for index in range(45):
@@ -158,16 +155,9 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
         run.inputs[0]["result_id"] = str(uuid4())
         self.assertNotEqual(before, equivalence_key(run))
 
-    def test_latest_is_selected_before_review_or_search_filters(self):
+    def test_latest_is_selected_before_search_filters(self):
         older = self.publish()
-        AnalysisReview.objects.create(
-            case=self.case,
-            result=older,
-            reviewed_by=self.users["owner"],
-            decision="accepted",
-            item_index=0,
-        )
-        latest = self.publish(
+        self.publish(
             items=[
                 {
                     "label": "Latest",
@@ -176,31 +166,17 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
                 }
             ]
         )
-        AnalysisReview.objects.create(
-            case=self.case,
-            result=latest,
-            reviewed_by=self.users["owner"],
-            decision="rejected",
-            item_index=0,
-        )
-        self.assertEqual(self.page(review="accepted")["page_obj"].paginator.count, 0)
         self.assertEqual(self.page(q="needle")["page_obj"].paginator.count, 0)
         self.assertEqual(
-            self.page(review="accepted", history="all")["page_obj"].paginator.count, 1
+            self.page(q="needle", history="all")["page_obj"].paginator.count, 1
         )
 
-    def test_whole_result_review_does_not_accept_each_item(self):
-        result = self.publish()
-        AnalysisReview.objects.create(
-            case=self.case,
-            result=result,
-            reviewed_by=self.users["owner"],
-            decision="accepted",
-        )
-        row = self.page(review="unreviewed")["rows"][0]
-        self.assertEqual(row["review"], "unreviewed")
-        self.assertEqual(row["result_review"], "accepted")
-        self.assertEqual(self.page(review="accepted")["page_obj"].paginator.count, 0)
+    def test_retired_review_filter_does_not_affect_results(self):
+        self.publish()
+        page = self.page(review="accepted")
+        self.assertEqual(page["page_obj"].paginator.count, 1)
+        self.assertNotIn("review", page["form"].fields)
+        self.assertNotIn("review", page["rows"][0])
 
     def test_literal_search_archived_sources_and_escaped_output(self):
         self.publish()
@@ -471,7 +447,7 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
         )
         row = self.page(method="location_quality")["rows"][0]
         self.assertFalse(row["unavailable"])
-        self.assertIn("review has changed", row["warning"])
+        self.assertIn("is no longer selected", row["warning"])
 
     def test_corrupt_cross_case_source_is_withheld(self):
         result = self.publish()

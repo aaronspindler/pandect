@@ -25,9 +25,6 @@ def present(operation, items, formatter):
         item["media_details"] = True
     groups = group_by_source(items)
     for group in groups:
-        group["items"].sort(
-            key=lambda item: (item.get("start_seconds", -1), item["index"])
-        )
         group["recording_url"] = next(
             (
                 item["recording_url"]

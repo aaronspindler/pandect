@@ -1,3 +1,0 @@
-{% extends 'ui/base.html' %}
-{% block title %}Brief unavailable{% endblock %}
-{% block content %}<div class="detail-layout"><h1>Brief unavailable</h1><p>No selected material was silently omitted. Review these items before exporting {{ selection.name }}.</p><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul><a class="button button-primary" href="{% url 'core:analysis:selection_detail' case.pk selection.pk %}">Review selection</a></div>{% endblock %}

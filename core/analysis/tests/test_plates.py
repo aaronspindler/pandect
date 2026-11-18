@@ -12,6 +12,7 @@ from django.urls import reverse
 
 from cases.models import CaseMembership
 from core.analysis.artifacts import decode_artifact
+from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
 from core.analysis.forms import analysis_form
 from core.analysis.services import process_run, resolve_inputs, start_run
@@ -73,6 +74,32 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.status, "partial", run.error_code)
         return image, run
 
+    def test_eligible_repeat_can_supply_an_evidence_highlight(self):
+        run = self.start()
+        source = run.inputs[0]["id"]
+        AnalysisRun.objects.filter(pk=run.pk).update(status="complete")
+        items = [
+            {
+                "label": "Plate candidate",
+                "text": "SAMPLE7",
+                "source_ids": [source],
+                "anchors": [{"source_id": source, "region": [0, 0, 5, 3]}],
+                "values": {"Minimum word confidence (0–100)": confidence},
+            }
+            for confidence in (10, 97)
+        ]
+        project_result(
+            AnalysisResult.objects.create(
+                case=self.case,
+                run=run,
+                data=output("Retained readings", items=items),
+            )
+        )
+        self.login("viewer")
+        response = self.client.get(self.url("detail", self.image, kind="image"))
+        self.assertEqual([row["index"] for row in response.context["highlights"]], [1])
+        self.assertTrue(response.context["highlights"][0]["review_reason"])
+
     def test_weak_regions_are_hidden_without_renumbering_findings_or_leaking_text(self):
         image, run = self.mixed_run()
         self.assertEqual(ExtractedPassage.objects.filter(result=run.result).count(), 3)
@@ -100,18 +127,6 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(strong.context["items"][0]["index"], 13)
         self.assertFalse(strong.context["show_weak_regions"])
         self.login("editor")
-        reviewed = self.client.post(
-            reverse("core:analysis:review", args=[self.case.pk, run.pk]) + "?weak=1",
-            {
-                "item_index": "13",
-                "decision": "accepted",
-                "comment": "Synthetic review",
-            },
-        )
-        self.assertEqual(reviewed.status_code, 302)
-        self.assertEqual(run.result.reviews.get().item_index, 13)
-        self.assertIn("weak=1", reviewed["Location"])
-        self.assertIn("finding=14", reviewed["Location"])
         derived, _ = start_run(
             self.users["owner"],
             self.case.pk,

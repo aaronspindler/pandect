@@ -278,7 +278,7 @@ def _source_choices(
                                         choices.append(
                                             (
                                                 f"{prefix}:{index}",
-                                                f"{label} · Reviewed estimate · "
+                                                f"{label} · Address estimate · "
                                                 f"{candidate['label']} · "
                                                 f"{address}",
                                             )

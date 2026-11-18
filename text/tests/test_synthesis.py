@@ -12,7 +12,6 @@ from django.urls import reverse
 
 from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
-from core.analysis.selections import revision_token, source_member
 from core.analysis.services import (
     process_run,
     resolve_inputs,
@@ -21,7 +20,7 @@ from core.analysis.services import (
     start_run,
 )
 from core.analysis.sources import source_id
-from core.models import AnalysisResult, AnalysisRun, SavedSelection
+from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
 from text.analysis.synthesis import finding_text, synthesize
@@ -217,42 +216,6 @@ class SynthesisTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(
             AnalysisRun.objects.filter(operation="question_synthesis").exists()
         )
-
-    def test_shared_selection_form_revision_roles_and_gateway_approval(self):
-        selection = SavedSelection.objects.create(
-            case=self.case,
-            name="Meeting review",
-            created_by=self.users["owner"],
-            updated_by=self.users["owner"],
-            members=[source_member(self.case, self.choice)],
-        )
-        url = reverse("core:analysis:synthesize", args=[self.case.pk, selection.pk])
-        self.login("viewer")
-        self.assertEqual(self.client.get(url).status_code, 403)
-        self.login("owner")
-        data = {
-            "question": "Was it held?",
-            "backend": "gateway",
-            "submission_id": str(uuid4()),
-            "revision": revision_token(selection),
-        }
-        response = self.client.post(url, data)
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(
-            AnalysisRun.objects.filter(operation="question_synthesis").exists()
-        )
-        data["backend"] = "local"
-        selection.revision += 1
-        selection.save()
-        self.assertContains(
-            self.client.post(url, data), "selection changed", status_code=400
-        )
-        data["revision"] = revision_token(selection)
-        response = self.client.post(url, data)
-        self.assertEqual(response.status_code, 302)
-        run = AnalysisRun.objects.get(operation="question_synthesis")
-        self.assertEqual(run.inputs, snapshot_sources(self.case, [self.choice]))
-        self.assertFalse(run.external_processing)
 
 
 class SynthesisDependencyTests(EvidenceViewTestMixin, TestCase):

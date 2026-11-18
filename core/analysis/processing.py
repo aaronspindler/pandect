@@ -13,10 +13,13 @@ from core.analysis.errors import error_message
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.navigation import history_filters, query_suffix
 from core.analysis.operations import OPERATIONS
+from core.case_search.indexing import search_index_status
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS, KINDS
 from core.models import AnalysisRun, CaseAnalysisBatch
 from geo.models import VehicleLocationImport, VehicleTripGeneration
+from socialmedia.models import InstagramCheck
+from socialmedia.monitor_jobs import check_message
 from ui.live import render_live
 
 
@@ -116,6 +119,19 @@ def index(request, case_id):
     trip_history = Paginator(trip_generations, 10).get_page(
         request.GET.get("trips_page")
     )
+    search_index = search_index_status(case)
+    search_pending = search_index["status"] in ("queued", "running")
+    instagram_checks = (
+        InstagramCheck.objects.filter(monitor__case=case)
+        .select_related("monitor")
+        .order_by("-started_at", "-pk")
+    )
+    running_monitors = instagram_checks.filter(status="running").count()
+    monitor_history = Paginator(instagram_checks, 10).get_page(
+        request.GET.get("instagram_page")
+    )
+    for check in monitor_history:
+        check.message = check_message(check.error) if check.error else ""
     return render_live(
         request,
         "core/analysis/processing.html",
@@ -124,10 +140,16 @@ def index(request, case_id):
             "nav_section": "processing",
             "page_obj": page,
             "active_runs": active_runs,
+            "search_index": search_index,
+            "search_pending": search_pending,
+            "running_monitors": running_monitors,
+            "monitor_history": monitor_history,
             "live_pending": bool(
                 active_runs.paginator.count
                 or active_batches.paginator.count
                 or active_trips.paginator.count
+                or search_pending
+                or running_monitors
                 or imports.filter(status__in=("queued", "running")).exists()
             ),
             "active_batches": active_batches,

@@ -22,7 +22,8 @@
 </section>
 {% endif %}
 {% if run.status == 'failed' %}<p class="notice">Processing could not finish. {{ error_message }} {% if can_edit and can_retry %}<a href="#run-again">Run again</a> with the same inputs.{% endif %} Earlier evidence is retained.</p>{% endif %}
-{% if source_review_changed %}<p class="notice">A geographic estimate used by this run has a different current review. This retained result preserves the earlier accepted estimate and its review attribution. New processing requires current acceptance.</p>{% endif %}
+{% if retry_blocked %}<p class="notice">{{ retry_blocked }}</p>{% endif %}
+{% if source_review_changed %}<p class="notice">An address estimate used by this run is no longer selected. This result retains the estimate used at the time.</p>{% endif %}
 {% if source_unavailable %}<p class="notice">A selected source is unavailable or changed. The result is withheld until its exact retained inputs can be verified.</p>{% endif %}
 {% if run.previous_run %}<p>Earlier run: <a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">{{ run.previous_run.created_at|date:'d M Y, H:i:s T' }}</a></p>{% endif %}
 
@@ -46,6 +47,10 @@
 
   {% if run.operation == 'ocr' and items %}
   <p class="muted">OCR can miss text. Compare candidates with the original.</p>
+  {% endif %}
+  {% if timing_only_count %}
+  <p class="muted">{% if show_timing_only %}Showing {{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }}. <a class="record-link" href="{% querystring run_query weak=None page=None finding=None %}">Hide timing-only findings</a>{% else %}{{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }} hidden. <a class="record-link" href="{% querystring run_query weak=1 page=None finding=None %}">Show all findings</a>{% endif %}</p>
+  {% if not items %}<p>Only timing-only findings were saved. Show all findings to inspect them.</p>{% endif %}
   {% endif %}
   {% if weak_region_count %}
   <p class="muted">{% if show_weak_regions %}Showing {{ weak_region_count }} weak region{{ weak_region_count|pluralize }}. <a href="{% querystring run_query weak=None %}">Hide weak regions</a>{% else %}{{ weak_region_count }} weak region{{ weak_region_count|pluralize }} hidden by the plate-likeness filter. <a href="{% querystring run_query weak=1 %}">Show weak regions</a>{% endif %}</p>
@@ -100,43 +105,6 @@
 </details>
 {% endif %}
 
-{% if result %}
-{% if reviews or can_review_result %}
-<details class="analysis-section disclosure">
-  <summary id="investigator-review">Review and history</summary>
-    {% if run.operation == 'geocode_locations' %}
-    <p class="muted">Review applies to individual candidates.</p>
-    {% else %}
-    <p class="muted">Result review: <strong>{% if latest_result_review %}{{ latest_result_review.get_decision_display }}{% else %}Awaiting review{% endif %}</strong>{% if latest_result_review %} · {{ latest_result_review.reviewed_by }} · {{ latest_result_review.created_at|date:'d M Y, H:i:s T' }}{% endif %}</p>
-    {% endif %}
-
-  {% if reviews %}<details class="disclosure">
-    <summary>Review history · {{ reviews|length }} review{{ reviews|length|pluralize }}</summary>
-  <div class="analysis-review-history">
-    {% for review in reviews %}
-    <article>
-      <h3>{{ review.get_decision_display }}{% if review.item_index != None %} · Finding {{ review.item_index|add:1 }}{% endif %}</h3>
-      <p class="muted">{{ review.reviewed_by }} · {{ review.created_at|date:'d M Y, H:i:s T' }}</p>
-      <div class="original-text">{{ review.comment }}</div>
-    </article>
-    {% endfor %}
-  </div>
-  </details>{% endif %}
-  {% if can_review_result %}
-  <details class="disclosure">
-    <summary>Review this result</summary>
-  <form class="analysis-review-form form-layout" method="post" action="{% url 'core:analysis:review' case.pk run.pk %}{{ run_suffix }}" data-unsaved-form>
-    {% csrf_token %}
-    <div class="field"><label for="review-decision">Decision</label><select id="review-decision" name="decision"><option value="unresolved">Unresolved</option><option value="accepted">Accepted</option><option value="rejected">Rejected</option></select></div>
-    <div class="field"><label for="review-comment">Reason</label><textarea name="comment" id="review-comment" maxlength="4000"></textarea></div>
-    <div class="form-actions"><button class="button button-secondary" type="submit">Record review</button></div>
-  </form>
-  </details>
-  {% endif %}
-</details>
-{% endif %}
-{% endif %}
-
 <details class="analysis-section analysis-run-details"{% if run.status == 'failed' %} open{% endif %}>
   <summary id="run-details">Processing details</summary>
   {% if evidence_analysis_url %}<p><a class="record-link" href="{{ evidence_analysis_url }}">All findings for this evidence</a></p>{% endif %}
@@ -155,7 +123,7 @@
         · <a href="{{ source.original_url }}">Original evidence</a>
       {% endif %}
       {% if source.item.latitude != None %} · Reported coordinates {{ source.item.latitude }}, {{ source.item.longitude }}{% endif %}
-      {% if source.derived_coordinates != None %} · Reviewed estimate {{ source.derived_coordinates.0 }}, {{ source.derived_coordinates.1 }}{% endif %}
+      {% if source.derived_coordinates != None %} · Address estimate {{ source.derived_coordinates.0 }}, {{ source.derived_coordinates.1 }}{% endif %}
       {% if source.item.is_archived %} · Archived{% endif %}
     </li>
     {% endfor %}

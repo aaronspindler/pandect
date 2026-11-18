@@ -90,7 +90,7 @@ def source_positions(case, inputs):
             else "",
             "position": None,
             "position_label": "Address awaiting local lookup",
-            "review_url": "",
+            "estimate_url": "",
             "attribution": "",
         }
         if original.get("latitude") is not None:
@@ -149,7 +149,9 @@ def source_positions(case, inputs):
     ):
         result = getattr(run, "result", None)
         for item, row in by_run[run.pk]:
-            row["review_url"] = reverse("core:analysis:detail", args=(case.pk, run.pk))
+            row["estimate_url"] = reverse(
+                "core:analysis:detail", args=(case.pk, run.pk)
+            )
             if run.status in {"queued", "running"}:
                 row["position_label"] = "Local address lookup in progress"
                 continue
@@ -183,23 +185,23 @@ def source_positions(case, inputs):
                 if reviews[result.pk].get(index) == "accepted":
                     accepted.append((index, position, values))
             if matching:
-                row["review_url"] = finding_url(case.pk, run.pk, matching[0])
-                row["position_label"] = "Review address estimates"
+                row["estimate_url"] = finding_url(case.pk, run.pk, matching[0])
+                row["position_label"] = "Choose an address estimate"
             else:
                 row["position_label"] = "No usable local address match"
             if len(accepted) > 1:
-                row["position_label"] = "Multiple accepted estimates; choose one"
+                row["position_label"] = (
+                    "Multiple estimates selected. Leave one selected."
+                )
             elif len(accepted) == 1:
                 index, position, values = accepted[0]
-                row["review_url"] = finding_url(case.pk, run.pk, index)
+                row["estimate_url"] = finding_url(case.pk, run.pk, index)
                 if abs(position[0]) > MERCATOR_LATITUDE:
-                    row["position_label"] = (
-                        "Reviewed estimate outside map display range"
-                    )
+                    row["position_label"] = "Address estimate outside map display range"
                     continue
                 row.update(
                     position=list(position),
-                    position_label="Reviewed address estimate",
+                    position_label="Selected address estimate",
                     attribution=" · ".join(
                         dict.fromkeys(
                             str(values[key])

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -534,6 +535,32 @@ class TextAnalysisTests(SimpleTestCase):
                         ]
                     },
                 )
+
+    def test_message_model_context_keeps_ids_and_source_text(self):
+        sender_id, recipient_id = uuid4(), uuid4()
+        original = source(
+            "Exact message wording.",
+            kind="text-message",
+            sender_id=sender_id,
+            recipient_id=recipient_id,
+            sender="Alex Example",
+            recipient="Pat Example",
+            occurred_at=None,
+        )
+
+        def infer(prompt, schema):
+            context = json.loads(prompt.split("Evidence:\n", 1)[1])[0]
+            self.assertNotIn("Alex Example", prompt)
+            self.assertNotIn("Pat Example", prompt)
+            self.assertEqual(context["reported_sender_id"], str(sender_id))
+            self.assertEqual(context["reported_recipient_id"], str(recipient_id))
+            self.assertEqual(context["text"], original.text)
+            self.assertIn("reported sender <reported_sender_id>", prompt)
+            return {"items": []}
+
+        self.assertEqual(
+            content_events([original], {}, infer=infer)["outcome"], "empty"
+        )
 
     def test_model_repeated_quote_needs_offset_and_missing_content_is_explicit(self):
         original = source("yes yes")

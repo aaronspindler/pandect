@@ -6,6 +6,7 @@ from django.urls import include, path
 
 from accounts.views import timezone_settings
 from cases.views import invitation_accept
+from socialmedia.monitor_views import connection_settings
 
 from .views import health
 
@@ -15,6 +16,7 @@ urlpatterns = [
     path("", include("marketing.urls")),
     path("health/", health, name="health"),
     path("accounts/timezone/", timezone_settings, name="account_timezone"),
+    path("accounts/instagram/", connection_settings, name="account_instagram"),
     path("accounts/", include("allauth.urls")),
     path("cases/", include("cases.urls")),
     path("cases/<uuid:case_id>/people/", include("people.urls")),
@@ -22,6 +24,7 @@ urlpatterns = [
     path("cases/<uuid:case_id>/", include("geo.urls")),
     path("cases/<uuid:case_id>/evidence/", include("phone.urls")),
     path("cases/<uuid:case_id>/people/", include("socialmedia.urls")),
+    path("cases/<uuid:case_id>/instagram/", include("socialmedia.monitor_urls")),
     path("cases/<uuid:case_id>/", include("core.urls")),
     path("invitations/<str:token>/", invitation_accept, name="invitation_accept"),
     path("admin/", admin.site.urls),

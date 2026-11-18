@@ -17,6 +17,7 @@ from core.evidence.queries import get_evidence, scoped_evidence
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.conversation_analysis import conversation_analysis_context
+from phone.conversation_sessions import attach_session_groups
 from phone.conversations import (
     conversation_list_page,
     imported_contexts,
@@ -92,6 +93,7 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
                 "list_page",
                 "analysis_page",
                 "conversation_analysis_page",
+                "weak",
             )
             if request.GET.get(key)
         }
@@ -156,10 +158,13 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
     source_params = {"source": str(source.pk)} if source else {}
     if list_page > 1:
         source_params["list_page"] = list_page
+    if request.GET.get("weak") == "1":
+        source_params["weak"] = "1"
     for message in rows:
-        message.evidence_url = reverse(
+        evidence_url = reverse(
             "core:evidence:detail", args=(case.pk, "text-message", message.pk)
         )
+        message.evidence_url = evidence_url
         evidence_params = {}
         if source:
             evidence_params["conversation_source"] = str(source.pk)
@@ -168,16 +173,28 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         if evidence_params:
             message.evidence_url += "?" + urlencode(evidence_params)
         message.imported_source = visible_contexts.get(message.pk)
+        if message.imported_source:
+            info_query = urlencode(evidence_params | {"info": "1"})
+            message.source_info_url = (
+                f"{evidence_url}?{info_query}#evidence-details-heading"
+            )
     page.object_list = rows
     list_url = reverse("phone:conversation_list", args=(case.pk,))
     if list_page > 1:
         list_url += "?" + urlencode({"page": list_page})
+    mixed_sources = False
+    if source is None and sources:
+        mixed_sources = (
+            len(sources) > 1
+            or messages.filter(communication_context__isnull=True).exists()
+        )
     context = case_context(case, request.user) | {
         "first_person": first,
         "second_person": second,
         "page_obj": page,
         "selected_message": selected,
         "source_documents": sources,
+        "show_message_source": mixed_sources,
         "conversation_list_url": list_url,
         "list_page": list_page,
         "selected_source": source,
@@ -195,4 +212,5 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
             list_page=list_page,
         )
     )
+    attach_session_groups(case, rows)
     return render(request, "phone/conversation_detail.html", context)

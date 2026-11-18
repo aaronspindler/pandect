@@ -47,7 +47,9 @@ local builds default to `dev`. `APP_COMMIT_SHA` retains the exact source revisio
 in the image, OCI revision label, and health response's `commit` field. See
 [release numbering and deployment](operations.md#continuous-deployment).
 Compose overrides startup commands for development. PostgreSQL 18's named volume
-mounts at `/var/lib/postgresql`.
+mounts at `/var/lib/postgresql`. Compose and CI pin the same multi-architecture
+pgvector image. Case search uses PostgreSQL full-text search, trigrams and
+384-dimensional passage embeddings in the existing case database.
 
 Django's Tasks API uses the beta `django-tasks-db` dependency, PostgreSQL, and one
 `default` queue, without a separate broker. Compose starts its worker after web
@@ -73,8 +75,11 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
 - `/health/` checks database connectivity without returning secrets or case data.
 - `core/` is one Django app owning abstract evidence/file bases, common evidence
   management and the unified workspace, plus durable analysis runs, results,
-  reviews, artifacts, source resolution, inference adapters, and job orchestration.
+  address estimate selections, artifacts, source resolution, inference adapters, and job orchestration.
   `core.evidence` and `core.analysis` are focused Python packages, not Django apps.
+  The removed Selections tool has no routes or UI. Its `SavedSelection` model/table
+  remain to preserve stored references and case deletion; no data migration or
+  database cleanup accompanies the removal.
   Core also owns the synthetic probe, bounded `check_task_worker` diagnostic, and
   disabled global queue admin: operational task records have no case authorization.
 - `text/`, `image/`, `audio/`, and `document/` own their concrete evidence models,
@@ -85,7 +90,7 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   communication context, message imports, and conversation analysis.
 - `people/` and `vehicle/` own case-scoped person and vehicle records. These are
   investigator-maintained entities, not evidence subclasses. `socialmedia/` owns
-  social accounts linked to people. `video/` is a registered placeholder only.
+  social accounts linked to people and [case-bound Instagram monitors](instagram-monitors.md). `video/` is a registered placeholder only.
 - `marketing/` owns public routes, templates, styles, and tests. It shares small
   design primitives and brand assets with `ui/`, which owns the product shell,
   shared controls, and error templates. Every template and static asset lives in
@@ -124,6 +129,9 @@ The core parser runner uses isolated Python subprocesses, resource limits,
 bounded input/output, and a fixed dispatch allowlist. Domain parsers are Django-free
 and never load settings/models in a child process. Type-specific processing stays
 in its domain, including text methods reused for document or conversation text.
+Audio decoding uses pinned PyAV with bundled FFmpeg libraries inside this same
+boundary; no FFmpeg executable or separate service is required. See the
+[recording profiles and bounds](original-previews.md#recordings).
 
 Domain `analysis/` packages separate `deterministic`, `metadata`, `ai`, and
 `external` processing. Local OCR uses `image.analysis.ai_parser` in the bounded

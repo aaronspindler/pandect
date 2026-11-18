@@ -6,6 +6,44 @@ from core.analysis.result_views import RESULT_VIEWS, result_view
 
 
 class ResultViewsTests(SimpleTestCase):
+    def test_domain_groups_keep_the_ranked_reading_order(self):
+        for operation in (
+            "text_topics",
+            "question_synthesis",
+            "comm_patterns",
+            "transcription",
+            "image_metadata",
+            "native_text",
+        ):
+            with self.subTest(operation=operation):
+                rows = [
+                    {
+                        "index": index,
+                        "number": index + 1,
+                        "url": "?finding=1",
+                        "label": label,
+                        "text": "Retained text",
+                        "values": values,
+                        "measurements": [],
+                        "sources": [{"id": source}],
+                        "start_seconds": index,
+                        "plate_score": None,
+                    }
+                    for index, label, source, values in (
+                        (2, "Raw metadata · Date", "first", {"section": "contrary"}),
+                        (0, "Selected message", "second", {"occurrences": 1}),
+                        (1, "Summary", "first", {"section": "supported"}),
+                    )
+                ]
+                groups, template = result_view(operation, rows, lambda values: [])
+                rendered = render_to_string(
+                    template, {"run": {"operation": operation}, "result_groups": groups}
+                )
+                markers = [
+                    rendered.index(f'id="finding-{row["number"]}"') for row in rows
+                ]
+                self.assertEqual(markers, sorted(markers))
+
     def test_registered_operations_keep_a_readable_legacy_fallback(self):
         # HTML imports are retired; their retained results remain readable.
         self.assertEqual(

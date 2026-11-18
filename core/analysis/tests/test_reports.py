@@ -6,6 +6,8 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import Http404
 from django.test import TestCase
+from django.urls import reverse
+from django.utils.html import strip_tags
 
 from audio.models import AudioEvidence
 from core.analysis.reports import report
@@ -21,6 +23,22 @@ INSTANT = datetime(2026, 10, 27, 12, tzinfo=UTC)
 
 
 class ExistingFieldReportTests(EvidenceViewTestMixin, TestCase):
+    def test_call_report_displays_names_for_filters_and_pair_counts(self):
+        recipient = Person.objects.create(case=self.case, first_name="Recipient")
+        self.call(recipient=recipient)
+        self.login("viewer")
+        response = self.client.get(
+            reverse("core:analysis:report", args=[self.case.pk, "calls"]),
+            {"participant_id": self.person.pk, "other_participant_id": recipient.pk},
+        )
+        self.assertEqual(response.status_code, 200)
+        content = strip_tags(response.content.decode())
+        self.assertIn(str(self.person), content)
+        self.assertIn(str(recipient), content)
+        self.assertIn("Participant pair counts", content)
+        self.assertNotIn(str(self.person.pk), content)
+        self.assertNotIn(str(recipient.pk), content)
+
     def call(self, model=PhoneCallEvidence, **values):
         if values.get("is_archived"):
             values |= {

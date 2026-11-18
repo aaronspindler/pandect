@@ -44,13 +44,13 @@
     <h2>{{ selected_trip.vehicle }}</h2>
     <p><time datetime="{{ selected_trip.start.time|date:'c' }}">{{ selected_trip.start.time|date:'j M Y, H:i T' }}</time> → <time datetime="{{ selected_trip.end.time|date:'c' }}">{{ selected_trip.end.time|date:'j M Y, H:i T' }}</time> · {{ selected_trip.minutes|floatformat:'-1' }} min observed</p>
     <p>{{ selected_trip.start.place }} → {{ selected_trip.end.place }}</p>
-    {% if not detail %}<a class="record-link" href="{{ selected_trip.detail_url }}">Review {{ selected_trip.source_count }} observations and address estimates</a>{% endif %}
+    {% if not detail %}<a class="record-link" href="{{ selected_trip.detail_url }}">View {{ selected_trip.source_count }} observations and address estimates</a>{% endif %}
   </div>
   {% endif %}
   <details class="map-details"><summary>Map details</summary>
     {% if can_edit %}<p>Choose a spot to add a POI, or use Add POI to enter coordinates.</p>{% endif %}
-    <p>Positions are reported coordinates or reviewed address estimates. Missing positions break the line. First and last observations do not verify departure or arrival.</p>
-    <p>Review address estimates in the trip's observations to include them on the map. Trips remain readable while lookups or reviews are pending.</p>
+    <p>Positions are reported coordinates or selected address estimates. Missing positions break the line. First and last observations do not verify departure or arrival.</p>
+    <p>Choose address estimates from the trip's observations to include them on the map.</p>
     <p>Evidence files, titles, and source details are not sent to the background map provider.</p>
     <p>Address lookup sends only addresses to the configured private geocoder.</p>
     <p>P markers are investigator POIs, separate from evidence. Only this POI page is mapped; selected trips include all their observations.</p>

@@ -43,6 +43,9 @@ plate profile is below. Synthetic printed images test real recognition; engine
 fixtures cover failures/publication, without establishing real-evidence accuracy.
 Transcription defaults to private whisper.cpp; Cloudflare requires separate
 selection/approval. Routine inference is mocked; see [qualification](local-analysis.md).
+Transcript text stays searchable as extracted content and opens at its saved
+source anchors. The findings catalogue surfaces timed segments flagged for
+uncertain speech so an investigator can check the audio.
 
 ## Source anchors and interpretation
 
@@ -76,10 +79,9 @@ retained readings.
 
 This weighted ranking is neither a probability nor trained classification.
 Regions below 50 are hidden; **Show weak regions** reveals readings, scores,
-signals and private previews without deletion. Direct links reveal requested
-weak findings without renumbering/review movement. Review counts cover visible
-findings; downloads retain everything. Signs may pass; blurred/obscured/unfamiliar
-plates may fail. No general accuracy is established.
+signals and private previews. Direct links reveal weak findings at their saved
+numbers. Downloads retain every finding. Signs may pass, and blurred, obscured,
+or unfamiliar plates may fail. No general accuracy is established.
 
 Above-threshold readings with at least three ASCII letters/digits become searchable
 candidates, preserving punctuation/conflicts. Weak OCR and shorter text remain

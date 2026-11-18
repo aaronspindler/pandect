@@ -6,17 +6,17 @@ limits and configuration; the [index](README.md#investigation-workflows) routes
 to workflows. The [October catalogue](archive/evidence-analysis-2026-10.md) is
 historical research, not a current inventory or effort estimate.
 
-## Next: qualify interpretation and retrieve related passages
+## Qualify interpretation and related-passage retrieval
 
 Qualify synthesis on representative sanitized selections: supporting/contrary
 passages, negation, cancellation, hearsay, ambiguous references, unknowns and
 abstention. Retain model/runtime identities; measure interpretation separately
 from quotation agreement. Implementation and mocked tests do not establish quality.
 
-Add case-scoped semantic retrieval alongside literal search when evaluation shows
-value. Preserve index provenance and source selection, recheck access at query
-and result time, and test irrelevant hits. Inferred timelines, entity resolution
-and graph exploration remain future work.
+Case-wide search now retrieves source-linked passages with a configured private
+embedding model. Continue evaluating paraphrases, negation, uncertain references
+and irrelevant hits on representative sanitized cases. Inferred timelines,
+entity resolution and graph exploration remain future work.
 
 **Complete when:** investigators can inspect sources for every candidate link or
 summary claim and reject suggestions without changing originals. Unavailable

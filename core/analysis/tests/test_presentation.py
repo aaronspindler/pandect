@@ -1,16 +1,24 @@
 """Readable results preserve source meanings and do not infer identity from UUIDs."""
 
 from copy import deepcopy
+from uuid import uuid4
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
-from core.analysis.presentation import measurement_formatter
+from core.analysis.presentation import (
+    measurement_formatter,
+    participant_names,
+    participant_text,
+)
 from core.analysis.projection import is_ai_suggestion
 from core.analysis.sources import Source, source_id
 from core.testing import EvidenceViewTestMixin
+from document.models import DocumentEvidence
 from people.models import Person
+from phone.models import CommunicationContext, TextMessageEvidence
 
 
 class FindingProvenanceTests(SimpleTestCase):
@@ -95,6 +103,105 @@ class AnalysisPresentationTests(EvidenceViewTestMixin, TestCase):
         )
         content = self.show({"sender_id": str(hidden.pk)})
         self.assertNotIn("Unrelated secret name", content)
+
+    def test_report_filters_and_title_case_reference_fields_show_names(self):
+        values = {
+            "Participant filter": str(self.person.pk),
+            "Other participant filter": str(self.person.pk),
+            "Sender ID": str(self.person.pk),
+            "Vehicle ID": str(self.vehicle.pk),
+            "native_message_id": str(self.person.pk),
+        }
+        content = self.show(values)
+        self.assertIn("Reported sender", content)
+        self.assertIn(str(self.person), content)
+        self.assertIn(str(self.vehicle), content)
+        self.assertNotIn(str(self.vehicle.pk), content)
+        # A native message ID is observed source data, even when it is a UUID.
+        self.assertEqual(content.count(str(self.person.pk)), 1)
+
+    def test_processing_bookkeeping_is_retained_without_becoming_assumptions(self):
+        values = {
+            "automatic_batch": str(uuid4()),
+            "import_run_id": str(uuid4()),
+            "batch_id": str(uuid4()),
+            "imported_messages": 42,
+        }
+        before = deepcopy(values)
+        content = self.show(values)
+        self.assertIn("Imported messages", content)
+        self.assertIn("42", content)
+        for key in ("automatic_batch", "import_run_id", "batch_id"):
+            self.assertNotIn(values[key], content)
+        self.assertEqual(values, before)
+
+    def test_session_threads_show_export_titles_and_preserve_native_thread_ids(self):
+        native_thread = str(uuid4())
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Message export <script>",
+            file=SimpleUploadedFile("synthetic.csv", b"Synthetic export"),
+        )
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Message",
+            body="Original text",
+            sender=self.person,
+            recipient=self.person,
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=message,
+            source_document=document,
+            source_sha256=document.sha256,
+            source_row=1,
+            source_start=0,
+            source_end=1,
+            parser_version="synthetic-v1",
+            timezone="UTC",
+            raw_sender="Synthetic person",
+            native_thread_id=native_thread,
+        )
+        source = Source("message", "text-message", message)
+        values = {"native_thread_references": [f"{document.pk}:{native_thread}"]}
+
+        def show():
+            formatter = measurement_formatter(values, case=self.case, sources=[source])
+            return render_to_string(
+                "core/analysis/measurements.html", {"measurements": formatter(values)}
+            )
+
+        content = show()
+        self.assertIn(
+            f"Message export &lt;script&gt; · Thread {native_thread}", content
+        )
+        self.assertNotIn(str(document.pk), content)
+        self.assertNotIn("<script>", content)
+        DocumentEvidence.objects.filter(pk=document.pk).update(case=self.other_case)
+        content = show()
+        self.assertIn(f"Unavailable export · Thread {native_thread}", content)
+        self.assertNotIn("Message export", content)
+        self.assertEqual(
+            values["native_thread_references"], [f"{document.pk}:{native_thread}"]
+        )
+
+    def test_participant_display_preserves_arbitrary_and_wrong_role_identifiers(self):
+        recipient = Person.objects.create(case=self.case, first_name="Recipient")
+        message = TextMessageEvidence(
+            case=self.case, sender=self.person, recipient=recipient
+        )
+        names = participant_names([Source("message", "text-message", message)])
+        literal = (
+            f"An observed identifier {self.person.pk} "
+            f"and reported recipient {self.person.pk}."
+        )
+        self.assertEqual(participant_text(literal, names), literal)
+        self.assertEqual(
+            participant_text(f"Reported sender *{self.person.pk}*.", names),
+            f"Reported sender {self.person}.",
+        )
 
     def test_unknown_zero_and_false_keep_different_visible_meanings(self):
         content = self.show(

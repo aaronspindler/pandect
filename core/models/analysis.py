@@ -173,6 +173,9 @@ class AnalysisFinding(models.Model):
     match_key = models.TextField(blank=True)
     match_digest = models.CharField(max_length=64, blank=True)
     match_version = models.CharField(max_length=32, blank=True)
+    review_signal = models.CharField(max_length=32, blank=True)
+    repeat_key = models.CharField(max_length=64, blank=True)
+    hidden_from_catalogue = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         constraints = [
@@ -229,6 +232,8 @@ class AnalysisFindingSource(models.Model):
 
 
 class AnalysisReview(models.Model):
+    """Retain legacy reasons and the decisions pinned by geographic runs."""
+
     class Decision(models.TextChoices):
         ACCEPTED = "accepted", "Accepted"
         REJECTED = "rejected", "Rejected"

@@ -1,8 +1,10 @@
-# Question-driven synthesis
+# Retained question-driven synthesis results
 
-Owners/editors can open **Case tools → Selections**, choose a shared selection,
-and **Ask a question** (up to 2,000 characters). Enqueueing checks its exact
-revision; later selection edits leave the run unchanged. Viewers inspect results.
+The Selections tool and its **Ask a question** form have been removed. Existing
+synthesis runs remain available through their result links and findings. Current
+case permissions, source validation, and explicit external approval for
+retries/reruns still apply. This guide describes the retained result format and
+processing limits; there is no form for creating a new question.
 
 Inputs include captured text/messages, supplied call transcripts, exact retained
 extraction/OCR/transcription versions, and explicitly selected findings. Raw
@@ -14,14 +16,12 @@ selected source must be usable; none is silently dropped or replaced.
 
 Original/extracted quotations validate exact character offsets. Prior-finding
 quotations validate that finding's label, text and sorted JSON values, retaining
-result ID, item index, quotation/offsets and execution-time review state. They
+result ID, item index, and quotation offsets. They
 appear as quoted derived findings with separate underlying source attribution.
 
 **Supported observations** and **Contrary evidence** are AI suggestions.
-**Not established by this selection** contains bounded questions/limitations,
-not source-backed observations. Selecting a finding does not accept it; reviews
-and their reasons remain independent. Valid quotation anchors do not establish
-interpretation accuracy.
+**Not established by this selection** contains questions and limitations.
+Valid quotation anchors do not establish interpretation accuracy.
 
 Model instructions preserve negation, cancellation, hearsay, ambiguity and
 competing accounts, treating imported instructions as untrusted data. Mocked
@@ -30,15 +30,14 @@ access; they do not qualify model accuracy.
 
 ## Bounds, privacy, and recovery
 
-Selections allow 500 text/finding records, 500 distinct contributing source
+Synthesis inputs allow 500 text/finding records, 500 distinct contributing source
 snapshots and 64,000 characters. Narrow oversized selections; they are never
 truncated. Output allows 100 observations of 4,000 characters, ten citations per
 observation and 20 unknowns of 2,000 characters each, within shared result/inference
 limits. Retained dependency depth is limited to eight.
 
 Operator-controlled private inference is the default. External processing requires
-explicit approval through Cloudflare AI Gateway, disclosing selected text/findings
-and review context; raw files are excluded. There is no cloud fallback. See
+explicit approval through Cloudflare AI Gateway, disclosing the selected text and findings. Raw files are excluded. There is no cloud fallback. See
 [local analysis](local-analysis.md) for identities, capacity and qualification.
 
 Access and contributing originals are rechecked at enqueue, execution,

@@ -13,6 +13,7 @@
   <script src="{% static 'ui/timezone.js' %}" data-automatic="{% if user.timezone %}false{% else %}true{% endif %}" data-method="{{ request.method }}"></script>
   <script src="{% static 'ui/app.js' %}" defer></script>
   <script src="{% static 'ui/live.js' %}" defer></script>
+  {% if case %}<link rel="stylesheet" href="{% static 'ui/case-search.css' %}"><script src="{% static 'ui/case-search.js' %}" defer></script>{% endif %}
   {% block extra_head %}{% endblock %}
 </head>
 <body class="{% if user.is_authenticated %}app-page {% endif %}{% if case %}case-page {% endif %}{% block body_class %}{% endblock %}">
@@ -23,7 +24,12 @@
   <header class="global-header"><a class="wordmark" href="{% url 'marketing:home' %}" aria-label="Pandect">{% include 'ui/components/brand.html' %}</a><nav aria-label="Main navigation"><a href="{% url 'account_login' %}">Sign in</a>{% if allow_signups %}<a href="{% url 'account_signup' %}">Create account</a>{% endif %}</nav></header>
   {% endif %}
   <main id="main-content" class="main-content" tabindex="-1">
-    {% block case_context %}{% if case %}<a class="case-context" href="{% url 'core:analysis:index' case.pk %}"><span class="muted">Case</span> <span class="case-context-name">{{ case.name|default:case }}</span></a>{% endif %}{% endblock %}
+    {% if case %}
+    <header class="case-header">
+      {% block case_context %}<a class="case-context" href="{% url 'core:analysis:index' case.pk %}"><span class="muted">Case</span> <span class="case-context-name">{{ case.name|default:case }}</span></a>{% endblock %}
+      {% include 'ui/components/case_search.html' %}
+    </header>
+    {% endif %}
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}" {% if message.level >= 40 %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block before_content %}{% endblock %}
     {% block content %}{% endblock %}

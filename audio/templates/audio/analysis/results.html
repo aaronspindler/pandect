@@ -2,7 +2,6 @@
   {% if group.source %}{% include 'core/analysis/source_heading.html' with source=group.source only %}{% endif %}
   {% if group.recording_url %}
   <audio controls preload="none" src="{{ group.recording_url }}" aria-label="Recording for {{ group.source.label }}"><a href="{{ group.recording_url }}">Play source recording</a></audio>
-  <p class="muted">Intervals on this page are shown in recording order.</p>
   {% endif %}
   {% for item in group.items %}{% include 'core/analysis/finding.html' %}{% endfor %}
 {% endfor %}

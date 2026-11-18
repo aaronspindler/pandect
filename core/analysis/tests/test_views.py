@@ -572,7 +572,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.context["state"], "all")
         self.assertFalse(AnalysisRun.objects.exists())
 
-    def test_evidence_highlights_use_latest_result_and_current_finding_reviews(self):
+    def test_evidence_highlights_use_latest_result_regardless_of_legacy_decisions(self):
         earlier = self.analysis_run()
         other = TextEvidence.objects.create(
             case=self.case,
@@ -620,9 +620,6 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertContains(response, "source@example.test", count=2)
         self.assertNotContains(response, "other@example.test")
-        self.assertEqual(
-            response.context["highlights"][0]["latest_review"].decision, "accepted"
-        )
         self.assertNotContains(response, "Awaiting review")
         target = finding_url(self.case.pk, run.pk, 0)
         self.assertContains(response, target.replace("&", "&amp;"))
@@ -640,9 +637,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             decision="rejected",
         )
         response = self.client.get(url)
-        self.assertEqual(response.context["highlights"], [])
-        self.assertContains(response, "source@example.test", count=1)
-        self.assertNotContains(response, target.replace("&", "&amp;"))
+        self.assertContains(response, "source@example.test", count=2)
+        self.assertContains(response, target.replace("&", "&amp;"))
 
     def test_evidence_highlights_show_embedded_capture_time_until_source_changes(self):
         image = ImageEvidence.objects.create(
@@ -823,7 +819,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "No local analysis is available")
         self.assertEqual(AnalysisRun.objects.count(), 1)
 
-    def test_start_result_review_download_and_escaped_findings(self):
+    def test_start_result_download_and_escaped_findings(self):
         self.login("editor")
         response = self.client.post(self.analysis_url("create"), self.payload())
         self.assertEqual(response.status_code, 302)
@@ -851,15 +847,6 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             ),
         )
         self.assert_private(response)
-        response = self.client.post(
-            self.analysis_url("review", run=run),
-            {"decision": "accepted", "comment": "<script>review</script>"},
-        )
-        self.assertEqual(response.status_code, 302)
-        review = AnalysisReview.objects.get()
-        self.assertEqual(review.reviewed_by, self.users["editor"])
-        response = self.client.get(self.analysis_url("detail", run=run))
-        self.assertContains(response, "&lt;script&gt;review&lt;/script&gt;")
         response = self.client.get(self.analysis_url("download", run=run))
         data = json.loads(response.content)
         self.assertEqual(data["case_id"], str(self.case.pk))
@@ -874,13 +861,12 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.note.refresh_from_db()
         self.assertIn("<script>", self.note.body)
 
-    def test_viewer_cannot_start_review_cancel_or_retry(self):
+    def test_viewer_cannot_start_cancel_or_retry(self):
         run = self.analysis_run()
         queued = self.analysis_run(complete=False)
         self.login("viewer")
         for name, target, payload in (
             ("create", None, self.payload()),
-            ("review", run, {"decision": "accepted"}),
             ("cancel", queued, {}),
             ("retry", run, {"submission_id": str(uuid4())}),
         ):
@@ -897,32 +883,42 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, "Record review")
         self.assertNotContains(response, "Start another run with these inputs")
 
-    def test_invalid_review_preserves_input_for_correction_and_retry(self):
+    def test_legacy_decisions_are_retained_and_the_review_route_is_gone(self):
         run = self.analysis_run()
-        self.login("editor")
-        url = self.analysis_url("review", run=run)
-        comment = "<script>Retained review wording</script>" + "x" * 4000
-        response = self.client.post(url, {"decision": "accepted", "comment": comment})
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.context["form"]["comment"].value(), comment)
-        self.assertContains(response, "data-error-summary", status_code=400)
-        self.assertContains(
-            response, "&lt;script&gt;Retained review wording", status_code=400
+        legacy = AnalysisReview.objects.create(
+            case=self.case,
+            result=run.result,
+            reviewed_by=self.users["owner"],
+            decision="rejected",
+            item_index=0,
+            comment="Saved investigator reasoning.",
         )
-        self.assertNotContains(response, 'name="item_index"', status_code=400)
-        self.assertEqual(AnalysisReview.objects.count(), 0)
-        self.assert_private(response)
-        corrected = "  Source checked; uncertainty remains.\n"
-        response = self.client.post(url, {"decision": "accepted", "comment": corrected})
-        self.assertRedirects(response, self.analysis_url("detail", run=run))
-        saved = AnalysisReview.objects.get()
-        self.assertEqual(saved.comment, corrected)
-        self.assertIsNone(saved.item_index)
+        self.login("editor")
+        detail_url = self.analysis_url("detail", run=run)
+        finding = self.client.get(detail_url, {"finding": 1})
+        self.assertContains(finding, "source@example.test")
+        self.assertNotContains(finding, "Review this finding")
+        self.assertNotContains(finding, "Review and history")
+        self.assertNotContains(finding, "Rejected")
+        self.assertNotContains(finding, legacy.comment)
+        self.assertEqual(
+            self.client.post(
+                detail_url + "review/", {"decision": "accepted"}
+            ).status_code,
+            404,
+        )
+        estimate_url = reverse(
+            "core:analysis:select_estimate", args=[self.case.pk, run.pk, 0]
+        )
+        self.assertEqual(
+            self.client.post(estimate_url, {"action": "use"}).status_code, 404
+        )
+        self.assertEqual(run.result.reviews.get().comment, legacy.comment)
 
     def test_crosscase_run_source_and_relation_parameters_fail_closed(self):
         run = self.analysis_run()
         self.login("outsider")
-        for name in ("detail", "download", "review", "cancel", "retry"):
+        for name in ("detail", "download", "cancel", "retry"):
             method = (
                 self.client.get if name in {"detail", "download"} else self.client.post
             )
@@ -952,7 +948,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
     def test_csrf_and_post_only_mutations(self):
         queued = self.analysis_run(complete=False)
         self.login("owner")
-        for name in ("cancel", "retry", "review"):
+        for name in ("cancel", "retry"):
             self.assertEqual(
                 self.client.get(self.analysis_url(name, run=queued)).status_code, 405
             )
@@ -1238,7 +1234,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response["Content-Type"], "audio/wav")
                 self.assert_private(response)
-                self.assertEqual(b"".join(response.streaming_content), wav_bytes())
+                self.assertEqual(response.content, wav_bytes())
                 self.login("outsider")
                 self.assertEqual(self.client.get(url).status_code, 404)
                 self.login("owner")

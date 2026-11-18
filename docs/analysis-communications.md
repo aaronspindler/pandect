@@ -31,8 +31,9 @@ remain possible. Candidate spans support reviewed style exclusions.
 `text_topics` supplies observed keywords with `include_summary: false`; otherwise
 it adds cited model topics/short summaries. English stop words impose a disclosed
 language limit. `content_events` proposes attributed claims, plans, commitments,
-cancellations, events, questions and candidate answers through the same content
-path. Metadata-only calls provide no speech.
+cancellations, reported events, corrections, and candidate question/answer
+pairs through the same content path. Keyword and topic output is a saved report.
+Metadata-only calls provide no speech.
 
 Model requests send only selected text and require exact source quotations.
 Absent/unknown/ambiguous repeated quotes or invalid offsets are rejected. Valid
@@ -90,8 +91,9 @@ Unknown/overlapping periods produce no interval.
 ## Conversation sessions and interaction
 
 **Case Tools → Conversations** [reads retained messages](evidence.md#reading-conversations)
-from imports/individual entries, optionally filtered by export, with inline details
-without reload. No analysis/session inference is needed. The methods below use
+from imports/individual entries, optionally filtered by export. Select a message
+to inspect its source, findings and any saved session boundary. Reading the
+transcript starts no analysis. The methods below use
 exact selections, potentially covering only part of a conversation.
 
 **Read inferred message sessions**, **Inspect message timing** and **Summarize
@@ -127,17 +129,21 @@ Untimed spans/export gaps remain unknown.
 participant/time context. Forms default to ten minutes, range 0–1,440, saved as
 `time_window_minutes`; omission uses 180 minutes. Internal `window_minutes`
 allows 0–10,080. Zero compares equal times only. Wording overlap is a separate weak
-cue; metadata invents no speech. Optional `semantic_links` uses two-sided model
-quotations for topics/events/earlier references. Completed links require citations
-to at least two distinct selected sources; one-sided/repeated-source citations remain
-unresolved/partial. Adjacency/topics prove neither shared events nor causation;
-ambiguous references retain alternatives. Temporal output caps at 250 candidates,
-with omissions/partial coverage disclosed.
+cue, retained in the run. Optional `semantic_links` uses two-sided model
+quotations for specific references, reported events, corrections, and
+question/answer pairs. Standalone reference and event links require the same
+quoted target in substantive citations from different originals with different
+content. A short yes/no is eligible alongside a substantive cited question.
+Corrections publish through claims analysis and remain context in exchange
+comparisons. One-sided citations remain
+unresolved/partial. Broad topics and ambiguous references remain available in
+the report. Temporal output caps at 250 candidates, with omissions and partial
+coverage disclosed.
 
 `session_summaries` sends selected messages through shared content processing in
 inferred-session chunks, up to 16,000 characters/chunk and 20 chunks/run. Each
-summary discloses chunk/selection; oversized/missing chunks never imply complete
-history. This adapts [iMessageLLM](https://github.com/aaronspindler/iMessageLLM)
+summary discloses its chunk and selection in the saved run. Oversized or missing
+chunks limit coverage. This adapts [iMessageLLM](https://github.com/aaronspindler/iMessageLLM)
 without two-person reduction or inference-boundary bypass.
 
 ## Message CSV imports

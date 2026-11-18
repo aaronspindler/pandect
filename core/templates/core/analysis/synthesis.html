@@ -1,9 +1,0 @@
-{% extends 'core/analysis/base.html' %}
-{% block title %}Ask about selected material · {{ case.name }}{% endblock %}
-{% block content %}
-<a class="back-link" href="{% url 'core:analysis:selection_detail' case.pk selection.pk %}">Back to {{ selection.name }}</a>
-<header class="page-header"><div><h1>Ask about selected material</h1><p>{{ selection.name }} · {{ selection.members|length }} selected items</p></div></header>
-<p>Ask about selected text and findings. AI suggestions cite their sources. Images, recordings, and structured records need extracted text or a selected finding first.</p>
-<p class="help-text">{{ configuration_readiness }}</p>
-<form method="post" class="form-layout" data-unsaved-form>{% csrf_token %}{% include 'ui/components/form_fields.html' with form=form %}<div class="form-actions"><button class="button button-primary" type="submit">Start analysis</button><a class="button button-secondary" href="{% url 'core:analysis:selection_detail' case.pk selection.pk %}">Cancel</a></div></form>
-{% endblock %}

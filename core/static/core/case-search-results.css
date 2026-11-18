@@ -1,0 +1,45 @@
+.case-search-tools {
+  display:flex;
+  align-items:baseline;
+  flex-wrap:wrap;
+  gap:.25rem 1.5rem;
+  margin:0 0 1.5rem;
+}
+.case-search-tools summary {
+  min-height:44px;
+  padding-block:.625rem;
+  cursor:pointer;
+  font-weight:600;
+}
+.case-search-tools details[open] { flex-basis:100%; }
+.case-search-tools p { max-width:68ch; }
+.case-search-filter-fields {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(11rem,100%),1fr));
+  gap:.75rem;
+}
+.case-search-filter-fields .field { margin:.25rem 0 .5rem; }
+.case-search-results-heading {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:.5rem;
+}
+.case-search-matches { max-width:74rem; margin:0 0 2rem; }
+.case-search-hits { list-style:none; padding:0; margin:0; }
+.case-search-hit {
+  display:grid;
+  gap:.2rem;
+  padding:.75rem .25rem;
+  min-height:44px;
+  border-top:1px solid var(--divider);
+  color:var(--text);
+  text-decoration:none;
+  overflow-wrap:anywhere;
+}
+.case-search-hit:hover { background:var(--background); }
+.case-search-hit strong { color:var(--accent); text-decoration:underline; }
+.case-search-meta { color:var(--secondary); font-size:.875rem; }
+.case-search-excerpt { max-width:70ch; }
+.case-search-hit mark { color:var(--text); background:var(--selected); font-weight:650; }

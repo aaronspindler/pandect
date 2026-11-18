@@ -1,5 +1,8 @@
 # Current interface review
 
+Selections, its brief exports, and its question form were subsequently removed.
+Selection-related journeys below record earlier validation, not current capabilities.
+
 Status: local review complete. The scope is every current interface family,
 including public, account, investigator, and operator screens. This catalogue
 records 24 findings/refinements, representative states, and validation limits;
@@ -41,7 +44,7 @@ account/operator interfaces. The ignored `template_inventory.json` and
 | Vehicles | Search, detail, creation/editing, linked material and protected deletion | Reviewed, including edit conflict, viewers, protected deletion and populated trips/observations; location/import actions promoted with same-case preselection |
 | Maps and locations | Map controls, coverage, trips, places and linked people/evidence | Reviewed, including complete paths/sources, POIs, no-JavaScript/keyboard access, tile/geometry failure and reviewed estimates; providers mocked |
 | Imports | Vehicle-location and message CSV upload, interpretation, review, progress and errors | Reviewed, including timezone/participant/vehicle interpretation, duplicate skip/keep, progress, validation and source-row provenance |
-| Conversations and calls | Conversation browsing/search, messages, context, call additions and previews | Reviewed, including source filters, inline details, scroll/pagination recovery, revocation and exact evidence round trips |
+| Conversations and calls | Conversation browsing/search, messages, context, call additions and previews | Reviewed in Chromium and WebKit, including the message details panel, inferred-session boundaries, source filters, scroll recovery, revocation and exact evidence round trips |
 | Chronology | Search, filtering, provenance and source navigation | Recorded/acquisition times, local/UTC display, unplaced dates, filters and source navigation reviewed |
 | Accounts | Sign-in, signup, verification, email/password recovery, timezone and sign-out | Reviewed, including closed registration and real links generated in test mail; invalid reset-link wording refined while valid allauth forms are inherited |
 | Public pages | Home, product, evidence/analysis examples, trust, roadmap and hosting | Reviewed without JavaScript across required layouts/appearance modes; current and planned capabilities remain distinct |
@@ -278,3 +281,26 @@ and keyboard checks do not establish full WCAG compliance. Manual screen-reader
 testing, real provider/model quality, live tile/geocoder availability, hosted CI
 and deployment were not performed. Synthetic runtime resources are removed after
 validation; captures remain ignored and are never committed or pushed.
+
+## Findings cleanup · 17 November 2026
+
+Findings now show their useful content once, with supporting measurements and
+native references under Details. Message pairs retain reported participants,
+localized times and source links; geographic subjects and writing-comparison
+examples remain visible. Timing-only message-link candidates are hidden by default
+with explicit reveal controls, accepted-finding exceptions and stable direct links.
+
+Local validation used synthetic fixtures in Chromium and WebKit. The findings
+journey covers keyboard/no-JavaScript operation, 1440×900, 1440×1024, 768×1024,
+390×844 and 320px reflow, 200% text sizing, CSS 400% zoom emulation, light/dark
+and forced colors. CSS zoom is not a manual browser-zoom or screen-reader audit.
+Captures are under ignored `data/validation/analysis-browser/` with
+`streamlined-finding-*` and `phase3-*-finding-*` names. The broader analysis,
+conversation, image, document and map journeys passed after correcting hidden
+geographic subjects and writing examples; the affected journeys were rerun.
+
+`make check` passed with 1,452 tests. Later focused regression runs cover the final
+pagination, reveal-navigation and presentation fixes. Logs are retained locally
+under `data/validation/streamlined-findings/`. This is local validation, not a live
+rollout; the projection migration follows the upgrade procedure in
+[operations](operations.md#upgrades-and-hosted-deployment).

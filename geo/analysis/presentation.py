@@ -39,7 +39,6 @@ PRIMARY_FIELDS = {
         "Largest sampling interval (seconds)",
     ),
     "movement_routines": (
-        "Subject association",
         "Candidate journeys",
         "Observed recurrence comparison",
         "Period A pair journeys",
@@ -63,7 +62,6 @@ PRIMARY_FIELDS = {
     "location_conflicts": (
         "Address",
         "Event time",
-        "Subject association",
         "Position origin",
         "Distance from first selected observation (m)",
         "Time difference from first selected observation (seconds)",
@@ -79,7 +77,9 @@ PRIMARY_FIELDS = {
 
 def present(operation, items, formatter):
     for item in items:
-        prioritize_measurements(item, *PRIMARY_FIELDS[operation], "Gap seconds")
+        prioritize_measurements(
+            item, "Subject association", *PRIMARY_FIELDS[operation], "Gap seconds"
+        )
         if (
             operation in {"colocation", "travel_discrepancies"}
             and len(item["sources"]) == 2
@@ -93,7 +93,7 @@ def map_points(operation, items):
     for item in items:
         for source in item["sources"]:
             if source["coordinates"] is not None:
-                reviewed = source["coordinate_label"] == "Reviewed estimate"
+                reviewed = source["coordinate_label"] == "Address estimate"
                 points[source["id"]] = (
                     source["coordinates"],
                     source["label"],
@@ -118,14 +118,11 @@ def map_points(operation, items):
                 and -90 <= lat <= 90
                 and -180 <= lon <= 180
             ):
-                review = item.get("latest_review")
                 points[item["index"]] = (
                     (lat, lon),
                     values.get("address") or item["label"],
                     item["url"],
-                    "reviewed"
-                    if review and review.decision == "accepted"
-                    else "candidate",
+                    "reviewed" if item.get("estimate_in_use") else "candidate",
                 )
     if not points:
         return []

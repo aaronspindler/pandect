@@ -1,5 +1,7 @@
 """Compact text findings and side-by-side source comparisons."""
 
+from itertools import groupby
+
 from core.analysis.presentation import prioritize_measurements
 
 
@@ -30,40 +32,43 @@ def present(operation, items, formatter):
             prioritize_measurements(
                 item, "Usable words", "Sentences", "Vocabulary ratio"
             )
+        if operation == "style_change":
+            prioritize_measurements(
+                item,
+                *(
+                    label
+                    for key, label in (
+                        ("supporting_examples", "Supporting examples"),
+                        ("contrary_examples", "Contrary examples"),
+                    )
+                    if values.get(key)
+                ),
+            )
 
     if operation == "question_synthesis":
-        groups = [
-            {
-                "title": title,
-                "items": [
-                    item
-                    for item in items
-                    if item.get("values", {}).get("section") == section
-                ],
-            }
-            for section, title in (
-                ("supported", "Supported observations · AI suggestions"),
-                ("contrary", "Contrary evidence · AI suggestions"),
-            )
-        ]
-        unclassified = [
-            item
-            for item in items
-            if item.get("values", {}).get("section") not in {"supported", "contrary"}
-        ]
-        if unclassified:
-            groups.append(
-                {"title": "Other retained suggestions", "items": unclassified}
-            )
-        return groups
-    if operation == "text_topics":
-        keywords = [item for item in items if "occurrences" in item.get("values", {})]
-        suggestions = [
-            item for item in items if "occurrences" not in item.get("values", {})
-        ]
+        titles = {
+            "supported": "Supported observations · AI suggestions",
+            "contrary": "Contrary evidence · AI suggestions",
+        }
         return [
-            {"title": "Observed keywords", "items": keywords, "table": True},
-            {"title": "Topic suggestions", "items": suggestions},
+            {
+                "title": titles.get(section, "Other retained suggestions"),
+                "items": list(group),
+            }
+            for section, group in groupby(
+                items, lambda item: item.get("values", {}).get("section")
+            )
+        ]
+    if operation == "text_topics":
+        return [
+            {
+                "title": "Observed keywords" if keywords else "Topic suggestions",
+                "items": list(group),
+                "table": keywords,
+            }
+            for keywords, group in groupby(
+                items, lambda item: "occurrences" in item.get("values", {})
+            )
         ]
     return [
         {

@@ -1,4 +1,7 @@
-"""Named, case-shared references to exact retained sources and findings."""
+"""Retained collections from the removed Selections tool; no product entry points.
+
+Keep stored references and case-deletion behavior without dropping runtime data.
+"""
 
 import json
 from uuid import uuid4

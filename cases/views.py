@@ -195,6 +195,7 @@ def case_delete(request, case_id):
     counts = {
         **_case_record_counts(case),
         "social_account_count": SocialAccount.objects.filter(person__case=case).count(),
+        "instagram_monitor_count": case.instagram_monitors.count(),
         "poi_count": PointOfInterest.objects.filter(person__case=case).count(),
         "active_evidence_count": sum(item["active"] for item in evidence_counts),
         "archived_evidence_count": sum(item["archived"] for item in evidence_counts),

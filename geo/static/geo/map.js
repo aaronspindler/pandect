@@ -172,7 +172,7 @@
           const position = source.position;
           if (!position) { previous = null; continue; }
           mapped += 1;
-          if (source.label === "Reviewed address estimate") estimates += 1;
+          if (source.label === "Selected address estimate") estimates += 1;
           bounds.extend(position);
           if (!first) first = position;
           last = position;
@@ -199,7 +199,7 @@
           endpoint(last, "Last mapped observation", "B");
         }
       }
-      tripStatus.textContent = mapped ? `Complete trip loaded: ${mapped} of ${read} observations have mapped positions${estimates ? `, including ${estimates} reviewed address estimate${estimates === 1 ? "" : "s"}` : ""}. Missing positions interrupt the path.` : `Complete trip loaded: ${read} observations. Review address estimates from the observations below to map this trip.`;
+      tripStatus.textContent = mapped ? `Complete trip loaded: ${mapped} of ${read} observations have mapped positions${estimates ? `, including ${estimates} selected address estimate${estimates === 1 ? "" : "s"}` : ""}. Missing positions interrupt the path.` : `Complete trip loaded: ${read} observations. Choose address estimates from the observations below to map this trip.`;
       section.dataset.tripComplete = "true";
       section.dataset.tripSources = String(read);
       if (firstReplay) { firstReplay = false; fit(); }

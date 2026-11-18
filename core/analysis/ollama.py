@@ -10,7 +10,7 @@ def _version(client):
         raise AnalysisError("local_ai_model_changed")
 
 
-def _model(client):
+def pinned_model(client, *, capability, families):
     config = client.execution
     _version(client)
     models = client._request("/api/tags").get("models")
@@ -38,9 +38,9 @@ def _model(client):
         info.get("remote_host")
         or info.get("remote_model")
         or not isinstance(details, dict)
-        or details.get("family") not in {"qwen35", "qwen3_5"}
+        or details.get("family") not in families
         or not isinstance(capabilities, list)
-        or "completion" not in capabilities
+        or capability not in capabilities
     ):
         raise AnalysisError("local_ai_not_configured")
     return model
@@ -52,7 +52,9 @@ def infer(client, prompt, schema):
         messages = evidence_messages(prompt, schema)
     except ValueError, TypeError, RecursionError:
         raise AnalysisError("local_ai_invalid_input") from None
-    model = _model(client)
+    model = pinned_model(
+        client, capability="completion", families={"qwen35", "qwen3_5"}
+    )
     payload = {
         "model": model,
         "messages": messages,

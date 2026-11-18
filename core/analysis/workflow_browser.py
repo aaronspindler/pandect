@@ -76,6 +76,8 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
     def capture_layouts(self, page, engine, name):
         for width, height, suffix in (
             (1440, 900, "desktop"),
+            (1440, 1024, "desktop-tall"),
+            (768, 1024, "tablet"),
             (390, 844, "mobile"),
             (320, 844, "reflow"),
         ):
@@ -106,6 +108,9 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Selections", exact=True)
+                ).to_have_count(0)
                 navigation = page.get_by_role("navigation", name="Investigation")
                 expect(
                     navigation.get_by_role("link", name="Case Tools", exact=True)
@@ -262,13 +267,10 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
             with self.browser_page(engine, java_script_enabled=False) as (_, page):
                 self.sign_in(page, self.owner)
                 page.goto(self.url("core:analysis:browse", case_id=self.case.pk))
-                save = page.get_by_role("link", name="Save to selection").first
-                expect(save).to_be_visible()
-                self.capture_layouts(page, engine, "catalogue-owner")
-                save.press("Enter")
                 expect(
-                    page.get_by_role("heading", name="Save to selection", exact=True)
-                ).to_be_visible()
+                    page.get_by_role("link", name="Save to selection")
+                ).to_have_count(0)
+                self.capture_layouts(page, engine, "catalogue-owner")
                 page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
                 expect(
                     page.get_by_role("link", name="Choose analysis", exact=True)

@@ -108,6 +108,10 @@ ERROR_MESSAGES = {
         "External AI processing is not configured. Ask the operator to "
         "configure its credentials and supported models."
     ),
+    "gateway_transcription_not_configured": (
+        "External transcription is unavailable. Ask the operator to configure "
+        "Workers AI for recordings."
+    ),
     "gateway_authentication": (
         "External AI authorization failed. Ask the operator to check its "
         "credentials before retrying."
@@ -194,8 +198,8 @@ ERROR_MESSAGES = {
         "record the current method."
     ),
     "geocode_review_required": (
-        "A selected geographic estimate no longer has an accepted current "
-        "review. Review that exact candidate before using it again."
+        "Choose Use this estimate on the address lookup result before using "
+        "it for spatial analysis."
     ),
 }
 

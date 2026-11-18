@@ -36,11 +36,11 @@ def present(operation, items, formatter):
                 item["measurements"], key=lambda row: row["label"]
             )
         for group in groups:
-            group["tags"] = [
-                item for item in group["items"] if item.get("metadata_field")
-            ]
-            group["items"] = [
-                item for item in group["items"] if not item.get("metadata_field")
+            group["sections"] = [
+                {"tags": tags, "items": list(rows)}
+                for tags, rows in groupby(
+                    group["items"], lambda item: bool(item.get("metadata_field"))
+                )
             ]
     elif operation == "plate_ocr":
         for group in groups:

@@ -17,13 +17,14 @@ from cases.permissions import get_case
 from core.analysis.operations import OPERATIONS
 from core.evidence.queries import get_evidence, same_case_evidence
 from core.evidence.types import KIND_LABELS, KINDS
-from core.models import AnalysisRun
+from core.models import AnalysisRun, SavedSelection
 from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
     VehicleLocationImportRow,
 )
 from phone.models import CommunicationContext
+from socialmedia.models import InstagramCapture, InstagramComparison
 
 CASE_CONFLICT = (
     "Related material has inconsistent case links. "
@@ -42,6 +43,8 @@ INVENTORY_LABELS = {
     "gatewayrequest": "Processing usage",
     "communicationcontext": "Imported message source context",
     "callevidenceattachment": "Retained call material",
+    "instagramcapture": "Instagram list capture",
+    "instagramcomparison": "Instagram list comparison",
 }
 
 
@@ -114,8 +117,21 @@ def _outside_case(model, objects, case_id):
     ids = [obj.pk for obj in objects]
     if not ids:
         return False
-    scope = "batch__case_id" if model is VehicleLocationImportRow else "case_id"
-    return model.objects.filter(pk__in=ids).exclude(**{scope: case_id}).exists()
+    scopes = {
+        VehicleLocationImportRow: ("batch__case_id",),
+        InstagramCapture: ("monitor_check__monitor__case_id", "evidence__case_id"),
+        InstagramComparison: (
+            "capture__monitor_check__monitor__case_id",
+            "capture__evidence__case_id",
+            "previous__monitor_check__monitor__case_id",
+            "previous__evidence__case_id",
+        ),
+    }.get(model, ("case_id",))
+    return (
+        model.objects.filter(pk__in=ids)
+        .exclude(**dict.fromkeys(scopes, case_id))
+        .exists()
+    )
 
 
 def _record_rows(model, objects):
@@ -340,8 +356,6 @@ def plan_deletions(items, kind):
                 plan.counts["files"] += 1
     plan.entries.extend(updates)
     plan.counts["updates"] = len(updates)
-    from core.analysis.selections import selection_deletion_impacts
-
     impacts = selection_deletion_impacts(
         item.case_id,
         {
@@ -441,3 +455,32 @@ def get_deletion_target(actor, case_id, kind, evidence_id, *, lock=False):
     if not actor.is_superuser:
         raise PermissionDenied("Only superusers can permanently delete evidence.")
     return case, get_evidence(case, kind, evidence_id, lock=lock)
+
+
+def selection_deletion_impacts(case_id, evidence_keys, result_ids):
+    """Inventory references that will remain as unavailable selection members."""
+    evidence_keys = {(kind, str(key)) for kind, key in evidence_keys}
+    result_ids = {str(value) for value in result_ids}
+    impacts = []
+    for selection in SavedSelection.objects.filter(case_id=case_id).iterator(
+        chunk_size=100
+    ):
+        affected = []
+        for index, member in enumerate(selection.members):
+            source = member.get("source", {})
+            if (
+                (source.get("kind"), source.get("evidence_id")) in evidence_keys
+                or source.get("result_id") in result_ids
+                or member.get("result_id") in result_ids
+            ):
+                affected.append({"index": index, "reference": member})
+        if affected:
+            impacts.append(
+                {
+                    "id": str(selection.pk),
+                    "name": selection.name,
+                    "revision": selection.revision,
+                    "members": affected,
+                }
+            )
+    return impacts

@@ -25,7 +25,7 @@ def validate_local_configuration(config):
         parsed = urlsplit(url)
         valid = (
             config.get("backend") == "local"
-            and config.get("purpose") in {"text", "transcription"}
+            and config.get("purpose") in {"text", "transcription", "embedding"}
             and parsed.scheme in {"http", "https"}
             and parsed.hostname
             and parsed.username is None
@@ -46,18 +46,24 @@ def validate_local_configuration(config):
             "max_output_tokens",
         ):
             valid = valid and type(config.get(name)) is int and config[name] > 0
-        if config.get("purpose") == "text":
+        if config.get("purpose") in {"text", "embedding"}:
             version = re.fullmatch(r"ollama@(\d+)\.(\d+)\.(\d+)", config["runtime"])
             valid = (
                 valid
                 and config.get("driver") == "ollama"
-                and type(config.get("context_tokens")) is int
-                and config["context_tokens"] > config["max_output_tokens"]
                 and version is not None
                 and tuple(map(int, version.groups())) >= (0, 40, 11)
-                and re.fullmatch(r"qwen3\.5:[a-zA-Z0-9_.-]+", config["model"])
-                is not None
             )
+            if config.get("purpose") == "text":
+                valid = (
+                    valid
+                    and type(config.get("context_tokens")) is int
+                    and config["context_tokens"] > config["max_output_tokens"]
+                    and re.fullmatch(r"qwen3\.5:[a-zA-Z0-9_.-]+", config["model"])
+                    is not None
+                )
+            else:
+                valid = valid and config["model"] == "all-minilm:22m"
     except ValueError, TypeError, KeyError:
         valid = False
     if not valid:

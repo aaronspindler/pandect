@@ -25,6 +25,52 @@ recovery procedures](background-tasks.md#startup-and-diagnostics) after startup.
 
 ## Database backup and restoration
 
+### Upgrade an existing PostgreSQL 18 installation for case search
+
+The `db.image` reference in [compose.yaml](../compose.yaml) pins PostgreSQL 18
+with pgvector for both supported architectures. The search migrations enable
+`vector` and `pg_trgm` and add tables and indexes. A database administrator can
+enable these extensions in the application database before migration if the
+migration role lacks that privilege.
+The application role also needs `TEMPORARY` on its database for search results
+that depend on validated findings or extracted passages.
+
+For a populated local development installation:
+
+1. From the existing Compose project, record the database volume name, its
+   mount at `/var/lib/postgresql`, and the result of
+   `SELECT system_identifier FROM pg_control_system()`. Check the server is
+   PostgreSQL 18 using the same data directory, architecture and Debian variant
+   as the replacement. Record case/evidence counts and original checksums.
+2. Pull the pinned `db` image. Stop host and Compose web/worker writers. Follow
+   **Capture a matching backup** below, keeping the writers stopped after
+   checking the two archives. Include the host media root if it holds originals.
+3. Run `docker compose up -d --no-deps --wait db` with the same project and
+   volume. Compare the cluster identifier and mount to the recorded values
+   before applying migrations. Verify both extension names appear in
+   `pg_available_extensions`.
+4. Build the updated app and run
+   `docker compose run --rm --no-deps web python manage.py migrate --noinput`.
+   Verify the recorded inventory and original checksums. Run `make run` and the
+   worker diagnostic. Keep the rollback backup. If the data directory needs a
+   different major version or the original cluster cannot be verified, use
+   **Restore in a separate Compose project** below and retain the original volumes.
+
+For the existing empty Dokploy database, change the managed PostgreSQL
+resource's image to the pinned reference, retain its private service name and
+mount, and redeploy that database directly. This installation can skip backup
+and restore. Check both extensions are available, deploy the worker to apply the
+migrations and wait for its preparation marker, then activate web. Check
+`/health/`, the queue diagnostic and an authenticated search in the target.
+
+The message full-text migration builds a stored PostgreSQL search vector from
+existing message metadata and body text and replaces the previous functional
+index. PostgreSQL maintains it on inserts, bulk imports, and metadata edits.
+Allow for a table rewrite, index build and an exclusive lock during migration
+on large message exports. Message originals and their checksums are preserved.
+
+### Backup contents
+
 Keep coordinated database/private-file backups encrypted off-host, with their
 application revision and PostgreSQL major version. The database holds accounts,
 case/evidence metadata, captured text, and private task arguments/results;
@@ -125,6 +171,13 @@ resumable per-result transactions. They do not read originals, rerun analysis,
 contact providers, rewrite result/review JSON, or rebuild at startup. Duration
 grows with retained findings. These additive migrations require the current
 [baseline](architecture.md); they cannot upgrade rewritten pre-release baselines.
+The timing-only finding migration reclassifies only searchable projection flags;
+canonical results, sources and reviews are unchanged. Activate matching updated
+web/worker code after migration: old writers can otherwise publish stale flags,
+and old readers label timing flags as weak plate regions. Before returning to old
+code, stop writers and reverse `core.0006_timing_only_findings` to
+`core.0005_saved_selection` using the updated checkout; its reverse restores the
+plate-only flags. Do not unapply earlier migrations or remove retained results.
 The PDF renderer is pinned in the application lockfile.
 
 After reviewing dependency/runtime compatibility:
@@ -156,10 +209,15 @@ After CI checks pass, CD publishes one multi-platform GHCR image and resolves it
 immutable digest. Dokploy runs native **web** and **worker** Applications plus
 managed **PostgreSQL**, without Compose.
 
-1. In the production project, create a managed PostgreSQL resource using
-   `postgres:18.6`, with a new database, role, and strong password.
+1. In the production project, create a managed PostgreSQL resource using the
+   digest-pinned pgvector image from the `db` service in [Compose](../compose.yaml),
+   with a new database, role, and strong password.
    Keep it private; use its internal hostname and port 5432 in the application
-   configuration. Retain Dokploy's database volume and backup ownership.
+   configuration. For a new PostgreSQL 18 resource, mount a named volume at
+   `/var/lib/postgresql` and verify that `SHOW data_directory` points inside
+   it. Check the mount explicitly when using a custom image. For an existing
+   resource whose volume is mounted directly at `/var/lib/postgresql/18/docker`,
+   preserve that exact volume and mount during the upgrade.
 2. Create native Docker Applications named `web` and `worker` on the same intended
    deployment server. Configure one replica each. Use the same
    `ghcr.io/<owner>/<repository>@sha256:<digest>` image for both, never `latest`.
@@ -184,7 +242,8 @@ managed **PostgreSQL**, without Compose.
    Cloudflare ingress setup: internal HTTP, HTTPS at the public edge. Configure
    the public HTTP-to-HTTPS redirect at that edge. Do not edit Traefik directly.
    Do not create domains or published ports for the worker or database.
-6. Deploy the singleton worker first. Its startup applies migrations, emits
+6. Deploy the singleton worker first. Its startup applies migrations, queues
+   missing indexes when private meaning search is configured, emits
    `PANDECT_WORKER_PREPARED <APP_COMMIT_SHA>`, and starts `db_worker`. Migration
    failure stops startup before the marker or worker. Confirm the new worker's
    running task, image digest, and release marker before deploying web. Web
@@ -470,6 +529,8 @@ referrers at the ingress, CDN, and log collector for these route families:
 - `/accounts/confirm-email/<key>/`
 - `/accounts/password/reset/key/<uid>-<key>/`
 
+Strip query strings from case search and suggestion URLs at the ingress as
+well. Investigators can enter names, identifiers and evidence text in `q`.
 Keep evidence bodies, passwords, cookies, and bearer tokens out of telemetry.
 Review access and retention for logs produced before equivalent redaction was in
 place.

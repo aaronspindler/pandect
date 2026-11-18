@@ -1,0 +1,8 @@
+{% load search_matches %}
+{% if rows %}<ul class="case-search-hits">
+  {% for row in rows %}<li><a class="case-search-hit" href="{{ row.url }}">
+    <strong>{{ row.title|highlight_matches:terms }}</strong>
+    <span class="case-search-meta">{{ row.label }}{% for badge in row.badges %} · {{ badge }}{% endfor %}{% if row.date %} · {{ row.date_label }} <time datetime="{{ row.date|date:'c' }}">{{ row.date|date:'j M Y, H:i T' }}</time>{% endif %}</span>
+    {% if row.excerpt %}<span class="case-search-excerpt">{{ row.excerpt|highlight_matches:terms }}</span>{% endif %}
+  </a></li>{% endfor %}
+</ul>{% endif %}

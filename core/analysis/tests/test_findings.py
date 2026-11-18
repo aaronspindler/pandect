@@ -1,5 +1,6 @@
 """Current, source-linked case findings without a review or analysis setup step."""
 
+import json
 from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -10,7 +11,6 @@ from django.utils import timezone
 from core.analysis.catalogue import project_result
 from core.analysis.services import (
     process_run,
-    review_result,
     snapshot_sources,
     start_run,
 )
@@ -19,15 +19,106 @@ from core.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationImport
 from geo.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import process_import
-from phone.models import CallEvidenceAttachment, PhoneCallEvidence
+from people.models import Person
+from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
 from text.models import TextEvidence
 
 
 class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
-    def test_model_suggestions_remain_labeled_in_reading_and_saved_selections(self):
+    def test_saved_ai_findings_display_cited_names_and_preserve_results(self):
+        self.person.first_name = "Alex <script>"
+        self.person.save()
+        recipient = Person.objects.create(
+            case=self.case, email="recipient@example.test"
+        )
+        hidden = Person.objects.create(
+            case=self.other_case, first_name="Private person"
+        )
+        uncited = Person.objects.create(case=self.case, first_name="Uncited person")
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Reported correspondence",
+            sender=self.person,
+            recipient=recipient,
+            body=f"Literal source identifier {self.person.pk}.",
+        )
+        inputs = snapshot_sources(
+            self.case, [{"kind": "text-message", "id": message.pk}]
+        )
+        narrative = (
+            f"Reported sender **{str(self.person.pk).upper()}** contacted "
+            f"reported recipient {recipient.pk}. "
+            f"Reported sender {hidden.pk} and "
+            f"reported sender {uncited.pk} are unresolved."
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="content_events",
+            method_version="test",
+            inputs=inputs,
+            status="complete",
+        )
+        item = {
+            "label": f"Reported sender **{self.person.pk}**",
+            "text": narrative,
+            "source_ids": [inputs[0]["id"]],
+            "anchors": [
+                {"source_id": inputs[0]["id"], "start": 0, "end": len(message.body)}
+            ],
+            "values": {"status": "unresolved"},
+        }
+        result = AnalysisResult.objects.create(
+            case=self.case, run=run, data={"items": [item]}
+        )
+        project_result(result)
+        self.login("viewer")
+        catalogue = self.client.get(
+            reverse("core:analysis:browse", args=[self.case.pk])
+        )
+        preview = catalogue.context["rows"][0]["preview"]
+        self.assertEqual(
+            catalogue.context["rows"][0]["label"], "Reported sender Alex <script>"
+        )
+        self.assertIn(
+            "Reported sender Alex <script> contacted "
+            "reported recipient recipient@example.test",
+            preview,
+        )
+        self.assertNotIn(str(self.person.pk).upper(), preview)
+        self.assertIn(str(hidden.pk), preview)
+        self.assertIn(str(uncited.pk), preview)
+        self.assertNotContains(catalogue, "Private person")
+        self.assertNotIn("Uncited person", preview)
+        self.assertContains(catalogue, "Alex &lt;script&gt;")
+        self.assertNotContains(catalogue, "<script>")
+        for url in (self.index_url(), self.url("detail", message, kind="text-message")):
+            response = self.client.get(url)
+            self.assertIn(
+                "Reported sender Alex <script>",
+                response.context["highlights"][0]["summary_text"],
+            )
+        detail = self.client.get(
+            reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        )
+        self.assertEqual(
+            detail.context["items"][0]["label"], "Reported sender Alex <script>"
+        )
+        self.assertIn(
+            "Reported sender Alex <script>", detail.context["items"][0]["text"]
+        )
+        self.assertContains(detail, message.body)
+        result.refresh_from_db()
+        self.assertEqual(result.data["items"][0], item)
+        download = self.client.get(
+            reverse("core:analysis:download", args=[self.case.pk, run.pk])
+        )
+        retained = json.loads(download.content)
+        self.assertEqual(retained["result"]["items"][0]["text"], narrative)
+
+    def test_model_suggestions_remain_labeled_in_reading(self):
         from core.analysis.navigation import finding_url
-        from core.analysis.selections import build_brief, finding_member
-        from core.models import SavedSelection
 
         source = self.source()
         inputs = snapshot_sources(self.case, [{"kind": "text", "id": source.pk}])
@@ -55,19 +146,11 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             },
         )
         project_result(result)
-        saved = SavedSelection.objects.create(
-            case=self.case,
-            created_by=self.users["owner"],
-            updated_by=self.users["owner"],
-            name="Model findings",
-            members=[finding_member(self.case, result.pk, 0)],
-        )
         self.login("viewer")
         for url in (
             self.index_url(),
             self.url("detail", source),
             finding_url(self.case.pk, run.pk, 0),
-            reverse("core:analysis:selection_detail", args=[self.case.pk, saved.pk]),
         ):
             with self.subTest(url=url):
                 response = self.client.get(url)
@@ -77,7 +160,6 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             reverse("core:analysis:browse", args=[self.case.pk])
         )
         self.assertContains(catalogue, "AI-assisted run")
-        self.assertIn("AI suggestion", build_brief(saved, self.case))
 
     def index_url(self, case=None):
         return reverse(
@@ -139,7 +221,6 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(finding["source_title"], source.title)
         self.assertEqual(finding["source_url"], self.url("detail", source))
-        self.assertIsNone(finding["latest_review"])
         self.assertContains(response, "delivery@example.test")
         self.assertContains(response, finding["url"].replace("&", "&amp;"))
         result = self.client.get(finding["url"])
@@ -163,44 +244,15 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             {self.url("detail", first), self.url("detail", second)},
         )
 
-    def test_latest_per_source_does_not_resurface_rejected_or_superseded_results(self):
+    def test_latest_per_source_does_not_resurface_superseded_results(self):
         source = self.source()
         first = self.entities(source)
-        review_result(self.users["owner"], self.case.pk, first.result.pk, "rejected")
         newest = self.entities(source)
         self.login("owner")
         _, highlights = self.findings()
         self.assertEqual(len(highlights), 1)
         self.assertIn(str(newest.pk), highlights[0]["url"])
         self.assertNotIn(str(first.pk), highlights[0]["url"])
-        review_result(self.users["owner"], self.case.pk, newest.result.pk, "rejected")
-        self.assertEqual(self.findings()[1], [])
-
-    def test_rejected_individual_findings_are_hidden_without_hiding_other_values(self):
-        source = TextEvidence.objects.create(
-            case=self.case,
-            uploaded_by=self.users["owner"],
-            title="Two contacts",
-            body="Contact first@example.test or second@example.test.",
-        )
-        run = self.entities(source)
-        index = next(
-            index
-            for index, item in enumerate(run.result.data["items"])
-            if item.get("text") == "first@example.test"
-        )
-        review_result(
-            self.users["owner"],
-            self.case.pk,
-            run.result.pk,
-            "rejected",
-            item_index=index,
-        )
-        self.login("viewer")
-        _, highlights = self.findings()
-        self.assertEqual(
-            [item["summary_text"] for item in highlights], ["second@example.test"]
-        )
 
     def test_archived_changed_and_cross_case_sources_are_excluded(self):
         active = self.source("active@example.test")
@@ -378,6 +430,7 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             self.assertNotContains(response, "Foreign source")
             self.assertNotContains(response, 'id="processing-history"')
             self.assertNotContains(response, "Rerun all analysis")
+            self.assertNotContains(response, "tool-selections")
             self.assertContains(response, 'aria-label="Case Tools"')
             self.assertContains(response, 'aria-label="Processing"')
             settings = reverse("cases:case_settings", args=[self.case.pk])

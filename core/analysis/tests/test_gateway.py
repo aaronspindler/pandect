@@ -25,8 +25,11 @@ CONFIG = {
     "workers_token": "synthetic-workers-secret",
     "models": {"text": "@cf/test/text-model"},
     "timeout": 8,
-    "max_request_bytes": 4096,
+    "max_request_bytes": 16384,
     "max_response_bytes": 4096,
+}
+TRANSCRIPTION_CONFIG = CONFIG | {
+    "models": CONFIG["models"] | {"transcription": "@cf/openai/whisper-large-v3-turbo"}
 }
 
 

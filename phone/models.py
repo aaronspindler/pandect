@@ -3,11 +3,14 @@ from datetime import UTC, timedelta
 from uuid import uuid4
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, router
 from django.utils import timezone
 
+from core.case_search.expressions import COMMON, search_document, word_vector
 from core.models import Evidence
 from core.storage import (
     canonical_bytes,
@@ -94,9 +97,15 @@ class CommunicationEvidence(Evidence):
 class TextMessageEvidence(CommunicationEvidence):
     communication_kind = "text-message"
     body = models.TextField()
+    search_words = models.GeneratedField(
+        expression=word_vector(search_document((*COMMON, "body"))),
+        output_field=SearchVectorField(),
+        db_persist=True,
+    )
     immutable_fields = (*CommunicationEvidence.immutable_fields, "body")
 
     class Meta(CommunicationEvidence.Meta):
+        indexes = [GinIndex(fields=["search_words"], name="srch_text_message_words")]
         constraints = [
             *CommunicationEvidence.Meta.constraints,
             models.CheckConstraint(

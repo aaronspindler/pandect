@@ -2,8 +2,36 @@
 
 import hashlib
 import json
+import math
 import re
 from urllib.parse import urlsplit, urlunsplit
+
+from core.analysis.review_signals import review_fields_v1
+
+
+def is_timing_only(operation, item):
+    """Recognize only known adjacency observations without a content/reply cue."""
+    if (
+        operation != "conversation_link"
+        or not isinstance(item, dict)
+        or item.get("label") != "Candidate exchange sequence"
+    ):
+        return False
+    values = item.get("values")
+    if not isinstance(values, dict):
+        return False
+    elapsed = values.get("elapsed_seconds")
+    return (
+        "status" not in values
+        and isinstance(values.get("before"), dict)
+        and isinstance(values.get("after"), dict)
+        and type(elapsed) in (int, float)
+        and (type(elapsed) is int or math.isfinite(elapsed))
+        and elapsed >= 0
+        and values.get("shared_words") == []
+        and not values["before"].get("reply_to_id")
+        and not values["after"].get("reply_to_id")
+    )
 
 
 def is_ai_suggestion(operation, finding):
@@ -111,7 +139,7 @@ def identifier_key(operation, item):
     return "", ""
 
 
-def finding_values(operation, item):
+def finding_values(operation, item, *, inputs=None):
     kind, key = identifier_key(operation, item)
     return {
         "label": item.get("label", ""),
@@ -125,9 +153,11 @@ def finding_values(operation, item):
                 scalar_text(item.get("values", {})),
             )
         ),
-        "weak": item.get("values", {}).get("Weak plate region") is True,
+        "weak": item.get("values", {}).get("Weak plate region") is True
+        or is_timing_only(operation, item),
         "match_kind": kind,
         "match_key": key,
         "match_digest": hashlib.sha256(key.encode()).hexdigest() if key else "",
         "match_version": "identifier-strings.v1" if key else "",
+        **review_fields_v1(operation, item, inputs or {}, kind, key),
     }

@@ -1,0 +1,29 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}@{{ monitor.target }} · {{ capture.get_direction_display }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'instagram:detail' case.pk monitor.pk %}">Monitor for @{{ monitor.target }}</a></p>
+<h1>@{{ monitor.target }} · {{ capture.get_direction_display }}</h1>
+<p>{% if monitor.source == 'synthetic' %}Synthetic capture{% else %}Instagram capture{% endif %} · {{ capture.monitor_check.started_at|date:'j M Y, H:i T' }} · {% if capture.complete %}Complete{% elif capture.baseline_eligible %}Profile count mismatch{% else %}Partial · {{ capture.get_reason_display }}{% endif %}</p>
+{% if capture.baseline_eligible and not capture.complete or comparison.previous.reason == 'count_mismatch' %}
+<p class="notice">
+  {% if comparison %}
+    The profile count differed from the number of accounts returned in at least one capture.
+    Gaps in either list can affect which additions appear.
+  {% else %}
+    Instagram returned a different number of accounts than the profile displayed.
+    The returned list can serve as a baseline.
+  {% endif %}
+</p>
+{% endif %}
+<p><a class="record-link" href="{% url 'core:evidence:detail' case.pk 'document' capture.evidence_id %}">View source capture</a>{% if comparison %} · <a class="record-link" href="{% url 'core:evidence:detail' case.pk 'document' comparison.previous.evidence_id %}">View previous capture from {{ comparison.previous.monitor_check.started_at|date:'j M Y, H:i T' }}</a>{% endif %}</p>
+{% if comparison %}<nav class="actions" aria-label="Capture lists">
+  <a class="button button-secondary" href="?show=changes"{% if show_changes %} aria-current="page"{% endif %}>Additions · {{ comparison.addition_count }}</a>
+  <a class="button button-secondary" href="?show=all"{% if not show_changes %} aria-current="page"{% endif %}>All handles · {{ capture.entry_count }}</a>
+</nav>{% endif %}
+<section class="analysis-section"><h2>{% if show_changes %}Newly observed handles{% else %}Observed handles{% endif %}</h2>
+{% if not capture.baseline_eligible %}<p>This partial list cannot establish a new baseline.</p>{% elif not comparison %}<p>There is no retained comparison for this capture.</p>{% endif %}
+{% if page_obj %}<ul class="record-list">{% for member in page_obj %}<li class="record-row"><div><strong>@{{ member.handle }}</strong>{% if show_changes and member.handle_only %}<p>Handle match only · A rename can appear as an addition.</p>{% endif %}</div></li>{% endfor %}</ul>
+{% else %}<p>{% if show_changes %}No additions to show.{% else %}No handles were observed.{% endif %}</p>{% endif %}
+{% include 'socialmedia/monitor_pagination.html' with label='Handle pages' %}
+</section>
+{% endblock %}

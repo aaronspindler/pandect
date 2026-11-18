@@ -6,13 +6,14 @@ from uuid import uuid4
 
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.reprocessing import reprocessing_executions, start_reprocessing
 from core.analysis.services import process_run
 from core.analysis.testing import image_bytes, wav_bytes
+from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
 from phone.models import CallEvidenceAttachment
@@ -74,6 +75,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                 return
         self.fail("Reprocessing did not finish preparing its selected domains")
 
+    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_all_domains_include_files_messages_and_every_call_recording(self):
         sources = {kind: self.source(kind) for kind in KINDS}
         attachments = {}
@@ -142,6 +144,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                     )
                 )
 
+    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_new_call_transcript_receives_exact_communication_followups(self):
         call = self.source("phone-call")
         addition = CallEvidenceAttachment.objects.create(

@@ -8,7 +8,7 @@ own feature details and supported inputs.
 ## One line
 
 Pandect is an investigation workspace for organizing evidence,
-searching within a case, and reviewing source-linked findings with collaborators.
+searching within a case, and exploring source-linked findings with collaborators.
 
 ## Short description
 
@@ -24,16 +24,14 @@ PostgreSQL. Organize collected material, including open-source intelligence,
 in private cases with their own people, vehicles, evidence, and permissions.
 
 Retain documents, images, audio, text, communications, and location observations;
-search supported case text; and review source-linked findings. Eligible evidence
+search supported case text; and explore source-linked findings. Eligible evidence
 receives local checks, including native document text extraction and
 printed-English image recognition. Maps, supported imports, exact identifier
 connections, and recorded chronology help examine activity. Inspect supported
-originals privately and share exact selections as printable briefs with
-provenance. Invite collaborators to inspect or edit.
+originals privately. Invite collaborators to inspect or edit.
 
-Transcription and model suggestions, including synthesis over explicitly selected
-text and findings, need configured services. External AI requires deliberate
-selection and approval, with no automatic cloud fallback. Inferred event timelines,
+Transcription and model suggestions need configured services. External AI requires
+deliberate selection and approval, with no automatic cloud fallback. Inferred event timelines,
 graphs, and broader discovery are planned. Pandect is in active development;
 self-hosting is available and managed hosting is planned.
 
@@ -75,7 +73,7 @@ verify capability-specific copy against its domain guide.
   local with no external fallback.
 - Separate possible trips, plate candidates, identifier matches, inferred
   sessions, and model suggestions from facts. Recorded chronology does not verify
-  events; selections do not accept findings. Originals/checksums establish
+  events. Originals/checksums establish
   retained content and integrity, not truth or identity.
 - Keep plans provisional. Require evidence for dates, completion percentages,
   pricing, hosted signup, guarantees, certifications, endorsements, and accuracy

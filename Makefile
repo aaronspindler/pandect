@@ -1,6 +1,10 @@
 UV ?= uv
 RUN = $(UV) run --locked
 TEST_SETTINGS ?= config.test_settings
+INSTAGRAM_COLLECTOR_TESTS = socialmedia.pilot_browser socialmedia.live_roster_browser socialmedia.endpoint_profile_browser socialmedia.endpoint_roster_browser
+ifeq ($(PANDECT_BROWSER_ENGINES),webkit)
+INSTAGRAM_COLLECTOR_TESTS =
+endif
 
 .PHONY: sync run lint format test configuration-check database-check static-check validate check security-check compose-smoke browser-check repository-check install-hooks
 
@@ -22,7 +26,7 @@ test:
 	$(RUN) python manage.py test --settings=$(TEST_SETTINGS)
 
 browser-check:
-	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser core.analysis.workflow_browser core.analysis.selection_browser core.analysis.reprocessing_browser core.evidence.bulk_admin_browser image.browser document.browser phone.imessage_browser phone.conversation_browser geo.map_browser ui.live_browser --noinput --settings=$(TEST_SETTINGS)
+	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser core.analysis.workflow_browser core.analysis.reprocessing_browser core.case_search.browser core.evidence.bulk_admin_browser image.browser document.browser audio.browser phone.imessage_browser phone.conversation_browser geo.map_browser socialmedia.monitor_browser $(INSTAGRAM_COLLECTOR_TESTS) ui.live_browser --noinput --settings=$(TEST_SETTINGS)
 
 configuration-check:
 	$(UV) lock --check

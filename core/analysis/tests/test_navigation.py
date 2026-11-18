@@ -4,18 +4,19 @@ from unittest.mock import patch
 from uuid import UUID
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from core.analysis.catalogue import project_result
 from core.analysis.services import process_run, resolve_inputs, start_run
 from core.analysis.sources import output, source_id
 from core.analysis.testing import local_ocr_response, wav_bytes
 from core.analysis.testing import preview_image_bytes as image_bytes
-from core.models import AnalysisResult, AnalysisReview, AnalysisRun
+from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
+from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from document.tests.test_analysis import pdf_bytes
-from geo.models import LocationEvidence
 from image.models import ImageEvidence
 from people.models import Person
 from phone.models import (
@@ -184,6 +185,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertContains(overview, "Low OCR score", count=1)
 
+    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_call_transcript_version_preserves_recording_intervals_and_addition(self):
         call = PhoneCallEvidence.objects.create(
             case=self.case,
@@ -323,56 +325,61 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         downstream = self.client.get(self.detail_url(selected))
         self.assertEqual(downstream.context["items"][0]["sources"][0]["url"], expected)
 
-    def test_equivalent_address_candidates_can_receive_different_item_reviews(self):
-        observations = [
-            LocationEvidence.objects.create(
-                case=self.case,
-                uploaded_by=self.users["owner"],
-                title=f"Address observation {index}",
-                address=address,
-            )
-            for index, address in enumerate(
-                ("1 Example Rd", "1 example road", "2 Example St", "2 example street"),
-                start=1,
-            )
-        ]
-        run, _ = start_run(
-            self.users["owner"],
-            self.case.pk,
-            "normalize_addresses",
-            [{"kind": "location", "id": str(item.pk)} for item in observations],
+    def test_distinct_lead_precedes_repeats_on_evidence_and_in_paginated_run(self):
+        note = TextEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Delivery contact",
+            body="Write to dispatch@example.test.",
         )
-        result = self.process(run)
-        candidates = [
-            index
-            for index, item in enumerate(result.data["items"])
-            if item["label"] == "Candidate equivalent wording"
-        ]
-        self.assertEqual(len(candidates), 2)
-        self.login("editor")
-        endpoint = reverse(
-            "core:analysis:review",
-            kwargs={"case_id": self.case.pk, "run_id": run.pk},
+        run = self.start("entities", note, "text")
+        AnalysisRun.objects.filter(pk=run.pk).update(status="complete")
+        source = run.inputs[0]["id"]
+        incidental = {
+            "label": "Repeated passage",
+            "text": "Delivery contact",
+            "source_ids": [source],
+        }
+        email = {
+            "label": "Email",
+            "text": "dispatch@example.test",
+            "source_ids": [source],
+            "anchors": [{"source_id": source, "start": 9, "end": 30}],
+        }
+        result = AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data=output("Delivery contacts", items=[incidental] * 52 + [email]),
         )
-        for index, decision in zip(candidates, ("accepted", "rejected"), strict=True):
-            response = self.client.post(
-                endpoint,
-                {
-                    "item_index": index,
-                    "decision": decision,
-                    "comment": f"Independent address candidate {index}",
-                },
-            )
-            self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            set(result.reviews.values_list("item_index", "decision")),
-            {(candidates[0], "accepted"), (candidates[1], "rejected")},
+        project_result(result)
+        receipt = TextEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Separate receipt",
+            body="Receipt from dispatch@example.test.",
         )
-        self.assertFalse(result.reviews.filter(item_index__isnull=True).exists())
-        unchanged = list(LocationEvidence.objects.values_list("address", flat=True))
-        self.assertCountEqual(unchanged, [item.address for item in observations])
+        self.process(self.start("entities", receipt, "text"))
+        self.login("viewer")
+        response = self.client.get(self.detail_url(run))
+        first = response.context["items"][0]
+        self.assertEqual(first["index"], 52)
+        self.assertTrue(first["review_reason"])
+        self.assertContains(response, first["review_reason"])
+        self.assertContains(response, 'id="finding-53"')
+        next_page = self.client.get(self.detail_url(run), {"page": 2})
+        self.assertEqual(len(next_page.context["items"]), 3)
+        self.assertNotContains(next_page, 'id="finding-53"')
+        exact = self.client.get(first["url"])
+        self.assertEqual(exact.context["items"][0]["index"], 52)
+        self.assertContains(exact, 'href="?page=1#finding-link-53"')
+        evidence = self.client.get(self.url("detail", note))
+        highlights = evidence.context["highlights"]
+        self.assertEqual(highlights[0]["index"], 52)
+        self.assertEqual(highlights[0]["review_reason"], first["review_reason"])
+        self.assertContains(evidence, first["review_reason"])
+        self.assertEqual(len(highlights), 2)
 
-    def test_findings_pagination_keeps_global_indices_and_independent_reviews(self):
+    def test_findings_pagination_keeps_global_indices(self):
         run, result = self.findings_fixture()
         self.login("editor")
         first = self.client.get(self.detail_url(run))
@@ -386,35 +393,10 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(second, 'id="finding-51"')
         self.assertNotContains(second, 'id="finding-1"')
         self.assertNotContains(second, 'name="item_index"')
-        endpoint = reverse(
-            "core:analysis:review", kwargs={"case_id": self.case.pk, "run_id": run.pk}
-        )
-        for index, decision in ((51, "accepted"), (0, "rejected")):
-            response = self.client.post(
-                endpoint,
-                {
-                    "item_index": index,
-                    "decision": decision,
-                    "comment": f"Individual finding {index + 1}",
-                },
-            )
-            self.assertRedirects(
-                response,
-                self.detail_url(run)
-                + f"?page={index // 50 + 1}&finding={index + 1}#finding-{index + 1}",
-            )
-        self.assertEqual(
-            set(result.reviews.values_list("item_index", "decision")),
-            {(51, "accepted"), (0, "rejected")},
-        )
-        self.assertFalse(result.reviews.filter(item_index__isnull=True).exists())
-        rendered = self.client.get(self.detail_url(run), {"page": 2})
-        self.assertContains(rendered, "Accepted · Finding 52")
-        self.assertContains(rendered, "Rejected · Finding 1")
         result.refresh_from_db()
         self.assertEqual(result.data["items"][50]["label"], "Candidate 51")
 
-    def test_analysis_history_filters_and_page_survive_finding_review(self):
+    def test_analysis_history_filters_and_page_survive_opening_finding(self):
         run, _ = self.findings_fixture()
         AnalysisRun.objects.bulk_create(
             [
@@ -439,20 +421,13 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(
             history, (self.detail_url(run) + suffix).replace("&", "&amp;")
         )
-        review = reverse("core:analysis:review", args=[self.case.pk, run.pk]) + suffix
-        saved = self.client.post(review, {"item_index": 51, "decision": "accepted"})
-        self.assertRedirects(
-            saved,
-            self.detail_url(run)
-            + "?page=2&finding=52&kind=text&status=complete&history_page=2#finding-52",
-        )
-        focused = self.client.get(saved["Location"])
+        focused = self.client.get(self.detail_url(run) + suffix + "&page=2&finding=52")
         self.assertEqual(focused.context["items"][0]["index"], 51)
         self.assertContains(
             focused, f'href="{index}?kind=text&amp;status=complete&amp;page=2"'
         )
 
-    def test_finding_selection_uses_its_own_page_and_only_renders_its_review_form(self):
+    def test_finding_selection_uses_its_own_page(self):
         run, _ = self.findings_fixture()
         self.login("editor")
         response = self.client.get(self.detail_url(run), {"page": 1, "finding": 52})
@@ -460,8 +435,6 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.context["items"][0]["index"], 51)
         self.assertContains(response, 'id="finding-52"', count=1)
         self.assertContains(response, 'href="?page=2#finding-link-52"', count=1)
-        self.assertContains(response, 'name="item_index" value="51"', count=1)
-        self.assertNotContains(response, 'name="item_index" value="50"')
         for invalid in ("0", "61", "unavailable", "9" * 4500):
             with self.subTest(finding=invalid[:16]):
                 fallback = self.client.get(
@@ -469,76 +442,6 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
                 )
                 self.assertEqual(fallback.context["items"][0]["number"], 51)
                 self.assertContains(fallback, 'id="finding-link-52"', count=1)
-                self.assertNotContains(fallback, 'name="item_index"')
-
-    def test_invalid_individual_index_does_not_turn_into_a_whole_result_review(self):
-        run, result = self.findings_fixture(2)
-        self.login("editor")
-        endpoint = reverse(
-            "core:analysis:review", kwargs={"case_id": self.case.pk, "run_id": run.pk}
-        )
-        for invalid in ("-1", "not-an-index", "2", "", "999999999"):
-            with self.subTest(invalid=invalid):
-                before = AnalysisReview.objects.filter(result=result).count()
-                response = self.client.post(
-                    endpoint, {"item_index": invalid, "decision": "accepted"}
-                )
-                self.assertEqual(response.status_code, 400)
-                self.assertEqual(
-                    AnalysisReview.objects.filter(result=result).count(), before
-                )
-
-    def test_latest_finding_review_preserves_history_and_page_boundaries(self):
-        run, result = self.findings_fixture()
-        reviews = []
-        for index, decision in (
-            (0, "accepted"),
-            (50, "accepted"),
-            (50, "rejected"),
-            (51, "unresolved"),
-            (None, "unresolved"),
-        ):
-            reviews.append(
-                AnalysisReview.objects.create(
-                    case=self.case,
-                    result=result,
-                    reviewed_by=self.users["owner"],
-                    item_index=index,
-                    decision=decision,
-                )
-            )
-        self.login("viewer")
-        response = self.client.get(self.detail_url(run), {"page": 2})
-        items = response.context["items"]
-        self.assertEqual(items[0]["index"], 50)
-        self.assertEqual(items[0]["latest_review"], reviews[2])
-        self.assertEqual(items[1]["latest_review"], reviews[3])
-        self.assertTrue(all(item["latest_review"] is None for item in items[2:]))
-        self.assertEqual(response.context["reviewed_count"], 3)
-        self.assertEqual(response.context["latest_result_review"], reviews[4])
-        self.assertNotContains(response, 'name="item_index"')
-        self.assertCountEqual(response.context["reviews"], reviews)
-        first_page = self.client.get(self.detail_url(run))
-        self.assertEqual(first_page.context["items"][0]["latest_review"], reviews[0])
-
-    def test_invalid_finding_review_keeps_its_index_and_exact_return_link(self):
-        run, result = self.findings_fixture()
-        self.login("editor")
-        endpoint = reverse(
-            "core:analysis:review", kwargs={"case_id": self.case.pk, "run_id": run.pk}
-        )
-        comment = "An investigator's unsubmitted assessment."
-        response = self.client.post(
-            endpoint, {"item_index": "50", "decision": "invalid", "comment": comment}
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.context["form"]["comment"].value(), comment)
-        self.assertEqual(response.context["form"]["item_index"].value(), "50")
-        self.assertEqual(
-            response.context["return_url"],
-            self.detail_url(run) + "?page=2&finding=51#finding-51",
-        )
-        self.assertFalse(result.reviews.exists())
 
     def export(self, *, case=None):
         case = case or self.case

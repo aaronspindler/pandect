@@ -13,6 +13,14 @@ GEOGRAPHIC = {
     "geographic_context": ("MAP_CONTEXT", "map_context"),
 }
 
+OPENAI_TEXT_MODELS = {
+    "text_topics": "gpt-6-luna",
+    "content_events": "gpt-6-luna",
+    "session_summaries": "gpt-6.1-terra",
+    "conversation_link": "gpt-6.1-terra",
+    "question_synthesis": "gpt-6.1-sol",
+}
+
 
 def gateway_execution(purpose, operation):
     """Retain the selected provider and method, never its credentials."""
@@ -37,6 +45,8 @@ def gateway_execution(purpose, operation):
         },
     }
     if provider == "openai":
+        if execution["model"] == "auto":
+            execution["model"] = OPENAI_TEXT_MODELS.get(operation, "")
         execution["adapter_version"] = "gateway-4"
         execution["timeout"] = 300
         execution["key_alias"] = config.get("openai_key_alias", "default")
@@ -52,6 +62,8 @@ def gateway_execution(purpose, operation):
             "text": {"format": {"type": "json_object"}},
         }
     elif purpose == "text":
+        if provider == "workers-ai" and execution["model"] == "auto":
+            execution["model"] = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
         execution["inference_settings"] = {"max_tokens": 4096, "temperature": 0}
     return execution
 

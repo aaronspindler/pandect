@@ -156,11 +156,13 @@ output; keep fixtures synthetic.
 | `core.analysis.context_browser` | `data/validation/context-browser` |
 | `core.analysis.workflow_browser` | `data/validation/investigation-workflows` |
 | `core.analysis.reprocessing_browser` | `data/validation/reprocessing-browser` |
-| `core.analysis.selection_browser` | `data/validation/selection-browser` |
+| `core.case_search.browser` | `data/validation/case-search` |
 | `document.browser` | `data/validation/original-preview-browser` |
+| `audio.browser` | `data/validation/m4a-recording-browser` |
 | `phone.conversation_browser` | `data/validation/conversations-browser` |
 | `image.browser` | `data/validation/plate-browser` |
 | `geo.map_browser` | `data/validation/maps` |
+| `socialmedia.monitor_browser` | `data/validation/instagram-monitors` |
 | `ui.live_browser` | `data/validation/live-updates` |
 
 Inspect captures at [DESIGN.md](../DESIGN.md) viewport/density targets. Manual
@@ -178,6 +180,25 @@ uv run --locked --env-file .env python manage.py test --settings=config.test_set
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
 ```
 
+For the offline Instagram pilot, exercise the real PostgreSQL worker and a
+loopback-only Chromium service with two consecutive checks against generated
+lists. Run from the checkout with the locked development browser installed:
+
+```sh
+uv run --locked --env-file .env env POSTGRES_HOST=127.0.0.1 POSTGRES_DB=pandect_instagram_qualification python manage.py test socialmedia.pilot_integration --settings=config.test_settings --noinput
+```
+
+The test creates a disposable test database and temporary private media. It
+checks detection at unchanged counts, both original checksums, scheduled
+continuation, disconnect, and case deletion.
+
+The Chromium browser suite verifies signed-in observer identity, profile
+discovery, and endpoint pagination against locally fulfilled pages in
+`socialmedia.live_roster_browser`, `socialmedia.endpoint_profile_browser`, and
+`socialmedia.endpoint_roster_browser`. The separate
+[one-time live check](instagram-monitors.md#one-controlled-check-on-a-mac)
+uses a private browser and a controlled account.
+
 Shared execution and publication tests live in `core.analysis.tests`; concrete
 processing tests live in their domain apps. For a focused parser check:
 
@@ -190,6 +211,19 @@ To reproduce the findings resource benchmark and populated-database backfill che
 ```sh
 uv run --locked --env-file .env python manage.py test core.analysis.tests.test_catalogue_bounds core.analysis.tests.test_catalogue_migrations --settings=config.test_settings --noinput
 ```
+
+For case-search qualification, configure the four
+[private embedding settings](local-analysis.md#private-case-search-embeddings)
+for an operator-controlled model reachable from the test process. Run
+`uv run --locked --env-file .env python manage.py test core.case_search.qualification --settings=config.test_settings --noinput`.
+This opt-in suite uses a disposable Django database. It checks keyword and
+semantic retrieval on paraphrases, distractors and unrelated queries, and
+times the real worker on the small corpus. It measures exact UUID lookup,
+selective and high-frequency keyword matches, live suggestions, spelling
+correction and the complete case-search response with private query embedding. The large fixture contains 250,000
+independent records with repeated synthetic filler text and its matching vector.
+It measures retrieval and database footprint separately from model throughput.
+Set `PANDECT_QUALIFY_PASSAGES` to vary the scale.
 
 Parser tests use bounded child processes with synthetic documents, images, audio,
 geographic data, and local printed OCR. Host checks require

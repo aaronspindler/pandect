@@ -32,7 +32,7 @@ TEXT_PREREQUISITE = (
     "transcript. Files and metadata alone do not supply usable text."
 )
 LOCATION_PREREQUISITE = (
-    "Spatial comparisons need reported coordinates or explicitly accepted "
+    "Spatial comparisons need reported coordinates or explicitly selected "
     "geographic estimates. Movement tracks need timed person-location or "
     "vehicle-location records linked to a person or vehicle. Unlinked locations "
     "cannot form a subject’s track."
@@ -75,8 +75,9 @@ EVIDENCE_TYPES = (
         ),
         "intake": "Upload recordings or add an individual audio file.",
         "formats": (
-            "Analysis supports uncompressed signed 16-bit PCM WAV, mono/stereo, "
-            "8–48 kHz, within the 16 MiB parser limit and 30 decoded minutes. "
+            "Analysis supports uncompressed signed 16-bit PCM WAV or AAC M4A, "
+            "mono/stereo, 8–48 kHz, up to 30 decoded minutes. Original and "
+            "decoded audio are each limited to 16 MiB. "
             "Transcription supports English. Other originals can be retained "
             "without supported analysis."
         ),
@@ -127,7 +128,7 @@ EVIDENCE_TYPES = (
             "retain their own attribution and checksums."
         ),
         "formats": (
-            "Call metadata, supplied transcripts and supported PCM WAV audio "
+            "Call metadata, supplied transcripts and supported PCM WAV or AAC M4A "
             "additions; transcription supports English."
         ),
         "prerequisites": (
@@ -147,7 +148,7 @@ EVIDENCE_TYPES = (
             "additions retain earlier material."
         ),
         "formats": (
-            "Call metadata, supplied transcripts and supported PCM WAV audio "
+            "Call metadata, supplied transcripts and supported PCM WAV or AAC M4A "
             "additions. FaceTime video upload and video analysis are unavailable."
         ),
         "prerequisites": (
@@ -233,8 +234,8 @@ ANALYSES = {
         "kinds": ("audio", *CALL_KINDS),
         "requirement": INCLUDED,
         "detail": (
-            "A supported PCM WAV original or retained call audio addition; no "
-            "speech recognition is needed."
+            "A supported PCM WAV or AAC M4A original or retained call audio "
+            "addition; no speech recognition is needed."
         ),
     },
     "ocr": {
@@ -272,8 +273,8 @@ ANALYSES = {
         "kinds": ("audio", *CALL_KINDS),
         "requirement": MODEL,
         "detail": (
-            "Supported PCM WAV audio. Configure a private Whisper runtime and "
-            "model, or explicitly select and approve transcription through "
+            "Supported PCM WAV or AAC M4A audio. Configure a private Whisper runtime "
+            "and model, or explicitly select and approve transcription through "
             "Cloudflare AI Gateway. No speaker identification."
         ),
     },
@@ -349,7 +350,7 @@ ANALYSES = {
         ),
         "kinds": TEXT_KINDS,
         "requirement": MODEL,
-        "detail": TEXT_MODEL + " Model interpretations require review.",
+        "detail": TEXT_MODEL + " Model interpretations are labelled as AI suggestions.",
     },
     "sessions": {
         "label": "Read inferred message sessions",
@@ -426,8 +427,8 @@ ANALYSES = {
         "kinds": LOCATION_KINDS,
         "requirement": INCLUDED,
         "detail": (
-            "Reported coordinates or selected, explicitly accepted geographic "
-            "estimates; choose the distance threshold."
+            "Use reported coordinates or selected address estimates and choose "
+            "the distance threshold."
         ),
     },
     "proximity": {
@@ -519,7 +520,7 @@ ANALYSES = {
         "requirement": GEOGRAPHIC,
         "detail": (
             "Configure a Nominatim-compatible private service or approve an "
-            "external lookup. Review and accept candidates before downstream "
+            "external lookup. Select candidates before downstream "
             "spatial use."
         ),
     },
@@ -536,21 +537,6 @@ ANALYSES = {
             "external lookup. Needs usable coordinates; historical context also "
             "needs matching dataset coverage. Map features remain contextual "
             "candidates."
-        ),
-    },
-    "question_synthesis": {
-        "label": "Answer a question from selected material",
-        "description": (
-            "Suggest supported or contrary observations and unknowns with source "
-            "citations."
-        ),
-        "kinds": (*TEXT_KINDS, *LOCATION_KINDS),
-        "requirement": MODEL,
-        "detail": (
-            "A question and a shared selection of usable text or retained findings. "
-            "Raw files and structured locations supply no independent text. "
-            "Configure a private Ollama model or approve Gateway AI; review "
-            "suggestions."
         ),
     },
 }
@@ -574,8 +560,8 @@ REPORTS = {
         "kinds": ("vehicle-location",),
         "requirement": INCLUDED,
         "detail": (
-            "Timed vehicle observations. Address-only trips need no lookup; "
-            "plotting estimated positions needs reviewed geocodes. New observations "
+            "Timed vehicle observations. Trips can be built from addresses. "
+            "Choose an address estimate to plot its position. New observations "
             "and supported imports queue trip preparation."
         ),
     },
@@ -690,8 +676,8 @@ EVIDENCE_FAMILIES = (
         "label": "Audio",
         "description": "Inspect recordings and review candidate transcripts.",
         "intake": (
-            "Upload original recordings. Analysis supports the PCM WAV profile "
-            "described below; transcription supports English."
+            "Upload original recordings. Analysis supports the PCM WAV and AAC M4A "
+            "profiles described below; transcription supports English."
         ),
         "kinds": ("audio",),
     },

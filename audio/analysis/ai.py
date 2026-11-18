@@ -239,7 +239,7 @@ def transcription(sources, parameters, *, client):
             if len(items) > 5000:
                 raise AnalysisError("result_limit")
     warnings.append(
-        "Transcription is a candidate reading of English 16-bit PCM WAV. "
+        "Transcription is a candidate reading of English PCM WAV or AAC M4A audio. "
         "Names, accents, overlap and chunk boundaries can introduce errors. "
         "Speakers are not identified or equated with call participants. "
         "Supplied transcripts stay separate. No returned text does not prove silence."

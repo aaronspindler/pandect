@@ -7,6 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import RequestFactory, SimpleTestCase
 
 from accounts.adapter import PandectAccountAdapter
+from core.analysis.execution import gateway_execution
 
 
 class StartupTests(SimpleTestCase):
@@ -59,6 +60,24 @@ class StartupTests(SimpleTestCase):
         self.assertEqual(settings["PANDECT_LOCAL_AI"]["text"]["url"], "")
         self.assertEqual(settings["PANDECT_LOCAL_AI"]["transcription"]["url"], "")
         self.assertEqual(settings["PANDECT_LOCAL_AI"]["token"], "")
+
+    def test_default_gateway_model_depends_on_provider_and_operation(self):
+        workers = self.load_settings()["PANDECT_AI_GATEWAY"]
+        with self.settings(PANDECT_AI_GATEWAY=workers):
+            route = gateway_execution("text", "content_events")
+            self.assertEqual(route["model"], "@cf/meta/llama-3.3-70b-instruct-fp8-fast")
+        openai = self.load_settings(PANDECT_AI_TEXT_PROVIDER="openai")[
+            "PANDECT_AI_GATEWAY"
+        ]
+        with self.settings(PANDECT_AI_GATEWAY=openai):
+            self.assertEqual(
+                gateway_execution("text", "content_events")["model"], "gpt-6-luna"
+            )
+            self.assertFalse(gateway_execution("text", "unknown_operation")["model"])
+            self.assertEqual(
+                gateway_execution("transcription", "transcription")["model"],
+                "@cf/openai/whisper-large-v3-turbo",
+            )
 
     def test_service_locality_requires_explicit_operator_configuration(self):
         settings = self.load_settings(

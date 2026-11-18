@@ -17,6 +17,13 @@ and offers **Add evidence** to owners/editors and **Case settings** to owners.
 descriptions. Navigation labels stay visible on desktop and mobile.
 All cases searches accessible names/descriptions and filters owned/shared cases.
 
+**Search this case** at the top of each case screen finds evidence, people,
+vehicles, conversations, places, saved trips and findings. Results link to
+their sources. For example, paste a full evidence identifier to open its record
+or use a quoted phrase to find it in a retained transcript. A configured private
+model also finds related passages when the source uses different wording.
+See the [investigator interface](interface-design.md) for shortcuts and filters.
+
 Viewers inspect material and download originals. Editors also add/edit records
 and archive/restore evidence. Owners manage access and delete people, vehicles,
 or the case, subject to retained-evidence protections. Product users need no staff

@@ -41,6 +41,12 @@ never guessed. See the [Processing workflow](interface-design.md#case-tools-proc
 for filters, review, recovery, and automatic updates to visible progress/results.
 Refresh remains available without JavaScript; there is no notification scheduler.
 
+When [private meaning search](local-analysis.md#private-case-search-embeddings)
+is configured, Processing shows the case index and its progress. The worker
+queues missing indexes after migrations and rechecks case permissions before
+embedding source text. After correcting a failure, an owner or editor can retry
+from Processing. Keyword search is available while passages are being indexed.
+
 Completed vehicle imports offer deliberate **Run local checks on imported
 evidence**. Scope comes from retained import relationships, never browser-supplied
 IDs. Historical message imports retain the action to run local checks using
@@ -71,6 +77,13 @@ limits, retaining compact summaries and paginated reviews/messages. All messages
 and requested people still publish atomically; processing groups are not import
 limits.
 
+## Instagram monitor pilot
+
+The optional [Instagram monitor](instagram-monitors.md) uses deferred PostgreSQL
+tasks. Each completed check schedules its successor in the publication transaction.
+Checks share one collection slot per personal connection and recheck current
+access before collection and publication. Processing shows case-scoped recovery.
+
 ## Saved vehicle trips
 
 `geo` owns vehicle trip state, generations, retained inputs and ordered membership.
@@ -93,8 +106,8 @@ owner/editor prepares the replacement.
 
 After publication, separate continuations prepare local geocode runs with at most
 25 distinct addresses and the configured source ceiling per run. Their progress
-and recovery never block trip summaries. Maps use reported positions or reviewed
-local estimates; lookup/review changes refresh geometry without resegmentation.
+and recovery never block trip summaries. Maps use reported positions or selected
+local estimates. Lookup or selection changes refresh geometry without resegmentation.
 See [trip rules](analysis-locations.md#automatic-vehicle-trips) and
 [map lookups](maps.md#local-address-lookup).
 

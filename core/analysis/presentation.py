@@ -3,17 +3,23 @@
 import hashlib
 import json
 import re
+from itertools import groupby
 from urllib.parse import urlencode
 
 from django.core.paginator import Paginator
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_aware
 
+from document.models import DocumentEvidence
 from people.models import Person
 from vehicle.models import Vehicle
 
 UUID = re.compile(
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I
+)
+REPORTED_PARTICIPANT = re.compile(
+    r"\b(reported\s+(sender|recipient)\s+)(\*{0,2})(" + UUID.pattern + r")(\*{0,2})",
+    re.I,
 )
 INTERNAL = {
     "source_id",
@@ -27,6 +33,10 @@ INTERNAL = {
     "derived_result_id",
     "import_message",
     "contributing_source_ids",
+    "automatic_batch",
+    "automatic_followup",
+    "import_run_id",
+    "batch_id",
 }
 TECHNICAL = {
     "parser",
@@ -36,6 +46,31 @@ TECHNICAL = {
     "audio sha-256",
     "record sha-256",
 }
+
+
+def participant_names(sources):
+    """Use only explicit participants of already validated communication sources."""
+    names = {}
+    for source in sources:
+        if source.kind not in {"text-message", "phone-call", "facetime"}:
+            continue
+        for role in ("sender", "recipient"):
+            person = getattr(source.item, role)
+            if person.case_id == source.item.case_id:
+                names[(role, str(person.pk))] = str(person)
+    return names
+
+
+def participant_text(text, names):
+    """Display explicit reported-participant references without rewriting results."""
+    return REPORTED_PARTICIPANT.sub(
+        lambda match: (
+            match[1] + names[(match[2].lower(), match[4].lower())]
+            if (match[2].lower(), match[4].lower()) in names
+            else match[0]
+        ),
+        text,
+    )
 
 
 def measurement_timestamp(key, value):
@@ -74,6 +109,8 @@ def label(value):
         "difference_b_minus_a": "Second minus first",
         "sender_id": "Reported sender",
         "recipient_id": "Reported recipient",
+        "person_id": "Person",
+        "vehicle_id": "Vehicle",
         "occurred_at": "Reported event time",
         "counts_by_sender_id": "Counts by reported sender",
         "source_measurement": "Sample measurement",
@@ -82,15 +119,17 @@ def label(value):
         "native_thread_id": "Native thread ID",
         "reply_to_id": "Native reply reference",
     }
-    if str(value) in labels:
-        return labels[str(value)]
+    normalized = str(value).lower().replace(" ", "_")
+    if normalized in labels:
+        return labels[normalized]
     value = str(value).replace("_", " ")
     return value[:1].upper() + value[1:]
 
 
 def measurement_formatter(data, *, case, sources=(), query=None):
     source_map = {str(source.id): source for source in sources}
-    ids = list(dict.fromkeys(UUID.findall(json.dumps(data, default=str))))[:2000]
+    serialized = json.dumps(data, default=str)
+    ids = list(dict.fromkeys(UUID.findall(serialized)))[:2000]
     names = {}
     for person in Person.objects.filter(case=case, pk__in=ids):
         names[str(person.pk)] = str(person)
@@ -101,12 +140,28 @@ def measurement_formatter(data, *, case, sources=(), query=None):
     for source in sources:
         names[str(source.id)] = source.item.title
         names[str(source.item.pk)] = source.item.title
+    if '"native_thread_references":' in serialized:
+        exports = DocumentEvidence.objects.filter(
+            case=case,
+            pk__in=ids,
+            communication_contexts__case=case,
+            communication_contexts__message_id__in=[
+                source.item.pk for source in sources if source.kind == "text-message"
+            ],
+        ).distinct()
+        for document_id, title in exports.values_list("pk", "title"):
+            names[str(document_id)] = title
 
-    def scalar(value, *, reference=False):
+    def scalar(value, *, reference=False, native_thread=False):
         if value is None:
             return "Unknown"
         if isinstance(value, bool):
             return "Yes" if value else "No"
+        if native_thread and isinstance(value, str):
+            document_id, separator, thread_id = value.partition(":")
+            if separator and UUID.fullmatch(document_id):
+                export = names.get(document_id, "Unavailable export")
+                return f"{export} · Thread {thread_id}"
         return names.get(str(value), str(value)) if reference else str(value)
 
     def render(values, *, duplicate_text=""):
@@ -170,6 +225,8 @@ def measurement_formatter(data, *, case, sources=(), query=None):
                     "break_before",
                     "join_before",
                     "source_order",
+                    "participant_filter",
+                    "other_participant_filter",
                 }
                 display_key = names.get(str(key), key) if reference_keys else key
                 row = {"label": label(display_key)}
@@ -202,7 +259,12 @@ def measurement_formatter(data, *, case, sources=(), query=None):
                         row["text"] = "None observed"
                     elif all(not isinstance(entry, (dict, list)) for entry in value):
                         row["text"] = ", ".join(
-                            scalar(entry, reference=reference) for entry in entries
+                            scalar(
+                                entry,
+                                reference=reference,
+                                native_thread=normalized == "native_thread_references",
+                            )
+                            for entry in entries
                         )
                     else:
                         row["examples"] = []
@@ -256,13 +318,14 @@ def measurement_formatter(data, *, case, sources=(), query=None):
 
 
 def group_by_source(items):
-    """Keep the page's source order, including exact versions and additions."""
-    groups = {}
-    for item in items:
-        source = item["sources"][0] if item["sources"] else {}
-        group = groups.setdefault(source.get("id"), {"source": source, "items": []})
-        group["items"].append(item)
-    return list(groups.values())
+    """Share a source heading only between adjacent findings in review order."""
+    groups = []
+    for _, group in groupby(
+        items, key=lambda item: (item["sources"] or [{}])[0].get("id")
+    ):
+        rows = list(group)
+        groups.append({"source": (rows[0]["sources"] or [{}])[0], "items": rows})
+    return groups
 
 
 def prioritize_measurements(item, *labels):
@@ -272,7 +335,7 @@ def prioritize_measurements(item, *labels):
     measurements = item["measurements"]
     primary = [row for key in labels for row in measurements if row["label"] == key]
     if primary:
-        item["primary_measurements"] = primary
+        item.setdefault("primary_measurements", []).extend(primary)
         item["measurements"] = [
             row for row in measurements if row["label"] not in labels
         ]

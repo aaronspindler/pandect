@@ -5,8 +5,9 @@ from urllib.parse import urlencode
 from django.db.models import F, Func, IntegerField, OuterRef, Q, Subquery
 from django.urls import reverse
 
-from core.analysis.errors import AnalysisError
+from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import requires_inference, snapshot_execution
+from core.analysis.gateway import gateway_configured
 from core.analysis.local import validate_local_configuration
 from core.analysis.operations import get_operation
 from core.evidence.queries import scoped_evidence
@@ -56,21 +57,26 @@ UNSUPPORTED_FORMATS = {
 def configuration_readiness(operation, parameters=None):
     if parameters is None:
         parameters = {"include_summary": True, "semantic_links": True}
-    if not requires_inference(operation, parameters):
+    purpose = requires_inference(operation, parameters)
+    if not purpose:
         return ""
+    external_note = ""
+    if purpose == "transcription" and not gateway_configured(purpose, operation):
+        external_note = " " + error_message("gateway_transcription_not_configured")
     try:
         validate_local_configuration(
             snapshot_execution(operation, parameters | {"backend": "local"})
         )
     except AnalysisError:
-        return (
-            "Private inference is not configured. Ask the operator to configure it, "
-            "or explicitly select and approve a configured external service."
+        return "Private inference is not configured." + (
+            external_note
+            or " Ask the operator to configure it, or explicitly select and approve "
+            "a configured external service."
         )
     return (
         "Private inference is configured. Connection and model identity are "
         "checked when processing starts."
-    )
+    ) + external_note
 
 
 def _inspections(case, operation, selected, records, attachments):

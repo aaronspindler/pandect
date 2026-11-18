@@ -9,11 +9,11 @@ separate local **Group nearby observations** method needs no reference service.
 ## From miTrail records to context
 
 Asset Location CSV imports retain addresses and timestamps, not coordinates.
-Forward-geocode an address, review a specific candidate, then select that accepted
+Forward-geocode an address, choose **Use this estimate** on a candidate, then select that
 interpretation for context lookup. Retained coordinates work directly; timestamps
 alone supply neither location nor reference geometry. No GeoJSON upload is needed.
 
-Choose **Look up geographic context**, observations/accepted geocodes, grouping
+Choose **Look up geographic context**, observations or selected estimates, grouping
 distance and search radius. External lookup requires disclosed approval.
 `PANDECT_MAP_CONTEXT_LOCAL=true` explicitly designates operator control; a private
 hostname alone does not. Requests contain coordinate areas, fixed feature filters
@@ -25,7 +25,7 @@ publication; submitted requests cannot be recalled.
 
 Deterministic anchor-radius groups link each candidate to its supporting member
 observation, without assigning one place identity to the cluster. Results retain
-reported/reviewed positions, observation times, feature IDs, approximate distances,
+reported and estimated positions, observation times, feature IDs, approximate distances,
 containment candidates, boundary ambiguity and overlapping alternatives. Building
 multipolygons and holes are distinct from roads/point labels. A neighbourhood
 point supplies no boundary. Shared buildings prove no occupancy, visit, meeting,
@@ -58,7 +58,7 @@ not independently verified real-world conditions.
 Each successful response retains exact private bytes/SHA-256, query, selection,
 endpoint identity, source/version, attribution, retrieval time, requested date and
 supplied dataset timestamp. Findings link snapshot/feature IDs to observations;
-reruns preserve responses and reviews. Viewer downloads verify current case/source
+reruns preserve responses and the exact estimates used. Viewer downloads verify current case/source
 access and checksum.
 
 ## Operator configuration

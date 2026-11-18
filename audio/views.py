@@ -1,4 +1,4 @@
-"""Case-authorized original WAV playback with bounded single-range seeking."""
+"""Case-authorized original recording playback with single-range seeking."""
 
 import re
 
@@ -15,9 +15,11 @@ from core.evidence.types import CALL_KINDS
 from phone.models import CallEvidenceAttachment
 
 
-def _response(request, item, *, kind="audio", attachment=None):
+def playback_response(request, item, *, kind="audio", attachment=None):
     try:
-        content, checksum, _ = inspect_recording(item, kind=kind, attachment=attachment)
+        content, checksum, parsed = inspect_recording(
+            item, kind=kind, attachment=attachment
+        )
     except AnalysisError as error:
         response = HttpResponse(
             playback_message(error), status=422, content_type="text/plain"
@@ -44,11 +46,12 @@ def _response(request, item, *, kind="audio", attachment=None):
             if status != 416 and request.method != "HEAD"
             else b"",
             status=status,
-            content_type="audio/wav",
+            content_type=parsed["content_type"],
         )
         response["Accept-Ranges"] = "bytes"
         response["ETag"] = etag
-        response["Content-Disposition"] = 'inline; filename="recording.wav"'
+        extension = "m4a" if parsed["format"] == "M4A" else "wav"
+        response["Content-Disposition"] = f'inline; filename="recording.{extension}"'
         response["Content-Length"] = end - start + 1 if status != 416 else 0
         if status == 206:
             response["Content-Range"] = f"bytes {start}-{end}/{total}"
@@ -64,7 +67,7 @@ def _response(request, item, *, kind="audio", attachment=None):
 def play(request, case_id, evidence_id):
     case = get_case(request.user, case_id)
     item = get_evidence(case, "audio", evidence_id)
-    return _response(request, item)
+    return playback_response(request, item)
 
 
 @product_login_required
@@ -80,4 +83,4 @@ def play_attachment(request, case_id, kind, evidence_id, attachment_id):
     )
     if not attachment.file:
         raise Http404
-    return _response(request, item, kind=kind, attachment=attachment)
+    return playback_response(request, item, kind=kind, attachment=attachment)

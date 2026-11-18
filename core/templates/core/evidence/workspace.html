@@ -1,18 +1,17 @@
 {% extends "ui/base.html" %}
 {% load static %}
 {% block title %}{% if item %}{{ display_title|default:item.title }}{% else %}Evidence{% endif %} · {{ case.name }}{% endblock %}
-{% block body_class %}workspace-page{% if item %} has-selection{% endif %}{% endblock %}
+{% block body_class %}workspace-page{% endblock %}
 {% block extra_head %}{% if item %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endif %}<link rel="stylesheet" href="{% static 'core/workspace.css' %}">{% endblock %}
-{% block case_context %}{% endblock %}
+{% block case_context %}<a class="case-context" href="{% url 'cases:case_list' %}" aria-label="Change case, current case {{ case.name }}"><span class="muted">Case</span> <span class="case-context-name">{{ case.name }}</span>{% include 'ui/components/icon.html' with name='chevron-down' %}</a>{% endblock %}
 {% block extra_js %}{% include 'core/evidence/assets.html' only %}{% endblock %}
 {% block content %}
 <div class="evidence-workspace{% if item %} has-selection{% endif %}">
-  <a class="skip-link" href="#evidence-records">Skip to evidence list</a>
   {% if item %}<a class="skip-link" href="#evidence-reader">Skip to selected evidence</a>{% endif %}
   {% if item %}<a class="skip-link" href="#evidence-findings-heading">Skip to findings</a>{% endif %}
   <section class="evidence-list-pane" aria-label="Evidence collection">
+    <a class="skip-link" href="#evidence-records">Skip to evidence list</a>
     <div class="evidence-list-toolbar">
-      <a class="evidence-case-switch" href="{% url 'cases:case_list' %}" aria-label="Change case, current case {{ case.name }}"><span><small>Case</small><strong>{{ case.name }}</strong></span>{% include 'ui/components/icon.html' with name='chevron-down' %}</a>
       <div class="evidence-list-heading">
         {% if item %}<h2>Evidence</h2>{% else %}<h1>Evidence</h1>{% endif %}
         {% if can_edit %}<div class="evidence-create-actions"><a class="button button-primary" href="{% url 'core:evidence:create' case_id=case.pk %}">Add<span class="visually-hidden"> evidence</span></a></div>{% endif %}
@@ -55,8 +54,8 @@
       {% if pagination.next %}<a class="button button-secondary icon-button" href="{{ pagination.next }}" aria-label="Next page" data-tooltip="Next page" title="Next page">{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% else %}<span class="pagination-placeholder"></span>{% endif %}
     </nav>
   </section>
-  <section class="evidence-reader" id="evidence-reader" tabindex="0" aria-label="{% if item %}Selected evidence{% else %}Evidence reading pane{% endif %}">
-    {% if item %}
+  {% if item %}
+  <section class="evidence-reader" id="evidence-reader" tabindex="0" aria-label="Selected evidence">
     <div class="evidence-content">
     <a class="back-link" href="{{ list_url }}">Back to evidence</a>
     <header class="evidence-reader-header">
@@ -70,7 +69,6 @@
     {% if can_edit %}
     <nav class="evidence-task-actions actions" aria-label="Evidence actions">
       <a class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
-      <a class="button button-secondary" href="{% url 'core:analysis:selection_pick' case.pk %}?kind={{ kind }}&amp;evidence={{ item.pk }}">Save to selection</a>
       <details class="evidence-analyze" data-disclosure>
         <summary class="button button-secondary">Analyze evidence</summary>
         <div class="evidence-more-panel evidence-analysis-panel">
@@ -87,10 +85,8 @@
     {% include 'ui/components/live_updates.html' %}
     {% include 'core/analysis/evidence.html' with evidence=item %}
     </div>
-    {% else %}
-    <div class="empty-state reader-empty"><h2>Select evidence</h2></div>
-    {% endif %}
   </section>
+  {% endif %}
 </div>
 {% endblock %}
 

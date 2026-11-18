@@ -1,9 +1,107 @@
 (() => {
   "use strict";
-  if (!("IntersectionObserver" in window)) return;
+
+  function ordinaryClick(event) {
+    return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+  }
+
+  function enableMessageSelection(workspace, transcript) {
+    const panel = workspace.querySelector("[data-message-panel]");
+    let selected = transcript.querySelector("[data-selected-message]");
+    let transcriptOffset = null;
+    workspace.classList.add("is-interactive");
+
+    function show(row, anchor = row || selected) {
+      if (!anchor) return;
+      if (anchor.getClientRects().length) transcriptOffset = anchor.getBoundingClientRect().top;
+
+      // Keep one live copy of each server-rendered message inspector.
+      if (row !== selected) {
+        if (selected) {
+          panel.querySelector(".conversation-message-body").textContent = "";
+          selected.querySelector("[data-message-content]").content.append(...panel.childNodes);
+          selected.removeAttribute("data-selected-message");
+          selected.querySelector("[data-message-select]").removeAttribute("aria-current");
+        }
+        if (row) {
+          panel.replaceChildren(row.querySelector("[data-message-content]").content);
+          panel.querySelector(".conversation-message-body").textContent = row.querySelector(".conversation-message-body").textContent;
+          row.setAttribute("data-selected-message", "");
+          row.querySelector("[data-message-select]").setAttribute("aria-current", "true");
+        }
+        panel.hidden = !row;
+        panel.scrollTop = 0;
+        selected = row;
+      }
+
+      if (anchor.getClientRects().length) {
+        // Splitting the desktop view changes wrapping above the selected row.
+        const targetTop = transcriptOffset ?? window.innerHeight / 3;
+        window.scrollBy(0, anchor.getBoundingClientRect().top - targetTop);
+      } else {
+        panel.scrollIntoView({ block: "start" });
+      }
+      const focus = row ? panel.querySelector("h2") : anchor.querySelector("[data-message-select]");
+      if (!row) focus.scrollIntoView({ block: "nearest" });
+      focus.focus({ preventScroll: true });
+    }
+
+    function navigate(row, url) {
+      if (row?.hasAttribute("data-load-panel-on-open")) {
+        location.assign(url);
+        return;
+      }
+      if (url !== location.href) history.pushState(null, "", url);
+      show(row);
+    }
+
+    workspace.addEventListener("click", (event) => {
+      if (!ordinaryClick(event)) return;
+      const close = event.target.closest("[data-message-close]");
+      if (close) {
+        event.preventDefault();
+        navigate(null, close.href);
+        return;
+      }
+      const bubble = event.target.closest(".conversation-bubble");
+      if (!bubble) return;
+      // The original is plain selectable text. Finishing a drag must not open the inspector.
+      if (!event.target.closest("[data-message-select]") && !window.getSelection()?.isCollapsed) return;
+      event.preventDefault();
+      navigate(bubble.closest(".conversation-message"), bubble.querySelector("[data-message-select]").href);
+    });
+    workspace.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !event.defaultPrevented && selected) {
+        event.preventDefault();
+        navigate(null, panel.querySelector("[data-message-close]").href);
+      }
+    });
+    window.addEventListener("popstate", () => {
+      const params = new URL(location.href).searchParams;
+      const id = params.get("message");
+      const row = id ? document.getElementById(`message-${id}`) : null;
+      // Refreshing can discard messages loaded by scrolling and their finding pages.
+      let anchor = row || selected;
+      let available;
+      if (id) {
+        available = row && !row.hasAttribute("data-load-panel-on-open") && (params.get("analysis_page") || "") === row.dataset.analysisPage;
+      } else if (location.hash.startsWith("#message-")) {
+        anchor = document.getElementById(location.hash.slice(1));
+        available = Boolean(anchor);
+      } else {
+        available = transcript.querySelector("[data-conversation-items]").dataset.page === (params.get("page") || "1");
+      }
+      if (available) show(row, anchor);
+      else location.reload();
+    });
+  }
 
   const reader = document.querySelector("[data-conversation-scroll]");
   if (!reader) return;
+  const workspace = reader.closest("[data-conversation-workspace]");
+  if (workspace) enableMessageSelection(workspace, reader);
+  if (!("IntersectionObserver" in window)) return;
+
   const items = reader.querySelector("[data-conversation-items]");
   const label = reader.dataset.scrollLabel;
 
@@ -53,9 +151,19 @@
         else items.append(fragment);
         if (next) link.setAttribute("href", next.getAttribute("href"));
         else link.hidden = true;
-        if (previous && anchor) window.scrollBy(0, anchor.getBoundingClientRect().top - top);
         status.textContent = `${rows.filter((row) => row.id).length} ${label} loaded.`;
         if (!next) status.textContent += previous ? ` Start of ${label}.` : ` End of ${label}.`;
+        if (previous && anchor) {
+          const shift = anchor.getBoundingClientRect().top - top;
+          // On a short last page the inspector can extend below the transcript.
+          // Keep just enough trailing room to restore the anchor after prepending.
+          const spaceBelow = document.documentElement.scrollHeight - innerHeight - scrollY;
+          if (workspace && shift > spaceBelow) {
+            const padding = parseFloat(getComputedStyle(workspace).paddingBlockEnd);
+            workspace.style.paddingBlockEnd = `${padding + Math.ceil(shift - spaceBelow)}px`;
+          }
+          window.scrollBy(0, shift);
+        }
         if (activated) rows.find((row) => row.id)?.focus();
       } catch {
         failed = true;
@@ -70,7 +178,7 @@
       if (entries.some((entry) => entry.isIntersecting)) load();
     }, { rootMargin: "200px 0px" });
     link.addEventListener("click", (event) => {
-      if (failed || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (failed || !ordinaryClick(event)) return;
       event.preventDefault();
       load(true);
     });

@@ -22,6 +22,7 @@
         {% include 'ui/components/icon.html' with name='file-text' %}
         <div>
           {% if item.summary_text %}<strong>{{ item.summary_text }}</strong>{% else %}<strong>{{ item.label }}</strong>{% endif %}
+          {% if item.review_reason %}<small>{{ item.review_reason }}</small>{% endif %}
           {% if item.ai_suggestion %}<small>AI suggestion</small>{% endif %}
           <div class="evidence-finding-meta">{% if item.summary_text %}<small>{{ item.label }}</small>{% endif %}{% if item.anchors %}<span class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=item.anchors compact=True %}</span>{% endif %}</div>
           {% if item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
@@ -35,10 +36,11 @@
     {% endfor %}
   </ul>
   {% elif analysis_page_obj and not analysis_pending %}
-  <p class="muted">No findings yet.</p>
+  <p class="muted">No highlighted findings. Browse all findings to inspect retained results.</p>
   {% elif not analysis_page_obj and not analysis_pending %}
   <p class="muted">No checks yet.</p>
   {% endif %}
 
+  {% if highlights_limited %}<p class="muted">More findings are available beyond the 50 candidates checked for this preview.</p>{% endif %}
   <a class="record-link" href="{% url 'core:analysis:browse' case.pk %}?kind={{ kind }}&amp;evidence={{ evidence.pk }}">All findings from this evidence</a>
 </section>

@@ -26,7 +26,6 @@ from core.analysis.services import (
     process_run,
     require_current_geocode_reviews,
     resolve_inputs,
-    review_result,
     start_run,
     validate_output,
 )
@@ -345,32 +344,6 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(process_run(str(run.pk)), "access_removed")
         self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
 
-    def test_reviews_append_decisions_and_explanations_under_current_edit_permission(
-        self,
-    ):
-        run, result = self.complete()
-        for decision in ("accepted", "rejected", "unresolved"):
-            review_result(
-                self.users["editor"],
-                self.case.pk,
-                result.pk,
-                decision,
-                comment=f"Synthetic {decision} explanation",
-            )
-        self.assertEqual(
-            list(result.reviews.values_list("decision", flat=True)),
-            ["unresolved", "rejected", "accepted"],
-        )
-        self.assertEqual(result.reviews.count(), 3)
-        with self.assertRaises(PermissionDenied):
-            review_result(self.users["viewer"], self.case.pk, result.pk, "accepted")
-        with self.assertRaises(Http404):
-            review_result(self.users["outsider"], self.case.pk, result.pk, "accepted")
-        with self.assertRaises(ValidationError):
-            review_result(self.users["owner"], self.case.pk, result.pk, "made_up")
-        run.refresh_from_db()
-        self.assertEqual(run.status, "complete")
-
     def test_retained_models_reject_replacement_and_cross_case_children(self):
         run, result = self.complete()
         run.parameters = {"overwrite": True}
@@ -379,8 +352,11 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         result.data = {"summary": "Replacement", "items": []}
         with self.assertRaises(ValidationError):
             result.save()
-        review = review_result(
-            self.users["owner"], self.case.pk, result.pk, "unresolved"
+        review = AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="unresolved",
         )
         review.comment = "Replacement"
         with self.assertRaises(ValidationError):
@@ -647,20 +623,29 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             "result_id": str(result.pk),
             "geocode_candidate": 2,
         }
-        review_result(self.users["owner"], self.case.pk, result.pk, "accepted")
-        with self.assertRaisesMessage(AnalysisError, "geocode_review_required"):
-            start_run(self.users["owner"], self.case.pk, "spatial_groups", [selection])
-        review_result(
-            self.users["owner"], self.case.pk, result.pk, "accepted", item_index=1
+        AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="accepted",
         )
         with self.assertRaisesMessage(AnalysisError, "geocode_review_required"):
             start_run(self.users["owner"], self.case.pk, "spatial_groups", [selection])
-        accepted = review_result(
-            self.users["editor"],
-            self.case.pk,
-            result.pk,
-            "accepted",
-            "Checked candidate 2",
+        AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="accepted",
+            item_index=1,
+        )
+        with self.assertRaisesMessage(AnalysisError, "geocode_review_required"):
+            start_run(self.users["owner"], self.case.pk, "spatial_groups", [selection])
+        accepted = AnalysisReview.objects.create(
+            reviewed_by=self.users["editor"],
+            case=self.case,
+            result=result,
+            decision="accepted",
+            comment="Checked candidate 2",
             item_index=2,
         )
         self.assertEqual(accepted.item_index, 2)
@@ -676,10 +661,14 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             reverse("core:analysis:detail", args=[self.case.pk, current.pk])
         )
         self.assertContains(response, "Reported coordinates 42.000000, -78.000000")
-        self.assertContains(response, "Reviewed estimate 44.0, -79.0")
+        self.assertContains(response, "Address estimate 44.0, -79.0")
         for decision in ("rejected", "unresolved"):
-            review_result(
-                self.users["editor"], self.case.pk, result.pk, decision, item_index=2
+            AnalysisReview.objects.create(
+                reviewed_by=self.users["editor"],
+                case=self.case,
+                result=result,
+                decision=decision,
+                item_index=2,
             )
             with self.assertRaisesMessage(AnalysisError, "geocode_review_required"):
                 resolve_inputs(current, self.case)
@@ -691,11 +680,11 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
     ):
         observations, _, result = self.geocode_fixture()
         for index in (0, 2):
-            review_result(
-                self.users["owner"],
-                self.case.pk,
-                result.pk,
-                "accepted",
+            AnalysisReview.objects.create(
+                reviewed_by=self.users["owner"],
+                case=self.case,
+                result=result,
+                decision="accepted",
                 item_index=index,
             )
         choices = [
@@ -720,8 +709,12 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
                 "location_quality",
                 [choices[0], choices[0]],
             )
-        review_result(
-            self.users["owner"], self.case.pk, result.pk, "accepted", item_index=1
+        AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="accepted",
+            item_index=1,
         )
         sole_candidate = {
             "kind": "location",
@@ -745,8 +738,12 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
 
     def test_current_geocode_review_check_reuses_historical_resolution(self):
         observations, _, result = self.geocode_fixture()
-        review_result(
-            self.users["owner"], self.case.pk, result.pk, "accepted", item_index=0
+        AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="accepted",
+            item_index=0,
         )
         run, _ = start_run(
             self.users["owner"],
@@ -764,8 +761,12 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         sources = resolve_inputs(run, self.case, require_current_review=False)
         with self.assertNumQueries(1):
             require_current_geocode_reviews(run, sources)
-        review_result(
-            self.users["owner"], self.case.pk, result.pk, "rejected", item_index=0
+        AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="rejected",
+            item_index=0,
         )
         with (
             self.assertNumQueries(1),
@@ -774,8 +775,12 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             require_current_geocode_reviews(run, sources)
         # A later accepted review restores current usability without replacing
         # the recorded historical acceptance or resolved coordinates.
-        review_result(
-            self.users["owner"], self.case.pk, result.pk, "accepted", item_index=0
+        AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="accepted",
+            item_index=0,
         )
         require_current_geocode_reviews(run, sources)
         plain, _ = self.start()
@@ -786,8 +791,12 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
 
     def test_geocode_selection_rejects_wrong_source_boolean_and_unknown_candidate(self):
         observations, prior, result = self.geocode_fixture()
-        review_result(
-            self.users["owner"], self.case.pk, result.pk, "accepted", item_index=0
+        AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="accepted",
+            item_index=0,
         )
         for candidate in (False, True, -1, 1, 5, "0"):
             selection = {
@@ -816,15 +825,6 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
                     }
                 ],
             )
-        for index in (-1, 3, True):
-            with self.subTest(index=index), self.assertRaises(ValidationError):
-                review_result(
-                    self.users["owner"],
-                    self.case.pk,
-                    result.pk,
-                    "accepted",
-                    item_index=index,
-                )
 
     def test_boolean_anchor_values_are_rejected_as_malformed_measurements(self):
         source = Source(str(uuid4()), "text", self.original)
@@ -886,20 +886,22 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         with self.assertRaises(ValidationError):
             run.save()
 
-    def test_revoked_actor_cannot_resume_submission_or_review_old_results(self):
-        run, result = self.complete("editor")
+    def test_revoked_actor_cannot_resume_submission(self):
+        run, _ = self.complete("editor")
         CaseMembership.objects.filter(
             case=self.case, user=self.users["editor"]
         ).delete()
         with self.assertRaises(Http404):
             self.start("editor", submission_id=run.submission_id)
-        with self.assertRaises(Http404):
-            review_result(self.users["editor"], self.case.pk, result.pk, "accepted")
-        self.assertEqual(result.reviews.count(), 0)
 
     def test_whole_case_deletion_cascades_results_and_preserves_other_cases(self):
         run, result = self.complete()
-        review_result(self.users["owner"], self.case.pk, result.pk, "accepted")
+        AnalysisReview.objects.create(
+            reviewed_by=self.users["owner"],
+            case=self.case,
+            result=result,
+            decision="accepted",
+        )
         GatewayRequest.objects.create(
             case=self.case, run=run, model="@cf/test/model", request_bytes=2
         )

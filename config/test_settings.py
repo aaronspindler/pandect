@@ -25,3 +25,11 @@ STORAGES = {
     **STORAGES,
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
+
+# Semantic tests opt in with synthetic settings and a mocked local model.
+PANDECT_LOCAL_EMBEDDING = {}
+
+PANDECT_INSTAGRAM_PILOT_URL = ""
+PANDECT_INSTAGRAM_PILOT_KEY = ""
+
+PANDECT_INSTAGRAM_LIVE = {}

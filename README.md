@@ -7,7 +7,7 @@
 
 Pandect is an open-source, self-hostable investigation workspace. Bring files,
 messages, and location records into private cases to search evidence, collaborate,
-and review findings with links back to their sources.
+and trace findings back to their sources.
 
 ## What you can do
 
@@ -15,8 +15,6 @@ and review findings with links back to their sources.
   source details.
 - Invite collaborators with viewer or editor access to each case.
 - Organize people and vehicles, and explore recorded events in a chronology.
-- Save evidence and findings in shared selections and export printable briefs
-  with citations.
 
 Core case work needs no AI credentials or hosted subscription. Optional
 [AI analysis](docs/local-analysis.md) and [map services](docs/maps.md) need

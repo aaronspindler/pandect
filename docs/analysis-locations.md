@@ -7,7 +7,7 @@ original and geocoded/extracted versions is rejected. Quality review allows
 labelled alternatives and counts unique observations. Person/vehicle methods
 also accept plain Locations without assigning subjects.
 
-Deterministic methods use reported coordinates or selected reviewed geocodes.
+Deterministic methods use reported coordinates or selected address estimates.
 Address-only CSV rows need interpretation for spatial analysis; [automatic
 trips](#automatic-vehicle-trips) also work from addresses. Derived coordinates
 never replace reported ones; comparisons can retain both and flag disagreement.
@@ -28,7 +28,7 @@ No method verifies presence, identifies drivers or infers engine state from zero
 | Review travel discrepancies | Adjacent same-subject times/positions: equal-time distant points, rapid transitions, row-order problems and unsupported gaps. Thresholds screen interpretation/data issues, without inferring transport mode or deception. |
 | Compare same-event location claims | At least two selected observations plus an investigator-described event/place. Compares claims, associations and time/distance differences; similar timestamps alone establish no contradiction. |
 
-Coordinates retain decimal precision, not measured accuracy; reviewed geocodes
+Coordinates retain decimal precision, not measured accuracy; address estimates
 may describe broad areas. Precise arithmetic does not remove proximity/boundary
 uncertainty. Offline grouping uses coordinates alone; separate
 [geographic lookup](analysis-geographic-context.md) retains attributed, dated
@@ -47,7 +47,7 @@ references and coverage limits.
 | Proximity query radius | 100 m | 1–500,000 m |
 | Near-boundary ambiguity band | 10 m | 0–10,000 m |
 
-Forms expose only relevant assumptions. Quality review compares reported/reviewed
+Forms expose only relevant assumptions. Quality review compares reported and estimated
 coordinates against the discrepancy threshold; travel checks use it for equal-time
 positions. Same-event comparison has no time/distance tolerance.
 
@@ -93,7 +93,7 @@ ordered group sequences expose shared/new sequences, anchors and source links.
 Endpoints alone cannot establish corridors; reporting density can change sequences
 along the same actual route. No road-network path is reconstructed.
 
-## Geocoding configuration and review
+## Geocoding configuration and estimate selection
 
 Use an operator-configured Nominatim-compatible service. No public default exists;
 `nominatim.openstreetmap.org` is rejected for batch processing. Operators arrange
@@ -128,7 +128,7 @@ province, `CAN` and trailing Canadian-format postcode, forward lookup sends
 unchanged. Findings retain submitted queries; adjustments retain original address,
 country filter and explanation even on failure/no match. Each distinct original
 gets one request, without street/city-only broadening. Returned addresses can
-still disagree, including postcodes; candidates require review.
+still disagree, including postcodes. Choose an estimate before using it.
 
 This is geocoding version 2. Upgrade web/workers together and rerun prior no-matches.
 Queued version 1 fails recoverably with `processing_version_unavailable`; originals
@@ -141,16 +141,16 @@ attribution, lookup time, query and version, keeping alternatives distinct.
 a nearby indexed object that may disagree with the actual point's address.
 Neither establishes measured accuracy.
 
-Geocodes begin unresolved. Review a specific candidate before spatial use;
-whole-run acceptance selects no alternative. Rejections, explanations, unresolved
-outcomes and reruns retain history. No-match, unsupported, quota/authentication,
+For spatial use, open a candidate and choose **Use this estimate**. Choose **Stop
+using this estimate** to clear it. Saved runs retain the original estimate they
+used. No-match, unsupported, quota/authentication,
 invalid-response and unavailable-service outcomes stay distinct. Partly failed
 batches retain candidates with partial coverage. No eligible address/coordinate
 means insufficient evidence and no service request.
 
 The [Map](maps.md#local-address-lookup) prepares configured-local lookup for saved
-trip sources, linking inspection to review. Only a specifically accepted candidate
-supplies an estimated trip position; unresolved/ambiguous points leave breaks.
+trip sources and links to each estimate. Only one currently selected candidate
+can supply an estimated trip position. Missing or ambiguous points leave breaks.
 Originals stay unchanged. The map never invokes external geocoding.
 
 ## Automatic vehicle trips
@@ -182,11 +182,10 @@ with no positive speed anywhere. Gaps above one hour, conflicting equal-time
 positions and incomparable positions also split sequences. Stationary-only
 observations form no trip.
 
-Address-only CSV trips need no lookup/review. After publication, configured private
+Address-only CSV trips can be built from original addresses. After publication, configured private
 lookup separately prepares candidates. Maps connect reported positions or exactly
-one accepted local estimate, retaining attribution and unresolved breaks. Reviews
-change geometry, not original-based segmentation; see
-[map lookup/review](maps.md#local-address-lookup).
+one selected local estimate, retaining attribution and unresolved breaks. Selecting
+an estimate changes the mapped path. See [map lookup](maps.md#local-address-lookup).
 
 Trips retain first/last observed places/times and elapsed minutes. Actual departure,
 arrival, road route, travelled distance, driver and continuous presence remain

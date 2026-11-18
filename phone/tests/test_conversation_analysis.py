@@ -1,6 +1,7 @@
 """Saved conversation findings stay contextual, bounded, and source-backed."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from django.core.files.base import ContentFile
@@ -96,7 +97,9 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         result = AnalysisResult.objects.create(
             case=case, run=run, data={"items": items}
         )
-        project_result(result)
+        # Include legacy timing projections to exercise their reader opt-in.
+        with patch("core.analysis.catalogue.is_timing_only", return_value=False):
+            project_result(result)
         return result
 
     def item(self, inputs, text, *indices, label="Observation", values=None):
@@ -111,6 +114,155 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         return next(
             row.analysis for row in response.context["page_obj"] if row.pk == message.pk
         )
+
+    def timing_item(self, inputs, *, shared_words=None, **values):
+        return self.item(
+            inputs,
+            "Recorded temporal adjacency",
+            0,
+            1,
+            label="Candidate exchange sequence",
+            values={
+                "before": {"source_id": inputs[0]["id"]},
+                "after": {"source_id": inputs[1]["id"]},
+                "elapsed_seconds": 16,
+                "shared_words": shared_words or [],
+                **values,
+            },
+        )
+
+    def test_timing_only_findings_have_truthful_empty_state_and_explicit_reveal(self):
+        result = self.publish(
+            operation="conversation_link",
+            messages=[self.first, self.second],
+            items=lambda inputs: [self.timing_item(inputs)],
+        )
+        response = self.client.get(self.reader_url())
+        self.assertEqual(response.context["conversation_analysis"]["count"], 0)
+        self.assertEqual(response.context["conversation_timing_only_count"], 1)
+        self.assertTrue(response.context["has_conversation_findings"])
+        self.assertContains(response, "1 timing-only finding hidden")
+        self.assertContains(response, "Show all findings")
+        self.assertNotContains(response, "No saved findings")
+        self.assertNotContains(response, "Recorded temporal adjacency")
+
+        revealed = self.client.get(
+            self.reader_url() + response.context["finding_visibility_url"]
+        )
+        shared = revealed.context["conversation_analysis"]
+        self.assertEqual(shared["count"], 1)
+        self.assertTrue(shared["open"])
+        self.assertEqual(shared["rows"][0]["item_index"], 0)
+        self.assertIn(str(result.run_id), shared["rows"][0]["url"])
+        self.assertEqual(
+            parse_qs(urlsplit(shared["rows"][0]["url"]).query)["weak"], ["1"]
+        )
+        self.assertContains(revealed, "Hide timing-only findings")
+
+    def test_timing_filter_runs_before_counts_and_preserves_supported_candidates(self):
+        self.publish(
+            operation="conversation_link",
+            messages=[self.first, self.second],
+            items=lambda inputs: (
+                [self.timing_item(inputs) for _ in range(28)]
+                + [
+                    self.timing_item(inputs, shared_words=["harbour"]),
+                    self.timing_item(inputs, status="unresolved"),
+                    self.timing_item(inputs, after={"reply_to_id": "native-reference"}),
+                ]
+            ),
+        )
+        response = self.client.get(self.reader_url())
+        shared = response.context["conversation_analysis"]
+        self.assertEqual(shared["count"], 3)
+        self.assertEqual(len(shared["rows"]), 3)
+        self.assertEqual(response.context["conversation_timing_only_count"], 28)
+        self.assertEqual([row["item_index"] for row in shared["rows"]], [28, 29, 30])
+
+    def test_legacy_acceptance_does_not_override_timing_filter(
+        self,
+    ):
+        result = self.publish(
+            operation="conversation_link",
+            messages=[self.first, self.second],
+            items=lambda inputs: [self.timing_item(inputs)],
+        )
+        for item_index in (None, 0):
+            with self.subTest(item_index=item_index):
+                AnalysisReview.objects.create(
+                    case=self.case,
+                    result=result,
+                    reviewed_by=self.users["owner"],
+                    item_index=item_index,
+                    decision="accepted",
+                    comment="A retained review reason.",
+                )
+                response = self.client.get(self.reader_url())
+                self.assertEqual(response.context["conversation_analysis"]["count"], 0)
+                self.assertEqual(response.context["conversation_timing_only_count"], 1)
+
+    def test_reveal_links_preserve_source_and_message_context_and_reset_finding_pages(
+        self,
+    ):
+        export = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic timing export",
+            file=ContentFile(b"Synthetic rows", name="timing.csv"),
+        )
+        messages = [self.first, self.second] + [self.message() for _ in range(49)]
+        for number, message in enumerate(messages, 1):
+            CommunicationContext.objects.create(
+                case=self.case,
+                message=message,
+                source_document=export,
+                source_sha256=export.sha256,
+                source_row=number,
+                source_start=number - 1,
+                source_end=number,
+                parser_version="synthetic-v1",
+                timezone="America/Toronto",
+                raw_sender="Synthetic source account",
+            )
+        self.publish(
+            operation="conversation_link",
+            messages=[self.first, self.second],
+            items=lambda inputs: [self.timing_item(inputs) for _ in range(26)],
+        )
+        params = {
+            "source": str(export.pk),
+            "message": str(self.first.pk),
+            "list_page": "2",
+            "weak": "1",
+            "analysis_page": "2",
+            "conversation_analysis_page": "2",
+        }
+        response = self.client.get(self.reader_url(), params)
+        shared = response.context["conversation_analysis"]
+        self.assertEqual(shared["count"], 26)
+        self.assertEqual(len(shared["rows"]), 1)
+        for url in (
+            shared["previous_url"],
+            shared["rows"][0]["message_sources"][0]["url"],
+        ):
+            query = parse_qs(urlsplit(url).query)
+            for key in ("source", "list_page", "weak"):
+                self.assertEqual(query[key], [params[key]])
+        self.assertEqual(parse_qs(response.context["page_query"])["weak"], ["1"])
+        toggle = parse_qs(urlsplit(response.context["finding_visibility_url"]).query)
+        self.assertNotIn("weak", toggle)
+        self.assertNotIn("analysis_page", toggle)
+        self.assertEqual(toggle["conversation_analysis_page"], ["1"])
+        self.assertEqual(toggle["message"], [str(self.first.pk)])
+        self.assertEqual(toggle["source"], [str(export.pk)])
+
+        first, second = sorted((self.person.pk, self.correspondent.pk))
+        reversed_url = reverse(
+            "phone:conversation_detail", args=(self.case.pk, second, first)
+        )
+        canonical = self.client.get(reversed_url, params)
+        self.assertEqual(canonical.status_code, 302)
+        self.assertEqual(parse_qs(urlsplit(canonical.url).query)["weak"], ["1"])
 
     def test_individual_citations_determine_relevance_and_inline_or_shared_placement(
         self,
@@ -158,7 +310,13 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.publish(
             operation="text_topics",
             items=lambda inputs: [
-                self.item(inputs, "An observed keyword", 0, label="Keyword"),
+                self.item(
+                    inputs,
+                    "Frequent observed word; a candidate content label.",
+                    0,
+                    label="harbour",
+                    values={"occurrences": 2},
+                ),
                 self.item(
                     inputs,
                     "A suggested topic",
@@ -171,6 +329,14 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.publish(
             operation="sessions",
             items=lambda inputs: [self.item(inputs, "An inferred session", 0)],
+        )
+        self.publish(
+            operation="content_events",
+            items=lambda inputs: [
+                self.item(
+                    inputs, "Delivery was confirmed.", 0, values={"status": "reported"}
+                )
+            ],
         )
         self.publish(
             operation="session_summaries",
@@ -198,18 +364,18 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         response = self.client.get(self.reader_url())
         inline = self.analysis(response, self.first)
-        self.assertEqual(inline["count"], 2)
+        self.assertEqual(inline["count"], 1)
         self.assertEqual(
             {row["text"]: row["ai_suggestion"] for row in inline["rows"]},
-            {"An observed keyword": False, "A suggested topic": True},
+            {"Delivery was confirmed.": True},
         )
         shared = response.context["conversation_analysis"]
-        self.assertEqual(shared["count"], 3)
-        summary = next(
-            row for row in shared["rows"] if row["text"].startswith("Summary")
-        )
-        self.assertTrue(summary["ai_suggestion"])
+        self.assertEqual(shared["count"], 1)
+        self.assertEqual(shared["rows"][0]["text"], "An inferred session")
+        self.assertNotContains(response, "A suggested topic")
+        self.assertNotContains(response, "Summary of a larger selected exchange")
         self.assertNotContains(response, "An unnecessary original echo")
+        self.assertNotContains(response, "A timing comparison")
 
     def test_preview_and_complete_inline_pages_are_independent_of_shared_pages(self):
         self.publish(
@@ -229,8 +395,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         inline = self.analysis(normal, self.first)
         self.assertEqual(inline["count"], 36)
         self.assertEqual(len(inline["rows"]), 3)
-        self.assertFalse(inline["open"])
-        self.assertTrue(inline["preview"])
+        self.assertIsNone(inline["page_obj"])
         more = urlsplit(inline["more_url"])
         self.assertEqual(parse_qs(more.query)["message"], [str(self.first.pk)])
         self.assertEqual(parse_qs(more.query)["list_page"], ["2"])
@@ -245,7 +410,6 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         inline = self.analysis(response, self.first)
         shared = response.context["conversation_analysis"]
-        self.assertTrue(inline["open"])
         self.assertEqual(inline["page_obj"].number, 2)
         self.assertEqual(len(inline["rows"]), 11)
         self.assertTrue(shared["open"])
@@ -259,6 +423,99 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(shared_previous["list_page"], ["2"])
         self.assertNotIn("analysis_page", response.context["page_query"])
         self.assertNotIn("message", response.context["page_query"])
+
+    def test_preview_expansion_and_evidence_catalogue_agree_on_distinct_leads(self):
+        key = "BOOK-7418"
+        message = self.message(body=f"Confirm {key} before the pickup.")
+        receipt = self.message(body=f"The receipt references {key}.")
+        self.publish(
+            messages=[message, receipt],
+            items=lambda inputs: (
+                [self.item(inputs, "Routine observation", 0) for _ in range(26)]
+                + [
+                    self.item(inputs, "An additional observation", 0),
+                    self.item(
+                        inputs,
+                        key,
+                        0,
+                        label="Identifier candidate",
+                        values={"raw": key},
+                    ),
+                    self.item(
+                        inputs,
+                        key,
+                        1,
+                        label="Identifier candidate",
+                        values={"raw": key},
+                    ),
+                ]
+            ),
+        )
+        preview = self.analysis(self.client.get(self.reader_url()), message)
+        expanded = self.analysis(
+            self.client.get(
+                self.reader_url(), {"message": message.pk, "analysis_page": 1}
+            ),
+            message,
+        )
+        catalogue_url = reverse("core:analysis:browse", args=(self.case.pk,))
+        filtered = {"kind": "text-message", "evidence": message.pk}
+        first = self.client.get(catalogue_url, filtered)
+        second = self.client.get(catalogue_url, filtered | {"page": 2})
+        top = preview["rows"]
+        self.assertEqual([row["item_index"] for row in top], [27, 0, 26])
+        self.assertTrue(top[0]["review_reason"])
+        self.assertContains(first, top[0]["review_reason"])
+        for rows in (expanded["rows"], first.context["rows"]):
+            self.assertEqual(
+                [(row["id"], row["review_reason"]) for row in top],
+                [(row["id"], row["review_reason"]) for row in rows[:3]],
+            )
+        all_rows = first.context["rows"] + second.context["rows"]
+        self.assertCountEqual([row["item_index"] for row in all_rows], range(28))
+        self.assertTrue(all(not row["review_reason"] for row in all_rows[3:]))
+
+    @patch("core.analysis.ranking.MAX_MATCH_KEYS", 1)
+    def test_offscreen_keys_cannot_consume_a_messages_review_budget(self):
+        from phone.conversation_analysis import conversation_analysis_context
+        from phone.conversations import pair_messages
+
+        message = self.message(body="Pickup ticket BOOK-7418")
+        receipt = self.message(body="Receipt BOOK-7418")
+        earlier = self.message(body="Contact help@example.test")
+        email_copy = self.message(body="Footer help@example.test")
+        self.publish(
+            messages=[message, receipt, earlier, email_copy],
+            items=lambda inputs: [
+                self.item(inputs, "Ordinary observation", 0),
+                self.item(inputs, "BOOK-7418", 0, label="Identifier candidate"),
+                self.item(inputs, "BOOK-7418", 1, label="Identifier candidate"),
+                self.item(inputs, "help@example.test", 2, label="Email"),
+                self.item(inputs, "help@example.test", 3, label="Email"),
+            ],
+        )
+        scoped = pair_messages(self.case, self.person, self.correspondent)
+        conversation_analysis_context(self.case, scoped, [message])
+        top = message.analysis["rows"][0]
+        self.assertEqual(top["text"], "BOOK-7418")
+        self.assertTrue(top["review_reason"])
+        self.assertFalse(message.analysis["load_on_open"])
+
+        # Two competing keys on a full page defer unopened panels to their real
+        # links, so clicking either message gives it the same independent budget.
+        combined = self.client.get(self.reader_url())
+        self.assertTrue(self.analysis(combined, message)["load_on_open"])
+        self.assertContains(combined, "data-load-panel-on-open")
+        for extra in ({}, {"analysis_page": 1}):
+            opened = self.client.get(self.reader_url(), {"message": message.pk} | extra)
+            analysis = self.analysis(opened, message)
+            self.assertFalse(analysis["load_on_open"])
+            promoted = analysis["rows"][0]
+            self.assertEqual(
+                (promoted["id"], promoted["review_reason"]),
+                (top["id"], top["review_reason"]),
+            )
+            self.assertContains(opened, promoted["review_reason"])
 
     def test_export_filter_restricts_citations_without_rewriting_shared_findings(self):
         export = DocumentEvidence.objects.create(
@@ -361,7 +618,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.analysis(unfiltered, self.first)["count"], 1)
         self.assertContains(unfiltered, "A saved observation")
 
-    def test_latest_successful_results_keep_reviews_and_empty_success_supersedes(self):
+    def test_latest_successful_results_keep_coverage_and_empty_success_supersedes(self):
         old = self.publish()
         self.publish(status="failed")
         initial = self.client.get(self.reader_url())
@@ -389,10 +646,9 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(self.reader_url())
         row = self.analysis(response, self.first)["rows"][0]
         self.assertEqual(row["text"], "Newest saved observation")
-        self.assertEqual(row["review"], "rejected")
-        self.assertEqual(row["result_review"], "unresolved")
         self.assertTrue(row["partial"])
-        self.assertContains(response, "Rejected")
+        self.assertContains(response, "Partial coverage")
+        self.assertNotContains(response, "Retained investigator review reason")
         self.publish(items=[], status="empty")
         empty = self.client.get(self.reader_url())
         self.assertEqual(self.analysis(empty, self.first)["count"], 0)
@@ -499,7 +755,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(self.reader_url())
         inline = self.analysis(response, self.first)
         row = inline["rows"][0]
-        self.assertLessEqual(len(inline["preview"]), 300)
+        self.assertLessEqual(len(row["preview"]), 300)
         self.assertEqual(row["text"], long_text.strip()[:1000])
         self.assertTrue(row["text_truncated"])
         self.assertIn(str(result.run_id), row["url"])

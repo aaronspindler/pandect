@@ -325,6 +325,14 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             self.assertGreaterEqual(icon.bounding_box()["width"], 24)
                     self.capture(page, engine, f"shared-{name}-200-percent-text")
                     page.emulate_media(color_scheme="light")
+                    if name == "case-tools":
+                        page.evaluate("document.documentElement.style.fontSize = ''")
+                        page.set_viewport_size({"width": 2560, "height": 900})
+                        control.blur()
+                        directory = page.get_by_role("navigation", name="Explore case")
+                        box = directory.bounding_box()
+                        self.assertGreaterEqual(box["x"] + box["width"], 2560 - 40)
+                        self.capture(page, engine, "case-tools-2560x900")
 
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.goto(self.evidence_url())
@@ -2973,6 +2981,20 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.emulate_media(color_scheme="light", reduced_motion="no-preference")
 
                 edit = page.get_by_role("link", name="Edit details", exact=True)
+                list_pane = page.get_by_role("region", name="Evidence collection")
+                back = page.get_by_role("link", name="Back to evidence")
+                page.set_viewport_size({"width": 1180, "height": 800})
+                expect(list_pane).to_be_visible()
+                expect(back).to_be_hidden()
+                self.capture(page, engine, "evidence-split-1180x800")
+                page.set_viewport_size({"width": 1180, "height": 500})
+                expect(list_pane).to_be_hidden()
+                expect(back).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Skip to evidence list")
+                ).to_be_hidden()
+                self.capture(page, engine, "evidence-detail-1180x500")
+
                 edit.focus()
                 expect(edit).to_be_focused()
                 for width, height in (
@@ -3010,6 +3032,17 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         self.capture(page, engine, "list-390x844")
                     page.locator(".evidence-row").first.click()
                     expect(page.locator(".original-text")).to_be_visible()
+
+                page.set_viewport_size({"width": 2560, "height": 900})
+                page.goto(self.url("core:evidence:list", case_id=self.case.pk))
+                expect(
+                    page.get_by_role("region", name="Selected evidence")
+                ).to_have_count(0)
+                box = page.get_by_role(
+                    "region", name="Evidence collection"
+                ).bounding_box()
+                self.assertGreaterEqual(box["x"] + box["width"], 2560 - 40)
+                self.capture(page, engine, "evidence-list-2560x900")
 
                 # Emulate 200% text sizing independently of device pixel density.
                 # Unitless row line heights must grow with the enlarged text.
@@ -3203,10 +3236,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.locator(".evidence-more > .evidence-more-panel")
                 ).to_be_hidden()
-                for label in ("Edit details", "Save to selection"):
-                    expect(
-                        page.get_by_role("link", name=label, exact=True)
-                    ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Edit details", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Save to selection", exact=True)
+                ).to_have_count(0)
                 analysis = page.locator(".evidence-analyze")
                 analysis.locator("summary").press("Enter")
                 expect(

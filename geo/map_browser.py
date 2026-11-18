@@ -21,8 +21,7 @@ from PIL import Image, ImageDraw
 from playwright.sync_api import expect, sync_playwright
 
 from cases.models import Case
-from core.analysis.services import process_run, start_run
-from core.models import AnalysisReview
+from core.analysis.services import process_run, set_address_estimate, start_run
 from geo.analysis.external.geocoding import Geocoder
 from geo.models import LocationEvidence, VehicleLocationEvidence
 from geo.testing import LOCAL_GEOCODER
@@ -515,7 +514,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 browser.close()
 
     @override_settings(**LOCAL_GEOCODER)
-    def test_address_trip_becomes_mappable_through_existing_finding_review(self):
+    def test_address_trip_maps_selected_estimate(self):
         vehicle = Vehicle.objects.create(case=self.case, make="Synthetic address van")
         records = [
             VehicleLocationEvidence.objects.create(
@@ -566,12 +565,8 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
         with sync_playwright() as playwright:
             for engine in self.engines():
                 self.in_database(
-                    lambda: AnalysisReview.objects.create(
-                        case=self.case,
-                        result=run.result,
-                        reviewed_by=self.owner,
-                        item_index=0,
-                        decision="unresolved",
+                    lambda: set_address_estimate(
+                        self.owner, self.case.pk, run.pk, 0, use=False
                     )
                 )
                 browser = getattr(playwright, engine).launch()
@@ -581,28 +576,26 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 page = context.new_page()
                 page.goto(trip_url)
                 expect(page.locator("[data-trip-status]")).to_contain_text(
-                    "Review address estimates"
+                    "Choose address estimates"
                 )
                 expect(page.locator(".case-map-endpoint")).to_have_count(0)
                 page.get_by_role(
-                    "link", name="Review address lookup", exact=True
+                    "link", name="Open address lookup", exact=True
                 ).first.click()
-                page.get_by_text("Review this finding", exact=True).click()
-                page.get_by_label("Decision", exact=True).select_option("accepted")
-                page.get_by_label("Reason", exact=True).fill(
-                    "Checked against the synthetic source."
-                )
-                page.get_by_role(
-                    "button", name="Record finding review", exact=True
-                ).click()
+                page.get_by_role("button", name="Use this estimate", exact=True).click()
+                expect(
+                    page.get_by_role(
+                        "button", name="Stop using this estimate", exact=True
+                    )
+                ).to_be_visible()
                 page.goto(trip_url)
                 expect(page.locator("[data-trip-status]")).to_contain_text("1 of 2")
                 expect(page.locator(".case-map-endpoint")).to_have_count(1)
                 expect(
                     page.locator(".map-location-list").get_by_text(
-                        "Reviewed address estimate", exact=False
+                        "Selected address estimate", exact=False
                     )
                 ).to_be_visible()
-                self.capture(page, engine, "trip-reviewed-estimate")
+                self.capture(page, engine, "trip-selected-estimate")
                 context.close()
                 browser.close()

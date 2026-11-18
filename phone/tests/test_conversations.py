@@ -1,7 +1,7 @@
 """Conversation reading, exact evidence links, and current case boundaries."""
 
-import re
 from datetime import UTC, datetime, timedelta
+from html import escape
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
@@ -139,15 +139,22 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             [row.pk for row in response.context["page_obj"]], [first.pk, second.pk]
         )
+        self.assertTrue(response.context["show_message_source"])
         self.assertContains(response, "Archived")
         self.assertContains(response, "First export")
         self.assertContains(response, "Overlapping export")
         self.assertNotContains(response, own.title)
         self.assertIsNone(response.context["selected_message"])
 
-    def test_message_details_are_preloaded_and_open_only_for_explicit_deep_link(self):
+    def test_message_inspector_preloads_details_and_deep_links_to_one_message(self):
         export = self.document()
-        first = self.message(title="First retained message")
+        first = self.message(
+            title="First retained message",
+            occurred_at=datetime(2026, 11, 10, 12, tzinfo=UTC),
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
         second = self.message(title="Second retained message")
         self.context(
             first,
@@ -161,24 +168,66 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(self.reader_url())
         self.assertIsNone(response.context["selected_message"])
         for message in (first, second):
-            tag = self.details_tag(response, message)
-            self.assertNotRegex(tag, r"\bopen(?:\s|=|>)")
+            self.assertContains(response, f"message={message.pk}")
             self.assertContains(
                 response, self.url("detail", message, kind="text-message")
             )
-        self.assertContains(response, "source-message-1")
-        self.assertContains(response, "source-message-2")
-        self.assertContains(response, "shared-thread")
-        self.assertNotContains(response, 'id="native-thread"')
-        self.assertNotContains(response, 'id="native-replies"')
-        self.assertNotContains(response, "Unresolved: no matching native ID")
-        self.assertContains(response, "Read", count=2)
-        linked = self.client.get(self.reader_url(), {"message": second.pk})
-        self.assertRegex(self.details_tag(linked, second), r"\bopen(?:\s|=|>)")
-        self.assertNotRegex(self.details_tag(linked, first), r"\bopen(?:\s|=|>)")
-        evidence = self.client.get(self.url("detail", first, kind="text-message"))
+        linked = self.client.get(
+            self.reader_url(),
+            {"message": first.pk, "source": export.pk, "list_page": 2},
+        )
+        self.assertEqual(linked.context["selected_message"].pk, first.pk)
+        self.assertContains(linked, "data-selected-message", count=1)
+        self.assertContains(linked, "data-message-panel", count=1)
+        self.assertNotContains(response, "data-selected-message")
+        for text in (
+            first.body,
+            "Reported sender",
+            "Reported recipient",
+            "Sent at",
+            "Archived",
+            "Open evidence",
+            "Message source",
+            "View source metadata",
+            export.title,
+            "Row 1",
+        ):
+            self.assertContains(linked, text)
+        for native_detail in (
+            "source-message-1",
+            "source-message-2",
+            "shared-thread",
+            'id="native-thread"',
+            'id="native-replies"',
+            "<dd>Read</dd>",
+            "Not supplied",
+        ):
+            self.assertNotContains(response, native_detail)
+            self.assertNotContains(linked, native_detail)
+        self.assertNotContains(linked, "<dd>Active</dd>", html=True)
+        source_url = linked.context["selected_message"].source_info_url
+        self.assertContains(linked, f'href="{escape(source_url)}"')
+        parsed_source = urlsplit(source_url)
+        self.assertEqual(
+            parsed_source.path, self.url("detail", first, kind="text-message")
+        )
+        self.assertEqual(parsed_source.fragment, "evidence-details-heading")
+        self.assertEqual(
+            parse_qs(parsed_source.query),
+            {
+                "conversation_source": [str(export.pk)],
+                "conversation_list_page": ["2"],
+                "info": ["1"],
+            },
+        )
+        evidence = self.client.get(source_url)
+        self.assertTrue(evidence.context["info_open"])
         self.assertContains(evidence, 'id="native-thread"')
         self.assertContains(evidence, 'id="native-replies"')
+        self.assertContains(evidence, "source-message-1")
+        self.assertContains(evidence, "source-message-2")
+        self.assertContains(evidence, "shared-thread")
+        self.assertContains(evidence, "<dd>Read</dd>", html=True)
         self.assertEqual(
             [
                 context.message_id
@@ -193,14 +242,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
             },
             {first.pk, second.pk},
         )
-
-    def details_tag(self, response, message):
-        match = re.search(
-            rf'<details\b[^>]*\bid="message-details-{message.pk}"[^>]*>',
-            response.content.decode(),
-        )
-        self.assertIsNotNone(match, "Each message needs native inline details")
-        return match.group()
 
     def test_time_order_ties_unknowns_and_deep_links_beyond_first_page(self):
         instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
@@ -311,13 +352,18 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.message(title="Entered individually")
         self.login("viewer")
         response = self.client.get(self.reader_url(), {"source": export.pk})
+        self.assertFalse(response.context["show_message_source"])
         self.assertEqual(
             [row.pk for row in response.context["page_obj"]], [selected.pk]
         )
         self.assertEqual(response.context["selected_source"].pk, export.pk)
-        self.assertContains(response, "unresolved-reference")
-        self.assertContains(response, "Read")
         self.assertContains(response, f"/document/{export.pk}/")
+        self.assertNotContains(response, "unresolved-reference")
+        evidence = self.client.get(
+            self.url("detail", selected, kind="text-message"), {"info": "1"}
+        )
+        self.assertContains(evidence, "unresolved-reference")
+        self.assertContains(evidence, "Unresolved: no matching native ID")
         self.assertEqual(
             self.client.get(
                 self.reader_url(), {"source": export.pk, "message": other.pk}
@@ -477,7 +523,8 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         export = self.document()
         self.context(first, export)
         with CaptureQueriesContext(connection) as one:
-            self.client.get(self.reader_url())
+            response = self.client.get(self.reader_url())
+        self.assertFalse(response.context["show_message_source"])
         for number in range(1, 54):
             self.context(self.message(), export, row=number + 1)
         with CaptureQueriesContext(connection) as many:

@@ -14,12 +14,20 @@ from django.db import connection, transaction
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
 from cases.models import Case, CaseMembership
+from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
+from core.analysis.estimate_dependencies import verified_estimate_uses
 from core.analysis.operations import get_operation
-from core.analysis.services import process_run, resolve_inputs, review_result, start_run
+from core.analysis.services import (
+    process_run,
+    resolve_inputs,
+    set_address_estimate,
+    start_run,
+)
 from core.analysis.sources import output
 from core.analysis.testing import local_ocr_response
 from core.analysis.testing import preview_image_bytes as image_bytes
@@ -470,15 +478,32 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
                 ],
             ),
         )
-        review = review_result(
-            self.users["editor"],
-            self.case.pk,
-            result.pk,
-            "accepted",
-            "Synthetic reference checked",
-            item_index=0,
-        )
+        set_address_estimate(self.users["editor"], self.case.pk, run.pk, 0, use=True)
+        review = result.reviews.get()
         return location, run, result, review
+
+    def test_estimate_priority_requires_a_readable_published_use(self):
+        location, _, result, _ = self.geocode_fixture()
+        project_result(result)
+        candidates = result.findings.filter(case=self.case)
+        candidate = candidates.get()
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "spatial_groups",
+            [{"kind": "location", "id": str(location.pk), "result_id": str(result.pk)}],
+        )
+        self.assertEqual(verified_estimate_uses(candidates, self.case), {})
+        process_run(str(run.pk))
+        self.assertEqual(
+            verified_estimate_uses(candidates, self.case), {candidate.pk: run.pk}
+        )
+        LocationEvidence.objects.filter(pk=location.pk).update(
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
+        self.assertEqual(verified_estimate_uses(candidates, self.case), {})
 
     def test_geocode_source_resolution_ignores_reviews_from_other_cases(self):
         location, _, result, review = self.geocode_fixture()
@@ -541,14 +566,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         finished.refresh_from_db()
         self.assertEqual(finished.status, "complete")
         self.assertEqual(finished.result.provenance["source_inputs"], original_inputs)
-        review_result(
-            self.users["owner"],
-            self.case.pk,
-            result.pk,
-            "rejected",
-            "Later competing interpretation",
-            item_index=0,
-        )
+        set_address_estimate(self.users["owner"], self.case.pk, prior.pk, 0, use=False)
         with self.assertRaisesMessage(AnalysisError, "geocode_review_required"):
             resolve_inputs(finished, self.case)
         historical = resolve_inputs(finished, self.case, require_current_review=False)
@@ -561,7 +579,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.login("viewer")
         response = self.client.get(self.analysis_url("detail", finished))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "different current review")
+        self.assertContains(response, "is no longer selected")
         self.assertContains(response, "Spatial group 1")
         downloaded = self.client.get(self.analysis_url("download", finished))
         self.assertEqual(downloaded.status_code, 200)

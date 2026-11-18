@@ -1,6 +1,7 @@
 """Choose a reading view for each operation at the application boundary."""
 
 from audio.analysis import presentation as audio
+from core.analysis.presentation import prioritize_measurements
 from document.analysis import presentation as document
 from geo.analysis import presentation as geo
 from image.analysis import presentation as image
@@ -45,6 +46,34 @@ RESULT_VIEWS = {
 }
 
 
-def result_view(operation, items, formatter):
+def _requested_value_page(rows, query):
+    for row in rows:
+        if row.get("pagination", {}).get("anchor") in query:
+            return True
+        if _requested_value_page(
+            row.get("children", []), query
+        ) or _requested_value_page(row.get("examples", []), query):
+            return True
+    return False
+
+
+def result_view(operation, items, formatter, *, query=None):
     presenter, template = RESULT_VIEWS[operation]
-    return presenter(operation, items, formatter), template
+    groups = presenter(operation, items, formatter)
+    for item in items:
+        item["display_sources"] = item.get("remaining_sources", item["sources"])
+        prioritize_measurements(item, "Status", "Coverage", "Reason", "Interpretation")
+        item["collapse_measurements"] = bool(
+            item.get("text")
+            or item.get("weak_ocr_text")
+            or item.get("primary_measurements")
+            or item.get("messages")
+            or item.get("candidate_body")
+        )
+        item["details_open"] = _requested_value_page(
+            item["measurements"], query or {}
+        ) or any(
+            _requested_value_page(message["references"], query or {})
+            for message in item.get("message_details", [])
+        )
+    return groups, template

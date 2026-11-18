@@ -26,7 +26,11 @@ MODEL_PARAMETERS = {
 
 def import_analysis_executions():
     """Snapshot reviewable message-analysis routes without credentials."""
-    backend = "gateway" if gateway_configured("text", "content_events") else "local"
+    backend = (
+        "gateway"
+        if all(gateway_configured("text", operation) for operation in MODEL_PARAMETERS)
+        else "local"
+    )
     return {
         f"{operation}:{backend}": snapshot_execution(
             operation, parameters | {"backend": backend}

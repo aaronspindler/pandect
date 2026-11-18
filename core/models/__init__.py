@@ -10,9 +10,13 @@ from .analysis import (
     GatewayRequest,
 )
 from .evidence import Evidence, FileEvidence
+from .search import CaseSearchIndex, SearchDocument, SearchPassage
 from .selection import SavedSelection
 
 __all__ = [
+    "CaseSearchIndex",
+    "SearchDocument",
+    "SearchPassage",
     "SavedSelection",
     "Evidence",
     "FileEvidence",

@@ -58,7 +58,7 @@ superseded output is not current. Cases lacking trips offer owner/editor-only
 **Prepare trips**; JavaScript submits this idempotent POST automatically. Viewers
 cannot start work and GET never enqueues. Processing shows progress/recovery.
 
-Lines connect reported positions or specifically reviewed address estimates in
+Lines connect reported positions or selected address estimates in
 time order, interrupted by missing/ambiguous positions. They show no raw observation
 markers or reconstructed roads. Concise route and tile-provider privacy details
 stay visible beside the map; **Map details** retains interpretation, lookup,
@@ -71,7 +71,7 @@ inspectable without clamping originals.
 Geometry arrives in cursor pages of at most 500 sources, progressively drawn on
 one canvas. Completed coordinate buffers are discarded; pan/zoom replays the trip.
 Status distinguishes partial/completed drawing. Requests recheck case access and
-published generation; changed address reviews stop obsolete replay. Server-rendered
+published generation; changed address selections stop obsolete replay. Server-rendered
 trip/source lists work without JavaScript or tiles.
 
 ## Local address lookup
@@ -85,17 +85,15 @@ require deliberate retry from their Processing pages.
 
 Set `PANDECT_GEOCODER_LOCAL=true`, private `PANDECT_GEOCODER_URL`, source name,
 dataset version, attribution, and User-Agent on **both web and worker**. See
-[configuration](analysis-locations.md#geocoding-configuration-and-review). There is
+[configuration](analysis-locations.md#geocoding-configuration-and-estimate-selection). There is
 no public default/cloud fallback; browsers never contact the geocoder. Workers
 send selected original addresses only, excluding files, titles, case IDs, and
 vehicle identifiers. Endpoint/version checks, authorization, bounds, and provenance apply.
 
-Follow **Review lookup** from observations. Only a specifically accepted candidate
-from the latest matching local lookup supplies an estimated position. Whole-run
-approval selects no candidate; multiple accepted alternatives stay unmapped.
-Reported coordinates take precedence. Changed acceptance/rejection refreshes
-geometry without changing original address/coordinate segmentation or originals/
-checksums. There is no global address cache.
+Follow **Open address lookup** from observations. Open a candidate and choose
+**Use this estimate**. The map uses exactly one selected candidate from the latest
+matching local lookup. Reported coordinates take precedence. Selecting or clearing
+an estimate refreshes geometry and preserves original observations and segmentation. There is no global address cache.
 
 ## External tiles and privacy
 
@@ -144,7 +142,7 @@ uv run --locked --env-file .env python manage.py test --settings=config.test_set
 ```
 
 Chromium/WebKit use synthetic trips/POIs and mocked tiles to check progressive
-drawing, complete sources, lookup review, keyboard/POI controls, no-JavaScript,
+drawing, complete sources, estimate selection, keyboard/POI controls, no-JavaScript,
 tile failure, desktop/mobile, and 320px reflow. Captures use ignored
 `data/validation/maps`. Unit tests cover histories beyond 100/500 observations,
 chunk boundaries, roles/revocation, case/source integrity, retries, stale generations,

@@ -5,11 +5,21 @@ This guide owns screen behavior; [DESIGN.md](../DESIGN.md) owns shared design an
 accessibility rules; [validation](validation.md) owns checks and procedures.
 Generated mockups are references, not rendered evidence.
 
+Public pages, sign-in, and the investigator workspace share the graphite and teal
+palette, system sans serif typography, heading weights, and control radius from
+`ui/static/ui/primitives.css`. Compact eyebrow labels and technical values use
+the shared system monospace stack. `ui/static/ui/app.css` owns workspace controls
+and navigation; domain styles reuse the semantic tokens. Public layouts retain
+larger introductory headings, while investigator screens retain compact reading
+and collection layouts. Light, dark, and forced-color modes share the same
+foundation across these surfaces.
+
 ## Navigation and screens
 
 Cases open to **Case Tools**: recent evidence/findings and links to the Findings
 catalogue, Map, Chronology, Conversations, Connections, People, Vehicles,
-Selections, and reports. Native **Case details** discloses supporting information.
+Additional analysis, and reports. Native **Case details** discloses supporting
+information.
 Owners reach **Case settings** directly from the page header. Investigators need
 no staff access. Graphs, inferred
 event timelines, ownership transfer, and self-service account deletion remain
@@ -21,12 +31,29 @@ and **Processing**. The rail becomes a compact top bar on narrow screens. Mark
 the current destination and link the case name on supporting pages. Case Tools
 is a full page. Disclosures work without JavaScript.
 
+**Search this case** sits beside the case name on each case screen and wraps
+below it on narrow screens. Evidence keeps its case switch in this shared
+header. Collection searches still filter their own lists. The case search is a
+GET form. With JavaScript, Ctrl/Cmd+K focuses it and two or more characters
+offer up to six quick matches. Use arrows and Enter to open a record, Escape
+to dismiss the suggestions, or submit the typed query for full results. Quick
+matches look up active records case-wide. The results page applies the submitted
+filters.
+
+Case search results link to the matching source, highlight literal terms, and
+label dates and source information. **Filters and sorting** provides a
+record type, local date range, evidence state and keyword ordering; the URL
+retains the query, filters and page. **Related by meaning** shows up to six
+additional source passages on the first page. An incomplete or unavailable
+index is identified beside the keyword count, with a link to Processing.
+**Search tips** describes phrases, alternatives and exclusions.
+
 Cases, People, Vehicles, and Evidence use shared whole-row links with readable
 titles and secondary metadata. Detail pages and forms share the reader's heading,
 action, divider, and spacing styles. Info, More, and Filters retain their visible
-labels on mobile. Edit details, Save to selection, and Analyze evidence are directly
-available to owners/editors in the reader. Analysis choices use a named disclosure;
-More keeps secondary actions.
+labels on mobile. Edit details and Analyze evidence are directly available to
+owners/editors in the reader. Analysis choices use a named disclosure; More keeps
+secondary actions.
 
 People and Vehicles retain list searches and pages through creation, editing,
 deletion, and cancellation. Shared forms name choice groups with native legends;
@@ -39,8 +66,8 @@ error links focus the affected control or group.
 | Evidence | Active records, search and disclosed filters; **Add evidence** for owners/editors. |
 | Processing | Active checks and imports, paginated history, recovery links, and owner/editor **Rerun all analysis**. |
 | Evidence reader | Original and Findings together; downloads, Info, and authorized More actions beside the title. |
-| Conversations | Reported participant pairs and message counts; chat reader, retained-export filter, inline message details, and links to individual evidence. |
-| Findings catalogue | Searchable retained source-linked results, with filters and separate review states. |
+| Conversations | Reported participant pairs and message counts, transcript with inferred-session boundaries, retained-export filter, message details panel and links to individual evidence. |
+| Findings catalogue | Searchable retained source-linked results, with filters for evidence and method. |
 | People / Vehicles | Searchable case records; owner/editor creation and editing, viewer inspection. |
 | Case settings | Owner-only name/access management and a separate delete section. |
 | Case details | Owner, timestamps, role, and saved read-only description for all case members. |
@@ -71,9 +98,15 @@ and density. At default zoom, target at most `164px` for heading/Add/search/Filt
 and `44px` for pagination. Use about `65ch` for original text; group supporting
 metadata in Info.
 
-Use 25 records per page and one whole-row link. Let long titles/larger text
-expand rows; never crop the accessible name. Mobile opens the canonical detail
-with Back to evidence. Use document scrolling at short heights or high zoom.
+Use 25 records per page and one whole-row link. Let long titles and larger text
+expand rows to keep the full name readable. When no record is selected, the
+collection fills the workspace. Selecting a record on a wide, tall window keeps
+the collection beside the reader. Narrow or short windows open the canonical
+detail with Back to evidence and document scrolling.
+
+Case Tools, Processing, and analysis pages use the available workspace width.
+Case Tools reflows its groups as space permits, with reading passages and forms
+following the shared measures.
 
 ## Cases and investigative records
 
@@ -116,7 +149,7 @@ One reader header holds title, concise type/source/collection metadata, archive
 state, and authorized download. Originals and source-linked Findings appear
 together without tabs or jump navigation. Findings show coverage/status and
 **Run checks** when empty; populated findings use More for reruns. Keep detailed
-reviews on individual results instead of repeating “Awaiting review” on highlights.
+limitations and source links on individual results.
 
 Header disclosures:
 
@@ -125,7 +158,7 @@ Header disclosures:
   attachment attribution, and processing history. History uses `results_page`
   independently of the collection's `page`; pagination keeps Info open.
 - **Analyze evidence** lists the analysis available for the selected original.
-  **Edit details** and **Save to selection** are visible beside it.
+  **Edit details** is visible beside it.
 - **More** holds archive/restore, reruns, supported imports, and superuser deletion.
   Viewers can still open Info and download originals.
 
@@ -160,40 +193,51 @@ See [evidence](evidence.md) for the deletion and private-storage contract.
 and latest recorded times, loading 25 more pairs when scrolling to the end.
 Opening a pair shows a compact chat reader loading 50 messages at a time, oldest
 recorded time first and unknown times last. Put sender and time on one wrapping
-line, with reduced bubble padding and spacing. Keep sender names explicit and
+line above the complete, selectable original. Keep sender names explicit and
 participant alignment consistent; do not label either participant as the signed-in
 user. Date separators and timestamps use the display timezone. Preserve message
 whitespace and escape source content.
 
 **All sources** includes imported and individually entered messages. A labelled
 retained-export selector narrows the pair and resets pagination/selection. Keep
-source attribution beside each message, preserve overlapping-export records, and
+short source references in mixed-source transcripts, preserve overlapping-export records, and
 mark archived records. Explain the reported-participant grouping once rather
 than suggesting a verified native thread or complete history.
 
-Each message has native **Message details** for reported participants/time,
-archive state, source, and imported context. Render details inline at every
-screen size, without fetch/reload or JavaScript, preserving focus and position.
+Each message has a selectable link to **Message details**. On wide screens,
+selection opens one named side panel and leaves the transcript in place.
+On narrow screens, the details use the full reader width. Close or Escape
+returns focus to the message. Real message URLs support Back, Forward and
+JavaScript-disabled navigation.
 
-Messages with saved single-source findings show **Findings · N**, one short
-preview, and its AI/review/partial-coverage labels. Expanding shows three findings;
-**More findings** opens that message with 25 findings per page inside the reader.
-Keep finding pagination independent from message pagination. **Conversation
-findings · N** above the stream uses the same disclosure for session results and
-findings citing multiple sources, with 25 findings per page and **Show message**
+Give all members of a saved inferred session the same tint. Label its first and
+last cited messages, including single-message sessions. A source filter or page
+edge cannot create a boundary. Keep uncited messages neutral. Show **Multiple
+groupings** when different saved memberships cover the message, and link to
+their findings in the panel. Selection, archive state and session boundaries
+remain distinguishable without colour.
+
+Message details show the original, reported participants, time and an archive
+label when applicable. Use **Message source** for the retained export and row or
+recorded collection details, and link to evidence Info for full import metadata.
+Use **Inferred session** or **Multiple groupings** to disclose session context.
+Start **Findings · N** open with up to three short previews. Link each title to
+the full finding and retain applicable AI and partial coverage labels. **More
+findings** opens the detailed list with 25 findings per page. Keep finding
+pagination independent from message pagination. Above the
+stream, a collapsed **Conversation findings · N** disclosure holds session and
+multiple-source findings, with 25 findings per page and **Show message**
 links to the cited messages. Show each shared finding once, explain citations
 outside the source-filtered view, and retain complete source details through
 **Open finding**. Do not repeat selected-message copies as analysis findings.
 
-Use latest equivalent saved results and label individual/whole-result reviews,
-including rejected findings. Mark individual model suggestions accurately when a
+Use latest equivalent saved results. Mark individual model suggestions when a
 run mixes AI and ordinary observations. Withhold finding content when analyzed
 sources are unavailable or changed. An empty collection says **No saved findings**;
 it does not establish complete analysis. Reading or expanding findings starts no
-analysis and requires no JavaScript. Review and processing remain in their
-existing flows.
+analysis and requires no JavaScript.
 
-Beside each source, **Open evidence** opens the canonical reader and native
+In the details panel, **Open evidence** opens the canonical reader and native
 reply/thread lists. Its **View in conversation** returns to the exact message
 and page, opens details, and marks the target beyond color. Preserve export and
 conversation-list page throughout.
@@ -219,7 +263,8 @@ Document is the upload fallback.
 
 Keep title/original fields visible. Disclose optional source/technical fields
 on request, editing, or validation errors. Saved descriptions/notes remain
-readable; new note authoring is retired. Retain citations and review reasons.
+readable. New note authoring is retired. Preserve citations and legacy finding
+review reasons.
 
 The limits are 100 batch entries, 1 GiB per file, and 10 MiB UTF-8 captured
 text; show the application limits. Each file is a separate request. A batch
@@ -256,6 +301,12 @@ counts. Source-row preview is collapsed unless invalid rows need attention.
 Completion links to Case Tools and discloses individual observations; the original
 CSV and attribution remain accessible. See [imports](vehicle-location-imports.md).
 
+## Instagram monitors
+
+The optional [Instagram monitor pilot](instagram-monitors.md) shows each direction's
+changes, two linked captures, coverage, and scheduled checks in a case. Personal
+connection settings belong to the signed-in investigator.
+
 ## Case Tools, Processing, and additional analysis
 
 Case Tools groups destinations under **Explore evidence**, **Organize your
@@ -266,7 +317,7 @@ owner/editor **Additional analysis** is directly available with organizing tools
 Below the directory, previews show up to five recent findings and five recent
 active records. Link full findings/reports rather than expanding measurements or
 history. Recent findings retain attribution; linked readers/reports retain exact
-output, reviews, coverage, and uncertainty.
+output, sources, coverage, and uncertainty.
 
 Processing separates **In progress** from paginated **History**, which retains all
 check outcomes and has evidence-type and outcome filters. Those filters do not
@@ -325,23 +376,35 @@ Sources use 25-record pages; native POST navigation/title search preserve choice
 and options. Show off-page selections with Remove. Browsing never queues work;
 execution/inference limits still apply.
 
-Selection members keep their excerpts and current review reasons readable.
-On phones, Remove sits below each excerpt so it does not squeeze the source text
-into a narrow column.
-
 Saved results expose **Download results** beside the title. Limitations are open
 initially, and the visible **Run again** section keeps any external approval and
 destination explanation with its action. Technical method/settings remain under
-Processing details. Findings lists lead with the useful preview; distinct bounded
-search matches remain under **Matching search details**. Owners/editors can save
-findings to a selection directly from the catalogue and connection occurrences.
+Processing details. Findings lists lead with the useful preview and compact method
+and coverage labels. Evidence-specific lists put distinct findings with a useful
+next check first and show the reason beside the finding. Distinct search matches
+remain under **Matching search details**.
 
-Use the shared field renderer for labels, help, errors, approvals, and reviews.
+Findings show the result and supporting content once. Use a closed **Details**
+disclosure for secondary measurements, native references and exact message
+anchors. Keep status, partial coverage, failure reasons, meaningful interpretation
+and low-confidence warnings visible. Metadata inspections retain their useful
+property tables, and findings without primary content retain structured values.
+Communication pairs lead with a factual interval heading and compact messages:
+reported participants, localized time with timezone, source link and body.
+
+Hide timing-only message pairs by default across run results,
+catalogue/person findings, conversations and highlights. Full collections show a
+hidden count and **Show all findings**; an all-hidden view explains its state.
+Keep shared-word candidates, native reply context and AI suggestions visible.
+Reveal state survives navigation. Direct finding URLs always open the original
+indexed item.
+
+Use the shared field renderer for labels, help, errors, and processing approvals.
 Progress uses a native indicator; failures expose retry/recovery controls. Results
 lead with output and sources before processing metadata. Use retained image
 regions/crops, recording intervals, paired passages, message sequences, and
 observation maps when supplied by the operation. Identifier normalization lives
-in **Value details**.
+in **Details**.
 
 Reports lead with a summary, visible coverage warnings and key **Report totals**
 before the record list. **About this report** holds methods and additional

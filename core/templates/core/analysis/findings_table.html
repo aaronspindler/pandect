@@ -5,10 +5,11 @@
     <tr role="row" id="finding-{{ item.number }}">
       <th scope="row" role="rowheader">
         {% include 'core/analysis/finding_link.html' %}
+        {% if item.review_reason %}<p class="muted">{{ item.review_reason }}</p>{% endif %}
         {% if item.text and not item.values.occurrences %}<div class="analysis-finding-text">{{ item.text }}</div>{% endif %}
         {% if item.primary_measurements %}{% include 'core/analysis/measurements.html' with measurements=item.primary_measurements only %}{% endif %}
       </th>
-      <td role="cell">{% include 'core/analysis/finding_sources.html' with compact=True %}</td>
+      <td role="cell">{% include 'core/analysis/finding_sources.html' with compact=True sources=item.display_sources %}</td>
     </tr>
     {% endfor %}
   </tbody>

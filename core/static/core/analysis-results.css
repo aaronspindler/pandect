@@ -1,6 +1,5 @@
 .analysis-history-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-block: 1rem; border-bottom: 1px solid var(--divider); }
 .analysis-history-row p { margin: .25rem 0 0; }
-.analysis-page .main-content { max-width: 85rem; }
 .analysis-section { min-width: 0; margin-bottom: 1.5rem; padding-block: 1.5rem; border-top: 1px solid var(--divider); }
 .analysis-section > :last-child { margin-bottom: 0; }
 .analysis-section .section-header h2 { margin: 0; }
@@ -35,11 +34,9 @@
 .analysis-picker .form-actions { margin: 0; }
 .analysis-assumptions { margin-block: 1.5rem; border-block: 1px solid var(--divider); padding-block: .25rem; }
 .analysis-assumptions > summary { font-weight: 600; }
-.analysis-review-form { max-width: 42rem; margin-top: 1.5rem; }
 .source-list { list-style: none; padding: 0; margin: 0 0 1rem; }
 .source-list li { padding-block: .5rem; overflow-wrap: anywhere; border-bottom: 1px solid var(--divider); }
 .source-list a { display: inline-flex; align-items: center; min-height: 44px; }
-.analysis-review-history > article + article { padding-top: 1.5rem; margin-top: 1.5rem; border-top: 1px solid var(--divider); }
 .analysis-reference + .analysis-reference { border-top: 1px solid var(--divider); padding-top: 1.5rem; margin-top: 1.5rem; }
 .analysis-finding figure { margin-inline: 0; }
 .analysis-finding figcaption { color: var(--secondary); font-size: .875rem; margin-top: .5rem; max-width: 70ch; }
@@ -104,8 +101,7 @@
   margin: 0;
 }
 
-.analysis-result-limits > summary,
-.analysis-finding-review summary {
+.analysis-result-limits > summary {
   min-height: 44px;
   padding-block: .625rem;
   color: var(--accent);
@@ -209,6 +205,13 @@
   margin: 0;
 }
 
+.analysis-finding-status {
+  margin-block: 0 .75rem;
+}
+
+.analysis-finding-details {
+  margin-block: .75rem;
+}
 
 .analysis-finding-link {
   display: inline-flex;
@@ -335,14 +338,6 @@
   margin-bottom: 0;
 }
 
-.analysis-finding-review p {
-  margin: 0;
-}
-
-.analysis-finding .analysis-review-form {
-  margin-block: .5rem 1rem;
-}
-
 .analysis-finding figure {
   margin-block: .75rem;
 }
@@ -465,6 +460,40 @@
 
 .analysis-message-rows > li p {
   margin: 0;
+}
+
+.analysis-message-participants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  margin-block: .25rem;
+}
+
+.analysis-message-participants > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+}
+
+.analysis-message-participants dt {
+  color: var(--secondary);
+}
+
+.analysis-message-participants dt::after {
+  content: ":";
+}
+
+.analysis-message-participants dd {
+  margin: 0;
+}
+
+.analysis-message-meta,
+.analysis-message-participants dd {
+  overflow-wrap: anywhere;
+}
+
+.analysis-message-details + .analysis-message-details {
+  margin-top: .75rem;
 }
 
 .analysis-comparison,

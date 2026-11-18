@@ -34,10 +34,13 @@ Templates live in `marketing/templates/marketing/`; styling is
 [marketing identity](../DESIGN.md#marketing-identity): graphite and teal surfaces,
 large system-font headings, numbered sections, fine rules, and structured evidence
 illustrations. The approved arch logo retains its oxblood/ivory artwork. Marketing
-tokens are scoped to the public shell; investigator styles remain owned by `ui/`.
+and investigator pages share palette, font, and control-radius tokens in
+`ui/static/ui/primitives.css`; the public shell owns its layout, larger headings,
+and fixed ink surfaces for fictional showcases. Investigator controls remain
+owned by `ui/`.
 All pages share responsive light/dark/forced-color layouts, keyboard focus, and a
 skip link. Static showcases are labelled fictional, retain readable source and
-review context, and do not simulate interactive controls. The overview owns the
+uncertainty, and do not simulate interactive controls. The overview owns the
 product story and examples; the catalogue owns
 input profiles and method requirements; Trust owns access, retention, and
 processing privacy; Roadmap owns future work. Setup and operator responsibilities
@@ -101,7 +104,7 @@ copy kit when capabilities or priorities change.
 
 Keep possible trips, plate candidates, identifier matches, and model suggestions
 distinct from verified facts. Chronology shows recorded times separately from
-uncertain extracted dates; briefs preserve source versions and reviews. Originals
+uncertain extracted dates. Results preserve source versions. Originals
 and checksums establish integrity, not truth.
 
 ## Validation

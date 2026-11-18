@@ -94,7 +94,8 @@ def audio_metadata(sources, parameters):
     warnings.append(
         "Numerical signal observations are not diagnoses of speech, noise, "
         "editing or dropouts. A digital-zero interval can have several causes. "
-        "This bounded decoder supports uncompressed signed 16-bit mono/stereo WAV only."
+        "This bounded decoder supports signed 16-bit PCM WAV and AAC M4A. "
+        "M4A signal observations describe the decoded 16-bit samples."
     )
     return output(
         f"Decoded technical metadata from {supported} supported recordings.",

@@ -12,7 +12,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, F, Func, OuterRef, Subquery, Value
+from django.db.models import CharField, F, Func, OuterRef, Q, Subquery, Value
 from django.http import Http404
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
@@ -30,6 +30,7 @@ from core.analysis.execution import (
     snapshot_execution,
     validate_execution,
 )
+from core.analysis.gateway import gateway_configured
 from core.analysis.operations import get_operation
 from core.analysis.sources import Source, source_id
 from core.evidence.queries import get_evidence, scoped_evidence
@@ -41,6 +42,7 @@ from core.models import (
     AnalysisRun,
     ExtractedPassage,
 )
+from geo.analysis.deterministic.locations import coordinate
 from geo.analysis.external.geocoding import GeocodingError
 from phone.models import CallEvidenceAttachment
 
@@ -99,6 +101,8 @@ class SourceResolutionCache:
                 continue
             for chunk in batched(ids, 500, strict=False):
                 query = scoped_evidence(self.case, kind).filter(pk__in=chunk)
+                if kind in {"text-message", "phone-call", "facetime"}:
+                    query = query.select_related("sender", "recipient")
                 if not self.with_content and kind in {"text", "text-message"}:
                     query = query.defer("body")
                     if kind == "text":
@@ -543,6 +547,12 @@ def start_run(
             ),
         ):
             raise AnalysisError("retry_approval_required")
+    if (
+        operation == "transcription"
+        and external
+        and not gateway_configured("transcription", operation)
+    ):
+        raise AnalysisError("gateway_transcription_not_configured")
     if execution is not None:
         parameters = parameters | {"_execution": execution}
     if len(json.dumps(parameters, allow_nan=False).encode()) > (
@@ -766,9 +776,11 @@ def process_run(run_id):
                 run.operation == "imessage_import"
                 and run.parameters.get("phase") == "import"
             ):
+                from core.case_search.index_hooks import collect_import_messages
                 from phone.analysis.deterministic.imessage import apply_import
 
-                apply_import(run, data, sources)
+                with collect_import_messages(case.pk):
+                    apply_import(run, data, sources)
                 # Publication adds exact message membership; it shares the result bound.
                 data = validate_output(data, sources)
             result = AnalysisResult.objects.create(
@@ -841,6 +853,9 @@ def process_run(run_id):
             current.progress = 100
             current.finished_at = timezone.now()
             current.save(update_fields=["status", "progress", "finished_at"])
+            from core.case_search.indexing import result_published
+
+            result_published(result)
             if run.parameters.get("automatic_followup"):
                 from core.analysis.automatic import follow_up_extraction
 
@@ -887,23 +902,45 @@ def cancel_run(actor, case_id, run_id):
     return run
 
 
-@transaction.atomic
-def review_result(actor, case_id, result_id, decision, comment="", item_index=None):
-    if item_index is not None and (type(item_index) is not int or item_index < 0):
-        raise ValidationError("Choose a valid finding index.")
-    case = get_case(actor, case_id, edit=True, lock=True)
+def address_estimate(finding):
+    """An address lookup can be selected only when it returned usable coordinates."""
+    values = finding.get("values", {})
     try:
-        result = AnalysisResult.objects.select_related("run").get(
-            case=case, run__case=case, pk=result_id
+        return coordinate(values.get("latitude"), values.get("longitude"))
+    except ValueError:
+        return None
+
+
+@transaction.atomic
+def set_address_estimate(actor, case_id, run_id, item_index, *, use):
+    case = get_case(actor, case_id, edit=True, lock=True)
+    result = (
+        AnalysisResult.objects.select_related("run")
+        .filter(
+            case=case,
+            run_id=run_id,
+            run__case=case,
+            run__operation="geocode_locations",
+            run__status__in=("complete", "partial"),
         )
-    except AnalysisResult.DoesNotExist:
-        raise Http404("Result not found.") from None
-    resolve_inputs(result.run, case, require_current_review=False)
-    return AnalysisReview.objects.create(
-        case=case,
-        result=result,
-        reviewed_by=actor,
-        decision=decision,
-        comment=comment,
-        item_index=item_index,
+        .filter(Q(run__previous_run__isnull=True) | Q(run__previous_run__case=case))
+        .first()
     )
+    if result is None:
+        raise Http404("Address estimate not found.")
+    items = result.data.get("items", [])
+    if not 0 <= item_index < len(items) or address_estimate(items[item_index]) is None:
+        raise Http404("Address estimate not found.")
+    resolve_inputs(result.run, case, require_current_review=False)
+    latest = result.reviews.filter(case=case, item_index=item_index).first()
+    in_use = latest is not None and latest.decision == AnalysisReview.Decision.ACCEPTED
+    if use != in_use:
+        AnalysisReview.objects.create(
+            case=case,
+            result=result,
+            reviewed_by=actor,
+            decision=AnalysisReview.Decision.ACCEPTED
+            if use
+            else AnalysisReview.Decision.UNRESOLVED,
+            item_index=item_index,
+        )

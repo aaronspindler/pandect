@@ -14,8 +14,8 @@ registered placeholder without an evidence category.
 ## Reading and editing evidence
 
 Readers keep originals beside source-linked findings. **Info** exposes provenance,
-integrity, retained descriptions, and processing history. **Edit details**, **Save
-to selection**, and **Analyze evidence** are directly visible to owners/editors;
+integrity, retained descriptions, and processing history. **Edit details** and
+**Analyze evidence** are directly visible to owners/editors;
 **More** holds secondary actions such as archive/restore. **Processing** shows
 case-wide history. See [screen specifications](interface-design.md#evidence-browsing-and-reading)
 and [automatic checks/recovery](analysis.md#retained-processing).
@@ -174,23 +174,39 @@ loading failure. Every batch checks current access.
 
 **All sources** includes imported/manual messages; selecting an export narrows
 reading. Archived messages remain labelled/readable, and overlapping exports'
-records remain separate. Grouping verifies no native thread, identity, completeness,
-or response. Calls/inferred sessions have separate views.
+records remain separate. Each message shows its original wording, reported sender
+and time. Mixed-source transcripts include a short source reference per message.
+The reported participants alone do not establish native thread identity or a
+complete exchange.
 
-**Message details** expands in place without reload/fetch or JavaScript: participants/
-time, attribution, retained export/row, native references, reactions/status, and
-attachment references. Referenced attachments are never fetched/opened.
+Select a message to open **Message details** beside the transcript. On a narrow
+screen the details fill the reader. Close the panel to return to the message.
+The panel starts with the original, reported participants and time, and marks
+archived messages. Expand **Message source** to find the retained export and row
+or recorded collection information. **View source metadata** opens evidence Info
+with native references and source-supplied fields such as reactions, status and
+attachment references. The attachments themselves are never fetched. With
+JavaScript off, the same message link opens the details through ordinary navigation.
 
-Saved single-message analysis appears beneath its message as **Findings · N**
-with a short preview. Expand for three findings; **More findings** opens the
-complete list at that message, 25 per page. **Conversation findings** above the
-stream holds session results and findings citing multiple sources, with separate
-pagination and links to cited messages. Findings follow the retained-export
+Messages cited together in a saved inferred session share a colour.
+**Session starts** and **Session ends** mark its first and last cited messages.
+Expand **Inferred session** for the finding link and its boundary reason.
+Uncoloured messages can fall outside the analyzed selection. **Multiple groupings**
+means saved sessions disagree about membership. Expand it for the alternatives
+and a link to the full paginated list when there are more than 25.
+Missing messages and overlapping topics can affect any inferred boundary.
+
+**Findings** starts open with up to three short previews of saved findings for
+the message. Select a finding title for its full details. **More findings** opens
+the complete list at that message, 25 per page.
+**Conversation findings** above the stream holds session results and findings
+citing multiple sources, with separate pagination and links to cited messages.
+Findings follow the retained-export
 filter through their exact citations; results may also cite sources outside the
 current view and say so. **Open finding** retains full context, source inventory,
-history, and review. AI suggestions, review decisions and partial coverage remain
-labelled; changed/unavailable analyzed sources withhold the finding content.
-Opening the conversation or its disclosures never starts analysis.
+and history. AI suggestions and partial coverage remain labelled. If an analyzed
+source has changed or is unavailable, the reader withholds the finding content.
+Opening the reader or selecting a message never starts analysis.
 
 **Open evidence** shows original, findings, integrity, native reply/thread links,
 and actions. **View in conversation** returns to that message with details open,
@@ -282,7 +298,7 @@ and file, with IDs/filenames/checksums, 50 entries per page, and complete privat
 JSON. Signed confirmation binds user/case/target/inventory; changes require review again.
 
 Deletion removes original/call content, every selecting run (including attachment
-sources), results, reviews, search text, files, and dependent analysis. Multi-source
+sources), results, linked historical decisions, search text, files, and dependent analysis. Multi-source
 runs disappear entirely; unrelated originals, people, vehicles, and analysis remain.
 Source-document deletion also removes imported observations/messages, batches,
 staged rows, and context, including archived derivatives. Retained-run references

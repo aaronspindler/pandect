@@ -1,9 +1,11 @@
 """Shared Django configuration for local and operator-hosted Pandect."""
 
 import os
+import re
 from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
 from django.http.request import split_domain_port
@@ -49,6 +51,7 @@ ALLOWED_HOSTS = [
 ]
 
 INSTALLED_APPS = [
+    "django.contrib.postgres",
     "whitenoise.runserver_nostatic",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -332,9 +335,7 @@ PANDECT_AI_GATEWAY = {
     "text_provider": os.environ.get("PANDECT_AI_TEXT_PROVIDER", "workers-ai"),
     "openai_key_alias": os.environ.get("PANDECT_AI_OPENAI_KEY_ALIAS", "default"),
     "models": {
-        "text": os.environ.get(
-            "PANDECT_AI_TEXT_MODEL", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
-        ),
+        "text": os.environ.get("PANDECT_AI_TEXT_MODEL", "auto"),
         "transcription": os.environ.get(
             "PANDECT_AI_TRANSCRIPTION_MODEL", "@cf/openai/whisper-large-v3-turbo"
         ),
@@ -370,6 +371,12 @@ PANDECT_LOCAL_AI = {
     "max_response_bytes": 2 * 1024 * 1024,
     "max_output_tokens": 4096,
 }
+PANDECT_LOCAL_EMBEDDING = {
+    "url": os.environ.get("PANDECT_LOCAL_EMBEDDING_URL", ""),
+    "model": os.environ.get("PANDECT_LOCAL_EMBEDDING_MODEL", "all-minilm:22m"),
+    "sha256": os.environ.get("PANDECT_LOCAL_EMBEDDING_SHA256", ""),
+    "runtime": os.environ.get("PANDECT_LOCAL_EMBEDDING_RUNTIME", ""),
+}
 PANDECT_ANALYSIS_MAX_SOURCES = 500
 PANDECT_ANALYSIS_MAX_BYTES = 16 * 1024 * 1024
 PANDECT_ANALYSIS_MAX_TEXT = 2 * 1024 * 1024
@@ -401,3 +408,64 @@ PANDECT_MAP_CONTEXT_TIMEOUT = 10
 PANDECT_MAP_CONTEXT_HISTORY_START = os.environ.get(
     "PANDECT_MAP_CONTEXT_HISTORY_START", ""
 )
+
+# Optional offline Instagram pilot using the isolated synthetic browser.
+PANDECT_INSTAGRAM_PILOT_URL = os.environ.get("PANDECT_INSTAGRAM_PILOT_URL", "")
+PANDECT_INSTAGRAM_PILOT_KEY = os.environ.get("PANDECT_INSTAGRAM_PILOT_KEY", "")
+if PANDECT_INSTAGRAM_PILOT_URL:
+    _pilot = urlsplit(PANDECT_INSTAGRAM_PILOT_URL)
+    if (
+        _pilot.scheme != "http"
+        or _pilot.hostname not in {"instagram-pilot", "127.0.0.1", "localhost", "::1"}
+        or _pilot.username is not None
+        or _pilot.password is not None
+        or _pilot.path not in {"", "/"}
+        or _pilot.query
+        or _pilot.fragment
+        or len(PANDECT_INSTAGRAM_PILOT_KEY) < 32
+    ):
+        raise ImproperlyConfigured(
+            "Use the private Instagram pilot service or loopback and a "
+            "dedicated pilot key of at least 32 characters."
+        )
+
+# An optional single-investigator qualification on the local desktop. Loopback
+# avoids transmitting the private connector binding outside this machine.
+PANDECT_INSTAGRAM_LIVE = {}
+if _live_url := os.environ.get("PANDECT_INSTAGRAM_LIVE_URL", ""):
+    try:
+        _live = urlsplit(_live_url)
+        _target_text = os.environ.get("PANDECT_INSTAGRAM_LIVE_TARGETS", "")
+        _targets = tuple(
+            dict.fromkeys(h.strip().lower() for h in _target_text.split(","))
+        )
+        _observer = (
+            os.environ.get("PANDECT_INSTAGRAM_LIVE_OBSERVER", "").strip().lower()
+        )
+        _live_token = os.environ.get("PANDECT_INSTAGRAM_LIVE_TOKEN", "")
+        _minimum = int(os.environ.get("PANDECT_INSTAGRAM_LIVE_MIN_HOURS", "1"))
+        if (
+            PANDECT_INSTAGRAM_PILOT_URL
+            or _live.scheme != "http"
+            or _live.hostname != "127.0.0.1"
+            or not _live.port
+            or _live_url != f"http://127.0.0.1:{_live.port}"
+            or _minimum not in (1, 6, 12, 24)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", _live_token)
+            or (_observer and not re.fullmatch(r"[a-z0-9._]{1,30}", _observer))
+            or not all(re.fullmatch(r"[a-z0-9._]{1,30}", h) for h in _targets)
+        ):
+            raise ValueError
+        PANDECT_INSTAGRAM_LIVE = {
+            "url": _live_url,
+            "token": _live_token,
+            "targets": _targets,
+            "observer": _observer,
+            "min_hours": _minimum,
+            "user_id": str(UUID(os.environ["PANDECT_INSTAGRAM_LIVE_USER"])),
+            "case_id": str(UUID(os.environ["PANDECT_INSTAGRAM_LIVE_CASE"])),
+        }
+    except KeyError, ValueError:
+        raise ImproperlyConfigured(
+            "Check the local Instagram pilot configuration."
+        ) from None

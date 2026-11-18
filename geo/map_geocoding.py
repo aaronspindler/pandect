@@ -142,7 +142,7 @@ def address_estimates(case, rows):
                 if values.get("latitude") is None:
                     continue
                 if reviews.get(index) == "rejected":
-                    state["label"] = "Address estimates rejected"
+                    state["label"] = "Address estimate excluded"
                     continue
                 try:
                     latitude, longitude = coordinate(
@@ -155,9 +155,9 @@ def address_estimates(case, rows):
                     state["label"] = "Address estimate outside map display range"
                     continue
                 label = (
-                    "Reviewed address estimate"
+                    "Selected address estimate"
                     if reviews.get(index) == "accepted"
-                    else "Unreviewed address estimate"
+                    else "Address estimate candidate"
                 )
                 state["points"].append(
                     {

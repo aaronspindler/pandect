@@ -66,7 +66,7 @@ class QueueTests(TransactionTestCase):
 
     def test_task_and_application_write_commit_together(self):
         owner = get_user_model().objects.create_user(username="queue-owner")
-        other = connection.copy(alias="queue_observer")
+        other = connection.copy()
         try:
             with transaction.atomic():
                 case = Case.objects.create(owner=owner, name="Synthetic queued work")

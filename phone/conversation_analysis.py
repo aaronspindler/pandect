@@ -1,32 +1,36 @@
 """Bounded, source-validated saved findings beside retained conversations."""
 
 from urllib.parse import urlencode
+from uuid import UUID
 
+from django.contrib.postgres.expressions import ArraySubquery
 from django.core.paginator import Paginator
 from django.db.models import (
     Count,
     Exists,
     F,
-    Func,
-    JSONField,
     OuterRef,
     Q,
     Subquery,
-    TextField,
-    Value,
     Window,
 )
-from django.db.models.functions import Cast, RowNumber
+from django.db.models.functions import JSONObject
 from django.http import Http404
 
-from core.analysis.catalogue import finding_queryset, finding_rows
+from core.analysis import ranking
+from core.analysis.catalogue import (
+    TIMING_ONLY_FINDINGS,
+    finding_queryset,
+    finding_rows,
+    raw_finding_item,
+)
+from core.analysis.presentation import participant_text
 from core.analysis.projection import is_ai_suggestion
 from core.evidence.types import KIND_LABELS
 from core.models import AnalysisFindingSource
 
 PREVIEW_COUNT = 3
 PER_PAGE = 25
-SHARED_OPERATIONS = ("sessions", "session_summaries", "comm_patterns")
 CONTEXT_PARAMETERS = (
     "source",
     "page",
@@ -34,6 +38,7 @@ CONTEXT_PARAMETERS = (
     "list_page",
     "analysis_page",
     "conversation_analysis_page",
+    "weak",
 )
 
 
@@ -45,7 +50,7 @@ def _context_url(params, anchor, **changes):
     )
 
 
-def _finding_selection(case, messages):
+def _finding_selection(case, messages, *, show_weak=False):
     references = AnalysisFindingSource.objects.filter(finding_id=OuterRef("pk"))
     relevant = references.filter(
         case=case,
@@ -58,16 +63,15 @@ def _finding_selection(case, messages):
         .annotate(total=Count("source_id", distinct=True))
         .values("total")
     )
-    base = (
-        finding_queryset(case, {})
-        .exclude(result__run__operation="comm_patterns", label="Selected message")
-        .alias(citation_count=Subquery(counts))
-    )
-    inline = Q(citation_count=1) & ~Q(result__run__operation__in=SHARED_OPERATIONS)
+    base = finding_queryset(case, {"weak": "1"}).alias(citation_count=Subquery(counts))
+    inline = Q(citation_count=1) & ~Q(result__run__operation="sessions")
+    timing_only_count = base.filter(Exists(relevant), TIMING_ONLY_FINDINGS).count()
+    if not show_weak:
+        base = base.exclude(TIMING_ONLY_FINDINGS)
     findings = base.filter(Exists(relevant))
     # Inline callers join the already authorized visible message IDs. Repeating
     # the entire conversation scope here makes PostgreSQL replay its source joins.
-    return findings, base.filter(inline), findings.exclude(inline)
+    return findings, base.filter(inline), findings.exclude(inline), timing_only_count
 
 
 def _page_links(page, params, parameter, anchor, **changes):
@@ -101,63 +105,82 @@ def conversation_analysis_context(
     # Use the already authorized objects rather than propagating unvalidated values.
     params["source"] = str(source.pk) if source else ""
     params["list_page"] = list_page if list_page > 1 else ""
-    findings, inline, shared = _finding_selection(case, messages)
-    visible_ids = {item.pk for item in visible_messages}
-    if (
-        set(messages.filter(pk__in=visible_ids).values_list("pk", flat=True))
-        != visible_ids
-    ):
-        raise Http404("Messages changed. Reopen the conversation and try again.")
-    previews = {pk: {"count": 0, "finding_ids": []} for pk in visible_ids}
-    # Rank the visible messages' findings together. An outer query per message
-    # repeats the latest-result/source-count work and can produce costly plans.
-    preview_rows = (
-        inline.filter(
-            sources__case=case,
-            sources__kind="text-message",
-            sources__evidence_id__in=visible_ids,
-        )
-        .annotate(
-            message_id=F("sources__evidence_id"),
-            finding_count=Window(Count("pk"), partition_by=F("sources__evidence_id")),
-            finding_rank=Window(
-                RowNumber(),
-                partition_by=F("sources__evidence_id"),
-                order_by=(
-                    F("result__run__created_at").desc(),
-                    F("result__run_id").desc(),
-                    F("item_index").asc(),
-                    F("pk").asc(),
-                ),
-            ),
-        )
-        .filter(finding_rank__lte=PREVIEW_COUNT)
-        .order_by("message_id", "finding_rank")
-        .values("pk", "message_id", "finding_count")
+    show_weak = params.get("weak") == "1"
+    params["weak"] = "1" if show_weak else ""
+    findings, inline, shared, timing_only_count = _finding_selection(
+        case, messages, show_weak=show_weak
     )
-    for row in preview_rows:
-        preview = previews[row["message_id"]]
-        preview["count"] = row["finding_count"]
-        preview["finding_ids"].append(row["pk"])
+    visible_ids = {item.pk for item in visible_messages}
+    previews = {}
+    reasons = {}
+
+    # Each limited subquery sees all eligible findings for its message, so the
+    # preview and the expanded list pick exactly the same representatives.
+    visible_inline = inline.filter(
+        sources__case=case,
+        sources__kind="text-message",
+        sources__evidence_id__in=visible_ids,
+    ).alias(message_id=F("sources__evidence_id"))
+    # An unopened message may reuse a pooled preview only when every visible
+    # identifier fits its lookup budget. Otherwise its link loads its own ranking.
+    visible_keys = (
+        visible_inline.exclude(match_digest="")
+        .order_by()
+        .values("match_kind", "match_version", "match_digest")
+        .distinct()
+    )
+    load_panels_on_open = visible_keys[ranking.MAX_MATCH_KEYS :].exists()
+    if load_panels_on_open:
+        visible_inline = (
+            visible_inline.filter(message_id=selected.pk)
+            if selected is not None
+            else visible_inline.none()
+        )
+    context = ranking.review_context(visible_inline, case)
+
+    def message_findings(message_id):
+        eligible = visible_inline.filter(message_id=message_id)
+        return ranking.rank_findings(eligible, case, context=context)
+
+    preview_rows = (
+        message_findings(OuterRef("pk"))
+        .annotate(finding_count=Window(Count("pk")))
+        .values(row=JSONObject(id="pk", count="finding_count", reason="review_reason"))[
+            :PREVIEW_COUNT
+        ]
+    )
+    for message_id, rows in (
+        messages.filter(pk__in=visible_ids)
+        .annotate(finding_preview=ArraySubquery(preview_rows))
+        .values_list("pk", "finding_preview")
+    ):
+        preview_ids = []
+        for row in rows or ():
+            finding_id = UUID(row["id"])
+            preview_ids.append(finding_id)
+            reasons[finding_id] = row["reason"]
+        previews[message_id] = {
+            "count": rows[0]["count"] if rows else 0,
+            "finding_ids": preview_ids,
+        }
+    if previews.keys() != visible_ids:
+        raise Http404("Messages changed. Reopen the conversation and try again.")
     selected_page = None
     if selected is not None and params.get("analysis_page"):
         if selected.pk not in previews:
             raise Http404("Message unavailable. Reopen the conversation and try again.")
-        selected_page = Paginator(
-            inline.filter(
-                sources__case=case,
-                sources__kind="text-message",
-                sources__evidence_id=selected.pk,
-            ),
-            PER_PAGE,
-        ).get_page(params["analysis_page"])
-        previews[selected.pk]["finding_ids"] = list(
-            selected_page.object_list.values_list("pk", flat=True)
+        selected_page = Paginator(message_findings(selected.pk), PER_PAGE).get_page(
+            params["analysis_page"]
         )
-    shared_page = Paginator(shared, PER_PAGE).get_page(
+        expanded = dict(selected_page.object_list.values_list("pk", "review_reason"))
+        reasons.update(expanded)
+        previews[selected.pk]["finding_ids"] = list(expanded)
+    shared_page = Paginator(ranking.rank_findings(shared, case), PER_PAGE).get_page(
         params.get("conversation_analysis_page")
     )
-    shared_ids = list(shared_page.object_list.values_list("pk", flat=True))
+    shared_reasons = dict(shared_page.object_list.values_list("pk", "review_reason"))
+    reasons.update(shared_reasons)
+    shared_ids = list(shared_reasons)
     displayed_ids = set(shared_ids)
     for item in previews.values():
         displayed_ids.update(item["finding_ids"])
@@ -167,19 +190,13 @@ def conversation_analysis_context(
             excerpt=F("preview"),
             run_id=F("result__run_id"),
             operation=F("result__run__operation"),
-            raw_item=Func(
-                F("result__data"),
-                Value("items"),
-                Cast(F("item_index"), TextField()),
-                function="jsonb_extract_path",
-                output_field=JSONField(),
-            ),
+            raw_item=raw_finding_item(),
         )
         .only("id", "case_id", "result_id", "item_index", "label", "weak", "preview")
     )
     if {finding.pk for finding in displayed} != displayed_ids:
         raise Http404("Findings changed. Reopen the conversation and try again.")
-    rows = finding_rows(case, displayed) if displayed else []
+    rows = finding_rows(case, displayed, show_weak=show_weak) if displayed else []
     cited_message_ids = {
         item["id"]
         for row in rows
@@ -203,8 +220,11 @@ def conversation_analysis_context(
         row["ai_suggestion"] = not row["unavailable"] and is_ai_suggestion(
             finding.operation, raw
         )
+        row["review_reason"] = "" if row["unavailable"] else reasons[finding.pk]
         text = raw.get("text", "") if not row["unavailable"] else ""
         text = text.strip() if isinstance(text, str) else ""
+        if row["ai_suggestion"]:
+            text = participant_text(text, row.get("participant_names", {}))
         row["text"] = text[:1000] or row["preview"]
         row["text_truncated"] = len(text) > 1000
         message_sources = [
@@ -232,12 +252,9 @@ def conversation_analysis_context(
         anchor = f"#message-analysis-{message.pk}"
         paginated = selected_page if selected and selected.pk == message.pk else None
         message.analysis = {
+            "load_on_open": load_panels_on_open and message != selected,
             "count": preview["count"],
-            "preview": message_rows[0]["preview"] or message_rows[0]["label"]
-            if message_rows
-            else "",
             "rows": message_rows,
-            "open": paginated is not None,
             "page_obj": paginated,
             "more_url": _context_url(
                 params, anchor, message=str(message.pk), analysis_page=1
@@ -262,9 +279,6 @@ def conversation_analysis_context(
     shared_page.object_list = shared_rows
     conversation_analysis = {
         "count": shared_page.paginator.count,
-        "preview": shared_rows[0]["preview"] or shared_rows[0]["label"]
-        if shared_rows
-        else "",
         "rows": shared_rows,
         "open": bool(params.get("conversation_analysis_page")),
         "page_obj": shared_page,
@@ -278,6 +292,16 @@ def conversation_analysis_context(
     }
     return {
         "conversation_analysis": conversation_analysis,
+        "conversation_timing_only_count": timing_only_count,
+        "show_timing_only_findings": show_weak,
+        "finding_visibility_url": _context_url(
+            params,
+            "#conversation-finding-visibility",
+            weak="" if show_weak else "1",
+            analysis_page="",
+            conversation_analysis_page=1,
+        ),
         "has_conversation_findings": bool(conversation_analysis["count"])
+        or bool(timing_only_count)
         or findings.exists(),
     }

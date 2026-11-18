@@ -1,8 +1,8 @@
 {% if error %}<p class="notice">{{ error }} Download the original to listen.</p>
 {% else %}
 <audio controls preload="none" aria-label="Play {{ label }}">
-  <source src="{{ play_url }}" type="audio/wav">
+  <source src="{{ play_url }}" type="{{ recording.content_type }}">
   Your browser does not support inline audio. Download the original to listen.
 </audio>
-<p class="muted">Original WAV recording · {{ recording.duration_seconds|floatformat:1 }} seconds.</p>
+<p class="muted">Original {{ recording.format }} recording · {{ recording.duration_seconds|floatformat:1 }} seconds.</p>
 {% endif %}

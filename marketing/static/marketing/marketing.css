@@ -1,21 +1,10 @@
 .marketing {
-  --background:#f4f7f7;
-  --surface:#fff;
-  --text:#14282e;
-  --secondary:#4b6169;
-  --divider:#d2dfe0;
-  --boundary:#71878b;
-  --accent:#12645e;
-  --accent-ink:#fff;
-  --selected:#e3efed;
   --panel:#10262c;
   --panel-raised:#18333a;
   --panel-text:#edf4f5;
   --panel-muted:#b0c1c5;
   --panel-line:#3c555c;
   --panel-accent:#8bd5c4;
-  --radius:.375rem;
-  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
   background:var(--background);
   overflow-wrap:anywhere;
 }
@@ -192,19 +181,6 @@
 .roadmap-grid li { padding:1.5rem; background:var(--surface); border-right:1px solid var(--divider); border-bottom:1px solid var(--divider); }
 .roadmap-number { display:block; color:var(--accent); margin-bottom:1.5rem; }
 .roadmap-grid p { color:var(--secondary); font-size:.875rem; margin-bottom:0; }
-@media (prefers-color-scheme:dark) {
-  .marketing {
-    --background:#0b1519;
-    --surface:#111f24;
-    --text:#edf4f5;
-    --secondary:#b0c1c5;
-    --divider:#30464c;
-    --boundary:#789196;
-    --accent:#8bd5c4;
-    --accent-ink:#0b1519;
-    --selected:#173a36;
-  }
-}
 @media (max-width:72rem) {
   .home-intro { gap:2rem; }
   .home-intro h1 { font-size:3.5rem; }
@@ -272,15 +248,6 @@
 }
 @media (forced-colors:active) {
   .marketing {
-    --background:Canvas;
-    --surface:Canvas;
-    --text:CanvasText;
-    --secondary:CanvasText;
-    --divider:GrayText;
-    --boundary:ButtonText;
-    --accent:LinkText;
-    --accent-ink:Canvas;
-    --selected:Canvas;
     --panel:Canvas;
     --panel-raised:Canvas;
     --panel-text:CanvasText;

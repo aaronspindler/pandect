@@ -11,6 +11,12 @@ from phone.analysis.deterministic.conversations import (
 )
 from text.analysis.ai import cited_model_analysis
 
+SEMANTIC_FINDING_KINDS = (
+    "explicit_reference",
+    "shared_reported_event",
+    "question_answer",
+)
+
 
 def semantic_cross_channel_links(sources, parameters, *, infer=None):
     "Combine observed temporal candidates with explicitly requested model suggestions."
@@ -23,18 +29,23 @@ def semantic_cross_channel_links(sources, parameters, *, infer=None):
         rows,
         parameters,
         infer=infer,
+        finding_kinds=SEMANTIC_FINDING_KINDS,
+        linked=True,
         purpose=(
-            "Propose continued topics, references to earlier "
-            "exchanges, shared reported events, and candidate "
-            "question/answer links across the selected messages and"
-            " identified call transcripts. Cite both sides for each"
-            " link. Preserve competing referents such as 'that "
-            "place'; same topic is not necessarily the same event."
+            "Propose concrete explicit references, shared reported events, "
+            "and question/answer links across the selected "
+            "messages and identified call transcripts. Cite both sides from "
+            "different originals. For explicit references and shared events, "
+            "quote the same specific target from both originals and repeat it "
+            "in the suggestion. Omit broad shared topics, apparent contrasts, "
+            "timing alone, and unsupported references. Preserve competing "
+            "referents such as 'that place' as unresolved."
         ),
     )
     for suggestion in semantic["items"]:
         if len(set(suggestion["source_ids"])) < 2:
             unresolved_semantic += 1
+            suggestion["report_only"] = True
             suggestion["label"] = "Unresolved reference suggestion"
             suggestion["values"] |= {
                 "status": "unresolved",

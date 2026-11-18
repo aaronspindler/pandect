@@ -23,8 +23,12 @@
       </div>
     </section>
     {% endfor %}
+  {% elif run.operation == 'image_metadata' %}
+    {% for section in group.sections %}
+      {% if section.tags %}{% include 'core/analysis/embedded_metadata.html' with tags=section.items only %}
+      {% else %}{% for item in section.items %}{% include 'core/analysis/finding.html' %}{% endfor %}{% endif %}
+    {% endfor %}
   {% else %}
     {% for item in group.items %}{% include 'core/analysis/finding.html' with shared_preview=group.preview %}{% endfor %}
-    {% if group.tags %}{% include 'core/analysis/embedded_metadata.html' with tags=group.tags only %}{% endif %}
   {% endif %}
 {% endfor %}

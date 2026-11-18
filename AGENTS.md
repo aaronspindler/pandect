@@ -20,7 +20,7 @@ revisions without changing the file.
 Pandect is a public, open-source, self-hostable investigation and intelligence
 platform. Design around the investigator's task and next useful action,
 with clear language, thoughtful defaults, progressive disclosure, and accessibility.
-Preserve source attribution, saved legacy notes, and finding review reasons;
+Preserve source attribution, saved legacy notes, and legacy finding review reasons;
 do not restore freeform note authoring. Use the [roadmap](docs/evidence-analysis-roadmap.md)
 for future scope rather than presenting planned features as available.
 

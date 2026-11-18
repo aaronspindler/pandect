@@ -82,7 +82,7 @@ jobs:
       POSTGRES_PORT: "5432"
     services:
       postgres:
-        image: postgres:18.6
+        image: pgvector/pgvector:0.8.7-pg18-trixie@sha256:ab49524d18df7200b74ac9a475e1db6297fc1eb57da4c214c63d10ecc4b754fa
         env:
           POSTGRES_DB: pandect
           POSTGRES_USER: pandect
@@ -156,7 +156,7 @@ jobs:
       PANDECT_BROWSER_ARTIFACTS: data/validation/browser/${{ matrix.engine }}
     services:
       postgres:
-        image: postgres:18.6
+        image: pgvector/pgvector:0.8.7-pg18-trixie@sha256:ab49524d18df7200b74ac9a475e1db6297fc1eb57da4c214c63d10ecc4b754fa
         env:
           POSTGRES_DB: pandect_browser
           POSTGRES_USER: pandect

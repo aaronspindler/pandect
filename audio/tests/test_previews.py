@@ -6,20 +6,22 @@ from django.test import TestCase
 from django.urls import reverse
 
 from audio.models import AudioEvidence
+from audio.testing import m4a_bytes
 from cases.models import CaseMembership
+from core.analysis.services import start_run
 from core.analysis.testing import wav_bytes
 from core.testing import EvidenceViewTestMixin
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence
 
 
 class RecordingPreviewTests(EvidenceViewTestMixin, TestCase):
-    def recording(self, content=None):
+    def recording(self, content=None, *, filename="recording.wav"):
         return AudioEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
             title="Synthetic recording",
             file=SimpleUploadedFile(
-                "recording.wav", wav_bytes() if content is None else content
+                filename, wav_bytes() if content is None else content
             ),
         )
 
@@ -79,6 +81,88 @@ class RecordingPreviewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, original)
+
+    def test_m4a_playback_and_ranges_preserve_original_bytes_and_access(self):
+        original = m4a_bytes(channels=2, rate=44100)
+        item = self.recording(original, filename="recording.m4a")
+        url = self.play_url(item)
+        self.login("viewer")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "audio/mp4")
+        self.assertEqual(response.content, original)
+        self.assertEqual(response["ETag"], f'"{item.sha256}"')
+        detail = self.client.get(self.url("detail", item, kind="audio"))
+        self.assertContains(detail, 'type="audio/mp4"')
+        self.assertContains(detail, "Original M4A recording")
+        response = self.client.get(url, HTTP_RANGE="bytes=20-39")
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(response.content, original[20:40])
+        self.assertEqual(response["Content-Range"], f"bytes 20-39/{len(original)}")
+        download = self.client.get(self.url("download", item, kind="audio"))
+        self.assertEqual(b"".join(download.streaming_content), original)
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "audio_metadata",
+            [{"kind": "audio", "id": str(item.pk)}],
+        )
+        analysis_url = reverse(
+            "core:analysis:audio",
+            kwargs={
+                "case_id": self.case.pk,
+                "run_id": run.pk,
+                "source_id": run.inputs[0]["id"],
+            },
+        )
+        response = self.client.get(analysis_url, HTTP_RANGE="bytes=20-39")
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(response["Content-Type"], "audio/mp4")
+        self.assertEqual(response.content, original[20:40])
+        self.assertEqual(
+            self.client.get(self.play_url(item, self.other_case)).status_code, 404
+        )
+        self.login("outsider")
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.login("viewer")
+        AudioEvidence.objects.filter(pk=item.pk).update(sha256="0" * 64)
+        self.assertEqual(self.client.get(url).status_code, 422)
+
+    def test_m4a_call_addition_plays_with_its_audio_hash(self):
+        original = m4a_bytes()
+        call = PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Call with M4A recording",
+            sender=self.person,
+            recipient=self.person,
+        )
+        attachment = CallEvidenceAttachment.objects.create(
+            case=self.case,
+            phone_call=call,
+            uploaded_by=self.users["owner"],
+            transcript="Supplied transcript stays separate",
+            file=SimpleUploadedFile("call.m4a", original),
+        )
+        url = reverse(
+            "phone:attachment_play",
+            kwargs={
+                "case_id": self.case.pk,
+                "kind": "phone-call",
+                "evidence_id": call.pk,
+                "attachment_id": attachment.pk,
+            },
+        )
+        self.login("viewer")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "audio/mp4")
+        self.assertEqual(response.content, original)
+        self.assertEqual(response["ETag"], f'"{attachment.audio_sha256}"')
+        CallEvidenceAttachment.objects.filter(pk=attachment.pk).update(
+            audio_sha256="0" * 64
+        )
+        self.assertEqual(self.client.get(url).status_code, 422)
 
     def test_current_access_and_unsupported_changed_truncated_recordings(self):
         item = self.recording()

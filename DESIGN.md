@@ -25,35 +25,39 @@ selection and executable procedures belong in [validation](docs/validation.md).
 
 ## Visual foundations
 
-Use semantic CSS custom properties and shared components within each surface.
-Investigator screens use the palette below; public pages use the scoped
-[marketing identity](#marketing-identity). Both share the brand, system fonts,
-interaction conventions, and accessibility requirements. Avoid one-off page
-palettes, remote fonts, arbitrary spacing, and dependencies added only for styling.
+Use the same semantic CSS custom properties, graphite and teal palette, and
+system fonts across public pages, authentication, and investigator screens.
+Shared foundations live in `ui/static/ui/primitives.css`; surface-specific
+styles adapt layout and density without redefining the brand palette or fonts.
+Avoid one-off page palettes, remote fonts, arbitrary spacing, and dependencies
+added only for styling.
 
 | Role | Light | Dark |
 | --- | --- | --- |
-| Page background | `#F5F5F7` | `#111113` |
-| Content surface | `#FFFFFF` | `#1C1C1E` |
-| Primary text | `#1D1D1F` | `#F5F5F7` |
-| Secondary text | `#515154` | `#B8B8BE` |
-| Decorative divider | `#D2D2D7` | `#48484A` |
-| Control boundary | `#86868B` | `#8E8E93` |
-| Action and focus | `#0066CC` | `#66A9FF` |
+| Page background | `#F4F7F7` | `#0B1519` |
+| Content surface | `#FFFFFF` | `#111F24` |
+| Primary text | `#14282E` | `#EDF4F5` |
+| Secondary text | `#4B6169` | `#B0C1C5` |
+| Decorative divider | `#D2DFE0` | `#30464C` |
+| Control boundary | `#71878B` | `#789196` |
+| Action and focus | `#12645E` | `#8BD5C4` |
+| Action text | `#FFFFFF` | `#0B1519` |
+| Selected surface | `#E3EFED` | `#173A36` |
 | Destructive text | `#B42318` | `#FF8A80` |
 | Success text | `#16743A` | `#80D99B` |
 
-Use white text on the light action color and `#111113` text on the dark action
+Use white text on the light action color and `#0B1519` text on the dark action
 color. Verify actual foreground/background combinations for hover, selected,
 error, and disabled states. Decorative dividers cannot identify input boundaries.
 
 - Follow `prefers-color-scheme` without requiring an account preference.
 - Fonts: `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`.
   Use system monospace for technical values such as checksums and the short
-  indexes and metadata labels described in the marketing identity.
+  indexes and compact eyebrow labels across public and investigator screens.
 - Body: `1rem`, line height `1.5`. Type scale: `0.875rem`, `1rem`, `1.25rem`,
-  `1.5rem`, `2rem`. Do not shrink important text to increase density.
-- Spacing: `0.25`, `0.5`, `0.75`, `1`, `1.5`, `2`, `3`, `4rem`. Radii: `0.5rem`
+  `1.5rem`, `2rem`. Use weight `650` for page headings and `600` for section
+  headings and buttons. Do not shrink important text to increase density.
+- Spacing: `0.25`, `0.5`, `0.75`, `1`, `1.5`, `2`, `3`, `4rem`. Radii: `0.375rem`
   for controls, `0.75rem` for occasional grouped surfaces.
 - Prefer grouping and fine dividers to nested cards. Reserve shadows for overlays;
   avoid glass effects, decorative gradients, and giant rounded panels.
@@ -72,24 +76,12 @@ system-font text in forced colors and the standalone arch on ivory for app icons
 ## Marketing identity
 
 Public pages introduce an investigation tool through evidence, analysis, and
-review. Use a crisp technical layout: confident typography, aligned columns,
+source attribution. Use a crisp technical layout: confident typography, aligned columns,
 numbered sections, fine rules, and structured evidence illustrations. Keep the
 arch identity prominent; avoid surveillance imagery, fake terminal output,
 decorative network graphs, and generic claims about discovering truth.
 
-| Role | Light | Dark |
-| --- | --- | --- |
-| Page background | `#F4F7F7` | `#0B1519` |
-| Content surface | `#FFFFFF` | `#111F24` |
-| Primary text | `#14282E` | `#EDF4F5` |
-| Secondary text | `#4B6169` | `#B0C1C5` |
-| Decorative divider | `#D2DFE0` | `#30464C` |
-| Control boundary | `#71878B` | `#789196` |
-| Action and focus | `#12645E` | `#8BD5C4` |
-| Action text | `#FFFFFF` | `#0B1519` |
-| Selected surface | `#E3EFED` | `#173A36` |
-
-- Use graphite and teal as the public-page palette. The approved logo remains
+- Use the shared graphite and teal foundations above. The approved logo remains
   oxblood in light mode and ivory in dark mode; do not recolor its artwork.
 - Introductory headings may scale fluidly from `2.5rem` to `5rem`, with a compact
   line height and generous surrounding space. Keep supporting text readable and
@@ -125,19 +117,22 @@ Investigator screens use case navigation, a compact record list, and a substanti
 reader. These density requirements apply to the investigator workspace;
 public pages follow the marketing identity above.
 
-- At `80rem` and above, evidence uses a `7rem` labeled navigation rail, `21rem` record
-  list, and flexible reader. All investigator screens share the rail, including
-  case tools, All cases, and account screens. From `64rem` to `80rem`, retain the
-  rail with a full-width list or detail page. Below `64rem`, use compact top navigation;
-  below `48rem`, stack fields and supporting metadata. Keep navigation labels visible
-  at every width, wrapping the navigation onto its own row when needed.
+- At `64rem` and above, all investigator screens share a `7rem` labeled navigation
+  rail. Below `64rem`, use compact top navigation. Below `48rem`, stack fields and
+  supporting metadata. Keep navigation labels visible at every width, wrapping
+  the navigation onto its own row when needed.
+- From `72rem` wide and `36rem` tall, selected evidence uses a fluid record list
+  between `20rem` and `26rem` alongside a flexible reader. The list fills the
+  workspace when no record is selected. Below either threshold, the collection
+  and detail each use the workspace width and scroll with the document.
 - Desktop evidence rows have a `3.5rem` minimum height, a readable title link
   covering the row, and one metadata line. Keep secondary actions in the detail
   page. Target 12 complete rows at `1440 × 900` and 14 at `1440 × 1024` with ordinary
   synthetic titles at default zoom. Never clip text or controls to meet counts.
 - Keep headings, search, filters, and pagination compact. Avoid repeated case
-  titles and timestamps. Reading passages should measure about `65–70ch`; forms
-  up to `42rem`; dense lists may use the available width.
+  titles and timestamps. Use fluid gutters and let multi-column views and
+  structured results use the available width. Keep reading passages around
+  `65–70ch` and forms up to `42rem`.
 - Name each pane accessibly. Independent scrolling needs visible scrollbars and
   keyboard access. At narrow widths/high zoom, use document scrolling and
   canonical detail pages.
@@ -198,14 +193,13 @@ Keep guidance local and brief. Disclose optional detail/history; keep required
 fields, next actions, and decision-critical context visible. Explain deletion,
 external processing, and consequential uncertainty at the decision. Preserve
 confirmations and source attribution without repeated warnings. Use concise
-labels such as **AI suggestion** and **Unreviewed**.
+labels such as **AI suggestion** and **Partial coverage**.
 
 ## Evidence reader
 
 - Keep the original and Findings together under one title/download header. Use
-  **Info** for supporting metadata, saved notes, and history; **Edit details**,
-  **Save to selection**, and **Analyze evidence** for everyday actions. Keep
-  secondary actions under **More**.
+  **Info** for supporting metadata, saved notes, and history; **Edit details** and
+  **Analyze evidence** for everyday actions. Keep secondary actions under **More**.
   Long originals need keyboard-accessible navigation.
 - Give original text stronger desktop emphasis (`1.5rem` at wide sizes, `1rem` on
   narrow screens).

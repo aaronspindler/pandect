@@ -232,11 +232,6 @@ def records_for_selection(sources, parameters):
                 source.attachment.sha256 if source.attachment else source.item.sha256
             ):
                 raise AnalysisError("source_changed")
-        latest = (
-            result.reviews.filter(case_id=case_id, item_index=ref["item_index"])
-            .order_by("-created_at", "id")
-            .first()
-        )
         append_record(
             {
                 "id": identity,
@@ -245,7 +240,6 @@ def records_for_selection(sources, parameters):
                 "source_ids": item["source_ids"],
                 "result_id": result_id,
                 "item_index": ref["item_index"],
-                "review": latest.decision if latest else "unreviewed",
                 "method": result.run.operation,
                 "partial": result.run.status == "partial",
             }
@@ -297,7 +291,7 @@ def synthesize(sources, parameters, *, infer=None):
         "Quote exact record text "
         "with record_id and start character offset. Prior findings "
         "are derived suggestions, "
-        "not original observations; preserve their review and uncertainty. Preserve "
+        "not original observations; preserve their uncertainty. Preserve "
         "negation, cancellation, hearsay, conflicting accounts and ambiguous dates. "
         "Do not infer identity, intent, presence, truth or missing "
         "events. In unknowns, "
@@ -375,7 +369,6 @@ def synthesize(sources, parameters, *, infer=None):
                         "quote": quote,
                         "start": start,
                         "end": start + len(quote),
-                        "review_at_execution": record["review"],
                     }
                 )
             else:
@@ -408,7 +401,7 @@ def synthesize(sources, parameters, *, infer=None):
         },
         warnings=[
             "Coverage is limited to the explicit selection. Prior "
-            "findings and their reviews do not verify the original "
+            "findings do not verify the original "
             "claims."
         ],
         outcome="complete" if items else "empty",

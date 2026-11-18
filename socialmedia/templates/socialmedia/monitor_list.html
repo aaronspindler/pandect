@@ -1,0 +1,22 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Instagram monitors · {{ case.name }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>Instagram monitors</h1><p>Compare followers and accounts followed between scheduled checks.</p></div>
+  {% if can_edit %}<div class="actions">
+    <a class="button button-secondary" href="{% url 'account_instagram' %}?case={{ case.pk }}">{% if connection %}Manage connection{% else %}Instagram connection{% endif %}</a>
+    {% if available and permitted and connection.source == source %}<a class="button button-primary" href="{% url 'instagram:create' case.pk %}">Create monitor</a>{% endif %}
+  </div>{% endif %}
+</header>
+{% if not available %}<p class="notice">Instagram collection is disabled on this installation.</p>
+{% elif can_edit and not permitted %}<p>Collection is unavailable for your account in this case.</p>
+{% elif can_edit and connection.source != source %}<p>Connect your {% if source == 'synthetic' %}synthetic {% endif %}Instagram account to schedule checks.</p>{% endif %}
+{% if page_obj %}
+  <div class="record-list" aria-label="Case monitors">
+    {% for monitor in page_obj %}
+    <a class="record-row" href="{% url 'instagram:detail' case.pk monitor.pk %}"><div><strong>@{{ monitor.target }}</strong><p>{{ monitor.get_status_display }} · {% if monitor.source == 'synthetic' %}Synthetic{% else %}Instagram{% endif %} · Every {{ monitor.interval_hours }} hour{{ monitor.interval_hours|pluralize }}{% if monitor.next_check_at %} · Next check {{ monitor.next_check_at|date:'j M Y, H:i T' }}{% endif %}</p></div></a>
+    {% endfor %}
+  </div>
+  {% include 'socialmedia/monitor_pagination.html' with label='Monitor pages' %}
+{% else %}<section class="empty-state"><h2>No monitors in this case</h2>{% if not can_edit %}<p>You have viewer access. Published observations will appear here.</p>{% endif %}</section>{% endif %}
+{% endblock %}

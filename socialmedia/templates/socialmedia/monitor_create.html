@@ -1,0 +1,19 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Create Instagram monitor · {{ case.name }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'instagram:list' case.pk %}">Instagram monitors</a></p>
+<h1>Create Instagram monitor</h1>
+{% if available and permitted and connection.source == source %}
+<form method="post" class="form-layout">
+  {% csrf_token %}
+  <p>Checks run as <strong>@{{ connection.observer }}</strong>{% if source == 'synthetic' %} against a synthetic profile{% else %} and collect the lists visible to that Instagram account{% endif %}. Everyone with access to this case can read the saved lists and changes.</p>
+  {% include 'ui/components/form_fields.html' %}
+  <div class="form-actions"><button class="button button-primary" type="submit">Create monitor</button><a class="button button-secondary" href="{% url 'instagram:list' case.pk %}">Cancel</a></div>
+</form>
+{% else %}
+  {% include 'ui/components/form_errors.html' %}
+  {% if available and not permitted %}<p class="notice">Collection is unavailable for your account in this case.</p>
+  {% elif available %}<p>Connect your {% if source == 'synthetic' %}synthetic {% endif %}Instagram account to schedule checks.</p><a class="button button-primary" href="{% url 'account_instagram' %}?case={{ case.pk }}">Connect account</a>
+  {% else %}<p class="notice">Instagram collection is disabled on this installation.</p>{% endif %}
+{% endif %}
+{% endblock %}

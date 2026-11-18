@@ -166,8 +166,11 @@ class CapabilityCatalogueTests(SimpleTestCase):
             name: row for name, row in IMPORTS.items() if name in OPERATIONS
         }
         self.assertFalse(set(ANALYSES) & set(registered_imports))
-        self.assertEqual(set(ANALYSES) | set(registered_imports), set(OPERATIONS))
-        for name, operation in OPERATIONS.items():
+        # Historical synthesis runs retain their processor, but have no creation UI.
+        available = set(OPERATIONS) - {"question_synthesis"}
+        self.assertEqual(set(ANALYSES) | set(registered_imports), available)
+        for name in available:
+            operation = OPERATIONS[name]
             with self.subTest(operation=name):
                 if name in registered_imports:
                     kinds = registered_imports[name]["source_kinds"]

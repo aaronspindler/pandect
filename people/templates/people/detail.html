@@ -25,7 +25,8 @@
 </section>
 <section class="content-section" aria-labelledby="related-findings">
   <div class="section-header"><h2 id="related-findings">Related findings</h2><a class="button button-secondary" href="{{ related_findings_url }}">Browse related findings</a></div>
-  {% include 'core/analysis/_catalogue_rows.html' with rows=related_findings.rows %}
+  {% if related_findings.timing_only_count %}<p class="muted">{% if related_findings.show_timing_only %}Including {{ related_findings.timing_only_count }} timing-only finding{{ related_findings.timing_only_count|pluralize }}. <a href="{% querystring weak=None findings_page=None %}#related-findings">Hide timing-only findings</a>{% else %}{{ related_findings.timing_only_count }} timing-only finding{{ related_findings.timing_only_count|pluralize }} hidden. <a href="{% querystring weak=1 findings_page=None %}#related-findings">Show all findings</a>{% endif %}</p>{% endif %}
+  {% include 'core/analysis/_catalogue_rows.html' with rows=related_findings.rows timing_only_count=related_findings.timing_only_count show_timing_only=related_findings.show_timing_only %}
   {% with page=related_findings.page_obj %}{% if page.has_other_pages %}<nav class="pagination" aria-label="Related findings pages">{% if page.has_previous %}<a class="button button-secondary" href="{% querystring findings_page=page.previous_page_number %}#related-findings">Previous findings</a>{% endif %}<span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="button button-secondary" href="{% querystring findings_page=page.next_page_number %}#related-findings">Next findings</a>{% endif %}</nav>{% endif %}{% endwith %}
 </section>
 <section class="content-section" aria-labelledby="social-accounts">
