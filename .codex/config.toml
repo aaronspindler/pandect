@@ -1,8 +1,7 @@
 # Project defaults for implementation.
-model = "gpt-6.2-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "xhigh"
 model_verbosity = "low"
-service_tier = "fast"
 
 # Planning preference: select GPT-6 Astra explicitly; this sets effort only.
 # See docs/README.md for the model-switching workflow.
