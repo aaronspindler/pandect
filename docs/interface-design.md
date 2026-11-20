@@ -64,9 +64,9 @@ error links focus the affected control or group.
 | All cases | Searchable owned/shared cases with roles; **Create case**. |
 | Case Tools | Default case home; recent evidence and findings, supporting views, reports, and **Add evidence** for owners/editors. |
 | Evidence | Active records, search and disclosed filters; **Add evidence** for owners/editors. |
-| Processing | Active checks and imports, paginated history, recovery links, and owner/editor **Rerun all analysis**. |
+| Processing | Active checks and imports, analysis run counts, paginated history, recovery links, and owner/editor **Rerun all analysis**. |
 | Evidence reader | Original and Findings together; downloads, Info, and authorized More actions beside the title. |
-| Conversations | Reported participant pairs and message counts, transcript with inferred-session boundaries, retained-export filter, message details panel and links to individual evidence. |
+| Conversations | Reported participant pairs, a unified message history, and saved instances with summaries and expandable originals. |
 | Findings catalogue | Searchable retained source-linked results, with filters for evidence and method. |
 | People / Vehicles | Searchable case records; owner/editor creation and editing, viewer inspection. |
 | Case settings | Owner-only name/access management and a separate delete section. |
@@ -198,11 +198,16 @@ participant alignment consistent; do not label either participant as the signed-
 user. Date separators and timestamps use the display timezone. Preserve message
 whitespace and escape source content.
 
-**All sources** includes imported and individually entered messages. A labelled
-retained-export selector narrows the pair and resets pagination/selection. Keep
-short source references in mixed-source transcripts, preserve overlapping-export records, and
-mark archived records. Explain the reported-participant grouping once rather
-than suggesting a verified native thread or complete history.
+**Messages** is the default view. Combine imported and individually entered
+messages in the pair's timeline. Keep short source references and archive labels.
+Group confirmed matching copies from different exports in one row. **Retained
+copies** gives access to each original's export, source row and details.
+
+**Instances** lists saved inferred sessions in chronological order. Lead with
+the saved AI summary when it covers the full instance. Display its date range,
+message count and links to the report and grouping. **Show messages** opens
+the original members inline, with separate paging for a long instance. When a
+full summary is missing, owners and editors can **Request summary**.
 
 Each message has a selectable link to **Message details**. On wide screens,
 selection opens one named side panel and leaves the transcript in place.
@@ -211,8 +216,8 @@ returns focus to the message. Real message URLs support Back, Forward and
 JavaScript-disabled navigation.
 
 Give all members of a saved inferred session the same tint. Label its first and
-last cited messages, including single-message sessions. A source filter or page
-edge cannot create a boundary. Keep uncited messages neutral. Show **Multiple
+last cited messages, including single-message sessions. A page edge cannot
+create a boundary. Keep uncited messages neutral. Show **Multiple
 groupings** when different saved memberships cover the message, and link to
 their findings in the panel. Selection, archive state and session boundaries
 remain distinguishable without colour.
@@ -228,7 +233,7 @@ pagination independent from message pagination. Above the
 stream, a collapsed **Conversation findings · N** disclosure holds session and
 multiple-source findings, with 25 findings per page and **Show message**
 links to the cited messages. Show each shared finding once, explain citations
-outside the source-filtered view, and retain complete source details through
+outside the participant pair, and retain complete source details through
 **Open finding**. Do not repeat selected-message copies as analysis findings.
 
 Use latest equivalent saved results. Mark individual model suggestions when a
@@ -239,18 +244,17 @@ analysis and requires no JavaScript.
 
 In the details panel, **Open evidence** opens the canonical reader and native
 reply/thread lists. Its **View in conversation** returns to the exact message
-and page, opens details, and marks the target beyond color. Preserve export and
+and page, opens details, and marks the target beyond color. Preserve the
 conversation-list page throughout.
 
-Filtering and evidence links use ordinary GET navigation. Scrolling near either
-loaded boundary adds the adjacent page in place, keeping the export/list context,
+Tabs, expansion, and evidence links use ordinary GET navigation. Scrolling near either
+loaded transcript boundary adds the adjacent page in place, keeping the list context,
 deduplicating date headings and retaining focus and position when prepending.
 Announce loading, completion, and failures; retain ordinary earlier/later links
 for keyboard use, without JavaScript, and as full-page recovery after a failed
 request. Each request uses the same authorized, bounded page route. Browser Back
-preserves the original source/page context. Use ordinary page scrolling at every
-screen size. Empty conversations and empty export-filtered results retain case
-navigation and offer the appropriate evidence or clear-filter link.
+preserves the selected record and page. Use ordinary page scrolling at every
+screen size. An empty Instances view links back to Messages.
 See [evidence](evidence.md#reading-conversations) for interpretation limits.
 
 ## Evidence creation and batch uploads
@@ -321,8 +325,14 @@ output, sources, coverage, and uncertainty.
 
 Processing separates **In progress** from paginated **History**, which retains all
 check outcomes and has evidence-type and outcome filters. Those filters do not
-hide current work. Vehicle-location CSV imports retain their own progress and
-review links; imports ready for review remain with current work. Preparation and
+hide current work. Between them, **Analysis runs** shows the case-wide total and
+counts by method for retained runs with saved outcomes, including partial results,
+no findings, insufficient evidence, and unsupported input. A new rerun counts
+once it saves an outcome. Worker retries remain part of the same run. The five
+most-run methods appear first, with additional methods in a disclosure. History
+filters, pagination, and selected batches leave the case-wide counts intact.
+Vehicle-location CSV imports retain their own progress and review links;
+imports ready for review remain with current work. Preparation and
 vehicle-import histories use separate native disclosures. Preparation batches stay
 distinct from execution: **Checks queued** does not mean those checks have finished.
 Owners and editors have a direct **Choose analysis** header link and

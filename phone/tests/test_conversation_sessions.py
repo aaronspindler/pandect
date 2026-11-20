@@ -64,7 +64,7 @@ class ConversationSessionTests(EvidenceViewTestMixin, TestCase):
         project_result(result)
         return result
 
-    def test_full_membership_and_real_endpoints_across_pages_and_filters(self):
+    def test_full_membership_and_real_endpoints_across_pages(self):
         messages = [self.message(i) for i in range(52)]
         first, uncited, middle, last = messages[-4:]
         export = DocumentEvidence.objects.create(
@@ -98,14 +98,10 @@ class ConversationSessionTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(end.session_marker, "Session ends")
         self.assertEqual(start.session_tint, continuation.session_tint)
         self.assertEqual(start.session_tint, end.session_tint)
-        (filtered,) = self.client.get(self.reader, {"source": export.pk}).context[
-            "page_obj"
-        ]
-        self.assertEqual(filtered.pk, middle.pk)
-        self.assertEqual(filtered.session_marker, "")
-        self.assertEqual(filtered.session_tint, start.session_tint)
-        self.assertEqual(filtered.session_groups[0]["count"], 3)
-        self.assertIn("First selected message", filtered.session_groups[0]["reason"])
+        self.assertEqual(continuation.session_groups[0]["count"], 3)
+        self.assertIn(
+            "First selected message", continuation.session_groups[0]["reason"]
+        )
 
     def test_independent_equal_memberships_and_competing_groupings(self):
         first, shared, last = messages = [self.message(i) for i in range(3)]

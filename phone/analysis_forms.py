@@ -1,9 +1,52 @@
 """Domain-owned analysis assumptions and parameter validation."""
 
+from uuid import uuid4
+
 from django import forms
 
+from core.analysis.approval import prepare_external_approval, validate_external_approval
 from core.analysis.form_base import BaseAnalysisForm, selection
 from core.analysis.sources import source_id
+
+
+class InstanceSummaryForm(forms.Form):
+    submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
+    backend = forms.ChoiceField(
+        label="Processing location",
+        choices=BaseAnalysisForm.base_fields["backend"].choices,
+        initial="local",
+    )
+    external_processing = forms.BooleanField(
+        required=False,
+        label="I approve sending these messages to the external AI service",
+        help_text=(
+            "External processing sends the selected messages through the operator’s "
+            "Cloudflare AI Gateway. Previously sent requests cannot be recalled. "
+            "Operator retention policies apply."
+        ),
+    )
+
+    def __init__(self, *args, case, actor, instance_id, **kwargs):
+        super().__init__(*args, **kwargs)
+        prepare_external_approval(
+            self,
+            actor=actor,
+            case=case,
+            operation="session_summaries",
+            scope=(str(instance_id),),
+        )
+
+    def clean(self):
+        data = super().clean()
+        if data.get("backend") != "gateway":
+            data["external_processing"] = False
+        elif not data.get("external_processing"):
+            self.add_error(
+                "external_processing", "Approve external processing for these messages."
+            )
+        else:
+            validate_external_approval(self, data)
+        return data
 
 
 class PhoneAnalysisForm(BaseAnalysisForm):

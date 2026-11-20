@@ -40,6 +40,38 @@
 </section>
 </div>
 {% endpartialdef %}
+{% partialdef analysis_runs inline %}
+<div id="processing-analysis-runs" data-live-region data-live-poll="false">
+  {% if analysis_run_counts %}
+  <section class="analysis-section" aria-labelledby="analysis-runs-heading">
+    <div class="processing-run-summary">
+      <div class="section-header">
+        <h2 id="analysis-runs-heading">Analysis runs</h2>
+        <strong>{{ analysis_run_total }} saved run{{ analysis_run_total|pluralize }}</strong>
+      </div>
+      <p class="muted">Runs with a saved result in this case, including runs with no findings.</p>
+      <dl class="processing-run-counts">
+        {% for method in analysis_run_counts|slice:':5' %}
+        <div><dt>{{ method.label }}</dt><dd>{{ method.count }}</dd></div>
+        {% endfor %}
+      </dl>
+      {% with more_methods=analysis_run_counts|slice:'5:' %}
+      {% if more_methods %}
+      <details id="processing-analysis-runs-more">
+        <summary>{{ more_methods|length }} more method{{ more_methods|length|pluralize }}</summary>
+        <dl class="processing-run-counts">
+          {% for method in more_methods %}
+          <div><dt>{{ method.label }}</dt><dd>{{ method.count }}</dd></div>
+          {% endfor %}
+        </dl>
+      </details>
+      {% endif %}
+      {% endwith %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endpartialdef %}
 {% partialdef history inline %}
 <div id="processing-results" data-live-region data-live-poll="false">
 <section class="analysis-section" id="processing-history" aria-labelledby="processing-history-heading">
@@ -108,4 +140,4 @@
 {% endif %}
 {% endblock %}
 
-{% partialdef live %}{% partial activity %}{% partial history %}{% endpartialdef %}
+{% partialdef live %}{% partial activity %}{% partial analysis_runs %}{% partial history %}{% endpartialdef %}

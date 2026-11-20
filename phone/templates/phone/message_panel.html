@@ -1,6 +1,6 @@
 <header class="conversation-panel-header">
   <h2 id="message-panel-title" tabindex="-1">Message details</h2>
-  <a class="record-link" data-message-close href="{% querystring message=None analysis_page=None page=page_obj.number %}#message-{{ message.pk }}"><span class="conversation-close-wide">Close</span><span class="conversation-close-narrow">Back to messages</span></a>
+  <a class="record-link" data-message-close href="{% querystring transcript_query message=None analysis_page=None page=page_obj.number %}#message-{{ message.timeline_id|default:message.pk }}"><span class="conversation-close-wide">Close</span><span class="conversation-close-narrow">Back to messages</span></a>
 </header>
 <section class="conversation-panel-section">
   <h3>Original message</h3>

@@ -19,9 +19,14 @@ def _confirmation(form, submission_id):
     ).hexdigest()
 
 
-def prepare_external_approval(form, *, actor, case, operation):
+def prepare_external_approval(form, *, actor, case, operation, scope=()):
     form.approved_execution = None
-    form.approval_context = [str(actor.pk) if actor else "", str(case.pk), operation]
+    form.approval_context = [
+        str(actor.pk) if actor else "",
+        str(case.pk),
+        operation,
+        *scope,
+    ]
     form.external_execution = snapshot_execution(
         operation,
         {"backend": "gateway", "include_summary": True, "semantic_links": True},

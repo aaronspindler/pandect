@@ -9,6 +9,7 @@ from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
 from core.models import AnalysisRun
 from document.models import DocumentEvidence
@@ -191,7 +192,25 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                         )
 
     def test_processing_keeps_filters_focus_and_open_disclosures(self):
-        for engine in self.engines:
+        AnalysisRun.objects.bulk_create(
+            AnalysisRun(
+                case=self.case,
+                requested_by=self.owner,
+                operation=operation,
+                method_version=OPERATIONS[operation].version,
+                inputs=[{"kind": "text", "evidence_id": str(self.source.pk)}],
+                status=AnalysisRun.Status.COMPLETE,
+            )
+            for operation in (
+                "entities",
+                "style_profiles",
+                "style_change",
+                "copied_text",
+                "text_topics",
+                "content_events",
+            )
+        )
+        for saved_runs, engine in enumerate(self.engines, start=6):
             run_id = self.queue()
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
@@ -199,6 +218,13 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     self.url("core:analysis:processing", case_id=self.case.pk)
                     + "?status=queued"
                 )
+                counts = page.locator("#processing-analysis-runs")
+                expect(
+                    counts.get_by_text(f"{saved_runs} saved runs", exact=True)
+                ).to_be_visible()
+                more_methods = counts.locator("#processing-analysis-runs-more")
+                more_methods.locator("summary").press("Enter")
+                expect(more_methods).to_have_attribute("open", "")
                 filters = page.locator("#processing-history details").first
                 filters.evaluate("element => element.open = true")
                 field = page.get_by_label("Status", exact=True)
@@ -220,6 +246,11 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(page.locator("#processing-activity")).to_have_attribute(
                     "data-live-poll", "false", timeout=15000
                 )
+                expect(
+                    counts.get_by_text(f"{saved_runs + 1} saved runs", exact=True)
+                ).to_be_visible()
+                expect(more_methods).to_have_attribute("open", "")
+                expect(field).to_be_focused()
                 expect(field).to_have_value("complete")
 
     def test_hidden_tabs_failures_manual_retry_and_revocation(self):

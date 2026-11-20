@@ -172,10 +172,13 @@ without moving the current position. Unknown times sort last; UUID ties imply no
 event order. Earlier/later links work by keyboard, without JavaScript, or after
 loading failure. Every batch checks current access.
 
-**All sources** includes imported/manual messages; selecting an export narrows
-reading. Archived messages remain labelled/readable, and overlapping exports'
-records remain separate. Each message shows its original wording, reported sender
-and time. Mixed-source transcripts include a short source reference per message.
+**Messages** combines all exports and individually retained messages. Matching
+copies share one timeline row when distinct exports supply an unambiguous
+matching native message ID and the same original wording, reported sender,
+recipient, and known time. Conflicting service identifiers and ambiguous repeats
+remain separate. Expand **Retained copies** to inspect each original's export,
+row, archive state and findings. Mixed-source transcripts include a short source
+reference per message.
 The reported participants alone do not establish native thread identity or a
 complete exchange.
 
@@ -196,13 +199,20 @@ means saved sessions disagree about membership. Expand it for the alternatives
 and a link to the full paginated list when there are more than 25.
 Missing messages and overlapping topics can affect any inferred boundary.
 
+Switch to **Instances** to browse saved groupings for the pair, 25 per page.
+Identical memberships appear once. Distinct groupings can overlap. **Show
+messages** expands the saved originals in order, 50 at a time, including their
+source references and links to Message details. The AI suggestion preview links
+to the cited summary report. It appears only when the report covers the entire
+instance. Owners and editors can **Request summary** when a full summary is
+missing and review the processing destination before submitting.
+
 **Findings** starts open with up to three short previews of saved findings for
 the message. Select a finding title for its full details. **More findings** opens
 the complete list at that message, 25 per page.
 **Conversation findings** above the stream holds session results and findings
 citing multiple sources, with separate pagination and links to cited messages.
-Findings follow the retained-export
-filter through their exact citations; results may also cite sources outside the
+Findings follow the participant pair through their exact citations. Results may also cite sources outside the
 current view and say so. **Open finding** retains full context, source inventory,
 and history. AI suggestions and partial coverage remain labelled. If an analyzed
 source has changed or is unavailable, the reader withholds the finding content.
@@ -210,7 +220,7 @@ Opening the reader or selecting a message never starts analysis.
 
 **Open evidence** shows original, findings, integrity, native reply/thread links,
 and actions. **View in conversation** returns to that message with details open,
-beyond page one, preserving export and list-page filters.
+beyond page one, preserving the conversation-list page.
 
 **Info → Imported source context** independently paginates native-thread messages
 and reply candidates at 25 in source order, covering the complete same-case/export

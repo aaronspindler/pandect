@@ -1,10 +1,22 @@
 .conversation-header { align-items:end; gap:.75rem 1.5rem; margin-bottom:.75rem; padding-bottom:.75rem; }
 .conversation-header h1 { margin-bottom:.25rem; }
 .conversation-header p { margin-bottom:0; }
-.conversation-filter { display:flex; flex-wrap:wrap; align-items:end; gap:.5rem .75rem; max-width:100%; }
-.conversation-filter>div { min-width:0; width:clamp(12rem,18vw,22rem); max-width:100%; }
-.conversation-filter label { display:block; margin-bottom:.25rem; font-weight:600; }
-.conversation-filter select { width:100%; min-width:0; }
+.conversation-tabs { display:flex; gap:.5rem; margin-bottom:1rem; border-bottom:1px solid var(--divider); }
+.conversation-tabs a { display:inline-flex; align-items:center; min-height:44px; padding:.5rem .75rem; }
+.conversation-tabs [aria-current] { color:var(--text); border-bottom:3px solid var(--accent); font-weight:600; text-decoration:none; }
+.conversation-instances,.instance-message-list { padding:0; margin:0; list-style:none; }
+.conversation-instance { padding:1rem 0; border-top:1px solid var(--divider); overflow-wrap:anywhere; scroll-margin:1rem; }
+.conversation-instance h3,.instance-message-meta { font-size:.875rem; color:var(--secondary); }
+.conversation-instance h3 { margin:0 0 .5rem; }
+.instance-summary-label { color:var(--accent); font-size:.875rem; font-weight:600; }
+.instance-summary { max-width:70ch; margin:.25rem 0; font-size:1.125rem; }
+.instance-actions { display:flex; flex-wrap:wrap; align-items:center; gap:0 1.25rem; }
+.instance-actions .record-link { margin:0; }
+.instance-originals { padding-inline-start:1rem; border-inline-start:2px solid var(--divider); }
+.instance-message-list { max-width:70ch; }
+.instance-message-list li { padding:.75rem 0; }
+.instance-message-list li+li { border-top:1px solid var(--divider); }
+.instance-message-meta strong { color:var(--text); }
 .conversation-workspace { min-width:0; }
 .conversation-reader { min-width:0; }
 .conversation-section-header { gap:.5rem; margin-bottom:.75rem; }
@@ -97,7 +109,6 @@
   .conversation-close-narrow { display:none; }
 }
 @media(max-width:47.999rem) {
-  .conversation-filter>div { width:100%; }
   .conversation-stream { padding:.5rem; }
   .conversation-message { max-width:94%; }
 }

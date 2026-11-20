@@ -90,7 +90,7 @@ class ConversationBrowserTests(BrowserTestCase):
             },
         )
 
-    def test_no_javascript_message_selection_filter_and_exact_evidence_roundtrip(self):
+    def test_no_javascript_unified_messages_and_exact_evidence_roundtrip(self):
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -105,15 +105,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.locator(f'a[href="{self.reader_path}"]').click()
                 panel = page.get_by_role("complementary", name="Message details")
                 expect(panel).to_be_hidden()
-                page.locator('select[name="source"]').select_option(str(self.export.pk))
-                page.locator(
-                    'form:has(select[name="source"]) button[type="submit"]'
-                ).click()
-                expect(page).to_have_url(
-                    self.live_server_url
-                    + self.reader_path
-                    + f"?source={self.export.pk}"
-                )
+                expect(page.get_by_role("combobox", name="Source")).to_have_count(0)
                 page.get_by_role("link", name="Later messages", exact=True).click()
                 target = self.messages[51]
                 target_row = page.locator(f"#message-{target.pk}")
@@ -136,9 +128,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(target_link).to_have_attribute("aria-current", "true")
                 panel.get_by_role("link", name="Open evidence", exact=False).click()
                 expect(page).to_have_url(
-                    self.live_server_url
-                    + self.evidence_path(target)
-                    + f"?conversation_source={self.export.pk}"
+                    self.live_server_url + self.evidence_path(target)
                 )
                 reader = page.locator("#evidence-reader")
                 expect(
@@ -161,7 +151,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.keyboard.press("Enter")
                 expect(page).to_have_url(self.live_server_url + reverse_url)
                 params = parse_qs(urlsplit(page.url).query)
-                self.assertEqual(params["source"], [str(self.export.pk)])
+                self.assertNotIn("source", params)
                 self.assertEqual(params["message"], [str(target.pk)])
                 expect(target_row).to_be_in_viewport()
                 expect(panel).to_be_visible()
@@ -170,8 +160,7 @@ class ConversationBrowserTests(BrowserTestCase):
                     panel.get_by_role("link", name="Open evidence", exact=False)
                 ).to_have_attribute(
                     "href",
-                    self.evidence_path(target)
-                    + f"?conversation_source={self.export.pk}",
+                    self.evidence_path(target),
                 )
                 self.capture(page, engine, "no-javascript-exact-message")
                 page.set_viewport_size({"width": 390, "height": 844})
@@ -184,9 +173,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 panel.get_by_role("link", name="Back to messages").press("Enter")
                 expect(panel).to_be_hidden()
                 expect(target_link).to_be_in_viewport()
-                self.assertEqual(
-                    parse_qs(urlsplit(page.url).query)["source"], [str(self.export.pk)]
-                )
+                self.assertNotIn("source", parse_qs(urlsplit(page.url).query))
 
     def evidence_path(self, message):
         return reverse(
@@ -198,7 +185,7 @@ class ConversationBrowserTests(BrowserTestCase):
             },
         )
 
-    def test_scrolling_appends_filtered_messages_without_navigation(self):
+    def test_scrolling_appends_unified_messages_without_navigation(self):
         self.save_sessions(self.messages[48:52])
         instant = self.messages[-1].occurred_at + timedelta(days=1)
         for number in range(55, 105):
@@ -228,11 +215,7 @@ class ConversationBrowserTests(BrowserTestCase):
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, self.viewer)
-                url = (
-                    self.live_server_url
-                    + self.reader_path
-                    + f"?source={self.export.pk}&list_page=2"
-                )
+                url = self.live_server_url + self.reader_path + "?list_page=2"
                 page.goto(url)
                 page.evaluate("window.conversationDocument = document")
                 messages = page.locator(".conversation-message")
@@ -253,7 +236,6 @@ class ConversationBrowserTests(BrowserTestCase):
                 self.assertEqual(
                     params,
                     {
-                        "source": [str(self.export.pk)],
                         "list_page": ["2"],
                         "page": ["2"],
                     },
@@ -270,16 +252,22 @@ class ConversationBrowserTests(BrowserTestCase):
                     "href", re.compile(r"&page=3$")
                 )
                 edge.scroll_into_view_if_needed()
-                expect(messages).to_have_count(104)
+                expect(messages).to_have_count(105)
                 expect(edge).to_contain_text("End of messages.")
                 expect(edge.locator("a")).to_be_hidden()
-                expect(page.locator(".conversation-date")).to_have_count(2)
+                expect(page.locator(".conversation-date")).to_have_count(3)
                 expect(page).to_have_url(url)
                 self.assertTrue(
                     page.evaluate("window.conversationDocument === document")
                 )
                 ids = messages.evaluate_all("rows => rows.map(row => row.id)")
-                self.assertEqual(ids, [f"message-{row.pk}" for row in self.messages])
+                self.assertEqual(
+                    ids,
+                    [
+                        f"message-{row.pk}"
+                        for row in [*self.messages, self.manual_message]
+                    ],
+                )
                 target = self.messages[-1]
                 page.locator(f"#message-{target.pk} [data-message-select]").press(
                     "Enter"
@@ -296,10 +284,9 @@ class ConversationBrowserTests(BrowserTestCase):
                     panel.get_by_role("link", name="Open evidence")
                 ).to_have_attribute(
                     "href",
-                    self.evidence_path(target)
-                    + f"?conversation_source={self.export.pk}&conversation_list_page=2",
+                    self.evidence_path(target) + "?conversation_list_page=2",
                 )
-                self.capture(page, engine, "scrolled-filtered-messages")
+                self.capture(page, engine, "scrolled-messages")
 
                 # A refresh retains the selected message but discards earlier pages.
                 page.reload()
@@ -331,7 +318,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.goto(
                     self.live_server_url
                     + self.reader_path
-                    + f"?source={self.export.pk}&message={target.pk}"
+                    + f"?message={target.pk}"
                     + f"#message-{target.pk}"
                 )
                 edge = page.locator('[data-conversation-edge="previous"]')
@@ -342,10 +329,10 @@ class ConversationBrowserTests(BrowserTestCase):
                 position = selected.bounding_box()["y"]
                 self.assertEqual(len(pending), 1)
                 pending[0].continue_()
-                expect(page.locator(".conversation-message")).to_have_count(54)
+                expect(page.locator(".conversation-message")).to_have_count(55)
                 expect(selected).to_be_focused()
                 self.assertAlmostEqual(selected.bounding_box()["y"], position, delta=2)
-                expect(page.locator(".conversation-date")).to_have_count(1)
+                expect(page.locator(".conversation-date")).to_have_count(2)
                 expect(page.locator("[data-selected-message]")).to_have_count(1)
                 expect(selected).to_have_attribute("aria-current", "true")
                 expect(
@@ -364,7 +351,7 @@ class ConversationBrowserTests(BrowserTestCase):
                     else:
                         route.continue_()
 
-                page.route("**" + self.reader_path + "?page=2", fail_fetch)
+                page.route("**" + self.reader_path + "?**", fail_fetch)
                 page.goto(self.live_server_url + self.reader_path)
                 edge = page.locator('[data-conversation-edge="next"]')
                 edge.scroll_into_view_if_needed()
@@ -458,17 +445,197 @@ class ConversationBrowserTests(BrowserTestCase):
             AnalysisResult.objects.create(case=self.case, run=run, data=data)
         )
 
+    def test_instance_summaries_and_exact_members_without_javascript(self):
+        grouped = self.messages[:52]
+        self.save_sessions(grouped)
+        self.save_sessions(self.messages[52:])
+        operation = get_operation("session_summaries")
+        inputs = snapshot_sources(
+            self.case, [{"kind": "text-message", "id": m.pk} for m in grouped]
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="session_summaries",
+            method_version=operation.version,
+            inputs=inputs,
+            status="complete",
+        )
+        statement = "The participants discuss a possible meeting by the harbour."
+        data = operation.function(
+            resolve_inputs(run, self.case),
+            {},
+            infer=lambda prompt, schema: {
+                "items": [
+                    {
+                        "text": statement,
+                        "citations": [
+                            {
+                                "source_id": inputs[0]["id"],
+                                "quote": "Shall we meet by the harbour?",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        AnalysisResult.objects.create(case=self.case, run=run, data=data)
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(self.live_server_url + self.reader_path + "?list_page=2")
+                tabs = page.get_by_role("navigation", name="Conversation views")
+                tabs.get_by_role("link", name="Instances").press("Enter")
+                expect(tabs.get_by_role("link", name="Instances")).to_have_attribute(
+                    "aria-current", "page"
+                )
+                rows = page.locator(".conversation-instance")
+                expect(rows).to_have_count(2)
+                expect(rows.first).to_contain_text(statement)
+                expect(rows.first).to_contain_text("AI suggestion")
+                expect(rows.last).to_contain_text("No full summary available")
+                expect(page.get_by_role("link", name="Request summary")).to_have_count(
+                    0
+                )
+                expect(page.locator(".instance-message-list")).to_have_count(0)
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assert_reflow(page, width)
+                    self.capture(page, engine, f"instances-{width}-{height}")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "instances-dark")
+                page.emulate_media(forced_colors="active")
+                show = rows.first.get_by_role("link", name="Show messages")
+                show.focus()
+                expect(show).to_be_focused()
+                self.capture(page, engine, "instances-forced-colors")
+                page.emulate_media(color_scheme="light", forced_colors="none")
+                rows.first.get_by_role("link", name="Show messages").press("Enter")
+                messages = rows.first.locator(".instance-message-list li")
+                expect(messages).to_have_count(50)
+                expect(messages.first).to_contain_text(grouped[0].body)
+                expect(messages.first).to_contain_text("Row 1")
+                self.assert_reflow(page, 320)
+                self.capture(page, engine, "instance-expanded-mobile")
+                rows.first.get_by_role("link", name="Later messages").press("Enter")
+                expect(messages).to_have_count(2)
+                expect(messages.last).to_contain_text(grouped[-1].body)
+                messages.last.get_by_role("link", name="Message details").press("Enter")
+                expect(page.locator("[data-selected-message]")).to_have_attribute(
+                    "id", f"message-{grouped[-1].pk}"
+                )
+                page.go_back()
+                expect(messages).to_have_count(2)
+                rows.first.get_by_role("link", name="Hide messages").press("Enter")
+                expect(page.locator(".instance-message-list")).to_have_count(0)
+                expect(
+                    page.get_by_role("link", name="All conversations")
+                ).to_have_attribute("href", re.compile(r"\?page=2$"))
+
+    def test_matching_copies_link_to_the_exact_original(self):
+        source = self.messages[0]
+        export = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Second synthetic export",
+            file=ContentFile(b"another export", name="second.csv"),
+        )
+        copy = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Retained copy",
+            sender=source.sender,
+            recipient=source.recipient,
+            occurred_at=source.occurred_at,
+            body=source.body,
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=copy,
+            source_document=export,
+            source_sha256=export.sha256,
+            source_row=4,
+            source_start=0,
+            source_end=1,
+            parser_version="synthetic-v1",
+            timezone="America/Toronto",
+            raw_sender="Alex",
+            native_message_id=source.communication_context.native_message_id,
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.live_server_url + self.reader_path)
+                row = page.locator(".conversation-message").first
+                row.get_by_role("link", name=re.compile("retained copies", re.I)).press(
+                    "Enter"
+                )
+                link = row.get_by_role(
+                    "link", name=re.compile("Second synthetic export")
+                )
+                link.press("Enter")
+                panel = page.get_by_role("complementary", name="Message details")
+                expect(
+                    panel.get_by_role("link", name="Open evidence")
+                ).to_have_attribute("href", self.evidence_path(copy))
+                expect(page.locator("[data-selected-message]")).to_have_attribute(
+                    "id", f"message-{copy.pk}"
+                )
+                panel.get_by_text("Message source", exact=True).press("Enter")
+                expect(panel).to_contain_text("Row 4")
+                page.go_back()
+                expect(panel).to_be_hidden()
+                expect(link).to_be_visible()
+
+    def test_owner_opens_summary_review_for_the_expanded_instance(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.owner)
+                page.goto(self.live_server_url + self.reader_path + "?tab=instances")
+                if engine == self.engines[0]:
+                    expect(
+                        page.get_by_role("heading", name="No saved instances")
+                    ).to_be_visible()
+                    self.db(self.save_sessions, self.messages[:2])
+                    page.reload()
+                page.get_by_role("link", name="Show messages").press("Enter")
+                page.get_by_role("link", name="Request summary").press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Request instance summary")
+                ).to_be_visible()
+                page.get_by_text(
+                    "Messages included in this summary", exact=False
+                ).press("Enter")
+                expect(
+                    page.get_by_role("link", name=self.messages[0].title)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name=self.messages[1].title)
+                ).to_be_visible()
+                page.get_by_role("link", name="Cancel").press("Enter")
+                expect(page.locator(".instance-message-list li")).to_have_count(2)
+                self.assertFalse(
+                    self.db(
+                        AnalysisRun.objects.filter(operation="session_summaries").exists
+                    )
+                )
+
     def test_reader_selection_history_groupings_reflow_and_keyboard(self):
         self.save_sessions(self.messages[:4])
         self.save_sessions(self.messages[3:6])
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, self.viewer)
-                url = (
-                    self.live_server_url
-                    + self.reader_path
-                    + f"?source={self.export.pk}"
-                )
+                url = self.live_server_url + self.reader_path
                 page.goto(url)
                 page.evaluate("window.conversationDocument = document")
                 rows = page.locator(".conversation-message")
@@ -766,11 +933,7 @@ class ConversationBrowserTests(BrowserTestCase):
         self.make_saved_findings()
         run_count = AnalysisRun.objects.count()
         first, target = self.messages[0], self.messages[51]
-        url = (
-            self.live_server_url
-            + self.reader_path
-            + f"?source={self.export.pk}&list_page=2"
-        )
+        url = self.live_server_url + self.reader_path + "?list_page=2"
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -826,7 +989,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.go_back()
                 inline.get_by_role("link", name="More findings", exact=False).click()
                 params = parse_qs(urlsplit(page.url).query)
-                self.assertEqual(params["source"], [str(self.export.pk)])
+                self.assertNotIn("source", params)
                 self.assertEqual(params["list_page"], ["2"])
                 self.assertEqual(params["message"], [str(first.pk)])
                 self.assertEqual(params["analysis_page"], ["1"])
@@ -862,7 +1025,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 )
                 params = parse_qs(urlsplit(page.url).query)
                 self.assertEqual(params["message"], [str(target.pk)])
-                self.assertEqual(params["source"], [str(self.export.pk)])
+                self.assertNotIn("source", params)
                 self.assertEqual(params["list_page"], ["2"])
                 self.assertEqual(self.db(AnalysisRun.objects.count), run_count)
 
@@ -917,7 +1080,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 url = (
                     self.live_server_url
                     + self.reader_path
-                    + f"?source={self.export.pk}&list_page=2"
+                    + "?list_page=2"
                     + f"&message={first.pk}&analysis_page=1"
                     + "&conversation_analysis_page=1"
                     + f"#message-analysis-{first.pk}"
@@ -967,10 +1130,9 @@ class ConversationBrowserTests(BrowserTestCase):
                 self.assertEqual(
                     parse_qs(urlsplit(requested.value.url).query),
                     {
-                        "source": [str(self.export.pk)],
                         "list_page": ["2"],
                         "page": ["2"],
                     },
                 )
-                expect(page.locator(".conversation-message")).to_have_count(54)
+                expect(page.locator(".conversation-message")).to_have_count(55)
                 expect(page).to_have_url(url)

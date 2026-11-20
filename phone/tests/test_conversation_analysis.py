@@ -201,7 +201,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(response.context["conversation_analysis"]["count"], 0)
                 self.assertEqual(response.context["conversation_timing_only_count"], 1)
 
-    def test_reveal_links_preserve_source_and_message_context_and_reset_finding_pages(
+    def test_reveal_links_preserve_message_context_and_reset_finding_pages(
         self,
     ):
         export = DocumentEvidence.objects.create(
@@ -246,7 +246,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
             shared["rows"][0]["message_sources"][0]["url"],
         ):
             query = parse_qs(urlsplit(url).query)
-            for key in ("source", "list_page", "weak"):
+            for key in ("list_page", "weak"):
                 self.assertEqual(query[key], [params[key]])
         self.assertEqual(parse_qs(response.context["page_query"])["weak"], ["1"])
         toggle = parse_qs(urlsplit(response.context["finding_visibility_url"]).query)
@@ -254,7 +254,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertNotIn("analysis_page", toggle)
         self.assertEqual(toggle["conversation_analysis_page"], ["1"])
         self.assertEqual(toggle["message"], [str(self.first.pk)])
-        self.assertEqual(toggle["source"], [str(export.pk)])
+        self.assertNotIn("source", toggle)
 
         first, second = sorted((self.person.pk, self.correspondent.pk))
         reversed_url = reverse(
@@ -517,7 +517,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
             )
             self.assertContains(opened, promoted["review_reason"])
 
-    def test_export_filter_restricts_citations_without_rewriting_shared_findings(self):
+    def test_old_export_link_shows_citations_across_the_conversation(self):
         export = DocumentEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
@@ -552,15 +552,21 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         shared = response.context["conversation_analysis"]
         self.assertEqual(shared["count"], 1)
         row = shared["rows"][0]
-        self.assertTrue(row["outside_sources"])
-        self.assertEqual(len(row["message_sources"]), 1)
-        target = parse_qs(urlsplit(row["message_sources"][0]["url"]).query)
-        self.assertEqual(target["message"], [str(self.first.pk)])
-        self.assertEqual(target["source"], [str(export.pk)])
-        self.assertEqual(target["list_page"], ["2"])
+        self.assertFalse(row["outside_sources"])
+        self.assertEqual(len(row["message_sources"]), 2)
+        targets = [
+            parse_qs(urlsplit(source["url"]).query) for source in row["message_sources"]
+        ]
+        self.assertEqual(
+            {q["message"][0] for q in targets},
+            {str(self.first.pk), str(self.second.pk)},
+        )
+        for query in targets:
+            self.assertNotIn("source", query)
+            self.assertEqual(query["list_page"], ["2"])
         more = parse_qs(urlsplit(self.analysis(response, self.first)["more_url"]).query)
-        self.assertEqual(more["source"], [str(export.pk)])
-        self.assertNotContains(response, "Hidden message&#x27;s own result")
+        self.assertNotIn("source", more)
+        self.assertContains(response, "Hidden message&#x27;s own result")
         self.assertContains(response, "A shared result across exports")
 
     def test_shared_citation_links_find_exact_messages_beyond_the_loaded_page(self):
@@ -588,7 +594,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(linked.context["page_obj"].number, 2)
         self.assertEqual(linked.context["selected_message"].pk, messages[-1].pk)
 
-    def test_export_filter_excludes_context_from_another_case(self):
+    def test_old_export_url_excludes_context_from_another_case(self):
         export = DocumentEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
@@ -609,14 +615,10 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         self.publish()
         CommunicationContext.objects.filter(pk=context.pk).update(case=self.other_case)
-        filtered = self.client.get(self.reader_url(), {"source": export.pk})
-        self.assertEqual(filtered.status_code, 200)
-        self.assertEqual(list(filtered.context["page_obj"]), [])
-        self.assertFalse(filtered.context["has_conversation_findings"])
-        self.assertNotContains(filtered, "A saved observation")
-        unfiltered = self.client.get(self.reader_url())
-        self.assertEqual(self.analysis(unfiltered, self.first)["count"], 1)
-        self.assertContains(unfiltered, "A saved observation")
+        response = self.client.get(self.reader_url(), {"source": export.pk})
+        self.assertNotContains(response, "Local retained export")
+        self.assertEqual(self.analysis(response, self.first)["count"], 1)
+        self.assertContains(response, "A saved observation")
 
     def test_latest_successful_results_keep_coverage_and_empty_success_supersedes(self):
         old = self.publish()

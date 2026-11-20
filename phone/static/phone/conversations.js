@@ -132,7 +132,10 @@
           throw new Error("Page unavailable");
         }
         const next = page.querySelector(`[data-conversation-edge="${edge.dataset.conversationEdge}"] [data-conversation-page]`);
-        const rows = Array.from(incoming.children).filter((row) => !row.id || !document.getElementById(row.id));
+        const loadedKeys = new Set(Array.from(items.querySelectorAll("[data-message-key]"), row => row.dataset.messageKey));
+        const rows = Array.from(incoming.children).filter(row => row.dataset.messageKey
+          ? !loadedKeys.has(row.dataset.messageKey)
+          : !row.id || !document.getElementById(row.id));
         const anchor = items.querySelector("[id]");
         const top = anchor?.getBoundingClientRect().top;
 

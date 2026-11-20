@@ -1,0 +1,62 @@
+{% if page_obj.object_list %}
+<section aria-labelledby="instances-heading">
+  <div class="section-header conversation-section-header"><h2 id="instances-heading">Instances</h2><p class="muted">{{ page_obj.paginator.count }} saved instance{{ page_obj.paginator.count|pluralize }}</p></div>
+  <ol class="conversation-instances">
+    {% for instance in page_obj %}
+    {% if instance.unavailable %}
+    <li class="conversation-instance"><p class="muted">One or more sources for this instance have changed or are unavailable.</p></li>
+    {% else %}
+    <li class="conversation-instance" id="instance-{{ instance.id }}">
+      <h3>{% if instance.first_at %}<time datetime="{{ instance.first_at|date:'c' }}">{{ instance.first_at|date:'j M Y, H:i:s T' }}</time>{% if instance.last_at and instance.last_at != instance.first_at %} – <time datetime="{{ instance.last_at|date:'c' }}">{% if instance.first_at|date:'Y-m-d' == instance.last_at|date:'Y-m-d' %}{{ instance.last_at|date:'H:i:s T' }}{% else %}{{ instance.last_at|date:'j M Y, H:i:s T' }}{% endif %}</time>{% endif %}{% else %}Time not recorded{% endif %} · {{ instance.count }} message{{ instance.count|pluralize }}</h3>
+      {% if instance.summary %}
+        <span class="instance-summary-label">AI suggestion{% if instance.summary.partial %} · Partial report{% endif %}</span>
+        {% for statement in instance.summary.statements %}<p class="instance-summary">{{ statement.text|truncatechars:400 }}</p>{% endfor %}
+      {% else %}<p class="instance-summary muted">No full summary available</p>{% endif %}
+      <div class="instance-actions">
+        {% if instance.messages %}
+          <a class="record-link" href="{% querystring instance_query page=page_obj.number %}#instance-{{ instance.id }}" aria-expanded="true" aria-controls="instance-messages-{{ instance.id }}">Hide messages</a>
+        {% else %}
+          <a class="record-link" href="{% querystring instance_query page=page_obj.number instance=instance.id %}#instance-{{ instance.id }}" aria-expanded="false">Show messages</a>
+        {% endif %}
+        {% if instance.summary %}
+          <a class="record-link" href="{{ instance.summary.url }}">Read full summary</a>
+        {% elif can_edit %}
+          <a class="record-link" href="{% url 'phone:instance_summary' case.pk first_person.pk second_person.pk instance.id %}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">Request summary</a>
+        {% endif %}
+        <a class="record-link" href="{{ instance.url }}">Grouping details{% if instance.partial %} · Partial coverage{% endif %}</a>
+      </div>
+      {% if instance.messages %}
+      <div class="instance-originals" id="instance-messages-{{ instance.id }}">
+        <ol class="instance-message-list" start="{{ instance.messages.start_index }}">
+          {% for message in instance.messages %}
+          <li>
+            <div class="instance-message-meta"><strong>{{ message.sender }}</strong> · {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}{% if message.is_archived %} · Archived{% endif %}</div>
+            <div class="conversation-message-body">{{ message.body }}</div>
+            <div class="instance-message-meta">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %} · <a href="{{ message.transcript_url }}">Message details</a></div>
+          </li>
+          {% endfor %}
+        </ol>
+        {% if instance.messages.has_other_pages %}
+        <nav class="pagination" aria-label="Instance message pages">
+          {% if instance.messages.has_previous %}<a class="record-link" href="{% querystring instance_query page=page_obj.number instance=instance.id message_page=instance.messages.previous_page_number %}#instance-messages-{{ instance.id }}">Earlier messages</a>{% endif %}
+          <span>Messages {{ instance.messages.start_index }}–{{ instance.messages.end_index }} of {{ instance.count }}</span>
+          {% if instance.messages.has_next %}<a class="record-link" href="{% querystring instance_query page=page_obj.number instance=instance.id message_page=instance.messages.next_page_number %}#instance-messages-{{ instance.id }}">Later messages</a>{% endif %}
+        </nav>
+        {% endif %}
+      </div>
+      {% endif %}
+    </li>
+    {% endif %}
+    {% endfor %}
+  </ol>
+  {% if page_obj.has_other_pages %}
+  <nav class="pagination" aria-label="Instance pages">
+    {% if page_obj.has_previous %}<a class="record-link" href="{% querystring instance_query page=page_obj.previous_page_number %}#instances-heading">Previous instances</a>{% endif %}
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a class="record-link" href="{% querystring instance_query page=page_obj.next_page_number %}#instances-heading">Next instances</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% else %}
+<section class="empty-state"><h2>No saved instances</h2><p>Instances appear when session analysis groups messages between these people.</p><a class="record-link" href="{{ request.path }}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">View messages</a></section>
+{% endif %}

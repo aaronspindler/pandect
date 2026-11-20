@@ -139,7 +139,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             [row.pk for row in response.context["page_obj"]], [first.pk, second.pk]
         )
-        self.assertTrue(response.context["show_message_source"])
         self.assertContains(response, "Archived")
         self.assertContains(response, "First export")
         self.assertContains(response, "Overlapping export")
@@ -215,7 +214,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             parse_qs(parsed_source.query),
             {
-                "conversation_source": [str(export.pk)],
                 "conversation_list_page": ["2"],
                 "info": ["1"],
             },
@@ -343,40 +341,134 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertNotContains(response, "Open evidence", status_code=404)
 
-    def test_export_filter_excludes_other_sources_and_manual_messages(self):
+    def test_old_export_links_open_all_sources_and_preserve_original_metadata(self):
         export = self.document()
-        selected = self.message(title="From selected export")
-        self.context(selected, export, reply_to_id="unresolved-reference")
+        first = self.message(title="From selected export")
+        self.context(first, export, reply_to_id="unresolved-reference")
         other = self.message(title="From another export")
         self.context(other, self.document(title="Other export"))
-        self.message(title="Entered individually")
+        manual = self.message(title="Entered individually")
         self.login("viewer")
-        response = self.client.get(self.reader_url(), {"source": export.pk})
-        self.assertFalse(response.context["show_message_source"])
-        self.assertEqual(
-            [row.pk for row in response.context["page_obj"]], [selected.pk]
+        response = self.client.get(
+            self.reader_url(), {"source": export.pk, "message": other.pk}
         )
-        self.assertEqual(response.context["selected_source"].pk, export.pk)
-        self.assertContains(response, f"/document/{export.pk}/")
+        self.assertEqual(
+            {row.pk for row in response.context["page_obj"]},
+            {first.pk, other.pk, manual.pk},
+        )
+        self.assertEqual(response.context["selected_message"].pk, other.pk)
+        self.assertNotContains(response, "Apply filter")
         self.assertNotContains(response, "unresolved-reference")
         evidence = self.client.get(
-            self.url("detail", selected, kind="text-message"), {"info": "1"}
+            self.url("detail", first, kind="text-message"), {"info": "1"}
         )
-        self.assertContains(evidence, "unresolved-reference")
         self.assertContains(evidence, "Unresolved: no matching native ID")
-        self.assertEqual(
-            self.client.get(
-                self.reader_url(), {"source": export.pk, "message": other.pk}
-            ).status_code,
-            404,
-        )
-        empty = self.document(title="No messages from this source")
-        response = self.client.get(self.reader_url(), {"source": empty.pk})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(list(response.context["page_obj"]), [])
-        self.assertIsNone(response.context["selected_message"])
 
-    def test_message_evidence_roundtrip_preserves_source_and_exact_target(self):
+    def test_exact_cross_export_copies_share_a_row_and_open_each_original(self):
+        instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        for minute in range(50):
+            self.message(occurred_at=instant - timedelta(minutes=minute + 1))
+        left, right = (
+            self.document(title="First export"),
+            self.document(title="Second export"),
+        )
+        first = self.message(id=UUID(int=1), occurred_at=instant)
+        other = self.message(
+            id=UUID(int=2),
+            occurred_at=instant,
+            is_archived=True,
+            archive_changed_by=self.users["owner"],
+            archive_changed_at=timezone.now(),
+        )
+        self.context(first, left, row=3, native_message_id="copied-id")
+        self.context(other, right, row=7, native_message_id="copied-id")
+        self.login("viewer")
+        reader = self.reader_url()
+        page = self.client.get(reader, {"page": 2})
+        self.assertEqual(page.context["page_obj"].paginator.count, 51)
+        self.assertEqual([row.pk for row in page.context["page_obj"]], [first.pk])
+        self.assertContains(page, "Show 2 retained copies")
+        self.assertNotContains(page, "Second export · Row 7")
+        self.assertContains(page, f"page=2&amp;copies={first.pk}#copies-{first.pk}")
+        expanded = self.client.get(reader, {"page": 2, "copies": first.pk})
+        self.assertContains(expanded, "Hide 2 retained copies")
+        self.assertContains(expanded, "First export · Row 3")
+        self.assertContains(expanded, "Second export · Row 7 · Archived")
+        selected = self.client.get(reader, {"message": other.pk})
+        actual = selected.context["selected_message"]
+        self.assertEqual((actual.pk, actual.timeline_id), (other.pk, first.pk))
+        self.assertEqual(selected.context["page_obj"].number, 2)
+        self.assertContains(selected, f'id="message-{other.pk}"')
+        self.assertContains(selected, f'data-message-key="{first.pk}"')
+        self.assertContains(selected, self.url("detail", other, kind="text-message"))
+        self.assertContains(selected, "Row 7")
+
+    def test_long_copy_disclosure_paginates_each_source_record(self):
+        instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        copies = []
+        for number in range(26):
+            message = self.message(id=UUID(int=number + 1), occurred_at=instant)
+            self.context(
+                message,
+                self.document(title=f"Export {number:02}"),
+                native_message_id="repeated-across-exports",
+            )
+            copies.append(message)
+        self.login("viewer")
+        first = self.client.get(self.reader_url())
+        (row,) = first.context["page_obj"]
+        self.assertEqual(row.copy_count, 26)
+        self.assertNotContains(first, "Export 01")
+        opened = self.client.get(self.reader_url(), {"copies": row.timeline_id})
+        (open_row,) = opened.context["page_obj"]
+        self.assertEqual(len(open_row.copy_page), 25)
+        self.assertContains(opened, "Next copies")
+        self.assertNotContains(opened, "Export 25")
+        second = self.client.get(
+            self.reader_url(), {"copies": row.timeline_id, "copy_page": 2}
+        )
+        (continued,) = second.context["page_obj"]
+        self.assertEqual(
+            [copy.message_id for copy in continued.copy_page], [copies[-1].pk]
+        )
+        self.assertContains(second, "Previous copies")
+        self.assertContains(second, f"message={copies[-1].pk}")
+
+    def test_ambiguous_or_unconfirmed_cross_export_records_stay_separate(self):
+        instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        first_export, second_export = self.document(), self.document()
+        records = [
+            (first_export, "repeated", instant, "yes"),
+            (first_export, "repeated", instant, "yes"),
+            (second_export, "repeated", instant, "yes"),
+            (first_export, "conflict", instant, "yes"),
+            (second_export, "conflict", instant, "no"),
+            (first_export, "", instant, "yes"),
+            (second_export, "", instant, "yes"),
+            (first_export, "missing time", None, "yes"),
+            (second_export, "missing time", None, "yes"),
+        ]
+        for number, (export, native_id, time, body) in enumerate(records, 1):
+            self.context(
+                self.message(occurred_at=time, body=body),
+                export,
+                row=number,
+                native_message_id=native_id,
+            )
+        for export, service in ((first_export, "SMS"), (second_export, "iMessage")):
+            self.context(
+                self.message(occurred_at=instant, body="identical"),
+                export,
+                row=100,
+                native_message_id="shared-id",
+                account_identifiers={"service": service},
+            )
+        self.login("viewer")
+        page = self.client.get(self.reader_url()).context["page_obj"]
+        self.assertEqual(len(page), len(records) + 2)
+        self.assertTrue(all(row.copy_count == 1 for row in page))
+
+    def test_message_evidence_roundtrip_preserves_list_and_exact_target(self):
         export = self.document()
         messages = []
         for number in range(52):
@@ -392,10 +484,7 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
             {"source": export.pk, "message": messages[-1].pk, "list_page": 2},
         )
         evidence_url = response.context["selected_message"].evidence_url
-        self.assertEqual(
-            parse_qs(urlsplit(evidence_url).query)["conversation_source"],
-            [str(export.pk)],
-        )
+        self.assertNotIn("conversation_source", parse_qs(urlsplit(evidence_url).query))
         self.assertEqual(
             parse_qs(urlsplit(evidence_url).query)["conversation_list_page"], ["2"]
         )
@@ -403,7 +492,7 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(evidence, "View in conversation")
         conversation_url = evidence.context["conversation_url"]
         params = parse_qs(urlsplit(conversation_url).query)
-        self.assertEqual(params["source"], [str(export.pk)])
+        self.assertNotIn("source", params)
         self.assertEqual(params["message"], [str(messages[-1].pk)])
         self.assertEqual(params["list_page"], ["2"])
         self.assertEqual(
@@ -440,7 +529,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             parse_qs(location.query),
             {
-                "source": [str(export.pk)],
                 "page": ["2"],
                 "message": [str(message.pk)],
                 "list_page": ["3"],
@@ -481,8 +569,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
             {"message": other_pair.pk},
             {"message": uuid4()},
             {"message": "invalid"},
-            {"source": foreign_export.pk},
-            {"source": "invalid"},
         ):
             self.assertEqual(
                 self.client.get(self.reader_url(), params).status_code, 404
@@ -498,7 +584,7 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
                 self.client.get(
                     evidence_url, {"conversation_source": value}
                 ).status_code,
-                404,
+                200,
             )
 
     def test_escaped_original_body_is_complete_and_not_executable(self):
@@ -524,7 +610,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.context(first, export)
         with CaptureQueriesContext(connection) as one:
             response = self.client.get(self.reader_url())
-        self.assertFalse(response.context["show_message_source"])
         for number in range(1, 54):
             self.context(self.message(), export, row=number + 1)
         with CaptureQueriesContext(connection) as many:

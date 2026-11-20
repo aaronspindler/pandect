@@ -17,7 +17,7 @@
     {% include 'ui/components/icon.html' with name='message' %}
     <span class="collection-row-content">
       <strong class="collection-row-title">{{ conversation.first_person }}{% if conversation.first_person.pk != conversation.second_person.pk %} and {{ conversation.second_person }}{% endif %}</strong>
-      <span class="collection-row-meta">{{ conversation.message_count }} message{{ conversation.message_count|pluralize }} · {% if conversation.last_recorded_at %}Latest recorded <time datetime="{{ conversation.last_recorded_at|date:'c' }}">{{ conversation.last_recorded_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</span>
+      <span class="collection-row-meta">{{ conversation.message_count }} retained message{{ conversation.message_count|pluralize }} · {% if conversation.last_recorded_at %}Latest recorded <time datetime="{{ conversation.last_recorded_at|date:'c' }}">{{ conversation.last_recorded_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</span>
     </span>
     {% include 'ui/components/icon.html' with name='chevron-right' %}
   </a>

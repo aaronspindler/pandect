@@ -423,9 +423,7 @@ class ContextBrowserTests(BrowserTestCase):
                     "Historical map snapshot (UTC, optional)", exact=True
                 ).fill("2020-01-02T12:00")
                 self._capture_layouts(page, engine, "geographic-context-form")
-                run_id, parameters = self._approve_and_finish(
-                    page, "geographic_context"
-                )
+                _, parameters = self._approve_and_finish(page, "geographic_context")
                 self.assertEqual(
                     parameters["context_as_of"], "2020-01-02T12:00:00+00:00"
                 )
@@ -459,13 +457,10 @@ class ContextBrowserTests(BrowserTestCase):
                         .first
                     )
                     expect(finding.get_by_text(relation, exact=True)).to_be_visible()
-                page.get_by_text("Processing details", exact=True).press("Enter")
-                page.locator("summary").filter(
-                    has_text=re.compile(r"^Processing summary$")
-                ).click()
-                expect(
-                    page.get_by_text("Historical map snapshot", exact=True).first
-                ).to_be_visible()
+                    finding.get_by_text("Details", exact=True).press("Enter")
+                    expect(
+                        finding.get_by_text("Historical map snapshot", exact=True)
+                    ).to_be_visible()
                 self.capture(page, engine, "geographic-context-expanded-details")
                 reference = page.get_by_role(
                     "link", name="Download reference JSON", exact=True
@@ -482,34 +477,37 @@ class ContextBrowserTests(BrowserTestCase):
                 self.assertEqual(
                     Path(waiting.value.path()).read_bytes(), self.map_bytes
                 )
-                result_url = page.url
-            with (
-                self.subTest(engine=engine, role="viewer"),
-                self.browser_page(engine, java_script_enabled=False) as (_, page),
-            ):
-                self.sign_in(page, self.viewer)
-                page.goto(result_url)
-                expect(
-                    page.locator("summary").filter(
-                        has_text=re.compile(r"^Retained map references$")
+                with self.browser_page(engine, java_script_enabled=False) as (
+                    _,
+                    viewer_page,
+                ):
+                    self.sign_in(viewer_page, self.viewer)
+                    viewer_page.goto(page.url)
+                    expect(
+                        viewer_page.locator("summary").filter(
+                            has_text=re.compile(r"^Retained map references$")
+                        )
+                    ).to_be_visible()
+                    expect(
+                        viewer_page.get_by_role(
+                            "button", name="Record review", exact=True
+                        )
+                    ).to_have_count(0)
+                    response = viewer_page.request.get(reference_url)
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.body(), self.map_bytes)
+                    self.assertIn("private", response.headers["cache-control"])
+                    self.assertTrue(
+                        response.headers["content-disposition"].startswith(
+                            "attachment;"
+                        )
                     )
-                ).to_be_visible()
-                expect(
-                    page.get_by_role("button", name="Record review", exact=True)
-                ).to_have_count(0)
-                response = page.request.get(reference_url)
-                self.assertEqual(response.status, 200)
-                self.assertEqual(response.body(), self.map_bytes)
-                self.assertIn("private", response.headers["cache-control"])
-                self.assertTrue(
-                    response.headers["content-disposition"].startswith("attachment;")
-                )
-                self.db(self._revoke_viewer)
-                self.assertEqual(page.request.get(reference_url).status, 404)
-                self.assertEqual(page.reload().status, 404)
-                expect(
-                    page.get_by_text("Synthetic archive cafe", exact=True)
-                ).to_have_count(0)
+                    self.db(self._revoke_viewer)
+                    self.assertEqual(viewer_page.request.get(reference_url).status, 404)
+                    self.assertEqual(viewer_page.reload().status, 404)
+                    expect(
+                        viewer_page.get_by_text("Synthetic archive cafe", exact=True)
+                    ).to_have_count(0)
         self.gateway_request.assert_not_called()
         self.assertEqual(self.map_lookup.call_count, len(self.engines))
         for call in self.map_lookup.call_args_list:

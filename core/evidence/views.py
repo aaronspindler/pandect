@@ -155,19 +155,11 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
         from phone.conversations import conversation_list_page
         from phone.presentation import reader_context
 
-        conversation_source = None
-        if kind == "text-message" and request.GET.get("conversation_source"):
-            try:
-                conversation_source = UUID(request.GET["conversation_source"])
-            except ValueError:
-                raise Http404("Export not found.") from None
-            conversation_source = get_evidence(case, "document", conversation_source).pk
         context.update(
             reader_context(
                 case,
                 kind,
                 item,
-                conversation_source=conversation_source,
                 conversation_list_page=conversation_list_page(
                     request.GET.get("conversation_list_page")
                 ),

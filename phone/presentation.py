@@ -25,7 +25,6 @@ def reader_context(
     kind,
     item,
     *,
-    conversation_source=None,
     conversation_list_page=1,
     native_thread_page=None,
     native_reply_page=None,
@@ -40,7 +39,7 @@ def reader_context(
             item.body, item.sender, item.occurred_at
         )
         context["conversation_url"] = conversation_url(
-            case, item, source=conversation_source, list_page=conversation_list_page
+            case, item, list_page=conversation_list_page
         )
         context["communication_context"] = (
             CommunicationContext.objects.filter(

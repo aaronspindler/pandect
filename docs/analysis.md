@@ -84,8 +84,10 @@ Conversation readers show single-message findings in **Message details** and
 session and multiple-source findings under **Conversation findings**. Saved
 inferred sessions also supply the transcript colours and boundary markers.
 They use the same latest-result and current-source checks as the catalogue,
-matching individual finding citations to the conversation/source filter rather
-than merely matching a run's inputs. Mixed-method runs retain per-finding **AI
+matching individual finding citations to the reported participant pair.
+The **Instances** tab shows summary previews from saved reports with verified
+coverage of a complete grouping. Owners and editors can request missing
+summaries for a specific instance. Mixed-method runs retain per-finding **AI
 suggestion** labels. Finding pagination is independent of message pagination;
 the reader starts no work. See [conversation reading](evidence.md#reading-conversations).
 

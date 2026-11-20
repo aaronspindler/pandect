@@ -183,15 +183,16 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
     def processing_url(self):
         return reverse("core:analysis:processing", args=[self.case.pk])
 
-    def retained_run(self, source, *, status="complete", kind="document"):
-        return AnalysisRun.objects.create(
-            case=source.case,
-            requested_by=source.case.owner,
-            operation="native_text" if kind == "document" else "entities",
-            method_version="synthetic-test.v1",
-            inputs=[{"kind": kind, "evidence_id": str(source.pk)}],
-            status=status,
-        )
+    def retained_run(self, source, *, kind="document", **overrides):
+        values = {
+            "case": source.case,
+            "requested_by": source.case.owner,
+            "operation": "native_text" if kind == "document" else "entities",
+            "method_version": "synthetic-test.v1",
+            "inputs": [{"kind": kind, "evidence_id": str(source.pk)}],
+            "status": "complete",
+        }
+        return AnalysisRun.objects.create(**(values | overrides))
 
     def vehicle_import(self, *, status="complete", case=None, title="Retained CSV"):
         case = case or self.case
@@ -226,6 +227,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             file=ContentFile(b"Private CSV", name="foreign.csv"),
         )
         self.retained_run(foreign_document, status="running")
+        self.retained_run(foreign_document)
         self.login("viewer")
         response = self.client.get(
             self.processing_url(), {"kind": "document", "status": "complete", "page": 2}
@@ -233,6 +235,11 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.context["page_obj"].paginator.count, 26)
         self.assertEqual(
             [run.pk for run in response.context["page_obj"]], [complete[0].pk]
+        )
+        self.assertEqual(response.context["analysis_run_total"], 26)
+        self.assertEqual(
+            response.context["analysis_run_counts"],
+            [{"label": "Extract document text", "count": 26}],
         )
         self.assertEqual(
             [run.pk for run in response.context["active_runs"]], [current.pk]
@@ -253,6 +260,50 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertIn("no-store", response["Cache-Control"])
         self.assertNotContains(response, "Rerun all analysis")
         self.assertNotContains(response, "Choose analysis")
+
+    def test_analysis_counts_include_saved_outcomes_across_methods_and_batches(self):
+        document = self.document()
+        batch = CaseAnalysisBatch.objects.create(
+            case=self.case, requested_by=self.users["owner"]
+        )
+        original = self.retained_run(document, attempts=3)
+        rerun = self.retained_run(
+            document,
+            status="partial",
+            method_version="synthetic-test.v2",
+            previous_run=original,
+            batch=batch,
+        )
+        for status in ("complete", "empty", "insufficient", "unsupported"):
+            self.retained_run(document, operation="entities", status=status)
+        self.retained_run(document, operation="ocr")
+        self.retained_run(document, operation="ocr", status="empty")
+        for status in ("queued", "running", "failed", "cancelled"):
+            self.retained_run(document, status=status)
+        for operation in ("imessage_import", "conversation_import", "retired_method"):
+            self.retained_run(document, operation=operation)
+
+        self.login("viewer")
+        query = {"batch": batch.pk, "kind": "document", "status": "partial"}
+        for headers in ({}, {"X-Pandect-Live": "1"}):
+            with self.subTest(headers=headers):
+                response = self.client.get(
+                    self.processing_url(), query, headers=headers
+                )
+                self.assertContains(response, 'id="processing-analysis-runs"')
+                self.assertContains(response, "Analysis runs")
+                self.assertEqual(
+                    [run.pk for run in response.context["page_obj"]], [rerun.pk]
+                )
+                self.assertEqual(response.context["analysis_run_total"], 8)
+                self.assertEqual(
+                    response.context["analysis_run_counts"],
+                    [
+                        {"label": "Extract identifiers and dates", "count": 4},
+                        {"label": "Extract document text", "count": 2},
+                        {"label": "Read text in images", "count": 2},
+                    ],
+                )
 
     def test_processing_current_work_and_import_history_are_bounded_independently(self):
         document = self.document()
@@ -310,9 +361,14 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         CaseMembership.objects.filter(
             case=self.case, user=self.users["viewer"]
         ).delete()
-        self.assertEqual(self.client.get(self.processing_url()).status_code, 404)
-        self.login("outsider")
-        self.assertEqual(self.client.get(self.processing_url()).status_code, 404)
+        for role in ("viewer", "outsider"):
+            self.login(role)
+            for headers in ({}, {"X-Pandect-Live": "1"}):
+                with self.subTest(role=role, headers=headers):
+                    response = self.client.get(self.processing_url(), headers=headers)
+                    self.assertNotContains(
+                        response, 'id="processing-analysis-runs"', status_code=404
+                    )
 
     def test_processing_get_is_read_only_and_validates_history_filters(self):
         source = self.document()
@@ -328,6 +384,11 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             (AnalysisRun.objects.count(), CaseAnalysisBatch.objects.count()), before
         )
         self.assertContains(response, "Rerun all analysis")
+        fragment = self.client.get(self.processing_url(), HTTP_X_PANDECT_LIVE="1")
+        for result in (response, fragment):
+            self.assertContains(result, 'id="processing-analysis-runs"')
+            self.assertNotContains(result, "Analysis runs")
+            self.assertEqual(result.context["analysis_run_total"], 0)
 
     def test_imports_ready_for_review_remain_visible_with_current_work(self):
         ready = self.vehicle_import(status="review", title="Locations ready for review")

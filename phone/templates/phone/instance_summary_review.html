@@ -1,0 +1,30 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Request instance summary · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ back_url }}">Back to instance</a>
+<header class="page-header">
+  <div><h1>Request instance summary</h1>
+    <p>{{ first }}{% if first.pk != second.pk %} and {{ second }}{% endif %} · {{ originals|length }} retained message{{ originals|length|pluralize }}</p>
+  </div>
+</header>
+<section class="analysis-section">
+  <details class="disclosure">
+    <summary>Messages included in this summary · {{ originals|length }}</summary>
+    <ol>{% for row in originals %}<li><a href="{% url 'core:evidence:detail' case.pk 'text-message' row.pk %}">{{ row.title }}</a></li>{% endfor %}</ol>
+  </details>
+  {% if limit_message %}<p role="status">{{ limit_message }} A summary cannot be requested for this entire instance.</p>
+  {% else %}
+  <form method="post" class="form-layout" novalidate data-unsaved-form>
+    {% csrf_token %}{{ form.submission_id }}{{ form.execution_confirmation }}
+    {% include 'ui/components/form_errors.html' %}
+    {% include 'ui/components/form_field.html' with field=form.backend only %}
+    <p class="help-text">{{ readiness }}</p>
+    {% include 'ui/components/form_field.html' with field=form.external_processing only %}
+    <div class="form-actions">
+      <button class="button button-primary" type="submit">Request summary</button>
+      <a class="button button-secondary" href="{{ back_url }}">Cancel</a>
+    </div>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

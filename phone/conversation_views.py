@@ -13,17 +13,22 @@ from django.views.decorators.http import require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.evidence.queries import get_evidence, scoped_evidence
-from document.models import DocumentEvidence
+from core.evidence.queries import scoped_evidence
 from people.models import Person
-from phone.conversation_analysis import conversation_analysis_context
+from phone.conversation_analysis import (
+    CONTEXT_PARAMETERS,
+    conversation_analysis_context,
+)
 from phone.conversation_sessions import attach_session_groups
 from phone.conversations import (
     conversation_list_page,
     imported_contexts,
+    matching_copy_groups,
     pair_messages,
     preceding_messages,
+    timeline_messages,
 )
+from phone.instance_views import conversation_instances
 
 
 @product_login_required
@@ -87,118 +92,148 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         params = {
             key: request.GET[key]
             for key in (
-                "source",
-                "page",
-                "message",
-                "list_page",
-                "analysis_page",
-                "conversation_analysis_page",
-                "weak",
+                *CONTEXT_PARAMETERS,
+                "tab",
+                "instance",
+                "message_page",
+                "copies",
+                "copy_page",
             )
             if request.GET.get(key)
         }
         return redirect(url + (f"?{urlencode(params)}" if params else ""))
 
+    if request.GET.get("tab") == "instances":
+        return conversation_instances(request, case, first, second)
+
     messages = pair_messages(case, first, second)
     contexts = imported_contexts(case).filter(message__in=messages)
-    sources = list(
-        DocumentEvidence.objects.filter(
-            case=case, pk__in=contexts.values("source_document_id")
-        ).order_by("title", "pk")
-    )
-    source = None
-    if request.GET.get("source"):
-        try:
-            source_id = UUID(request.GET["source"])
-        except ValueError:
-            raise Http404("Export not found.") from None
-        source = get_evidence(case, "document", source_id)
-        if source.pk not in {document.pk for document in sources}:
-            sources.append(source)
-        messages = messages.filter(
-            communication_context__case=case,
-            communication_context__source_document=source,
-            communication_context__source_document__case=case,
-        )
-    messages = messages.order_by(F("occurred_at").asc(nulls_last=True), "pk")
+    groups = matching_copy_groups(contexts)
+    timeline = timeline_messages(messages, contexts, groups)
     selected = None
     if request.GET.get("message"):
         try:
             message_id = UUID(request.GET["message"])
         except ValueError:
             raise Http404("Message not found.") from None
-        selected = get_object_or_404(messages, pk=message_id)
-    paginator = Paginator(messages.select_related("sender", "recipient"), 50)
-    # An import may move the requested message across a page boundary between
-    # counting and reading. Retry once, and never substitute another message.
-    for _attempt in range(2):
-        page_number = (
-            preceding_messages(messages, selected).count() // 50 + 1
-            if selected
-            else request.GET.get("page")
+        selected = get_object_or_404(
+            messages.select_related("sender", "recipient"), pk=message_id
         )
+
+    for _attempt in range(2):
+        paginator = Paginator(timeline.select_related("sender", "recipient"), 50)
+        page_number = request.GET.get("page")
+        if selected:
+            # Rank the logical row, even when the URL names another retained copy.
+            native_id = contexts.filter(message=selected).values("native_message_id")
+            selected_group = (
+                groups.filter(native_message_id__in=native_id)
+                .order_by("native_message_id")
+                .first()
+            )
+            representative = (
+                selected_group["representative"] if selected_group else selected.pk
+            )
+            page_number = (
+                preceding_messages(timeline, selected, row_id=representative).count()
+                // 50
+                + 1
+            )
         page = paginator.get_page(page_number)
         rows = list(page.object_list)
+        for message in rows:
+            message.timeline_id = message.pk
         if selected is None:
             break
-        match = next((message for message in rows if message.pk == selected.pk), None)
-        if match:
-            selected = match
+        target = next(
+            (i for i, row in enumerate(rows) if row.pk == representative), None
+        )
+        if target is not None:
+            if selected.pk == representative:
+                selected = rows[target]
+            else:
+                # Recheck membership before displaying a different original.
+                current = (
+                    groups.filter(native_message_id__in=native_id)
+                    .order_by("native_message_id")
+                    .first()
+                )
+                if not current or current["representative"] != representative:
+                    continue
+                selected.timeline_id = representative
+                rows[target] = selected
             break
-        paginator = Paginator(messages.select_related("sender", "recipient"), 50)
     else:
         raise Http404("Message unavailable. Reopen the conversation and try again.")
+
     visible_contexts = {
         context.message_id: context
-        for context in imported_contexts(case)
-        .filter(message_id__in=[message.pk for message in rows])
+        for context in contexts.filter(message_id__in=[row.pk for row in rows])
         .select_related("source_document")
+        .only("message_id", "source_document__title", "source_row", "native_message_id")
     }
+    visible_groups = groups.filter(
+        native_message_id__in={c.native_message_id for c in visible_contexts.values()}
+    )
+    group_sizes = {g["representative"]: g["copy_count"] for g in visible_groups}
     list_page = conversation_list_page(request.GET.get("list_page"))
-    source_params = {"source": str(source.pk)} if source else {}
-    if list_page > 1:
-        source_params["list_page"] = list_page
+    page_params = {"list_page": list_page} if list_page > 1 else {}
     if request.GET.get("weak") == "1":
-        source_params["weak"] = "1"
+        page_params["weak"] = "1"
+    evidence_params = {"conversation_list_page": list_page} if list_page > 1 else {}
     for message in rows:
-        evidence_url = reverse(
-            "core:evidence:detail", args=(case.pk, "text-message", message.pk)
-        )
-        message.evidence_url = evidence_url
-        evidence_params = {}
-        if source:
-            evidence_params["conversation_source"] = str(source.pk)
-        if list_page > 1:
-            evidence_params["conversation_list_page"] = list_page
-        if evidence_params:
-            message.evidence_url += "?" + urlencode(evidence_params)
+        message.copy_count = group_sizes.get(message.timeline_id, 1)
         message.imported_source = visible_contexts.get(message.pk)
-        if message.imported_source:
-            info_query = urlencode(evidence_params | {"info": "1"})
-            message.source_info_url = (
-                f"{evidence_url}?{info_query}#evidence-details-heading"
-            )
-    page.object_list = rows
-    list_url = reverse("phone:conversation_list", args=(case.pk,))
-    if list_page > 1:
-        list_url += "?" + urlencode({"page": list_page})
-    mixed_sources = False
-    if source is None and sources:
-        mixed_sources = (
-            len(sources) > 1
-            or messages.filter(communication_context__isnull=True).exists()
+        evidence_args = (case.pk, "text-message", message.pk)
+        message.evidence_url = reverse(
+            "core:evidence:detail", args=evidence_args, query=evidence_params
         )
+        if message.imported_source:
+            message.source_info_url = reverse(
+                "core:evidence:detail",
+                args=evidence_args,
+                query=evidence_params | {"info": "1"},
+                fragment="evidence-details-heading",
+            )
+            if message.copy_count > 1 and request.GET.get("copies") == str(
+                message.timeline_id
+            ):
+                confirmed = groups.filter(
+                    native_message_id=message.imported_source.native_message_id
+                )
+                copies = (
+                    contexts.filter(
+                        native_message_id__in=confirmed.values("native_message_id")
+                    )
+                    .select_related("source_document", "message")
+                    .only(
+                        "source_document__title", "source_row", "message__is_archived"
+                    )
+                    .order_by(
+                        "source_document__title", "source_document_id", "source_row"
+                    )
+                )
+                message.copy_page = Paginator(copies, 25).get_page(
+                    request.GET.get("copy_page")
+                )
+
+    page.object_list = rows
+    list_url = reverse(
+        "phone:conversation_list",
+        args=(case.pk,),
+        query={"page": list_page} if list_page > 1 else {},
+    )
     context = case_context(case, request.user) | {
         "first_person": first,
         "second_person": second,
         "page_obj": page,
         "selected_message": selected,
-        "source_documents": sources,
-        "show_message_source": mixed_sources,
         "conversation_list_url": list_url,
         "list_page": list_page,
-        "selected_source": source,
-        "page_query": urlencode(source_params),
+        "transcript_query": {
+            key: request.GET[key] for key in CONTEXT_PARAMETERS if request.GET.get(key)
+        },
+        "page_query": urlencode(page_params),
         "nav_section": "analysis",
     }
     context.update(
@@ -208,7 +243,6 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
             rows,
             selected=selected,
             params=request.GET,
-            source=source,
             list_page=list_page,
         )
     )

@@ -3,6 +3,21 @@
 .analysis-section { min-width: 0; margin-bottom: 1.5rem; padding-block: 1.5rem; border-top: 1px solid var(--divider); }
 .analysis-section > :last-child { margin-bottom: 0; }
 .analysis-section .section-header h2 { margin: 0; }
+.processing-run-summary { max-width: 46rem; }
+.processing-run-summary .section-header { align-items: baseline; gap: .5rem 1rem; margin-bottom: .5rem; }
+.processing-run-summary strong, .processing-run-counts dd { font-variant-numeric: tabular-nums; }
+.processing-run-counts { margin: 0; border-top: 1px solid var(--divider); }
+.processing-run-counts > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding-block: .5rem;
+  border-bottom: 1px solid var(--divider);
+}
+.processing-run-counts dt { margin: 0; color: var(--text); font-size: inherit; overflow-wrap: anywhere; }
+.processing-run-counts dd { margin: 0; font-weight: 600; text-align: end; }
+.processing-run-summary summary { color: var(--accent); }
+.processing-run-summary details > dl { margin-top: 0; }
 .analysis-options { display: grid; }
 .analysis-choice-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); column-gap: 2rem; }
 .analysis-catalogue-filters { max-width: none; }

@@ -11,7 +11,7 @@ from core.evidence.types import KIND_LABELS
 from core.models import AnalysisFindingSource
 
 
-def _ordered_members(finding, row):
+def ordered_members(finding, row):
     """Only a complete, validated set of citations can establish the endpoints."""
     if row["unavailable"] or not isinstance(finding.source_order, list):
         return []
@@ -31,21 +31,14 @@ def _ordered_members(finding, row):
     return [by_source[key] for key in order]
 
 
-def attach_session_groups(case, messages):
-    visible = {message.pk: message for message in messages}
-    for message in messages:
-        message.session_groups = []
-        message.session_tint = None
-        message.session_marker = ""
-        message.session_more_url = ""
-
+def session_findings(case, message_ids):
     citations = AnalysisFindingSource.objects.filter(
         case=case,
         finding_id=OuterRef("pk"),
         kind="text-message",
-        evidence_id__in=visible,
+        evidence_id__in=message_ids,
     )
-    candidates = (
+    return (
         finding_queryset(case, {"method": "sessions"})
         .filter(Exists(citations))
         .annotate(
@@ -63,12 +56,23 @@ def attach_session_groups(case, messages):
         )
         .only("id", "case_id", "result_id", "item_index", "label", "weak", "preview")
     )
+
+
+def attach_session_groups(case, messages):
+    visible = {message.pk: message for message in messages}
+    for message in messages:
+        message.session_groups = []
+        message.session_tint = None
+        message.session_marker = ""
+        message.session_more_url = ""
+
+    candidates = session_findings(case, visible)
     # Latest first, so equivalent memberships from independent analyses share
     # one presentation and link to the most recent source-validated finding.
     seen = {member: set() for member in visible}
     for batch in batched(candidates.iterator(chunk_size=50), 50, strict=False):
         for finding, row in zip(batch, finding_rows(case, batch), strict=True):
-            members = _ordered_members(finding, row)
+            members = ordered_members(finding, row)
             membership = frozenset(members)
             visible_members = seen.keys() & membership
             if not visible_members:

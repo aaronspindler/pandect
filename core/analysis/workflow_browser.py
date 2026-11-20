@@ -7,6 +7,7 @@ from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
 from core.models import AnalysisRun, CaseAnalysisBatch
 from people.models import Person
@@ -73,7 +74,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
             batch=self.batch,
         )
 
-    def capture_layouts(self, page, engine, name):
+    def capture_layouts(self, page, engine, name, *, section=None):
         for width, height, suffix in (
             (1440, 900, "desktop"),
             (1440, 1024, "desktop-tall"),
@@ -85,9 +86,13 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
             self.assertLessEqual(
                 page.evaluate("document.documentElement.scrollWidth"), width + 1
             )
+            if section is not None:
+                section.evaluate("element => element.scrollIntoView()")
             self.capture(page, engine, f"{name}-{suffix}")
         page.evaluate("document.documentElement.style.fontSize = '200%'")
         self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 321)
+        if section is not None:
+            section.evaluate("element => element.scrollIntoView()")
         self.capture(page, engine, f"{name}-large-text")
         page.evaluate("document.documentElement.style.fontSize = ''")
         page.set_viewport_size({"width": 1440, "height": 900})
@@ -277,3 +282,55 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 self.capture_layouts(page, engine, "processing-owner")
         self.assertEqual(self.db(AnalysisRun.objects.filter(case=self.case).count), 3)
+
+    def test_processing_analysis_run_breakdown_without_javascript(self):
+        saved_runs = {
+            "style_profiles": 7,
+            "style_change": 3,
+            "copied_text": 3,
+            "text_topics": 5,
+            "comm_patterns": 1,
+        }
+        AnalysisRun.objects.bulk_create(
+            AnalysisRun(
+                case=self.case,
+                requested_by=self.owner,
+                operation=operation,
+                method_version=OPERATIONS[operation].version,
+                inputs=[{"kind": "text-message", "evidence_id": str(self.message.pk)}],
+                status=AnalysisRun.Status.COMPLETE,
+            )
+            for operation, count in saved_runs.items()
+            for _ in range(count)
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
+                counts = page.locator("#processing-analysis-runs")
+                expect(counts.get_by_text("21 saved runs", exact=True)).to_be_visible()
+                expect(counts.locator("dt:visible")).to_have_count(5)
+                disclosure = counts.locator("#processing-analysis-runs-more > summary")
+                expect(disclosure).to_have_text("1 more method")
+                additional_method = counts.get_by_text(
+                    "Inspect message timing", exact=True
+                )
+                expect(additional_method).to_be_hidden()
+                disclosure.focus()
+                expect(disclosure).to_be_focused()
+                disclosure.press("Enter")
+                expect(additional_method).to_be_visible()
+                disclosure.press("Space")
+                expect(additional_method).to_be_hidden()
+                self.capture_layouts(
+                    page, engine, "processing-analysis-runs", section=counts
+                )
+                page.set_viewport_size({"width": 390, "height": 844})
+                counts.evaluate("element => element.scrollIntoView()")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "processing-analysis-runs-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "processing-analysis-runs-forced-colors")

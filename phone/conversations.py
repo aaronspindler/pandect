@@ -2,7 +2,9 @@
 
 from urllib.parse import urlencode
 
-from django.db.models import Q
+from django.db.models import CharField, Count, F, Min, Q, UUIDField, Value
+from django.db.models.fields.json import KT
+from django.db.models.functions import Cast, Collate, NullIf, Trim
 from django.urls import reverse
 
 from core.evidence.queries import scoped_evidence
@@ -24,6 +26,45 @@ def imported_contexts(case):
     )
 
 
+def matching_copy_groups(contexts):
+    """One native ID, one exact original and at most one row in each export."""
+    return (
+        contexts.exclude(native_message_id__regex=r"^\s*$")
+        .order_by()
+        .values("native_message_id")
+        .annotate(
+            copy_count=Count("pk"),
+            export_count=Count("source_document_id", distinct=True),
+            original_count=Count("message__sha256", distinct=True),
+            dated_count=Count("message__occurred_at"),
+            service_count=Count(
+                NullIf(Trim(KT("account_identifiers__service")), Value("")),
+                distinct=True,
+            ),
+            # PostgreSQL has no min(uuid). C ordering matches the UUID tie-break.
+            representative=Cast(
+                Min(Collate(Cast("message_id", CharField()), "C")), UUIDField()
+            ),
+        )
+        .filter(
+            copy_count__gt=1,
+            export_count=F("copy_count"),
+            original_count=1,
+            service_count__lte=1,
+            dated_count=F("copy_count"),
+        )
+    )
+
+
+def timeline_messages(messages, contexts, groups):
+    copies = contexts.filter(
+        native_message_id__in=groups.values("native_message_id")
+    ).values("message_id")
+    return messages.filter(
+        ~Q(pk__in=copies) | Q(pk__in=groups.values("representative"))
+    ).order_by(F("occurred_at").asc(nulls_last=True), "pk")
+
+
 def conversation_list_page(value):
     try:
         return max(1, int(value))
@@ -31,7 +72,7 @@ def conversation_list_page(value):
         return 1
 
 
-def conversation_url(case, message, *, source=None, list_page=1):
+def conversation_url(case, message, *, list_page=1):
     first, second = sorted((message.sender_id, message.recipient_id))
     url = reverse(
         "phone:conversation_detail",
@@ -42,21 +83,18 @@ def conversation_url(case, message, *, source=None, list_page=1):
         },
     )
     params = {"message": str(message.pk)}
-    if source:
-        params["source"] = str(source)
     if list_page > 1:
         params["list_page"] = list_page
     return f"{url}?{urlencode(params)}#message-{message.pk}"
 
 
-def preceding_messages(messages, selected):
+def preceding_messages(messages, selected, *, row_id):
     """Use the reader's total order without loading earlier message bodies."""
     if selected.occurred_at is None:
         return messages.filter(
-            Q(occurred_at__isnull=False)
-            | Q(occurred_at__isnull=True, pk__lt=selected.pk)
+            Q(occurred_at__isnull=False) | Q(occurred_at__isnull=True, pk__lt=row_id)
         )
     return messages.filter(
         Q(occurred_at__lt=selected.occurred_at)
-        | Q(occurred_at=selected.occurred_at, pk__lt=selected.pk)
+        | Q(occurred_at=selected.occurred_at, pk__lt=row_id)
     )

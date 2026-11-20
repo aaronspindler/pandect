@@ -77,6 +77,31 @@ def semantic_cross_channel_links(sources, parameters, *, infer=None):
     return result
 
 
+def summary_chunks(groups):
+    """Pack ordered (message, character count) pairs without cutting a message."""
+    chunks = []
+    for index, group in enumerate(groups, 1):
+        batch = []
+        size = 0
+        for message, characters in group:
+            if characters > 16_000:
+                raise ValidationError(
+                    "One message exceeds the 16,000-character summary chunk limit."
+                )
+            if batch and size + characters > 16_000:
+                chunks.append((index, batch))
+                batch, size = [], 0
+            batch.append(message)
+            size += characters
+        if batch:
+            chunks.append((index, batch))
+    if len(chunks) > 20:
+        raise ValidationError(
+            "Select at most 20 conversation-aware summary chunks per run."
+        )
+    return chunks
+
+
 def session_summaries(sources, parameters, *, infer=None):
     "Keep message/session boundaries intact when making bounded summary calls."
     messages, groups, gap = _session_groups(sources, parameters)
@@ -89,26 +114,9 @@ def session_summaries(sources, parameters, *, infer=None):
             "Session summaries need a configured local or external AI runtime.",
             outcome="unsupported",
         )
-    chunks = []
-    for index, group in enumerate(groups, 1):
-        batch = []
-        size = 0
-        for source in group["sources"]:
-            if len(source.text) > 16_000:
-                raise ValidationError(
-                    "One message exceeds the 16,000-character summary chunk limit."
-                )
-            if batch and size + len(source.text) > 16_000:
-                chunks.append((index, batch))
-                batch, size = [], 0
-            batch.append(source)
-            size += len(source.text)
-        if batch:
-            chunks.append((index, batch))
-    if len(chunks) > 20:
-        raise ValidationError(
-            "Select at most 20 conversation-aware summary chunks per run."
-        )
+    chunks = summary_chunks(
+        [(source, len(source.text)) for source in group["sources"]] for group in groups
+    )
     items = []
     outcomes = []
     warnings = [

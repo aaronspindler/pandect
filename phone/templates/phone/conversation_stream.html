@@ -1,0 +1,42 @@
+<ol class="conversation-messages" data-conversation-items data-page="{{ page_obj.number }}">
+  {% for message in page_obj %}
+  {% ifchanged message.occurred_at|date:'Y-m-d' %}<li class="conversation-date" data-conversation-day="{{ message.occurred_at|date:'Y-m-d'|default:'unknown' }}">{% if message.occurred_at %}<h3>{{ message.occurred_at|date:'l, j F Y' }}</h3>{% else %}<h3>Time not recorded</h3>{% endif %}</li>{% endifchanged %}
+  <li class="conversation-message{% if message.sender_id == second_person.pk and first_person.pk != second_person.pk %} conversation-message-second{% endif %}" id="message-{{ message.pk }}" data-message-key="{{ message.timeline_id }}" tabindex="-1" data-analysis-page="{{ message.analysis.page_obj.number|default:'' }}"{% if message.analysis.load_on_open %} data-load-panel-on-open{% endif %}{% if selected_message.pk == message.pk %} data-selected-message{% endif %}{% if message.session_tint %} data-session-tint="{{ message.session_tint }}"{% endif %}>
+    {% if message.session_marker %}<span class="conversation-session-marker">{{ message.session_marker }}{% if message.copy_count > 1 %} · Shown record{% endif %}</span>{% endif %}
+    <article class="conversation-bubble" aria-labelledby="message-sender-{{ message.pk }}">
+      <header class="conversation-message-header">
+        <strong id="message-sender-{{ message.pk }}">{{ message.sender }}</strong>
+        {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'H:i:s T' }}</time>{% else %}<span>Time not recorded</span>{% endif %}
+        {% if message.is_archived %}<span class="conversation-archived">Archived</span>{% endif %}
+        <span class="conversation-selected-label">Selected</span>
+        <a class="conversation-select" data-message-select data-tooltip="Message details" title="Message details" href="{% querystring transcript_query message=message.pk page=None analysis_page=message.analysis.page_obj.number|default:None %}#message-{{ message.pk }}"{% if selected_message.pk == message.pk %} aria-current="true"{% endif %}>
+          <span class="sr-only">Message details for {{ message.sender }}{% if message.occurred_at %}, {{ message.occurred_at|date:'j M Y, H:i:s T' }}{% else %}, {{ message.title }}{% endif %}</span>
+          {% include 'ui/components/icon.html' with name='chevron-right' %}
+        </a>
+      </header>
+      <div class="conversation-message-body">{{ message.body }}</div>
+      <small class="conversation-message-source">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %}</small>
+    </article>
+    {% if message.copy_count > 1 %}
+    <div class="conversation-copies">
+      {% if message.copy_page %}
+      <a class="record-link" id="copies-{{ message.timeline_id }}" aria-expanded="true" href="{% querystring transcript_query message=None analysis_page=None page=page_obj.number %}#copies-{{ message.timeline_id }}">Hide {{ message.copy_count }} retained copies</a>
+      <ul class="record-list">
+        {% for copy in message.copy_page %}<li><a class="record-link" href="{% querystring transcript_query message=copy.message_id analysis_page=None page=None %}#message-{{ copy.message_id }}">{{ copy.source_document.title }} · Row {{ copy.source_row }}{% if copy.message.is_archived %} · Archived{% endif %}</a></li>{% endfor %}
+      </ul>
+      {% with copies=message.copy_page %}{% if copies.has_other_pages %}
+      <nav class="pagination" aria-label="Retained copy pages">
+        {% if copies.has_previous %}<a class="record-link" href="{% querystring transcript_query message=None analysis_page=None page=page_obj.number copies=message.timeline_id copy_page=copies.previous_page_number %}#copies-{{ message.timeline_id }}">Previous copies</a>{% endif %}
+        <span>Page {{ copies.number }} of {{ copies.paginator.num_pages }}</span>
+        {% if copies.has_next %}<a class="record-link" href="{% querystring transcript_query message=None analysis_page=None page=page_obj.number copies=message.timeline_id copy_page=copies.next_page_number %}#copies-{{ message.timeline_id }}">Next copies</a>{% endif %}
+      </nav>
+      {% endif %}{% endwith %}
+      {% else %}
+      <a class="record-link" id="copies-{{ message.timeline_id }}" aria-expanded="false" href="{% querystring transcript_query message=None analysis_page=None page=page_obj.number copies=message.timeline_id %}#copies-{{ message.timeline_id }}">Show {{ message.copy_count }} retained copies</a>
+      {% endif %}
+    </div>
+    {% endif %}
+    <template data-message-content>{% if selected_message.pk != message.pk and not message.analysis.load_on_open %}{% include 'phone/message_panel.html' %}{% endif %}</template>
+  </li>
+  {% endfor %}
+</ol>

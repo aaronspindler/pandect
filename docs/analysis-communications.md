@@ -103,9 +103,11 @@ keyword/topic analysis can retain its independent keyword results.
 identify the rejected category without retaining source text or model responses.
 
 **Case Tools → Conversations** [reads retained messages](evidence.md#reading-conversations)
-from imports/individual entries, optionally filtered by export. Select a message
-to inspect its source, findings and any saved session boundary. Reading the
-transcript starts no analysis. The methods below use
+from all imports and individual entries. Select a message to inspect its source,
+findings and any saved session boundary. **Instances** pairs each saved grouping
+with a current report when the summary's covered message chunks match the
+entire membership. **Request summary** opens review for precisely those messages
+and their grouping adjustments. Reading either tab starts no analysis. The methods below use
 exact selections, potentially covering only part of a conversation.
 
 **Read inferred message sessions**, **Inspect message timing** and **Summarize

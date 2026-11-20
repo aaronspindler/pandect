@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from django.core.paginator import Paginator
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 from django.http import Http404
 from django.views.decorators.http import require_safe
 
@@ -12,7 +12,7 @@ from config.access import product_login_required
 from core.analysis.errors import error_message
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.navigation import history_filters, query_suffix
-from core.analysis.operations import OPERATIONS
+from core.analysis.operations import OPERATION_GROUPS, OPERATIONS
 from core.case_search.indexing import search_index_status
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS, KINDS
@@ -23,12 +23,37 @@ from socialmedia.monitor_jobs import check_message
 from ui.live import render_live
 
 
+def _analysis_run_counts(case_runs):
+    counts = (
+        case_runs.filter(
+            operation__in=[
+                method for group in OPERATION_GROUPS.values() for method in group
+            ],
+            status__in=(
+                AnalysisRun.Status.COMPLETE,
+                AnalysisRun.Status.PARTIAL,
+                AnalysisRun.Status.EMPTY,
+                AnalysisRun.Status.INSUFFICIENT,
+                AnalysisRun.Status.UNSUPPORTED,
+            ),
+        )
+        .values("operation")
+        .annotate(count=Count("pk"))
+        .order_by("operation")
+    )
+    rows = [
+        {"label": OPERATIONS[row["operation"]].label, "count": row["count"]}
+        for row in counts
+    ]
+    return sorted(rows, key=lambda row: (-row["count"], row["label"].casefold()))
+
+
 @product_login_required
 @require_safe
 def index(request, case_id):
     case = get_case(request.user, case_id)
-    all_runs = AnalysisRun.objects.filter(case=case).defer("parameters", "inputs")
-    all_runs = all_runs.annotate(
+    case_runs = AnalysisRun.objects.filter(case=case)
+    all_runs = case_runs.defer("parameters", "inputs").annotate(
         first_kind=F("inputs__0__kind"),
         first_evidence=F("inputs__0__evidence_id"),
         import_phase=F("parameters__phase"),
@@ -132,12 +157,15 @@ def index(request, case_id):
     )
     for check in monitor_history:
         check.message = check_message(check.error) if check.error else ""
+    analysis_run_counts = _analysis_run_counts(case_runs)
     return render_live(
         request,
         "core/analysis/processing.html",
         case_context(case, request.user)
         | {
             "nav_section": "processing",
+            "analysis_run_counts": analysis_run_counts,
+            "analysis_run_total": sum(row["count"] for row in analysis_run_counts),
             "page_obj": page,
             "active_runs": active_runs,
             "search_index": search_index,

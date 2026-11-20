@@ -32,7 +32,6 @@ from core.models import AnalysisFindingSource
 PREVIEW_COUNT = 3
 PER_PAGE = 25
 CONTEXT_PARAMETERS = (
-    "source",
     "page",
     "message",
     "list_page",
@@ -96,14 +95,12 @@ def conversation_analysis_context(
     *,
     selected=None,
     params=None,
-    source=None,
     list_page=1,
 ):
     """Resolve displayed findings together; never analyze evidence while reading."""
     params = params or {}
     params = {key: params[key] for key in CONTEXT_PARAMETERS if params.get(key)}
     # Use the already authorized objects rather than propagating unvalidated values.
-    params["source"] = str(source.pk) if source else ""
     params["list_page"] = list_page if list_page > 1 else ""
     show_weak = params.get("weak") == "1"
     params["weak"] = "1" if show_weak else ""
