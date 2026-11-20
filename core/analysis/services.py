@@ -23,6 +23,7 @@ from core.analysis.artifacts import (
     MAX_REFERENCE_TOTAL_BYTES,
     decode_artifact,
 )
+from core.analysis.diagnostics import log_analysis_failure
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
     requires_inference,
@@ -712,6 +713,7 @@ def process_run(run_id):
         run.save(update_fields=["status", "attempts", "started_at", "progress"])
     stored_files = []
     publication_finished = False
+    stage = "authorization"
     try:
         case = _authorize_run(run)
         sources = resolve_inputs(run, case)
@@ -752,7 +754,9 @@ def process_run(run_id):
         parameters = dict(run.parameters)
         if run.operation in {"geocode_locations", "geographic_context"}:
             parameters["external_processing"] = run.external_processing
+        stage = "analysis"
         data = operation.function(sources, parameters, **kwargs)
+        stage = "validation"
         if not isinstance(data, dict):
             raise AnalysisError("invalid_result")
         if "_import_analysis" in parameters:
@@ -767,6 +771,7 @@ def process_run(run_id):
         if not isinstance(artifacts, list) or len(artifacts) > 500:
             raise AnalysisError("invalid_preview")
         data = validate_output(data, sources)
+        stage = "publication"
         with transaction.atomic():
             case = authorize_run(run, lock=True)
             current = AnalysisRun.objects.select_for_update().get(pk=run.pk)
@@ -869,13 +874,16 @@ def process_run(run_id):
                 start_import_analysis(run, data)
             publication_finished = True
             return str(result.pk)
-    except PermissionDenied, Http404:
+    except (PermissionDenied, Http404) as error:
         code = "access_removed"
+        log_analysis_failure(run, error, code, stage)
     except (AnalysisError, GeocodingError) as error:
         code = error.code
-    except Exception:
+        log_analysis_failure(run, error, code, stage)
+    except Exception as error:
         # Parser/provider strings can contain private source contents.
         code = "processing_failed"
+        log_analysis_failure(run, error, code, stage)
     from core.storage import delete_original
 
     # A failed COMMIT acknowledgement or on_commit callback can follow a durable

@@ -90,6 +90,18 @@ Unknown/overlapping periods produce no interval.
 
 ## Conversation sessions and interaction
 
+Shared cited model processing supplies the model with the same limits enforced
+on its response: at most 100 suggestions, 1–10 citations per suggestion, and
+4,000 characters per suggestion or quotation. Citation source IDs must come from
+the selected inputs. Quotations must copy contiguous source text exactly,
+including punctuation, whitespace and Unicode characters. Unique quotations are
+located locally; repeated quotations require an exact zero-based character
+offset. Unsupported source references or quotations prevent model suggestions
+from publishing. Claims, links and session summaries stop without a result;
+keyword/topic analysis can retain its independent keyword results.
+[Safe worker diagnostics](background-tasks.md#failure-inspection-and-recovery)
+identify the rejected category without retaining source text or model responses.
+
 **Case Tools → Conversations** [reads retained messages](evidence.md#reading-conversations)
 from imports/individual entries, optionally filtered by export. Select a message
 to inspect its source, findings and any saved session boundary. Reading the

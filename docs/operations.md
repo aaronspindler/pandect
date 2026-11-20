@@ -22,6 +22,9 @@ not rotate passwords in initialized PostgreSQL volumes: rotate in PostgreSQL fir
 
 HTTP readiness does not prove queue execution. Use the [worker diagnostic and
 recovery procedures](background-tasks.md#startup-and-diagnostics) after startup.
+Independent Gateway analysis can use a bounded pool of
+[parallel local workers](background-tasks.md#parallel-local-workers) without
+replacing an active worker.
 
 ## Database backup and restoration
 

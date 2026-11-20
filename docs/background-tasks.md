@@ -143,6 +143,38 @@ then run:
 uv run --locked --env-file .env python manage.py check_task_worker --timeout 30
 ```
 
+### Parallel local workers
+
+Each `db_worker` process executes one task at a time. For independent Gateway AI
+jobs, add workers to the existing local Compose project:
+
+```sh
+docker compose up -d --no-deps --no-build --pull never --no-recreate \
+  --scale worker=4 worker
+docker compose ps worker
+```
+
+This starts a bounded pool of four workers using the existing application image,
+without replacing the worker already processing a task. Verify the image tag still
+matches the running web/worker image before scaling. PostgreSQL locks give each
+worker a different queue task; analysis claims and publication retain their own
+authorization, run locks and atomic transactions. No queue or execution-route
+changes are needed, and previously approved external jobs retain their destinations.
+
+All workers consume the same queue, including local checks, indexing and imports.
+Review pending operations and private inference capacity first: the private
+transcription service accepts only one request at a time, and overlapping requests
+fail recoverably as `local_ai_busy`. More workers also increase simultaneous
+Gateway requests and can encounter provider rate limits. Observe completed domain
+runs and request failures after scaling; running containers alone do not establish
+useful progress. Keep the requested replica count explicit in later scaling commands.
+
+Message-import preparation queues each bounded page's runs before its continuation.
+Parallel workers shorten that wait, but the preparation count can still pause while
+those runs execute. Individual analysis progress remains at 10% until publication.
+Before reducing replicas or restarting workers, let active operations finish;
+forced shutdown can leave abandoned running work requiring the recovery below.
+
 ## Failure inspection and recovery
 
 Task states are `READY`, `RUNNING`, `SUCCESSFUL` and `FAILED`. Operational rows/UUIDs
@@ -170,10 +202,25 @@ list(
 )
 ```
 
-Private worker logs contain task IDs, paths and status, excluding exception
-tracebacks because messages may contain sensitive input. PostgreSQL retains
-arguments, results, exceptions and tracebacks. Protect it and its backups; inspect
+Private worker logs contain task IDs, paths and status. Failed analysis also logs
+its run UUID, known operation, safe error code, execution stage, exception class,
+and at most eight application code locations (module, function and line number).
+Model validation adds one of six fixed categories: result structure, suggestion
+citations, citation structure, citation source, required quotation offset, or
+quotation mismatch. Logs exclude exception messages, source lines, local variables,
+evidence text and model responses. PostgreSQL retains task arguments, results and
+uncaught task exceptions/tracebacks. Protect it and its backups; inspect those
 tracebacks only in trusted sessions and sanitize before sharing.
+
+Analysis tasks can return normally after recording a failed domain run. Check
+`AnalysisRun.status` and `error_code`, rather than treating a `SUCCESSFUL` queue row
+as successful analysis. `GatewayRequest` retains request status, byte counts and
+token usage, without response bodies. A completed request followed by a generic
+`processing_failed` run establishes that a response arrived; it does not identify
+the later validation or publication failure. Use the safe analysis log to locate
+new failures. Older failures without these diagnostics may have no recoverable
+cause. Keep quotation validation strict. External retries require renewed approval
+through the analysis workflow.
 
 No automatic retries or stale-task reclamation exist. `READY` tasks wait for
 workers; crashes can leave `RUNNING` tasks with some effects completed. Elapsed

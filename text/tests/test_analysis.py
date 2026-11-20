@@ -562,6 +562,110 @@ class TextAnalysisTests(SimpleTestCase):
             content_events([original], {}, infer=infer)["outcome"], "empty"
         )
 
+    def test_model_contract_discloses_citation_bounds_and_exact_source_ids(self):
+        original = source("A delivery was cancelled.")
+        other = source("An unrelated source.")
+
+        def infer(prompt, schema):
+            suggestions = schema["properties"]["items"]
+            candidate = suggestions["items"]["properties"]
+            citations = candidate["citations"]
+            citation = citations["items"]["properties"]
+            self.assertEqual(suggestions["maxItems"], 100)
+            self.assertEqual(candidate["text"]["minLength"], 1)
+            self.assertEqual(candidate["text"]["maxLength"], 4000)
+            self.assertEqual(citations["minItems"], 1)
+            self.assertEqual(citations["maxItems"], 10)
+            self.assertEqual(citation["quote"]["minLength"], 1)
+            self.assertEqual(citation["quote"]["maxLength"], 4000)
+            self.assertEqual(
+                set(citation["source_id"]["enum"]), {original.id, other.id}
+            )
+            self.assertIn("contiguous substring", prompt)
+            self.assertIn("Omit start", prompt)
+            return {"items": []}
+
+        self.assertEqual(
+            content_events([original, other], {}, infer=infer)["outcome"], "empty"
+        )
+
+    def test_unique_unicode_quote_is_anchored_without_model_offsets(self):
+        original = source("🙂 The gate’s closed.\nTry tomorrow.")
+        quote = "The gate’s closed."
+        result = content_events(
+            [original],
+            {},
+            infer=lambda prompt, schema: {
+                "items": [
+                    {
+                        "kind": "cancellation",
+                        "text": "The reported sender says the gate is closed.",
+                        "citations": [{"source_id": original.id, "quote": quote}],
+                    }
+                ]
+            },
+        )
+        self.assertEqual(
+            result["items"][0]["anchors"],
+            [original.anchor(start=2, end=2 + len(quote))],
+        )
+
+    def test_model_validation_has_safe_distinct_diagnostic_categories(self):
+        original = source("The same reply. The same reply.")
+        valid = {
+            "kind": "claim",
+            "text": "A source-cited suggestion.",
+            "citations": [{"source_id": original.id, "quote": original.text}],
+        }
+        cases = (
+            ({"items": {}}, "model_result_structure"),
+            ({"items": [valid | {"citations": []}]}, "model_suggestion_citations"),
+            ({"items": [valid | {"citations": [None]}]}, "model_citation_structure"),
+            (
+                {
+                    "items": [
+                        valid | {"citations": [{"source_id": "other", "quote": "The"}]}
+                    ]
+                },
+                "model_citation_source",
+            ),
+            (
+                {
+                    "items": [
+                        valid
+                        | {"citations": [{"source_id": original.id, "quote": "reply"}]}
+                    ]
+                },
+                "model_quote_offset_required",
+            ),
+            (
+                {
+                    "items": [
+                        valid
+                        | {"citations": [{"source_id": original.id, "quote": "Absent"}]}
+                    ]
+                },
+                "model_quote_mismatch",
+            ),
+            (
+                {
+                    "items": [
+                        valid
+                        | {
+                            "citations": [
+                                {"source_id": original.id, "quote": "reply", "start": 0}
+                            ]
+                        }
+                    ]
+                },
+                "model_quote_mismatch",
+            ),
+        )
+        for response, code in cases:
+            with self.subTest(code=code), self.assertRaises(ValidationError) as caught:
+                content_events([original], {}, infer=lambda p, s, value=response: value)
+            self.assertEqual(caught.exception.code, code)
+
     def test_model_repeated_quote_needs_offset_and_missing_content_is_explicit(self):
         original = source("yes yes")
         suggestion = {

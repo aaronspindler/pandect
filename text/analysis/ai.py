@@ -172,18 +172,32 @@ def cited_model_analysis(
         "properties": {
             "items": {
                 "type": "array",
+                "maxItems": 100,
                 "items": {
                     "type": "object",
                     "properties": {
                         "kind": {"type": "string"},
-                        "text": {"type": "string"},
+                        "text": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4000,
+                        },
                         "citations": {
                             "type": "array",
+                            "minItems": 1,
+                            "maxItems": 10,
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "source_id": {"type": "string"},
-                                    "quote": {"type": "string"},
+                                    "source_id": {
+                                        "type": "string",
+                                        "enum": [str(source.id) for source in usable],
+                                    },
+                                    "quote": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 4000,
+                                    },
                                     "start": {"type": "integer", "minimum": 0},
                                 },
                                 "required": ["source_id", "quote"],
@@ -230,9 +244,19 @@ def cited_model_analysis(
         + finding_instructions
         + (
             " Return JSON items with kind, text, status, and "
-            "citations. Each citation must contain source_id and an"
-            " exact nonempty quote from that source; include start "
-            "character offset for repeated quotations. Preserve "
+            "citations. Return at most 100 items, each with 1 to 10 citations. "
+            "Copy source_id exactly from the supplied source_id values; do not "
+            "use participant IDs or invent or shorten source IDs. Each quote "
+            "must be a nonempty, contiguous substring of that exact source's "
+            "text, at most 4,000 characters. Copy spelling, punctuation, "
+            "whitespace and Unicode characters exactly. Do not paraphrase, "
+            "correct wording, add ellipses, or combine separate passages in a "
+            "quote. Keep suggestion text to 4,000 characters. Omit start when "
+            "the quote occurs only once in that source. For repeated quotes, "
+            "include a zero-based Unicode character offset into the source "
+            "text; count actual characters, not JSON escapes, bytes or UTF-16 "
+            "code units. If you cannot give an exact citation, omit the "
+            "suggestion. Preserve "
             "negation, tense, hearsay, uncertainty, "
             "quoted/sarcastic language, hypothetical wording, "
             "competing references, and contrary passages. Keep "
@@ -278,7 +302,10 @@ def cited_model_analysis(
         or not isinstance(response.get("items"), list)
         or len(response["items"]) > 100
     ):
-        raise ValidationError("The model returned an unsupported result structure.")
+        raise ValidationError(
+            "The model returned an unsupported result structure.",
+            code="model_result_structure",
+        )
     by_id = {str(s.id): s for s in usable}
     originals = (
         {key: _original_support(source) for key, source in by_id.items()}
@@ -295,12 +322,17 @@ def cited_model_analysis(
             or not isinstance(candidate.get("citations"), list)
             or not 1 <= len(candidate["citations"]) <= 10
         ):
-            raise ValidationError("A model suggestion lacks bounded source citations.")
+            raise ValidationError(
+                "A model suggestion lacks bounded source citations.",
+                code="model_suggestion_citations",
+            )
         anchors = []
         quotes = []
         for citation in candidate["citations"]:
             if not isinstance(citation, dict):
-                raise ValidationError("A model citation is invalid.")
+                raise ValidationError(
+                    "A model citation is invalid.", code="model_citation_structure"
+                )
             source = by_id.get(str(citation.get("source_id")))
             quote = citation.get("quote")
             if (
@@ -309,12 +341,22 @@ def cited_model_analysis(
                 or not quote
                 or len(quote) > 4000
             ):
-                raise ValidationError("A model citation refers to unavailable text.")
+                raise ValidationError(
+                    "A model citation refers to unavailable text.",
+                    code="model_citation_source",
+                )
             start = citation.get("start")
             if start is None:
-                if source.text.count(quote) != 1:
+                occurrences = source.text.count(quote)
+                if not occurrences:
                     raise ValidationError(
-                        "A repeated model quotation needs an exact source offset."
+                        "A model quotation does not match its source.",
+                        code="model_quote_mismatch",
+                    )
+                if occurrences > 1:
+                    raise ValidationError(
+                        "A repeated model quotation needs an exact source offset.",
+                        code="model_quote_offset_required",
                     )
                 start = source.text.find(quote)
             if (
@@ -323,7 +365,10 @@ def cited_model_analysis(
                 or start < 0
                 or source.text[start : start + len(quote)] != quote
             ):
-                raise ValidationError("A model quotation does not match its source.")
+                raise ValidationError(
+                    "A model quotation does not match its source.",
+                    code="model_quote_mismatch",
+                )
             anchors.append(source.anchor(start=start, end=start + len(quote)))
             quotes.append((str(source.id), quote))
         label = str(candidate.get("kind", "Suggestion"))
