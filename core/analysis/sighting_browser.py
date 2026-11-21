@@ -67,6 +67,9 @@ class SightingBrowserTests(BrowserTestCase):
 
     def publish_proposal(self, page):
         page.get_by_role("button", name="Save proposal").press("Enter")
+        expect(
+            page.get_by_role("status").filter(has_text=re.compile(r"^Queued$"))
+        ).to_be_visible()
         run_id = UUID(page.url.rstrip("/").split("/")[-1])
         self.assertEqual(
             self.db(AnalysisRun.objects.get, pk=run_id).status,
