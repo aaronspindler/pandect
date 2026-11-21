@@ -129,7 +129,7 @@ def add_sources(case_id, source, ids):
 
 
 def result_published(result):
-    if not profile():
+    if result.run.operation == "sighting_group" or not profile():
         return
     from itertools import batched
 

@@ -1,0 +1,89 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Sighting group · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'core:analysis:sighting_groups' case.pk %}">Back to sighting groups</a>
+<header class="page-header">
+  <div><h1>Sighting group</h1>{% if result %}<p>{{ anchor.title }}</p>{% endif %}</div>
+  {% if result %}<span class="badge">{{ outcome }}</span>{% endif %}
+</header>
+{% if issue %}<p class="notice" role="alert">{{ issue }}</p>{% endif %}
+{% if unavailable %}
+<p class="notice">Proposal unavailable. Its exact retained sources or comparisons could not be verified.</p>
+{% elif result %}
+{% if stale_code %}<p class="notice">Historical proposal. {% if stale_code == 'source_archived' %}A source is archived.{% else %}A source or comparison is no longer current.{% endif %} Review is closed for this version.</p>{% endif %}
+<p>These connections can guide review. A shared identifier, reported association or nearby observation alone cannot verify identity, ownership, presence or a shared event.</p>
+<section class="analysis-section" aria-labelledby="sighting-links">
+  <h2 id="sighting-links">Direct connections</h2>
+  {% for link in links %}
+  <details class="disclosure" open>
+    <summary><strong>{{ link.basis }}</strong> · {{ link.endpoints.1.title }}</summary>
+    {% include 'core/analysis/sighting_connection.html' with link=link only %}
+  </details>
+  {% endfor %}
+</section>
+{% if supporting or contrary %}
+<section class="analysis-section" aria-labelledby="sighting-context">
+  <h2 id="sighting-context">Investigator-selected context</h2>
+  {% if supporting %}
+  <h3>Supporting records</h3>
+  <ul class="source-list">{% for endpoint in supporting %}<li>{% include 'core/analysis/sighting_endpoint.html' with endpoint=endpoint only %}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if contrary %}
+  <h3>Contrary records</h3>
+  <ul class="source-list">{% for endpoint in contrary %}<li>{% include 'core/analysis/sighting_endpoint.html' with endpoint=endpoint only %}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+{% endif %}
+{% if alternatives.object_list or alternatives.has_other_pages %}
+<section class="analysis-section" aria-labelledby="sighting-alternatives">
+  <h2 id="sighting-alternatives">Multiple groupings</h2>
+  <p>These saved proposals share at least one exact observation or region. Each has its own review.</p>
+  <ul class="source-list">
+    {% for row in alternatives %}<li><a href="{% url 'core:analysis:sighting_detail' case.pk row.run.pk %}">{{ row.title }} · {{ row.description }}</a> <small>{{ row.run.created_at|date:'j M Y, H:i T' }}</small></li>{% endfor %}
+  </ul>
+  {% if alternatives.has_other_pages %}
+  <nav class="pagination" aria-label="Alternative group pages">
+    {% if alternatives.has_previous %}<a class="button button-secondary" href="{% querystring alternatives=alternatives.previous_page_number %}#sighting-alternatives">Previous</a>{% endif %}
+    <span>Page {{ alternatives.number }} of {{ alternatives.paginator.num_pages }}</span>
+    {% if alternatives.has_next %}<a class="button button-secondary" href="{% querystring alternatives=alternatives.next_page_number %}#sighting-alternatives">Next</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endif %}
+{% if can_edit and not stale_code %}
+<section class="analysis-section" aria-labelledby="sighting-review-heading">
+  <h2 id="sighting-review-heading">Review proposal</h2>
+  <p>Record your assessment of this group. Any later decision adds to its review history.</p>
+  <form class="form-actions" method="post" action="{% url 'core:analysis:sighting_review' case.pk run.pk %}">
+    {% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}">
+    <button class="button button-primary" type="submit" name="decision" value="accepted">Accept for review</button>
+    <button class="button button-secondary" type="submit" name="decision" value="rejected">Reject</button>
+    <button class="button button-secondary" type="submit" name="decision" value="unresolved">Unresolved</button>
+  </form>
+</section>
+{% endif %}
+{% if history_rows %}
+<details class="disclosure" id="sighting-review-history"{% if request.GET.reviews %} open{% endif %}>
+  <summary>Review history</summary>
+  <ul class="source-list">{% for entry,label in history_rows %}<li><strong>{{ label }}</strong> · {{ entry.reviewed_by.get_username }} · <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:'j M Y, H:i T' }}</time></li>{% endfor %}</ul>
+  {% if history.has_other_pages %}
+  <nav class="pagination" aria-label="Review history pages">
+    {% if history.has_previous %}<a class="button button-secondary" href="{% querystring reviews=history.previous_page_number %}#sighting-review-history">Previous</a>{% endif %}
+    <span>Page {{ history.number }} of {{ history.paginator.num_pages }}</span>
+    {% if history.has_next %}<a class="button button-secondary" href="{% querystring reviews=history.next_page_number %}#sighting-review-history">Next</a>{% endif %}
+  </nav>
+  {% endif %}
+</details>
+{% endif %}
+<details class="disclosure">
+  <summary>Processing and source versions</summary>
+  <p>Grouping method version {{ run.method_version }} · <time datetime="{{ run.created_at|date:'c' }}">{{ run.created_at|date:'j M Y, H:i T' }}</time></p>
+  {% if run.previous_run_id %}<p><a class="record-link" href="{% url 'core:analysis:sighting_detail' case.pk run.previous_run_id %}">Earlier proposal</a></p>{% endif %}
+  <p><a class="record-link" href="{% url 'core:analysis:download' case.pk run.pk %}">Download retained result</a></p>
+  {% if can_edit and not stale_code %}<form method="post" action="{% url 'core:analysis:retry' case.pk run.pk %}">
+    {% csrf_token %}<input type="hidden" name="submission_id" value="{{ retry_id }}">
+    <button class="button button-secondary" type="submit">Run again with the same inputs</button>
+  </form>{% endif %}
+</details>
+{% endif %}
+{% endblock %}

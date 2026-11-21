@@ -2,7 +2,7 @@
 {% block title %}Instagram monitors · {{ case.name }}{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><h1>Instagram monitors</h1><p>Compare followers and accounts followed between scheduled checks.</p></div>
+  <div><h1>Instagram monitors</h1></div>
   {% if can_edit %}<div class="actions">
     <a class="button button-secondary" href="{% url 'account_instagram' %}?case={{ case.pk }}">{% if connection %}Manage connection{% else %}Instagram connection{% endif %}</a>
     {% if available and permitted and connection.source == source %}<a class="button button-primary" href="{% url 'instagram:create' case.pk %}">Create monitor</a>{% endif %}
@@ -18,5 +18,5 @@
     {% endfor %}
   </div>
   {% include 'socialmedia/monitor_pagination.html' with label='Monitor pages' %}
-{% else %}<section class="empty-state"><h2>No monitors in this case</h2>{% if not can_edit %}<p>You have viewer access. Published observations will appear here.</p>{% endif %}</section>{% endif %}
+{% else %}<section class="empty-state"><h2>No monitors in this case</h2><p>Monitors track changes in followers and accounts followed between checks.</p></section>{% endif %}
 {% endblock %}

@@ -1,0 +1,10 @@
+<a class="record-link" href="{{ endpoint.original_url }}">{{ endpoint.title }}</a>
+{% if endpoint.position_origin %}<span class="muted"> · {{ endpoint.position_origin }}</span>{% endif %}
+{% if endpoint.timestamp %}<div class="muted"><time datetime="{{ endpoint.observed_at }}">{{ endpoint.timestamp|date:'j M Y, H:i:s T' }}</time></div>{% endif %}
+{% if endpoint.finding_url %}
+<div><a href="{{ endpoint.finding_url }}">{% if endpoint.reading %}Plate reading {{ endpoint.reading }}{% else %}Open exact finding{% endif %}</a><small class="muted"> · Method version {{ endpoint.finding.method_version }}</small></div>
+{% endif %}
+{% if endpoint.alternatives %}
+<div class="muted">Other readings in this region{% for reading in endpoint.alternatives %}{% if forloop.first %} · {% else %}, {% endif %}{{ reading }}{% endfor %}</div>
+{% endif %}
+{% if endpoint.anchor.source_row %}<span class="muted">Source row {{ endpoint.anchor.source_row }}</span>{% endif %}

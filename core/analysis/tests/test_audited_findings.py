@@ -80,16 +80,10 @@ class AuditedFindingTests(EvidenceViewTestMixin, TestCase):
                     ],
                 )
 
-        for url in (
-            reverse("core:analysis:index", args=[self.case.pk]),
-            self.url("detail", evidence),
-        ):
-            with self.subTest(url=url):
-                response = self.client.get(url)
-                self.assertEqual(
-                    [row["summary_text"] for row in response.context["highlights"]],
-                    [statements[1]],
-                )
+        case_home = self.client.get(reverse("core:analysis:index", args=[self.case.pk]))
+        reader = self.client.get(self.url("detail", evidence))
+        for rows in (case_home.context["highlights"], reader.context["findings_page"]):
+            self.assertEqual([row["summary_text"] for row in rows], [statements[1]])
 
         saved_link = finding_url(self.case.pk, run.pk, 0)
         detail = self.client.get(saved_link)

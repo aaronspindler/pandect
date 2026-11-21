@@ -16,8 +16,11 @@ def addition_label(source, operation):
     addition = source.attachment
     if addition is None:
         return ""
+    has_transcript = getattr(addition, "has_transcript", None)
+    if has_transcript is None:
+        has_transcript = bool(addition.transcript)
     if (
-        addition.transcript
+        has_transcript
         and source.extracted_text is None
         and operation not in {"audio_metadata", "transcription"}
     ):

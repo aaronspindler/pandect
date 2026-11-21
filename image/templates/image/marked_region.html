@@ -1,0 +1,5 @@
+{% load l10n %}
+<svg class="analysis-image-preview" viewBox="0 0 {{ region.width }} {{ region.height }}" role="img" aria-label="{% if operation == 'plate_ocr' %}Source image with the possible plate region marked{% else %}Retained image preview with the extracted text region marked{% endif %}">
+  <image href="{{ region.url }}" width="{{ region.width }}" height="{{ region.height }}"/>
+  <rect x="{{ region.x|unlocalize }}" y="{{ region.y|unlocalize }}" width="{{ region.region_width|unlocalize }}" height="{{ region.region_height|unlocalize }}" fill="none" stroke="currentColor" stroke-width="3" vector-effect="non-scaling-stroke"/>
+</svg>

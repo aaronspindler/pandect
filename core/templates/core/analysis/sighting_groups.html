@@ -1,0 +1,29 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Sighting groups · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to Case Tools</a>
+<header class="page-header">
+  <div>
+    <h1>Sighting groups</h1>
+    <p>Review possible connections across case evidence.</p>
+  </div>
+  {% if can_edit %}<a class="button button-primary" href="{% url 'core:analysis:sighting_create' case.pk %}">Create sighting group</a>{% endif %}
+</header>
+<div class="analysis-options">
+  {% for row in rows %}
+  <a href="{% url 'core:analysis:sighting_detail' case.pk row.run.pk %}">
+    <span><strong>{{ row.title }}</strong>{% if row.description %}<small>Connected to {{ row.description }}</small>{% endif %}<small>{{ row.status }} · <time datetime="{{ row.run.created_at|date:'c' }}">{{ row.run.created_at|date:'j M Y, H:i T' }}</time></small></span>
+    {% include 'ui/components/icon.html' with name='chevron-right' %}
+  </a>
+  {% empty %}
+  <p>No sighting groups have been saved.</p>
+  {% endfor %}
+</div>
+{% if page.has_other_pages %}
+<nav class="pagination" aria-label="Sighting group pages">
+  {% if page.has_previous %}<a class="button button-secondary" href="{% querystring page=page.previous_page_number %}">Previous</a>{% endif %}
+  <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a class="button button-secondary" href="{% querystring page=page.next_page_number %}">Next</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

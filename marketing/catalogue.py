@@ -383,6 +383,15 @@ ANALYSES = {
             "the distance threshold."
         ),
     },
+    "sighting_group": {
+        "label": "Review sighting groups",
+        "description": "Save selected direct connections and review their sources.",
+        "detail": (
+            "Choose an image or location observation with a retained plate "
+            "match, spatial comparison, or reported person or vehicle association. "
+            "Other evidence can supply supporting or contrary context."
+        ),
+    },
     "proximity": {
         "label": "Find observations in an area",
         "description": "Find positions within a selected radius or polygon.",
@@ -446,6 +455,15 @@ ANALYSES = {
         "detail": (
             "At least two observations and an investigator-supplied event "
             "description. Conflicting claims remain distinct."
+        ),
+    },
+    "journey_claims": {
+        "label": "Compare plans with locations",
+        "description": "Compare a quoted plan or reported event with location samples.",
+        "detail": (
+            "Select an exact passage and one or more observations, including samples "
+            "from a saved trip. Open the sources behind each comparison. Attendance, "
+            "driver identity and gaps in coverage remain open."
         ),
     },
     "geocode_locations": {

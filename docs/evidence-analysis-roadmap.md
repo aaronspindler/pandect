@@ -27,6 +27,11 @@ evidence cannot leak through retrieval or generated answers.
 
 Extend methods for observed needs; catalogue entries are not release commitments.
 
+[Sighting groups](analysis.md#sighting-groups) already use reported source
+associations, retained plate comparisons, and retained spatial findings.
+Future visual and entity-linking integrations need exact source anchors and
+reviewable comparisons before they can contribute connections.
+
 - **Images and plates:** improve supported plate conditions and evaluate
   near-duplicate comparison. Retain ambiguous readings, source regions and
   alternatives; similarity establishes neither the same capture nor owner/driver.

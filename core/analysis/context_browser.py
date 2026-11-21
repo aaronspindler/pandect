@@ -20,8 +20,10 @@ from config.tests.browser_base import BrowserTestCase
 from core.analysis.services import process_run, start_run
 from core.analysis.testing import external_grant_kwargs
 from core.models import AnalysisRun
+from document.models import DocumentEvidence
 from geo.models import LocationEvidence
 from image.models import ImageEvidence
+from image.testing import printed_layout
 
 
 def synthetic_page():
@@ -360,6 +362,41 @@ class ContextBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Synthetic OCR page", exact=True)
                 ).to_be_visible()
+                link = page.get_by_role("link", name="Visible structure", exact=True)
+                link.focus()
+                expect(link).to_be_focused()
+                link.press("Enter")
+                layout = page.get_by_role("region", name="Visible structure")
+                expect(layout.get_by_role("heading", name="Text block")).to_be_visible()
+                inspect = layout.locator("summary").first
+                inspect.press("Enter")
+                expect(layout.locator("svg rect")).to_have_count(4)
+                self.assertEqual(
+                    urljoin(
+                        page.url, layout.locator("svg image").get_attribute("href")
+                    ),
+                    preview_url,
+                )
+                self._capture_layouts(page, engine, "visible-structure")
+                for property_name, value in (("fontSize", "200%"), ("zoom", "4")):
+                    page.evaluate(
+                        "([key, value]) => document.documentElement.style[key] = value",
+                        [property_name, value],
+                    )
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"),
+                        page.evaluate("document.documentElement.clientWidth") + 1,
+                    )
+                    page.evaluate(
+                        "key => document.documentElement.style[key] = ''", property_name
+                    )
+                layout.get_by_role(
+                    "link", name=re.compile(r"Synthetic · OCR finding")
+                ).press("Enter")
+                expect(finding).to_be_visible()
+                finding.get_by_role(
+                    "link", name="Synthetic OCR page", exact=True
+                ).press("Enter")
                 with page.expect_download() as waiting:
                     page.get_by_role(
                         "link", name="Download original", exact=True
@@ -373,10 +410,98 @@ class ContextBrowserTests(BrowserTestCase):
                             AnalysisRun.objects.get(pk=identifier).method_version
                         )
                     ),
-                    "5",
+                    "6",
                 )
         self.gateway_request.assert_not_called()
         self.map_lookup.assert_not_called()
+
+    def test_document_layout_with_omitted_preview(self):
+        form, _ = printed_layout("form")
+        long_value = "LongReferenceWindowLongReferenceWindow"
+        stream = io.BytesIO()
+        with Image.open(io.BytesIO(form)) as sheet:
+            draw = ImageDraw.Draw(sheet)
+            font = ImageFont.load_default(size=25)
+            draw.text((65, 315), "Reference:", fill="black", font=font)
+            draw.text((315, 315), long_value, fill="black", font=font)
+            sheet.save(stream, format="PNG")
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic scanned form",
+            file=ContentFile(stream.getvalue(), name="scanned-form.png"),
+        )
+        columns, _ = printed_layout("columns")
+        image = ImageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic columns",
+            file=ContentFile(columns, name="columns.png"),
+        )
+        run, _ = start_run(
+            self.owner,
+            self.case.pk,
+            "ocr",
+            [
+                {"kind": "image", "id": str(image.pk)},
+                {"kind": "document", "id": str(document.pk)},
+            ],
+        )
+        with patch("image.analysis.ai.MAX_PREVIEW_BYTES", 0):
+            process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "partial", run.error_code)
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(
+                    self.url(
+                        "core:evidence:detail",
+                        case_id=self.case.pk,
+                        kind="document",
+                        evidence_id=document.pk,
+                    )
+                )
+                page.get_by_role("link", name="Visible structure").press("Enter")
+                layout = page.get_by_role("region", name="Visible structure")
+                expect(layout.get_by_role("link", name=document.title)).to_be_visible()
+                field = layout.locator("dd").filter(has_text="River Hall")
+                expect(field.locator(".layout-reading")).to_have_text("River Hall")
+                field.locator("summary").press("Enter")
+                expect(
+                    field.get_by_text("The prepared preview was omitted.", exact=False)
+                ).to_be_visible()
+                expect(
+                    field.get_by_role("link", name=re.compile(r"River · OCR finding"))
+                ).to_be_visible()
+                expect(
+                    field.get_by_role("link", name=re.compile(r"Hall · OCR finding"))
+                ).to_be_visible()
+                expect(layout.locator("svg")).to_have_count(0)
+                self.capture(page, engine, "visible-structure-form-omitted-preview")
+                page.set_viewport_size({"width": 320, "height": 844})
+                reading = layout.get_by_text(long_value, exact=True)
+                expect(reading).to_be_visible()
+                self.assertLessEqual(
+                    reading.evaluate("node => node.scrollWidth"),
+                    reading.evaluate("node => node.clientWidth") + 1,
+                )
+                reading.scroll_into_view_if_needed()
+                self.capture(page, engine, "visible-structure-long-field-reflow")
+                other_source = layout.get_by_role(
+                    "navigation", name="Layout sources"
+                ).get_by_role("link")
+                other_source.press("Enter")
+                expect(layout.get_by_role("link", name=image.title)).to_be_visible()
+                readings = layout.locator(".layout-reading")
+                expect(readings).to_have_text(["Morning", "East", "Evening", "West"])
+                layout.get_by_role("link", name="Down columns").press("Enter")
+                expect(readings).to_have_text(["Morning", "Evening", "East", "West"])
+                self.capture(page, engine, "visible-structure-alternative-order")
+        self.gateway_request.assert_not_called()
 
     def _revoke_viewer(self):
         CaseMembership.objects.filter(case=self.case, user=self.viewer).delete()

@@ -39,12 +39,11 @@
   <p class="conversation-analysis-empty muted" id="conversation-finding-visibility">{% if show_timing_only_findings %}Showing {{ conversation_timing_only_count }} timing-only finding{{ conversation_timing_only_count|pluralize }}. <a class="record-link" href="{{ finding_visibility_url }}">Hide timing-only findings</a>{% else %}{{ conversation_timing_only_count }} timing-only finding{{ conversation_timing_only_count|pluralize }} hidden. <a class="record-link" href="{{ finding_visibility_url }}">Show all findings</a>{% endif %}</p>
   {% endif %}
   {% if conversation_analysis.count %}
-  <section class="conversation-analysis conversation-shared-analysis" id="conversation-analysis" aria-labelledby="conversation-findings-heading" tabindex="-1">
-    <h2 id="conversation-findings-heading">Conversation findings · {{ conversation_analysis.count }}</h2>
+  <details class="conversation-analysis conversation-shared-analysis" id="conversation-analysis"{% if conversation_analysis.page_obj %} open{% endif %}>
+    <summary>Conversation findings ({{ conversation_analysis.count }})</summary>
     {% include 'phone/conversation_findings.html' with analysis=conversation_analysis shared=True %}
-    {% if conversation_analysis.page_obj %}<a class="record-link" href="{% querystring transcript_query conversation_analysis_page=None %}#conversation-analysis">Show preview</a>{% endif %}
-  </section>
-  {% elif not has_conversation_findings %}<p class="conversation-analysis-empty muted">No saved findings for this conversation.</p>{% endif %}
+  </details>
+  {% endif %}
   <div class="section-header conversation-section-header"><h2 id="conversation-messages-heading">Messages</h2><p class="muted">{{ page_obj.paginator.count }} message{{ page_obj.paginator.count|pluralize }} · Includes archived</p></div>
   {% include 'phone/conversation_paging.html' with direction='previous' %}
   <div class="conversation-stream">

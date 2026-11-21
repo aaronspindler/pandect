@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import re
 import struct
 import wave
 from types import SimpleNamespace
@@ -91,10 +92,28 @@ def local_ocr_response(
 ):
     from core.parsers import run_parser
 
+    words = []
+    for match in re.finditer(r"\S+", text):
+        left, right = [(10 + 70 * index / len(text)) / 100 for index in match.span()]
+        words.append(
+            {
+                "start": match.start(),
+                "end": match.end(),
+                "region": [left, 0.2, right, 0.6],
+                "confidence": 95,
+            }
+        )
     return run_parser("image_preview", content or preview_image_bytes()) | {
         "engine": "tesseract synthetic-test",
         "status": status,
         "regions": [
-            {"text": text, "bbox": [0.1, 0.2, 0.8, 0.6], "order": 0, "confidence": 95}
+            {
+                "text": text,
+                "bbox": [0.1, 0.2, 0.8, 0.6],
+                "order": 0,
+                "confidence": 95,
+                "paragraph": [1, 1, 1],
+                "words": words,
+            }
         ],
     }

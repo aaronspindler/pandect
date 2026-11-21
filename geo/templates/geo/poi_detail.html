@@ -2,7 +2,7 @@
 {% block title %}{{ poi }}{% endblock %}
 {% block content %}
 <div class="detail-layout">
-<p class="breadcrumb"><a href="{% url 'geo:case_map' case.pk %}">Back to map</a></p>
+<p class="breadcrumb"><a href="{% url 'geo:case_map' case.pk %}#map-heading">Back to map</a></p>
 <div class="page-header"><div><p class="eyebrow">Person POI</p><h1>{{ poi }}</h1></div>{% if can_edit %}<a class="button button-primary" href="{% url 'geo:poi_edit' case.pk poi.pk %}">Edit POI</a>{% endif %}</div>
 {% if not can_edit %}<p class="notice">You have viewer access to this POI.</p>{% endif %}
 <p class="help-text">Investigator annotation. A label does not verify residence, employment, or presence.</p>

@@ -1,0 +1,8 @@
+<ul class="source-list">
+  {% for endpoint in link.endpoints %}
+  <li>{% include 'core/analysis/sighting_endpoint.html' with endpoint=endpoint only %}</li>
+  {% endfor %}
+</ul>
+{% if link.facts %}<dl class="analysis-measurements">
+  {% for label,value in link.facts.items %}<div><dt>{{ label }}</dt><dd>{{ value|default_if_none:'Unknown' }}</dd></div>{% endfor %}
+</dl>{% endif %}

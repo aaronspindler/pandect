@@ -1,4 +1,3 @@
-{% load l10n %}
 <article class="analysis-finding" id="finding-{{ item.number }}" tabindex="-1" aria-labelledby="finding-heading-{{ item.number }}">
   <header class="analysis-finding-heading">
     {% if focused_finding %}
@@ -39,10 +38,7 @@
   {% if item.preview and not shared_preview and focused_finding %}
   {% if item.plate_candidate %}<details class="disclosure" open><summary>Region on source image</summary>{% endif %}
   <figure>
-    <svg class="analysis-image-preview" viewBox="0 0 {{ item.preview.width }} {{ item.preview.height }}" role="img" aria-label="{% if item.plate_candidate %}Source image with the possible plate region marked{% else %}Retained image preview with the extracted text region marked{% endif %}">
-      <image href="{{ item.preview.url }}" width="{{ item.preview.width }}" height="{{ item.preview.height }}"/>
-      <rect x="{{ item.preview.x|unlocalize }}" y="{{ item.preview.y|unlocalize }}" width="{{ item.preview.region_width|unlocalize }}" height="{{ item.preview.region_height|unlocalize }}" fill="none" stroke="currentColor" stroke-width="3" vector-effect="non-scaling-stroke"/>
-    </svg>
+    {% include 'image/marked_region.html' with region=item.preview operation=run.operation only %}
     <figcaption>Retained preview. The outline marks the region used for this candidate in the original pixel orientation.</figcaption>
   </figure>
   {% if item.plate_candidate %}</details>{% endif %}
@@ -71,7 +67,9 @@
   {% if item.display_sources %}
   {% if focused_finding and not show_result_overview %}<h2 class="analysis-finding-sources-heading">Sources</h2>{% elif focused_finding %}<h3 class="analysis-finding-sources-heading">Sources</h3>{% else %}<h4 class="analysis-finding-sources-heading">Sources</h4>{% endif %}
   <div{% if item.comparison_sources %} class="analysis-source-comparison"{% endif %}>
-    {% include 'core/analysis/finding_sources.html' with sources=item.display_sources %}
+    {% if item.comparison_links %}
+    <ul class="source-list">{% for label,url in item.comparison_links %}<li><a class="record-link" href="{{ url }}">{{ label }}</a></li>{% endfor %}</ul>
+    {% else %}{% include 'core/analysis/finding_sources.html' with sources=item.display_sources %}{% endif %}
   </div>
   {% endif %}
 

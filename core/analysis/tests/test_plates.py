@@ -74,7 +74,7 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.status, "partial", run.error_code)
         return image, run
 
-    def test_eligible_repeat_can_supply_an_evidence_highlight(self):
+    def test_evidence_includes_repeats_and_labels_low_ocr_scores(self):
         run = self.start()
         source = run.inputs[0]["id"]
         AnalysisRun.objects.filter(pk=run.pk).update(status="complete")
@@ -97,8 +97,10 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
         )
         self.login("viewer")
         response = self.client.get(self.url("detail", self.image, kind="image"))
-        self.assertEqual([row["index"] for row in response.context["highlights"]], [1])
-        self.assertTrue(response.context["highlights"][0]["review_reason"])
+        rows = response.context["findings_page"]
+        self.assertEqual({row["index"] for row in rows}, {0, 1})
+        self.assertEqual({row["index"] for row in rows if row["low_ocr_score"]}, {0})
+        self.assertContains(response, "Low OCR score")
 
     def test_weak_regions_are_hidden_without_renumbering_findings_or_leaking_text(self):
         image, run = self.mixed_run()
@@ -117,6 +119,13 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
         shown = self.client.get(url, {"weak": "1"})
         self.assertEqual(len(shown.context["items"]), 15)
         self.assertTrue(all("weak=1" in item["url"] for item in shown.context["items"]))
+        reader = self.client.get(self.url("detail", image, kind="image"))
+        weak = next(
+            row for row in reader.context["findings_page"] if row.get("weak_label")
+        )
+        self.assertIn("weak=1", weak["url"])
+        self.assertContains(reader, "Weak plate region")
+        self.assertContains(reader, "&lt;b&gt;NOISE987&lt;/b&gt;")
         self.assertContains(shown, "&lt;b&gt;NOISE987&lt;/b&gt;")
         self.assertNotContains(shown, "<b>NOISE987</b>")
         self.assertTrue(shown.context["show_weak_regions"])

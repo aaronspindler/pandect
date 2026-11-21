@@ -228,7 +228,9 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 page.on(
                     "pageerror", lambda error, errors=errors: errors.append(str(error))
                 )
-                page.goto(self.map_url)
+                home = reverse("core:analysis:index", args=(self.case.pk,))
+                page.goto(self.live_server_url + home)
+                page.get_by_role("link", name="Trips", exact=True).press("Enter")
                 expect(page.locator("[data-case-map]")).to_have_attribute(
                     "data-trip-complete", "true"
                 )
@@ -340,8 +342,8 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     page.emulate_media(forced_colors="active")
                     self.capture(page, engine, "trip-map-forced-colors")
                     page.emulate_media(forced_colors="none")
-                page.get_by_role(
-                    "link", name="Show trip and sources", exact=True
+                page.locator(".trip-list").get_by_role(
+                    "link", name=re.compile("Synthetic van")
                 ).click()
                 expect(
                     page.get_by_role("heading", name="Possible trip", exact=True)
@@ -383,6 +385,16 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                         "heading", name="Synthetic trip source 50", exact=True
                     )
                 ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="View possible trip")
+                ).to_have_attribute(
+                    "href",
+                    reverse("geo:trip_detail", args=(self.case.pk, self.trip.pk)),
+                )
+                page.go_back()
+                expect(page.locator(".map-location-list > li").first).to_contain_text(
+                    "50 Example Street"
+                )
                 self.assertEqual(errors, [])
                 context.close()
                 browser.close()
@@ -492,17 +504,15 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_text("Trips · Synthetic van", exact=True)
                 ).to_be_visible()
-                summary = page.get_by_role("region", name="Synthetic van", exact=True)
-                expect(summary.get_by_text("First observation")).to_be_visible()
+                trips = page.get_by_role("region", name="Possible trips", exact=True)
                 self.assertTrue(
-                    summary.evaluate("""element => Boolean(
+                    trips.evaluate("""element => Boolean(
                     element.compareDocumentPosition(document.querySelector('[data-case-map]'))
                     & Node.DOCUMENT_POSITION_FOLLOWING
                 )""")
                 )
-                expect(summary.get_by_role("link", name="Open trip")).to_be_visible()
-                page.get_by_role(
-                    "link", name="Show trip and sources", exact=True
+                page.locator(".trip-list").get_by_role(
+                    "link", name=re.compile("Synthetic van")
                 ).click()
                 expect(
                     page.get_by_role(
@@ -528,7 +538,9 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     "could not load"
                 )
                 expect(
-                    page.get_by_role("link", name="Show trip and sources")
+                    page.locator(".trip-list").get_by_role(
+                        "link", name=re.compile("Synthetic van")
+                    )
                 ).to_be_visible()
                 self.capture(page, engine, "trip-geometry-failure", wait_for_trip=False)
                 context.close()
@@ -624,7 +636,9 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     )
                 )
                 page.get_by_role("link", name="Back to map", exact=True).click()
-                page.wait_for_url(self.map_url, wait_until="domcontentloaded")
+                page.wait_for_url(
+                    self.map_url + "#map-heading", wait_until="domcontentloaded"
+                )
                 page.bring_to_front()
                 show = page.get_by_role(
                     "button", name=f"Show {label} on map", exact=True
@@ -783,6 +797,19 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     "Choose address estimates"
                 )
                 expect(page.locator(".case-map-endpoint")).to_have_count(0)
+                page.get_by_role("link", name="Findings (2)", exact=True).press("Enter")
+                findings = page.get_by_role(
+                    "region", name="Findings from trip observations"
+                )
+                expect(findings.locator(".analysis-finding-rows > li")).to_have_count(2)
+                findings.get_by_role("link", name=records[1].title, exact=True).press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_role("heading", name=records[1].title, exact=True)
+                ).to_be_visible()
+                page.go_back()
+                expect(findings).to_be_in_viewport()
                 page.get_by_role(
                     "link", name="Review address estimates for this trip", exact=True
                 ).click()

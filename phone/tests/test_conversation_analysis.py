@@ -140,7 +140,6 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(self.reader_url())
         self.assertEqual(response.context["conversation_analysis"]["count"], 0)
         self.assertEqual(response.context["conversation_timing_only_count"], 1)
-        self.assertTrue(response.context["has_conversation_findings"])
         self.assertContains(response, "1 timing-only finding hidden")
         self.assertContains(response, "Show all findings")
         self.assertNotContains(response, "No saved findings")
@@ -654,7 +653,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.publish(items=[], status="empty")
         empty = self.client.get(self.reader_url())
         self.assertEqual(self.analysis(empty, self.first)["count"], 0)
-        self.assertFalse(empty.context["has_conversation_findings"])
+        self.assertNotContains(empty, 'id="conversation-analysis"')
         self.assertNotContains(empty, "Newest saved observation")
 
     def test_changed_or_missing_run_sources_withhold_finding_content_and_links(self):

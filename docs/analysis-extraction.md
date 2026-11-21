@@ -11,15 +11,16 @@ calls have nothing to decode/transcribe; supplied transcripts remain independent
 | Native text | UTF-8, with optional BOM; unencrypted native-text PDF | Exact derived text with line/page anchors. UTF-8 BOM removal is recorded. No native text on a PDF page means visual review is needed; it does not establish a blank page. Mixed text/scanned pages produce partial coverage. Office formats are unsupported. |
 | Image metadata | JPEG and single-frame PNG | Decoded dimensions, raw EXIF/XMP, orientation, device/software claims, capture-time and GPS candidates. An absent timezone is left absent. Raw values stay available alongside interpretations. Multi-picture JPEGs inspect only the primary image with explicitly partial coverage. |
 | Audio metadata | Uncompressed signed 16-bit little-endian PCM WAV, mono/stereo, 8–48 kHz | Decoded duration, sample rate, channels and codec; numerical RMS and one-second digital-zero/full-scale sample observations. Supplied values remain separate, with discrepancies disclosed. |
-| Local OCR | JPEG/PNG source or separately retained page image, printed English | Tesseract candidate text grouped by line, normalized rectangles, reading order, minimum word confidence and engine version. Handwriting, mixed text, other languages, direct PDF rendering and complex layouts are unsupported. |
+| Local OCR | JPEG/PNG source or separately retained page image, printed English | Searchable OCR lines and word-anchored candidates for text blocks, rows, labelled fields and apparent messages. Complex layouts can have several readings. Handwriting, mixed text, other languages and direct PDF rendering are unsupported. |
 | Find vehicle plates | One retained JPEG/PNG image | Local geometric region detection and three Tesseract readings per possible plate. Crops, source rectangles, processing settings and engine scores remain reviewable. This is a bounded heuristic for roughly horizontal rectangular plates with a central Latin text line; other shapes, scripts and layouts can be missed. |
 | Transcription | The supported WAV profile, English input | Candidate text with source recording intervals and original-timeline chunk offsets. No speaker identity or diarization. Non-English input profiles are unsupported. |
 
 Tesseract/English data runs entirely on the worker, without credentials, network
 requests or remote fallback. Uploads and **Run checks again** queue image metadata,
 OCR and plate search; successful ordinary OCR queues identifier/date/keyword
-checks on that exact extraction. Document JPEG/PNG page images support manual
-**Read text in images**.
+checks on that exact extraction. Current upload and reprocessing batches also
+recognize JPEG/PNG page images retained as Documents. **Read text in images**
+can be run manually on either evidence type.
 
 `.jpg`/`.jpeg` support includes 48 MP iPhone RAW exports saved as JPEG within
 byte/pixel limits. MPO previews/metadata/OCR inspect only the primary image,
@@ -53,6 +54,40 @@ source anchors. The findings catalogue surfaces timed segments flagged for
 uncertain speech so an investigator can check the audio.
 
 ## Source anchors and interpretation
+
+### Visible structure in images
+
+Open **Visible structure** on an image or document-page OCR result to inspect
+apparent messages, receipt rows, labelled fields and text blocks. Each field
+points to the words that support it on the private recognition preview. Its
+score is the lowest Tesseract word score for that field. Original line findings
+retain the engine's reading order. The layout view uses word positions and
+spacing to suggest groups and reading order.
+
+Keep both readings when text could run across rows or down columns. A clipped
+edge, competing labels, or a missing cell can leave a candidate incomplete.
+A message body can span aligned lines in one OCR paragraph. Nearby text with
+an unclear boundary stays separate. Misaligned cells between receipt rows keep
+their word regions and have no assigned column.
+A screenshot can imitate any interface. Participant and time labels describe
+visible text only. They do not establish an account, message time, thread or
+reply. Check the cited regions before interpreting a value or attribution.
+
+OCR version 6 saves these candidates in the same result as the original OCR
+lines. Search and subsequent text analysis use the lines once. Earlier results
+retain their saved format. Run OCR again to obtain a new version for an older
+image. Layout is bounded to 256 OCR lines and 1,024 words per source, with
+2 MiB for detailed layout entries per run and a 4 MiB total result limit. Omitted structure
+is disclosed with partial coverage. If a preview was omitted, the word
+coordinates and source link remain available for retained candidates.
+
+Local recognition checks use generated printed-English chat, receipt, form and
+mildly skewed JPEG page fixtures. They check literal readings and grouping.
+For each expected word, the intersection of its detected and known ink boxes
+must cover at least half their union. Controlled engine outputs exercise low scores,
+missing cells, repeated labels, cropped words and ambiguous columns. These
+checks cover the fixture conditions. Performance on arbitrary photographs,
+handwriting or interfaces has not been established.
 
 ### Vehicle plate candidates
 

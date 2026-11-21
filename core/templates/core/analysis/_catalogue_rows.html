@@ -6,7 +6,8 @@
       <a class="record-link" href="{{ item.url }}"><strong>{{ item.headline|default:item.label }}</strong></a>
       {% if item.unavailable %}<p class="muted">A retained source is unavailable or has changed. Open the result for details.</p>
       {% else %}
-      <small>{% if item.message_count %}Inferred session · {{ item.message_count }} message{{ item.message_count|pluralize }}{% if item.first_message_at %} · {{ item.first_message_at|date:'d M Y, H:i T' }}{% if item.first_message_at != item.last_message_at %} to {{ item.last_message_at|date:'d M Y, H:i T' }}{% endif %}{% else %} · Time unavailable{% endif %}{% else %}{{ item.label }}{% endif %}{% if item.uses_ai %} · AI-assisted run{% endif %}{% if item.partial %} · Partial coverage{% endif %}{% if item.weak_label %} · {{ item.weak_label }}{% endif %}</small>
+      {% if item.message_count %}<small>Inferred session · {{ item.message_count }} message{{ item.message_count|pluralize }}{% if item.first_message_at %} · {{ item.first_message_at|date:'d M Y, H:i T' }}{% if item.first_message_at != item.last_message_at %} to {{ item.last_message_at|date:'d M Y, H:i T' }}{% endif %}{% else %} · Time unavailable{% endif %}</small>{% elif item.headline and item.headline != item.label %}<small>{{ item.label }}</small>{% endif %}
+      {% if item.uses_ai %}<small>AI-assisted run</small>{% endif %}{% if item.partial %}<small>Partial coverage</small>{% endif %}{% if item.weak_label %}<small>{{ item.weak_label }}</small>{% endif %}
       {% if not item.headline and item.preview and item.preview != item.label %}<p>{{ item.preview }}</p>{% endif %}
       {% if item.review_reason %}<small>{{ item.review_reason }}</small>{% endif %}
       {% if item.warning %}<small>{{ item.warning }}</small>{% endif %}

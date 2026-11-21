@@ -15,7 +15,7 @@ existing imports after preparation.
 
 **Browse all findings** searches retained labels, text and measurements, with 25
 findings per page and filters for method, evidence type, specific evidence, and person.
-**All findings from this evidence** applies the exact-source filter. Archived
+The evidence reader applies the exact-source filter directly. Archived
 sources and weak plate regions remain labelled.
 
 Message timing reports, writing profile measurements and comparison intervals,
@@ -46,7 +46,7 @@ The same reporting rules apply to known older result shapes. Existing saved
 items keep their indexes, links and downloads. Case-specific exclusions from the
 findings list preserve those items and their source links.
 
-Evidence highlights, exact-evidence catalogue pages, saved run findings and
+Evidence findings, exact-evidence catalogue pages, saved run findings and
 conversation finding lists use review priority before previews and pagination.
 The first occurrence of each distinct finding comes first. Repeated identifier
 readings and equivalent observations of the same source material follow in the
@@ -151,6 +151,34 @@ type, evidence type, person, and result history. An empty view does not establis
 that no connection exists. Editors can start an identifier check from the empty
 state. Linked extraction and identifier checks can extend coverage.
 
+### Sighting groups
+
+Open **Case Tools → Sighting groups** to save a proposal across retained
+observations. Owners and editors choose one anchor, select its direct
+connections, and can add supporting or contrary records. Viewers can inspect
+the proposal and its review history. Saving requires at least one direct
+connection. Select up to 12 direct connections from a single anchor or image
+region, plus up to 12 records in each context role.
+
+Each connection shows both original observations and its basis. **Explicit
+source association** uses the reported person or vehicle on retained location
+records. **Shared identifier** compares exact normalized plate candidates and
+retains the original regions, readings, and competing variants. Matching file
+checksums flag copies. **Time/place proximity** uses already-retained spatial
+group or co-location findings with their original tolerances and position
+sources. Visual similarity and general entity matching are unavailable.
+
+Connections apply only to the displayed pair. They establish neither identity
+nor a common event. Group decisions are recorded separately from source records.
+Overlapping proposals can retain different decisions. The detail page links to
+the original regions and observations, exact comparison versions, prior runs,
+and alternative proposals.
+
+Saving and reviewing groups use local database records and make no inference
+or geographic service requests. Archived or superseded inputs leave a proposal
+available as history with review closed. Missing or changed originals withhold
+the result and its download. To use newer comparisons, start a new proposal.
+
 Private uncached result/provenance/reference JSON downloads retain `.json` names
 and JSON bytes, using `application/octet-stream` plus attachment disposition for
 reliable browser saves, including Linux WebKit. Image previews remain inline JPEG.
@@ -198,12 +226,12 @@ identifiers/dates/keywords and location quality/address normalization. New call
 transcripts/recordings process independently. Extraction follow-ups bind that exact
 version. Unsupported/insufficient inputs remain visible outcomes.
 
-Evidence readers show up to twelve distinct highlights from the latest
-equivalent results citing that evidence. They check up to 50 ranked candidates
-for readable sources and usable content, omit weak OCR and timing-only
-findings, and disclose when the check limit leaves the preview incomplete.
-**Analysis outcomes** links every check that used the evidence, including saved
-reports, partial and empty results, and checks still in progress or stopped.
+Evidence readers list every current published finding that cites the selected
+original or one of its attachments, 25 per page, in review-priority order.
+Weak findings remain visible with their qualifiers. A finding citing several
+sources appears once. Opening a finding and returning restores the evidence
+collection and findings page. **Analysis history** links to checks that used
+the evidence, including superseded results, reports, empty results, and failures.
 Single-source summaries appear only after the retained input is verified.
 Results covering a selection open with the full result and its citations.
 Failed and cancelled work retains its status and recovery details.
@@ -310,8 +338,10 @@ and individual findings. The findings browser marks
 **AI-assisted run** because a
 single run can combine observed keywords or timing with model suggestions.
 
-- Image metadata distinguishes embedded/supplied claims. OCR/plates retain
-  regions/crops, separate plate/OCR scores and low-score notices. Identifier
+- Image metadata distinguishes embedded/supplied claims. Image and document-page
+  OCR results link [visible structure](analysis-extraction.md#visible-structure-in-images)
+  to the words supporting each field. Plate results retain regions/crops,
+  separate plate/OCR scores and low-score notices. Identifier
   normalization appears in **Details**.
 - Document text retains native page/line anchors; recording intervals link to
   selected recording/transcript playback.

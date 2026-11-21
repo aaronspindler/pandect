@@ -780,7 +780,17 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.go_back()
                 expect(panel).to_be_hidden()
                 expect(link).to_be_visible()
+                link.press("Enter")
+                panel.get_by_role("link", name="Open evidence").press("Enter")
+                page.get_by_role("link", name="View in conversation").press("Enter")
+                expect(page.locator("[data-selected-message]")).to_have_attribute(
+                    "id", f"message-{copy.pk}"
+                )
+                expect(
+                    panel.get_by_role("link", name="Open evidence")
+                ).to_have_attribute("href", self.evidence_path(copy))
 
+    @override_settings(PANDECT_LOCAL_AI=LOCAL)
     def test_owner_opens_summary_review_for_the_expanded_instance(self):
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
@@ -1193,15 +1203,18 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.goto(url)
                 row = page.locator(f"#message-{first.pk}")
                 expect(row).not_to_contain_text("Literal wording observation")
-                shared = page.get_by_role("region", name="Conversation findings · 27")
-                expect(shared.get_by_role("heading")).to_be_visible()
+                shared = page.locator("#conversation-analysis")
+                shared_summary = shared.locator("summary")
+                expect(shared_summary).to_have_text("Conversation findings (27)")
+                expect(shared.locator(".conversation-finding").first).to_be_hidden()
+                shared_summary.press("Enter")
                 expect(shared.locator(".conversation-finding")).to_have_count(3)
                 expect(shared.locator(".conversation-finding").first).to_be_visible()
                 expect(
                     shared.get_by_role("link", name="Show message", exact=False).first
                 ).to_be_visible()
                 page.set_viewport_size({"width": 390, "height": 844})
-                shared.get_by_role("heading").scroll_into_view_if_needed()
+                shared_summary.scroll_into_view_if_needed()
                 self.assert_reflow(page, 390)
                 self.capture(page, engine, "shared-findings-preview-mobile")
                 page.set_viewport_size({"width": 1440, "height": 900})
@@ -1268,6 +1281,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.go_back()
                 expect(inline).to_be_visible()
                 expect(findings).to_have_count(25)
+                shared.locator("summary").press("Enter")
                 shared.get_by_role("link", name="More findings", exact=True).press(
                     "Enter"
                 )

@@ -36,7 +36,7 @@
       </div>
     </details>
     <details class="disclosure"{% if form.title.value or form.source.value or form.title.errors or form.source.errors %} open{% endif %}><summary>Source details for a new CSV</summary><div class="form-layout">{% include 'ui/components/form_field.html' with field=form.title only %}{% include 'ui/components/form_field.html' with field=form.source only %}</div></details>
-    <p class="muted">The original CSV stays in your evidence. Messages and people are added only after review. After a file error, select the file again; other values remain.</p>
+    <p class="muted">The original CSV stays in Evidence. Review the messages and participants before adding them.{% if form.errors and not form.document.value %} Select the file again to retry.{% endif %}</p>
     <div class="actions"><button class="button button-primary" type="submit">Prepare message review</button><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Cancel</a></div>
   </form>
 </div>

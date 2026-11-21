@@ -1,7 +1,8 @@
 {% extends "ui/base.html" %}
 {% load static %}
-{% block title %}{% if detail %}Possible trip{% else %}Map{% endif %} · {{ case.name }}{% endblock %}
+{% block title %}{% if detail %}Possible trip{% else %}Trips{% endif %} · {{ case.name }}{% endblock %}
 {% block extra_head %}
+{% if detail %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endif %}
 <link rel="stylesheet" href="{% static 'geo/vendor/leaflet/leaflet.css' %}">
 <link rel="stylesheet" href="{% static 'geo/map.css' %}">
 <link rel="stylesheet" href="{% static 'geo/trips.css' %}">
@@ -10,12 +11,12 @@
 <script src="{% static 'geo/prepare_trips.js' %}" defer></script>
 {% endblock %}
 {% block content %}
-{% if detail %}<a class="back-link" href="{{ back_url }}">Back to map</a>{% endif %}
+{% if detail %}<a class="back-link" href="{{ back_url }}#trip-list">Back to trips</a>{% endif %}
 <header class="page-header">
-  <div><h1>{% if detail %}Possible trip{% else %}Map{% endif %}</h1>{% if not detail %}<p class="muted">Possible vehicle trips and investigator POIs.</p>{% endif %}</div>
-  {% if can_edit %}<a class="button {% if detail %}button-secondary{% else %}button-primary{% endif %}" href="{% url 'geo:poi_create' case.pk %}">Add POI</a>{% endif %}
+  <h1>{% if detail %}Possible trip{% else %}Trips{% endif %}</h1>
+  {% if not detail %}<a class="record-link" href="#map-heading">View map</a>{% endif %}
 </header>
-{% if selected_trip %}{% include 'geo/trip_outcome.html' %}{% endif %}
+{% if detail %}{% include 'geo/trip_outcome.html' %}{% endif %}
 {% if form %}
 {% if filters_applied and not form.errors %}
 <p class="muted map-scope">
@@ -40,9 +41,44 @@
 </div>
 {% endpartialdef %}
 {% if needs_prepare %}{% include 'geo/prepare_trips.html' %}{% endif %}
+{% partialdef trips inline %}
+<div id="map-trips" data-live-region data-live-poll="false">
+<section class="content-section" aria-labelledby="trip-list" tabindex="-1">
+  <div class="section-header"><h2 id="trip-list">Possible trips</h2><span class="muted">{{ page_obj.paginator.count }} possible trip{{ page_obj.paginator.count|pluralize }}</span></div>
+  {% if trips %}
+  <ol class="trip-list">
+    {% for trip in trips %}
+    <li class="trip-row">
+      <div class="trip-heading">
+        <h3><a class="record-link" href="{{ trip.detail_url }}">{{ trip.vehicle }} · <time datetime="{{ trip.start.time|date:'c' }}">{{ trip.start.time|date:'j M Y, H:i T' }}</time></a></h3>
+        <span class="muted">{{ trip.minutes|floatformat:'-1' }} min elapsed</span>
+      </div>
+      <p>{{ trip.start.place }} → {{ trip.end.place }}</p>
+      <p class="muted">{{ trip.source_count }} observations · {{ trip.basis }}</p>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Trip pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#trip-list">Previous trips</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#trip-list">Next trips</a>{% endif %}</nav>{% endif %}
+  {% else %}<div class="empty-state compact-empty"><h3>{% if form.errors %}Check the search and filters{% elif trip_filters_applied %}No matching trips{% else %}No trips available yet{% endif %}</h3><p>{% if form.errors %}Correct the highlighted fields to see trips.{% elif trip_filters_applied %}Clear or broaden the filters to see more trips.{% elif pending %}Trips will appear when preparation finishes.{% else %}Timed observations for the same vehicle must show a change of place to form a possible trip. Stationary observations alone do not form a trip.{% endif %}</p>
+  {% if trip_filters_applied or form.errors %}<a class="record-link" href="{{ map_url }}">Clear filters</a>{% elif can_edit and not pending %}<div class="actions"><a class="record-link" href="{% url 'geo:vehicle_import_upload' case.pk %}">Import vehicle locations</a><a class="record-link" href="{% url 'core:evidence:create' case.pk %}?kind=vehicle-location">Add a vehicle location</a></div>{% else %}<a class="record-link" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a>{% endif %}</div>{% endif %}
+</section>
+</div>
+{% endpartialdef %}
 {% endif %}
 <section class="case-map-section" aria-labelledby="map-heading" data-case-map data-geometry-url="{{ geometry_url }}" {% if can_edit %}data-poi-create-url="{% url 'geo:poi_create' case.pk %}"{% endif %} data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}">
-  <div class="section-header"><div><h2 id="map-heading"{% if not detail %} class="sr-only"{% endif %}>Trip map</h2>{% if not detail and poi_page %}<p class="muted map-summary">{{ poi_mapped_count }} of {{ poi_page|length }} POIs mapped</p>{% endif %}</div><div class="actions"><button type="button" class="button button-secondary" data-map-fit aria-label="Show selected trip and POIs" hidden>Show all</button><a class="record-link" href="#trip-list">{% if review_estimates %}Address estimates{% elif detail %}Trip observations{% else %}Trip list{% endif %}</a>{% if poi_page or query %}<a class="record-link" href="#poi-list">POI list</a>{% endif %}</div></div>
+  <div class="section-header">
+    <div>
+      <h2 id="map-heading" tabindex="-1">Trip map</h2>
+      {% if not detail and selected_trip %}<p class="muted map-summary">{{ selected_trip.vehicle }} · {{ selected_trip.start.time|date:'j M Y, H:i T' }}</p>{% endif %}
+      {% if not detail and poi_page %}<p class="muted map-summary">{{ poi_mapped_count }} of {{ poi_page|length }} POIs mapped</p>{% endif %}
+    </div>
+    <div class="actions">
+      <button type="button" class="button button-secondary" data-map-fit aria-label="Show selected trip and POIs" hidden>Show all</button>
+      <a class="record-link" href="#trip-list">{% if review_estimates %}Address estimates{% elif detail %}Trip observations{% else %}Trip list{% endif %}</a>
+      {% if findings_page.paginator.count %}<a class="record-link" href="#trip-findings">Findings ({{ findings_page.paginator.count }})</a>{% endif %}
+      {% if poi_page or query %}<a class="record-link" href="#poi-list">Points of interest</a>{% endif %}
+    </div>
+  </div>
   <p role="status" data-map-status>Enable JavaScript to load the interactive map. Trip information and sources are available on this page.</p>
   <p role="status" data-trip-status></p>
   <p class="muted">Paths connect observations. Routes, continuous presence, drivers, and distance travelled remain unverified.</p>
@@ -66,29 +102,15 @@
     <p>Evidence files, titles, and source details are not sent to the background map provider.</p>
     <p>Address lookup sends only addresses to the configured private geocoder.</p>
     <p>P markers are investigator POIs, separate from evidence. Only this POI page is mapped; selected trips include all their observations.</p>
-    <p id="map-help">Focus the map to pan with arrow keys and zoom with + or −, or use the zoom buttons. {% if detail %}See trip observations for the source records.{% else %}Choose a trip below to inspect its sources.{% endif %}</p>
+    <p id="map-help">Focus the map to pan with arrow keys and zoom with + or −, or use the zoom buttons. {% if detail %}See trip observations for the source records.{% else %}Open a trip from the list to inspect its sources.{% endif %}</p>
   </details>
 </section>
-{% if poi_page or query %}<section class="content-section" aria-labelledby="poi-list">
-  <div class="section-header"><h2 id="poi-list">Points of interest</h2><span class="muted">{{ poi_page.paginator.count }} POI{{ poi_page.paginator.count|pluralize }}</span></div>
+{% block trip_detail %}{% endblock %}
+{% if poi_page or query or can_edit %}<section class="content-section" aria-labelledby="poi-list">
+  <div class="section-header"><h2 id="poi-list">Points of interest</h2>{% if can_edit %}<a class="record-link" href="{% url 'geo:poi_create' case.pk %}">Add POI</a>{% endif %}</div>
   {% include "geo/poi_list.html" %}
 </section>{% endif %}
-{% block trip_listing %}
-{% partialdef trips inline %}
-<div id="map-trips" data-live-region data-live-poll="false">
-<section class="content-section" aria-labelledby="trip-list" tabindex="-1">
-  <div class="section-header"><h2 id="trip-list">Trips</h2><span class="muted">{{ page_obj.paginator.count }} possible trip{{ page_obj.paginator.count|pluralize }}</span></div>
-  {% if trips %}
-  <ol class="trip-list">
-    {% for trip in trips %}<li class="trip-row"><div class="trip-heading"><h3 id="map-trip-{{ trip.id }}">{{ trip.vehicle }} · {{ trip.start.time|date:'j M Y, H:i T' }}</h3><span class="muted">{{ trip.minutes|floatformat:'-1' }} min observed</span></div><p>{{ trip.start.place }} → {{ trip.end.place }}</p><p class="muted">{{ trip.source_count }} observations · {{ trip.basis }}</p><a class="record-link" href="{{ trip.detail_url }}" aria-describedby="map-trip-{{ trip.id }}">Show trip and sources</a></li>{% endfor %}
-  </ol>
-  {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Trip pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#trip-list">Previous trips</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#trip-list">Next trips</a>{% endif %}</nav>{% endif %}
-  {% else %}<div class="empty-state compact-empty"><h3>{% if form.errors %}Check the search and filters{% elif trip_filters_applied %}No matching trips{% else %}No trips available yet{% endif %}</h3><p>{% if form.errors %}Correct the highlighted fields to see trips.{% elif trip_filters_applied %}Clear or broaden the filters to see more trips.{% elif pending %}Trips will appear when preparation finishes.{% else %}Timed observations for the same vehicle must show a change of place to form a possible trip. Stationary observations alone do not form a trip.{% endif %}</p>
-  {% if trip_filters_applied or form.errors %}<a class="record-link" href="{{ map_url }}">Clear filters</a>{% elif can_edit and not pending %}<div class="actions"><a class="record-link" href="{% url 'geo:vehicle_import_upload' case.pk %}">Import vehicle locations</a><a class="record-link" href="{% url 'core:evidence:create' case.pk %}?kind=vehicle-location">Add a vehicle location</a></div>{% else %}<a class="record-link" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a>{% endif %}</div>{% endif %}
-</section>
-</div>
-{% endpartialdef %}
-{% endblock %}
+
 {{ points|json_script:'case-map-points' }}
 {% endblock %}
 

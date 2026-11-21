@@ -15,8 +15,8 @@ selection and executable procedures belong in [validation](docs/validation.md).
 - Give each screen a task, title, and primary action. Keep controls beside their
   material, choose sensible defaults, and ask only for necessary decisions.
   Simplify confusing interactions before adding explanations.
-- Open cases to **Case Tools** with routes to evidence, findings, and supporting
-  views. Keep **Evidence** and **Processing** directly available; Processing owns
+- Open cases to **Case Tools** with direct links to **Findings**, **Conversations**,
+  **Trips**, and **Images**. Keep **Evidence** and **Processing** directly available; Processing owns
   active work, history, and rerun controls.
 - Favor compact navigation, aligned rows, and progressive disclosure. Use strong
   hierarchy and consistent controls. Let evidence, source references, and useful
@@ -197,7 +197,8 @@ labels such as **AI suggestion** and **Partial coverage**.
 
 ## Evidence reader
 
-- Keep the original and Findings together under one title/download header. Use
+- Keep the original and its complete, paginated findings list together. Place a
+  **Findings (count)** jump near the title. Use
   **Info** for supporting metadata, saved notes, and history; **Edit details** and
   **Analyze evidence** for everyday actions. Keep secondary actions under **More**.
   Long originals need keyboard-accessible navigation.

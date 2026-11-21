@@ -1,58 +1,66 @@
 <section id="evidence-findings" data-live-region data-live-poll="{{ analysis_pending|yesno:'true,false' }}" class="evidence-section analysis-highlights" aria-labelledby="evidence-findings-heading">
   <div class="evidence-findings-header">
     <h2 id="evidence-findings-heading" tabindex="-1">Findings</h2>
-    {% if can_edit and not analysis_pending and not highlights or analysis_form.errors %}
+    {% if can_edit and not analysis_activity and not findings_page or analysis_form.errors %}
     <form method="post" action="{% url 'core:analysis:process_evidence' case.pk kind evidence.pk %}{{ list_suffix }}#evidence-analysis-error" class="evidence-check-form" novalidate>
       {% csrf_token %}{{ analysis_form.submission_id }}
       <button class="button button-secondary" type="submit">{% if has_evidence_analysis %}Run checks again{% else %}Run checks{% endif %}</button>
     </form>
     {% endif %}
   </div>
+  {% if visible_structure_url %}<a id="evidence-layout" class="record-link" href="{{ visible_structure_url }}">Visible structure</a>{% endif %}
   {% if analysis_form.errors %}<div id="evidence-analysis-error" class="error-summary" role="alert" tabindex="-1" data-error-summary><h3>Checks could not start</h3>{{ analysis_form.non_field_errors }}{{ analysis_form.submission_id.errors }}</div>{% endif %}
-  {% if observation_trip_url %}<p><a class="record-link" href="{{ observation_trip_url }}">View possible trip containing this observation</a></p>{% endif %}
-  {% if analysis_pending %}
+  {% if analysis_activity %}
   <div class="evidence-check-status">
-    <p role="status">{% if evidence_analysis_batch.status == 'queued' %}Preparing checks…{% else %}Checking…{% endif %}</p>
+    <p role="status">{{ analysis_activity.text }}</p>
+    <a class="record-link" href="{{ analysis_activity.url }}">{{ analysis_activity.action }}</a>
   </div>
   {% endif %}
-  {% if evidence_analysis_batch and analysis_pending or evidence_analysis_batch.status == 'failed' %}
-  <p>{% if evidence_analysis_batch.status == 'failed' %}Analysis preparation stopped. {% endif %}<a class="record-link" href="{% url 'core:analysis:processing' case.pk %}?batch={{ evidence_analysis_batch.pk }}#processing-history">Follow evidence analysis</a></p>
-  {% endif %}
-  {% if highlights %}
+  {% if findings_page %}
   <ul class="analysis-finding-rows">
-    {% for item in highlights %}
-    <li>
+    {% for item in findings_page %}
+    <li id="evidence-finding-{{ item.id }}" tabindex="-1">
       <a class="analysis-finding-link" href="{{ item.url }}">
-        {% include 'ui/components/icon.html' with name='file-text' %}
         <div>
-          {% if item.summary_text %}<strong>{{ item.summary_text }}</strong>{% else %}<strong>{{ item.label }}</strong>{% endif %}
-          {% if item.review_reason %}<small>{{ item.review_reason }}</small>{% endif %}
+          <strong>{{ item.summary_text|default:item.label }}</strong>
+          {% if item.unavailable %}<small>A retained source is unavailable or has changed.</small>{% else %}
+          {% if item.summary_text %}<small>{{ item.label }}</small>{% endif %}
           {% if item.ai_suggestion %}<small>AI suggestion</small>{% endif %}
-          <div class="evidence-finding-meta">{% if item.summary_text %}<small>{{ item.label }}</small>{% endif %}{% if item.anchors %}<span class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=item.anchors compact=True %}</span>{% endif %}</div>
-          {% if item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
-          {% if item.attachment_label %}<small>{{ item.attachment_label }}</small>{% endif %}
+          {% if item.review_reason %}<small>{{ item.review_reason }}</small>{% endif %}
+          {% if item.warning %}<small>{{ item.warning }}</small>{% endif %}
+          {% if item.weak_label %}<small>{{ item.weak_label }}</small>{% endif %}
           {% if item.low_ocr_score %}<small>Low OCR score</small>{% endif %}
           {% if item.plate_score != None %}<small>Plate-likeness: {{ item.plate_score }}/100 · Heuristic</small>{% endif %}
+          {% if item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
+          {% if item.attachment_label %}<small>{{ item.attachment_label }}</small>{% endif %}
+          {% if item.anchors %}<small class="analysis-source-anchors">{% include 'core/analysis/anchors.html' with anchors=item.anchors|slice:':1' compact=True %}</small>{% endif %}
+          {% if item.partial %}<small>Partial coverage</small>{% endif %}
+          {% endif %}
         </div>
-        {% if item.partial %}<small>Partial coverage</small>{% endif %}
       </a>
+      {% if kind == 'image' and item.operation == 'image_metadata' and item.text|length > 110 %}<details class="disclosure"><summary>Full metadata value</summary><div class="original-text">{{ item.text }}</div></details>{% endif %}
+      {% if item.other_sources %}<details class="disclosure"><summary>{{ item.other_sources|length }} other cited source{{ item.other_sources|pluralize }}</summary>
+        <ul>{% for source in item.other_sources %}<li><a href="{{ source.url }}">{{ source.title }}</a>{% if source.attachment_label %} · {{ source.attachment_label }}{% endif %}{% if source.archived %} · Archived{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+      {% if kind == 'image' and not item.unavailable %}{% include 'image/finding_preview.html' %}{% endif %}
     </li>
     {% endfor %}
   </ul>
-  {% elif analysis_page_obj and not analysis_pending and not highlights_limited %}
-  <p class="muted">No findings to highlight for this evidence.</p>
-  {% elif not analysis_page_obj and not has_evidence_analysis and not observation_trip_url %}
-  <p class="muted">No checks yet.</p>
+  {% if findings_page.has_other_pages %}
+  <nav class="pagination" aria-label="Evidence finding pages">
+    {% if findings_page.has_previous %}<a class="button button-secondary" href="{% querystring findings_page=findings_page.previous_page_number image_finding=None %}#evidence-findings-heading">Previous findings</a>{% endif %}
+    <span>{{ findings_page.start_index }}–{{ findings_page.end_index }} of {{ findings_page.paginator.count }}</span>
+    {% if findings_page.has_next %}<a class="button button-secondary" href="{% querystring findings_page=findings_page.next_page_number image_finding=None %}#evidence-findings-heading">Next findings</a>{% endif %}
+  </nav>
   {% endif %}
-
-  {% if highlights_limited %}<p class="muted">The preview checks up to 50 candidates. Browse all findings from this evidence for more results.</p>{% endif %}
+  {% elif not analysis_activity %}
+  <p class="muted">{% if has_evidence_analysis %}No current findings cite this evidence.{% else %}No checks yet.{% endif %}</p>
+  {% endif %}
   {% if analysis_page_obj %}
-  <a class="record-link" href="{% url 'core:analysis:browse' case.pk %}?kind={{ kind }}&amp;evidence={{ evidence.pk }}">All findings from this evidence</a>
   <details id="evidence-outcomes" class="disclosure"{% if analysis_outcomes_open %} open{% endif %}>
-    <summary id="evidence-history-heading">Analysis outcomes</summary>
+    <summary id="evidence-history-heading">Analysis history</summary>
     <div class="disclosure-body">
       {% for run in analysis_page_obj %}
-      <a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}">
+      <a class="record-row analysis-history-row" href="{{ run.history_url }}">
         <div>
           <strong>{% if run.outcome_summary %}{{ run.outcome_summary }}{% else %}{{ run.label }}{% endif %}</strong>
           <p class="muted">{% if run.outcome_summary %}{{ run.label }} · {% endif %}{% if run.execution %}{% include 'core/analysis/processing_destination.html' with execution=run.execution only %} · {% endif %}{{ run.created_at|date:'d M Y, H:i T' }}</p>
@@ -62,10 +70,10 @@
       </a>
       {% endfor %}
       {% if analysis_page_obj.has_other_pages %}
-      <nav class="pagination" aria-label="Analysis outcome pages">
-        {% if analysis_page_obj.has_previous %}<a class="button button-secondary" href="?results_page={{ analysis_page_obj.previous_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Previous</a>{% endif %}
+      <nav class="pagination" aria-label="Analysis history pages">
+        {% if analysis_page_obj.has_previous %}<a class="button button-secondary" href="{% querystring results_page=analysis_page_obj.previous_page_number %}#evidence-history-heading">Previous</a>{% endif %}
         <span>Page {{ analysis_page_obj.number }} of {{ analysis_page_obj.paginator.num_pages }}</span>
-        {% if analysis_page_obj.has_next %}<a class="button button-secondary" href="?results_page={{ analysis_page_obj.next_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Next</a>{% endif %}
+        {% if analysis_page_obj.has_next %}<a class="button button-secondary" href="{% querystring results_page=analysis_page_obj.next_page_number %}#evidence-history-heading">Next</a>{% endif %}
       </nav>
       {% endif %}
     </div>

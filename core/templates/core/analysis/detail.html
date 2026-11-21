@@ -27,6 +27,7 @@
 {% if source_unavailable %}<p class="notice">A selected source is unavailable or changed. The result is withheld until its exact retained inputs can be verified.</p>{% endif %}
 {% if run.status == 'complete' and not result and not source_unavailable %}<p class="notice">No result was saved for this run.</p>{% endif %}
 
+{% if run.operation == 'imessage_import' %}<p><a class="record-link" href="{% url 'phone:imessage_review' case.pk run.pk %}">Review message import</a></p>{% endif %}
 {% if result and run.operation == 'conversation_import' %}{% load import_checks %}{% import_checks 'messages' run.pk %}{% endif %}
 {% if result and show_result_overview %}
 <section class="analysis-result-overview" aria-labelledby="analysis-result-summary">
@@ -40,6 +41,8 @@
   {% if run.operation == 'ocr' and items %}
   <p class="muted">OCR can miss text. Compare candidates with the original.</p>
   {% endif %}
+  {% if layout.first_source %}<a class="record-link" href="{% querystring run_query layout=layout.first_source %}#visible-structure">Visible structure</a>
+  {% elif layout.source %}{% include 'image/analysis/visible_structure.html' %}{% endif %}
   {% if timing_only_count %}
   <p class="muted">{% if show_timing_only %}Showing {{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }}. <a class="record-link" href="{% querystring run_query weak=None page=None finding=None %}">Hide timing-only findings</a>{% else %}{{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }} hidden. <a class="record-link" href="{% querystring run_query weak=1 page=None finding=None %}">Show all findings</a>{% endif %}</p>
   {% if not items %}<p>Only timing-only findings were saved. Show all findings to inspect them.</p>{% endif %}

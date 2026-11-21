@@ -1,19 +1,23 @@
 """Source-linked finding summaries shared by case and evidence readers."""
 
 from collections import defaultdict
+from urllib.parse import urlencode
 
 from django.core.paginator import Paginator
 from django.db.models import F, Q
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Left
 from django.http import Http404
+from django.urls import reverse
 
 from core.analysis.automatic import evidence_runs
 from core.analysis.catalogue import (
+    PER_PAGE,
     REPORT_OPERATIONS,
     finding_queryset,
     is_result_detail,
     raw_finding_item,
+    resolved_findings,
 )
 from core.analysis.errors import AnalysisError
 from core.analysis.forms import EvidenceAnalysisForm
@@ -27,6 +31,8 @@ from core.analysis.presentation import (
 from core.analysis.projection import is_ai_suggestion, is_timing_only
 from core.analysis.ranking import rank_findings
 from core.analysis.services import SourceResolutionCache, resolve_inputs
+from core.analysis.sources import source_id
+from core.evidence.navigation import collection_params
 from core.models import AnalysisFinding, AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from image.analysis import MIN_OCR_WORD_SCORE
 from phone.analysis import presentation as phone_presentation
@@ -40,7 +46,7 @@ def additional_operations(kind):
     }
 
 
-def evidence_findings_context(case, kind, item, *, form=None, results_page=None):
+def evidence_findings_context(case, kind, item, params, *, form=None):
     """Keep analysis outcomes independent from the evidence collection page."""
     runs = evidence_runs(case, kind, item.pk)
     batches = CaseAnalysisBatch.objects.filter(
@@ -48,32 +54,190 @@ def evidence_findings_context(case, kind, item, *, form=None, results_page=None)
     )
     preparing = batches.filter(status=CaseAnalysisBatch.Status.QUEUED).first()
     latest_batch = preparing or batches.first()
-    page = Paginator(runs, 25).get_page(results_page)
-    has_saved_results = _evidence_outcomes(page, case)
-    highlights, highlights_limited = evidence_highlights(case, kind, item.pk)
+    page = Paginator(runs, 25).get_page(params.get("results_page"))
+    scope = {"kind": kind, "evidence": str(item.pk)}
+    candidates = finding_queryset(case, scope | {"weak": "1"})
+    ranked = (
+        rank_findings(candidates, case)
+        .annotate(raw_item=raw_finding_item(), run_id=F("result__run_id"))
+        .only("id", "result_id", "item_index", "weak")
+    )
+    findings = Paginator(ranked, PER_PAGE).get_page(params.get("findings_page"))
+    selection = dict(collection_params(params).items()) | scope
+    if findings.number > 1:
+        selection["findings_page"] = findings.number
+    if "results_page" in params:
+        selection["results_page"] = page.number
+    findings.object_list = list(evidence_finding_rows(case, item, findings, selection))
+    if kind == "image":
+        from image.analysis.presentation import add_finding_previews
+
+        add_finding_previews(case, findings.object_list)
+    has_saved_results = _evidence_outcomes(page, case, selection)
+    latest_run = (
+        next(iter(page), None)
+        if page.number == 1
+        else runs.only("status", "batch_id", "created_at").first()
+    )
+    pending = (
+        preparing is not None or runs.filter(status__in=("queued", "running")).exists()
+    )
+    activity = evidence_activity(case, pending, preparing, latest_batch, latest_run)
     return {
+        "visible_structure_url": _evidence_layout_url(case, kind, item, runs, selection)
+        if kind in {"image", "document"}
+        else "",
         "analysis_form": form if form is not None else EvidenceAnalysisForm(),
         "analysis_page_obj": page,
-        "analysis_outcomes_open": results_page is not None
-        or (has_saved_results and not highlights),
-        "highlights": highlights,
-        "highlights_limited": highlights_limited,
-        "evidence_analysis_batch": latest_batch,
-        "analysis_pending": preparing is not None
-        or runs.filter(status__in=("queued", "running")).exists(),
+        "analysis_outcomes_open": "results_page" in params
+        or (has_saved_results and not findings.paginator.count),
+        "findings_page": findings,
+        "analysis_activity": activity,
+        "analysis_pending": pending,
         "has_evidence_analysis": latest_batch is not None or bool(page.paginator.count),
         "additional_operations": additional_operations(kind).items(),
     }
 
 
-def _evidence_outcomes(page, case):
+def _evidence_layout_url(case, kind, item, runs, selection):
+    selected = source_id({"kind": kind, "id": item.pk})
+    run = runs.filter(
+        operation="ocr",
+        result__case=case,
+        result__data__visible_structure__has_key=selected,
+    ).first()
+    if run is None:
+        return ""
+    try:
+        resolve_inputs(
+            run,
+            case,
+            require_current_review=False,
+            cache=SourceResolutionCache(case, with_content=False),
+        )
+    except AnalysisError, Http404:
+        return ""
+    return reverse(
+        "core:analysis:detail",
+        args=[case.pk, run.pk],
+        query={
+            "layout": selected,
+            "return_evidence": urlencode(selection | {"layout": "1"}),
+        },
+        fragment="visible-structure",
+    )
+
+
+def evidence_activity(case, pending, preparing, batch, latest_run):
+    processing_url = reverse("core:analysis:processing", args=[case.pk])
+    if pending:
+        return {
+            "text": "Preparing checks…" if preparing else "Checking…",
+            "action": "Follow evidence analysis",
+            "url": (
+                f"{processing_url}?batch={preparing.pk}#processing-history"
+                if preparing
+                else f"{processing_url}#in-progress-heading"
+            ),
+        }
+    # Preparation can stop after it has already queued some checks. Keep that
+    # batch's failure visible until a newer independent check or batch replaces it.
+    if batch and (
+        not latest_run
+        or batch.pk == latest_run.batch_id
+        or batch.created_at >= latest_run.created_at
+    ):
+        if batch.status == "failed":
+            return {
+                "text": "Analysis preparation stopped.",
+                "action": "Review stopped analysis",
+                "url": f"{processing_url}?batch={batch.pk}#processing-history",
+            }
+        if latest_run and latest_run.created_at < batch.created_at:
+            return None
+    if latest_run and latest_run.status == "failed":
+        return {
+            "text": "The latest check failed.",
+            "action": "Review failed check",
+            "url": reverse("core:analysis:detail", args=[case.pk, latest_run.pk]),
+        }
+    return None
+
+
+def evidence_finding_rows(case, evidence, findings, selection):
+    for finding, run, sources, warning in resolved_findings(case, findings):
+        navigation = {"return_evidence": urlencode(selection | {"row": finding.pk})}
+        raw = finding.raw_item
+        if (
+            not sources
+            or not isinstance(raw, dict)
+            or set(raw.get("source_ids", [])) != {str(source.id) for source in sources}
+        ):
+            yield {
+                "id": finding.pk,
+                "unavailable": True,
+                "label": "Finding unavailable",
+                "url": finding_url(
+                    case.pk, run.pk, finding.item_index, history=navigation
+                ),
+            }
+            continue
+        selected = next(source for source in sources if source.item == evidence)
+        row = source_reading(
+            raw,
+            finding.item_index,
+            run,
+            case,
+            sources,
+            selected,
+            reason=finding.review_reason,
+            history=navigation,
+            show_weak=finding.weak,
+        )
+        row.update(
+            id=finding.pk,
+            result_id=finding.result_id,
+            item_index=finding.item_index,
+            operation=run.operation,
+            raw_item=raw,
+            unavailable=False,
+            warning=warning,
+            other_sources=[
+                {
+                    "title": source.item.title,
+                    "url": source.original_url,
+                    "archived": source.item.is_archived,
+                    "attachment_label": phone_presentation.addition_label(
+                        source, run.operation
+                    ),
+                }
+                for source in sources
+                if source != selected
+            ],
+        )
+        if finding.weak:
+            row["weak_label"] = (
+                "Timing only"
+                if run.operation == "conversation_link"
+                else "Weak plate region"
+            )
+        yield row
+
+
+def _evidence_outcomes(page, case, selection):
     summaries = dict(
         AnalysisResult.objects.filter(case=case, run_id__in=[run.pk for run in page])
         .annotate(summary=Left(KeyTextTransform("summary", "data"), 241))
         .values_list("run_id", "summary")
     )
     cache = SourceResolutionCache(case, with_content=False)
+    history_query = {
+        "return_evidence": urlencode(selection | {"results_page": page.number})
+    }
     for run in page:
+        run.history_url = reverse(
+            "core:analysis:detail", args=[case.pk, run.pk], query=history_query
+        )
         operation = OPERATIONS.get(run.operation)
         run.label = operation.label if operation else "Retained analysis"
         run.execution = run.parameters.get("_execution")
@@ -160,66 +324,6 @@ def finding_row(
             and score < MIN_OCR_WORD_SCORE
         ),
     }
-
-
-def evidence_highlights(case, kind, evidence_id):
-    """Rank the complete source selection, then validate a bounded preview."""
-    findings = finding_queryset(case, {"kind": kind, "evidence": evidence_id}).filter(
-        weak=False
-    )
-    candidates = list(
-        rank_findings(findings, case)
-        .annotate(raw_item=raw_finding_item(), highlight_reason=F("candidate_reason"))
-        .values(
-            "result__run_id", "item_index", "raw_item", "highlight_reason", "repeat_key"
-        )[:51]
-    )
-    limited = len(candidates) > 50
-    candidates = candidates[:50]
-    runs = AnalysisRun.objects.filter(case=case).in_bulk(
-        {candidate["result__run_id"] for candidate in candidates}
-    )
-    cache = SourceResolutionCache(case, with_content=False)
-    checked = {}
-    shown = set()
-    highlights = []
-    for candidate in candidates:
-        run_id = candidate["result__run_id"]
-        run = runs.get(run_id)
-        finding = candidate["raw_item"]
-        repeat_key = candidate["repeat_key"]
-        if run is None or not isinstance(finding, dict) or repeat_key in shown:
-            continue
-        if run_id not in checked:
-            try:
-                sources = resolve_inputs(run, case, cache=cache)
-            except AnalysisError, Http404:
-                sources = []
-            checked[run_id] = (
-                sources,
-                {
-                    str(source.id): source
-                    for source in sources
-                    if source.kind == kind and source.item.pk == evidence_id
-                },
-            )
-        sources, selected_sources = checked[run_id]
-        row = _highlight_row(
-            finding,
-            candidate["item_index"],
-            run,
-            case,
-            sources,
-            selected_sources,
-            candidate["highlight_reason"],
-        )
-        if row:
-            if repeat_key:
-                shown.add(repeat_key)
-            highlights.append(row)
-            if len(highlights) == 12:
-                break
-    return highlights, limited and len(highlights) < 12
 
 
 def case_highlights(runs, case):
@@ -325,19 +429,8 @@ def result_highlights(result, case, *, allowed, hidden_indices):
     return highlights
 
 
-def _highlight_row(finding, index, run, case, sources, selected_sources, reason=""):
+def _highlight_row(finding, index, run, case, sources, selected_sources):
     operation = run.operation
-    measurement_keys = {
-        "image_metadata": ("Capture time candidate", "GPS candidate"),
-        "audio_metadata": (
-            "Decoded duration (seconds)",
-            "Decoded sample rate (Hz)",
-            "Decoded channel count",
-            "Full-scale sample fraction",
-        ),
-        "geocode_locations": ("address", "latitude", "longitude"),
-        "location_quality": ("Event time", "Position origin", "Address"),
-    }
     source = next(
         (
             selected_sources[key]
@@ -352,30 +445,79 @@ def _highlight_row(finding, index, run, case, sources, selected_sources, reason=
         or is_timing_only(operation, finding)
     ):
         return None
+    row = source_reading(finding, index, run, case, sources, source)
+    if row["weak_plate_region"] or row["low_ocr_score"]:
+        return None
+    if operation in MEASUREMENT_KEYS:
+        return row if row.get("measurements") else None
+    return row if finding.get("text", "").strip() else None
+
+
+MEASUREMENT_KEYS = {
+    "image_metadata": ("Capture time candidate", "GPS candidate"),
+    "audio_metadata": (
+        "Decoded duration (seconds)",
+        "Decoded sample rate (Hz)",
+        "Decoded channel count",
+        "Full-scale sample fraction",
+    ),
+    "geocode_locations": ("address", "latitude", "longitude"),
+    "location_quality": ("Event time", "Position origin", "Address"),
+}
+
+
+def source_reading(
+    finding,
+    index,
+    run,
+    case,
+    sources,
+    source,
+    *,
+    reason="",
+    history=None,
+    show_weak=False,
+):
+    """Present a finding in the context of the original or call addition it cites."""
+    operation = run.operation
     values = finding.get("values", {})
-    keys = measurement_keys.get(operation, ())
+    keys = MEASUREMENT_KEYS.get(operation, ())
+    if history and operation == "image_metadata":
+        if finding["label"] == "Decoded image and metadata claims":
+            keys = ("Decoded format", "Decoded width", "Decoded height", *keys)
+        elif finding["label"] == "Interpreted XMP attributes":
+            keys = values
     fields = {
         key: values[key] for key in keys if values.get(key) not in (None, "", "Unknown")
     }
-    if not (fields if keys else finding.get("text", "").strip() or reason):
-        return None
-    row = finding_row(finding, index, case, run, sources=sources, review_reason=reason)
-    if row["weak_plate_region"] or row["low_ocr_score"]:
-        return None
+    row = finding_row(
+        finding,
+        index,
+        case,
+        run,
+        sources=sources,
+        review_reason=reason,
+        history=history,
+        show_weak=show_weak,
+    )
     if fields:
         row["summary_text"] = ""
         row["measurements"] = measurement_formatter(fields, case=case)(fields)
-    if operation == "image_metadata":
+    if (
+        operation == "image_metadata"
+        and finding["label"] == "Decoded image and metadata claims"
+    ):
         row["label"] = "Embedded metadata claims"
-    if operation == "geocode_locations":
+    if operation == "geocode_locations" and fields:
         row["label"] = "Geographic lookup candidate"
     row["anchors"] = [
         anchor
         for anchor in finding.get("anchors", [])
         if anchor.get("source_id") == str(source.id)
-    ][:1]
+    ]
     row["attachment_label"] = phone_presentation.addition_label(source, operation)
     row["partial"] = run.status == AnalysisRun.Status.PARTIAL
+    row["source_id"] = str(source.id)
     row["source_title"] = source.item.title
     row["source_url"] = source.original_url
     return row

@@ -1,0 +1,15 @@
+{% if item.images %}
+  {% if request.GET.image_finding == item.id|stringformat:"s" %}
+    <a class="record-link" href="{% querystring image_finding=None %}#evidence-finding-{{ item.id }}">Hide image comparison</a>
+    <div class="analysis-media-pair">
+      {% if item.images.prepared_preview %}
+        <figure><img class="analysis-plate-preview" src="{{ item.images.prepared_preview.url }}" width="{{ item.images.prepared_preview.width }}" height="{{ item.images.prepared_preview.height }}" alt="Processed crop used for this reading"><figcaption>Crop used for this reading</figcaption></figure>
+      {% endif %}
+      {% if item.images.preview %}
+        <figure>{% include 'image/marked_region.html' with region=item.images.preview operation=item.operation only %}<figcaption>Marked region in the original pixel orientation</figcaption></figure>
+      {% endif %}
+    </div>
+  {% else %}
+    <a class="record-link" href="{% querystring image_finding=item.id %}#evidence-finding-{{ item.id }}">Compare with image</a>
+  {% endif %}
+{% endif %}

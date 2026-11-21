@@ -103,6 +103,8 @@ def evidence_list(request, case_id):
     case = get_case(request.user, case_id)
     context = case_context(case, request.user) | _list_context(request, case)
     context["nav_section"] = "evidence"
+    if context["selected_kind"] == "image" and request.GET.get("view") == "gallery":
+        return render(request, "image/gallery.html", context)
     return render(request, "core/evidence/workspace.html", context)
 
 
@@ -144,8 +146,8 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
             case,
             kind,
             item,
+            request.GET,
             form=analysis_form,
-            results_page=request.GET.get("results_page"),
         )
     )
     if kind in COMMUNICATION_KINDS:
@@ -499,7 +501,7 @@ def preview(request, case_id, kind, evidence_id):
         raise Http404
     item = get_evidence(case, kind, evidence_id)
     try:
-        content = image_preview(item)
+        content = image_preview(item, thumbnail=request.GET.get("size") == "thumbnail")
     except AnalysisError, OSError, ValueError:
         response = HttpResponse(
             "Image preview unavailable. Download the original to inspect it.",

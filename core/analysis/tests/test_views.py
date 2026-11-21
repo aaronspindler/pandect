@@ -16,7 +16,6 @@ from cases.models import CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.form_base import source_choices
-from core.analysis.navigation import finding_url
 from core.analysis.services import process_run, start_run
 from core.analysis.testing import external_grant_kwargs, image_bytes
 from core.analysis.tests.test_gateway import CONFIG
@@ -615,11 +614,11 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             response,
             f'action="{(url + suffix).replace("&", "&amp;")}#evidence-analysis-error"',
         )
-        self.assertContains(response, 'aria-label="Analysis outcome pages"')
+        self.assertContains(response, 'aria-label="Analysis history pages"')
         self.assertContains(
             response,
-            'href="?results_page=1&amp;q=Selected&amp;type=text&amp;state=all'
-            '&amp;page=2#evidence-history-heading"',
+            'href="?q=Selected&amp;type=text&amp;state=all&amp;page=2'
+            '&amp;results_page=1#evidence-history-heading"',
         )
         batch_response = self.client.post(
             url + suffix + "&results_page=2", {"submission_id": str(uuid4())}
@@ -729,6 +728,31 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(url, self.payload()).status_code, 403)
 
+    def test_reader_follows_current_work_after_an_older_intake_batch(self):
+        batch = CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            status="failed",
+            scope={"type": "added", "kind": "text", "id": str(self.note.pk)},
+        )
+        self.login("viewer")
+        reader = self.url("detail", self.note)
+        self.assertContains(self.client.get(reader), "Review stopped analysis")
+        run = self.analysis_run(complete=False)
+        processing = self.analysis_url("processing")
+        for state in ("failed", "complete"):
+            CaseAnalysisBatch.objects.filter(pk=batch.pk).update(status=state)
+            response = self.client.get(reader)
+            self.assertContains(response, f'href="{processing}#in-progress-heading"')
+            self.assertNotContains(response, f"batch={batch.pk}")
+        CaseAnalysisBatch.objects.filter(pk=batch.pk).update(status="failed")
+        process_run(run.pk)
+        response = self.client.get(reader)
+        self.assertNotContains(response, "Review stopped analysis")
+        self.assertNotContains(response, "Refresh status")
+        AnalysisRun.objects.filter(pk=run.pk).update(status="failed")
+        self.assertContains(self.client.get(reader), "Review failed check")
+
     def test_evidence_shows_saved_outcomes_even_without_highlighted_findings(self):
         run = self.analysis_run(complete=False, operation="text_topics")
         AnalysisRun.objects.filter(pk=run.pk).update(status=AnalysisRun.Status.EMPTY)
@@ -740,7 +764,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.login("viewer")
         reader = self.url("detail", self.note)
         response = self.client.get(reader)
-        self.assertFalse(response.context["highlights"])
+        self.assertFalse(response.context["findings_page"])
         self.assertContains(response, 'id="evidence-outcomes" class="disclosure" open')
         self.assertContains(response, "No recurring topic appeared.")
         self.assertContains(response, self.analysis_url("detail", run=run))
@@ -829,16 +853,23 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(
             response, f'href="{self.analysis_url("detail", run=run)}"'
         )
-        self.assertContains(response, "source@example.test", count=2)
+        self.assertContains(response, "source@example.test", count=3)
         self.assertNotContains(response, "other@example.test")
         self.assertNotContains(response, "Awaiting review")
-        target = finding_url(self.case.pk, run.pk, 0)
+        target = next(
+            row["url"]
+            for row in response.context["findings_page"]
+            if str(run.pk) in row["url"]
+        )
         self.assertContains(response, target.replace("&", "&amp;"))
         self.assertContains(self.client.get(target), "source@example.test")
         second_page = self.client.get(url, {"results_page": 2})
-        self.assertContains(second_page, "source@example.test", count=2)
+        self.assertContains(second_page, "source@example.test", count=3)
         self.assertContains(second_page, self.analysis_url("detail", run=earlier))
-        self.assertContains(second_page, target.replace("&", "&amp;"))
+        self.assertEqual(
+            {row["id"] for row in response.context["findings_page"]},
+            {row["id"] for row in second_page.context["findings_page"]},
+        )
 
         AnalysisReview.objects.create(
             case=self.case,
@@ -848,7 +879,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             decision="rejected",
         )
         response = self.client.get(url)
-        self.assertContains(response, "source@example.test", count=2)
+        self.assertContains(response, "source@example.test", count=3)
         self.assertContains(response, target.replace("&", "&amp;"))
 
     def test_evidence_highlights_show_embedded_capture_time_until_source_changes(self):

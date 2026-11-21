@@ -1,6 +1,6 @@
 # Investigation map
 
-**Case tools → Map** lets all case roles inspect processed vehicle trips and
+**Case Tools → Trips** lets all case roles inspect processed vehicle trips and
 follow retained evidence. Owners/editors also **Add POI**. `geo` owns views,
 lookup coordination, POIs, templates, assets, and tests; `geo.map_views` serves
 `geo:case_map`, `geo:prepare_trips`, and `geo:trip_detail` at their case-scoped URLs.
@@ -41,9 +41,10 @@ with a new database/queue; no old-table conversion is retained.
 
 ## Processed vehicle trips
 
-Map initially selects the latest matching saved possible trip. The first and
-last observations appear above the map with links to their sources and **Open trip**.
-Choose another trip from the list to inspect its complete path and sources.
+Trips opens with the list of saved possible trips. Open one to inspect its
+first and last observations, elapsed time, map, and chronological sources.
+Trip findings cite one or more observations in the selected trip. The findings
+cover the full trip, even when its observation list spans multiple pages.
 Raw Location, Person location, and Vehicle
 location observations remain in Evidence rather than the map's main display.
 Editors can open vehicle CSV intake or add a vehicle observation from an empty map.

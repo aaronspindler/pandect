@@ -22,6 +22,7 @@ from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
     VehicleLocationImportRow,
+    VehicleTripGeneration,
 )
 from phone.models import CommunicationContext
 from socialmedia.models import InstagramCapture, InstagramComparison
@@ -83,18 +84,31 @@ class DeletionPlan:
             return False
 
 
-def _analysis_runs(case_id, selections):
+def _analysis_runs(case_id, selections, generation_ids):
     # Scan retained selections once rather than issue one JSON query for every
     # observation in a CSV (which can contain 100,000 rows).
     runs = AnalysisRun.objects.filter(case_id=case_id)
     result_ids = {}
     dependents = defaultdict(set)
     ids = set()
-    for run_id, inputs, parameters, result_id in runs.values_list(
-        "pk", "inputs", "parameters", "result__pk"
+    for run_id, operation, inputs, parameters, result_id in runs.values_list(
+        "pk", "operation", "inputs", "parameters", "result__pk"
     ).iterator():
         if result_id is not None:
             result_ids[run_id] = str(result_id)
+        # Removing a generation also removes trips built from its other rows.
+        if (
+            generation_ids
+            and operation == "journey_claims"
+            and any(
+                isinstance(group, dict)
+                and group.get("origin") == "trip"
+                and isinstance(group.get("generation_id"), str)
+                and group.get("generation_id") in generation_ids
+                for group in parameters.get("groups", [])
+            )
+        ):
+            ids.add(run_id)
         for source in inputs:
             if (source.get("kind"), source.get("evidence_id")) in selections:
                 ids.add(run_id)
@@ -238,17 +252,6 @@ def plan_deletions(items, kind):
         if same_case_evidence(model.objects.filter(pk__in=ids)).count() != len(ids):
             plan.blocker = CASE_CONFLICT
             return plan
-    runs = _analysis_runs(
-        item.case_id,
-        {
-            (root_kind, str(obj.pk))
-            for root_kind, objects in roots.items()
-            for obj in objects
-        },
-    )
-    plan.analysis_count = len(runs)
-    from geo.models import VehicleTripGeneration
-
     vehicle_roots = roots.get("vehicle-location", [])
     vehicle_ids = [source.pk for source in vehicle_roots]
     generations = VehicleTripGeneration.objects.filter(
@@ -257,6 +260,16 @@ def plan_deletions(items, kind):
     if generations.exclude(case_id=item.case_id).exists():
         plan.blocker = CASE_CONFLICT
         return plan
+    runs = _analysis_runs(
+        item.case_id,
+        {
+            (root_kind, str(obj.pk))
+            for root_kind, objects in roots.items()
+            for obj in objects
+        },
+        {str(pk) for pk in generations.values_list("pk", flat=True)},
+    )
+    plan.analysis_count = len(runs)
     plan.affected_vehicle_ids = set(
         VehicleLocationEvidence.objects.filter(pk__in=vehicle_ids).values_list(
             "vehicle_id", flat=True

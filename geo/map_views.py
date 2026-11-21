@@ -5,7 +5,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -13,6 +13,8 @@ from django.views.decorators.http import require_GET, require_POST
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
+from core.analysis.catalogue import PER_PAGE, finding_queryset, finding_rows
+from core.models import AnalysisFindingSource
 from geo.models import PointOfInterest
 from geo.report_forms import VehicleReportForm
 from geo.trip_geometry import GEOMETRY_CHUNK_SIZE, geometry_revision, source_positions
@@ -70,7 +72,6 @@ def _map_context(request, case):
     poi_page, points = poi_map_data(request, case, query)
     return {
         **case_context(case, request.user),
-        **trip_readiness(case),
         "poi_page": poi_page,
         "points": points,
         "poi_mapped_count": len(points),
@@ -102,7 +103,7 @@ def case_map(request, case_id):
         else:
             trips = trips.none()
     page = Paginator(trips, 25).get_page(request.GET.get("page"))
-    context = _map_context(request, case)
+    context = _map_context(request, case) | trip_readiness(case)
     trip_filters_applied = filters["state"] != "active" or any(
         filters.get(key) for key in ("vehicle_id", "start", "end")
     )
@@ -135,6 +136,25 @@ def case_map(request, case_id):
             }
         )
     return render_live(request, "geo/map.html", context)
+
+
+def _trip_findings(case, sources, page_number):
+    # Match the exact observation version cited by a finding, anywhere in the trip.
+    matching_input = sources.filter(
+        observation_id=OuterRef("evidence_id"), sha256=OuterRef("source_sha256")
+    )
+    citations = AnalysisFindingSource.objects.filter(
+        case=case, kind="vehicle-location", finding_id=OuterRef("pk")
+    ).filter(Exists(matching_input))
+    findings = (
+        finding_queryset(case, {"weak": "1"})
+        .filter(Exists(citations))
+        .annotate(run_id=F("result__run_id"), excerpt=F("preview"))
+        .only("pk", "result_id", "item_index", "preview", "label", "weak")
+    )
+    page = Paginator(findings, PER_PAGE).get_page(page_number)
+    page.object_list = finding_rows(case, page.object_list, show_weak=True)
+    return page
 
 
 @product_login_required
@@ -242,6 +262,7 @@ def trip_detail(request, case_id, trip_id):
     context.update(
         back_url=back_url,
         selected_trip=format_trip(case, trip),
+        findings_page=_trip_findings(case, sources, request.GET.get("findings_page")),
         geometry_url=reverse("geo:trip_detail", args=(case.pk, trip.pk)),
         source_page=page,
         source_rows=source_positions(case, list(page)),

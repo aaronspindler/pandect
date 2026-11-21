@@ -81,7 +81,7 @@ def _gps(gps):
         return None
 
 
-def _image(content, *, prepare=False, orient=False):
+def _image(content, *, prepare=False, orient=False, max_side=2048):
     import PIL
     from PIL import ExifTags, Image, ImageOps
 
@@ -118,7 +118,7 @@ def _image(content, *, prepare=False, orient=False):
                 prepared = Image.alpha_composite(background, rgba).convert("RGB")
             else:
                 prepared = image.convert("RGB")
-            prepared.thumbnail((2048, 2048))
+            prepared.thumbnail((max_side, max_side))
             buffer = io.BytesIO()
             prepared.save(buffer, format="JPEG", quality=90)
             encoded = buffer.getvalue()
@@ -202,4 +202,5 @@ def parse(operation, content, options):
         content,
         prepare=operation == "image_preview",
         orient=operation == "image_preview",
+        max_side=320 if options.get("thumbnail") is True else 2048,
     )

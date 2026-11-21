@@ -34,7 +34,7 @@
 </div>
 </div>
 {% empty %}
-<p class="muted">You are the only person with access. Invite someone to collaborate.</p>
+<p class="muted">Only you have access.</p>
 {% endfor %}
 </div>
 </section>
@@ -98,8 +98,8 @@
 </form>
 </div>
 </details>
-<section class="content-section" aria-labelledby="external-analysis">
-  <h2 id="external-analysis">External analysis</h2>
+<details class="disclosure" id="external-analysis"{% if external_analysis.destinations or external_analysis.active %} open{% endif %}>
+  <summary>External analysis</summary>
   {% if external_analysis.destinations %}
     <p>Approval allows Pandect to send the material below when it runs analysis in this case. The providers’ retention policies apply. Sent requests cannot be recalled.</p>
     <dl class="metadata-grid">
@@ -124,7 +124,7 @@
       </form>
     {% endif %}
   </div>
-</section>
+</details>
 <details class="disclosure">
 <summary>Delete this case</summary>
 <div class="disclosure-body">

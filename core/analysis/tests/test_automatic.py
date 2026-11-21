@@ -21,7 +21,7 @@ from core.analysis.automatic import (
 )
 from core.analysis.bulk import prepare_case_analysis_batch, resume_case_analysis
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import process_run, start_run
+from core.analysis.services import process_run, resolve_inputs, start_run
 from core.analysis.testing import external_grant_kwargs, image_bytes, wav_bytes
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG
@@ -642,8 +642,15 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.complete([extraction])
         children = list(AnalysisRun.objects.filter(previous_run=extraction))
         self.assertEqual({r.operation for r in children}, {"entities", "text_topics"})
+        self.assertEqual(len(children), 2)
+        self.assertIn(
+            extraction.inputs[0]["id"], extraction.result.data["visible_structure"]
+        )
         for run in children:
             self.assertEqual(run.inputs[0]["result_id"], str(extraction.result.pk))
+            (source,) = resolve_inputs(run, self.case)
+            self.assertEqual(source.text, "Synthetic extraction phrase")
+            self.assertEqual(len(source.segments), 1)
         with patch("core.analysis.gateway.GatewayClient.request") as gateway:
             self.complete(children)
             gateway.assert_not_called()

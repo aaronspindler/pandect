@@ -16,10 +16,10 @@ foundation across these surfaces.
 
 ## Navigation and screens
 
-Cases open to **Case Tools**: recent evidence/findings and links to the Findings
-catalogue, Map, Chronology, Conversations, Repeated identifiers, People, Vehicles,
-Additional analysis, and reports. Native **Case details** discloses supporting
-information.
+Cases open to **Case Tools**. **Findings**, **Conversations**, **Trips**, and
+**Images** lead directly to their respective readers or collections. Recent
+evidence and findings precede the supporting tools and reports. **Case details**
+holds ownership, role, dates, and the saved description.
 Owners reach **Case settings** directly from the page header. Investigators need
 no staff access. Graphs, case-wide inference of events from source content,
 ownership transfer, and self-service account deletion remain planned.
@@ -165,19 +165,18 @@ retain exact dates in history.
 
 One reader header holds title, concise type/source/collection metadata, archive
 state, and authorized download. Originals and source-linked Findings appear
-together. A visible **Findings** link near the title jumps past long originals.
-Findings show coverage/status and
-**Run checks** when empty; populated findings use More for reruns. **Analysis
-outcomes** links to each check and saved result that used this evidence. Open
-that disclosure by default when there are saved results and no highlights.
-Outcomes use `results_page` independently of the collection's `page`. Keep
-detailed limitations and source links on individual results.
+together. **Findings (count)** near the title jumps past long originals.
+Show all current findings citing this record or its attachments in pages of 25,
+including weak findings with their qualifiers. Finding links return to the
+same row and preserve the evidence list filters. **Analysis history** holds
+all checks and saved reports that used the evidence. Findings, history, and
+the evidence collection paginate independently.
 
 Header disclosures:
 
 - **Info** holds full source metadata, file details, saved descriptions, declared
   technical fields, record/integrity history, imported source context, retained
-  attachment attribution, and a link to Analysis outcomes.
+  attachment attribution, and a link to Analysis history.
 - **Analyze evidence** lists the analysis available for the selected original.
   **Edit details** is visible beside it.
 - **More** holds archive/restore, reruns, supported imports, and superuser deletion.
@@ -257,18 +256,16 @@ Use **Inferred session** or **Multiple groupings** to disclose session context.
 Start **Findings · N** open with up to three short previews. Link each title to
 the full finding and retain applicable AI and partial coverage labels. **More
 findings** opens the detailed list with 25 findings per page. Keep finding
-pagination independent from message pagination. Above the stream,
-**Conversation findings · N** shows up to three short previews of session and
-multiple-source findings. **More findings** opens the paginated list with 25
-findings per page. **Show message** opens a cited message. Show each shared finding once, explain citations
+pagination independent from message pagination. Expand **Conversation findings
+(count)** above the transcript to preview up to three session or shared findings.
+**More findings** opens the complete list, 25 per page. **Show message** opens a cited message. Show each shared finding once, explain citations
 outside the participant pair, and retain complete source details through
 **Open finding**. Do not repeat selected-message copies as analysis findings.
 
 Use latest equivalent saved results. Mark individual model suggestions when a
 run mixes AI and ordinary observations. Withhold finding content when analyzed
-sources are unavailable or changed. An empty collection says **No saved findings**;
-it does not establish complete analysis. Reading or expanding findings starts no
-analysis and requires no JavaScript.
+sources are unavailable or changed. Omit the shared disclosure when there are no
+conversation-wide findings. Reading or expanding findings starts no analysis and requires no JavaScript.
 
 In the details panel, **Open evidence** opens the canonical reader and native
 reply/thread lists. Its **View in conversation** returns to the exact message
@@ -342,14 +339,18 @@ connection settings belong to the signed-in investigator.
 
 ## Case Tools, Processing, and additional analysis
 
-Case Tools groups destinations under **Explore evidence**, **Organize your
-work**, and **Reports**, side by side on wide screens and stacked on narrow
-screens. The header links directly to **Evidence** and **Processing**, alongside
-owner/editor **Add evidence**. Five report links stay together in the directory;
-owner/editor **Additional analysis** is directly available with organizing tools.
-Above the directory, show up to three recent findings and three recent active
-records when available. Recent findings retain source attribution and link to
-the full output, sources, coverage, and uncertainty.
+Case Tools gives owners and editors one primary **Add evidence** action.
+The four main destinations come first, followed by up to three recent active
+records and three recent source-linked findings. **More case tools** groups the
+chronology, people, vehicles, repeated identifiers, sighting groups, eligible monitors, and
+owner/editor **Additional analysis**. **Reports** opens the five report links.
+
+**Sighting groups** opens saved proposals. Creation starts from an anchor
+observation with labeled checkboxes for direct connections. Optional supporting
+and contrary records stay in a disclosure. The group shows each pair with its
+basis and links to the original evidence. Overlapping proposals and previous
+reviews remain accessible from the detail. Owner/editor review uses ordinary
+forms. Read-only historical states explain how to work from current evidence.
 
 Processing links directly to **Browse findings** and groups reviews and recovery
 under **Needs attention**, with queued and running work under **In progress**.
@@ -408,6 +409,13 @@ source/context form. From the evidence reader, show compatible methods and
 carry the open record into the source form. Keep
 required samples, areas, and claimed events visible; disclose tuning in **Options**,
 opening after errors. Keep retained source versions explicit.
+
+**Compare plans with locations** opens separate statement and observation
+pickers. Select a quotation, resolve repeated wording in context, then review
+the interpreted subject, place and time before queuing. From a saved comparison,
+open each cited passage, original observation or pinned trip membership. Keep
+the claim status, contrary material and limitations beside the association.
+See [plan and location comparisons](analysis-locations.md#compare-plans-with-locations).
 Sources use 25-record pages; native POST navigation/title search preserve choices
 and options. Show preparation links for blocked sources and Remove for any
 retained selections that need it. Start analysis when at least one available
@@ -432,7 +440,8 @@ Communication pairs lead with a factual interval heading and compact messages:
 reported participants, localized time with timezone, source link and body.
 
 Hide timing-only message pairs by default across run results,
-catalogue/person findings, conversations and highlights. Full collections show a
+catalogue/person findings, conversations and case highlights. The individual
+evidence reader includes current published timing-only findings. Full collections show a
 hidden count and **Show all findings**; an all-hidden view explains its state.
 Keep shared-word candidates, native reply context and AI suggestions visible.
 Reveal state survives navigation. Direct finding URLs always open the original

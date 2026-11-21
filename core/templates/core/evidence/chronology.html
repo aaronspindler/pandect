@@ -16,7 +16,7 @@
       <p class="help-text">Date ranges apply to recorded timestamps in {{ account_timezone }}.</p>
       {% if show_utc %}<input type="hidden" name="clock" value="utc">{% endif %}
       {% include 'ui/components/form_fields.html' %}
-      <div class="actions"><button class="button button-primary" type="submit">Apply filters</button><a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}{% if show_utc %}?clock=utc{% endif %}">Clear filters</a></div>
+      <div class="actions"><button class="button button-primary" type="submit">Apply filters</button>{% if filters_applied or form.errors %}<a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}{% if show_utc %}?clock=utc{% endif %}">Clear filters</a>{% endif %}</div>
     </form>
   </div></details>
   <section class="content-section" aria-labelledby="chronology-events">

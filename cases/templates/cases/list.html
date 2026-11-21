@@ -2,9 +2,7 @@
 {% block title %}All cases{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div>
-<h1>All cases</h1>
-</div>
+  <h1>All cases</h1>
   {% if page_obj.object_list or query or ownership != 'all' %}<a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>{% endif %}
 </div>
 {% if page_obj.object_list or query or ownership != 'all' %}
@@ -13,14 +11,16 @@
 <label for="case-query">Search cases</label>
 <input id="case-query" type="search" name="q" value="{{ query }}" maxlength="200" placeholder="Search by name or description">
 </div>
-  <div class="field">
-<label for="ownership">Show</label>
+  <details{% if ownership != 'all' %} open{% endif %}>
+    <summary>Filter by ownership</summary>
+    <div class="field"><label for="ownership">Case ownership</label>
 <select id="ownership" name="ownership">
 <option value="all" {% if ownership == 'all' %}selected{% endif %}>All cases</option>
 <option value="owned" {% if ownership == 'owned' %}selected{% endif %}>Owned by me</option>
 <option value="shared" {% if ownership == 'shared' %}selected{% endif %}>Shared with me</option>
 </select>
-</div>
+    </div>
+  </details>
   <button class="button" type="submit">Search</button>
   {% if query or ownership != 'all' %}
 <a class="button button-secondary" href="{% url 'cases:case_list' %}">Clear filters</a>

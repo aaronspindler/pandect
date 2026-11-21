@@ -73,6 +73,7 @@ def _source_choices(
     cursor="",
     reverse=False,
     inclusive=False,
+    extractions_by_kind=EXTRACTIONS_BY_KIND,
 ):
     """Seek originals, additions and exact extraction versions in either direction."""
     kinds = list(get_operation(operation).kinds)
@@ -178,14 +179,14 @@ def _source_choices(
                     phase == 2
                     and operation != "plate_ocr"
                     and operation not in CALL_RECORDING_OPERATIONS
-                    and kind in EXTRACTIONS_BY_KIND
+                    and kind in extractions_by_kind
                 ):
                     results = (
                         AnalysisResult.objects.filter(
                             case=case,
                             run__case=case,
                             run__status__in=("complete", "partial"),
-                            run__operation__in=EXTRACTIONS_BY_KIND[kind],
+                            run__operation__in=extractions_by_kind[kind],
                             run__inputs__contains=[
                                 {"kind": kind, "evidence_id": str(item.pk)}
                             ],
@@ -199,7 +200,7 @@ def _source_choices(
                             "run__inputs",
                         )
                     )
-                    if EXTRACTIONS_BY_KIND[kind] == ("geocode_locations",):
+                    if extractions_by_kind[kind] == ("geocode_locations",):
                         newer = AnalysisReview.objects.filter(
                             case=case,
                             result_id=OuterRef("result_id"),
@@ -315,6 +316,7 @@ def _source_choice_page(
     selected=(),
     cursor="",
     reverse=False,
+    extractions_by_kind=EXTRACTIONS_BY_KIND,
 ):
     choices = list(
         islice(
@@ -325,6 +327,7 @@ def _source_choice_page(
                 evidence=evidence,
                 cursor=cursor,
                 reverse=reverse,
+                extractions_by_kind=extractions_by_kind,
             ),
             SOURCE_PAGE_SIZE + 1,
         )
@@ -353,7 +356,12 @@ def _source_choice_page(
         try:
             choice = next(
                 _source_choices(
-                    case, operation, evidence=evidence, cursor=value, inclusive=True
+                    case,
+                    operation,
+                    evidence=evidence,
+                    cursor=value,
+                    inclusive=True,
+                    extractions_by_kind=extractions_by_kind,
                 ),
                 None,
             )

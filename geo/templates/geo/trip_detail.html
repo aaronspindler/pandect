@@ -1,5 +1,18 @@
 {% extends "geo/map.html" %}
-{% block trip_listing %}
+{% block trip_detail %}
+<section class="content-section" aria-labelledby="trip-findings">
+  <h2 id="trip-findings" tabindex="-1">Findings from trip observations</h2>
+  {% if findings_page %}
+    {% include 'core/analysis/_catalogue_rows.html' with rows=findings_page only %}
+    {% if findings_page.has_other_pages %}
+    <nav class="pagination" aria-label="Trip finding pages">
+      {% if findings_page.has_previous %}<a class="button button-secondary" href="{% querystring findings_page=findings_page.previous_page_number %}#trip-findings">Previous findings</a>{% endif %}
+      <span>Page {{ findings_page.number }} of {{ findings_page.paginator.num_pages }}</span>
+      {% if findings_page.has_next %}<a class="button button-secondary" href="{% querystring findings_page=findings_page.next_page_number %}#trip-findings">Next findings</a>{% endif %}
+    </nav>
+    {% endif %}
+  {% else %}<p class="muted">No saved findings cite these observations.</p>{% endif %}
+</section>
 <section class="content-section" aria-labelledby="trip-list" tabindex="-1">
   <div class="section-header"><h2 id="trip-list">{% if review_estimates %}Address estimates{% else %}Trip observations{% endif %}</h2><span class="muted">{{ source_page.paginator.count }} observation{{ source_page.paginator.count|pluralize }}</span></div>
   {% if review_estimates %}

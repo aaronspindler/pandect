@@ -8,6 +8,7 @@ from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock, patch
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
@@ -562,7 +563,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     "contact-01@example.test"
                 )
                 expect(
-                    page.locator(".case-tools-recent + .case-tools-directory")
+                    page.locator(".case-tools-directory + .case-tools-recent")
                 ).to_be_visible()
                 expect(
                     page.get_by_role("heading", name="Case Tools", exact=True)
@@ -574,11 +575,13 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.locator("#analysis-reports .analysis-options a")
                 ).to_have_count(5)
-                expect(
-                    page.locator(".case-tools-directory summary").filter(
-                        has_text="More tools"
-                    )
-                ).to_have_count(0)
+                directory = page.get_by_role("navigation", name="Explore case")
+                for label in ("Findings", "Conversations", "Trips", "Images"):
+                    expect(
+                        directory.get_by_role("link", name=label, exact=True)
+                    ).to_be_visible()
+                report_menu = page.locator("#analysis-reports")
+                expect(report_menu).not_to_have_attribute("open", "")
                 navigation = page.get_by_role("navigation", name="Investigation")
                 navigation.get_by_role("link", name="Processing", exact=True).press(
                     "Enter"
@@ -640,15 +643,8 @@ class AnalysisBrowserTests(BrowserTestCase):
                         self.assertIsNotNone(bounds)
                         self.assertGreaterEqual(bounds["width"], 44)
                         self.assertGreaterEqual(bounds["height"], 44)
-                    if label == "desktop":
-                        for link in page.locator(
-                            "#analysis-reports .analysis-options a"
-                        ).all():
-                            bounds = link.bounding_box()
-                            self.assertIsNotNone(bounds)
-                            self.assertGreaterEqual(bounds["y"], 0)
-                            self.assertLessEqual(bounds["y"] + bounds["height"], height)
                     self.capture(page, engine, f"analysis-overview-{label}")
+                report_menu.locator("summary").press("Enter")
                 pattern = page.get_by_role("link", name="Vehicle trips", exact=True)
                 pattern.focus()
                 expect(pattern).to_be_focused()
@@ -671,6 +667,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 page.emulate_media(color_scheme="light", forced_colors="active")
                 page.reload()
                 self.capture(page, engine, "analysis-overview-forced-colors")
+                report_menu.locator("summary").press("Enter")
                 report_link = page.get_by_role(
                     "link", name=re.compile(r"^Call patterns")
                 )
@@ -1080,12 +1077,21 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.capture(page, engine, "review-priority-dark")
                 page.emulate_media(color_scheme="light", forced_colors="active")
                 self.capture(page, engine, "review-priority-forced-colors")
-                page.get_by_role(
-                    "link", name="All findings from this evidence", exact=True
-                ).press("Enter")
-                first = page.locator(".analysis-finding-rows li").first
-                expect(first).to_contain_text("REF-1847")
-                expect(first).to_contain_text(reason)
+                page.get_by_role("link", name="Next findings", exact=True).press(
+                    "Enter"
+                )
+                row = page.locator("#evidence-findings .analysis-finding-rows li").first
+                origin = row.get_attribute("id")
+                row.locator("a").first.press("Enter")
+                page.get_by_role("link", name="Back to evidence", exact=True).press(
+                    "Enter"
+                )
+                expect(page).to_have_url(
+                    re.compile(r"findings_page=2#" + re.escape(origin) + "$")
+                )
+                page.get_by_role("link", name="Previous findings", exact=True).press(
+                    "Enter"
+                )
                 first.locator("a").first.press("Enter")
                 expect(page.locator(".analysis-finding").first).to_contain_text(
                     "REF-1847"
@@ -1574,7 +1580,11 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("status").filter(has_text="Checking…")
                 ).to_be_visible()
-                run_id = UUID(native.get_attribute("href").rstrip("/").split("/")[-1])
+                run_id = UUID(
+                    urlsplit(native.get_attribute("href"))
+                    .path.rstrip("/")
+                    .split("/")[-1]
+                )
                 self.db(self._complete, run_id)
                 refresh = page.get_by_role("link", name="Refresh status", exact=True)
                 refresh.focus()
@@ -1677,6 +1687,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("link", name="Additional analysis", exact=True)
                 ).to_have_count(0)
+                page.locator("#analysis-reports > summary").press("Enter")
                 page.get_by_role("link", name="Call patterns", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Call patterns", exact=True)
