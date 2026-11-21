@@ -6,6 +6,7 @@ from core.analysis.errors import AnalysisError, error_message
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.import_checks import imported_sources
 from core.models import AnalysisRun, CaseAnalysisBatch
+from phone.imessage_forms import ANALYSIS_MODES
 
 register = template.Library()
 
@@ -54,11 +55,7 @@ def import_checks(context, import_type, import_id):
         "import_id": import_id,
         "eligible_count": count,
         "automatic": bool(run),
-        "analysis_mode": {
-            "local": "Local checks",
-            "ai": "AI",
-            "both": "Both",
-        }.get(mode, "Earlier analysis settings"),
+        "analysis_mode": dict(ANALYSIS_MODES).get(mode, "Earlier analysis settings"),
         "form": EvidenceAnalysisForm(),
         "batch": batch,
         "csrf_token": context.get("csrf_token"),

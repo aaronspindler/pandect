@@ -6,15 +6,18 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from django.core.files.base import ContentFile
+from django.test import override_settings
 from django.urls import reverse
 from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.catalogue import project_result
+from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
 from core.analysis.services import resolve_inputs, snapshot_sources
-from core.models import AnalysisResult, AnalysisReview, AnalysisRun
+from core.analysis.tests.test_execution import LOCAL
+from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import CommunicationContext, TextMessageEvidence
@@ -427,7 +430,7 @@ class ConversationBrowserTests(BrowserTestCase):
                     + "?page=2",
                 )
 
-    def save_sessions(self, messages):
+    def save_sessions(self, messages, *, gap_minutes=15):
         operation = get_operation("sessions")
         run = AnalysisRun.objects.create(
             case=self.case,
@@ -438,12 +441,87 @@ class ConversationBrowserTests(BrowserTestCase):
                 self.case, [{"kind": "text-message", "id": m.pk} for m in messages]
             ),
             status="complete",
-            parameters={"gap_minutes": 15},
+            parameters={"gap_minutes": gap_minutes},
         )
         data = operation.function(resolve_inputs(run, self.case), run.parameters)
         project_result(
             AnalysisResult.objects.create(case=self.case, run=run, data=data)
         )
+
+    def test_jump_to_date_scrolls_both_ways_in_messages_and_instances(self):
+        midnight = datetime(2026, 11, 11, tzinfo=UTC)
+        later = [
+            TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                sender=self.alex,
+                recipient=self.blair,
+                occurred_at=midnight + timedelta(minutes=number),
+                title=f"Next day message {number}",
+                body=f"Original next day message {number}",
+            )
+            for number in range(52)
+        ]
+        self.save_sessions(self.messages[:1])
+        self.save_sessions([*self.messages[1:], *later], gap_minutes=1440)
+        self.save_sessions([self.manual_message])
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                patch("phone.conversation_instances.INSTANCES_PER_PAGE", 1),
+                self.browser_page(engine) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                for tab in ("messages", "instances"):
+                    with self.subTest(tab=tab):
+                        path = self.reader_path + "?list_page=2"
+                        if tab == "instances":
+                            path += "&tab=instances"
+                        page.set_viewport_size({"width": 1440, "height": 900})
+                        page.goto(self.live_server_url + path)
+                        self.capture(page, engine, f"{tab}-date-picker-desktop")
+                        page.set_viewport_size({"width": 390, "height": 844})
+                        field = page.get_by_label("Jump to date")
+                        field.fill("2026-11-11")
+                        page.get_by_role("button", name="Go", exact=True).press("Enter")
+                        jump = page.locator("#conversation-day-result")
+                        expect(jump).to_be_in_viewport()
+                        expect(field).to_have_value("2026-11-11")
+                        self.assert_reflow(page, 390)
+                        self.capture(page, engine, f"{tab}-date-jump-mobile")
+                        page.evaluate("window.dateJumpDocument = document")
+                        if tab == "instances":
+                            reader = page.locator(".instance-originals")
+                            records = reader.locator(".instance-message-list > li")
+                            expected_count = 105
+                            first_message = self.messages[1]
+                        else:
+                            reader = page.locator(".conversation-reader")
+                            records = reader.locator(".conversation-message")
+                            expected_count = 107
+                            first_message = self.messages[0]
+
+                        for direction in ("previous", "next"):
+                            reader.locator(
+                                f':scope > [data-conversation-edge="{direction}"]'
+                            ).scroll_into_view_if_needed()
+                        expect(records).to_have_count(expected_count)
+                        expect(records.first).to_contain_text(first_message.body)
+                        expect(
+                            reader.get_by_text(later[-1].body, exact=True)
+                        ).to_be_attached()
+                        if tab == "instances":
+                            for direction in ("previous", "next"):
+                                page.locator(
+                                    "#instances-reader > "
+                                    f'[data-conversation-edge="{direction}"]'
+                                ).scroll_into_view_if_needed()
+                            expect(
+                                page.locator(".conversation-instance")
+                            ).to_have_count(3)
+                        self.assertTrue(
+                            page.evaluate("window.dateJumpDocument === document")
+                        )
 
     def test_instance_summaries_and_exact_members_without_javascript(self):
         grouped = self.messages[:52]
@@ -461,14 +539,25 @@ class ConversationBrowserTests(BrowserTestCase):
             inputs=inputs,
             status="complete",
         )
-        statement = "The participants discuss a possible meeting by the harbour."
+        statement = "Alex suggests a possible meeting by the harbour."
+        saved_statement = (
+            f"The reported sender **{grouped[0].sender_id}** "
+            "suggests a possible meeting by the harbour."
+        )
+        detail = "No final meeting time was confirmed."
+        first_statement = (
+            f"{statement} One person suggests the morning because they are working "
+            "later. The other person asks for an afternoon meeting and offers to check "
+            "the bus schedule. They agree to check in again once they know their "
+            f"shifts. {detail}"
+        )
         data = operation.function(
             resolve_inputs(run, self.case),
             {},
             infer=lambda prompt, schema: {
                 "items": [
                     {
-                        "text": statement,
+                        "text": text,
                         "citations": [
                             {
                                 "source_id": inputs[0]["id"],
@@ -476,6 +565,12 @@ class ConversationBrowserTests(BrowserTestCase):
                             }
                         ],
                     }
+                    for text in (
+                        first_statement.replace(statement, saved_statement, 1),
+                        "One person proposes meeting on a weekday.",
+                        "They discuss getting there by bus.",
+                        "One person asks about changing the location.",
+                    )
                 ]
             },
         )
@@ -488,18 +583,31 @@ class ConversationBrowserTests(BrowserTestCase):
                 self.sign_in(page, self.viewer)
                 page.goto(self.live_server_url + self.reader_path + "?list_page=2")
                 tabs = page.get_by_role("navigation", name="Conversation views")
-                tabs.get_by_role("link", name="Instances").press("Enter")
-                expect(tabs.get_by_role("link", name="Instances")).to_have_attribute(
-                    "aria-current", "page"
-                )
+                tabs.get_by_role("link", name="Sessions & summaries").press("Enter")
+                expect(
+                    tabs.get_by_role("link", name="Sessions & summaries")
+                ).to_have_attribute("aria-current", "page")
                 rows = page.locator(".conversation-instance")
                 expect(rows).to_have_count(2)
-                expect(rows.first).to_contain_text(statement)
+                preview = rows.first.locator(".instance-summary-preview")
+                expect(preview).to_be_visible()
+                expect(preview).to_contain_text(statement)
+                expect(preview).not_to_contain_text("reported sender")
+                expect(preview).not_to_contain_text(detail)
                 expect(rows.first).to_contain_text("AI suggestion")
+                expect(
+                    rows.first.get_by_role("link", name="View cited report")
+                ).to_be_visible()
                 expect(rows.last).to_contain_text("No full summary available")
+                expect(
+                    rows.last.locator("summary", has_text="Full summary")
+                ).to_have_count(0)
                 expect(page.get_by_role("link", name="Request summary")).to_have_count(
                     0
                 )
+                expect(
+                    page.get_by_role("link", name="Summarize missing sessions")
+                ).to_have_count(0)
                 expect(page.locator(".instance-message-list")).to_have_count(0)
                 for width, height in (
                     (1440, 900),
@@ -513,6 +621,29 @@ class ConversationBrowserTests(BrowserTestCase):
                     self.capture(page, engine, f"instances-{width}-{height}")
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
                 self.capture(page, engine, "instances-dark")
+                disclosure = rows.first.locator("summary", has_text="Full summary")
+                statements = rows.first.locator("details .instance-summary")
+                expect(statements.first).to_be_hidden()
+                url = page.url
+                disclosure.press("Enter")
+                expect(disclosure).to_be_focused()
+                expect(page).to_have_url(url)
+                expect(preview).to_be_hidden()
+                expect(statements.first).to_be_visible()
+                expect(statements.first).to_have_text(first_statement)
+                expect(statements.last).to_have_text(
+                    "One person asks about changing the location."
+                )
+                expect(
+                    rows.first.get_by_role(
+                        "link", name="View citations for summary statement 1"
+                    )
+                ).to_have_attribute("href", finding_url(self.case.pk, run.pk, 0))
+                self.assert_reflow(page, 320)
+                self.capture(page, engine, "instance-summary-expanded-mobile")
+                disclosure.press("Space")
+                expect(statements.first).to_be_hidden()
+                expect(preview).to_be_visible()
                 page.emulate_media(forced_colors="active")
                 show = rows.first.get_by_role("link", name="Show messages")
                 show.focus()
@@ -540,6 +671,60 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("link", name="All conversations")
                 ).to_have_attribute("href", re.compile(r"\?page=2$"))
+
+    def test_long_instance_summary_loads_on_expansion_without_javascript(self):
+        message = self.messages[0]
+        self.save_sessions([message])
+        operation = get_operation("session_summaries")
+        inputs = snapshot_sources(
+            self.case, [{"kind": "text-message", "id": message.pk}]
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="session_summaries",
+            method_version=operation.version,
+            inputs=inputs,
+            status="complete",
+        )
+        detail = "A final meeting location was never confirmed."
+        passage = "Synthetic report detail. " * 135
+        source_id = inputs[0]["id"]
+        AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={
+                "items": [
+                    {
+                        "text": f"{number}. {passage}{detail}",
+                        "source_ids": [source_id],
+                        "values": {
+                            "status": "unresolved",
+                            "inferred_session": 1,
+                            "chunk_source_ids": [source_id],
+                        },
+                    }
+                    for number in range(3)
+                ]
+            },
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(self.live_server_url + self.reader_path + "?tab=instances")
+                row = page.locator(".conversation-instance")
+                expect(row.locator(".instance-summary-preview")).to_be_visible()
+                expect(row).not_to_contain_text(detail)
+                row.get_by_role("link", name="Full summary").press("Enter")
+                self.assertEqual(urlsplit(page.url).path, self.reader_path)
+                expect(
+                    row.locator("details[open] .instance-summary").last
+                ).to_contain_text(detail)
+                row.locator("summary", has_text="Full summary").press("Space")
+                expect(row.locator(".instance-summary-preview")).to_be_visible()
 
     def test_matching_copies_link_to_the_exact_original(self):
         source = self.messages[0]
@@ -603,14 +788,25 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.goto(self.live_server_url + self.reader_path + "?tab=instances")
                 if engine == self.engines[0]:
                     expect(
-                        page.get_by_role("heading", name="No saved instances")
+                        page.get_by_role("heading", name="No saved sessions")
                     ).to_be_visible()
+                    page.get_by_role("link", name="Group this conversation").press(
+                        "Enter"
+                    )
+                    expect(
+                        page.get_by_role("heading", name="Group this conversation")
+                    ).to_be_visible()
+                    expect(page.get_by_label("Minutes between groups")).to_have_value(
+                        "60"
+                    )
+                    self.capture(page, engine, "group-conversation-review")
+                    page.get_by_role("link", name="Cancel").press("Enter")
                     self.db(self.save_sessions, self.messages[:2])
                     page.reload()
                 page.get_by_role("link", name="Show messages").press("Enter")
                 page.get_by_role("link", name="Request summary").press("Enter")
                 expect(
-                    page.get_by_role("heading", name="Request instance summary")
+                    page.get_by_role("heading", name="Request session summary")
                 ).to_be_visible()
                 page.get_by_text(
                     "Messages included in this summary", exact=False
@@ -628,6 +824,60 @@ class ConversationBrowserTests(BrowserTestCase):
                         AnalysisRun.objects.filter(operation="session_summaries").exists
                     )
                 )
+
+    @override_settings(PANDECT_LOCAL_AI=LOCAL)
+    def test_owner_requests_all_instance_summaries_without_javascript(self):
+        self.save_sessions(self.messages[:2])
+        self.save_sessions(self.messages[30:32])
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.owner)
+                page.goto(self.live_server_url + self.reader_path + "?tab=instances")
+                action = page.get_by_role("link", name="Summarize missing sessions")
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assert_reflow(page, width)
+                    self.capture(page, engine, f"instances-owner-{width}-{height}")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "instances-owner-dark")
+                page.emulate_media(forced_colors="active")
+                action.focus()
+                expect(action).to_be_focused()
+                self.capture(page, engine, "instances-owner-forced-colors")
+                page.emulate_media(color_scheme="light", forced_colors="none")
+                action.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Summarize missing sessions")
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("Sessions included · 2", exact=True)
+                ).to_be_visible()
+                self.assert_reflow(page, 320)
+                self.capture(page, engine, "instances-bulk-review-mobile")
+                page.get_by_role("link", name="Cancel").press("Enter")
+                expect(action).to_be_visible()
+                action.press("Enter")
+                page.get_by_role("button", name="Request summaries").press("Enter")
+                expect(page.get_by_role("heading", name="Processing")).to_be_visible()
+                expect(page.get_by_text("Summaries are being queued.")).to_be_visible()
+                page.get_by_role("link", name="Back to sessions & summaries").press(
+                    "Enter"
+                )
+                expect(action).to_be_visible()
+                action.press("Enter")
+                expect(
+                    page.get_by_text("Instance summaries are already in progress.")
+                ).to_be_visible()
+                self.db(CaseAnalysisBatch.objects.filter(case=self.case).delete)
 
     def test_reader_selection_history_groupings_reflow_and_keyboard(self):
         self.save_sessions(self.messages[:4])
@@ -943,6 +1193,18 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.goto(url)
                 row = page.locator(f"#message-{first.pk}")
                 expect(row).not_to_contain_text("Literal wording observation")
+                shared = page.get_by_role("region", name="Conversation findings · 27")
+                expect(shared.get_by_role("heading")).to_be_visible()
+                expect(shared.locator(".conversation-finding")).to_have_count(3)
+                expect(shared.locator(".conversation-finding").first).to_be_visible()
+                expect(
+                    shared.get_by_role("link", name="Show message", exact=False).first
+                ).to_be_visible()
+                page.set_viewport_size({"width": 390, "height": 844})
+                shared.get_by_role("heading").scroll_into_view_if_needed()
+                self.assert_reflow(page, 390)
+                self.capture(page, engine, "shared-findings-preview-mobile")
+                page.set_viewport_size({"width": 1440, "height": 900})
                 row.locator("[data-message-select]").press("Enter")
                 panel = page.get_by_role("complementary", name="Message details")
                 inline = panel.locator("[data-message-analysis]")
@@ -963,7 +1225,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 self.assertLessEqual(len(excerpt.inner_text()), 160)
                 full_text_end = "End of retained observation."
                 expect(findings.first).not_to_contain_text(full_text_end)
-                expect(inline.locator(".conversation-finding-method")).to_have_count(0)
+                expect(inline).not_to_contain_text("Suggest claims and commitments")
                 expect(findings.nth(1)).to_contain_text("AI suggestion")
                 expect(findings.nth(1)).to_contain_text("Reported sender Alex")
                 expect(findings.nth(1)).to_contain_text("reported recipient Blair")
@@ -972,9 +1234,6 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(findings.nth(1)).not_to_contain_text("Whole result: Unresolved")
                 expect(findings.nth(1)).to_contain_text("Partial coverage")
                 expect(inline).not_to_contain_text("Shared exchange")
-                expect(shared.locator(":scope > summary")).to_contain_text(
-                    "Conversation findings · 27"
-                )
                 summary.scroll_into_view_if_needed()
                 self.capture(page, engine, "saved-findings-panel")
                 page.set_viewport_size({"width": 390, "height": 844})
@@ -996,6 +1255,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(inline).to_have_attribute("open", "")
                 expect(findings).to_have_count(25)
                 expect(findings.first).to_contain_text(full_text_end)
+                expect(inline).not_to_contain_text("Suggest claims and commitments")
                 inline.get_by_role("link", name="Next findings", exact=True).click()
                 expect(findings).to_have_count(3)
                 expect(inline).to_contain_text("Retained observation 28")
@@ -1008,10 +1268,11 @@ class ConversationBrowserTests(BrowserTestCase):
                 page.go_back()
                 expect(inline).to_be_visible()
                 expect(findings).to_have_count(25)
-                shared.locator(":scope > summary").press("Enter")
+                shared.get_by_role("link", name="More findings", exact=True).press(
+                    "Enter"
+                )
                 expect(shared.locator(".conversation-finding")).to_have_count(25)
                 shared.get_by_role("link", name="Next findings", exact=True).click()
-                expect(shared).to_have_attribute("open", "")
                 expect(inline).to_contain_text("Reported sender Alex")
                 expect(inline).not_to_contain_text(str(first.sender_id))
                 expect(shared.locator(".conversation-finding")).to_have_count(2)
@@ -1040,10 +1301,12 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(suggestion).not_to_contain_text(str(first.sender_id))
                 self.capture(page, engine, "participant-names-catalogue")
                 suggestion.get_by_role(
-                    "link", name="Reported sender Alex", exact=True
+                    "link", name=re.compile(r"^Reported sender Alex\b")
                 ).click()
                 expect(
-                    page.get_by_role("heading", name="Reported sender Alex", exact=True)
+                    page.locator(".analysis-finding").get_by_role(
+                        "heading", name=re.compile(r"^Reported sender Alex\b")
+                    )
                 ).to_be_visible()
                 text = page.locator(".analysis-finding-text")
                 expect(text).to_contain_text("Reported sender Alex")
@@ -1091,7 +1354,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 shared = page.locator("#conversation-analysis")
                 summary = inline.locator("summary")
                 expect(inline).to_have_attribute("open", "")
-                expect(shared).to_have_attribute("open", "")
+                expect(shared.locator(".conversation-finding")).to_have_count(25)
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),

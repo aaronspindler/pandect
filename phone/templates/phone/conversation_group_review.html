@@ -1,0 +1,30 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Group this conversation · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ back_url }}">Back to sessions &amp; summaries</a>
+<header class="page-header">
+  <div>
+    <h1>Group this conversation</h1>
+    <p>{{ first }}{% if first.pk != second.pk %} and {{ second }}{% endif %}</p>
+  </div>
+</header>
+{% if can_queue %}
+<p>Group {{ sources_count }} active message{{ sources_count|pluralize }} using reported times and participant details. Archived messages are excluded. Messages without reported times form separate groups.</p>
+<p>Grouping runs on this server. Boundaries are inferred, and each group links to its original messages.</p>
+<form method="post" class="form-layout" data-unsaved-form>
+  {% csrf_token %}
+  {% include 'ui/components/form_errors.html' %}
+  {{ form.submission_id }}{{ form.reviewed_scope }}
+  {% include 'ui/components/form_field.html' with field=form.gap_minutes only %}
+  <div class="form-actions">
+    <button class="button button-primary" type="submit">Group messages</button>
+    <a class="button button-secondary" href="{{ back_url }}">Cancel</a>
+  </div>
+</form>
+{% elif limit_message %}
+<p>{{ limit_message }} Choose a smaller selection to group at one time.</p>
+<a class="button button-primary" href="{% url 'core:analysis:create' case.pk %}?operation=sessions">Choose messages</a>
+{% else %}
+<p>There are no active messages to group.</p>
+{% endif %}
+{% endblock %}

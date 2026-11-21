@@ -21,7 +21,7 @@ from geo.trip_models import (
     VehicleTripSource,
     VehicleTripState,
 )
-from geo.trip_processing import METHOD_VERSION
+from geo.trip_processing import METHOD_VERSION, observation_trip_url
 from people.models import Person
 from vehicle.models import Vehicle
 
@@ -49,7 +49,7 @@ class SavedTripFixtures(MapCaseFixtures):
         cls.detail_url = reverse("geo:trip_detail", args=(cls.case.pk, cls.trip.pk))
 
     @classmethod
-    def add_trip(cls, count=3, *, minute=0, addresses=False, state="active"):
+    def add_trip(cls, count=3, *, minute=0, addresses=False, state="active", speeds=()):
         records = []
         for index in range(count):
             item = VehicleLocationEvidence(
@@ -63,6 +63,7 @@ class SavedTripFixtures(MapCaseFixtures):
                 if addresses
                 else str(Decimal("-79.38") + Decimal(index) / 100000),
                 observed_at=INSTANT + timedelta(minutes=minute, seconds=index),
+                speed_kmh=speeds[index] if speeds else None,
                 is_archived=state == "archived",
                 archive_changed_by=cls.owner if state == "archived" else None,
                 archive_changed_at=INSTANT if state == "archived" else None,
@@ -125,6 +126,26 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
         # Complete-generation validation belongs at reader boundaries; adding
         # summaries must not multiply full-history scans by the page size.
         self.assertLess(len(history_checks), 10)
+        endpoint_queries = [
+            query for query in queries if 'FROM "geo_vehicletripsource"' in query["sql"]
+        ]
+        self.assertEqual(len(endpoint_queries), 1)
+        self.assertContains(
+            response, f'href="{response.context["trips"][0]["trip_url"]}"', count=2
+        )
+
+    def test_empty_map_links_to_vehicle_intake_for_editors(self):
+        self.state.current_generation = None
+        self.state.save(update_fields=("current_generation",))
+        for user in (self.viewer, self.editor):
+            self.client.force_login(user)
+            response = self.client.get(self.url)
+            self.assertContains(
+                response, "Import vehicle locations", count=int(user == self.editor)
+            )
+            self.assertContains(
+                response, "Add a vehicle location", count=int(user == self.editor)
+            )
 
     def test_roles_read_saved_trips_without_raw_locations_or_get_side_effects(self):
         for role in ("owner", "editor", "viewer"):
@@ -144,7 +165,16 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
                 self.assertIn("no-store", response["Cache-Control"])
                 self.assertEqual(response["Referrer-Policy"], "same-origin")
                 self.assertEqual(self.client.post(self.url).status_code, 405)
-                self.assertEqual(self.client.get(self.detail_url).status_code, 200)
+                detail = self.client.get(self.detail_url)
+                self.assertContains(detail, "Possible trip")
+                self.assertContains(detail, "First observation")
+                self.assertContains(detail, "Last observation")
+                for observation in [self.observations[0], self.observations[-1]]:
+                    original = reverse(
+                        "core:evidence:detail",
+                        args=(self.case.pk, "vehicle-location", observation.pk),
+                    )
+                    self.assertContains(detail, f'href="{original}"', count=2)
         self.client.force_login(self.outsider)
         self.assertEqual(self.client.get(self.detail_url).status_code, 404)
         self.outsider.is_superuser = True
@@ -199,6 +229,7 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
             response = self.client.get(url, params, HTTP_ACCEPT="application/json")
             self.assertEqual(response.status_code, 200)
             data = response.json()
+            self.assertFalse(data["can_reuse"])
             self.assertLessEqual(len(data["positions"]), 500)
             self.assertTrue(
                 all(row["position"] is not None for row in data["positions"])
@@ -214,6 +245,49 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
         )  # Display places, not raw titles.
         self.assertEqual(detail.context["source_rows"][0]["id"], str(records[50].pk))
 
+    def test_reported_geometry_can_recheck_without_loading_positions(self):
+        self.client.force_login(self.viewer)
+        data = self.client.get(self.detail_url, HTTP_ACCEPT="application/json").json()
+        self.assertTrue(data["can_reuse"])
+        params = {"revision": data["revision"], "recheck": "1"}
+        with patch("geo.map_views.source_positions") as positions:
+            response = self.client.get(
+                self.detail_url, params, HTTP_ACCEPT="application/json"
+            )
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.content, b"")
+        positions.assert_not_called()
+        CaseMembership.objects.filter(case=self.case, user=self.viewer).delete()
+        self.assertEqual(
+            self.client.get(
+                self.detail_url, params, HTTP_ACCEPT="application/json"
+            ).status_code,
+            404,
+        )
+
+    def test_map_geometry_and_trip_detail_preserve_reported_speeds(self):
+        trip, records = self.add_trip(minute=60, speeds=("27.125", 0, None))
+        url = reverse("geo:trip_detail", args=(self.case.pk, trip.pk))
+        self.client.force_login(self.viewer)
+
+        response = self.client.get(url, HTTP_ACCEPT="application/json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [row["speed_kmh"] for row in response.json()["positions"]],
+            [27.125, 0, None],
+        )
+
+        detail = self.client.get(url)
+        self.assertContains(detail, "Reported speed 27.125 km/h")
+        self.assertContains(detail, "Reported speed 0 km/h")
+        self.assertContains(detail, "Reported speed unavailable")
+        for record in records:
+            source_url = reverse(
+                "core:evidence:detail",
+                args=(self.case.pk, "vehicle-location", record.pk),
+            )
+            self.assertContains(detail, f'href="{source_url}"')
+
     def test_summary_pagination_filters_whole_overlapping_trips(self):
         for index in range(26):
             self.add_trip(minute=(index + 1) * 120)
@@ -221,6 +295,8 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
         response = self.client.get(self.url, {"page": 2})
         self.assertEqual(response.context["page_obj"].paginator.count, 27)
         self.assertEqual(len(response.context["trips"]), 2)
+        self.assertContains(response, '<details class="map-search">')
+        self.assertNotContains(response, 'class="muted map-scope"')
         with override_settings(TIME_ZONE="UTC"):
             response = self.client.get(
                 self.url,
@@ -232,14 +308,24 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
             )
         self.assertEqual(response.context["page_obj"].paginator.count, 1)
         self.assertEqual(response.context["selected_trip"]["source_count"], 3)
+        self.assertContains(response, '<details class="map-search">')
+        self.assertContains(response, f"Trips · {self.vehicle} · From")
         other_vehicle = Vehicle.objects.create(case=self.other, make="Secret")
         response = self.client.get(self.url, {"vehicle_id": other_vehicle.pk})
         self.assertEqual(response.context["page_obj"].paginator.count, 0)
         self.assertTrue(response.context["form"].errors)
+        self.assertContains(response, '<details class="map-search" open>')
+        self.assertNotContains(response, "Secret")
 
     def test_stale_cross_case_checksum_and_archive_changes_withhold_trip(self):
         self.client.force_login(self.viewer)
         record = self.observations[0]
+        evidence_url = reverse(
+            "core:evidence:detail", args=(self.case.pk, "vehicle-location", record.pk)
+        )
+        self.assertEqual(observation_trip_url(self.case, record), self.detail_url)
+        self.assertEqual(observation_trip_url(self.other, record), "")
+        self.assertContains(self.client.get(evidence_url), f'href="{self.detail_url}"')
         for change in (
             {"sha256": "b" * 64},
             {
@@ -252,6 +338,7 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
             original = {field: getattr(record, field) for field in change}
             VehicleLocationEvidence.objects.filter(pk=record.pk).update(**change)
             self.assertEqual(self.client.get(self.detail_url).status_code, 404)
+            self.assertEqual(observation_trip_url(self.case, record), "")
             self.assertEqual(
                 self.client.get(self.url).context["page_obj"].paginator.count, 0
             )
@@ -259,6 +346,10 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
         self.state.current_generation = None
         self.state.save(update_fields=("current_generation",))
         self.assertEqual(self.client.get(self.detail_url).status_code, 404)
+        self.assertEqual(observation_trip_url(self.case, record), "")
+        self.assertNotContains(
+            self.client.get(evidence_url), f'href="{self.detail_url}"'
+        )
 
     @override_settings(
         PANDECT_MAP_TILE_URL="https://maps.example.test/{z}/{x}/{y}.png",

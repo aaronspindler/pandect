@@ -5,12 +5,45 @@
 {% block content %}
 <div class="detail-layout">
 <p class="breadcrumb"><a href="{% url 'vehicle:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to vehicles</a></p>
-<div class="page-header"><div><p class="eyebrow">Vehicle</p><h1>{{ vehicle }}</h1><p class="help-text">Identifiers and associations unverified</p></div>{% if can_edit %}<div class="actions"><a class="button button-secondary" href="{% url 'vehicle:edit' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit vehicle</a><a class="button button-secondary" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a><a class="button button-primary" href="{% url 'core:evidence:create' case_id=case.pk %}?kind=vehicle-location&amp;vehicle={{ vehicle.pk }}">Add a location</a></div>{% endif %}</div>
+<div class="page-header"><div><p class="eyebrow">Vehicle</p><h1>{{ vehicle }}</h1><p class="help-text">Identifiers and associations unverified</p></div>{% if can_edit %}<div class="actions"><a class="button button-secondary" href="{% url 'vehicle:edit' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit vehicle</a><a class="button button-secondary" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}?vehicle={{ vehicle.pk }}">Import vehicle locations</a><a class="button button-primary" href="{% url 'core:evidence:create' case_id=case.pk %}?kind=vehicle-location&amp;vehicle={{ vehicle.pk }}">Add a location</a></div>{% endif %}</div>
 {% if not can_edit %}<p class="notice">You have viewer access to this vehicle record.</p>{% endif %}
-{% include 'ui/components/live_updates.html' %}
+<section class="content-section" aria-labelledby="locations-heading">
+  <h2 id="locations-heading">Reported locations</h2>
+  {% if latest_observation %}
+  <p class="muted">Latest dated observation · <time datetime="{{ latest_observation.observed_at|date:'c' }}">{{ latest_observation.observed_at|date:'j M Y, H:i:s T' }}</time>{% if latest_observation.is_archived %} · Archived{% endif %}</p>
+  <a class="record-link" href="{% url 'core:evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=latest_observation.pk %}">
+    {% if latest_observation.address.strip %}{{ latest_observation.address|truncatechars:160 }}{% else %}{{ latest_observation.latitude }}, {{ latest_observation.longitude }}{% endif %}
+  </a>
+  {% elif locations %}<p class="muted">The recorded locations have no observation times.</p>
+  {% else %}<p class="muted">No locations have been recorded for this vehicle.</p>{% endif %}
+  {% if locations %}
+  <details class="disclosure"{% if request.GET.locations_page %} open{% endif %}>
+    <summary>Show observations · {{ locations.paginator.count }}</summary>
+    <p class="muted">Showing {{ locations.start_index }}–{{ locations.end_index }} of {{ locations.paginator.count }}, including archived evidence.</p>
+    <ul class="record-list">
+      {% for location in locations %}
+      <li class="record-row">
+        <div><a class="record-link" href="{% url 'core:evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=location.pk %}">{{ location.title }}</a>
+          <p class="muted">{% if location.observed_at %}<time datetime="{{ location.observed_at|date:'c' }}">{{ location.observed_at|date:'j M Y, H:i:s T' }}</time>{% else %}No observation time{% endif %}</p>
+        </div>
+        {% if location.is_archived %}<span class="status">Archived</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if locations.has_other_pages %}
+    <nav class="pagination" aria-label="Vehicle observation pages">
+      {% if locations.has_previous %}<a class="button button-secondary" href="{% querystring locations_page=locations.previous_page_number %}#locations-heading">Previous observations</a>{% endif %}
+      <span>Page {{ locations.number }} of {{ locations.paginator.num_pages }}</span>
+      {% if locations.has_next %}<a class="button button-secondary" href="{% querystring locations_page=locations.next_page_number %}#locations-heading">Next observations</a>{% endif %}
+    </nav>
+    {% endif %}
+  </details>
+  {% endif %}
+</section>
+{% if trip_report.pending or trip_report.processing_pending or trip_report.needs_prepare %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef live inline %}
 <section id="vehicle-trips" data-live-region data-live-poll="{{ trip_report.processing_pending|yesno:'true,false' }}" class="content-section" aria-labelledby="trips-heading">
-<div class="section-header"><h2 id="trips-heading">Trips</h2><a class="record-link" href="{% url 'core:analysis:report' case.pk 'vehicle-trips' %}?vehicle_id={{ vehicle.pk }}">{% if more_trips %}See all trips{% else %}Choose dates{% endif %}</a></div>
+<div class="section-header"><h2 id="trips-heading">Trips</h2><a class="record-link" href="{% url 'core:analysis:report' case.pk 'vehicle-trips' %}?vehicle_id={{ vehicle.pk }}{% if not more_trips %}&amp;filters=dates#report-filters{% endif %}">{% if more_trips %}See all trips{% else %}Choose dates{% endif %}</a></div>
 {% if more_trips %}<p class="muted">Showing the five most recent possible trips.</p>{% endif %}
 {% include 'geo/analysis/trips.html' with hide_vehicle=True %}
 </section>
@@ -26,9 +59,6 @@
 {% else %}<p class="muted">No identifiers or color recorded.</p>{% endif %}
 
 
-<section class="content-section" aria-labelledby="locations-heading"><h2 id="locations-heading">Reported locations</h2>
-{% if locations %}<details class="disclosure"{% if request.GET.locations_page %} open{% endif %}><summary>Show observations</summary><p class="muted">{{ locations.paginator.count }} observations, including archived evidence. Showing {{ locations.start_index }}–{{ locations.end_index }}.</p><ul class="record-list">{% for location in locations %}<li class="record-row"><a class="record-link" href="{% url 'core:evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=location.pk %}">{{ location.title }}</a>{% if location.is_archived %}<span class="status">Archived</span>{% endif %}</li>{% endfor %}</ul>{% if locations.has_other_pages %}<nav class="pagination" aria-label="Vehicle observation pages">{% if locations.has_previous %}<a class="button button-secondary" href="{% querystring locations_page=locations.previous_page_number %}#locations-heading">Previous observations</a>{% endif %}<span>Page {{ locations.number }} of {{ locations.paginator.num_pages }}</span>{% if locations.has_next %}<a class="button button-secondary" href="{% querystring locations_page=locations.next_page_number %}#locations-heading">Next observations</a>{% endif %}</nav>{% endif %}</details>{% else %}<p class="muted">No locations have been recorded for this vehicle.</p>{% endif %}
-</section>
 <details class="disclosure">
 <summary>Record details</summary>
 <div class="disclosure-body">

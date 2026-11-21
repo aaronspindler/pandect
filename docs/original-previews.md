@@ -27,7 +27,9 @@ malformed PDFs, invalid pages, and exhausted limits show a fallback with Downloa
 
 ## Recordings
 
-Audio evidence/call recordings offer native playback without prior analysis.
+Audio evidence and call recordings offer native playback without prior analysis.
+When a call attachment has audio and a transcript, its player and audio download
+appear before the transcript.
 Supported recordings are intact, uncompressed signed 16-bit PCM WAV or AAC in
 M4A with one audio stream and no video, mono/stereo, 8–48 kHz. Duration must be
 positive and at most 30 minutes; original bytes and decoded signed 16-bit PCM

@@ -136,10 +136,7 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
             "can_delete_evidence": request.user.is_superuser,
             "info_open": request.GET.get("info") == "1"
             or request.GET.get("section") == "details"
-            or any(
-                key in request.GET
-                for key in ("results_page", "thread_page", "reply_page")
-            ),
+            or any(key in request.GET for key in ("thread_page", "reply_page")),
         }
     )
     context.update(
@@ -171,6 +168,10 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
         context["vehicle_import"] = VehicleLocationImport.objects.filter(
             case=case, document=item
         ).first()
+    elif kind == "vehicle-location":
+        from geo.trip_processing import observation_trip_url
+
+        context["observation_trip_url"] = observation_trip_url(case, item)
     return render_live(request, "core/evidence/workspace.html", context, status=status)
 
 
@@ -243,7 +244,7 @@ def _add_files(request, case):
 @require_safe
 def bulk_create(request, case_id):
     case = get_case(request.user, case_id, edit=True)
-    return _add_files(request, case)
+    return redirect("core:evidence:create", case_id=case.pk)
 
 
 @product_login_required

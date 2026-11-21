@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -13,6 +13,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.reports import report
 from core.evidence.queries import same_case_evidence
+from geo.models import VehicleLocationImport
 from ui.live import render_live
 from vehicle.forms import VehicleDeleteForm, VehicleForm
 from vehicle.models import Vehicle
@@ -66,7 +67,9 @@ def vehicle_detail(request, case_id, vehicle_id):
     case = get_case(request.user, case_id)
     vehicle = get_object_or_404(Vehicle, case=case, pk=vehicle_id)
     trip_report = report(case, "vehicle-trips", vehicle_id=vehicle.pk, page_size=5)
-    more_trips = trip_report["page_obj"].paginator.count > 5
+    observations = same_case_evidence(
+        vehicle.location_evidence.filter(case=case)
+    ).order_by(F("observed_at").desc(nulls_last=True), "-created_at", "pk")
     return render_live(
         request,
         "vehicle/detail.html",
@@ -74,13 +77,13 @@ def vehicle_detail(request, case_id, vehicle_id):
             **case_context(case, request.user),
             "vehicle": vehicle,
             "trip_report": trip_report,
-            "more_trips": more_trips,
-            "locations": Paginator(
-                same_case_evidence(
-                    vehicle.location_evidence.filter(case=case)
-                ).order_by("-observed_at", "-created_at", "pk"),
-                25,
-            ).get_page(request.GET.get("locations_page")),
+            "more_trips": trip_report["page_obj"].has_next(),
+            "latest_observation": observations.filter(
+                observed_at__isnull=False
+            ).first(),
+            "locations": Paginator(observations, 25).get_page(
+                request.GET.get("locations_page")
+            ),
             "list_query": list_query(request),
         },
     )
@@ -88,9 +91,18 @@ def vehicle_detail(request, case_id, vehicle_id):
 
 @product_login_required
 @require_http_methods(["GET", "POST"])
-def vehicle_create(request, case_id):
+def vehicle_create(request, case_id, import_id=None):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=request.method == "POST")
+        review_url = ""
+        if import_id is not None:
+            batch = get_object_or_404(
+                VehicleLocationImport, pk=import_id, case=case, document__case=case
+            )
+            review_url = reverse("geo:vehicle_import_review", args=[case.pk, batch.pk])
+            if batch.status != "review" or batch.completed_at or batch.invalid_count:
+                return redirect(review_url)
+            review_url += "#mapping-heading"
         vehicle = Vehicle(case=case)
         form = VehicleForm(
             request.POST if request.method == "POST" else None, instance=vehicle
@@ -100,6 +112,8 @@ def vehicle_create(request, case_id):
             vehicle.case = case
             vehicle.save(force_insert=True)
             messages.success(request, "Vehicle added.")
+            if review_url:
+                return redirect(review_url)
             url = reverse(
                 "vehicle:detail", kwargs={"case_id": case.pk, "vehicle_id": vehicle.pk}
             )
@@ -113,6 +127,7 @@ def vehicle_create(request, case_id):
             **case_context(case, request.user),
             "form": form,
             "creating": True,
+            "review_url": review_url,
             "list_query": list_query(request),
         },
         status=400 if request.method == "POST" else 200,
@@ -171,15 +186,25 @@ def vehicle_delete(request, case_id, vehicle_id):
         if request.method == "POST":
             vehicles = vehicles.select_for_update()
         vehicle = get_object_or_404(vehicles, pk=vehicle_id)
+        locations = list(
+            same_case_evidence(vehicle.location_evidence.filter(case=case))
+            .order_by("-observed_at", "pk")
+            .values("pk", "title", "is_archived")[:5]
+        )
+        imports = list(
+            vehicle.location_imports.filter(case=case, document__case=case)
+            .order_by("-created_at", "pk")
+            .values("pk", "document__original_filename")[:5]
+        )
         form = VehicleDeleteForm(request.POST if request.method == "POST" else None)
-        if request.method == "POST" and form.is_valid():
+        if request.method == "POST" and not (locations or imports) and form.is_valid():
             try:
                 vehicle.delete()
             except RestrictedError:
                 form.add_error(
                     None,
-                    "This vehicle is linked to retained location evidence and cannot "
-                    "be deleted individually. Archived evidence also retains its link.",
+                    "This vehicle is still linked to retained location evidence "
+                    "or a retained location import.",
                 )
             else:
                 messages.success(request, "Vehicle record deleted.")
@@ -194,6 +219,8 @@ def vehicle_delete(request, case_id, vehicle_id):
             **case_context(case, request.user),
             "vehicle": vehicle,
             "form": form,
+            "locations": locations,
+            "imports": imports,
             "list_query": list_query(request),
         },
         status=400 if request.method == "POST" else 200,

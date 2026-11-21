@@ -160,7 +160,10 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             self.login(role)
             with self.subTest(role=role):
                 response = self.client.get(self.url("bulk_create"))
-                self.assertEqual(response.status_code, status)
+                if status == 200:
+                    self.assertRedirects(response, self.url("create"))
+                else:
+                    self.assertEqual(response.status_code, status)
                 intake = self.client.get(self.url("create"))
                 self.assertEqual(intake.status_code, status)
                 collection = self.client.get(self.url("list"))
@@ -168,9 +171,9 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                     self.assertContains(collection, self.url("create"))
                     self.assertTemplateUsed(intake, "core/evidence/bulk_form.html")
                     self.assertContains(intake, "data-bulk-upload")
-                    self.assertContains(response, "Shared source details")
-                    self.assertContains(response, self.url("create"))
-                    directives = response["Cache-Control"].split(", ")
+                    self.assertContains(intake, "Shared source details")
+                    self.assertContains(intake, self.url("create"))
+                    directives = intake["Cache-Control"].split(", ")
                     self.assertIn("private", directives)
                     self.assertIn("no-store", directives)
                 elif role == "viewer":
@@ -200,24 +203,23 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
     @override_settings(PANDECT_MAX_BATCH_FILES=3, PANDECT_MAX_FILE_BYTES=4096)
     def test_bulk_page_displays_configured_limits_and_single_file_fallback(self):
         self.login("editor")
-        for route in ("create", "bulk_create"):
-            with self.subTest(route=route):
-                response = self.client.get(self.url(route))
-                self.assertContains(response, 'data-max-batch-files="3"')
-                self.assertContains(response, 'data-max-file-bytes="4096"')
-                self.assertContains(
-                    response,
-                    f'href="{self.url("create")}?kind=document">add one file at a time',
-                )
-                self.assertContains(response, f'href="{self.url("create")}?kind=text"')
-                self.assertCountEqual(
-                    [kind for kind, _ in response.context["manual_kinds"]],
-                    set(KINDS) - set(FILE_KINDS) - {"text"},
-                )
+        response = self.client.get(self.url("create"))
+        self.assertContains(response, 'data-max-batch-files="3"')
+        self.assertContains(response, 'data-max-file-bytes="4096"')
+        self.assertContains(
+            response,
+            f'href="{self.url("create")}?kind=document">add one file at a time',
+        )
+        self.assertContains(response, f'href="{self.url("create")}?kind=text"')
+        self.assertCountEqual(
+            [kind for kind, _ in response.context["manual_kinds"]],
+            set(KINDS) - set(FILE_KINDS) - {"text"},
+        )
         fallback = self.client.get(self.url("create"), {"kind": "document"})
         self.assertTemplateUsed(fallback, "core/evidence/form.html")
         self.assertEqual(fallback.context["kind"], "document")
         self.assertContains(fallback, 'id="id_file"')
+        self.assertNotContains(fallback, "data-bulk-upload")
 
     def test_create_all_types_for_owner_and_editor_preserves_originals(self):
         for role in ("owner", "editor"):
@@ -452,7 +454,7 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                 ({"info": "0"}, False),
                 ({"info": "1"}, True),
                 ({"section": "details"}, True),
-                ({"results_page": "1"}, True),
+                ({"results_page": "1"}, False),
             ):
                 with self.subTest(role=role, params=params):
                     response = self.client.get(self.url("detail", item), params)

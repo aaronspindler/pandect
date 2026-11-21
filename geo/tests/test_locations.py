@@ -300,13 +300,16 @@ class LocationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             results.context["page_obj"].paginator.count, len(LOCATION_KINDS)
         )
-        response = self.client.post(
-            reverse(
-                "people:delete",
-                kwargs={"case_id": self.case.pk, "person_id": self.person.pk},
-            ),
-            {"confirm": "on"},
+        delete_url = reverse(
+            "people:delete",
+            kwargs={"case_id": self.case.pk, "person_id": self.person.pk},
         )
+        item = PersonLocationEvidence.objects.get(case=self.case, person=self.person)
+        blocked = self.client.get(delete_url)
+        self.assertContains(blocked, self.url("detail", item, "person-location"))
+        self.assertContains(blocked, "View all linked evidence")
+        self.assertNotContains(blocked, "Permanently delete person")
+        response = self.client.post(delete_url, {"confirm": "on"})
         self.assertContains(
             response, "linked to retained location evidence", status_code=400
         )

@@ -11,16 +11,30 @@
 </header>
 
 {% if not operation %}
+{% if not evidence %}
+<form method="get" class="analysis-picker" aria-label="Filter available analysis">
+  <div class="field">
+    <label for="analysis-type">Evidence type</label>
+    <select id="analysis-type" name="type">
+      <option value="">All evidence types</option>
+      {% for kind,label in chooser_kinds %}<option value="{{ kind }}"{% if kind == chooser_kind %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="button button-secondary" type="submit">Filter methods</button>
+  {% if chooser_kind %}<a class="record-link" href="{{ request.path }}">Show all methods</a>{% endif %}
+</form>
+{% endif %}
 <nav class="analysis-choice-groups" aria-label="Available analysis">
 {% for group,choices in operation_groups %}
 <section class="analysis-section">
   <h2>{{ group }}</h2>
   <div class="analysis-options">
-    {% for choice in choices %}<a href="?operation={{ choice.key }}" aria-labelledby="analysis-{{ choice.key }}-label" aria-describedby="analysis-{{ choice.key }}-description"><span><strong id="analysis-{{ choice.key }}-label">{{ choice.label }}</strong><small id="analysis-{{ choice.key }}-description">{{ choice.description }}</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}
+    {% for choice in choices %}<a href="?operation={{ choice.key }}{% if focused_source %}&amp;source={{ focused_source|urlencode }}{% elif chooser_kind and not evidence %}&amp;type={{ chooser_kind }}{% endif %}" aria-labelledby="analysis-{{ choice.key }}-label" aria-describedby="analysis-{{ choice.key }}-description"><span><strong id="analysis-{{ choice.key }}-label">{{ choice.label }}</strong><small id="analysis-{{ choice.key }}-description">{{ choice.description }}</small></span>{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% endfor %}
   </div>
 </section>
 {% endfor %}
 </nav>
+{% if not operation_groups %}<p>No methods are available for this evidence. <a href="{% url 'core:analysis:create' case.pk %}">Browse all methods</a>.</p>{% endif %}
 {% else %}
 <form method="post" action="{% querystring %}" id="analysis-selection" class="analysis-section analysis-form" novalidate data-unsaved-form>
   {% csrf_token %}{{ form.operation }}{{ form.submission_id }}{{ form.execution_confirmation }}
@@ -31,7 +45,7 @@
   <input type="hidden" name="source_after" value="{{ form.source_page.after }}">
   {% for value,label in form.retained_sources %}<input type="hidden" name="sources" value="{{ value }}">{% endfor %}
   {% if form.retained_sources %}<details class="disclosure" open><summary>Selected on other pages · {{ form.retained_sources|length }}</summary><ul>{% for value,label in form.retained_sources %}<li>{{ label }} <button class="button button-secondary" type="submit" name="remove_source" value="{{ value }}" formnovalidate>Remove selection</button></li>{% endfor %}</ul></details>{% endif %}
-  {% if not evidence %}<div class="analysis-picker" role="group" aria-label="Find evidence">
+  {% if not fixed_source %}<div class="analysis-picker" role="group" aria-label="Find evidence">
     <div class="field"><label for="analysis-query">Find evidence by title</label><input type="search" id="analysis-query" name="q" maxlength="200" value="{{ query }}"></div>
     <div class="form-actions"><button class="button button-secondary" type="submit" name="browse_sources" value="search" formnovalidate>Find evidence</button>{% if query %}<button class="button button-secondary" type="submit" name="browse_sources" value="clear" formnovalidate>Clear title filter</button>{% endif %}</div>
   </div>{% endif %}
@@ -44,19 +58,26 @@
     </ul>
   </div>
   {% endif %}
-  <h2>Choose evidence</h2>
+  <h2>{% if choose_call_recording %}Choose a recording from this call{% else %}Choose evidence{% endif %}</h2>
+  {% if choose_retained_material %}<p class="muted">Showing material for this record. <a href="{% url 'core:analysis:create' case.pk %}?operation={{ operation }}">Choose from all case evidence</a>.</p>{% endif %}
   {% if input_guidance %}<details class="disclosure"{% if not source_options %} open{% endif %}><summary>Supported sources</summary><p>{{ input_guidance }}</p></details>{% endif %}
 
   <fieldset class="analysis-sources{% if form.sources.errors %} field-error{% endif %}" id="{{ form.sources.auto_id }}"{% if source_options %} aria-describedby="analysis-source-guidance"{% endif %} tabindex="-1">
     <legend class="sr-only">{{ form.sources.label }}</legend>
     {% if source_options %}
       <p class="help-text" id="analysis-source-guidance">
-        Showing {{ form.source_page|length }} available sources{% if query %} matching “{{ query }}”{% endif %}. Check the prerequisites before selecting.
-
+        Showing {{ form.source_page|length }} source{{ form.source_page|length|pluralize }}{% if query %} matching “{{ query }}”{% endif %}.
       </p>
       {% for source,is_original,readiness in source_options %}
       <div class="analysis-source-option">
+        {% if readiness.blocking %}
+        <p>{{ source.choice_label }}{% if form.is_bound and source.data.selected %}
+          <input type="hidden" name="sources" value="{{ source.data.value }}">
+          <button class="button button-secondary" type="submit" name="remove_source" value="{{ source.data.value }}" formnovalidate>Remove selection</button>
+        {% endif %}</p>
+        {% else %}
         <label class="analysis-source-choice" for="{{ source.id_for_label }}">{{ source.tag }}<span>{{ source.choice_label }}</span></label>
+        {% endif %}
         <small class="muted">{% if is_original %}Original · {% endif %}{{ readiness.label }}{% if readiness.url %} · <a href="{{ readiness.url }}">{{ readiness.action_label }}</a>{% endif %}</small>
       </div>
       {% endfor %}
@@ -66,6 +87,8 @@
         <h3>No suitable sources</h3>
         {% if query %}
         <p>No eligible sources match “{{ query }}”.</p>
+        {% elif choose_call_recording %}
+        <p>This call has no retained recordings. <a href="{% url 'phone:add_attachment' case.pk chooser_kind evidence.pk %}">Add a recording</a> to begin.</p>
         {% elif evidence %}
         <p>Choose another analysis, or open the evidence to check its retained content.</p>
         <a class="button button-secondary" href="{{ evidence_url }}">Back to evidence</a>
@@ -97,10 +120,14 @@
 
   <div class="form-layout">
     {% if form.configuration_readiness %}<p class="help-text">{{ form.configuration_readiness }}</p>{% endif %}
-    {% if form.backend %}{% include 'ui/components/form_field.html' with field=form.backend only %}{% endif %}
+    {% if form.single_backend %}
+      <input type="hidden" name="backend" value="{{ form.single_backend.0 }}">
+      <p>Processing location · {{ form.single_backend.1 }}</p>
+    {% elif form.processing_locations %}{% include 'ui/components/form_field.html' with field=form.backend only %}{% endif %}
     {% if form.external_processing.is_hidden %}{{ form.external_processing }}{% else %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}
+    {% if has_blocked_selection %}<p>Resolve or remove blocked sources before starting.</p>{% endif %}
     <div class="form-actions">
-      <button class="button button-primary" type="submit"{% if not source_options and not form.retained_sources %} disabled{% endif %}>Start analysis</button>
+      <button class="button button-primary" type="submit"{% if not has_compatible_source or has_blocked_selection or form.processing_unavailable %} disabled{% endif %}>Start analysis</button>
       <a class="button button-secondary" href="{% if evidence %}{{ evidence_url }}{% else %}{% url 'core:analysis:index' case.pk %}{% endif %}">Cancel</a>
     </div>
   </div>

@@ -85,8 +85,9 @@ session and multiple-source findings under **Conversation findings**. Saved
 inferred sessions also supply the transcript colours and boundary markers.
 They use the same latest-result and current-source checks as the catalogue,
 matching individual finding citations to the reported participant pair.
-The **Instances** tab shows summary previews from saved reports with verified
-coverage of a complete grouping. Owners and editors can request missing
+The **Instances** tab shows a short excerpt from saved reports with verified
+coverage of a complete grouping. **Full summary** reveals all saved statements
+for that instance inline. Owners and editors can request missing
 summaries for a specific instance. Mixed-method runs retain per-finding **AI
 suggestion** labels. Finding pagination is independent of message pagination;
 the reader starts no work. See [conversation reading](evidence.md#reading-conversations).
@@ -100,12 +101,11 @@ supersede; failed, unsupported, insufficient, cancelled or pending runs do not.
 extraction versions stay distinct. Changed/missing sources show unavailable rows without finding content.
 Saved runs display the address estimate they used and warn if it is no longer selected.
 
-Finding filters are open initially. The useful finding preview leads each row;
-bounded **Matching search details** retain the exact matching text when it differs
-from that preview.
-Result limitations are open initially. **Download results** is beside the title,
-and **Run again** is outside technical processing details, with any required
-external-transfer explanation and approval kept beside the rerun action.
+Finding search opens with filters collapsed. Rows lead with the finding or a
+short preview, a source link and relevant qualifiers. Inferred session rows show
+reported participants, message count and observed times. Bounded **Matching search
+details** retain the exact matching text when it differs from the preview.
+**Back to findings** restores the search, filters and page from the findings list.
 
 AI findings display explicit reported-sender/recipient UUID references using the
 names of participants in their cited communications. Source quotations and
@@ -135,7 +135,7 @@ projections. Core migrations 0009 and 0010 add review-priority fields and backfi
 the existing catalogue from retained results, resuming by result and preserving
 finding IDs, indexes and downloads.
 
-**Case Tools → Connections** groups exact retained candidate strings: emails,
+**Case Tools → Repeated identifiers** groups exact retained candidate strings: emails,
 phones, complete URLs, bare domains, explicit identifiers and non-weak plate text.
 It preserves email local-part/identifier case, phone international-prefix status
 and URL paths, lowercases domains/hosts, and compares plates as uppercase ASCII
@@ -146,8 +146,10 @@ Counts collapse repeated runs/extractions into distinct original/attachment
 references; matching hashes warn of copies. Opening groups validates current-page
 sources, retaining unavailable rows. Identifiers appear only after representative
 source validation. Partial coverage stays visible. Extraction may stop at
-2,000 identifier occurrences. An empty view does not establish that no connection exists. Linked extraction/
-identifier checks can extend coverage.
+2,000 identifier occurrences. Search values directly. **Filters** holds identifier
+type, evidence type, person, and result history. An empty view does not establish
+that no connection exists. Editors can start an identifier check from the empty
+state. Linked extraction and identifier checks can extend coverage.
 
 Private uncached result/provenance/reference JSON downloads retain `.json` names
 and JSON bytes, using `application/octet-stream` plus attachment disposition for
@@ -200,11 +202,26 @@ Evidence readers show up to twelve distinct highlights from the latest
 equivalent results citing that evidence. They check up to 50 ranked candidates
 for readable sources and usable content, omit weak OCR and timing-only
 findings, and disclose when the check limit leaves the preview incomplete.
-Processing retains every outcome. Batch preparation differs from execution and
-includes extraction follow-ups; queued counts are not completion. Imports stay
-in progress until deliberate review finishes. See [progress/recovery](background-tasks.md#investigator-progress-and-completed-imports).
+**Analysis outcomes** links every check that used the evidence, including saved
+reports, partial and empty results, and checks still in progress or stopped.
+Single-source summaries appear only after the retained input is verified.
+Results covering a selection open with the full result and its citations.
+Failed and cancelled work retains its status and recovery details.
 
-Owners/editors use **Processing → Run more checks → Rerun all analysis** for active
+**Processing** prioritizes reviews and recovery under **Needs attention** and
+queued or running checks under **In progress**. **Needs attention** includes
+stopped preparation even if it queued zero checks, stopped vehicle imports, and
+current trip or address preparation failures. Each row leads to its recovery
+options. Pending message reviews require the current CSV review format, and
+returning from a review opened in that list restores its page. A newer session
+summary request supersedes a stopped request for the same selected sessions.
+**Browse findings** opens the case's findings. Expand **Processing
+history** for saved results and earlier work. Open a selected batch to see all
+its checks and return to that batch after inspecting a result. Batch preparation
+includes extraction follow-ups.
+See [progress and recovery](background-tasks.md#investigator-progress-and-completed-imports).
+
+Owners/editors use **Processing → Analysis actions → Run local checks** for active
 evidence and all retained call additions at request time. Background steps prepare
 25 sources at most, reporting progress, unavailable counts and queued checks.
 Resubmitting recovers the request. Fresh requests from any owner/editor are rejected
@@ -219,18 +236,24 @@ need no geocoding. For address-only map positions, choose a lookup estimate. Con
 keep their flow. Retrying uncertain saves with the original submission recovers
 the same evidence/checks.
 
-**Processing → Reprocess evidence** lets owners/editors select types and **Local**,
-**External / AI** or **Both**. Active types start checked. Only active case-consistent
-sources retained at request time are included. Originals/history stay intact;
-resubmissions recover the batch.
+**Processing → Analysis actions → Reprocess evidence** lets owners/editors
+choose from the active evidence types, all selected initially. When processing
+is local-only, the destination is stated without a selector. External and combined
+options appear when an external service is configured for active evidence. Only
+active case-consistent sources retained at request time are included. Originals
+and history stay intact. Resubmissions recover the batch.
 
-Local combines deterministic checks/private inference. External uses Gateway AI
-and configured external geography, with local extraction prerequisites. Both runs
-deterministic work once and inference per backend. Geography keeps its configured
-classification; Both creates no second service. External/Both require transfer
-approval. Bound execution settings are rechecked during preparation/follow-ups;
-drift stops work, never redirects approval. Missing services fail recoverably
-without cloud fallback.
+Local combines deterministic checks and configured private services. External
+uses configured external AI and geographic services, with local extraction where
+needed. The combined option runs deterministic work once and runs configured AI
+in each location. Geographic lookups use the configured service once. The form
+shows the destinations and asks for approval before external transfer.
+Audio originals need transcription before text analysis. External-only mode
+requires external transcription for an audio-only selection. The combined mode
+can prepare a private transcript for approved external text analysis.
+Unconfigured services are skipped. Execution settings are checked again during
+preparation and follow-ups. Runtime failures remain recoverable with no cloud
+fallback.
 
 Methods cover inspection/extraction, OCR/plates, transcription, identifiers,
 writing/repeated wording, topics/claims, sessions/timing/channel comparison,
@@ -244,27 +267,30 @@ Completed vehicle imports offer deliberate **Run local checks on
 imported evidence**, using bounded groups and excluding duplicates; see
 [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
 Confirmed CSV messages automatically queue the analysis chosen during import
-review: **Local checks** (no models, the default), **AI** (one model suite), or
-**Both** (local checks and that AI suite). AI uses Gateway when fully configured,
-otherwise local/private inference; review shows the resolved destination.
-Both does not duplicate model runs across backends. Gateway processing requires
-explicit transfer approval. Execution keeps the selected route, with no runtime
-fallback.
+review. **Local checks** is the default and uses no models. With a configured
+AI service, **AI only** runs one model suite and **Local checks and AI** adds
+ordinary checks to that same suite. AI uses the configured external service
+or private inference. Review shows the destination and asks for approval before
+external transfer. Execution keeps the selected route.
 **Follow message analysis** opens the batch; reruns offer the same choice and
 require renewed external approval. Model failures preserve imports and remain
 recoverable. See
 [CSV analysis](analysis-communications.md#message-csv-imports).
 
 Source choices expose prerequisites/retained inspection status. Some require exact
-extractions, transcripts or selected address estimates. **Not yet inspected** makes no
-format-support claim. Readiness checks local configuration; execution checks live
-connectivity/identity. Incompatible selections are never silently reduced.
+extractions, transcripts or selected address estimates. Blocked sources show their
+prerequisite and a preparation link when available. Selections that become
+blocked stay visible with a removal action, and must be resolved before analysis.
+**Not yet inspected** makes no format-support claim. Readiness checks local
+configuration; execution checks live connectivity and identity.
 [Retained synthesis results](synthesis.md) distinguish text/finding citations;
 [chronology](chronology.md) separates observed/acquired times;
 [previews](original-previews.md) provide private PDF/text reading and WAV/M4A playback.
 
 **Additional analysis** selects task, exact retained sources and context for
-comparisons, lookup, model work or conversation imports. The picker shows 25/page,
+comparisons, lookup, model work or conversation imports. From an evidence record,
+choose a compatible recording or retained extraction when the method requires one.
+The picker shows 25 sources per page,
 including retained extraction versions/call additions. Cursor navigation avoids
 full-case counts/scans; paging/search preserves selections and permits removal
 from other pages. Execution allows 500 sources within parser/inference limits;
@@ -275,10 +301,13 @@ message sessions** accept Text messages only. Call transcripts use **Inspect
 keywords and topics** or **Suggest claims and commitments**. **Compare exchanges
 across channels** also accepts calls/FaceTime. Earlier runs keep their selections.
 
-Outside automatic CSV analysis, model work is deliberate. **Local** defaults;
-**Cloudflare AI Gateway** requires explicit approval, without cloud fallback.
-Geography requires approval unless designated local; keywords never implicitly
-request summaries. [Map address lookup](maps.md#local-address-lookup) has its own flow.
+Outside automatic CSV analysis, model work is deliberate. The form offers
+configured model destinations, with local processing selected when there is a
+choice. External AI requires explicit transfer approval for the displayed
+provider and model. Local failures never trigger external work. Optional AI
+controls are available when a model service is configured. Geography requires
+approval unless designated local. [Map address lookup](maps.md#local-address-lookup)
+has its own flow.
 
 Call/vehicle report rows and filters use user timezone, with explicit UTC-hour
 analysis and missing-time warnings. Duplicate reports group byte hashes; trips
@@ -290,7 +319,11 @@ Structured lists/mappings paginate independently at 200 values, retaining findin
 report and collection filters; complete downloads remain available. Parser,
 inference and result limits still apply.
 
-Results preserve sources, processing details, and limitations.
+Results lead with the finding and its citations. Retained warnings stay visible
+under **Limitations**, including for completed runs. **Details and history**
+holds retained downloads, selected inputs, settings, earlier runs and authorized
+rerun controls. When a rerun sends data externally, the destination and approval
+appear beside the rerun action.
 
 Findings lead with their result, key measurements and supporting evidence.
 Secondary measurements and native references live under **Details**. Critical
@@ -375,16 +408,50 @@ external fallback.
 
 ## External AI configuration
 
-The backend supports Workers AI and OpenAI GPT text analysis through Cloudflare
-AI Gateway. Local processing remains the default; investigators must select and
-approve external processing. Approval identifies the upstream provider and model.
-Browsers receive no credentials, and the backend never contacts OpenAI directly.
+Connect OpenAI or Anthropic directly with an API key for text analysis. Pandect
+also supports OpenAI and Workers AI through Cloudflare AI Gateway. External
+recording transcription uses Workers AI through Cloudflare.
+
+### Connect OpenAI or Anthropic directly
+
+Set one of these keys in the ignored local `.env` or in the hosted web and
+worker environments. Use the raw API key without an authentication prefix.
+
+| Environment variable | Optional model override | Default model |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | `PANDECT_OPENAI_MODEL` | [`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna) |
+| `ANTHROPIC_API_KEY` | `PANDECT_ANTHROPIC_MODEL` | [`claude-haiku-5-5`](https://platform.claude.com/docs/en/models/haiku-5-5/overview) |
+
+With one direct key and no explicit `PANDECT_AI_TEXT_PROVIDER`, Pandect uses that
+provider for external text analysis. If both keys are present, set
+`PANDECT_AI_TEXT_PROVIDER=openai-direct` or
+`PANDECT_AI_TEXT_PROVIDER=anthropic-direct` to enable a direct connection. An
+explicit provider selection takes precedence over the keys. Keep credentials
+server-side and match provider/model settings in web and worker.
+
+Use a GPT model that supports Responses API JSON-object output, or a Claude
+model that supports the Messages API. Direct OpenAI requests use
+`store=false`, a 32,768-token completion allowance and a 300-second timeout.
+Anthropic requests ask for a JSON object, with an 8,192-token allowance and a
+300-second timeout. See the [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
+and [Claude Messages API](https://platform.claude.com/docs/en/api/messages/create).
+
+### Use external AI
+
+After editing the local `.env`, run `make run` to apply settings to Compose web
+and worker. For [native development](development.md#run-python-on-the-host),
+restart both processes with `uv run --locked --env-file .env`. For a hosted
+installation, apply the same settings to both services.
+
+Start a text analysis, choose **External AI**, review the provider and
+model, and approve the evidence transfer. The analysis runs locally by default
+for deliberate model work.
 
 ### OpenAI with a key stored in Cloudflare
 
 Store an OpenAI provider key in your authenticated gateway's **Provider Keys**
-section. An existing key can be reused. Set these in the ignored local `.env`
-(or identically in the hosted web and worker environments):
+section. You can reuse an existing key. Set these values in the ignored local
+`.env` or in both hosted environments.
 
 ```dotenv
 PANDECT_AI_ACCOUNT_ID=your_32_character_cloudflare_account_id
@@ -403,12 +470,6 @@ key or Workers AI token is needed in Pandect for this text route. See
 [Cloudflare BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)
 and [OpenAI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/openai/).
 
-Run `make run` after changing Compose configuration; it updates web and worker.
-For native development, restart both processes using `uv run --locked --env-file
-.env ...`; Django itself does not load `.env`. Start a new analysis, choose the
-external service, inspect its destination, and approve the selected transfer.
-Changing configuration does not enable automatic cloud processing.
-
 With `PANDECT_AI_TEXT_MODEL=auto`, Pandect selects the OpenAI model by task.
 The approval screen shows the resolved model, and the run retains that choice.
 
@@ -418,7 +479,7 @@ The approval screen shows the resolved model, and the run retains that choice.
 | Claims and commitments | `gpt-6-luna` | High |
 | Message-session summaries | `gpt-6.1-terra` | Medium |
 | Semantic conversation links | `gpt-6.1-terra` | High |
-| Question-driven synthesis | `gpt-6.1-sol` | High |
+| Question-driven synthesis | `gpt-6.2-sol` | High |
 
 An explicit model ID pins all OpenAI text tasks to that model. To switch an
 existing single-model installation to task-based routing, set the value to
@@ -439,14 +500,14 @@ An explicitly pinned GPT model must support these Responses API parameters.
 Model availability/access and analysis
 quality require live qualification. See [OpenAI JSON output](https://developers.openai.com/api/docs/guides/structured-outputs).
 
-### Provider configuration
+### Cloudflare configuration
 
 | Environment variable | Purpose/default |
 | --- | --- |
-| `PANDECT_AI_ACCOUNT_ID` | Cloudflare account ID; empty disables external inference. |
+| `PANDECT_AI_ACCOUNT_ID` | Cloudflare account ID. |
 | `PANDECT_AI_GATEWAY_ID` | Operator gateway ID. |
 | `PANDECT_AI_GATEWAY_TOKEN` | Gateway authentication, sent as `cf-aig-authorization`. |
-| `PANDECT_AI_TEXT_PROVIDER` | `workers-ai` (default) or `openai`; text analysis only. |
+| `PANDECT_AI_TEXT_PROVIDER` | `workers-ai` selects Cloudflare Workers AI. `openai` selects OpenAI through Cloudflare. Workers AI is the default when no direct keys or explicit provider are set. |
 | `PANDECT_AI_TEXT_MODEL` | Defaults to `auto`. OpenAI uses the task table above. Workers AI uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. An explicit model ID pins the selected text provider to one model. |
 | `PANDECT_AI_OPENAI_KEY_ALIAS` | Stored OpenAI provider key alias; `default`. |
 | `PANDECT_AI_WORKERS_TOKEN` | Workers AI upstream credential; required only for Workers AI routes. |
@@ -455,8 +516,8 @@ quality require live qualification. See [OpenAI JSON output](https://developers.
 Workers AI uses `gateway.ai.cloudflare.com/v1/ACCOUNT/GATEWAY/workers-ai/MODEL`
 and sends its separate upstream token in `Authorization`. Text inference uses a
 4,096-token output allowance and temperature zero. OCR remains local Tesseract.
-For external recording transcription, set `PANDECT_AI_WORKERS_TOKEN` in both the
-web and worker environments, including when text uses OpenAI. Use a Cloudflare
+For external recording transcription, set the Cloudflare account, gateway and
+gateway token plus `PANDECT_AI_WORKERS_TOKEN` in web and worker. Use a Cloudflare
 API token with the account's Workers AI Read permission. Pandect checks the
 transcription configuration before queueing a new attempt and again before
 sending audio. Once the configuration is available, reopen the failed run and
@@ -465,18 +526,18 @@ There is no provider switching or fallback. See
 [Gateway authentication](https://developers.cloudflare.com/ai-gateway/configuration/authentication/)
 and [Workers AI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/workersai/).
 
-Workers AI retains its 60-second client timeout. Both routes retain the 8 MiB
-request limit and 2 MiB response limit. These bounds and inference controls are
-application settings, not environment variables. Pandect imposes no daily
-request-count limit. Each HTTP attempt records case/run/model and bytes; missing
-token usage stays unknown.
-Cloudflare and upstream provider rate/quota limits still apply. Usage records do
-not imply an exact cost.
+### Limits, retention, and recovery
 
-Match web/worker configuration. Provider, API format, stored-key alias and inference
-settings are retained without secrets. Configuration changes stop queued work
-recoverably. Old cloud jobs without a destination snapshot cannot move to OpenAI;
-start a deliberate rerun with fresh approval. Retained results stay readable.
+Workers AI uses a 60-second client timeout. All external AI routes have an
+8 MiB request limit and 2 MiB response limit. Each HTTP attempt records case,
+run, model, and bytes. Missing token usage stays unknown. Provider rate and
+quota limits apply.
+
+Match web/worker configuration. Pandect retains the provider, API format, any
+stored-key alias, and inference settings without secrets. Destination changes
+stop queued work recoverably. If older cloud work has no destination snapshot,
+start a deliberate rerun with fresh approval to use a direct provider or OpenAI
+through Cloudflare. Retained results stay readable.
 Initial analysis, synthesis, bulk processing and reruns bind external approval to
 the reviewed destination; changed settings require renewed review.
 
@@ -489,14 +550,14 @@ Queued work approved under the former daily request cap needs a deliberate rerun
 with fresh approval after upgrading. Historical usage and failed runs are retained;
 removing the cap does not automatically retry failed work.
 
-Deliberately configure Cloudflare and OpenAI logging/retention. `store=false` and
-the skip-cache/no-log headers do not override provider policies or guarantee zero
-retention. Payloads, secrets and provider exception bodies stay out of routine
-telemetry. Authentication, quota, throttling, timeout, invalid output and missing
-configuration fail recoverably. HTTP 429/502/503/504 gets one transport retry with
-renewed authorization and destination checks; other failures need deliberate
-reruns. Routine tests mock inference and establish neither live availability nor
-model quality. Reports and deterministic checks need no AI credentials.
+Review logging and retention with the provider and, if used, Cloudflare.
+`store=false` for OpenAI and the Cloudflare skip-cache/no-log headers are subject
+to each service's retention policies. Payloads, secrets and provider exception
+bodies stay out of routine telemetry. Authentication, quota, throttling, timeout,
+invalid output and missing configuration fail recoverably. HTTP 429/502/503/504
+and Anthropic HTTP 529 get one retry with renewed access and destination checks.
+Routine tests mock inference. Reports and deterministic checks need no AI
+credentials.
 
 ## Data and code boundaries
 

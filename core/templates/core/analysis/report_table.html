@@ -1,5 +1,4 @@
 {% if table.title %}<h3>{{ table.title }}</h3>{% endif %}
-{% if table.checksum %}<p class="analysis-report-checksum"><span class="muted">File SHA-256</span> <code>{{ table.checksum }}</code></p>{% endif %}
 <table role="table" class="analysis-metadata-table analysis-report-table" aria-label="{{ table.title|default:'Report records' }}">
   <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Source</th>{% for column in table.columns %}<th scope="col" role="columnheader">{{ column }}</th>{% endfor %}</tr></thead>
   <tbody role="rowgroup">
@@ -33,3 +32,7 @@
     {% endfor %}
   </tbody>
 </table>
+{% if table.checksum %}<details class="disclosure analysis-report-checksum">
+  <summary>File checksum (SHA-256)</summary>
+  <p><code>{{ table.checksum }}</code></p>
+</details>{% endif %}

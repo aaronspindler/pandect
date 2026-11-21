@@ -1,6 +1,7 @@
 """A catalogue visibility decision preserves the saved result and its sources."""
 
 import json
+from urllib.parse import urlencode
 
 from django.test import TestCase
 from django.urls import reverse
@@ -69,7 +70,14 @@ class AuditedFindingTests(EvidenceViewTestMixin, TestCase):
                 catalogue = self.client.get(catalogue_url, query)
                 self.assertEqual(
                     [row["url"] for row in catalogue.context["rows"]],
-                    [finding_url(self.case.pk, run.pk, 1)],
+                    [
+                        finding_url(
+                            self.case.pk,
+                            run.pk,
+                            1,
+                            history={"return_findings": urlencode(query)},
+                        )
+                    ],
                 )
 
         for url in (

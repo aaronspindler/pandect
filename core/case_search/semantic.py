@@ -22,6 +22,19 @@ MAX_DISTANCE = 0.55
 RESULT_LIMIT = 6
 
 
+def meaning_query(query, record_type):
+    parsed = parse_query(query)
+    if parsed.semantic_text and record_type not in {
+        "person",
+        "vehicle",
+        "poi",
+        "conversation",
+        "trip",
+    }:
+        return parsed
+    return None
+
+
 def related_results(
     case,
     *,
@@ -33,14 +46,8 @@ def related_results(
     end=None,
     keyword_urls=(),
 ):
-    parsed = parse_query(query)
-    if not parsed.semantic_text or record_type in {
-        "person",
-        "vehicle",
-        "poi",
-        "conversation",
-        "trip",
-    }:
+    parsed = meaning_query(query, record_type)
+    if parsed is None:
         return [], ""
     authorize(user.pk, case.pk)
     status = search_index_status(case, count_passages=False)

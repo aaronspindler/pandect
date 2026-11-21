@@ -114,7 +114,8 @@ input from text.
 
 Region previews reuse that exact JPEG for alignment, retaining up to 2 MiB decoded
 preview bytes per run. Omitted previews carry warnings without changing text or
-coverage; originals remain inspectable.
+coverage. On the result list, **Compare extracted text with the image** opens
+the region overlay. Individual findings retain the marked region and source link.
 
 EXIF/XMP are unverified claims. Times without offsets never acquire UTC; original
 and modified times stay separate. Invalid GPS remains raw without coordinates.
@@ -156,11 +157,10 @@ paths/input lists, with 15-second calls, one thread, bounded private stdout and
 discarded stderr. Parser environments exclude secrets. Missing engines/English
 data yield safe recovery instructions, never remote fallback.
 
-Other inference uses shared pinned private runtimes or separately selected/approved
-authenticated Cloudflare AI Gateway, checking access immediately before/after
-requests. Local failure never triggers external requests; extractors call no direct
-public-provider endpoints. Shared runs handle recovery, revocation and atomic
-publication, retaining parser/model/source versions.
+Other inference uses shared pinned private runtimes or separately approved
+[external AI](analysis.md#external-ai-configuration). The inference client checks
+access immediately before and after requests. Shared runs handle recovery,
+revocation and atomic publication, retaining parser/model/source versions.
 
 Primary references:
 

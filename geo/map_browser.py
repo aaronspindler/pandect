@@ -23,7 +23,7 @@ from playwright.sync_api import expect, sync_playwright
 from cases.models import Case
 from core.analysis.services import process_run, set_address_estimate, start_run
 from geo.analysis.external.geocoding import Geocoder
-from geo.models import LocationEvidence, VehicleLocationEvidence
+from geo.models import LocationEvidence, PointOfInterest, VehicleLocationEvidence
 from geo.testing import LOCAL_GEOCODER
 from geo.trip_jobs import process_trips
 from geo.trip_processing import prepare_case_trips, saved_trips
@@ -62,7 +62,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 longitude=Decimal("-79.38") + Decimal(index) / 100000,
                 observed_at=datetime(2026, 11, 1, 12, tzinfo=UTC)
                 + timedelta(seconds=index),
-                speed_kmh=10,
+                speed_kmh=(0, 45, 75, None)[index // 127],
             )
             item._prepare_original()
             records.append(item)
@@ -213,6 +213,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     browser.close()
 
     def test_complete_trip_keyboard_sources_and_responsive_layouts(self):
+        speed_colors = ["18,100,94", "33,83,173", "165,59,27", "86,99,109"]
         with sync_playwright() as playwright:
             for engine in self.engines():
                 browser = getattr(playwright, engine).launch()
@@ -239,6 +240,57 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     page.get_by_text("Raw location excluded from trip map")
                 ).to_have_count(0)
                 expect(page.locator("[data-trip-status]")).to_contain_text("505 of 505")
+                expect(page.locator("[data-trip-status]")).to_have_class("sr-only")
+                expect(page.locator("[data-live-refresh]")).to_have_count(0)
+                expect(
+                    page.get_by_text("Line color and pattern show reported speed")
+                ).to_be_visible()
+                # The synthetic observations lie on a straight eastbound line.
+                # Read the colored bands in order and count protruding arrow shapes.
+                path = page.locator(".trip-path-canvas").evaluate(
+                    """(canvas, speedColors) => {
+                    const scale = window.devicePixelRatio;
+                    const leftToRight = new Set();
+                    const colors = new Set(speedColors);
+                    const { width, height } = canvas;
+                    const radius = Math.ceil(10 * scale);
+                    const strip = canvas.getContext("2d").getImageData(
+                        0, Math.floor(height / 2) - radius, width, radius * 2 + 1
+                    );
+                    let arrows = 0;
+                    const runs = {};
+                    let previousBand;
+                    let previousColumnHadArrow = false;
+                    for (let x = 0; x < strip.width; x++) {
+                        let arrow = false;
+                        let band;
+                        for (let y = 0; y < strip.height; y++) {
+                            const offset = (y * strip.width + x) * 4;
+                            if (strip.data[offset + 3] < 240) continue;
+                            const rgb = strip.data.subarray(offset, offset + 3)
+                                .join(",");
+                            if (colors.has(rgb)) {
+                                leftToRight.add(rgb);
+                                band = rgb;
+                            }
+                            if (Math.abs(y - radius) > 3 * scale) arrow = true;
+                        }
+                        if (arrow && !previousColumnHadArrow) arrows++;
+                        previousColumnHadArrow = arrow;
+                        if (band && band !== previousBand) {
+                            runs[band] = (runs[band] || 0) + 1;
+                        }
+                        previousBand = band;
+                    }
+                    return { colors: [...leftToRight], arrows, runs };
+                }""",
+                    speed_colors,
+                )
+                self.assertEqual(path["colors"], speed_colors)
+                self.assertGreaterEqual(path["arrows"], 2)
+                self.assertGreater(path["runs"][speed_colors[1]], 2)
+                self.assertGreater(path["runs"][speed_colors[2]], 2)
+                self.assertGreater(path["runs"][speed_colors[3]], 2)
                 show = page.get_by_role("button", name="Show selected trip and POIs")
                 show.focus()
                 page.keyboard.press("Enter")
@@ -268,6 +320,13 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     (320, 844),
                 ):
                     page.set_viewport_size({"width": width, "height": height})
+                    page.wait_for_function("""() => {
+                        const map = document.querySelector("#investigation-map");
+                        const drawing = map.querySelector(".trip-path-canvas");
+                        return drawing.style.width === `${map.clientWidth}px`
+                            && drawing.style.height === `${map.clientHeight}px`;
+                    }""")
+                    show.click()
                     expect(page.locator("[data-case-map]")).to_have_attribute(
                         "data-trip-complete", "true"
                     )
@@ -285,9 +344,34 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     "link", name="Show trip and sources", exact=True
                 ).click()
                 expect(
+                    page.get_by_role("heading", name="Possible trip", exact=True)
+                ).to_be_visible()
+                outcome = page.get_by_role("region", name="Synthetic van", exact=True)
+                expect(
+                    outcome.get_by_role("link", name="0 Example Street")
+                ).to_be_visible()
+                expect(
+                    outcome.get_by_role("link", name="504 Example Street")
+                ).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width
+                    )
+                    self.capture(page, engine, f"trip-outcome-{width}x{height}")
+                expect(
                     page.get_by_role("heading", name="Trip observations", exact=True)
                 ).to_be_visible()
                 expect(page.locator(".map-location-list > li")).to_have_count(50)
+                expect(page.locator(".map-location-list > li").first).to_contain_text(
+                    "Reported speed 0 km/h"
+                )
                 page.get_by_role("link", name="Next observations").click()
                 expect(page.locator(".map-location-list > li").first).to_contain_text(
                     "50 Example Street"
@@ -302,6 +386,92 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 self.assertEqual(errors, [])
                 context.close()
                 browser.close()
+
+    def test_stale_geometry_cache_fetches_current_reported_positions(self):
+        vehicle = Vehicle.objects.create(case=self.case, make="Small synthetic van")
+        for index in range(2):
+            VehicleLocationEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                vehicle=vehicle,
+                title=f"Reported position {index + 1}",
+                latitude="43.64",
+                longitude=Decimal("-79.38") + Decimal(index) / 100,
+                observed_at=datetime(2026, 11, 1, 12, tzinfo=UTC)
+                + timedelta(minutes=index),
+            )
+        self.build_trips(vehicle_ids=[vehicle.pk])
+        trip = saved_trips(self.case).get(vehicle=vehicle)
+        url = self.live_server_url + reverse(
+            "geo:trip_detail", args=(self.case.pk, trip.pk)
+        )
+        recheck = re.compile(r"/map/trips/.+/\?recheck=1")
+        with sync_playwright() as playwright:
+            for engine in self.engines():
+                with self.subTest(engine=engine):
+                    browser = getattr(playwright, engine).launch()
+                    context = browser.new_context(reduced_motion="reduce")
+                    self.authenticate(context)
+                    self.mock_tiles(context, [])
+                    page = context.new_page()
+                    page.goto(url)
+                    status = page.locator("[data-trip-status]")
+                    expect(status).to_contain_text("2 of 2")
+                    while_rechecking = []
+
+                    def reject_cache(
+                        route,
+                        *,
+                        while_rechecking=while_rechecking,
+                        status=status,
+                        page=page,
+                    ):
+                        while_rechecking.append(
+                            (
+                                status.inner_text(),
+                                status.is_visible(),
+                                page.locator(".case-map-endpoint").count(),
+                                page.locator(".trip-path-canvas").evaluate(
+                                    """canvas => {
+                                        const context = canvas.getContext('2d');
+                                        const pixels = context.getImageData(
+                                            0, 0, canvas.width, canvas.height
+                                        );
+                                        return pixels.data.some(
+                                            (value, index) => index % 4 === 3 && value
+                                        );
+                                    }"""
+                                ),
+                            )
+                        )
+                        route.fulfill(status=409)
+
+                    page.route(recheck, reject_cache)
+                    with (
+                        page.expect_response(
+                            lambda response: (
+                                recheck.search(response.url) and response.status == 409
+                            )
+                        ),
+                        page.expect_response(
+                            lambda response: (
+                                response.url == url + "?cursor=0"
+                                and response.status == 200
+                            )
+                        ),
+                    ):
+                        page.get_by_role("button", name="Zoom in").click()
+                    self.assertTrue(while_rechecking)
+                    for pending in while_rechecking:
+                        self.assertEqual(
+                            pending, ("Loading the complete trip path…", True, 0, False)
+                        )
+                    expect(status).to_contain_text("2 of 2")
+                    expect(page.locator("[data-case-map]")).to_have_attribute(
+                        "data-trip-complete", "true"
+                    )
+                    context.close()
+                    browser.close()
 
     def test_fallback_filters_tiles_and_geometry_failure(self):
         with sync_playwright() as playwright:
@@ -318,11 +488,26 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     str(self.vehicle.pk)
                 )
                 page.get_by_role("button", name="Apply filters").click()
+                expect(page.get_by_label("Vehicle", exact=True)).to_be_hidden()
+                expect(
+                    page.get_by_text("Trips · Synthetic van", exact=True)
+                ).to_be_visible()
+                summary = page.get_by_role("region", name="Synthetic van", exact=True)
+                expect(summary.get_by_text("First observation")).to_be_visible()
+                self.assertTrue(
+                    summary.evaluate("""element => Boolean(
+                    element.compareDocumentPosition(document.querySelector('[data-case-map]'))
+                    & Node.DOCUMENT_POSITION_FOLLOWING
+                )""")
+                )
+                expect(summary.get_by_role("link", name="Open trip")).to_be_visible()
                 page.get_by_role(
                     "link", name="Show trip and sources", exact=True
                 ).click()
                 expect(
-                    page.get_by_role("link", name="0 Example Street", exact=True)
+                    page.get_by_role(
+                        "region", name="Synthetic van", exact=True
+                    ).get_by_role("link", name="0 Example Street", exact=True)
                 ).to_be_visible()
                 self.capture(page, engine, "trip-no-js")
                 context.close()
@@ -427,6 +612,17 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("heading", name=label, exact=True)
                 ).to_be_visible()
+                self.in_database(
+                    lambda: PointOfInterest.objects.get_or_create(
+                        person=self.person,
+                        kind="work",
+                        defaults={
+                            "latitude": "43.642",
+                            "longitude": "-79.382",
+                            "created_by": self.owner,
+                        },
+                    )
+                )
                 page.get_by_role("link", name="Back to map", exact=True).click()
                 page.wait_for_url(self.map_url, wait_until="domcontentloaded")
                 page.bring_to_front()
@@ -438,6 +634,14 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 expect(canvas).to_be_focused()
                 expect(page.locator(".leaflet-popup-content")).to_contain_text("POI")
                 expect(page.locator(".leaflet-popup-content")).to_contain_text(label)
+                expect(
+                    page.locator(".leaflet-popup-content").get_by_role(
+                        "link", name=re.compile("Work · Alex Example")
+                    )
+                ).to_be_visible()
+                expect(
+                    page.locator(".case-map-poi").filter(has_text="POIs")
+                ).to_have_count(1)
                 self.assertGreaterEqual(page.locator(".case-map-poi").count(), 1)
                 for width, height in (
                     (1440, 900),
@@ -580,6 +784,12 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 )
                 expect(page.locator(".case-map-endpoint")).to_have_count(0)
                 page.get_by_role(
+                    "link", name="Review address estimates for this trip", exact=True
+                ).click()
+                expect(
+                    page.get_by_role("heading", name="Address estimates", exact=True)
+                ).to_be_visible()
+                page.get_by_role(
                     "link", name="Open address lookup", exact=True
                 ).first.click()
                 page.get_by_role("button", name="Use this estimate", exact=True).click()
@@ -590,6 +800,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 ).to_be_visible()
                 page.goto(trip_url)
                 expect(page.locator("[data-trip-status]")).to_contain_text("1 of 2")
+                expect(page.locator("[data-trip-status]")).not_to_have_class("sr-only")
                 expect(page.locator(".case-map-endpoint")).to_have_count(1)
                 expect(
                     page.locator(".map-location-list").get_by_text(
@@ -597,5 +808,23 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     )
                 ).to_be_visible()
                 self.capture(page, engine, "trip-selected-estimate")
+                self.in_database(
+                    lambda: set_address_estimate(
+                        self.owner, self.case.pk, run.pk, 0, use=False
+                    )
+                )
+                with page.expect_response(
+                    lambda response: (
+                        response.url.startswith(f"{trip_url}?cursor=0")
+                        and response.status == 200
+                    )
+                ):
+                    page.get_by_role("button", name="Zoom out", exact=True).press(
+                        "Enter"
+                    )
+                expect(page.locator("[data-trip-status]")).to_contain_text(
+                    "Choose address estimates"
+                )
+                expect(page.locator(".case-map-endpoint")).to_have_count(0)
                 context.close()
                 browser.close()

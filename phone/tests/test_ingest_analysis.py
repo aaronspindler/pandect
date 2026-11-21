@@ -631,10 +631,32 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
                 response, reverse("core:analysis:detail", args=[self.case.pk, run.pk])
             )
             process_run(run.pk)
+        settled = self.client.get(url)
+        insufficient = batch.runs.filter(status="insufficient").count()
+        self.assertGreater(insufficient, 0)
+        self.assertContains(settled, "Analysis finished with gaps")
+        self.assertEqual(settled.context["insufficient_count"], insufficient)
+        self.assertEqual(
+            settled.context["completed_count"],
+            batch.runs.filter(status__in=("complete", "empty")).count(),
+        )
+        self.assertContains(settled, "View conversation")
+        self.assertContains(
+            settled, '<details class="disclosure" id="message-analysis-details" open>'
+        )
+        conversation = self.client.get(settled.context["conversation_url"])
+        self.assertEqual(conversation.status_code, 200)
+        self.assertIsNone(conversation.context["selected_message"])
         batch.runs.update(status="failed", error_code="backend_unavailable")
         response = self.client.get(url, headers={"X-Pandect-Live": "1"})
         self.assertContains(response, 'data-live-poll="false"')
         self.assertContains(response, "Failed")
+        self.assertContains(response, "Analysis finished with gaps")
+        self.assertContains(response, f"{batch.runs.count()} checks stopped.")
+        self.assertNotContains(response, "checks completed.")
+        self.assertContains(
+            response, '<details class="disclosure" id="message-analysis-details" open>'
+        )
         self.assertNotContains(response, "<h1>")
         self.assertEqual(response["X-Pandect-Live"], "1")
         self.assertIn("no-store", response["Cache-Control"])
@@ -749,8 +771,8 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         review = reverse("phone:imessage_review", args=[self.case.pk, final.pk])
         response = self.client.get(review)
-        self.assertContains(response, "Selected analysis: AI")
-        self.assertNotContains(response, "Selected analysis: Both")
+        self.assertContains(response, "Selected analysis: AI only")
+        self.assertNotContains(response, "Selected analysis: Local checks and AI")
         self.assertContains(response, status_url)
         self.assertNotContains(
             response,

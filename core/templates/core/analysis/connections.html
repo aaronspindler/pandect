@@ -1,17 +1,30 @@
 {% extends 'core/analysis/base.html' %}
-{% block title %}Connections · {{ case.name }}{% endblock %}
+{% block title %}Repeated identifiers · {{ case.name }}{% endblock %}
 {% block content %}
-<header class="page-header"><div><h1>{% if connection %}{{ identifier_label }} occurrences{% else %}Connections{% endif %}</h1><p class="muted">Exact string matches in analyzed material. Matching values do not establish identity, ownership, or association.</p></div><a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a></header>
-<details class="disclosure"><summary>Coverage and interpretation</summary><div class="disclosure-body"><p>Coverage depends on completed checks and available text extraction. Partial results may omit occurrences; an empty view does not establish that no connection exists. Counts describe retained original references; open a group to inspect current source availability.</p>{% if can_edit %}<a class="record-link" href="{% url 'core:analysis:create' case.pk %}?operation=entities">Check identifiers in text</a> · <a class="record-link" href="{% url 'core:analysis:create' case.pk %}?operation=native_text">Extract document text</a>{% endif %}</div></details>
+<header class="page-header"><div><h1>{% if connection %}{{ identifier_label }} occurrences{% else %}Repeated identifiers{% endif %}</h1><p class="muted">Exact string matches in analyzed material. Matching values do not establish identity, ownership, or association.</p></div><a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a></header>
 {% if connection %}
 <p>{{ connection.original_count }} retained original{{ connection.original_count|pluralize }}. Repeated extraction versions of the same original are grouped together.</p>
 {% if connection.checksum_count < connection.original_count %}<p class="notice">Some originals have identical checksums. Copies are not independent corroboration.</p>{% endif %}
-<a class="record-link" href="{% url 'core:analysis:connections' case.pk %}">All connection groups</a>
+<a class="record-link" href="{% url 'core:analysis:connections' case.pk %}{% if filters.q or filters.identifier_type or filters.kind or filters.person or filters.history or filters.evidence %}{% querystring key=None identifier=None page=None %}{% endif %}">Back to repeated identifiers</a>
 {% include 'core/analysis/_catalogue_rows.html' with rows=rows case=case can_edit=can_edit only %}
 {% else %}
-<details class="evidence-filters"{% if request.GET %} open{% endif %}><summary>Filter connections</summary>
-<form method="get" class="form-layout" aria-label="Filter connections">{% include 'ui/components/form_errors.html' %}{{ form.evidence }}{{ form.evidence.errors }}{% for field in form.visible_fields %}<div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}<div class="actions"><button class="button button-primary" type="submit">Apply filters</button><a class="button button-secondary" href="{% url 'core:analysis:connections' case.pk %}">Clear filters</a></div></form></details>
-<div class="analysis-highlights"><ul class="analysis-finding-rows">{% for group in groups %}<li><a class="analysis-finding-link" href="{{ group.url }}"><div><strong>{% if group.unavailable %}Candidate group unavailable{% else %}{{ group.value }}{% endif %}</strong><small>{{ group.label }} · {{ group.original_count }} retained originals</small>{% if group.unavailable %}<small>A representative source is unavailable or changed. Open the group for source status.</small>{% endif %}{% if group.partial_count %}<small>Includes partial analysis</small>{% endif %}{% if group.duplicate_checksums %}<small>Includes matching checksums; copies are not independent corroboration.</small>{% endif %}</div></a></li>{% empty %}<li><p class="muted">No repeated identifier candidates match the analyzed material in this selection.</p></li>{% endfor %}</ul></div>
+<form method="get" class="search-form" aria-label="Filter identifiers">
+  {% include 'ui/components/form_errors.html' %}
+  {{ form.evidence }}{{ form.evidence.errors }}
+  {{ form.q.label_tag }}
+  <div class="actions">{{ form.q }}<button class="button button-primary" type="submit">Search</button></div>
+  {{ form.q.errors }}
+  <details class="evidence-filters"{% if form.errors %} open{% endif %}>
+    <summary>Filters{% if filters.identifier_type or filters.kind or filters.person or filters.history or filters.evidence %} · Applied{% endif %}</summary>
+    <div class="analysis-history-filters">{% for field in form.visible_fields %}{% if field.name != 'q' %}<div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endif %}{% endfor %}</div>
+    <div class="actions">
+      <button class="button button-secondary" type="submit">Apply filters</button>
+      <a class="record-link" href="{% url 'core:analysis:connections' case.pk %}{% querystring identifier_type=None kind=None person=None history=None evidence=None page=None %}">Clear filters</a>
+    </div>
+  </details>
+</form>
+<div class="analysis-highlights"><ul class="analysis-finding-rows">{% for group in groups %}<li><a class="analysis-finding-link" href="{{ group.url }}"><div><strong>{% if group.unavailable %}Candidate group unavailable{% else %}{{ group.value }}{% endif %}</strong><small>{{ group.label }} · {{ group.original_count }} retained originals</small>{% if group.unavailable %}<small>A representative source is unavailable or changed. Open the group for source status.</small>{% endif %}{% if group.partial_count %}<small>Includes partial analysis</small>{% endif %}{% if group.duplicate_checksums %}<small>Includes matching checksums; copies are not independent corroboration.</small>{% endif %}</div></a></li>{% empty %}<li><p class="muted">No repeated identifier candidates match the analyzed material in this selection.</p>{% if can_edit %}<a class="record-link" href="{% url 'core:analysis:create' case.pk %}?operation=entities">Check identifiers in text</a>{% endif %}</li>{% endfor %}</ul></div>
 {% endif %}
 {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Connection pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
+<details class="disclosure"><summary>Coverage and interpretation</summary><div class="disclosure-body"><p>Coverage depends on completed checks and available text extraction. Partial results may omit occurrences; an empty view does not establish that no connection exists. Counts describe retained original references; open a group to inspect current source availability.</p>{% if can_edit %}<a class="record-link" href="{% url 'core:analysis:create' case.pk %}?operation=entities">Check identifiers in text</a> · <a class="record-link" href="{% url 'core:analysis:create' case.pk %}?operation=native_text">Extract document text</a>{% endif %}</div></details>
 {% endblock %}

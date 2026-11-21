@@ -326,13 +326,32 @@ else:
         }
     }
 
-# Operator credentials remain backend-only. Empty credentials disable inference.
+# A single direct key is enough to configure text inference. Explicit provider
+# configuration takes precedence, including on existing Gateway installations.
+PANDECT_DIRECT_AI = {
+    "openai_api_key": os.environ.get("OPENAI_API_KEY", "").strip(),
+    "anthropic_api_key": os.environ.get("ANTHROPIC_API_KEY", "").strip(),
+    "openai_model": os.environ.get("PANDECT_OPENAI_MODEL") or "gpt-6-luna",
+    "anthropic_model": os.environ.get("PANDECT_ANTHROPIC_MODEL") or "claude-haiku-5-5",
+}
+direct_text_providers = [
+    f"{provider}-direct"
+    for provider in ("openai", "anthropic")
+    if PANDECT_DIRECT_AI[f"{provider}_api_key"]
+]
+default_text_provider = "workers-ai"
+if len(direct_text_providers) == 1:
+    default_text_provider = direct_text_providers[0]
+elif direct_text_providers:
+    default_text_provider = ""
+
 PANDECT_AI_GATEWAY = {
     "account": os.environ.get("PANDECT_AI_ACCOUNT_ID", ""),
     "gateway": os.environ.get("PANDECT_AI_GATEWAY_ID", ""),
     "gateway_token": os.environ.get("PANDECT_AI_GATEWAY_TOKEN", ""),
     "workers_token": os.environ.get("PANDECT_AI_WORKERS_TOKEN", ""),
-    "text_provider": os.environ.get("PANDECT_AI_TEXT_PROVIDER", "workers-ai"),
+    "text_provider": os.environ.get("PANDECT_AI_TEXT_PROVIDER")
+    or default_text_provider,
     "openai_key_alias": os.environ.get("PANDECT_AI_OPENAI_KEY_ALIAS", "default"),
     "models": {
         "text": os.environ.get("PANDECT_AI_TEXT_MODEL", "auto"),

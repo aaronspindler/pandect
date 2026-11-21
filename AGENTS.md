@@ -126,8 +126,8 @@ Follow [analysis](docs/analysis.md), [local inference](docs/local-analysis.md), 
   message CSV imports queue local checks, AI, or both for newly published messages,
   defaulting to local checks without model inference. Both runs local checks and
   one AI suite; it never duplicates AI across local and external backends.
-  Resolve AI to a fully configured Gateway or otherwise the configured private
-  service before review; never redirect the selected route on runtime failure.
+  Resolve AI to the configured external AI service or otherwise the configured
+  private service before review. Keep the reviewed route on runtime failure.
   Retain reviewed execution destinations, explicit external-transfer approval,
   selection coverage, and recoverable failures.
   Other LLM analysis, transcription, context-dependent analysis, and bulk import
@@ -138,10 +138,10 @@ Follow [analysis](docs/analysis.md), [local inference](docs/local-analysis.md), 
   local/private-LAN runtimes through the shared backend. Pin model artifacts and
   runtime identities, retain execution provenance, and fail recoverably on drift. Bound
   inference separately from file parsers; never silently fall back to cloud.
-- External AI requires explicit selection and approval through Cloudflare AI
-  Gateway, with no direct-provider bypass or browser credentials. Keep credentials
-  outside source control, distinguish gateway/upstream authentication, and keep
-  provider/model configuration behind the integration boundary.
+- External AI requires explicit selection and approval for the configured
+  destination. Keep credentials server-side and outside source control.
+  Distinguish gateway/upstream authentication and keep provider/model
+  configuration behind the integration boundary.
 - Explain external transfer at approval, minimize payloads, deliberately configure
   logging/retention, and never log evidence payloads or secrets. Associate requests
   and results with their case/operation; provide usage accounting, limits, timeouts,

@@ -1,27 +1,53 @@
 {% extends 'core/analysis/base.html' %}
-{% block title %}Request instance summary · {{ case.name }}{% endblock %}
+{% block title %}{% if bulk %}Summarize missing sessions{% else %}Request session summary{% endif %} · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{{ back_url }}">Back to instance</a>
+<a class="back-link" href="{{ back_url }}">Back to sessions &amp; summaries</a>
 <header class="page-header">
-  <div><h1>Request instance summary</h1>
-    <p>{{ first }}{% if first.pk != second.pk %} and {{ second }}{% endif %} · {{ originals|length }} retained message{{ originals|length|pluralize }}</p>
+  <div><h1>{% if bulk %}Summarize missing sessions{% else %}Request session summary{% endif %}</h1>
+    <p>{{ first }}{% if first.pk != second.pk %} and {{ second }}{% endif %}{% if not bulk %} · {{ originals|length }} retained message{{ originals|length|pluralize }}{% endif %}</p>
   </div>
 </header>
 <section class="analysis-section">
+  {% if bulk %}
+    {% if scope_changed %}<p class="notice" role="alert">The sessions available for summarizing changed. Review the updated selection.</p>{% endif %}
+    {% if review_page.has_other_pages %}
+      <p>Review up to {{ sessions_per_review }} saved sessions at a time. Requests cover eligible sessions on this page.</p>
+      <nav class="pagination" aria-label="Session review pages">{% if review_page.has_previous %}<a class="button button-secondary" href="{% querystring review_page=review_page.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ review_page.number }} of {{ review_page.paginator.num_pages }}</span>{% if review_page.has_next %}<a class="button button-secondary" href="{% querystring review_page=review_page.next_page_number %}">Next</a>{% endif %}</nav>
+    {% endif %}
+    {% if instances %}
+      <p>Request a separate summary for each included session. Saved summaries are kept.</p>
+      <details class="disclosure" id="included-instances">
+        <summary>Sessions included · {{ eligible_count }}</summary>
+        <ol>{% for instance in instances %}<li><a href="{{ instance.url }}">{% if instance.first_at %}<time datetime="{{ instance.first_at|date:'c' }}">{{ instance.first_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %} · {{ instance.count }} message{{ instance.count|pluralize }}</a></li>{% endfor %}</ol>
+      </details>
+      <p class="muted">{{ message_count }} message{{ message_count|pluralize }} across {{ eligible_count }} session{{ eligible_count|pluralize }}. Overlapping sessions can include the same message.</p>
+    {% else %}
+      <p role="status">No available sessions need a summary{% if review_page.has_other_pages %} on this page{% endif %}.</p>
+    {% endif %}
+    {% if oversized %}<p>{{ oversized }} session{{ oversized|pluralize }} exceed{{ oversized|pluralize:'s,' }} the message or text limit for a summary.</p>{% endif %}
+    {% if pending_count %}<p>{{ pending_count }} summar{{ pending_count|pluralize:'y,ies' }} already in progress. <a href="{% url 'core:analysis:processing' case.pk %}">View processing</a>.</p>{% endif %}
+  {% else %}
   <details class="disclosure">
     <summary>Messages included in this summary · {{ originals|length }}</summary>
     <ol>{% for row in originals %}<li><a href="{% url 'core:evidence:detail' case.pk 'text-message' row.pk %}">{{ row.title }}</a></li>{% endfor %}</ol>
   </details>
-  {% if limit_message %}<p role="status">{{ limit_message }} A summary cannot be requested for this entire instance.</p>
-  {% else %}
+  {% if limit_message %}<p role="status">{{ limit_message }} A summary cannot be requested for this entire session.</p>
+  {% endif %}
+  {% endif %}
+  {% if form and not limit_message %}
   <form method="post" class="form-layout" novalidate data-unsaved-form>
     {% csrf_token %}{{ form.submission_id }}{{ form.execution_confirmation }}
+    {% if bulk %}<input type="hidden" name="reviewed_scope" value="{{ reviewed_scope }}">{% endif %}
     {% include 'ui/components/form_errors.html' %}
+    {% if form.available_backends %}
     {% include 'ui/components/form_field.html' with field=form.backend only %}
     <p class="help-text">{{ readiness }}</p>
-    {% include 'ui/components/form_field.html' with field=form.external_processing only %}
+    {% if form.show_external_approval %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}
+    {% else %}
+    <p role="status">Ask the operator to configure an AI service before requesting a summary.</p>
+    {% endif %}
     <div class="form-actions">
-      <button class="button button-primary" type="submit">Request summary</button>
+      {% if form.available_backends %}<button class="button button-primary" type="submit">{% if bulk %}Request summaries{% else %}Request summary{% endif %}</button>{% endif %}
       <a class="button button-secondary" href="{{ back_url }}">Cancel</a>
     </div>
   </form>

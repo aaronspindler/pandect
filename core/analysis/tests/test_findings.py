@@ -202,7 +202,7 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         pending, highlights = self.findings()
         self.assertEqual(highlights, [])
         self.assertContains(pending, "Case Tools")
-        self.assertNotContains(pending, "Rerun all analysis")
+        self.assertNotContains(pending, "Run local checks")
         self.assertContains(
             pending, reverse("core:analysis:processing", args=[self.case.pk])
         )
@@ -422,14 +422,14 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             self.login(role)
             response, _ = self.findings()
             self.assertEqual(response.context["evidence_count"], 28)
-            self.assertEqual(len(response.context["recent_evidence"]), 5)
+            self.assertEqual(len(response.context["recent_evidence"]), 3)
             self.assertEqual(
                 response.context["recent_evidence"][0]["id"], active[-1].pk
             )
             self.assertNotContains(response, "Archived source")
             self.assertNotContains(response, "Foreign source")
             self.assertNotContains(response, 'id="processing-history"')
-            self.assertNotContains(response, "Rerun all analysis")
+            self.assertNotContains(response, "Run local checks")
             self.assertNotContains(response, "tool-selections")
             self.assertContains(response, 'aria-label="Case Tools"')
             self.assertContains(response, 'aria-label="Processing"')

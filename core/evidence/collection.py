@@ -157,11 +157,10 @@ def collection_context(case, params):
     matches = derived_text_matches(case=case, rows=rows, query=query)
     matches.update(retained_text_matches(case=case, rows=rows, query=query))
     for row in rows:
-        row["content_match"] = matches.get((row["kind"], row["id"]))
-        if row["content_match"] and row["content_match"].get("url"):
-            row["url"] = row["content_match"]["url"]
-        if row["content_match"] and row["content_match"].get("anchor"):
-            row["url"] += "#" + row["content_match"]["anchor"]
+        match = matches.get((row["kind"], row["id"]))
+        row["content_match"] = match
+        if match and "anchor" in match:
+            match["url"] = f"{row['url']}#{match['anchor']}"
     pagination = {}
     for name, number in (
         ("previous", page.previous_page_number() if page.has_previous() else None),

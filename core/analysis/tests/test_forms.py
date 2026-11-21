@@ -282,7 +282,15 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         form = self.form(self.data("geocode_locations"))
         self.assertFalse(form.is_valid())
         self.assertIn("external_processing", form.errors)
-        allowed = self.form(self.data("geocode_locations", external_processing=True))
+        review = analysis_form(case=self.case, operation="geocode_locations")
+        allowed = self.form(
+            self.data(
+                "geocode_locations",
+                external_processing=True,
+                submission_id=review["submission_id"].value(),
+                execution_confirmation=review["execution_confirmation"].value(),
+            )
+        )
         self.assertTrue(allowed.is_valid(), allowed.errors)
 
     def test_call_pair_requires_first_participant_and_case_scoped_choices(self):

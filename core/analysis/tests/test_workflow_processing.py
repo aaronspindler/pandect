@@ -13,11 +13,18 @@ from core.analysis.bulk import prepare_case_analysis_batch, start_case_analysis
 from core.analysis.form_base import selection
 from core.analysis.forms import analysis_form
 from core.analysis.import_checks import imported_sources
+from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
-from core.models import AnalysisRun, CaseAnalysisBatch
+from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
-from geo.models import VehicleLocationEvidence, VehicleLocationImport
+from geo.models import (
+    VehicleLocationEvidence,
+    VehicleLocationImport,
+    VehicleTripGeneration,
+    VehicleTripState,
+)
+from geo.trip_processing import METHOD_VERSION
 
 
 class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
@@ -52,7 +59,8 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             {"batch": batch.pk},
         )
         self.assertContains(response, "Checks queued")
-        self.assertEqual(response.context["active_runs"].paginator.count, 2)
+        self.assertEqual(response.context["active_runs"].paginator.count, 0)
+        self.assertEqual(response.context["page_obj"].paginator.count, 3)
         self.assertContains(response, 'id="in-progress-heading"')
         self.assertContains(response, "Extract document text")
         self.login("outsider")
@@ -109,6 +117,21 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             form = analysis_form(case=self.case, operation="entities")
         original = f"document:{document.pk}"
         self.assertEqual(form.readiness[original]["label"], "Needs extraction")
+        self.login("owner")
+        url = reverse("core:analysis:create", args=[self.case.pk])
+        response = self.client.get(url, {"operation": "entities"})
+        self.assertContains(response, "Prepare source")
+        self.assertNotContains(response, 'type="checkbox" name="sources"')
+        self.assertContains(response, 'type="submit" disabled>Start analysis')
+        response = self.client.post(
+            url,
+            {"operation": "entities", "submission_id": uuid4(), "sources": [original]},
+        )
+        self.assertContains(response, "No sources were dropped")
+        self.assertContains(response, f'name="remove_source" value="{original}"')
+        self.assertContains(
+            response, f'type="hidden" name="sources" value="{original}"'
+        )
         bound = analysis_form(
             {
                 "operation": "entities",
@@ -258,7 +281,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, "Foreign source must stay private")
         self.assertIn("private", response["Cache-Control"])
         self.assertIn("no-store", response["Cache-Control"])
-        self.assertNotContains(response, "Rerun all analysis")
+        self.assertNotContains(response, "Run local checks")
         self.assertNotContains(response, "Choose analysis")
 
     def test_analysis_counts_include_saved_outcomes_across_methods_and_batches(self):
@@ -291,7 +314,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
                     self.processing_url(), query, headers=headers
                 )
                 self.assertContains(response, 'id="processing-analysis-runs"')
-                self.assertContains(response, "Analysis runs")
+                self.assertContains(response, "Analysis run counts")
                 self.assertEqual(
                     [run.pk for run in response.context["page_obj"]], [rerun.pk]
                 )
@@ -317,11 +340,11 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(len(response.context["active_runs"]), 2)
         self.assertEqual(response.context["active_runs"].paginator.count, 12)
-        self.assertEqual(len(response.context["import_history"]), 2)
-        self.assertEqual(response.context["import_history"].paginator.count, 27)
+        self.assertEqual(len(response.context["import_history"]), 1)
+        self.assertEqual(response.context["import_history"].paginator.count, 26)
         self.assertEqual(
             {row.pk for row in response.context["import_history"]},
-            {imports[0].pk, imports[1].pk},
+            {imports[0].pk},
         )
         self.assertEqual(
             [row.pk for row in response.context["active_imports"]], [current_import.pk]
@@ -333,7 +356,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             ),
         )
         self.assertContains(response, 'id="import-history" open')
-        self.assertContains(response, "Rerun all analysis")
+        self.assertContains(response, "Run local checks")
 
     def test_processing_rechecks_access_and_rejects_foreign_batches_and_import_sources(
         self,
@@ -379,15 +402,16 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             self.processing_url(), {"kind": "untrusted", "status": "invented"}
         )
         self.assertEqual(response.context["history_filters"], {})
-        self.assertEqual(response.context["page_obj"].paginator.count, 1)
+        self.assertEqual(response.context["page_obj"].paginator.count, 0)
+        self.assertEqual(response.context["active_runs"].paginator.count, 1)
         self.assertEqual(
             (AnalysisRun.objects.count(), CaseAnalysisBatch.objects.count()), before
         )
-        self.assertContains(response, "Rerun all analysis")
+        self.assertContains(response, "Run local checks")
         fragment = self.client.get(self.processing_url(), HTTP_X_PANDECT_LIVE="1")
         for result in (response, fragment):
             self.assertContains(result, 'id="processing-analysis-runs"')
-            self.assertNotContains(result, "Analysis runs")
+            self.assertNotContains(result, "Analysis run counts")
             self.assertEqual(result.context["analysis_run_total"], 0)
 
     def test_imports_ready_for_review_remain_visible_with_current_work(self):
@@ -395,11 +419,221 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         self.login("editor")
         response = self.client.get(self.processing_url())
         self.assertEqual(
-            [item.pk for item in response.context["active_imports"]], [ready.pk]
+            [item.pk for item in response.context["import_reviews"]], [ready.pk]
         )
         self.assertContains(response, "Ready to review")
-        self.assertNotContains(response, "Nothing is being processed right now")
+        self.assertContains(response, "Needs attention")
+        self.assertEqual(response.context["active_imports"].paginator.count, 0)
         self.assertContains(
             response,
             reverse("geo:vehicle_import_review", args=[self.case.pk, ready.pk]),
         )
+
+    def test_needs_attention_links_current_stopped_preparation_and_imports(self):
+        owner = self.users["owner"]
+        stopped = CaseAnalysisBatch.objects.create(
+            case=self.case, requested_by=owner, status="failed"
+        )
+        older = CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=owner,
+            status="failed",
+            scope={
+                "type": "reprocess",
+                "mode": "local",
+                "kinds": ["text"],
+                "executions": {},
+            },
+        )
+        CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=owner,
+            status="complete",
+            scope=older.scope | {"executions": {"model": "reviewed route"}},
+        )
+        stopped_import = self.vehicle_import(status="failed", title="Stopped locations")
+        state = VehicleTripState.objects.create(
+            case=self.case, vehicle=self.vehicle, revision=2
+        )
+        obsolete_trip = VehicleTripGeneration.objects.create(
+            case=self.case,
+            vehicle=self.vehicle,
+            state=state,
+            revision=1,
+            method_version=METHOD_VERSION,
+            requested_by=owner,
+            status="failed",
+        )
+        stopped_trip = VehicleTripGeneration.objects.create(
+            case=self.case,
+            vehicle=self.vehicle,
+            state=state,
+            revision=2,
+            method_version=METHOD_VERSION,
+            requested_by=owner,
+            status="failed",
+        )
+        self.login("editor")
+        response = self.client.get(self.processing_url(), HTTP_X_PANDECT_LIVE="1")
+        self.assertEqual(
+            [item.pk for item in response.context["failed_batches"]], [stopped.pk]
+        )
+        self.assertEqual(
+            [item.pk for item in response.context["failed_imports"]],
+            [stopped_import.pk],
+        )
+        self.assertEqual(
+            [item.pk for item in response.context["failed_trips"]], [stopped_trip.pk]
+        )
+        self.assertNotIn(obsolete_trip, response.context["failed_trips"])
+        self.assertContains(response, "Review stopped local checks")
+        self.assertContains(response, "Retry trip processing")
+        selected = self.client.get(self.processing_url(), {"batch": stopped.pk})
+        self.assertContains(selected, "Review local check actions")
+        self.login("viewer")
+        readonly = self.client.get(self.processing_url(), {"batch": stopped.pk})
+        self.assertNotContains(readonly, "Retry trip processing")
+        self.assertNotContains(readonly, "Review local check actions")
+
+    def test_newer_session_summary_attempt_supersedes_only_the_same_selection(self):
+        owner = self.users["owner"]
+        people = sorted([str(self.person.pk), str(uuid4())])
+        scope = {
+            "type": "instance_summaries",
+            "people": people,
+            "instances": [str(uuid4()), str(uuid4())],
+            "backend": "local",
+        }
+        stopped = CaseAnalysisBatch.objects.create(
+            case=self.case, requested_by=owner, status="failed", scope=scope
+        )
+        other = CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=owner,
+            status="failed",
+            scope=scope | {"people": sorted([str(self.person.pk), str(uuid4())])},
+        )
+        newer = CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=owner,
+            status="complete",
+            scope=scope | {"instances": scope["instances"][1:], "backend": "gateway"},
+        )
+
+        self.login("viewer")
+        response = self.client.get(self.processing_url())
+        self.assertEqual(
+            [item.pk for item in response.context["failed_batches"]],
+            [other.pk, stopped.pk],
+        )
+        self.assertEqual(
+            [item.pk for item in response.context["batches"]],
+            [newer.pk, other.pk, stopped.pk],
+        )
+        CaseAnalysisBatch.objects.create(
+            case=self.case,
+            requested_by=owner,
+            status="complete",
+            scope=scope | {"backend": "gateway"},
+        )
+        response = self.client.get(self.processing_url())
+        self.assertEqual(
+            [item.pk for item in response.context["failed_batches"]], [other.pk]
+        )
+
+    def test_pending_message_reviews_exclude_old_formats_and_keep_the_page(self):
+        document = self.document()
+        method = OPERATIONS["imessage_import"]
+        previews = [
+            self.retained_run(
+                document,
+                operation="imessage_import",
+                method_version=version,
+                parameters={"phase": "preview"},
+            )
+            for version in ["1", *([method.version] * 26)]
+        ]
+        AnalysisResult.objects.bulk_create(
+            [
+                AnalysisResult(
+                    case=self.case, run=run, data={"metrics": {"ready_rows": 1}}
+                )
+                for run in previews
+            ]
+        )
+        legacy, first, *_ = previews
+        self.login("viewer")
+        overview = self.client.get(self.processing_url())
+        self.assertEqual([run.pk for run in overview.context["page_obj"]], [legacy.pk])
+        pending = self.client.get(
+            self.processing_url(), {"reviews": "messages", "page": 2}
+        )
+        self.assertEqual([run.pk for run in pending.context["page_obj"]], [first.pk])
+        query = {"reviews": "messages", "history_page": 2}
+        processing = reverse("core:analysis:detail", args=[self.case.pk, first.pk])
+        self.assertContains(
+            pending, processing + "?reviews=messages&amp;history_page=2"
+        )
+        self.assertRedirects(
+            self.client.get(processing, query),
+            reverse(
+                "phone:imessage_review", args=[self.case.pk, first.pk], query=query
+            ),
+            fetch_redirect_response=False,
+        )
+
+    def test_result_returns_to_its_own_batch_and_preserves_the_status_filter(self):
+        document = self.document()
+        batch = CaseAnalysisBatch.objects.create(
+            case=self.case, requested_by=self.users["owner"]
+        )
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "native_text",
+            [{"kind": "document", "id": str(document.pk)}],
+            batch=batch,
+        )
+        self.login("viewer")
+        processing = self.processing_url()
+        detail = reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        response = self.client.get(processing, {"batch": batch.pk, "status": "queued"})
+        self.assertContains(response, f"{detail}?status=queued&amp;batch={batch.pk}")
+        result = self.client.get(detail, {"batch": batch.pk, "status": "queued"})
+        self.assertContains(result, "Back to batch checks")
+        self.assertEqual(
+            result.context["back_to_analysis"],
+            f"{processing}?status=queued&batch={batch.pk}#processing-history",
+        )
+        unrelated = self.client.get(detail, {"batch": uuid4()})
+        self.assertEqual(unrelated.context["back_to_analysis"], processing)
+
+    def test_history_opens_the_saved_result_and_returns_to_evidence(self):
+        document = self.document()
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "native_text",
+            [{"kind": "document", "id": str(document.pk)}],
+        )
+        process_run(run.pk)
+        self.login("viewer")
+        processing = self.processing_url()
+        overview = self.client.get(processing)
+        self.assertContains(overview, "Browse findings")
+        self.assertNotContains(overview, 'id="processing-history" open')
+        history = self.client.get(processing, {"history": "1"})
+        self.assertContains(history, 'id="processing-history" open')
+        self.assertContains(history, "Saved result")
+        detail = reverse("core:analysis:detail", args=[self.case.pk, run.pk])
+        self.assertContains(history, f'href="{detail}?history=1"')
+        result = self.client.get(detail, {"history": "1"})
+        self.assertEqual(result.context["result"].pk, run.result.pk)
+        self.assertEqual(
+            result.context["back_to_analysis"],
+            f"{processing}?history=1#processing-history",
+        )
+        evidence = reverse(
+            "core:evidence:detail", args=[self.case.pk, "document", document.pk]
+        )
+        self.assertContains(result, f'href="{evidence}#evidence-findings-heading"')

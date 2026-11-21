@@ -222,9 +222,9 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(
                     counts.get_by_text(f"{saved_runs} saved runs", exact=True)
                 ).to_be_visible()
-                more_methods = counts.locator("#processing-analysis-runs-more")
-                more_methods.locator("summary").press("Enter")
-                expect(more_methods).to_have_attribute("open", "")
+                breakdown = counts.locator("#processing-run-counts")
+                breakdown.locator("summary").press("Enter")
+                expect(breakdown).to_have_attribute("open", "")
                 filters = page.locator("#processing-history details").first
                 filters.evaluate("element => element.open = true")
                 field = page.get_by_label("Status", exact=True)
@@ -249,7 +249,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(
                     counts.get_by_text(f"{saved_runs + 1} saved runs", exact=True)
                 ).to_be_visible()
-                expect(more_methods).to_have_attribute("open", "")
+                expect(breakdown).to_have_attribute("open", "")
                 expect(field).to_be_focused()
                 expect(field).to_have_value("complete")
 

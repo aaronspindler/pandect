@@ -25,16 +25,18 @@ Owner-only **Delete vehicle** is visible below that disclosure and opens the
 separate confirmation.
 
 Only owners delete individual vehicles after named-target confirmation. Retained
-vehicle locations, including archived observations, block deletion. Deleting an
-unlinked vehicle retains its case, people, other vehicles, and login accounts;
+vehicle locations, including archived observations, and CSV imports that reference
+the vehicle block deletion. The deletion page links to the retained records and
+omits the confirmation when blocked. Deleting an unlinked vehicle retains its
+case, people, other vehicles, and login accounts;
 whole-case deletion removes vehicles and observations together. Product users
 need no staff permissions.
 
 Details paginate all locations, including archived evidence, at 25 per page.
 Owners/editors have **Add a location** and **Import vehicle locations** beside
-**Edit vehicle** in the header, including before any trips exist. Adding a location
-preselects this vehicle from the current case's choices. Imports review an Asset
-Location CSV and map assets explicitly. Source identifiers
+**Edit vehicle** in the header, including before any trips exist. Both actions
+suggest the current case vehicle. Imports review an Asset Location CSV and
+map assets explicitly. Source identifiers
 never overwrite plates/VINs or verify identity, ownership, or presence. See
 [CSV imports](vehicle-location-imports.md) for formats, retention, limits, and recovery.
 
@@ -53,8 +55,9 @@ trusted ORM callers must call `full_clean()` before saving for field validation.
 ## Django admin and authorization
 
 Use `/admin/` → **Vehicles** under the [shared gates](cases.md#django-admin) and
-`vehicle` permissions. Deletion requires ownership, `vehicle.delete_vehicle`, and
-no retained observations. Existing case, notes, and timestamps are read-only.
+`vehicle` permissions. Deletion requires ownership and `vehicle.delete_vehicle`.
+Retained observations and CSV references block deletion. Existing case, notes,
+and timestamps are read-only.
 
 Product mutations recheck case permissions under a case lock and require
 CSRF-protected POST. ORM callers, exports, jobs, and integrations must enforce
@@ -70,10 +73,13 @@ Person/vehicle relationships, external lookups, and public APIs remain planned.
 
 ## Automatic trips
 
-Details lead with five recent saved possible trips. Map and Vehicle trips use
-the same complete processed histories; **See all trips** or **Choose dates** opens
-the paginated report. Dates select whole overlapping trips. **Show observations**
-and each trip's paginated sources retain access to raw records.
+Details show the latest dated reported location, its time and archive status,
+and a link to the evidence. **Show observations** lists all reported locations,
+including undated records. Below the locations, up to five recent possible trips
+use the same complete processed histories as Map and Vehicle trips.
+**See all trips** opens the paginated report, and **Choose dates** opens the report
+with its filters visible. Dates select whole overlapping trips. Each trip links
+to its paginated source observations.
 
 New evidence, completed imports, and archive/restore changes queue rebuilding.
 Pending/failed generations are not current; Processing provides progress/recovery.

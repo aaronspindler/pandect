@@ -26,9 +26,11 @@ if args and args[0] == "compose":
         override_content=override.read_text(),
         environment=str(environment),
         environment_content=environment.read_text(),
-        inherited=[key for key in os.environ if key.startswith(
-            ("DJANGO_", "POSTGRES_", "PANDECT_", "COMPOSE_")
-        )],
+        inherited=[
+            key for key in os.environ
+            if key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+            or key.startswith(("DJANGO_", "POSTGRES_", "PANDECT_", "COMPOSE_"))
+        ],
     )
 with open(os.environ["SMOKE_DOCKER_LOG"], "a") as output:
     output.write(json.dumps(entry) + "\n")
@@ -76,6 +78,8 @@ class ComposeSmokeCommandTests(TestCase):
             "DJANGO_SECRET_KEY": "synthetic-inherited-secret",
             "POSTGRES_DB": "synthetic-inherited-database",
             "PANDECT_AI_GATEWAY_TOKEN": "synthetic-inherited-token",
+            "OPENAI_API_KEY": "synthetic-openai-key",
+            "ANTHROPIC_API_KEY": "synthetic-anthropic-key",
             "PANDECT_FUTURE_SETTING": "synthetic-inherited-value",
             "COMPOSE_FILE": "synthetic-inherited-compose",
             "COMPOSE_PROJECT_NAME": "synthetic-inherited-project",

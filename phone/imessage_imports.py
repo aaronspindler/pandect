@@ -13,7 +13,7 @@ from core.evidence.queries import get_evidence
 from core.models import AnalysisRun
 from core.storage import file_integrity, retain_uploaded_originals
 from document.models import DocumentEvidence
-from phone.analysis.deterministic.imessage import import_file_limit
+from phone.analysis.deterministic.imessage import DATE_BOUND_FIELDS, import_file_limit
 from phone.analysis.ingest import import_analysis_executions
 
 
@@ -67,7 +67,15 @@ def start_preview(actor, case_id, values):
             case.pk,
             "imessage_import",
             [{"kind": "document", "id": str(document.pk)}],
-            parameters={"phase": "preview", "timezone": values["timezone"]},
+            parameters={
+                "phase": "preview",
+                "timezone": values["timezone"],
+                **{
+                    field: values[field].isoformat()
+                    for field in DATE_BOUND_FIELDS
+                    if values.get(field) is not None
+                },
+            },
             submission_id=uuid5(values["submission_id"], "imessage-preview"),
         )
 
@@ -81,7 +89,7 @@ def preview_source(preview, case):
     sources = resolve_inputs(preview, case)
     if len(sources) != 1 or sources[0].kind != "document":
         raise AnalysisError("source_unavailable")
-    return sources[0].item
+    return sources[0]
 
 
 @transaction.atomic
@@ -105,7 +113,7 @@ def confirm_import(actor, case_id, preview_id, people, *, analysis=None):
         raise ValidationError(
             "Wait for the CSV review to finish before importing."
         ) from None
-    document = preview_source(preview, case)
+    document = preview_source(preview, case).item
     if not preview.result.data.get("metrics", {}).get("ready_rows"):
         raise ValidationError("This review has no ready messages to import.")
     if analysis is None:
@@ -119,6 +127,11 @@ def confirm_import(actor, case_id, preview_id, people, *, analysis=None):
         parameters={
             "phase": "import",
             "timezone": preview.parameters["timezone"],
+            **{
+                field: preview.parameters[field]
+                for field in DATE_BOUND_FIELDS
+                if field in preview.parameters
+            },
             "preview_run_id": str(preview.pk),
             "people": people,
             "analysis": analysis,

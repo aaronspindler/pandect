@@ -13,6 +13,7 @@ from core.evidence.types import COMMUNICATION_KINDS
 from text.analysis.shared import STOPWORDS, WORD, bounded_sources
 
 VERSION = "conversation-rules-v1"
+DEFAULT_SESSION_GAP_MINUTES = 120
 
 
 def _number(parameters, key, default, minimum, maximum):
@@ -90,7 +91,9 @@ def _source_row(source):
 
 def _session_groups(sources, parameters):
     messages = _ordered(sources, messages_only=True)
-    gap_minutes = _number(parameters, "gap_minutes", 120, 1, 10080)
+    gap_minutes = _number(
+        parameters, "gap_minutes", DEFAULT_SESSION_GAP_MINUTES, 1, 10080
+    )
     break_before = parameters.get("break_before", [])
     join_before = parameters.get("join_before", [])
     if not isinstance(break_before, list) or not isinstance(join_before, list):

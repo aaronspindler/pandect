@@ -56,7 +56,10 @@ class TranscriptionGatewayViewTests(EvidenceViewTestMixin, TestCase):
         }
 
     def test_openai_text_configuration_cannot_queue_external_transcription(self):
-        page, payload = self.reviewed_create()
+        page = self.client.get(self.create_url, {"operation": "transcription"})
+        self.assertNotContains(page, "I approve external processing")
+        with self.settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_GATEWAY):
+            _, payload = self.reviewed_create()
         rejected = self.client.post(self.create_url, payload)
         self.assertEqual(rejected.status_code, 200)
         self.assertContains(rejected, UNAVAILABLE)

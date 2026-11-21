@@ -26,12 +26,12 @@ from core.analysis.artifacts import (
 from core.analysis.diagnostics import log_analysis_failure
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
+    inference_configured,
     requires_inference,
     retry_execution_confirmation,
     snapshot_execution,
     validate_execution,
 )
-from core.analysis.gateway import gateway_configured
 from core.analysis.operations import get_operation
 from core.analysis.sources import Source, source_id
 from core.evidence.queries import get_evidence, scoped_evidence
@@ -473,6 +473,7 @@ def start_run(
     retry_confirmation="",
     batch=None,
     approved_execution=None,
+    require_configured_inference=False,
 ):
     case = get_case(actor, case_id, edit=True, lock=True)
     if previous_run:
@@ -549,11 +550,15 @@ def start_run(
         ):
             raise AnalysisError("retry_approval_required")
     if (
-        operation == "transcription"
-        and external
-        and not gateway_configured("transcription", operation)
+        (require_configured_inference or (operation == "transcription" and external))
+        and requires_inference(operation, parameters)
+        and not inference_configured(execution, operation)
     ):
-        raise AnalysisError("gateway_transcription_not_configured")
+        if not external:
+            raise AnalysisError("local_ai_not_configured")
+        if operation == "transcription":
+            raise AnalysisError("gateway_transcription_not_configured")
+        raise AnalysisError("gateway_not_configured")
     if execution is not None:
         parameters = parameters | {"_execution": execution}
     if len(json.dumps(parameters, allow_nan=False).encode()) > (

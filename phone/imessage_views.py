@@ -1,6 +1,7 @@
 """Retain one message export, review its people, and follow atomic publication."""
 
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from allauth.core import ratelimit
 from django.contrib import messages
@@ -8,19 +9,24 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import DatabaseError
 from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
+from core.analysis.import_checks import imported_sources
+from core.analysis.navigation import history_query, processing_back_query, query_suffix
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import resolve_inputs
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.models import AnalysisRun, CaseAnalysisBatch
 from phone.analysis.deterministic.imessage import import_file_limit, read_import_page
+from phone.conversations import conversation_url
 from phone.imessage_forms import (
+    ANALYSIS_MODES,
     IMessageConfirmForm,
     IMessagePersonForm,
     IMessageUploadForm,
@@ -51,7 +57,25 @@ def imessage_analysis_status(request, case_id, batch_id):
     counts = runs.aggregate(
         total=Count("pk"),
         pending=Count("pk", filter=Q(status__in=("queued", "running"))),
+        completed=Count("pk", filter=Q(status__in=("complete", "empty"))),
+        partial=Count("pk", filter=Q(status="partial")),
+        insufficient=Count("pk", filter=Q(status="insufficient")),
+        stopped=Count(
+            "pk", filter=Q(status__in=("failed", "unsupported", "cancelled"))
+        ),
     )
+    live_pending = batch.status == "queued" or bool(counts["pending"])
+    finished_count = counts["total"] - counts["pending"]
+    first_message = None
+    if not live_pending:
+        try:
+            _, published_messages = imported_sources(case, batch.scope)
+        except AnalysisError, Http404:
+            pass
+        else:
+            first_message = published_messages.order_by(
+                "communication_context__source_row"
+            ).first()
     page = Paginator(runs, 25).get_page(request.GET.get("page"))
     for run in page:
         operation = OPERATIONS.get(run.operation)
@@ -65,12 +89,21 @@ def imessage_analysis_status(request, case_id, batch_id):
             "nav_section": "processing",
             "batch": batch,
             "imported": imported,
-            "analysis_mode": {"local": "Local checks", "ai": "AI", "both": "Both"}.get(
+            "analysis_mode": dict(ANALYSIS_MODES).get(
                 batch.scope.get("mode"), "Earlier analysis settings"
             ),
             "page_obj": page,
-            "finished_count": counts["total"] - counts["pending"],
-            "live_pending": batch.status == "queued" or bool(counts["pending"]),
+            "finished_count": finished_count,
+            "completed_count": counts["completed"],
+            "partial_count": counts["partial"],
+            "insufficient_count": counts["insufficient"],
+            "stopped_count": counts["stopped"],
+            "live_pending": live_pending,
+            "conversation_url": conversation_url(
+                case, first_message, open_details=False
+            )
+            if first_message
+            else "",
             "preparation_error": error_message(batch.error_code)
             if batch.error_code
             else "",
@@ -139,6 +172,33 @@ def imessage_upload(request, case_id):
     )
 
 
+def _first_reused_message(messages, case, document, run):
+    people = run.parameters.get("people", {})
+    account_id = people.get("account", {}).get("id")
+    correspondent_id = people.get("correspondent", {}).get("id")
+    if not account_id or not correspondent_id:
+        return None
+    zone = run.parameters["timezone"]
+    messages = messages.filter(
+        Q(sender_id=account_id, recipient_id=correspondent_id)
+        | Q(sender_id=correspondent_id, recipient_id=account_id),
+        communication_context__case=case,
+        communication_context__source_document=document,
+        communication_context__source_sha256=document.sha256,
+        communication_context__timezone=zone,
+    )
+    date_filters = {
+        f"export_date__{lookup}": run.parameters[field]
+        for field, lookup in (("start_date", "gte"), ("end_date", "lte"))
+        if run.parameters.get(field)
+    }
+    if date_filters:
+        messages = messages.alias(
+            export_date=TruncDate("occurred_at", tzinfo=ZoneInfo(zone))
+        ).filter(**date_filters)
+    return messages.order_by("communication_context__source_row").first()
+
+
 @product_login_required
 @require_http_methods(["GET", "POST"])
 def imessage_review(request, case_id, run_id):
@@ -170,6 +230,21 @@ def imessage_review(request, case_id, run_id):
         .first()
     )
     current = final or preview
+    review_query = history_query(request.GET)
+    back_query = processing_back_query(review_query, batch_id=requested.batch_id)
+    if "batch" not in back_query:
+        review_query.pop("batch", None)
+    review_navigation = {
+        "processing_back_url": reverse(
+            "core:analysis:processing",
+            args=(case.pk,),
+            query=back_query,
+            fragment="processing-history",
+        )
+        if back_query
+        else "",
+        "review_suffix": query_suffix(review_query),
+    }
     if (
         request.method in {"GET", "HEAD"}
         and request.headers.get("X-Pandect-Live") == "1"
@@ -179,9 +254,10 @@ def imessage_review(request, case_id, run_id):
         return render_live(
             request,
             "phone/imessage_progress.html",
-            {"case": case, "run": current, "final": final},
+            {"case": case, "run": current, "final": final} | review_navigation,
         )
-    show_rows = request.GET.get("page") is not None
+    excluded_only = request.GET.get("rows") == "excluded"
+    show_rows = excluded_only or request.GET.get("page") is not None
     if show_rows or request.method == "POST":
         limited = ratelimit.consume_or_429(
             request,
@@ -194,7 +270,8 @@ def imessage_review(request, case_id, run_id):
     document = None
     source_error = ""
     try:
-        document = preview_source(preview, case)
+        source = preview_source(preview, case)
+        document = source.item
     except AnalysisError as error:
         source_error = error_message(error.code)
     if any(
@@ -205,14 +282,17 @@ def imessage_review(request, case_id, run_id):
     data = (
         preview.result.data if not source_error and hasattr(preview, "result") else {}
     )
-    legacy_preview = preview.method_version != "2"
+    legacy_preview = preview.method_version != OPERATIONS["imessage_import"].version
     samples = data.get("imessage_samples", data.get("items", [])[:3])
+    metrics = data.get("metrics", {})
+    excluded_count = metrics.get("unresolved_rows", 0) + metrics.get(
+        "date_excluded_rows", 0
+    )
     rows = Paginator(data.get("items", []), 25).get_page(request.GET.get("page"))
-    if data and not legacy_preview and (show_rows or request.method == "POST"):
+    if data and not legacy_preview and show_rows and request.method != "POST":
         try:
-            total = data.get("metrics", {}).get("source_rows", 0)
+            total = excluded_count if excluded_only else metrics.get("source_rows", 0)
             rows = Paginator(range(total), 25).get_page(request.GET.get("page"))
-            source = resolve_inputs(preview, case)[0]
             selected, actual_total, samples = read_import_page(
                 source,
                 preview.parameters
@@ -224,6 +304,7 @@ def imessage_review(request, case_id, run_id):
                 },
                 page=rows.number,
                 per_page=25,
+                excluded_only=excluded_only,
             )
             if actual_total != total:
                 raise AnalysisError("imessage_source_changed")
@@ -290,7 +371,11 @@ def imessage_review(request, case_id, run_id):
                         else "This message import was already queued.",
                     )
                     return redirect(
-                        "phone:imessage_review", case_id=case.pk, run_id=final.pk
+                        reverse(
+                            "phone:imessage_review",
+                            args=(case.pk, final.pk),
+                            query=review_query,
+                        )
                     )
             else:
                 status = 400
@@ -310,30 +395,35 @@ def imessage_review(request, case_id, run_id):
     result_data = (
         current.result.data if not source_error and hasattr(current, "result") else {}
     )
-    imported = scoped_evidence(case, "text-message").none()
+    retained_messages = scoped_evidence(case, "text-message")
+    imported = retained_messages.none()
+    first_message = None
     if result_data.get("import_publication_version") == 2:
-        imported = (
-            scoped_evidence(case, "text-message")
-            .filter(
-                communication_context__case=case,
-                communication_context__source_document=document,
-                communication_context__source_sha256=document.sha256,
-                communication_context__import_run=current,
+        imported = retained_messages.filter(
+            communication_context__case=case,
+            communication_context__source_document=document,
+            communication_context__source_sha256=document.sha256,
+            communication_context__import_run=current,
+        ).order_by("communication_context__source_row")
+        first_message = imported.first()
+        if first_message is None and result_data.get("metrics", {}).get("reused_rows"):
+            first_message = _first_reused_message(
+                retained_messages, case, document, current
             )
-            .order_by("communication_context__source_row")
-        )
     elif result_data:
         message_ids = [
             row.get("values", {}).get("message_id")
             for row in result_data.get("items", [])
             if row.get("values", {}).get("message_id")
         ]
-        imported = scoped_evidence(case, "text-message").filter(pk__in=message_ids)
+        imported = retained_messages.filter(pk__in=message_ids)
+        first_message = imported.first()
     imported = Paginator(imported, 25).get_page(request.GET.get("messages_page"))
     return render_live(
         request,
         "phone/imessage_review.html",
         case_context(case, request.user)
+        | review_navigation
         | {
             "nav_section": "evidence",
             "preview": preview,
@@ -345,13 +435,27 @@ def imessage_review(request, case_id, run_id):
             "metrics": metrics,
             "rows": rows,
             "show_rows": show_rows,
+            "excluded_only": excluded_only,
+            "excluded_count": excluded_count if metrics else 0,
+            "processing_details_url": reverse(
+                "core:analysis:detail",
+                args=(case.pk, current.pk),
+                query=review_query | {"processing": "1"},
+            ),
             "form": form,
             "account_form": account,
             "correspondent_form": correspondent,
             "can_confirm": ready and final is None,
             "final": final,
+            "published": final is not None
+            and current.status in ("complete", "partial"),
             "legacy_preview": legacy_preview,
             "imported": imported,
+            "conversation_url": conversation_url(
+                case, first_message, open_details=False
+            )
+            if first_message
+            else "",
             "publication_metrics": result_data.get("metrics", {}),
             "publication_version": result_data.get("import_publication_version"),
             "processing_error": error_message(current.error_code)

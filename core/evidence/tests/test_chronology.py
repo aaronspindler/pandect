@@ -87,13 +87,17 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
             occurred_at=datetime(2026, 11, 10, 6, tzinfo=UTC),
         )
         self.login("owner")
-        response = self.client.get(
-            self.chronology_url(), {"start": "2026-11-10", "end": "2026-11-10"}
-        )
+        filters = {"start": "2026-11-10", "end": "2026-11-10"}
+        response = self.client.get(self.chronology_url(), filters)
         self.assertEqual([r["id"] for r in response.context["rows"]], [inside.pk])
         self.assertNotContains(response, before.title)
         self.assertContains(response, "America/Toronto")
-        self.assertContains(response, "2026-11-10 06:00:00 UTC")
+        self.assertContains(response, "10 Nov 2026 01:00:00 EST")
+        self.assertNotContains(response, "10 Nov 2026 06:00:00 UTC")
+        response = self.client.get(self.chronology_url(), filters | {"clock": "utc"})
+        self.assertEqual([r["id"] for r in response.context["rows"]], [inside.pk])
+        self.assertContains(response, "10 Nov 2026 06:00:00 UTC")
+        self.assertNotContains(response, "10 Nov 2026 01:00:00 EST")
 
     def test_person_vehicle_and_source_filters_are_case_scoped(self):
         instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
@@ -149,13 +153,11 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
             archive_changed_by=self.users["owner"],
         )
         self.login("viewer")
-        response = self.client.get(
-            self.chronology_url(), {"page": 2, "unplaced_page": 3}
-        )
+        response = self.client.get(self.chronology_url(), {"page": 2})
         self.assertEqual(response.context["page_obj"].paginator.count, 27)
         self.assertEqual(len(response.context["rows"]), 2)
         self.assertContains(response, "Archived")
-        self.assertContains(response, "unplaced_page=3")
+        self.assertContains(response, '?view=references"')
 
     def test_ambiguous_date_strings_remain_unplaced_and_source_linked(self):
         message = self.message(body="Proposed for 11/12/2026; never confirmed.")
@@ -171,6 +173,13 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
             self.chronology_url(), {"start": "2027-01-01", "person": self.person.pk}
         )
         self.assertEqual(response.context["rows"], [])
-        self.assertContains(response, "11/12/2026")
+        self.assertNotContains(response, "11/12/2026")
+        self.assertContains(response, "Date ranges apply to recorded timestamps")
+        self.assertContains(response, "Extracted date references")
+        response = self.client.get(
+            self.chronology_url(),
+            {"view": "references", "start": "2027-01-01", "person": self.person.pk},
+        )
         self.assertEqual(response.context["unplaced"]["page_obj"].paginator.count, 1)
-        self.assertContains(response, "are not filtered by the date range")
+        self.assertContains(response, "11/12/2026")
+        self.assertNotContains(response, 'name="start"')

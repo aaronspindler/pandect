@@ -151,7 +151,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         shared = revealed.context["conversation_analysis"]
         self.assertEqual(shared["count"], 1)
-        self.assertTrue(shared["open"])
+        self.assertIsNotNone(shared["page_obj"])
         self.assertEqual(shared["rows"][0]["item_index"], 0)
         self.assertIn(str(result.run_id), shared["rows"][0]["url"])
         self.assertEqual(
@@ -412,7 +412,7 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         shared = response.context["conversation_analysis"]
         self.assertEqual(inline["page_obj"].number, 2)
         self.assertEqual(len(inline["rows"]), 11)
-        self.assertTrue(shared["open"])
+        self.assertIsNotNone(shared["page_obj"])
         self.assertEqual(shared["page_obj"].number, 2)
         self.assertEqual(len(shared["rows"]), 5)
         inline_previous = parse_qs(urlsplit(inline["previous_url"]).query)
@@ -871,6 +871,14 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(preview.status_code, 200)
         self.assertEqual(len(preview.context["page_obj"]), 50)
         self.assertEqual(len(self.analysis(preview, self.first)["rows"]), 3)
+        shared_preview = preview.context["conversation_analysis"]
+        self.assertEqual(shared_preview["count"], 27)
+        self.assertEqual(len(shared_preview["rows"]), 3)
+        self.assertIsNone(shared_preview["page_obj"])
+        self.assertEqual(
+            parse_qs(urlsplit(shared_preview["more_url"]).query),
+            {"list_page": ["2"], "conversation_analysis_page": ["1"]},
+        )
         self.assertEqual(expanded.status_code, 200)
         inline = self.analysis(expanded, self.first)
         shared = expanded.context["conversation_analysis"]

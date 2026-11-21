@@ -1,15 +1,23 @@
 .conversation-header { align-items:end; gap:.75rem 1.5rem; margin-bottom:.75rem; padding-bottom:.75rem; }
 .conversation-header h1 { margin-bottom:.25rem; }
 .conversation-header p { margin-bottom:0; }
-.conversation-tabs { display:flex; gap:.5rem; margin-bottom:1rem; border-bottom:1px solid var(--divider); }
+.conversation-tabs { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1rem; border-bottom:1px solid var(--divider); }
 .conversation-tabs a { display:inline-flex; align-items:center; min-height:44px; padding:.5rem .75rem; }
 .conversation-tabs [aria-current] { color:var(--text); border-bottom:3px solid var(--accent); font-weight:600; text-decoration:none; }
+.conversation-day-form { margin-bottom:1rem; }
+.conversation-day-controls { display:flex; flex-wrap:wrap; align-items:end; gap:.5rem; }
+.conversation-day-controls .field { margin:0; }
+.conversation-day-form p { margin:.5rem 0 0; }
+#conversation-day-result { scroll-margin:1rem; }
 .conversation-instances,.instance-message-list { padding:0; margin:0; list-style:none; }
 .conversation-instance { padding:1rem 0; border-top:1px solid var(--divider); overflow-wrap:anywhere; scroll-margin:1rem; }
 .conversation-instance h3,.instance-message-meta { font-size:.875rem; color:var(--secondary); }
 .conversation-instance h3 { margin:0 0 .5rem; }
 .instance-summary-label { color:var(--accent); font-size:.875rem; font-weight:600; }
 .instance-summary { max-width:70ch; margin:.25rem 0; font-size:1.125rem; }
+.instance-summary-preview:has(+ .instance-summary-details[open]) { display:none; }
+.instance-summary-details>summary { width:fit-content; color:var(--accent); font-weight:600; }
+.instance-summary-details>summary+div { margin:0; }
 .instance-actions { display:flex; flex-wrap:wrap; align-items:center; gap:0 1.25rem; }
 .instance-actions .record-link { margin:0; }
 .instance-originals { padding-inline-start:1rem; border-inline-start:2px solid var(--divider); }
@@ -55,10 +63,9 @@
 .conversation-bubble .conversation-message-body { margin-inline-end:1.75rem; }
 .conversation-message-source { display:block; font-size:.875rem; margin-top:.25rem; color:var(--secondary); }
 .conversation-analysis { min-width:0; overflow-wrap:anywhere; scroll-margin:1rem; }
-.conversation-shared-analysis { margin-bottom:1rem; border-block:1px solid var(--divider); }
+.conversation-shared-analysis { margin-bottom:1rem; padding-block:.75rem; border-block:1px solid var(--divider); }
+.conversation-shared-analysis h2 { margin:0; }
 .conversation-analysis summary { min-height:44px; padding:.5rem 0; cursor:pointer; font-weight:600; color:var(--accent); }
-.conversation-analysis-content { border-top:1px solid var(--divider); padding-top:.75rem; }
-.conversation-analysis-content>p { margin:0 0 .75rem; }
 .conversation-findings-list { list-style:none; margin:0; padding:0; }
 .conversation-finding { padding-bottom:.75rem; }
 .conversation-finding+.conversation-finding { border-top:1px solid var(--divider); padding-top:.75rem; }
@@ -67,7 +74,7 @@
 .conversation-finding-compact>p.muted { font-size:.875rem; }
 .conversation-finding-preview,.conversation-finding-compact>p.muted { margin:.25rem 0 0; }
 .conversation-finding-label { margin:0 0 .25rem; }
-.conversation-finding-status,.conversation-finding-method { font-size:.875rem; margin:.25rem 0; }
+.conversation-finding-status { font-size:.875rem; margin:.25rem 0; }
 .conversation-finding-text { white-space:pre-wrap; line-height:1.5; }
 .conversation-finding-sources { list-style:none; padding:0; margin:.5rem 0; }
 .conversation-finding-sources li { margin:.25rem 0; }

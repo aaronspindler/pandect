@@ -1,0 +1,13 @@
+<section class="content-section" aria-labelledby="trip-outcome-heading">
+  <div class="section-header">
+    <h2 id="trip-outcome-heading"><a href="{{ selected_trip.vehicle_url }}">{{ selected_trip.vehicle }}</a></h2>
+    <span class="muted">{{ selected_trip.minutes|floatformat:'-1' }} min observed · {{ selected_trip.source_count }} observations</span>
+  </div>
+  <div class="trip-route">
+    <div><span class="muted">First observation</span><a class="record-link" href="{{ selected_trip.start.url }}">{{ selected_trip.start.place }}</a><time datetime="{{ selected_trip.start.time|date:'c' }}">{{ selected_trip.start.time|date:'j M Y, H:i T' }}</time></div>
+    <span class="trip-arrow" aria-hidden="true">→</span>
+    <div><span class="muted">Last observation</span><a class="record-link" href="{{ selected_trip.end.url }}">{{ selected_trip.end.place }}</a><time datetime="{{ selected_trip.end.time|date:'c' }}">{{ selected_trip.end.time|date:'j M Y, H:i T' }}</time></div>
+  </div>
+  <p class="muted">{{ selected_trip.basis }}. Departure, arrival and the route remain uncertain.</p>
+  {% if selected_trip.detail_url %}<a class="record-link" href="{{ selected_trip.detail_url }}">Open trip</a>{% endif %}
+</section>

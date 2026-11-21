@@ -3,16 +3,21 @@
 {% block content %}
 <div class="form-layout">
 <p class="breadcrumb"><a href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to person</a></p>
+{% if related.rows %}
+<header class="page-header"><div><h1>Cannot delete {{ person }}</h1><p>This person is linked to retained location evidence or communications. Archived evidence also prevents deletion.</p></div></header>
+<ul class="record-list">{% for row in related.rows|slice:":5" %}<li class="record-row"><a class="record-link" href="{{ row.url }}">{{ row.title }}</a>{% if row.is_archived %}<span class="status">Archived</span>{% endif %}</li>{% endfor %}</ul>
+<p><a class="record-link" href="{{ related.list_url }}">View all linked evidence</a></p>
+{% else %}
 <div class="page-header"><div><p class="eyebrow">{{ case }}</p><h1>Delete {{ person }}?</h1><p>This permanently removes this person record and its notes. There is no in-app undo.</p></div></div>
 <p>Evidence, other people, the case, and login accounts are retained.</p>
 {% with account_count=person.social_accounts.count %}
 {% if account_count %}<p>This person's {{ account_count }} social account{{ account_count|pluralize }} will also be permanently removed.</p>{% endif %}
 {% endwith %}
 <p>This person's {{ person.points_of_interest.count }} POI{{ person.points_of_interest.count|pluralize }} and their notes will also be permanently removed.</p>
-<p>People linked to retained location evidence or communications cannot be deleted individually, including when that evidence is archived.</p>
 <form method="post" class="form-layout">
   {% csrf_token %}{% include "ui/components/form_fields.html" with form=form %}
   <div class="form-actions"><a class="button button-secondary" href="{% url 'people:detail' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a><button class="button button-danger" type="submit">Permanently delete person</button></div>
 </form>
+{% endif %}
 </div>
 {% endblock %}

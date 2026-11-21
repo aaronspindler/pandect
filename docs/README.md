@@ -21,7 +21,7 @@ The guides below describe current behavior and procedures; the
 - [Instagram monitor pilot](instagram-monitors.md)
 - [Evidence, communications, retention, and private downloads](evidence.md)
 - [Vehicle locations and Asset Location CSV imports](vehicle-location-imports.md)
-- [Analysis, reports, and Gateway configuration](analysis.md)
+- [Analysis, reports, and external AI configuration](analysis.md)
 - [Original document and recording previews](original-previews.md)
 - [Chronology](chronology.md)
 - [Retained question-driven synthesis results](synthesis.md)
@@ -46,7 +46,7 @@ sessions; session overrides and managed requirements may take precedence. See
 [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 and [configuration layering](https://learn.chatgpt.com/docs/config-file/config-basic).
 
-Planning uses GPT-6 Astra/Ultra; implementation uses GPT-6.1 Sol/Extra high, both
+Planning uses GPT-6 Astra/Ultra; implementation uses GPT-6.2 Sol/Extra high, both
 with Fast enabled. Switch models explicitly: `plan_mode_reasoning_effort` sets
 only effort. In the CLI, use `/model`, then `/plan`; reselect the implementation
 model after leaving Plan mode. Availability depends on the client/account;

@@ -9,6 +9,7 @@
     {% endif %}
   </div>
   {% if analysis_form.errors %}<div id="evidence-analysis-error" class="error-summary" role="alert" tabindex="-1" data-error-summary><h3>Checks could not start</h3>{{ analysis_form.non_field_errors }}{{ analysis_form.submission_id.errors }}</div>{% endif %}
+  {% if observation_trip_url %}<p><a class="record-link" href="{{ observation_trip_url }}">View possible trip containing this observation</a></p>{% endif %}
   {% if analysis_pending %}
   <div class="evidence-check-status">
     <p role="status">Checking…</p>
@@ -35,12 +36,36 @@
     </li>
     {% endfor %}
   </ul>
-  {% elif analysis_page_obj and not analysis_pending %}
-  <p class="muted">No highlighted findings. Browse all findings to inspect retained results.</p>
-  {% elif not analysis_page_obj and not analysis_pending %}
+  {% elif analysis_page_obj and not analysis_pending and not highlights_limited %}
+  <p class="muted">No findings to highlight for this evidence.</p>
+  {% elif not analysis_page_obj and not analysis_pending and not observation_trip_url %}
   <p class="muted">No checks yet.</p>
   {% endif %}
 
-  {% if highlights_limited %}<p class="muted">More findings are available beyond the 50 candidates checked for this preview.</p>{% endif %}
+  {% if highlights_limited %}<p class="muted">The preview checks up to 50 candidates. Browse all findings from this evidence for more results.</p>{% endif %}
+  {% if analysis_page_obj %}
   <a class="record-link" href="{% url 'core:analysis:browse' case.pk %}?kind={{ kind }}&amp;evidence={{ evidence.pk }}">All findings from this evidence</a>
+  <details id="evidence-outcomes" class="disclosure"{% if analysis_outcomes_open %} open{% endif %}>
+    <summary id="evidence-history-heading">Analysis outcomes</summary>
+    <div class="disclosure-body">
+      {% for run in analysis_page_obj %}
+      <a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}">
+        <div>
+          <strong>{% if run.outcome_summary %}{{ run.outcome_summary }}{% else %}{{ run.label }}{% endif %}</strong>
+          <p class="muted">{% if run.outcome_summary %}{{ run.label }} · {% endif %}{{ run.created_at|date:'d M Y, H:i T' }}</p>
+          {% if run.result_unavailable %}<p>A retained source is unavailable or has changed.</p>{% elif run.has_result and run.inputs|length > 1 %}<p>Result for a selection that included this evidence.</p>{% endif %}
+        </div>
+        <span>{% if run.result_unavailable %}Result unavailable{% else %}{{ run.get_status_display }}{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}{% endif %}</span>
+      </a>
+      {% endfor %}
+      {% if analysis_page_obj.has_other_pages %}
+      <nav class="pagination" aria-label="Analysis outcome pages">
+        {% if analysis_page_obj.has_previous %}<a class="button button-secondary" href="?results_page={{ analysis_page_obj.previous_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Previous</a>{% endif %}
+        <span>Page {{ analysis_page_obj.number }} of {{ analysis_page_obj.paginator.num_pages }}</span>
+        {% if analysis_page_obj.has_next %}<a class="button button-secondary" href="?results_page={{ analysis_page_obj.next_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Next</a>{% endif %}
+      </nav>
+      {% endif %}
+    </div>
+  </details>
+  {% endif %}
 </section>

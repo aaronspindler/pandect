@@ -30,10 +30,17 @@ from ui.live import render_live
 @require_http_methods(["GET", "POST"])
 def vehicle_import_upload(request, case_id):
     case = get_case(request.user, case_id, edit=True)
+    vehicle_hint = None
+    if value := request.GET.get("vehicle"):
+        try:
+            vehicle_hint = case.vehicles.filter(pk=value).first()
+        except ValidationError:
+            pass
     form = VehicleImportUploadForm(
         request.POST if request.method == "POST" else None,
         request.FILES if request.method == "POST" else None,
         case=case,
+        initial={"vehicle": vehicle_hint},
     )
     status = 200
     if request.method == "POST":
@@ -121,6 +128,7 @@ def vehicle_import_upload(request, case_id):
         {
             **case_context(case, request.user),
             "form": form,
+            "launch_vehicle": vehicle_hint,
             "nav_section": "evidence",
             "max_csv_bytes": min(MAX_BYTES, settings.PANDECT_MAX_FILE_BYTES),
             "max_csv_rows": f"{MAX_ROWS:,}",
@@ -145,6 +153,10 @@ def vehicle_import_review(request, case_id, import_id):
     status = 200
     error_message = ""
     review_url = "geo:vehicle_import_review"
+    draft_key = f"vehicle_import_review_draft:{batch.pk}"
+    initial = {"confirm_duplicates": batch.duplicates_confirmed}
+    if request.method == "GET":
+        initial.update(request.session.pop(draft_key, {}))
     if batch.completed_at:
         if request.method == "POST":
             messages.success(
@@ -160,7 +172,7 @@ def vehicle_import_review(request, case_id, import_id):
             duplicates=batch.duplicate_count > 0,
             default_vehicle=batch.selected_vehicle_id,
             vehicle_mapping=batch.vehicle_mapping,
-            initial={"confirm_duplicates": batch.duplicates_confirmed},
+            initial=initial,
         )
     if request.method == "POST" and not batch.completed_at:
         try:
@@ -187,6 +199,24 @@ def vehicle_import_review(request, case_id, import_id):
                     "This import is already queued. No observations were added again.",
                 )
                 return redirect(review_url, case_id=case.pk, import_id=batch.pk)
+            if (
+                request.POST.get("action") == "add_vehicle"
+                and form
+                and not batch.invalid_count
+            ):
+                # Temporarily carry unfinished choices through the vehicle form.
+                # Confirmation still requires reviewing and submitting the import.
+                draft = {}
+                for index in range(len(batch.groups)):
+                    name = f"vehicle_{index}"
+                    value = form[name].value()
+                    draft[name] = value if form.fields[name].valid_value(value) else ""
+                if "confirm_duplicates" in form.fields:
+                    draft["confirm_duplicates"] = form["confirm_duplicates"].value()
+                request.session[draft_key] = draft
+                return redirect(
+                    "vehicle:create_for_import", case_id=case.pk, import_id=batch.pk
+                )
             if form and form.is_valid() and not batch.invalid_count:
                 mapping = {
                     str(index): form.cleaned_data[f"vehicle_{index}"]
@@ -223,6 +253,10 @@ def vehicle_import_review(request, case_id, import_id):
             batch.refresh_from_db()
     rows_page = None
     observations_page = None
+    invalid = (
+        batch.status == "review" and not batch.completed_at and batch.invalid_count
+    )
+    correction_only = bool(invalid and request.GET.get("rows") != "all")
     if batch.completed_at:
         observations = (
             batch.observations.filter(case=case, vehicle__case_id=F("case_id"))
@@ -233,9 +267,10 @@ def vehicle_import_review(request, case_id, import_id):
             request.GET.get("page")
         )
     elif batch.status == "review":
-        rows_page = Paginator(batch.rows.order_by("number"), 50).get_page(
-            request.GET.get("page")
-        )
+        rows = batch.rows.order_by("number")
+        if correction_only:
+            rows = rows.exclude(errors=[])
+        rows_page = Paginator(rows, 50).get_page(request.GET.get("page"))
     skipped_count = batch.duplicate_count if not batch.duplicates_confirmed else 0
     return render_live(
         request,
@@ -245,7 +280,8 @@ def vehicle_import_review(request, case_id, import_id):
             "batch": batch,
             "form": form,
             "rows": rows_page,
-            "invalid": batch.invalid_count > 0,
+            "invalid": bool(invalid),
+            "correction_only": correction_only,
             "observations": observations_page,
             "imported_count": batch.row_count - skipped_count,
             "skipped_count": skipped_count,

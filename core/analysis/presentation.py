@@ -18,7 +18,8 @@ UUID = re.compile(
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I
 )
 REPORTED_PARTICIPANT = re.compile(
-    r"\b(reported\s+(sender|recipient)\s+)(\*{0,2})(" + UUID.pattern + r")(\*{0,2})",
+    r"\b(?P<article>the\s+)?(?P<prefix>reported\s+(?P<role>sender|recipient)\s+)"
+    r"\*{0,2}(?P<id>" + UUID.pattern + r")\*{0,2}",
     re.I,
 )
 INTERNAL = {
@@ -61,16 +62,19 @@ def participant_names(sources):
     return names
 
 
-def participant_text(text, names):
+def participant_text(text, names, *, include_sender_role=True):
     """Display explicit reported-participant references without rewriting results."""
-    return REPORTED_PARTICIPANT.sub(
-        lambda match: (
-            match[1] + names[(match[2].lower(), match[4].lower())]
-            if (match[2].lower(), match[4].lower()) in names
-            else match[0]
-        ),
-        text,
-    )
+
+    def display(match):
+        role = match["role"].lower()
+        name = names.get((role, match["id"].lower()))
+        if name is None:
+            return match[0]
+        if role == "sender" and not include_sender_role:
+            return name
+        return (match["article"] or "") + match["prefix"] + name
+
+    return REPORTED_PARTICIPANT.sub(display, text)
 
 
 def measurement_timestamp(key, value):

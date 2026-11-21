@@ -1,5 +1,6 @@
 """Synthetic complete-findings and supporting-case-tool browser journeys."""
 
+import re
 from datetime import UTC, datetime
 
 from django.urls import reverse
@@ -10,9 +11,13 @@ from config.tests.browser_base import BrowserTestCase
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
 from core.models import AnalysisRun, CaseAnalysisBatch
+from geo.models import PersonLocationEvidence, VehicleLocationEvidence
+from geo.trip_jobs import process_trips
+from geo.trip_processing import prepare_case_trips
 from people.models import Person
-from phone.models import TextMessageEvidence
+from phone.models import PhoneCallEvidence, TextMessageEvidence
 from text.models import TextEvidence
+from vehicle.models import Vehicle
 
 
 class InvestigationWorkflowBrowserTests(BrowserTestCase):
@@ -136,7 +141,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                     navigation.get_by_role("link", name="Processing", exact=True)
                 ).to_have_attribute("aria-current", "page")
                 expect(
-                    page.get_by_role("button", name="Rerun all analysis", exact=True)
+                    page.get_by_role("button", name="Run local checks", exact=True)
                 ).to_have_count(0)
                 navigation.get_by_role("link", name="Case Tools", exact=True).press(
                     "Enter"
@@ -156,16 +161,28 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(pages).to_contain_text("Page 2")
                 self.capture_layouts(page, engine, "catalogue-page-two")
                 page.get_by_label("Search findings").fill("person-00@example.test")
+                expect(page.get_by_label("Person")).to_be_hidden()
+                page.locator(".evidence-filters > summary").press("Enter")
                 expect(page.get_by_label("Person")).to_be_visible()
                 expect(page.get_by_label("Result history")).to_be_visible()
                 page.get_by_label("Person").select_option(str(self.person.pk))
-                page.get_by_role("button", name="Search").press("Enter")
+                page.get_by_role("button", name="Apply filters", exact=True).press(
+                    "Enter"
+                )
                 expect(page.locator(".analysis-finding-rows > li")).to_have_count(1)
                 self.capture_layouts(page, engine, "catalogue-filtered")
                 finding = page.locator(".analysis-finding-rows > li a").first
                 finding.focus()
                 finding.press("Enter")
                 expect(page.locator("#finding-1")).to_be_visible()
+                page.get_by_role("link", name="Back to findings", exact=True).press(
+                    "Enter"
+                )
+                expect(page.get_by_label("Search findings")).to_have_value(
+                    "person-00@example.test"
+                )
+                expect(page.get_by_label("Person")).to_have_value(str(self.person.pk))
+                expect(page.get_by_label("Person")).to_be_hidden()
 
                 page.goto(
                     self.url(
@@ -176,9 +193,10 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Related evidence", exact=True)
                 ).to_be_visible()
                 self.capture_layouts(page, engine, "person-related")
-                page.get_by_role(
-                    "heading", name="Related findings", exact=True
-                ).scroll_into_view_if_needed()
+                page.get_by_role("link", name=re.compile(r"^Findings · ")).press(
+                    "Enter"
+                )
+                expect(page).to_have_url(re.compile(r"#related-findings$"))
                 self.capture(page, engine, "person-related-findings")
                 related = page.get_by_role(
                     "link", name="Browse related evidence", exact=True
@@ -201,6 +219,11 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(message_row).to_be_visible()
                 expect(message_row).to_contain_text("person-00@example.test")
                 expect(message_row).to_contain_text(self.person.first_name)
+                message_row.press("Enter")
+                page.get_by_role("navigation", name="Evidence actions").get_by_role(
+                    "link", name="Findings", exact=True
+                ).press("Enter")
+                expect(page).to_have_url(re.compile(r"#evidence-findings-heading$"))
 
                 page.goto(self.url("core:analysis:connections", case_id=self.case.pk))
                 self.capture_layouts(page, engine, "connections")
@@ -221,12 +244,22 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_text("Displayed in America/Toronto.", exact=False)
                 ).to_be_visible()
+                self.capture_layouts(page, engine, "chronology")
+                page.get_by_role("link", name="Show UTC times").press("Enter")
+                expect(
+                    page.get_by_text("Displayed in UTC.", exact=False)
+                ).to_be_visible()
+                page.get_by_role("link", name="Show local times").press("Enter")
+                page.get_by_role(
+                    "link", name="Extracted date references", exact=True
+                ).press("Enter")
                 expect(
                     page.get_by_role(
-                        "heading", name="Unplaced date references", exact=True
+                        "heading", name="Extracted date references", exact=True
                     )
                 ).to_be_visible()
-                self.capture_layouts(page, engine, "chronology")
+                self.capture_layouts(page, engine, "extracted-date-references")
+                page.get_by_role("link", name="Back to chronology").press("Enter")
                 page.locator("details > summary").filter(
                     has_text="Filter chronology"
                 ).press("Enter")
@@ -248,7 +281,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                         "section[aria-labelledby='in-progress-heading'] "
                         ".analysis-history-row"
                     )
-                ).to_have_count(1)
+                ).to_have_count(0)
                 expect(
                     page.locator("#processing-history .analysis-history-row")
                 ).to_have_count(3)
@@ -277,11 +310,138 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 ).to_have_count(0)
                 self.capture_layouts(page, engine, "catalogue-owner")
                 page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
+                page.locator("#processing-actions > summary").press("Enter")
                 expect(
                     page.get_by_role("link", name="Choose analysis", exact=True)
                 ).to_be_visible()
                 self.capture_layouts(page, engine, "processing-owner")
         self.assertEqual(self.db(AnalysisRun.objects.filter(case=self.case).count), 3)
+
+    def test_daily_timeline_navigation_and_source_without_javascript(self):
+        colleague = Person.objects.create(case=self.case, first_name="Robin")
+        alex = Person.objects.create(case=self.case, first_name="Alex")
+        messages = [
+            TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                title="Market Hall visit",
+                sender=sender,
+                recipient=recipient,
+                body=body,
+                occurred_at=datetime(2026, 11, 15, 10, minute, tzinfo=UTC),
+            )
+            for minute, sender, recipient, body in (
+                (15, alex, colleague, "Meet me at the north entrance of Market Hall."),
+                (18, colleague, alex, "I will bring the delivery receipt."),
+            )
+        ]
+        run, _ = start_run(
+            self.owner,
+            self.case.pk,
+            "sessions",
+            [{"kind": "text-message", "id": str(message.pk)} for message in messages],
+        )
+        process_run(run.pk)
+        session_id = run.result.findings.get().pk
+        van = Vehicle.objects.create(case=self.case, make="Ford", model="Transit")
+        for minute, address in ((30, "10 Harbour Road"), (50, "Market Hall")):
+            VehicleLocationEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                vehicle=van,
+                title="Delivery van position",
+                address=address,
+                observed_at=datetime(2026, 11, 15, 11, minute, tzinfo=UTC),
+            )
+        (generation,) = prepare_case_trips(self.owner, self.case.pk)
+        for _ in range(2):
+            process_trips(str(generation.pk), str(generation.token))
+            generation.refresh_from_db()
+        self.assertEqual(generation.status, "complete", generation.error_code)
+        PersonLocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Market entrance sighting",
+            person=colleague,
+            address="North entrance, Market Hall",
+            observed_at=datetime(2026, 11, 15, 13, 20, tzinfo=UTC),
+        )
+        PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Afternoon call",
+            sender=colleague,
+            recipient=self.person,
+            occurred_at=datetime(2026, 11, 15, 16, 35, tzinfo=UTC),
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(self.url("core:analysis:index", case_id=self.case.pk))
+                page.get_by_role("link", name="Chronology", exact=True).press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Daily timeline", exact=True)
+                ).to_be_visible()
+                date = page.get_by_label("Date", exact=True)
+                expect(date).to_have_value("2026-11-16")
+                expect(page).to_have_url(re.compile("day=2026-11-16"))
+                page.get_by_role("link", name="Previous day with activity").press(
+                    "Enter"
+                )
+                expect(date).to_have_value("2026-11-15")
+                page.get_by_role("link", name="Show UTC times").press("Enter")
+                expect(date).to_have_value("2026-11-15")
+                expect(page).to_have_url(re.compile("clock=utc"))
+                self.capture_layouts(page, engine, "daily-timeline")
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.locator(".day-timeline").evaluate("list => list.scrollIntoView()")
+                self.capture(page, engine, "daily-timeline-mobile-entries")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.evaluate("window.scrollTo(0, 0)")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "daily-timeline-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "daily-timeline-forced-colors")
+                page.emulate_media(forced_colors="none")
+
+                date.fill("2026-11-14")
+                page.get_by_role("button", name="Go to date").press("Enter")
+                expect(date).to_have_value("2026-11-14")
+                page.get_by_role("link", name="Next day with activity").press("Enter")
+                expect(date).to_have_value("2026-11-15")
+                page.locator(f'a[href$="#instance-{session_id}"]').press("Enter")
+                expect(page).to_have_url(re.compile(f"#instance-{session_id}$"))
+                expect(page.get_by_text(messages[1].body, exact=True)).to_be_visible()
+                page.go_back()
+                message_link = page.locator(f'a[href$="#message-{self.message.pk}"]')
+                message_link.press("Enter")
+                expect(page).to_have_url(
+                    re.compile(f"message={self.message.pk}#message-{self.message.pk}$")
+                )
+                page.go_back()
+                expect(date).to_have_value("2026-11-15")
+                page.get_by_role("link", name="Next day with activity").press("Enter")
+                expect(date).to_have_value("2026-11-16")
+                source = reverse(
+                    "core:evidence:detail",
+                    args=(self.case.pk, "text-message", self.message.pk),
+                )
+                link = page.locator(f'a[href^="{source}"]')
+                link.focus()
+                expect(link).to_be_focused()
+                link.press("Enter")
+                expect(page).to_have_url(re.compile(re.escape(source)))
+                page.go_back()
+                expect(date).to_have_value("2026-11-16")
+                page.get_by_role("link", name="Recorded chronology", exact=True).press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_text("Filter chronology", exact=True)
+                ).to_be_visible()
 
     def test_processing_analysis_run_breakdown_without_javascript(self):
         saved_runs = {
@@ -312,9 +472,8 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
                 counts = page.locator("#processing-analysis-runs")
                 expect(counts.get_by_text("21 saved runs", exact=True)).to_be_visible()
-                expect(counts.locator("dt:visible")).to_have_count(5)
-                disclosure = counts.locator("#processing-analysis-runs-more > summary")
-                expect(disclosure).to_have_text("1 more method")
+                expect(counts.locator("dt:visible")).to_have_count(0)
+                disclosure = counts.locator("#processing-run-counts > summary")
                 additional_method = counts.get_by_text(
                     "Inspect message timing", exact=True
                 )
@@ -323,11 +482,12 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(disclosure).to_be_focused()
                 disclosure.press("Enter")
                 expect(additional_method).to_be_visible()
-                disclosure.press("Space")
-                expect(additional_method).to_be_hidden()
+                expect(counts.locator("dt:visible")).to_have_count(6)
                 self.capture_layouts(
                     page, engine, "processing-analysis-runs", section=counts
                 )
+                disclosure.press("Space")
+                expect(additional_method).to_be_hidden()
                 page.set_viewport_size({"width": 390, "height": 844})
                 counts.evaluate("element => element.scrollIntoView()")
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")

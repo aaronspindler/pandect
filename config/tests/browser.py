@@ -160,16 +160,25 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         self.url("core:evidence:create", case_id=self.case.pk) + query
                     )
                     filename = f"{engine}-{mode}-timezone.txt"
-                    page.locator('input[type="file"]').set_input_files(
+                    file = page.locator('input[type="file"]')
+                    self.assertEqual(
+                        file.evaluate("input => input.multiple"), mode == "bulk"
+                    )
+                    file.set_input_files(
                         {
                             "name": filename,
                             "mimeType": "text/plain",
                             "buffer": filename.encode(),
                         }
                     )
-                    entry = page.locator(".upload-entry")
-                    entry.locator("summary").press("Enter")
-                    collected = entry.get_by_label(
+                    if mode == "bulk":
+                        details = page.locator(".upload-entry")
+                    else:
+                        expect(page.locator(".upload-entry")).to_have_count(0)
+                        page.get_by_label("Title").fill("Single-file evidence")
+                        details = page.locator("[data-additional-evidence-details]")
+                    details.locator("summary").press("Enter")
+                    collected = details.get_by_label(
                         "Source collected at (America/Toronto)", exact=True
                     )
                     expect(collected).to_be_visible()
@@ -177,7 +186,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     collected.scroll_into_view_if_needed()
                     self.capture(page, engine, f"queue-timezone-{mode}")
                     page.get_by_role("button", name="Upload file", exact=True).click()
-                    expect(entry).to_have_attribute("data-state", "added")
+                    if mode == "bulk":
+                        expect(details).to_have_attribute("data-state", "added")
+                    else:
+                        expect(
+                            page.get_by_role("heading", name="Single-file evidence")
+                        ).to_be_visible()
                     record = self.db(
                         DocumentEvidence.objects.get,
                         case=self.case,
@@ -563,6 +577,13 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                         f"{engine}: add evidence overflow at {width}px",
                     )
                     self.capture(page, engine, f"refined-add-evidence-{width}x{height}")
+                paths = page.get_by_role("navigation", name="Ways to add evidence")
+                import_link = paths.get_by_role("link", name="Import CSV")
+                import_link.press("Enter")
+                expect(page).to_have_url(re.compile(r"#import-records-heading$"))
+                expect(
+                    page.get_by_role("heading", name="Import records", exact=True)
+                ).to_be_focused()
                 text_link = page.get_by_role("link", name="Add text", exact=True)
                 text_link.focus()
                 text_link.press(
@@ -778,12 +799,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     0
                 )
                 expect(page.get_by_text("Checking…", exact=True)).to_be_visible()
-                self.open_evidence_panel(page, "info")
+                info = self.open_evidence_panel(page, "info")
                 expect(page.get_by_text("Record history", exact=True)).to_be_visible()
                 expect(page.get_by_text("Added by", exact=True)).to_be_visible()
-                expect(
-                    page.get_by_text("Processing history", exact=True)
-                ).to_be_visible()
+                info.get_by_role("link", name="Analysis outcomes", exact=True).click()
                 expect(
                     page.get_by_role(
                         "link",
@@ -797,6 +816,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 )
                 self.capture(page, engine, "automatic-analysis-390x844")
                 page.set_viewport_size({"width": 1440, "height": 900})
+                self.open_evidence_panel(page, "info")
                 expect(
                     page.get_by_text("Synthetic source context", exact=True)
                 ).to_be_visible()
@@ -1007,6 +1027,14 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             page.evaluate("document.documentElement.scrollWidth"), 321
                         )
                         self.capture(page, engine, f"{kind}-long-filename-320")
+                        self.assertLess(
+                            page.get_by_role(
+                                "link", name="Download audio"
+                            ).bounding_box()["y"],
+                            page.get_by_role(
+                                "heading", name="Supplied transcript"
+                            ).bounding_box()["y"],
+                        )
                         with page.expect_download() as event:
                             page.get_by_role(
                                 "link", name="Download audio", exact=True
@@ -1183,6 +1211,27 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator("select[name=vehicle_0]")).to_have_value(
                     str(vehicle.pk)
                 )
+                add_from_review = page.get_by_role(
+                    "button", name="Add a vehicle", exact=True
+                )
+                page.locator("select[name=vehicle_0]").select_option("")
+                add_from_review.press("Enter")
+                expect(page.get_by_role("heading", name="Add vehicle")).to_be_visible()
+                page.get_by_role("link", name="Cancel", exact=True).press("Enter")
+                expect(page.locator("select[name=vehicle_0]")).to_have_value("")
+                add_from_review.press("Enter")
+                page.get_by_label("Make", exact=True).fill(
+                    f"Synthetic import van {engine}"
+                )
+                page.get_by_role("button", name="Add vehicle and return").press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Choose the vehicles")
+                ).to_be_visible()
+                expect(page.locator("select[name=vehicle_0]")).to_have_value("")
+                expect(page.locator("select[name=vehicle_0]")).to_contain_text(
+                    f"Synthetic import van {engine}"
+                )
+                page.locator("select[name=vehicle_0]").select_option(str(vehicle.pk))
                 preview = page.locator("summary").filter(
                     has_text=re.compile(r"^1 source row · Preview$")
                 )
@@ -1239,7 +1288,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Vehicle locations imported")
                 ).to_be_visible()
                 self.capture(page, engine, "vehicle-import-complete")
-                expect(page.get_by_role("link", name="View findings")).to_be_visible()
+                expect(page.get_by_role("link", name="Open case map")).to_be_visible()
+                expect(page.get_by_role("link", name="View source CSV")).to_be_visible()
+                expect(page.get_by_role("link", name="Refresh status")).to_have_count(0)
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.capture(page, engine, "vehicle-import-complete-390")
+                page.set_viewport_size({"width": 1440, "height": 900})
                 page.get_by_text("Imported observations", exact=True).press("Enter")
                 page.locator(".import-results a").click()
                 expect(
@@ -1508,6 +1562,20 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     license_plate=f"SYN-{engine}",
                 )
                 detail_url = page.url
+                page.get_by_role("link", name="Choose dates", exact=True).press("Enter")
+                expect(page.locator(".report-filters")).to_have_attribute("open", "")
+                expect(page.get_by_label("Vehicle", exact=True)).to_have_value(
+                    str(vehicle.pk)
+                )
+                page.goto(detail_url)
+                page.get_by_role(
+                    "link", name="Import vehicle locations", exact=True
+                ).press("Enter")
+                expect(page.get_by_label("Vehicle", exact=True)).to_have_value(
+                    str(vehicle.pk)
+                )
+                page.get_by_role("link", name="Cancel", exact=True).press("Enter")
+                expect(page).to_have_url(detail_url)
                 page.get_by_role("link", name="Add a location", exact=True).press(
                     "Enter"
                 )
@@ -1515,7 +1583,26 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     str(vehicle.pk)
                 )
                 self.capture(page, engine, "vehicle-location-preselected")
+                observation = self.db(
+                    VehicleLocationEvidence.objects.create,
+                    case=self.case,
+                    uploaded_by=self.owner,
+                    vehicle=vehicle,
+                    title="Synthetic vehicle observation",
+                    address="10 Example Street",
+                    observed_at=datetime(2026, 9, 16, 18, 57, 22, tzinfo=UTC),
+                )
                 page.goto(detail_url)
+                expect(
+                    page.get_by_text("Latest dated observation", exact=False)
+                ).to_be_visible()
+                observation_url = reverse(
+                    "core:evidence:detail",
+                    args=[self.case.pk, "vehicle-location", observation.pk],
+                )
+                expect(
+                    page.get_by_role("link", name="10 Example Street", exact=True)
+                ).to_have_attribute("href", observation_url)
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -2001,14 +2088,12 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 self.assertEqual(record.sha256, checksum)
 
                 page.goto(self.url("core:evidence:list", case_id=case.pk))
-                page.get_by_label("Search evidence", exact=True).fill("captured source")
-                page.get_by_label("Search evidence", exact=True).press("Enter")
+                page.get_by_label("Filter evidence", exact=True).fill("captured source")
+                page.get_by_label("Filter evidence", exact=True).press("Enter")
                 expect(page.locator(".evidence-row")).to_have_count(1)
                 expect(page.locator(".evidence-row")).to_contain_text(title)
 
-                page.goto(
-                    self.url("core:evidence:create", case_id=case.pk) + "?kind=document"
-                )
+                page.goto(self.url("core:evidence:create", case_id=case.pk))
                 files = [
                     {
                         "name": f"synthetic-{index}.txt",
@@ -2030,17 +2115,19 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     )
                     expect(entries).to_have_count(0)
                     expect(picker).to_be_focused()
-                    expect(page.locator("#id_title")).to_be_visible()
                     expect(
-                        page.locator("[data-additional-evidence-details]")
+                        page.locator(".bulk-shared-details > summary")
                     ).to_be_visible()
+                    expect(
+                        page.get_by_role("button", name="Upload files")
+                    ).to_be_hidden()
                     self.assertTrue(
                         page.evaluate(
                             "window.dispatchEvent("
                             "new Event('beforeunload', {cancelable: true}))"
                         )
                     )
-                    self.capture(page, engine, f"single-upload-reset-{width}")
+                    self.capture(page, engine, f"batch-upload-reset-{width}")
                 picker.set_input_files(files)
                 expect(entries).to_have_count(2)
                 first_entry = entries.first
@@ -2129,7 +2216,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.locator(".record-row").filter(
                         has_text=guest.email
                     ).get_by_role(
-                        "link", name=f"Change access for {guest.username}", exact=True
+                        "link", name=f"Edit role for {guest.username}", exact=True
                     ).click()
                     page.locator("select[name='role']").select_option("viewer")
                     self.capture(page, engine, "collaboration-change-access")
@@ -2284,7 +2371,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             retained.save()
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
-                page.goto(self.url("core:evidence:bulk_create", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:create", case_id=self.case.pk))
                 page.locator("#id_file").set_input_files(
                     [
                         {
@@ -2387,7 +2474,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 upload_url = self.url("core:evidence:create", case_id=self.case.pk)
-                bulk_url = self.url("core:evidence:bulk_create", case_id=self.case.pk)
+                bulk_url = self.url("core:evidence:create", case_id=self.case.pk)
                 page.goto(bulk_url)
                 page.locator(".bulk-shared-details>summary").click()
                 page.locator("#id_source").fill("Original shared source")
@@ -2821,7 +2908,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             )
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page, editor)
-                page.goto(self.url("core:evidence:bulk_create", case_id=self.case.pk))
+                page.goto(self.url("core:evidence:create", case_id=self.case.pk))
                 picker = page.locator("#id_file")
                 picker.set_input_files(
                     [
@@ -3269,7 +3356,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     info = self.open_evidence_panel(page, "info")
                     expect(info.locator(".evidence-info-panel")).to_be_visible()
                     expect(
-                        info.get_by_text("Processing history", exact=True)
+                        info.get_by_role("link", name="Analysis outcomes", exact=True)
                     ).to_be_visible()
                     expect(info.get_by_text("Added by", exact=True)).to_be_visible()
                     self.capture(page, engine, f"quiet-evidence-info-{width}x{height}")

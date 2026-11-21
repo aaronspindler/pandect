@@ -6,11 +6,13 @@ from unittest.mock import patch
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from core.analysis.services import process_run
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
-from geo.models import VehicleLocationEvidence
+from geo.daily_chronology import attach_daily_location_details, daily_location_rows
+from geo.models import LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence
 from geo.testing import LOCAL_GEOCODER
 from geo.trip_jobs import prepare_addresses, process_trips
 from geo.trip_models import VehicleTripGeneration, VehicleTripInput, VehicleTripState
@@ -29,7 +31,7 @@ INSTANT = datetime(2026, 11, 15, 12, tzinfo=UTC)
 
 @override_settings(PANDECT_GEOCODER_LOCAL=False)
 class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
-    def observations(self, count, *, stationary=None, positive=None):
+    def observations(self, count, *, stationary=None, positive=None, start=INSTANT):
         rows = []
         for index in range(count):
             item = VehicleLocationEvidence(
@@ -40,7 +42,7 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
                 address="100 Stop Street"
                 if stationary and index in stationary
                 else f"{index + 1} Moving Street",
-                observed_at=INSTANT + timedelta(minutes=index),
+                observed_at=start + timedelta(minutes=index),
                 speed_kmh=10 if positive and index in positive else None,
             )
             item._prepare_original()
@@ -122,6 +124,90 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(trip.start_at, rows[0].observed_at)
         self.assertEqual(trip.end_at, rows[-1].observed_at)
         self.assertEqual(generation.metrics["archived"]["observations"], 2)
+
+    def test_daily_rows_collapse_only_exact_trip_members_and_keep_overnight_endpoints(
+        self,
+    ):
+        midnight = INSTANT.replace(hour=0)
+        next_day = midnight + timedelta(days=1)
+        samples = self.observations(4, start=midnight - timedelta(minutes=2))
+        standalone = self.observations(1, start=midnight + timedelta(hours=4))[0]
+        VehicleLocationEvidence.objects.filter(pk=samples[2].pk).update(
+            is_archived=True,
+            archive_changed_by=self.users["owner"],
+            archive_changed_at=INSTANT,
+        )
+        common = {
+            "case": self.case,
+            "uploaded_by": self.users["owner"],
+            "observed_at": midnight,
+        }
+        sighting = PersonLocationEvidence.objects.create(
+            **common,
+            title="Recorded lookout",
+            person=self.person,
+            latitude=1,
+            longitude=-2,
+        )
+        place = LocationEvidence.objects.create(
+            **common, title="Landing", address="South wharf"
+        )
+        LocationEvidence.objects.create(
+            **(common | {"case": self.other_case}),
+            title="Unrelated",
+            address="Other wharf",
+        )
+        self.drain(self.prepare())
+        trip = saved_trips(self.case, state="all").get()
+        rows = list(daily_location_rows(self.case, midnight, next_day))
+        attach_daily_location_details(self.case, rows)
+        self.assertEqual(
+            [row["id"] for row in rows], [place.pk, sighting.pk, trip.pk, standalone.pk]
+        )
+        self.assertEqual(rows[0]["detail"], "South wharf")
+        self.assertIn(str(self.person), rows[1]["detail"])
+        self.assertIn("1.000000, -2.000000", rows[1]["detail"])
+        self.assertIn(str(self.vehicle), rows[3]["detail"])
+        overnight = rows[2]
+        self.assertEqual(overnight["at"], midnight)
+        self.assertEqual(overnight["start_at"], samples[0].observed_at)
+        self.assertEqual(overnight["end_at"], samples[-1].observed_at)
+        self.assertTrue(overnight["continues_before"])
+        self.assertFalse(overnight["continues_after"])
+        self.assertIn("1 Moving Street → 4 Moving Street", overnight["detail"])
+        self.assertIn("4 observations", overnight["detail"])
+        self.assertIn("archived", overnight["detail"])
+        self.assertEqual(
+            overnight["url"], reverse("geo:trip_detail", args=(self.case.pk, trip.pk))
+        )
+        self.assertEqual(list(daily_location_rows(self.case, midnight, midnight)), [])
+        earlier = list(
+            daily_location_rows(self.case, midnight - timedelta(days=1), midnight)
+        )
+        self.assertEqual([row["id"] for row in earlier], [trip.pk])
+        self.assertTrue(earlier[0]["continues_after"])
+
+    def test_daily_rows_keep_originals_for_incomplete_or_stale_trips(self):
+        midnight = INSTANT.replace(hour=0)
+        samples = self.observations(3)
+        self.drain(self.prepare())
+        trips = saved_trips(self.case, state="all")
+        trip_id = trips.get().pk
+        trips.update(source_count=4)
+
+        def visible():
+            return [
+                row["id"]
+                for row in daily_location_rows(
+                    self.case, midnight, midnight + timedelta(days=1)
+                )
+            ]
+
+        self.assertEqual(visible(), [sample.pk for sample in samples])
+        trips.update(source_count=3)
+        self.assertEqual(visible(), [trip_id])
+        VehicleTripState.objects.filter(case=self.case).update(current_generation=None)
+        self.assertEqual(visible(), [sample.pk for sample in samples])
 
     def test_current_generations_reject_corrupt_provenance_and_archive_drift(self):
         rows = self.observations(2)

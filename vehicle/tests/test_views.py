@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from allauth.account.models import EmailAddress
@@ -6,6 +7,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
+from geo.models import VehicleLocationEvidence
 from vehicle.models import Vehicle
 
 
@@ -381,6 +383,53 @@ class VehicleInterfaceTests(TestCase):
         self.assertNotContains(response, "Not recorded")
         self.assertContains(response, self.vehicle.license_plate)
         self.assertContains(response, "Uncertain source")
+
+    def test_detail_leads_with_latest_dated_observation_and_direct_trip_dates(self):
+        self.client.force_login(self.viewer)
+        detail_url = self.url("detail", self.vehicle)
+        observation = {
+            "case": self.case,
+            "uploaded_by": self.owner,
+            "vehicle": self.vehicle,
+        }
+        undated = VehicleLocationEvidence.objects.create(
+            **observation, title="Undated evidence", address="10 Example Street"
+        )
+        response = self.client.get(detail_url)
+        self.assertContains(
+            response, "The recorded locations have no observation times."
+        )
+        self.assertContains(response, "Undated evidence")
+        self.assertIsNone(response.context["latest_observation"])
+        archived = VehicleLocationEvidence.objects.create(
+            **observation,
+            title="Dated archived evidence",
+            address="20 Example Street",
+            observed_at=datetime(2026, 9, 16, 18, 57, 22, tzinfo=UTC),
+            is_archived=True,
+            archive_changed_by=self.owner,
+            archive_changed_at=datetime(2026, 9, 17, tzinfo=UTC),
+        )
+        response = self.client.get(detail_url)
+        self.assertEqual(response.context["latest_observation"], archived)
+        self.assertEqual(list(response.context["locations"]), [archived, undated])
+        self.assertContains(response, "20 Example Street")
+        self.assertContains(response, "Archived")
+        self.assertLess(
+            response.content.index(b'id="locations-heading"'),
+            response.content.index(b'id="trips-heading"'),
+        )
+        report_url = reverse(
+            "core:analysis:report", args=[self.case.pk, "vehicle-trips"]
+        )
+        query = {"vehicle_id": str(self.vehicle.pk), "filters": "dates"}
+        self.assertContains(response, f"{report_url}?vehicle_id={self.vehicle.pk}")
+        report = self.client.get(report_url, query)
+        self.assertContains(report, '<details class="disclosure report-filters" open>')
+        self.assertContains(report, 'id="report-filters"')
+        self.assertEqual(
+            report.context["form"].cleaned_data["vehicle_id"], str(self.vehicle.pk)
+        )
 
     def test_search_includes_vehicle_details_and_bounds_numeric_queries(self):
         self.vehicle.year = 2020

@@ -1,9 +1,11 @@
 """Synthetic selection, approval, and progress journey without JavaScript."""
 
+from django.test import override_settings
 from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisRun, CaseAnalysisBatch
 from geo.models import LocationEvidence
 from text.models import TextEvidence
@@ -57,6 +59,7 @@ class ReprocessingBrowserTests(BrowserTestCase):
         self.capture(page, engine, "reprocess-forced-colors")
         page.emulate_media(forced_colors="none", reduced_motion="no-preference")
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_multiselect_external_approval_and_batch_progress_without_javascript(self):
         for engine in self.engines:
             with (
@@ -65,6 +68,7 @@ class ReprocessingBrowserTests(BrowserTestCase):
             ):
                 self.sign_in(page)
                 page.goto(self.url("core:analysis:processing", case_id=self.case.pk))
+                page.locator("#processing-actions > summary").press("Enter")
                 action = page.get_by_role("link", name="Reprocess evidence", exact=True)
                 action.focus()
                 expect(action).to_be_focused()
@@ -98,7 +102,7 @@ class ReprocessingBrowserTests(BrowserTestCase):
                 self.capture_layouts(page, engine)
 
                 page.get_by_role(
-                    "radio", name="Both local and external / AI", exact=True
+                    "radio", name="Local, private and external services", exact=True
                 ).check()
                 submit = page.get_by_role(
                     "button", name="Start reprocessing", exact=True
@@ -115,7 +119,7 @@ class ReprocessingBrowserTests(BrowserTestCase):
                 expect(location).to_be_checked()
                 expect(
                     page.get_by_role(
-                        "radio", name="Both local and external / AI", exact=True
+                        "radio", name="Local, private and external services", exact=True
                     )
                 ).to_be_checked()
                 self.capture(page, engine, "reprocess-approval-required")

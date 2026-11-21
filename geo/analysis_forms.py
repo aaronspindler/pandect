@@ -1,12 +1,11 @@
 """Domain-owned analysis assumptions and parameter validation."""
 
-from datetime import UTC
-
 from django import forms
 from django.utils import timezone
 
 from core.analysis.form_base import BaseAnalysisForm
 from geo.analysis.deterministic.locations import LIMITS, comparison_periods
+from ui.forms import UTCDateTimeField
 
 
 class GeoAnalysisForm(BaseAnalysisForm):
@@ -19,7 +18,7 @@ class GeoAnalysisForm(BaseAnalysisForm):
         help_text="The lookup area also includes the selected group members.",
     )
 
-    context_as_of = forms.DateTimeField(
+    context_as_of = UTCDateTimeField(
         required=False,
         label="Historical map snapshot (UTC, optional)",
         widget=forms.DateTimeInput(attrs={"type": "datetime-local", "step": "1"}),
@@ -30,25 +29,25 @@ class GeoAnalysisForm(BaseAnalysisForm):
         ),
     )
 
-    period_a_start = forms.DateTimeField(
+    period_a_start = UTCDateTimeField(
         required=False,
         label="First movement period from (UTC)",
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
     )
 
-    period_a_end = forms.DateTimeField(
+    period_a_end = UTCDateTimeField(
         required=False,
         label="First movement period until (UTC, exclusive)",
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
     )
 
-    period_b_start = forms.DateTimeField(
+    period_b_start = UTCDateTimeField(
         required=False,
         label="Second movement period from (UTC)",
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
     )
 
-    period_b_end = forms.DateTimeField(
+    period_b_end = UTCDateTimeField(
         required=False,
         label="Second movement period until (UTC, exclusive)",
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
@@ -285,7 +284,7 @@ class GeoAnalysisForm(BaseAnalysisForm):
             raise forms.ValidationError(
                 "Use whole-second precision for the map snapshot."
             )
-        return value.astimezone(UTC) if value is not None else None
+        return value
 
     def clean(self):
         data = super().clean()

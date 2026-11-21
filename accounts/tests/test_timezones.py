@@ -145,7 +145,7 @@ class UserTimezoneTests(EvidenceViewTestMixin, TestCase):
             edit = evidence_form("text", editing=True)(kind="text", instance=evidence)
             self.assertIn('value="2026-07-01T00:30"', str(edit["collected_at"]))
 
-    def test_domain_and_report_fields_share_the_active_timezone(self):
+    def test_domain_and_report_fields_use_their_labeled_timezones(self):
         with timezone.override("America/Toronto"):
             for kind, model, field, label in (
                 ("location", LocationEvidence, "observed_at", "Observed at"),
@@ -166,7 +166,7 @@ class UserTimezoneTests(EvidenceViewTestMixin, TestCase):
             form = analysis_form(case=self.case, operation="geographic_context")
             self.assertEqual(
                 form.fields["context_as_of"].label,
-                "Historical map snapshot (America/Toronto, optional)",
+                "Historical map snapshot (UTC, optional)",
             )
             form = analysis_form(case=self.case, operation="comm_patterns")
             self.assertEqual(

@@ -72,7 +72,7 @@ def conversation_list_page(value):
         return 1
 
 
-def conversation_url(case, message, *, list_page=1):
+def conversation_url(case, message, *, list_page=1, open_details=True):
     first, second = sorted((message.sender_id, message.recipient_id))
     url = reverse(
         "phone:conversation_detail",
@@ -82,7 +82,7 @@ def conversation_url(case, message, *, list_page=1):
             "second_person_id": second,
         },
     )
-    params = {"message": str(message.pk)}
+    params = {"message" if open_details else "focus": str(message.pk)}
     if list_page > 1:
         params["list_page"] = list_page
     return f"{url}?{urlencode(params)}#message-{message.pk}"

@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from core.analysis.sources import Source
 from geo.analysis.deterministic.locations import (
@@ -32,6 +33,7 @@ from geo.analysis.external.geocoding import (
     geocode_locations,
 )
 from geo.analysis.presentation import map_points
+from geo.analysis_forms import GeoAnalysisForm
 
 START = datetime(2026, 10, 1, 10, tzinfo=UTC)
 CASE = UUID("00000000-0000-4000-8000-000000000001")
@@ -64,6 +66,24 @@ def source(index, *, point=(43.65, -79.38), minute=0, kind="person-location", **
 
 
 class LocationOperationTests(SimpleTestCase):
+    def test_utc_form_fields_ignore_active_timezone_for_parse_and_display(self):
+        expected = datetime(2025, 3, 9, 2, 30, tzinfo=UTC)
+        with timezone.override("America/Toronto"):
+            for name in (
+                "context_as_of",
+                "period_a_start",
+                "period_a_end",
+                "period_b_start",
+                "period_b_end",
+            ):
+                with self.subTest(field=name):
+                    field = GeoAnalysisForm.base_fields[name]
+                    self.assertEqual(field.clean("2025-03-09T02:30"), expected)
+                    self.assertEqual(field.clean("2025-03-08T21:30-05:00"), expected)
+                    self.assertEqual(
+                        field.prepare_value(expected), expected.replace(tzinfo=None)
+                    )
+
     def test_map_links_reported_and_reviewed_points_to_their_exact_sources(self):
         source = {
             "id": "observation",

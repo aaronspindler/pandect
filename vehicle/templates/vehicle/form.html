@@ -1,7 +1,7 @@
 {% extends "ui/base.html" %}
 {% block title %}{% if creating %}Add vehicle{% else %}Edit vehicle{% endif %} · {{ case }}{% endblock %}
 {% block content %}
-<p class="breadcrumb"><a href="{% url 'vehicle:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to vehicles</a></p>
+<p class="breadcrumb">{% if review_url %}<a href="{{ review_url }}">Back to import review</a>{% else %}<a href="{% url 'vehicle:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to vehicles</a>{% endif %}</p>
 <div class="page-header"><div><h1>{% if creating %}Add vehicle{% else %}Edit vehicle{% endif %}</h1><p>Enter at least a make, model, license plate, or VIN. Partial details are enough to start.</p></div></div>
 {% if latest_vehicle %}<section class="notice" aria-labelledby="latest-heading"><h2 id="latest-heading">Review the latest saved details</h2><p>Compare these saved details with your changes below.</p>
   <dl class="metadata-grid"><div><dt>Make</dt><dd>{{ latest_vehicle.make|default:"Not recorded" }}</dd></div><div><dt>Model</dt><dd>{{ latest_vehicle.model|default:"Not recorded" }}</dd></div><div><dt>Year</dt><dd>{{ latest_vehicle.year|default:"Not recorded" }}</dd></div><div><dt>Color</dt><dd>{{ latest_vehicle.color|default:"Not recorded" }}</dd></div><div><dt>License plate</dt><dd>{{ latest_vehicle.license_plate|default:"Not recorded" }}</dd></div><div><dt>VIN</dt><dd>{{ latest_vehicle.vin|default:"Not recorded" }}</dd></div></dl>
@@ -9,8 +9,8 @@
 <form method="post" class="form-layout" data-unsaved-form>
   {% csrf_token %}
   {% include "ui/components/form_fields.html" with form=form %}
-  <div class="form-actions"><button class="button button-primary" type="submit">{% if creating %}Add vehicle{% elif latest_vehicle %}Save reviewed changes{% else %}Save changes{% endif %}</button>
-    {% if creating %}<a class="button button-secondary" href="{% url 'vehicle:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a>{% else %}<a class="button button-secondary" href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a>{% endif %}
+  <div class="form-actions"><button class="button button-primary" type="submit">{% if review_url %}Add vehicle and return{% elif creating %}Add vehicle{% elif latest_vehicle %}Save reviewed changes{% else %}Save changes{% endif %}</button>
+    {% if review_url %}<a class="button button-secondary" href="{{ review_url }}">Cancel</a>{% elif creating %}<a class="button button-secondary" href="{% url 'vehicle:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a>{% else %}<a class="button button-secondary" href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a>{% endif %}
   </div>
 </form>
 {% endblock %}

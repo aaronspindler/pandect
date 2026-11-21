@@ -2,20 +2,29 @@
 {% block title %}Message analysis · {{ case.name }}{% endblock %}
 {% block content %}
 <a class="back-link" href="{% url 'phone:imessage_review' case.pk imported.pk %}">Back to message import</a>
-<header class="page-header"><div><h1>Message analysis</h1><p>Selected analysis: {{ analysis_mode }}</p><p class="muted">Requested {{ batch.created_at|date:'j M Y, H:i T' }}</p></div></header>
-{% include 'ui/components/live_updates.html' %}
+<header class="page-header"><h1>Message analysis</h1></header>
+{% if live_pending %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef live inline %}
 <div id="message-analysis-status" data-live-region data-live-poll="{{ live_pending|yesno:'true,false' }}">
+  {% if not live_pending %}
+  <section class="analysis-section" aria-labelledby="message-analysis-outcome">
+    <h2 id="message-analysis-outcome">{% if batch.status == 'failed' %}Preparation stopped{% elif stopped_count or partial_count or insufficient_count or batch.unavailable_sources %}Analysis finished with gaps{% else %}Analysis finished{% endif %}</h2>
+    <p role="status">{% if completed_count %}{{ completed_count }} check{{ completed_count|pluralize }} completed. {% endif %}{% if partial_count %}{{ partial_count }} check{{ partial_count|pluralize }} returned partial results. {% endif %}{% if insufficient_count %}{{ insufficient_count }} check{{ insufficient_count|pluralize }} had insufficient input. {% endif %}{% if stopped_count %}{{ stopped_count }} check{{ stopped_count|pluralize }} stopped.{% endif %}{% if not finished_count %}No checks ran.{% endif %}</p>
+    {% if conversation_url %}<p><a class="button button-primary" href="{{ conversation_url }}">View conversation</a></p>{% endif %}
+  </section>
+  {% endif %}
+  {% if batch.status == 'failed' %}<p class="notice">{{ preparation_error }} Earlier results are retained. Open the message import to request analysis again.</p>{% endif %}
+  {% if batch.unavailable_sources %}<p class="notice">{{ batch.unavailable_sources }} message{{ batch.unavailable_sources|pluralize }} could not be prepared.</p>{% endif %}
+  {% if not live_pending %}<details class="disclosure" id="message-analysis-details"{% if stopped_count or partial_count or insufficient_count or request.GET.page %} open{% endif %}><summary>Analysis details</summary>{% endif %}
   <section class="analysis-section" aria-labelledby="message-analysis-preparation">
     <h2 id="message-analysis-preparation">Preparation</h2>
-    <p role="status">{% if batch.status == 'queued' %}Preparing message analysis{% else %}{{ batch.get_status_display }}{% endif %}</p>
+    <p>Selected analysis: {{ analysis_mode }} · Requested {{ batch.created_at|date:'j M Y, H:i T' }}</p>
+    {% if live_pending %}<p role="status">{% if batch.status == 'queued' %}Preparing message analysis{% else %}{{ batch.get_status_display }}{% endif %}</p>{% endif %}
     <p>{{ batch.processed_sources }} message{{ batch.processed_sources|pluralize }} prepared · {{ batch.queued_runs }} check{{ batch.queued_runs|pluralize }} queued.</p>
-    {% if batch.status == 'failed' %}<p class="notice">{{ preparation_error }} Earlier results are retained. Open the message import to request analysis again.</p>{% endif %}
-    {% if batch.unavailable_sources %}<p class="notice">{{ batch.unavailable_sources }} message{{ batch.unavailable_sources|pluralize }} could not be prepared.</p>{% endif %}
   </section>
   <section class="analysis-section" aria-labelledby="message-analysis-checks">
     <h2 id="message-analysis-checks">Analysis checks</h2>
-    <p role="status">{{ finished_count }} of {{ page_obj.paginator.count }} checks finished. Open a check for its progress, results, or recovery options.</p>
+    {% if live_pending %}<p role="status">{{ finished_count }} of {{ page_obj.paginator.count }} checks finished.</p>{% endif %}
     {% for run in page_obj %}
     <a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}">
       <div><strong>{{ run.label }}</strong>{% if run.status == 'running' %}<p>{{ run.progress }}%</p>{% endif %}{% if run.failure_message %}<p>{{ run.failure_message }}</p>{% endif %}</div>
@@ -24,6 +33,7 @@
     {% empty %}<p class="muted">{% if batch.status == 'queued' %}Checks will appear as preparation continues.{% else %}No analysis checks were queued.{% endif %}</p>{% endfor %}
     {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Message analysis pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
   </section>
+  {% if not live_pending %}</details>{% endif %}
 </div>
 {% endpartialdef %}
 {% endblock %}

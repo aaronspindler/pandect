@@ -8,16 +8,20 @@ from phone.conversations import conversation_url
 from phone.models import CommunicationContext
 
 
-def message_evidence_label(body, sender, occurred_at):
+def message_excerpt(body):
     excerpt = " ".join(body[:80].split()) or "Text message"
     if len(body) > 80:
         excerpt += "…"
+    return excerpt
+
+
+def message_evidence_label(body, sender, occurred_at):
     timestamp = (
         date_format(timezone.localtime(occurred_at), "d M Y, H:i:s T")
         if occurred_at
         else "Time not recorded"
     )
-    return f"{excerpt} · {sender} · {timestamp}"
+    return f"{message_excerpt(body)} · {sender} · {timestamp}"
 
 
 def reader_context(

@@ -35,7 +35,9 @@ class ExistingFieldReportTests(EvidenceViewTestMixin, TestCase):
         content = strip_tags(response.content.decode())
         self.assertIn(str(self.person), content)
         self.assertIn(str(recipient), content)
-        self.assertIn("Participant pair counts", content)
+        self.assertLess(
+            content.index("Calls by participant pair"), content.index("Report totals")
+        )
         self.assertNotIn(str(self.person.pk), content)
         self.assertNotIn(str(recipient.pk), content)
 
@@ -154,6 +156,16 @@ class ExistingFieldReportTests(EvidenceViewTestMixin, TestCase):
         self.assertNotEqual(phone_audio.sha256, phone_audio.audio_sha256)
         self.assertEqual(ImageEvidence.objects.count(), 1)
         self.assertEqual(CallEvidenceAttachment.objects.count(), 3)
+        self.login("viewer")
+        response = self.client.get(
+            reverse("core:analysis:report", args=[self.case.pk, "duplicates"])
+        )
+        self.assertContains(response, "Group 1 · 4 identical files")
+        self.assertContains(
+            response,
+            '<details class="disclosure analysis-report-checksum">',
+        )
+        self.assertContains(response, f"<code>{phone_audio.audio_sha256}</code>")
 
     def test_foreign_file_audio_and_import_provenance_never_enter_reports(self):
         original = DocumentEvidence.objects.create(

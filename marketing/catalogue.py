@@ -1,23 +1,14 @@
-"""Public capability copy; product registries are compared only in tests.
+"""Tailored public capability copy backed by the application's static operation data."""
 
-Keep eligibility and prerequisites together when updating a capability. These
-descriptions do not inspect this installation's configuration or case material.
-"""
+from core.analysis.execution import GEOGRAPHIC as GEOGRAPHIC_OPERATIONS
+from core.analysis.execution import requires_inference
+from core.analysis.operations import OPERATIONS
 
 INCLUDED = "Included"
 OPTIONAL_AI = "Included; AI optional"
 MODEL = "Private setup or approved external AI"
 GEOGRAPHIC = "Configured geographic service"
 
-TEXT_KINDS = (
-    "text",
-    "text-message",
-    "document",
-    "image",
-    "audio",
-    "phone-call",
-    "facetime",
-)
 LOCATION_KINDS = ("location", "person-location", "vehicle-location")
 CALL_KINDS = ("phone-call", "facetime")
 COMMUNICATION_KINDS = ("text-message", *CALL_KINDS)
@@ -25,7 +16,7 @@ FILE_KINDS = ("image", "audio", "document")
 
 TEXT_MODEL = (
     "Configure a private Ollama text model, or select and approve external AI "
-    "through Cloudflare AI Gateway. Usable selected text is required."
+    "via OpenAI, Anthropic, or Cloudflare AI Gateway. Usable selected text is required."
 )
 TEXT_PREREQUISITE = (
     "Text analysis uses original text or an exact retained extraction or "
@@ -206,8 +197,6 @@ ANALYSES = {
     "native_text": {
         "label": "Extract document text",
         "description": "Read embedded text with page or line references.",
-        "kinds": ("document",),
-        "requirement": INCLUDED,
         "detail": (
             "UTF-8 files or unencrypted native-text PDF. Scanned pages need "
             "separately retained JPEG/PNG page images for OCR."
@@ -219,8 +208,6 @@ ANALYSES = {
             "Inspect dimensions, embedded time/GPS/device claims and differences "
             "from supplied details."
         ),
-        "kinds": ("image",),
-        "requirement": INCLUDED,
         "detail": (
             "Supported JPEG/PNG. Embedded metadata is a source claim, not "
             "verification of capture time or location."
@@ -231,8 +218,6 @@ ANALYSES = {
         "description": (
             "Inspect recording duration, format and numerical signal intervals."
         ),
-        "kinds": ("audio", *CALL_KINDS),
-        "requirement": INCLUDED,
         "detail": (
             "A supported PCM WAV or AAC M4A original or retained call audio "
             "addition; no speech recognition is needed."
@@ -243,8 +228,6 @@ ANALYSES = {
         "description": (
             "Read candidate printed-English text with links to its image regions."
         ),
-        "kinds": ("image", "document"),
-        "requirement": INCLUDED,
         "detail": (
             "JPEG/PNG images. Tesseract and English data are bundled in the "
             "standard Docker image; no external service or credentials. Review "
@@ -256,8 +239,6 @@ ANALYSES = {
         "description": (
             "Find possible plate regions and candidate text readings for review."
         ),
-        "kinds": ("image",),
-        "requirement": INCLUDED,
         "detail": (
             "One JPEG/PNG image; uses bundled local detection and Tesseract. Misses "
             "and false candidates are possible. Readings establish no owner or "
@@ -270,8 +251,6 @@ ANALYSES = {
             "Produce candidate English speech with recording timestamps and "
             "coverage gaps."
         ),
-        "kinds": ("audio", *CALL_KINDS),
-        "requirement": MODEL,
         "detail": (
             "Supported PCM WAV or AAC M4A audio. Configure a private Whisper runtime "
             "and model, or explicitly select and approve transcription through "
@@ -284,8 +263,6 @@ ANALYSES = {
             "Find explicit identifiers, dates, amounts and coordinates with their "
             "original wording."
         ),
-        "kinds": TEXT_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Usable text is required. Identifier matches perform no DNS or "
             "ownership lookup and prove no identity or association."
@@ -297,8 +274,6 @@ ANALYSES = {
             "Measure vocabulary, punctuation, length and other observable writing "
             "features."
         ),
-        "kinds": ("text", "text-message"),
-        "requirement": INCLUDED,
         "detail": (
             "Adequate original writing and supplied language/context; short samples "
             "may be insufficient. Measurements establish no authorship or "
@@ -310,8 +285,6 @@ ANALYSES = {
         "description": (
             "Compare two writing samples, their differences and their coverage."
         ),
-        "kinds": ("text", "text-message"),
-        "requirement": INCLUDED,
         "detail": (
             "Select two disjoint groups of original writing and their context. "
             "Reported times support period comparisons; differences establish no "
@@ -321,8 +294,6 @@ ANALYSES = {
     "copied_text": {
         "label": "Find repeated wording",
         "description": "Compare matching passages and follow their source positions.",
-        "kinds": TEXT_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Multiple usable text sources. Matching wording does not establish "
             "copying direction or a common author."
@@ -334,12 +305,9 @@ ANALYSES = {
             "Count frequent words and optionally suggest cited topics or short "
             "summaries."
         ),
-        "kinds": TEXT_KINDS,
-        "requirement": OPTIONAL_AI,
         "detail": (
             "Keywords need usable text only. Optional topic summaries need a "
-            "private Ollama text model or explicitly approved external AI through "
-            "Cloudflare AI Gateway."
+            "private Ollama text model or explicitly approved external AI."
         ),
     },
     "content_events": {
@@ -348,8 +316,6 @@ ANALYSES = {
             "Suggest attributed claims, plans, commitments, cancellations and "
             "questions with source quotations."
         ),
-        "kinds": TEXT_KINDS,
-        "requirement": MODEL,
         "detail": TEXT_MODEL + " Model interpretations are labelled as AI suggestions.",
     },
     "sessions": {
@@ -358,8 +324,6 @@ ANALYSES = {
             "Group selected messages into inferred sessions with inspectable "
             "boundaries."
         ),
-        "kinds": ("text-message",),
-        "requirement": INCLUDED,
         "detail": (
             "Reported participants and message times; gap assumptions and "
             "boundaries can be adjusted. Missing exchanges remain unknown."
@@ -368,8 +332,6 @@ ANALYSES = {
     "comm_patterns": {
         "label": "Inspect message timing",
         "description": "Compare message counts, intervals, turns and selected periods.",
-        "kinds": ("text-message",),
-        "requirement": INCLUDED,
         "detail": (
             "Reported times and participant context. Observed intervals are not "
             "verified replies or evidence of motive."
@@ -381,11 +343,9 @@ ANALYSES = {
             "Compare candidate message and call exchanges using reported timing and "
             "wording."
         ),
-        "kinds": COMMUNICATION_KINDS,
-        "requirement": OPTIONAL_AI,
         "detail": (
             "Timing comparisons are included. Optional semantic links need usable "
-            "text plus a private Ollama model or approved Gateway AI. Adjacency "
+            "text plus a private Ollama model or approved external AI. Adjacency "
             "proves no shared event or causation."
         ),
     },
@@ -394,15 +354,11 @@ ANALYSES = {
         "description": (
             "Suggest source-cited summaries of selected, inferred message sessions."
         ),
-        "kinds": ("text-message",),
-        "requirement": MODEL,
         "detail": TEXT_MODEL + " Summaries disclose selection and chunk coverage.",
     },
     "normalize_addresses": {
         "label": "Compare recorded addresses",
         "description": "Compare original and normalized address wording.",
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Recorded address text. This comparison performs no geocoding or "
             "external reference lookup."
@@ -414,8 +370,6 @@ ANALYSES = {
             "Inspect missing positions or times, repeated rows, receipt delays and "
             "discrepancies."
         ),
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": "Uses retained observation fields; missing values stay unknown.",
     },
     "spatial_groups": {
@@ -424,8 +378,6 @@ ANALYSES = {
             "Group positions using a chosen distance and inspect contributing "
             "observations."
         ),
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Use reported coordinates or selected address estimates and choose "
             "the distance threshold."
@@ -434,8 +386,6 @@ ANALYSES = {
     "proximity": {
         "label": "Find observations in an area",
         "description": "Find positions within a selected radius or polygon.",
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Usable coordinates and an investigator-supplied point/radius or area."
         ),
@@ -445,8 +395,6 @@ ANALYSES = {
         "description": (
             "Inspect possible stops, observed spans, frequent places and sampling gaps."
         ),
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Timed positions and subject context. Candidates do not label a place "
             "as home or work."
@@ -458,8 +406,6 @@ ANALYSES = {
             "Inspect candidate journeys, observed endpoints and gaps in selected "
             "positions."
         ),
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Usable timed positions. Straight connections represent observations, "
             "not road routes or complete travel histories."
@@ -468,8 +414,6 @@ ANALYSES = {
     "movement_routines": {
         "label": "Compare recurring movement patterns",
         "description": "Compare directed journeys, periods and observation coverage.",
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Usable timed positions and selected periods. Sampling density and "
             "missing observations limit comparisons."
@@ -480,8 +424,6 @@ ANALYSES = {
         "description": (
             "Compare nearby samples from distinct person or vehicle associations."
         ),
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Usable positions/times and at least two distinct linked subjects. "
             "Proximity establishes no meeting or relationship."
@@ -493,8 +435,6 @@ ANALYSES = {
             "Flag rapid or equal-time transitions, ordering issues and unsupported "
             "gaps."
         ),
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "Usable timed positions. Flags identify observations for review, not "
             "verified travel or wrongdoing."
@@ -503,8 +443,6 @@ ANALYSES = {
     "location_conflicts": {
         "label": "Compare reported location conflicts",
         "description": "Compare selected observations for the same claimed event.",
-        "kinds": LOCATION_KINDS,
-        "requirement": INCLUDED,
         "detail": (
             "At least two observations and an investigator-supplied event "
             "description. Conflicting claims remain distinct."
@@ -516,8 +454,6 @@ ANALYSES = {
             "Find candidate coordinates from an address, or nearby addresses from a "
             "position."
         ),
-        "kinds": LOCATION_KINDS,
-        "requirement": GEOGRAPHIC,
         "detail": (
             "Configure a Nominatim-compatible private service or approve an "
             "external lookup. Select candidates before downstream "
@@ -530,8 +466,6 @@ ANALYSES = {
             "Find contextual roads, venues, buildings and neighbourhood features "
             "near observations."
         ),
-        "kinds": LOCATION_KINDS,
-        "requirement": GEOGRAPHIC,
         "detail": (
             "Configure an Overpass-compatible private service or approve an "
             "external lookup. Needs usable coordinates; historical context also "
@@ -609,14 +543,13 @@ IMPORTS = {
             "Review one direct conversation and publish messages with their "
             "retained source context."
         ),
-        "kinds": ("document", "text-message"),
-        "source_kinds": ("document",),
+        "kinds": (*OPERATIONS["imessage_import"].kinds, "text-message"),
         "requirement": INCLUDED,
         "detail": (
             "The documented 18-column UTF-8 profile, up to 100 MiB. Confirm "
-            "timezone and participants, then choose Local checks, AI, or Both for "
-            "new messages. AI requires configured private inference or approved "
-            "external processing. Attachment references are not fetched."
+            "timezone and participants, then choose Local checks for new messages. "
+            "AI only and Local checks and AI require configured private inference "
+            "or approved external processing. Attachment references are not fetched."
         ),
     },
     "vehicle_locations": {
@@ -626,7 +559,6 @@ IMPORTS = {
             "source-row provenance."
         ),
         "kinds": ("vehicle-location",),
-        "source_kinds": (),
         "requirement": INCLUDED,
         "detail": (
             "The documented nine-column UTF-8 CSV profile, up to 100 MiB/100,000 "
@@ -713,6 +645,16 @@ SHORT_REQUIREMENTS = {
 }
 
 
+def _analysis_requirement(name):
+    if name in GEOGRAPHIC_OPERATIONS:
+        return GEOGRAPHIC
+    if requires_inference(name, {"include_summary": False, "semantic_links": False}):
+        return MODEL
+    if requires_inference(name, {"include_summary": True, "semantic_links": True}):
+        return OPTIONAL_AI
+    return INCLUDED
+
+
 def catalogue_context(family_id=""):
     """Filter public presentation data without inspecting cases or live services."""
     family = next(
@@ -730,6 +672,11 @@ def catalogue_context(family_id=""):
     ):
         rows = []
         for identifier, row in inventory.items():
+            if category == "analysis":
+                row = row | {
+                    "kinds": OPERATIONS[identifier].kinds,
+                    "requirement": _analysis_requirement(identifier),
+                }
             inputs = [
                 {"kind": evidence["kind"], "label": evidence["label"]}
                 for evidence in profiles

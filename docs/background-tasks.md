@@ -12,7 +12,7 @@ checks commit together; original retention, invitations and file cleanup remain
 synchronous. Other lengthy ingestion must implement authorization, idempotency
 and recovery before using the queue.
 
-**Rerun all analysis** retains a `CaseAnalysisBatch` cursor. Preparation queues at
+**Run local checks** retains a `CaseAnalysisBatch` cursor. Preparation queues at
 most 25 active sources per task, traversing call additions within source limits,
 and commits runs, cursor and continuation atomically. Each step rechecks verified
 requester/edit access; run workers check again. Unavailable originals are counted
@@ -24,17 +24,29 @@ there is no stale-task reclamation.
 **Reprocess evidence** uses a `reprocess` batch scope retaining evidence types,
 mode and reviewed execution snapshots. Bounded continuations prepare independent
 and grouped methods plus extraction/transcription follow-ups. External-only file
-analysis may need local prerequisites. AI retains separate local/Gateway identities;
-geographic lookup follows configured service classification. Continuations recheck
-verified edit access and approved settings; drift stops preparation, while queued
-runs enforce their own drift checks. Method failures preserve other results.
+analysis may need local prerequisites. AI retains separate private and external
+identities. Geographic lookup follows configured service classification.
+Continuations recheck verified edit access and approved settings. Changes stop
+preparation, while queued runs check their own settings. Method failures preserve
+other results.
 Failed preparation attempts are counted separately from sources, with up to 100
 safe source/method errors. Grouped comparisons disclose their retained coverage.
+
+**Summarize missing instances** retains the reviewed saved group IDs and execution
+destination in an `instance_summaries` batch. Each preparation task visits up to
+ten instances and queues one run per still-current group that needs a summary.
+Unavailable instances are counted in Processing, where investigators can also
+follow or retry individual runs. Preparation rechecks verified edit access and
+the execution snapshot before each step.
 
 ## Investigator progress and completed imports
 
 **Processing** separates active work/history and preparation/execution.
 **Checks queued** means preparation finished; runs/follow-ups may still be active.
+**Needs attention** links to stopped preparation, vehicle imports, and current
+trip or address preparation failures. Batch details lead to a new request or the
+existing import review when one is available. Earlier attempts remain inspectable
+in history.
 New runs carry explicit parent-batch references, preserved through retries and
 follow-ups even when another authorized editor retries. Historical membership is
 never guessed. See the [Processing workflow](interface-design.md#case-tools-processing-and-additional-analysis)
@@ -58,10 +70,11 @@ Repeated submissions recover the same batch. Continuations recheck access;
 preparation/run failures remain recoverable.
 
 Confirmed message CSV publication instead atomically starts an automatic batch
-for new messages with the import review's selected mode: Local checks, AI,
-or Both. Local checks is the default and runs no models; AI runs one model suite;
-Both runs local checks and that suite. AI selects Gateway when fully configured,
-otherwise local/private inference, before submission. The resolved route is
+for new messages with the import review's selected mode. **Local checks** is
+the default and runs no models. When AI is configured, **AI only** runs one
+model suite and **Local checks and AI** runs local checks plus that suite.
+AI selects external AI when configured,
+otherwise private inference. The resolved route is
 reviewed and retained; external transfer requires explicit approval. AI is never
 duplicated across backends or redirected after a runtime failure.
 Bounded continuations walk
@@ -145,7 +158,7 @@ uv run --locked --env-file .env python manage.py check_task_worker --timeout 30
 
 ### Parallel local workers
 
-Each `db_worker` process executes one task at a time. For independent Gateway AI
+Each `db_worker` process executes one task at a time. For independent external AI
 jobs, add workers to the existing local Compose project:
 
 ```sh
@@ -165,9 +178,9 @@ All workers consume the same queue, including local checks, indexing and imports
 Review pending operations and private inference capacity first: the private
 transcription service accepts only one request at a time, and overlapping requests
 fail recoverably as `local_ai_busy`. More workers also increase simultaneous
-Gateway requests and can encounter provider rate limits. Observe completed domain
-runs and request failures after scaling; running containers alone do not establish
-useful progress. Keep the requested replica count explicit in later scaling commands.
+external AI requests and can encounter provider rate limits. Observe completed
+domain runs and request failures after scaling. Keep the requested replica
+count explicit in later scaling commands.
 
 Message-import preparation queues each bounded page's runs before its continuation.
 Parallel workers shorten that wait, but the preparation count can still pause while
@@ -212,13 +225,20 @@ evidence text and model responses. PostgreSQL retains task arguments, results an
 uncaught task exceptions/tracebacks. Protect it and its backups; inspect those
 tracebacks only in trusted sessions and sanitize before sharing.
 
-Analysis tasks can return normally after recording a failed domain run. Check
-`AnalysisRun.status` and `error_code`, rather than treating a `SUCCESSFUL` queue row
-as successful analysis. `GatewayRequest` retains request status, byte counts and
-token usage, without response bodies. A completed request followed by a generic
-`processing_failed` run establishes that a response arrived; it does not identify
-the later validation or publication failure. Use the safe analysis log to locate
-new failures. Older failures without these diagnostics may have no recoverable
+Analysis tasks can return normally after recording a failed domain run. Use
+the trusted operator shell to compare the saved outcome with recent deliveries:
+
+```sh
+docker compose exec web python manage.py check_task_worker --analysis-run RUN_UUID
+```
+
+This read-only command shows the saved status and safe error code plus up to ten
+retained queue deliveries. A `SUCCESSFUL` delivery can accompany a failed
+analysis. `GatewayRequest` records external AI request status,
+byte counts and token usage without response bodies. When a completed request is
+followed by a generic `processing_failed` run, use the safe analysis log to locate
+the later validation or publication failure.
+Older failures without these diagnostics may have no recoverable
 cause. Keep quotation validation strict. External retries require renewed approval
 through the analysis workflow.
 

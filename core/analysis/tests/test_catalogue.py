@@ -120,6 +120,29 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertIn("page=2", first["next_url"])
 
+    def test_return_to_findings_restores_case_query_and_ignores_other_targets(self):
+        for sample in range(2):
+            self.publish(parameters={"sample": sample})
+        self.login("viewer")
+        selection = {"q": "needle", "kind": "text", "history": "all", "page": "2"}
+        with patch("core.analysis.catalogue.PER_PAGE", 1):
+            catalogue = self.client.get(self.url, selection)
+        row = catalogue.context["rows"][0]
+        self.assertEqual(row["headline"], "Literal needle 100% _ <script>")
+        detail = self.client.get(row["url"])
+        self.assertEqual(detail.context["back_label"], "Back to findings")
+        self.assertEqual(
+            detail.context["back_to_analysis"], f"{self.url}?{urlencode(selection)}"
+        )
+        self.assertNotContains(detail, "Refresh status")
+        self.assertContains(detail, "Details and history")
+        run = AnalysisResult.objects.get(pk=row["result_id"]).run
+        tampered = self.client.get(
+            reverse("core:analysis:detail", args=[self.case.pk, run.pk]),
+            {"return_findings": "next=https%3A%2F%2Fexample.test&q=needle"},
+        )
+        self.assertEqual(tampered.context["back_to_analysis"], f"{self.url}?q=needle")
+
     def test_empty_success_suppresses_older_items_but_failure_does_not(self):
         older = self.publish()
         failed = AnalysisRun.objects.create(

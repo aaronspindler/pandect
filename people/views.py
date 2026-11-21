@@ -191,8 +191,11 @@ def person_delete(request, case_id, person_id):
         if request.method == "POST":
             people = people.select_for_update()
         person = get_object_or_404(people, pk=person_id)
+        evidence_filters = QueryDict(mutable=True)
+        evidence_filters.update({"person": str(person.pk), "state": "all"})
+        related = collection_context(case, evidence_filters)
         form = PersonDeleteForm(request.POST if request.method == "POST" else None)
-        if request.method == "POST" and form.is_valid():
+        if request.method == "POST" and not related["rows"] and form.is_valid():
             try:
                 person.delete()
             except RestrictedError:
@@ -215,6 +218,7 @@ def person_delete(request, case_id, person_id):
             **case_context(case, request.user),
             "person": person,
             "form": form,
+            "related": related,
             "list_query": list_query(request),
         },
         status=400 if request.method == "POST" else 200,

@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from audio.models import AudioEvidence
@@ -19,6 +19,7 @@ from core.analysis.form_base import source_choices
 from core.analysis.navigation import finding_url
 from core.analysis.services import process_run, start_run
 from core.analysis.testing import image_bytes
+from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -28,6 +29,7 @@ from people.models import Person
 from phone.models import (
     CallEvidenceAttachment,
     CommunicationContext,
+    FaceTimeEvidence,
     PhoneCallEvidence,
     TextMessageEvidence,
 )
@@ -90,6 +92,188 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(selected, "Change analysis")
         self.assertNotContains(selected, 'id="analysis-operation"')
         self.assertFalse(AnalysisRun.objects.exists())
+
+    def test_analysis_chooser_filters_methods_and_keeps_the_current_source(self):
+        self.login("editor")
+        chooser = self.analysis_url("create")
+        filtered = self.client.get(chooser, {"type": "location"})
+        self.assertContains(filtered, "?operation=proximity&amp;type=location")
+        self.assertNotContains(filtered, "?operation=entities")
+        other = self.text()
+        focused = f"text:{self.note.pk}"
+        selected = self.client.get(chooser, {"source": focused})
+        self.assertContains(
+            selected, f"?operation=entities&amp;source=text%3A{self.note.pk}"
+        )
+        self.assertNotContains(selected, "?operation=proximity")
+        form_page = self.client.get(
+            chooser, {"operation": "entities", "source": focused}
+        )
+        form = form_page.context["form"]
+        self.assertEqual(form["sources"].value(), [focused])
+        self.assertIn(f"text:{other.pk}", dict(form.fields["sources"].choices))
+        self.assertEqual(
+            form_page.context["chooser_url"], f"{chooser}?source=text%3A{self.note.pk}"
+        )
+        self.assertEqual(
+            self.client.get(chooser, {"source": f"text:{self.foreign.pk}"}).status_code,
+            404,
+        )
+
+    def test_reader_chooser_requires_a_recording_from_the_current_call(self):
+        self.login("editor")
+        chooser = self.analysis_url("create")
+        for kind, model, parent in (
+            ("phone-call", PhoneCallEvidence, "phone_call"),
+            ("facetime", FaceTimeEvidence, "facetime"),
+        ):
+            with self.subTest(kind=kind):
+                fields = {
+                    "case": self.case,
+                    "uploaded_by": self.users["owner"],
+                    "sender": self.person,
+                    "recipient": self.person,
+                }
+                call = model.objects.create(title="Current call", **fields)
+                empty = model.objects.create(title="Call without audio", **fields)
+                other = model.objects.create(title="Unrelated call", **fields)
+                attachment = CallEvidenceAttachment.objects.create(
+                    **{
+                        "case": self.case,
+                        "uploaded_by": self.users["owner"],
+                        parent: call,
+                        "file": ContentFile(wav_bytes(), name="current-call.wav"),
+                    }
+                )
+                CallEvidenceAttachment.objects.create(
+                    **{
+                        "case": self.case,
+                        "uploaded_by": self.users["owner"],
+                        parent: call,
+                        "transcript": "Synthetic transcript",
+                    }
+                )
+                unrelated = CallEvidenceAttachment.objects.create(
+                    **{
+                        "case": self.case,
+                        "uploaded_by": self.users["owner"],
+                        parent: other,
+                        "file": ContentFile(wav_bytes(), name="unrelated-call.wav"),
+                    }
+                )
+                focus = f"{kind}:{call.pk}"
+                reader = self.client.get(
+                    reverse("core:evidence:detail", args=[self.case.pk, kind, call.pk])
+                )
+                self.assertContains(
+                    reader, f'{chooser}?source={focus}">Choose analysis'
+                )
+                methods = self.client.get(chooser, {"source": focus})
+                for operation in ("audio_metadata", "transcription"):
+                    self.assertContains(
+                        methods, f"?operation={operation}&amp;source={kind}%3A{call.pk}"
+                    )
+                    params = {"source": focus, "operation": operation}
+                    response = self.client.get(chooser, params)
+                    self.assertContains(response, "Choose a recording from this call")
+                    form = response.context["form"]
+                    self.assertEqual(
+                        list(dict(form.fields["sources"].choices)),
+                        [f"{focus}:{attachment.pk}"],
+                    )
+                    self.assertFalse(form["sources"].value())
+                    stale = f"{focus}:{unrelated.pk}"
+                    self.assertEqual(
+                        self.client.get(
+                            chooser, params | {"source": stale}
+                        ).status_code,
+                        404,
+                    )
+                    exact = self.client.get(
+                        chooser, params | {"source": f"{focus}:{attachment.pk}"}
+                    )
+                    self.assertEqual(
+                        exact.context["form"]["sources"].value(),
+                        [f"{focus}:{attachment.pk}"],
+                    )
+                    no_recordings = self.client.get(
+                        chooser, params | {"source": f"{kind}:{empty.pk}"}
+                    )
+                    self.assertContains(
+                        no_recordings, "This call has no retained recordings"
+                    )
+                    self.assertContains(
+                        no_recordings, 'type="submit" disabled>Start analysis'
+                    )
+                rejected = self.client.post(
+                    f"{chooser}?source={focus}",
+                    {
+                        "operation": "audio_metadata",
+                        "submission_id": uuid4(),
+                        "sources": [f"{kind}:{other.pk}:{unrelated.pk}"],
+                    },
+                )
+                self.assertIn("sources", rejected.context["form"].errors)
+                self.assertFalse(AnalysisRun.objects.exists())
+
+    def test_chooser_requires_exact_retained_text_when_original_has_none(self):
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic document",
+            file=ContentFile(b"Contact source@example.test", name="source.txt"),
+        )
+        chooser = self.analysis_url("create")
+        self.login("editor")
+        focus = f"document:{document.pk}"
+        query = {"source": focus, "operation": "entities"}
+        unprepared = self.client.get(chooser, query)
+        self.assertContains(unprepared, "Needs extraction")
+        self.assertContains(unprepared, 'type="submit" disabled>Start analysis')
+        self.assertNotContains(unprepared, 'type="checkbox" name="sources"')
+
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "native_text",
+            [{"kind": "document", "id": str(document.pk)}],
+        )
+        process_run(run.pk)
+        prepared = self.client.get(chooser, query)
+        self.assertNotContains(prepared, self.note.title)
+        self.assertFalse(prepared.context["form"]["sources"].value())
+        self.assertContains(prepared, f'value="{focus}:-:{run.result.pk}"')
+        self.assertNotContains(prepared, f'value="{focus}" id="id_sources_0"')
+
+    @override_settings(
+        PANDECT_GEOCODER_URL="https://lookup.example.test/first",
+        PANDECT_GEOCODER_LOCAL=False,
+    )
+    def test_geographic_initial_approval_binds_the_displayed_origin(self):
+        point = LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Reported address",
+            address="Synthetic address",
+        )
+        self.login("owner")
+        chooser = self.analysis_url("create")
+        screen = self.client.get(chooser, {"operation": "geocode_locations"})
+        self.assertContains(screen, "https://lookup.example.test")
+        self.assertNotContains(screen, "https://lookup.example.test/first")
+        form = screen.context["form"]
+        payload = {
+            "operation": "geocode_locations",
+            "sources": [f"location:{point.pk}"],
+            "submission_id": form["submission_id"].value(),
+            "execution_confirmation": form["execution_confirmation"].value(),
+            "external_processing": "on",
+        }
+        with self.settings(PANDECT_GEOCODER_URL="https://another.example.test/second"):
+            changed = self.client.post(chooser, payload)
+        self.assertContains(changed, "Processing settings changed")
+        self.assertFalse(changed.context["form"]["external_processing"].value())
+        self.assertEqual(AnalysisRun.objects.count(), 0)
 
     def test_required_comparison_inputs_are_visible_and_blank_event_never_queues(self):
         point = LocationEvidence.objects.create(
@@ -196,7 +380,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             ),
         )
         form = response.context["form"]
-        self.assertIn("external_processing", form.errors)
+        self.assertIn("backend", form.errors)
         self.assertEqual(form["sources"].value(), [selected])
         self.assertIn(
             f"document:{document.pk}:-:{runs[1].result.pk}",
@@ -218,7 +402,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(self.analysis_url("processing"))
         self.assertContains(response, "Selected &lt;script&gt;source&lt;/script&gt;")
         self.assertNotContains(response, self.foreign.title)
-        labels = {run.pk: run.source_title for run in response.context["page_obj"]}
+        labels = {run.pk: run.source_title for run in response.context["active_runs"]}
         self.assertEqual(labels[own.pk], self.note.title)
         self.assertEqual(labels[foreign.pk], "Source unavailable")
 
@@ -416,7 +600,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             ]
         )
         response = self.client.get(original + "&results_page=2")
-        self.assertTrue(response.context["info_open"])
+        self.assertFalse(response.context["info_open"])
+        self.assertTrue(response.context["analysis_outcomes_open"])
         self.assertEqual(response.context["page_obj"].number, 2)
         self.assertEqual(response.context["page_obj"].paginator.count, 31)
         self.assertEqual(response.context["analysis_page_obj"].number, 2)
@@ -428,10 +613,10 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             response,
             f'action="{(url + suffix).replace("&", "&amp;")}#evidence-analysis-error"',
         )
-        self.assertContains(response, 'aria-label="Run history pages"')
+        self.assertContains(response, 'aria-label="Analysis outcome pages"')
         self.assertContains(
             response,
-            'href="?info=1&amp;results_page=1&amp;q=Selected&amp;type=text&amp;state=all'
+            'href="?results_page=1&amp;q=Selected&amp;type=text&amp;state=all'
             '&amp;page=2#evidence-history-heading"',
         )
         self.assertRedirects(
@@ -542,6 +727,31 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(url, self.payload()).status_code, 403)
+
+    def test_evidence_shows_saved_outcomes_even_without_highlighted_findings(self):
+        run = self.analysis_run(complete=False, operation="text_topics")
+        AnalysisRun.objects.filter(pk=run.pk).update(status=AnalysisRun.Status.EMPTY)
+        AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={"outcome": "empty", "summary": "No recurring topic appeared."},
+        )
+        self.login("viewer")
+        reader = self.url("detail", self.note)
+        response = self.client.get(reader)
+        self.assertFalse(response.context["highlights"])
+        self.assertContains(response, 'id="evidence-outcomes" class="disclosure" open')
+        self.assertContains(response, "No recurring topic appeared.")
+        self.assertContains(response, self.analysis_url("detail", run=run))
+
+        # A retained summary must follow the same source availability rules
+        # as its canonical result page.
+        TextEvidence.objects.filter(pk=self.note.pk).update(sha256="a" * 64)
+        unavailable = self.client.get(reader)
+        self.assertNotContains(unavailable, "No recurring topic appeared.")
+        self.assertContains(
+            unavailable, "A retained source is unavailable or has changed."
+        )
 
     def test_evidence_analysis_start_failure_keeps_the_complete_reader_and_submission(
         self,
@@ -701,6 +911,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, self.foreign.title)
         self.assertNotContains(response, "Find evidence by title")
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_external_evidence_requires_approval_current_edit_access_and_csrf(self):
         url = self.analysis_url(
             "external_evidence", kind="text", evidence_id=self.note.pk
@@ -832,6 +1043,10 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.status, "complete", run.error_code)
         response = self.client.get(self.analysis_url("detail", run=run))
         self.assertContains(response, "source@example.test")
+        self.assertContains(response, '<details class="analysis-result-limits" open>')
+        self.assertContains(
+            response, '<summary id="result-limitations">Limitations</summary>'
+        )
         self.assertContains(response, "Selected &lt;script&gt;source&lt;/script&gt;")
         self.assertNotContains(response, "<script>source</script>")
         self.assertContains(response, "Characters")

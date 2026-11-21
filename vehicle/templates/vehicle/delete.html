@@ -3,11 +3,23 @@
 {% block content %}
 <div class="form-layout">
 <p class="breadcrumb"><a href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to vehicle</a></p>
+{% if locations or imports %}
+<header class="page-header"><div><h1>Cannot delete {{ vehicle }}</h1><p>{% if locations %}This vehicle is linked to retained location evidence. Archived evidence also prevents deletion.{% else %}This vehicle is linked to a retained location import.{% endif %}</p></div></header>
+{% if locations %}
+<ul class="record-list">{% for location in locations %}<li class="record-row"><a class="record-link" href="{% url 'core:evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=location.pk %}">{{ location.title }}</a>{% if location.is_archived %}<span class="status">Archived</span>{% endif %}</li>{% endfor %}</ul>
+<p><a class="record-link" href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=vehicle.pk %}?locations_page=1{% if list_query %}&amp;{{ list_query }}{% endif %}#locations-heading">View all linked locations</a></p>
+{% endif %}
+{% if imports %}
+<h2>Linked location imports</h2>
+<ul class="record-list">{% for item in imports %}<li class="record-row"><a class="record-link" href="{% url 'geo:vehicle_import_review' case.pk item.pk %}">{{ item.document__original_filename }}</a></li>{% endfor %}</ul>
+{% endif %}
+{% else %}
 <div class="page-header"><div><p class="eyebrow">{{ case }}</p><h1>Delete {{ vehicle }}?</h1><p>This permanently removes this vehicle record and its notes. There is no in-app undo.</p></div></div>
 <p>Evidence, people, other vehicles, the case, and login accounts are retained.</p>
 <form method="post" class="form-layout">
   {% csrf_token %}{% include "ui/components/form_fields.html" with form=form %}
   <div class="form-actions"><a class="button button-secondary" href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Cancel</a><button class="button button-danger" type="submit">Permanently delete vehicle</button></div>
 </form>
+{% endif %}
 </div>
 {% endblock %}

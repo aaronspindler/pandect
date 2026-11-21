@@ -87,14 +87,18 @@ local proof of concept.
 2. Choose **Create monitor** and a check interval of 1, 6, 12, or 24 hours. The
    first check runs as soon as a worker is available. Later checks continue
    while your browser is closed.
-3. Open the monitor to see **New followers** and **New accounts followed**.
-   The first complete list in either direction establishes its baseline.
+3. Open the monitor to see the latest comparison date and additions for
+   **New followers** and **New accounts followed**. A comparison with no new
+   accounts says **No additions observed**. The monitor shows when a newer
+   check failed or its capture could not be compared. The first complete list
+   in either direction establishes its baseline.
    A live list that reaches the final page also qualifies when the profile
    count disagrees. Affected comparisons display the mismatch and show
    additions among the accounts Instagram returned.
    The fixture changes one account per list each hour while keeping its total
    constant. A follow and unfollow between checks can go unobserved.
-4. Follow a change to its two captures or open a check in the history.
+4. Open a comparison to see its two captures. Expand **Check history** for
+   earlier changes and all retained captures.
    Each original records the observer, target, direction, collection window,
    coverage, collector version, and observed names. When stable IDs are
    missing, the comparison describes newly observed handles. A rename can
@@ -106,8 +110,14 @@ partial captures when loading stalls or hits a limit. In the fixture, a complete
 list advances its direction's baseline. All observations are shared with current
 case members. Their originals identify the source, and live captures also record the profile URL.
 
-The investigator who connects the account can pause or resume their monitor.
-The case owner can also stop it. Viewers can read published observations.
+The investigator who connects the account can use **Schedule** to pause their
+monitor or change its interval, and can resume a paused monitor from its results.
+The next check keeps its scheduled time unless the operator raised the minimum
+and the existing delivery is too early. Later checks follow the new interval on
+the same monitor. Earlier captures and comparisons stay available. The case
+owner can also confirm a permanent stop. Viewers can read published observations.
+The Account menu shows **Instagram connection** when the pilot is available to
+the investigator or they have a retained connection.
 Disconnecting in account settings pauses active monitors across the
 investigator's cases. Starting a replacement live sign-in also pauses them.
 Cancelling that sign-in leaves them paused. After reconnecting, resume each
@@ -140,8 +150,10 @@ the resulting synthetic connection expires after 30 days. Rotating the key
 requires investigators to reconnect.
 
 **Processing** links to monitor history and recovery. A failed check retains
-its safe reason. For an interrupted check, confirm the previous worker stopped
-before requesting recovery. A busy browser defers work, and a prior generation
+its safe reason. The monitor distinguishes ordinary running work from checks
+overdue by more than the collection window plus a grace period. Ask the
+operator to verify that the worker stopped before requesting recovery. A busy
+browser defers work, and a prior generation
 cannot publish or start a second schedule. To retire the pilot, stop the
 monitors, clear both settings on web and worker, and stop the optional service.
 Retained captures stay accessible under their case permissions.

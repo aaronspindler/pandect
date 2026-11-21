@@ -1,12 +1,13 @@
 """Authorized scheduling and current saved-trip readers."""
 
+from collections import defaultdict
 from datetime import datetime
 from uuid import uuid4
 
 from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
-from django.db.models import Exists, F, OuterRef, Q, Subquery
+from django.db.models import Count, Exists, F, Max, Min, OuterRef, Q, Subquery, Window
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
 from django.http import Http404
@@ -19,6 +20,7 @@ from geo.trip_models import (
     VehicleTrip,
     VehicleTripGeneration,
     VehicleTripInput,
+    VehicleTripSource,
     VehicleTripState,
 )
 from vehicle.models import Vehicle
@@ -241,25 +243,31 @@ def current_generations(case, *, vehicle_id=None):
     return generations
 
 
-def trip_readiness(case, *, vehicle_id=None):
-    """Shared preparation/status decisions without writes or automatic retries."""
-    sources = scoped_evidence(case, "vehicle-location")
+def latest_generations(case, *, vehicle_id=None):
+    """Latest preparation attempt for each vehicle's current source revision."""
     states = VehicleTripState.objects.filter(case=case, vehicle__case=case)
     if vehicle_id:
-        sources = sources.filter(vehicle_id=vehicle_id)
         states = states.filter(vehicle_id=vehicle_id)
     latest = VehicleTripGeneration.objects.filter(
         state_id=OuterRef("pk"),
         revision=OuterRef("revision"),
         method_version=METHOD_VERSION,
     ).values("pk")[:1]
-    generations = VehicleTripGeneration.objects.filter(
+    return VehicleTripGeneration.objects.filter(
         case=case,
         state__case=case,
         vehicle__case=case,
         state__vehicle_id=F("vehicle_id"),
         pk__in=states.annotate(latest_id=Subquery(latest)).values("latest_id"),
     )
+
+
+def trip_readiness(case, *, vehicle_id=None):
+    """Shared preparation/status decisions without writes or automatic retries."""
+    sources = scoped_evidence(case, "vehicle-location")
+    if vehicle_id:
+        sources = sources.filter(vehicle_id=vehicle_id)
+    generations = latest_generations(case, vehicle_id=vehicle_id)
     complete = current_generations(case, vehicle_id=vehicle_id)
     missing = sources.exclude(vehicle_id__in=complete.values("vehicle_id"))
     needs_prepare = missing.exclude(
@@ -310,6 +318,32 @@ def saved_trips(
     if end is not None:
         query = query.filter(start_at__lte=end)
     return query.order_by("-start_at", "pk")
+
+
+def observation_trip_url(case, observation):
+    """Link one current trip that contains this exact version of the observation."""
+    if observation.case_id != case.pk:
+        return ""
+    membership = VehicleTripSource.objects.filter(
+        case=case,
+        trip_id=OuterRef("pk"),
+        input__case=case,
+        input__generation_id=OuterRef("generation_id"),
+        input__observation=observation,
+        input__sha256=observation.sha256,
+    )
+    trips = list(
+        saved_trips(
+            case,
+            state="archived" if observation.is_archived else "active",
+            vehicle_id=observation.vehicle_id,
+        )
+        .filter(Exists(membership))
+        .values_list("pk", flat=True)[:2]
+    )
+    return (
+        reverse("geo:trip_detail", args=(case.pk, trips[0])) if len(trips) == 1 else ""
+    )
 
 
 def trip_sources(case, trip):
@@ -378,7 +412,6 @@ def format_trip(
     first, last = sources.first(), sources.last()
     if first is None or last is None:
         raise Http404("Trip sources are unavailable.")
-    start, end = format_source(case, first), format_source(case, last)
     listed = (
         [
             format_source(case, source)
@@ -389,6 +422,51 @@ def format_trip(
         if include_sources
         else []
     )
+    return _format_trip(case, trip, first, last, listed)
+
+
+def format_trips(case, trips):
+    """Project both endpoints for one page of already scoped trips."""
+    trips = list(trips)
+    # Only fetch retained snapshots after narrowing to the endpoint IDs.
+    edges = list(
+        VehicleTripSource.objects.filter(
+            case=case,
+            trip_id__in=[trip.pk for trip in trips],
+            trip__case=case,
+            input__case=case,
+            input__generation_id=F("trip__generation_id"),
+        )
+        .annotate(
+            total=Window(Count("pk"), partition_by="trip_id"),
+            first=Window(Min("ordinal"), partition_by="trip_id"),
+            last=Window(Max("ordinal"), partition_by="trip_id"),
+        )
+        .filter(Q(ordinal=F("first")) | Q(ordinal=F("last")))
+        .order_by("trip_id", "ordinal")
+        .values_list("trip_id", "input_id", "total")
+    )
+    inputs = VehicleTripInput.objects.filter(case=case).in_bulk(
+        [input_id for _, input_id, _ in edges]
+    )
+    by_trip = defaultdict(list)
+    for trip_id, input_id, count in edges:
+        by_trip[trip_id].append((inputs.get(input_id), count))
+    result = []
+    for trip in trips:
+        endpoints = by_trip[trip.pk]
+        if not endpoints:
+            raise Http404("Trip sources are unavailable.")
+        first, count = endpoints[0]
+        last, _ = endpoints[-1]
+        if first is None or last is None or count != trip.source_count:
+            raise Http404("Trip sources are unavailable.")
+        result.append(_format_trip(case, trip, first, last))
+    return result
+
+
+def _format_trip(case, trip, first, last, listed=()):
+    start, end = format_source(case, first), format_source(case, last)
     trip_url = reverse("geo:trip_detail", args=(case.pk, trip.pk))
     return {
         "id": str(trip.pk),
@@ -397,7 +475,6 @@ def format_trip(
         "text": "Movement suggested by the retained observations.",
         "url": trip_url,
         "trip_url": trip_url,
-        "map_url": trip_url,
         "vehicle": str(trip.vehicle),
         "vehicle_url": reverse("vehicle:detail", args=(case.pk, trip.vehicle_id)),
         "start": start,

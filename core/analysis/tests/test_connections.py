@@ -89,6 +89,7 @@ class ConnectionTests(EvidenceViewTestMixin, TestCase):
     def test_case_isolation_and_no_matches_coverage_message(self):
         response = self.client.get(self.url)
         self.assertContains(response, "does not establish that no connection exists")
+        self.assertContains(response, "Coverage and interpretation", count=1)
         self.login("outsider")
         self.assertEqual(self.client.get(self.url).status_code, 404)
         self.login("owner")
@@ -112,4 +113,24 @@ class ConnectionTests(EvidenceViewTestMixin, TestCase):
             .context["page_obj"]
             .paginator.count,
             1,
+        )
+
+    def test_identifier_filter_searches_actual_values_and_preserves_group_scope(self):
+        self.match(self.note)
+        self.match(self.text())
+        response = self.client.get(
+            self.url, {"identifier_type": "email", "q": "shared"}
+        )
+        self.assertContains(response, "Find an identifier")
+        self.assertNotContains(response, 'name="method"')
+        group = response.context["groups"][0]
+        detail = self.client.get(group["url"])
+        self.assertEqual(detail.context["page_obj"].paginator.count, 2)
+        self.assertContains(detail, "Back to repeated identifiers")
+        empty = self.client.get(self.url, {"identifier_type": "phone", "q": "shared"})
+        self.assertContains(empty, "No repeated identifier candidates")
+        self.assertNotContains(empty, "Check identifiers in text")
+        self.login("editor")
+        self.assertContains(
+            self.client.get(self.url, {"q": "invalid"}), "Check identifiers in text"
         )

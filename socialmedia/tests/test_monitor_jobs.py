@@ -69,6 +69,53 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.run_current(), "unavailable")
         self.assertEqual(DBTaskResult.objects.count(), 2)
 
+    def test_interval_change_during_collection_preserves_capture_and_successor(self):
+        generation = self.monitor.generation
+        original = DBTaskResult.objects.get()
+
+        def change_interval(*args):
+            updated = jobs.change_interval(
+                self.editor, self.case.pk, self.monitor.pk, 12
+            )
+            self.assertEqual(updated.generation, generation)
+            return self.collect.return_value
+
+        self.collect.side_effect = change_interval
+        before = timezone.now()
+        self.assertEqual(self.run_current(), "complete")
+        self.monitor.refresh_from_db()
+        successor = DBTaskResult.objects.exclude(pk=original.pk).get()
+        self.assertEqual(self.monitor.checks.get().captures.count(), 2)
+        self.assertEqual(successor.run_after, self.monitor.next_check_at)
+        self.assertGreaterEqual(successor.run_after, before + timedelta(hours=12))
+        self.assertLessEqual(successor.run_after, timezone.now() + timedelta(hours=12))
+
+    def test_higher_minimum_defers_previously_scheduled_live_delivery(self):
+        self.conn.source = "instagram"
+        self.conn.save(update_fields=["source"])
+        live = {
+            "user_id": str(self.editor.pk),
+            "case_id": str(self.case.pk),
+            "targets": ("demo.account",),
+            "min_hours": 1,
+        }
+        self.collect.side_effect = connector.ConnectorError("cooldown", retry_after=60)
+        with self.settings(PANDECT_INSTAGRAM_LIVE=live):
+            monitor = jobs.create_monitor(self.editor, self.case.pk, "demo.account", 1)
+            self.assertEqual(jobs.run_check(monitor.pk, monitor.generation), "cooldown")
+        monitor.refresh_from_db()
+        last_finish = monitor.checks.get().finished_at
+        old_generation = monitor.generation
+        old_due = monitor.next_check_at
+
+        with self.settings(PANDECT_INSTAGRAM_LIVE=live | {"min_hours": 24}):
+            updated = jobs.change_interval(self.editor, self.case.pk, monitor.pk, 24)
+            self.assertEqual(jobs.run_check(monitor.pk, old_generation), "cancelled")
+        self.assertLess(old_due, updated.next_check_at)
+        self.assertEqual(updated.next_check_at, last_finish + timedelta(hours=24))
+        self.assertEqual(updated.interval_hours, 24)
+        self.collect.assert_called_once()
+
     def test_binding_retains_normalized_approved_live_target_and_source(self):
         self.conn.source = "instagram"
         self.conn.save(update_fields=["source"])
@@ -406,7 +453,9 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
 
     def test_resume_after_worker_stopped_retires_interrupted_check(self):
         pending = InstagramCheck.objects.create(
-            monitor=self.monitor, generation=self.monitor.generation
+            monitor=self.monitor,
+            generation=self.monitor.generation,
+            started_at=timezone.now() - jobs.RECOVERY_GRACE,
         )
         self.monitor.next_check_at = None
         self.monitor.save(update_fields=["next_check_at"])

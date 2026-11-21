@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
@@ -6,6 +7,7 @@ from django.utils import timezone
 
 from cases.models import CaseMembership
 from core.testing import EvidenceViewTestMixin
+from socialmedia import monitor_jobs
 from socialmedia.instagram_connector import LIVE_VERSION, ConnectorError
 from socialmedia.models import InstagramCheck, InstagramConnection, InstagramMonitor
 from socialmedia.monitor_evidence import publish_captures
@@ -240,7 +242,55 @@ class InstagramMonitorViewTests(EvidenceViewTestMixin, TestCase):
             self.case_url("detail", monitor.pk),
         )
         monitor.refresh_from_db()
+        self.assertEqual(monitor.status, "active")
+        self.assertRedirects(
+            self.client.post(
+                self.case_url("action", monitor.pk, "stop"), {"confirm_stop": "1"}
+            ),
+            self.case_url("detail", monitor.pk),
+        )
+        monitor.refresh_from_db()
         self.assertEqual(monitor.status, "stopped")
+
+    def test_schedule_changes_keep_delivery_and_running_checks_hide_recovery(self):
+        monitor = self.create()
+        delivery = monitor.generation, monitor.next_check_at
+        interval = self.case_url("action", monitor.pk, "interval")
+        detail = self.case_url("detail", monitor.pk)
+        self.assertRedirects(
+            self.client.post(interval, {"interval_hours": "12"}), detail
+        )
+        monitor.refresh_from_db()
+        self.assertEqual(monitor.interval_hours, 12)
+        self.assertEqual((monitor.generation, monitor.next_check_at), delivery)
+        monitor.next_check_at = None
+        monitor.save(update_fields=["next_check_at"])
+        check = InstagramCheck.objects.create(
+            monitor=monitor, generation=monitor.generation
+        )
+        self.assertContains(self.client.get(detail), "A check is running.")
+        self.assertNotContains(self.client.get(detail), "Recover an interrupted check")
+        recover = self.case_url("action", monitor.pk, "recover")
+        self.client.post(recover, {"worker_stopped": "1"})
+        check.refresh_from_db()
+        self.assertEqual(check.status, "running")
+        check.started_at = (
+            timezone.now() - monitor_jobs.RECOVERY_GRACE - timedelta(seconds=1)
+        )
+        check.save(update_fields=["started_at"])
+        self.assertContains(self.client.get(detail), "Recover an interrupted check")
+
+    def test_connection_navigation_requires_configuration_or_retained_connection(self):
+        self.login("editor")
+        with self.settings(PANDECT_INSTAGRAM_PILOT_URL=""):
+            self.assertNotContains(
+                self.client.get(reverse("account_email")), "Instagram connection"
+            )
+        self.connect()
+        with self.settings(PANDECT_INSTAGRAM_PILOT_URL=""):
+            self.assertContains(
+                self.client.get(reverse("account_email")), "Instagram connection"
+            )
 
     def test_change_feed_readable_sources_and_paginated_partial_handles(self):
         monitor = self.create()
@@ -301,6 +351,65 @@ class InstagramMonitorViewTests(EvidenceViewTestMixin, TestCase):
             ).status_code,
             404,
         )
+
+    def test_latest_comparison_reports_zero_and_distinguishes_newer_check_failures(
+        self,
+    ):
+        monitor = self.create()
+        connection = monitor.connection
+        detail_url = self.case_url("detail", monitor.pk)
+        self.login("viewer")
+
+        for handles in ([], [{"handle": "new.account"}], [{"handle": "new.account"}]):
+            check = InstagramCheck.objects.create(
+                monitor=monitor, status="complete", finished_at=timezone.now()
+            )
+            publish_captures(
+                check,
+                {
+                    "observer": connection.observer,
+                    "observer_id": connection.observer_id_string,
+                    "target": monitor.target,
+                    "target_id": "fixture-target",
+                    "collector_version": "synthetic-browser-v1",
+                    "followers": {"members": handles, "complete": True, "reason": ""},
+                    "following": {
+                        "members": [],
+                        "complete": False,
+                        "reason": "stalled",
+                    },
+                },
+                originals=[],
+            )
+            if not handles:
+                self.assertContains(
+                    self.client.get(detail_url),
+                    "No comparable baseline for the latest capture.",
+                )
+
+        latest = check.captures.get(direction="followers")
+        detail = self.client.get(detail_url)
+        self.assertContains(detail, "No additions observed", count=1)
+        self.assertContains(detail, "Latest capture was partial.")
+        self.assertContains(
+            detail, self.case_url("capture", monitor.pk, latest.pk) + "?show=changes"
+        )
+        result, history = detail.content.decode().split(
+            "<summary>Check history</summary>"
+        )
+        self.assertNotIn("@new.account", result)
+        self.assertIn("@new.account", history)
+
+        InstagramCheck.objects.create(
+            monitor=monitor,
+            status="failed",
+            error="cooldown",
+            finished_at=timezone.now(),
+        )
+        detail = self.client.get(detail_url)
+        self.assertContains(detail, "Latest check failed.")
+        self.assertContains(detail, "No additions observed", count=1)
+        self.assertContains(detail, "The collection source requested a longer wait")
 
     def test_new_following_shows_warning_from_prior_count_mismatch(self):
         owner = self.users["owner"]

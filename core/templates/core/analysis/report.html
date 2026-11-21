@@ -9,15 +9,23 @@
     <h1>{% if name == 'calls' %}Call patterns{% elif name == 'vehicle-trips' %}Vehicle trips{% elif name == 'vehicle-coverage' %}Vehicle observation coverage{% elif name == 'vehicle-speed' %}Vehicle speed and heading{% else %}Exact file duplicates{% endif %}</h1>
   </div>
 </header>
-<details class="disclosure report-filters"{% if filters_applied or form.errors %} open{% endif %}>
-  <summary>Report filters{% if filters_applied %} · Applied{% endif %}</summary>
+<details class="disclosure report-filters"{% if form.errors or name == 'vehicle-trips' and request.GET.filters == 'dates' %} open{% endif %}>
+  <summary id="report-filters">Report filters{% if filters_applied and not form.errors %}
+    {% if form.cleaned_data.state == 'all' %} · All evidence{% elif form.cleaned_data.state == 'archived' %} · Archived only{% endif %}
+    {% for name in selected_names %} · {{ name }}{% endfor %}
+    {% if form.cleaned_data.start %} · From {{ form.cleaned_data.start|date:'j M Y H:i T' }}{% endif %}
+    {% if form.cleaned_data.end %} · Through {{ form.cleaned_data.end|date:'j M Y H:i T' }}{% endif %}
+    {% if duplicate_row %} · Matching CSV rows{% endif %}
+  {% endif %}</summary>
 <form method="get" class="form-layout disclosure-body" aria-label="Report selection">
   {% if duplicate_row %}<input type="hidden" name="duplicate_row" value="{{ duplicate_row }}"><p>Showing matching retained CSV rows. <a href="?">Show all observations</a></p>{% endif %}
   {% include 'ui/components/form_fields.html' %}
   <div class="form-actions"><button class="button button-primary" type="submit">Update report</button><a class="button button-secondary" href="?">Reset selection</a></div>
 </form>
 </details>
-{% if name == 'vehicle-trips' %}{% include 'ui/components/live_updates.html' %}{% endif %}
+{% if name == 'vehicle-trips' %}
+  {% if data.pending or data.processing_pending or data.needs_prepare %}{% include 'ui/components/live_updates.html' %}{% endif %}
+{% endif %}
 {% partialdef live inline %}
 <div id="report-results" data-live-region data-live-poll="{{ data.processing_pending|yesno:'true,false' }}">
 {% if data %}
@@ -28,15 +36,17 @@
 {% else %}
 <section class="analysis-section">
   <h2>{{ data.summary }}</h2>
+  {% if name == 'duplicates' and data.items %}<p class="muted">Identical files may be copies of the same source.</p>{% endif %}
   {% if data.warnings %}<ul class="notice analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
 </section>
+{% if data.pair_page %}<section class="analysis-section" aria-labelledby="report-pairs"><h2 id="report-pairs" tabindex="-1">Calls by participant pair</h2><table class="analysis-metadata-table"><thead><tr><th scope="col">Reported participants</th><th scope="col">Calls</th></tr></thead><tbody>{% for pair in data.pair_page %}<tr><th scope="row">{{ pair.label }}</th><td>{{ pair.count }}</td></tr>{% endfor %}</tbody></table>{% if data.pair_page.has_other_pages %}<nav class="pagination" aria-label="Participant pair pages">{% if data.pair_page.has_previous %}<a class="button button-secondary" href="{% querystring pair_page=data.pair_page.previous_page_number %}#report-pairs">Previous pairs</a>{% endif %}<span>Page {{ data.pair_page.number }} of {{ data.pair_page.paginator.num_pages }}</span>{% if data.pair_page.has_next %}<a class="button button-secondary" href="{% querystring pair_page=data.pair_page.next_page_number %}#report-pairs">Next pairs</a>{% endif %}</nav>{% endif %}</section>{% endif %}
 {% if data.primary_measurements %}<section class="analysis-section" aria-labelledby="report-totals">
   <h2 id="report-totals" tabindex="-1">Report totals</h2>
   {% include 'core/analysis/measurements.html' with measurements=data.primary_measurements only %}
 </section>{% endif %}
 {% if data.items %}
   <section aria-labelledby="report-records">
-    <h2 id="report-records" tabindex="-1">Records</h2>
+    <h2 id="report-records" tabindex="-1">{% if name == 'duplicates' %}Matching files{% else %}Records{% endif %}</h2>
     {% for table in tables %}{% include 'core/analysis/report_table.html' %}{% endfor %}
     <p class="muted">Showing {{ data.page_obj.start_index }}–{{ data.page_obj.end_index }} of {{ data.page_obj.paginator.count }} records. Totals cover the full selection.</p>
     {% if data.page_obj.has_other_pages %}<nav class="pagination" aria-label="Report record pages">{% if data.page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=data.page_obj.previous_page_number %}#report-records">Previous records</a>{% endif %}<span>Page {{ data.page_obj.number }} of {{ data.page_obj.paginator.num_pages }}</span>{% if data.page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=data.page_obj.next_page_number %}#report-records">Next records</a>{% endif %}</nav>{% endif %}
@@ -48,7 +58,6 @@
     <a class="button button-secondary" href="?">Reset selection</a>
   </div>
 {% endif %}
-{% if data.pair_page %}<section class="analysis-section" aria-labelledby="report-pairs"><h2 id="report-pairs" tabindex="-1">Participant pair counts</h2><table class="analysis-metadata-table"><thead><tr><th scope="col">Reported participants</th><th scope="col">Calls</th></tr></thead><tbody>{% for pair in data.pair_page %}<tr><th scope="row">{{ pair.label }}</th><td>{{ pair.count }}</td></tr>{% endfor %}</tbody></table>{% if data.pair_page.has_other_pages %}<nav class="pagination" aria-label="Participant pair pages">{% if data.pair_page.has_previous %}<a class="button button-secondary" href="{% querystring pair_page=data.pair_page.previous_page_number %}#report-pairs">Previous pairs</a>{% endif %}<span>Page {{ data.pair_page.number }} of {{ data.pair_page.paginator.num_pages }}</span>{% if data.pair_page.has_next %}<a class="button button-secondary" href="{% querystring pair_page=data.pair_page.next_page_number %}#report-pairs">Next pairs</a>{% endif %}</nav>{% endif %}</section>{% endif %}
 <details class="analysis-section disclosure">
   <summary>About this report</summary>
   {% if data.limitations %}<ul class="analysis-notes">{% for limitation in data.limitations %}<li>{{ limitation }}</li>{% endfor %}</ul>{% endif %}

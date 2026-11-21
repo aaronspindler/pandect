@@ -7,6 +7,7 @@
 
   function enableMessageSelection(workspace, transcript) {
     const panel = workspace.querySelector("[data-message-panel]");
+    const initialDay = new URL(location.href).searchParams.get("day");
     let selected = transcript.querySelector("[data-selected-message]");
     let transcriptOffset = null;
     workspace.classList.add("is-interactive");
@@ -88,6 +89,8 @@
       } else if (location.hash.startsWith("#message-")) {
         anchor = document.getElementById(location.hash.slice(1));
         available = Boolean(anchor);
+      } else if (params.has("day")) {
+        available = params.get("day") === initialDay;
       } else {
         available = transcript.querySelector("[data-conversation-items]").dataset.page === (params.get("page") || "1");
       }
@@ -96,95 +99,106 @@
     });
   }
 
-  const reader = document.querySelector("[data-conversation-scroll]");
-  if (!reader) return;
-  const workspace = reader.closest("[data-conversation-workspace]");
-  if (workspace) enableMessageSelection(workspace, reader);
-  if (!("IntersectionObserver" in window)) return;
+  function enablePaging(reader, workspace) {
+    const items = reader.querySelector("[data-conversation-items]");
+    const label = reader.dataset.scrollLabel;
+    const pageParam = reader.dataset.pageParam || "page";
+    reader.querySelectorAll(":scope > [data-conversation-edge]").forEach((edge) => {
+      const link = edge.querySelector("[data-conversation-page]");
+      if (!link) return;
+      const status = edge.querySelector("[data-conversation-status]");
+      const previous = edge.dataset.conversationEdge === "previous";
+      let loading = false;
+      let failed = false;
 
-  const items = reader.querySelector("[data-conversation-items]");
-  const label = reader.dataset.scrollLabel;
-
-  reader.querySelectorAll("[data-conversation-edge]").forEach((edge) => {
-    const link = edge.querySelector("[data-conversation-page]");
-    if (!link) return;
-    const status = edge.querySelector("[data-conversation-status]");
-    const previous = edge.dataset.conversationEdge === "previous";
-    let loading = false;
-    let failed = false;
-
-    const load = async (activated = false) => {
-      if (loading || failed || link.hidden) return;
-      loading = true;
-      observer.unobserve(edge);
-      link.setAttribute("aria-disabled", "true");
-      status.textContent = `Loading ${label}…`;
-      try {
-        const response = await fetch(link.href, {
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!response.ok || response.redirected) throw new Error("Page unavailable");
-        const page = new DOMParser().parseFromString(await response.text(), "text/html");
-        const incoming = page.querySelector("[data-conversation-items]");
-        if (!incoming || incoming.dataset.page !== new URL(link.href).searchParams.get("page")) {
-          throw new Error("Page unavailable");
-        }
-        const next = page.querySelector(`[data-conversation-edge="${edge.dataset.conversationEdge}"] [data-conversation-page]`);
-        const loadedKeys = new Set(Array.from(items.querySelectorAll("[data-message-key]"), row => row.dataset.messageKey));
-        const rows = Array.from(incoming.children).filter(row => row.dataset.messageKey
-          ? !loadedKeys.has(row.dataset.messageKey)
-          : !row.id || !document.getElementById(row.id));
-        const anchor = items.querySelector("[id]");
-        const top = anchor?.getBoundingClientRect().top;
-
-        // A page boundary can split one date group. Keep just one heading.
-        const oldDates = items.querySelectorAll("[data-conversation-day]");
-        const newDates = incoming.querySelectorAll("[data-conversation-day]");
-        const oldDate = previous ? oldDates[0] : oldDates[oldDates.length - 1];
-        const newDate = previous ? newDates[newDates.length - 1] : newDates[0];
-        if (oldDate && newDate && oldDate.dataset.conversationDay === newDate.dataset.conversationDay) {
-          if (previous) oldDate.remove();
-          else rows.splice(rows.indexOf(newDate), 1);
-        }
-        const fragment = document.createDocumentFragment();
-        rows.forEach((row) => fragment.append(row));
-        if (previous) items.prepend(fragment);
-        else items.append(fragment);
-        if (next) link.setAttribute("href", next.getAttribute("href"));
-        else link.hidden = true;
-        status.textContent = `${rows.filter((row) => row.id).length} ${label} loaded.`;
-        if (!next) status.textContent += previous ? ` Start of ${label}.` : ` End of ${label}.`;
-        if (previous && anchor) {
-          const shift = anchor.getBoundingClientRect().top - top;
-          // On a short last page the inspector can extend below the transcript.
-          // Keep just enough trailing room to restore the anchor after prepending.
-          const spaceBelow = document.documentElement.scrollHeight - innerHeight - scrollY;
-          if (workspace && shift > spaceBelow) {
-            const padding = parseFloat(getComputedStyle(workspace).paddingBlockEnd);
-            workspace.style.paddingBlockEnd = `${padding + Math.ceil(shift - spaceBelow)}px`;
+      const load = async (activated = false) => {
+        if (loading || failed || link.hidden) return;
+        loading = true;
+        observer.unobserve(edge);
+        link.setAttribute("aria-disabled", "true");
+        status.textContent = `Loading ${label}…`;
+        try {
+          const response = await fetch(link.href, {
+            credentials: "same-origin",
+            cache: "no-store",
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!response.ok || response.redirected) throw new Error("Page unavailable");
+          const page = new DOMParser().parseFromString(await response.text(), "text/html");
+          const incomingReader = reader.id ? page.getElementById(reader.id) : page.querySelector("[data-conversation-scroll]");
+          const incoming = incomingReader?.querySelector("[data-conversation-items]");
+          if (!incoming || incoming.dataset.page !== new URL(link.href).searchParams.get(pageParam)) {
+            throw new Error("Page unavailable");
           }
-          window.scrollBy(0, shift);
+          const next = incomingReader.querySelector(`:scope > [data-conversation-edge="${edge.dataset.conversationEdge}"] [data-conversation-page]`);
+          const loadedKeys = new Set(Array.from(items.querySelectorAll("[data-message-key]"), row => row.dataset.messageKey));
+          const rows = Array.from(incoming.children).filter(row => row.dataset.messageKey
+            ? !loadedKeys.has(row.dataset.messageKey)
+            : !row.id || !document.getElementById(row.id));
+          const anchor = items.querySelector(":scope > :not([data-conversation-day])");
+          const top = anchor?.getBoundingClientRect().top;
+
+          // A page boundary can split one date group. Keep just one heading.
+          const oldDates = items.querySelectorAll(":scope > [data-conversation-day]");
+          const newDates = incoming.querySelectorAll(":scope > [data-conversation-day]");
+          const oldDate = previous ? oldDates[0] : oldDates[oldDates.length - 1];
+          const newDate = previous ? newDates[newDates.length - 1] : newDates[0];
+          if (oldDate && newDate && oldDate.dataset.conversationDay === newDate.dataset.conversationDay) {
+            if (previous) {
+              if (oldDate.id) {
+                newDate.id = oldDate.id;
+                newDate.tabIndex = -1;
+              }
+              oldDate.remove();
+            } else rows.splice(rows.indexOf(newDate), 1);
+          }
+          const fragment = document.createDocumentFragment();
+          rows.forEach((row) => fragment.append(row));
+          if (previous) {
+            items.prepend(fragment);
+            if (incoming.hasAttribute("start")) items.start = incoming.start;
+          } else items.append(fragment);
+          if (next) link.setAttribute("href", next.getAttribute("href"));
+          else link.hidden = true;
+          const records = rows.filter((row) => !row.hasAttribute("data-conversation-day"));
+          status.textContent = `${records.length} ${label} loaded.`;
+          if (!next) status.textContent += previous ? ` Start of ${label}.` : ` End of ${label}.`;
+          if (previous && anchor) {
+            const shift = anchor.getBoundingClientRect().top - top;
+            // On a short last page the inspector can extend below the transcript.
+            // Keep just enough trailing room to restore the anchor after prepending.
+            const spaceBelow = document.documentElement.scrollHeight - innerHeight - scrollY;
+            if (workspace && shift > spaceBelow) {
+              const padding = parseFloat(getComputedStyle(workspace).paddingBlockEnd);
+              workspace.style.paddingBlockEnd = `${padding + Math.ceil(shift - spaceBelow)}px`;
+            }
+            window.scrollBy(0, shift);
+          }
+          if (activated) records[0]?.focus();
+        } catch {
+          failed = true;
+          status.textContent = `Could not load ${label}. Use the link to open the page.`;
+        } finally {
+          loading = false;
+          link.removeAttribute("aria-disabled");
+          if (!failed && !link.hidden) observer.observe(edge);
         }
-        if (activated) rows.find((row) => row.id)?.focus();
-      } catch {
-        failed = true;
-        status.textContent = `Could not load ${label}. Use the link to open the page.`;
-      } finally {
-        loading = false;
-        link.removeAttribute("aria-disabled");
-        if (!failed && !link.hidden) observer.observe(edge);
-      }
-    };
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) load();
-    }, { rootMargin: "200px 0px" });
-    link.addEventListener("click", (event) => {
-      if (failed || !ordinaryClick(event)) return;
-      event.preventDefault();
-      load(true);
+      };
+      const observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) load();
+      }, { rootMargin: "200px 0px" });
+      link.addEventListener("click", (event) => {
+        if (failed || !ordinaryClick(event)) return;
+        event.preventDefault();
+        load(true);
+      });
+      observer.observe(edge);
     });
-    observer.observe(edge);
+  }
+
+  document.querySelectorAll("[data-conversation-scroll]").forEach((reader) => {
+    const workspace = reader.closest("[data-conversation-workspace]");
+    if (workspace) enableMessageSelection(workspace, reader);
+    if ("IntersectionObserver" in window) enablePaging(reader, workspace);
   });
 })();

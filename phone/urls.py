@@ -1,7 +1,13 @@
 from django.urls import path
 
 from audio.views import play_attachment
-from phone import conversation_views, imessage_views, instance_summary_views, views
+from phone import (
+    conversation_views,
+    imessage_views,
+    instance_summary_views,
+    instance_views,
+    views,
+)
 
 app_name = "phone"
 urlpatterns = [
@@ -12,6 +18,16 @@ urlpatterns = [
         "conversations/<uuid:first_person_id>/<uuid:second_person_id>/",
         conversation_views.conversation_detail,
         name="conversation_detail",
+    ),
+    path(
+        "conversations/<uuid:first_person_id>/<uuid:second_person_id>/instances/group/",
+        instance_views.group_conversation,
+        name="group_conversation",
+    ),
+    path(
+        "conversations/<uuid:first_person_id>/<uuid:second_person_id>/instances/summaries/",
+        instance_summary_views.instance_summary,
+        name="instance_summaries",
     ),
     path(
         "conversations/<uuid:first_person_id>/<uuid:second_person_id>/instances/<uuid:instance_id>/summary/",

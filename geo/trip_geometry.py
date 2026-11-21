@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from django.db.models import CharField, Func, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Cast, JSONObject
+from django.http import Http404
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 
@@ -13,28 +14,43 @@ from core.evidence.queries import scoped_evidence
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
 from geo.analysis.deterministic.locations import coordinate
 from geo.map_geocoding import local_geocoder_ready
+from geo.trip_models import VehicleTrip
 
 GEOMETRY_CHUNK_SIZE = 500
 MERCATOR_LATITUDE = 85.05112878
 
 
-def geometry_revision(case, trip):
-    """A review or newer lookup invalidates an in-progress geometry replay."""
-    identities = [str(trip.generation_id), str(trip.pk)]
-    for queryset in (
-        AnalysisRun.objects.filter(case=case, operation="geocode_locations"),
-        AnalysisResult.objects.filter(case=case, run__operation="geocode_locations"),
-        AnalysisReview.objects.filter(
+def geometry_revision(case, trip, *, reported_only=False):
+    """Identify the current geometry after the caller verifies trip sources."""
+    if reported_only:
+        return hashlib.sha256(f"{trip.generation_id}\n{trip.pk}".encode()).hexdigest()
+
+    # Reviews and new lookups can change an estimate during a replay.
+    changes = {
+        "latest_lookup": AnalysisRun.objects.filter(
+            case=case, operation="geocode_locations"
+        ),
+        "latest_result": AnalysisResult.objects.filter(
+            case=case, run__operation="geocode_locations"
+        ),
+        "latest_review": AnalysisReview.objects.filter(
             case=case, result__run__operation="geocode_locations"
         ),
-    ):
-        latest = (
-            queryset.order_by("-created_at", "-pk")
-            .values_list("pk", "created_at")
-            .first()
+    }
+    revision = (
+        VehicleTrip.objects.filter(pk=trip.pk, case=case)
+        .annotate(
+            **{
+                name: Subquery(query.order_by("-created_at", "-pk").values("pk")[:1])
+                for name, query in changes.items()
+            }
         )
-        identities.append(str(latest))
-    return hashlib.sha256("\n".join(identities).encode()).hexdigest()
+        .values_list("generation_id", "pk", *changes)
+        .first()
+    )
+    if revision is None:
+        raise Http404("Trip not found.")
+    return hashlib.sha256("\n".join(map(str, revision)).encode()).hexdigest()
 
 
 def _latest_local_lookup(case):
@@ -78,6 +94,7 @@ def source_positions(case, inputs):
             "time": parse_datetime(original["observed_at"])
             if original.get("observed_at")
             else None,
+            "speed_kmh": original.get("speed_kmh"),
             "url": reverse(
                 "core:evidence:detail",
                 args=(case.pk, "vehicle-location", item.observation_id),

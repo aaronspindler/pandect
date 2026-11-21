@@ -60,6 +60,7 @@ for variable in $(python3 -c 'import os; print(" ".join(key for key in os.enviro
     unset "$variable"
 done
 unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
+unset OPENAI_API_KEY ANTHROPIC_API_KEY
 # Include future settings too; never carry operator endpoints or tokens into tests.
 for variable in $(python3 -c 'import os; print(" ".join(key for key in os.environ if key.startswith("PANDECT_")))'); do
     unset "$variable"

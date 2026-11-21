@@ -13,6 +13,7 @@
       <a href="{% url 'marketing:evidence' %}{% if family.id %}?type={{ family.id }}{% endif %}"{% if family.selected %} aria-current="page"{% endif %}>{{ family.label }}</a>
     {% endfor %}
   </nav>
+  <a class="text-link catalogue-formats-link" href="#formats">Jump to supported formats &amp; limits</a>
   <div class="catalogue-layout">
     <div class="catalogue-results">
       {% for section in capability_sections %}
@@ -50,7 +51,6 @@
       <section aria-labelledby="intake-heading">
         <h2 id="intake-heading">Add your evidence</h2>
         <p>{{ selected_family.intake }}</p>
-        <a class="text-link" href="#formats">Supported formats &amp; limits</a>
         <nav class="catalogue-section-links" aria-label="More capabilities">
           {% for section in capability_sections %}{% if section.id != 'analysis' %}<a class="text-link" href="#{{ section.id }}">{{ section.title }}</a>{% endif %}{% endfor %}
         </nav>
@@ -66,7 +66,7 @@
         <p class="catalogue-note">External processing requires approval. A private-service failure never triggers a cloud fallback.</p>
         <a class="text-link" href="{% url 'marketing:trust' %}">Processing and privacy</a>
       </section>
-      <section id="formats" aria-labelledby="formats-heading">
+      <section id="formats" aria-labelledby="formats-heading" tabindex="-1">
         <h2 id="formats-heading">Supported formats &amp; limits</h2>
         <p>You can retain originals beyond the formats supported for analysis.</p>
         {% for group in evidence_groups %}

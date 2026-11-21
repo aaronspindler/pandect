@@ -7,18 +7,27 @@ from uuid import uuid4
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.reprocessing import reprocessing_executions, start_reprocessing
+from core.analysis.reprocessing import (
+    configured_reprocessing_executions,
+    start_reprocessing,
+)
 from core.analysis.services import process_run
 from core.analysis.testing import image_bytes, wav_bytes
+from core.analysis.tests.test_direct_ai import DIRECT_AI, OPENAI_DIRECT
+from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
+from geo.testing import LOCAL_GEOCODER
+from geo.tests.test_geographic_context import MAP_SETTINGS
 from phone.models import CallEvidenceAttachment
 
 
+@override_settings(PANDECT_LOCAL_AI=LOCAL)
 class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
     def source(self, kind, **overrides):
         values = {
@@ -61,7 +70,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             submission_id=uuid4(),
             kinds=list(kinds),
             mode=mode,
-            executions=reprocessing_executions(),
+            executions=configured_reprocessing_executions(),
             external_processing=mode != "local",
         )
         return batch
@@ -74,6 +83,41 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(batch.status, "complete", batch.error_code)
                 return
         self.fail("Reprocessing did not finish preparing its selected domains")
+
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI_DIRECT, PANDECT_DIRECT_AI=DIRECT_AI)
+    def test_audio_only_routes_require_transcription_in_the_selected_mode(self):
+        self.source("audio")
+        self.login("owner")
+        url = reverse("core:analysis:reprocess", args=[self.case.pk])
+        with self.settings(PANDECT_LOCAL_AI={}):
+            review = self.client.get(url)
+            self.assertEqual(
+                [value for value, _ in review.context["form"].fields["mode"].choices],
+                ["local"],
+            )
+            for mode in ("external", "both"):
+                with (
+                    self.subTest(mode=mode),
+                    self.assertRaisesMessage(
+                        ValidationError, "No external service is configured"
+                    ),
+                ):
+                    self.start(("audio",), mode=mode)
+        review = self.client.get(url)
+        self.assertEqual(
+            [value for value, _ in review.context["form"].fields["mode"].choices],
+            ["local", "both"],
+        )
+        with self.assertRaisesMessage(
+            ValidationError, "No external service is configured"
+        ):
+            self.start(("audio",), mode="external")
+        batch = self.start(("audio",), mode="both")
+        self.drain(batch)
+        self.assertEqual(
+            batch.runs.get(operation="transcription").parameters["backend"], "local"
+        )
+        self.assertIn("content_events:gateway", batch.scope["executions"])
 
     @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_all_domains_include_files_messages_and_every_call_recording(self):
@@ -251,6 +295,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             )
         )
 
+    @override_settings(**(LOCAL_GEOCODER | MAP_SETTINGS))
     def test_geographic_methods_follow_each_operator_configured_locality(self):
         self.source("location")
         for geocoder_local, context_local in ((True, False), (False, True)):

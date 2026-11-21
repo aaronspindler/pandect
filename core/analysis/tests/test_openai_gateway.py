@@ -12,6 +12,7 @@ from django_tasks_db.models import DBTaskResult
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import gateway_execution, snapshot_execution
 from core.analysis.services import authorize_run, process_run, start_run
+from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG, error, response
 from core.models import AnalysisRun, GatewayRequest
 from core.testing import EvidenceViewTestMixin
@@ -23,7 +24,7 @@ OPENAI = CONFIG | {
     "openai_key_alias": "default",
     "workers_token": "",
     "models": {
-        "text": "gpt-6.1-sol",
+        "text": "gpt-6.2-sol",
         "transcription": "@cf/openai/whisper-large-v3-turbo",
     },
 }
@@ -91,7 +92,7 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(headers["cf-aig-collect-log"], "false")
         self.assertEqual(headers["cf-aig-skip-cache"], "true")
         payload = json.loads(request.data)
-        self.assertEqual(payload["model"], "gpt-6.1-sol")
+        self.assertEqual(payload["model"], "gpt-6.2-sol")
         self.assertEqual(payload["reasoning"], {"effort": "high"})
         self.assertEqual(payload["max_output_tokens"], 32768)
         self.assertEqual(payload["text"]["format"], {"type": "json_object"})
@@ -349,7 +350,7 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.run.status, "complete", self.run.error_code)
         retained = self.run.result.provenance["execution"]
         self.assertEqual(retained["provider"], "openai")
-        self.assertEqual(retained["model"], "gpt-6.1-sol")
+        self.assertEqual(retained["model"], "gpt-6.2-sol")
         self.assertNotIn("gateway_token", retained)
 
     @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
@@ -397,7 +398,7 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
                     "text_source_ids": [self.run.inputs[0]["id"]],
                     "finding_refs": [],
                 },
-                "gpt-6.1-sol",
+                "gpt-6.2-sol",
                 "high",
             ),
         ):
@@ -481,7 +482,7 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
     def reviewed(self):
         result = self.client.get(self.analysis_url, {"operation": "content_events"})
         self.assertContains(result, "OpenAI via Cloudflare AI Gateway")
-        self.assertContains(result, "gpt-6.1-sol")
+        self.assertContains(result, "gpt-6.2-sol")
         form = result.context["form"]
         return self.analysis_url, {
             "submission_id": str(form["submission_id"].value()),
@@ -497,7 +498,11 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
     ):
         for updates in (
             {"models": OPENAI["models"] | {"text": "gpt-6-astra"}},
-            {"text_provider": "workers-ai"},
+            {
+                "text_provider": "workers-ai",
+                "workers_token": CONFIG["workers_token"],
+                "models": OPENAI["models"] | {"text": CONFIG["models"]["text"]},
+            },
         ):
             with self.subTest(updates=updates):
                 url, payload = self.reviewed()
@@ -522,6 +527,7 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
                     }
                     self.assertEqual(self.client.post(url, payload).status_code, 302)
 
+    @override_settings(PANDECT_LOCAL_AI=LOCAL)
     def test_search_preserves_original_binding_and_local_submission_needs_no_token(
         self,
     ):

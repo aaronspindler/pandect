@@ -4,6 +4,8 @@ from collections import defaultdict
 
 from django.core.paginator import Paginator
 from django.db.models import F, Q
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Left
 from django.http import Http404
 
 from core.analysis.automatic import evidence_runs
@@ -16,7 +18,7 @@ from core.analysis.catalogue import (
 from core.analysis.errors import AnalysisError
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.navigation import finding_url
-from core.analysis.operations import OPERATIONS, get_operation
+from core.analysis.operations import OPERATIONS
 from core.analysis.presentation import (
     measurement_formatter,
     participant_names,
@@ -25,7 +27,7 @@ from core.analysis.presentation import (
 from core.analysis.projection import is_ai_suggestion, is_timing_only
 from core.analysis.ranking import rank_findings
 from core.analysis.services import SourceResolutionCache, resolve_inputs
-from core.models import AnalysisFinding, AnalysisRun
+from core.models import AnalysisFinding, AnalysisResult, AnalysisRun
 from image.analysis import MIN_OCR_WORD_SCORE
 from phone.analysis import presentation as phone_presentation
 
@@ -39,19 +41,20 @@ def additional_operations(kind):
 
 
 def evidence_findings_context(case, kind, item, *, form=None, results_page=None):
-    """Keep processing history independent from the evidence collection page."""
+    """Keep analysis outcomes independent from the evidence collection page."""
     runs = evidence_runs(case, kind, item.pk)
     local_runs = runs.filter(parameters__has_key="automatic_batch")
     local_analysis_pending = local_runs.filter(
         status__in=("queued", "running")
     ).exists()
     page = Paginator(runs, 25).get_page(results_page)
-    for run in page:
-        run.label = get_operation(run.operation).label
+    has_saved_results = _evidence_outcomes(page, case)
     highlights, highlights_limited = evidence_highlights(case, kind, item.pk)
     return {
         "analysis_form": form if form is not None else EvidenceAnalysisForm(),
         "analysis_page_obj": page,
+        "analysis_outcomes_open": results_page is not None
+        or (has_saved_results and not highlights),
         "highlights": highlights,
         "highlights_limited": highlights_limited,
         "local_analysis_pending": local_analysis_pending,
@@ -60,6 +63,31 @@ def evidence_findings_context(case, kind, item, *, form=None, results_page=None)
         "has_local_analysis": local_analysis_pending or local_runs.exists(),
         "additional_operations": additional_operations(kind).items(),
     }
+
+
+def _evidence_outcomes(page, case):
+    summaries = dict(
+        AnalysisResult.objects.filter(case=case, run_id__in=[run.pk for run in page])
+        .annotate(summary=Left(KeyTextTransform("summary", "data"), 241))
+        .values_list("run_id", "summary")
+    )
+    cache = SourceResolutionCache(case, with_content=False)
+    for run in page:
+        operation = OPERATIONS.get(run.operation)
+        run.label = operation.label if operation else "Retained analysis"
+        run.has_result = run.pk in summaries
+        summary = summaries.get(run.pk)
+        # A multi-source outcome belongs to the whole selection. Its canonical
+        # page presents coverage and citations together.
+        if not summary or len(run.inputs) != 1:
+            continue
+        try:
+            resolve_inputs(run, case, require_current_review=False, cache=cache)
+        except AnalysisError, Http404:
+            run.result_unavailable = True
+        else:
+            run.outcome_summary = summary[:240] + ("…" if len(summary) > 240 else "")
+    return bool(summaries)
 
 
 def finding_row(
@@ -97,8 +125,9 @@ def finding_row(
             source for source in sources if source.id in finding.get("source_ids", [])
         ]
         names = participant_names(cited)
-        label = participant_text(label, names)
-        text = participant_text(text, names)
+        include_sender_role = run.operation != "session_summaries"
+        label = participant_text(label, names, include_sender_role=include_sender_role)
+        text = participant_text(text, names, include_sender_role=include_sender_role)
     excerpt = " ".join(text[:110].split())
     if len(text) > 110:
         excerpt += "…"
@@ -110,6 +139,9 @@ def finding_row(
         "label": label,
         "text": text if ai_suggestion else finding.get("text", ""),
         "summary_text": excerpt if excerpt != label else "",
+        "short_value": excerpt
+        if value_first and excerpt == text and excerpt != label
+        else "",
         "value_first": value_first,
         "url": finding_url(
             case.pk, run.pk, index, show_weak=show_weak, history=history

@@ -5,10 +5,12 @@ from urllib.parse import urlencode
 from django.db.models import F, Func, IntegerField, OuterRef, Q, Subquery
 from django.urls import reverse
 
-from core.analysis.errors import AnalysisError, error_message
-from core.analysis.execution import requires_inference, snapshot_execution
-from core.analysis.gateway import gateway_configured
-from core.analysis.local import validate_local_configuration
+from core.analysis.errors import error_message
+from core.analysis.execution import (
+    inference_configured,
+    requires_inference,
+    snapshot_execution,
+)
 from core.analysis.operations import get_operation
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, LOCATION_KINDS
@@ -54,20 +56,30 @@ UNSUPPORTED_FORMATS = {
 }
 
 
+def configured_backends(operation, parameters):
+    return tuple(
+        backend
+        for backend in ("local", "gateway")
+        if (
+            execution := snapshot_execution(
+                operation, parameters | {"backend": backend}
+            )
+        )
+        and inference_configured(execution, operation)
+    )
+
+
 def configuration_readiness(operation, parameters=None):
     if parameters is None:
         parameters = {"include_summary": True, "semantic_links": True}
     purpose = requires_inference(operation, parameters)
     if not purpose:
         return ""
+    available = configured_backends(operation, parameters)
     external_note = ""
-    if purpose == "transcription" and not gateway_configured(purpose, operation):
+    if purpose == "transcription" and "gateway" not in available:
         external_note = " " + error_message("gateway_transcription_not_configured")
-    try:
-        validate_local_configuration(
-            snapshot_execution(operation, parameters | {"backend": "local"})
-        )
-    except AnalysisError:
+    if "local" not in available:
         return "Private inference is not configured." + (
             external_note
             or " Ask the operator to configure it, or explicitly select and approve "

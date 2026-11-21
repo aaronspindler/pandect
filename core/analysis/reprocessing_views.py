@@ -1,22 +1,27 @@
 """Select and approve a bounded reprocessing batch for active case evidence."""
 
-import hashlib
-import json
 from uuid import uuid4
 
 from django import forms
 from django.contrib import messages
-from django.core import signing
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.crypto import constant_time_compare
+from django.utils.html import format_html, format_html_join
 from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.analysis.execution import gateway_destination, processing_external
-from core.analysis.reprocessing import reprocessing_executions, start_reprocessing
+from core.analysis.approval import TRANSFER_CONTENT
+from core.analysis.execution import execution_confirmation, execution_destination
+from core.analysis.reprocessing import (
+    MODE_LABELS,
+    configured_reprocessing_executions,
+    reprocessing_routes,
+    start_reprocessing,
+)
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS
 
@@ -24,10 +29,9 @@ CONFIRMATION_SALT = "analysis.reprocess.execution"
 
 
 def _confirmation(actor, case, submission_id, executions):
-    fingerprint = hashlib.sha256(
-        json.dumps(executions, sort_keys=True).encode()
-    ).hexdigest()
-    return [str(actor.pk), str(case.pk), str(submission_id), fingerprint]
+    return execution_confirmation(
+        CONFIRMATION_SALT, [str(actor.pk), str(case.pk), str(submission_id)], executions
+    )
 
 
 class ReprocessingForm(forms.Form):
@@ -38,11 +42,7 @@ class ReprocessingForm(forms.Form):
     )
     mode = forms.ChoiceField(
         label="Processing location",
-        choices=(
-            ("local", "Local"),
-            ("external", "External / AI"),
-            ("both", "Both local and external / AI"),
-        ),
+        choices=MODE_LABELS.items(),
         initial="local",
         widget=forms.RadioSelect,
     )
@@ -50,10 +50,8 @@ class ReprocessingForm(forms.Form):
         required=False,
         label="I approve external processing of the selected evidence types",
         help_text=(
-            "Required for External / AI or Both. Selected text and recordings may "
-            "be sent through the operator's Cloudflare AI Gateway; addresses and "
-            "coordinates may be sent to configured lookup services. Operator and "
-            "provider retention policies apply. Sent requests cannot be recalled."
+            "Required when you select external services. "
+            "Provider retention policies apply."
         ),
     )
     submission_id = forms.UUIDField(widget=forms.HiddenInput)
@@ -62,29 +60,59 @@ class ReprocessingForm(forms.Form):
     def __init__(self, *args, actor, case, counts, **kwargs):
         super().__init__(*args, **kwargs)
         self.actor, self.case = actor, case
-        self.executions = reprocessing_executions()
+        self.executions = configured_reprocessing_executions()
+        active_types = [kind for kind, count in counts.items() if count]
+        external_routes = {
+            mode: [
+                route
+                for route in reprocessing_routes(
+                    active_types, mode, self.executions
+                ).values()
+                if route["location"] == "external"
+            ]
+            for mode in ("external", "both")
+        }
+        self.fields["mode"].choices = [
+            (mode, label)
+            for mode, label in MODE_LABELS.items()
+            if mode == "local" or external_routes[mode]
+        ]
         destinations = dict.fromkeys(
-            gateway_destination(route)
-            for route in self.executions.values()
-            if route and route["backend"] == "gateway"
+            (
+                TRANSFER_CONTENT[route["purpose"]].capitalize(),
+                execution_destination(route),
+            )
+            for routes in external_routes.values()
+            for route in routes
         )
-        self.fields["external_processing"].help_text = (
-            "; ".join(destinations)
-            + ". "
-            + self.fields["external_processing"].help_text
-        )
+        self.external_available = bool(destinations)
+        if not destinations:
+            self.fields["mode"].widget = forms.HiddenInput()
+            self.fields["mode"].error_messages["invalid_choice"] = (
+                "Only local checks are available. Review and submit again."
+            )
+            self.fields["external_processing"].widget = forms.HiddenInput()
+            self.fields["external_processing"].disabled = True
+        field = self.fields["external_processing"]
+        if destinations:
+            field.help_text = format_html(
+                "{} {}",
+                format_html_join(" ", "{} may be sent to {}.", destinations),
+                field.help_text,
+            )
+        selected = self["evidence_types"].value() if self.is_bound else ()
         self.fields["evidence_types"].choices = [
             (kind, f"{label} · {counts[kind]} active")
             for kind, label in KIND_LABELS.items()
+            if kind in active_types or kind in (selected or ())
         ]
         if not self.is_bound:
             submission_id = uuid4()
             self.initial |= {
-                "evidence_types": [kind for kind, count in counts.items() if count],
+                "evidence_types": active_types,
                 "submission_id": submission_id,
-                "execution_confirmation": signing.dumps(
-                    _confirmation(actor, case, submission_id, self.executions),
-                    salt=CONFIRMATION_SALT,
+                "execution_confirmation": _confirmation(
+                    actor, case, submission_id, self.executions
                 ),
             }
 
@@ -97,14 +125,9 @@ class ReprocessingForm(forms.Form):
                 "external_processing", "Approve external processing to continue."
             )
         submission_id = data.get("submission_id")
-        try:
-            reviewed = signing.loads(
-                data.get("execution_confirmation", ""), salt=CONFIRMATION_SALT
-            )
-        except signing.BadSignature:
-            reviewed = None
-        if not submission_id or reviewed != _confirmation(
-            self.actor, self.case, submission_id, self.executions
+        if not submission_id or not constant_time_compare(
+            data.get("execution_confirmation") or "",
+            _confirmation(self.actor, self.case, submission_id, self.executions),
         ):
             self.add_error(
                 None,
@@ -115,9 +138,8 @@ class ReprocessingForm(forms.Form):
             values = self.data.copy()
             submission_id = uuid4()
             values["submission_id"] = str(submission_id)
-            values["execution_confirmation"] = signing.dumps(
-                _confirmation(self.actor, self.case, submission_id, self.executions),
-                salt=CONFIRMATION_SALT,
+            values["execution_confirmation"] = _confirmation(
+                self.actor, self.case, submission_id, self.executions
             )
             self.data = values
             values.pop("external_processing", None)
@@ -173,15 +195,5 @@ def reprocess(request, case_id):
             "nav_section": "processing",
             "form": form,
             "active_count": sum(counts.values()),
-            "lookup_locations": [
-                {
-                    "label": label,
-                    "external": processing_external(operation, {}),
-                }
-                for operation, label in (
-                    ("geocode_locations", "Address and coordinate lookup"),
-                    ("geographic_context", "Geographic context"),
-                )
-            ],
         },
     )

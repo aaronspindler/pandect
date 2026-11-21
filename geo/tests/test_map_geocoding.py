@@ -24,12 +24,17 @@ class ReviewedTripGeometryTests(SavedTripFixtures, TestCase):
         )
         self.client.force_login(self.viewer)
 
-    def lookup(self, candidates=None, *, complete=True):
+    def lookup(self, candidates=None, *, complete=True, source=None):
         run, _ = start_run(
             self.owner,
             self.case.pk,
             "geocode_locations",
-            [{"kind": "vehicle-location", "id": str(self.addresses[0].pk)}],
+            [
+                {
+                    "kind": "vehicle-location",
+                    "id": str((source or self.addresses[0]).pk),
+                }
+            ],
             parameters={"reverse": False},
         )
         if complete:
@@ -111,12 +116,19 @@ class ReviewedTripGeometryTests(SavedTripFixtures, TestCase):
         run = self.lookup()
         data = self.positions()
         self.assertEqual(len(data["positions"]), 3)
+        self.assertFalse(data["can_reuse"])
         self.assertTrue(all(row["position"] is None for row in data["positions"]))
         detail = self.client.get(self.address_url)
         self.assertContains(detail, "Open address lookup")
         self.assertContains(detail, self.addresses[0].address)
+        self.assertContains(detail, "Review address estimates for this trip")
+        estimates = self.client.get(self.address_url, {"view": "estimates"})
+        self.assertContains(estimates, "Show all trip observations")
+        self.assertContains(estimates, "Open address lookup")
+        self.assertEqual(estimates.context["source_page"].paginator.count, 3)
         self.review(run)
         accepted = self.positions()
+        self.assertFalse(accepted["can_reuse"])
         self.assertEqual(accepted["positions"][0]["position"], [43.65, -79.39])
         self.assertIsNone(accepted["positions"][1]["position"])
         self.assertEqual(accepted["positions"][0]["label"], "Selected address estimate")
@@ -141,6 +153,43 @@ class ReviewedTripGeometryTests(SavedTripFixtures, TestCase):
             ).status_code,
             409,
         )
+
+    def test_address_geometry_refreshes_after_older_lookup_result_is_removed(self):
+        older = self.lookup()
+        self.review(older)
+        # A later unrelated lookup and review keep the case-wide revision stable.
+        newer = self.lookup(source=self.addresses[1])
+        self.review(newer)
+        before = self.positions()
+        self.assertIsNotNone(before["positions"][0]["position"])
+        self.assertFalse(before["can_reuse"])
+
+        older.result.delete()
+        current = self.positions()
+        self.assertEqual(before["revision"], current["revision"])
+        self.assertIsNone(current["positions"][0]["position"])
+        self.assertIsNotNone(current["positions"][1]["position"])
+        self.assertEqual(
+            self.client.get(
+                self.address_url,
+                {"revision": before["revision"], "recheck": "1"},
+                HTTP_ACCEPT="application/json",
+            ).status_code,
+            409,
+        )
+
+    def test_reported_cache_survives_unrelated_lookup_and_review(self):
+        before = self.client.get(self.detail_url, HTTP_ACCEPT="application/json").json()
+        self.assertTrue(before["can_reuse"])
+        self.review(self.lookup())
+        response = self.client.get(
+            self.detail_url,
+            {"revision": before["revision"], "recheck": "1"},
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 204)
+        after = self.client.get(self.detail_url, HTTP_ACCEPT="application/json").json()
+        self.assertEqual(after["revision"], before["revision"])
 
     def test_ambiguous_multiple_accepted_estimates_do_not_choose_a_route(self):
         run = self.lookup(

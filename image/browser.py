@@ -101,9 +101,7 @@ class PlateBrowserTests(BrowserTestCase):
                     "none",
                 )
                 finding.press("Enter")
-                expect(page.locator(".analysis-finding-text")).to_contain_text(
-                    plate_text
-                )
+                expect(page.get_by_role("heading", name=plate_text)).to_be_visible()
                 preview = page.locator(".analysis-plate-preview")
                 expect(preview).to_be_visible()
                 response = page.request.get(
@@ -125,7 +123,9 @@ class PlateBrowserTests(BrowserTestCase):
                 region.press("Space")
                 expect(source_image).to_be_visible()
                 page.set_viewport_size({"width": 1440, "height": 900})
-                page.get_by_role("link", name="Back to findings", exact=True).click()
+                page.get_by_role(
+                    "link", name="All findings in this result", exact=True
+                ).click()
                 expect(page.locator(".analysis-finding-link")).to_have_count(3)
                 toggle = page.get_by_role("link", name="Show weak regions", exact=True)
                 toggle.focus()
@@ -140,7 +140,9 @@ class PlateBrowserTests(BrowserTestCase):
                     )
                 ).to_be_visible()
                 self.capture(page, engine, "plate-weak-regions")
-                page.get_by_role("link", name="Back to findings", exact=True).click()
+                page.get_by_role(
+                    "link", name="All findings in this result", exact=True
+                ).click()
                 page.get_by_role("link", name="Hide weak regions", exact=True).click()
                 expect(page.locator(".analysis-finding-link")).to_have_count(3)
                 page.locator(".analysis-finding-link").first.click()

@@ -297,12 +297,12 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.login(role)
             index = self.client.get(self.url("processing"))
             if role in {"owner", "editor"}:
-                self.assertContains(index, "Rerun all analysis")
+                self.assertContains(index, "Run local checks")
                 submission_id = str(
                     index.context["case_analysis_form"]["submission_id"].value()
                 )
             else:
-                self.assertNotIn(b"Rerun all analysis", index.content)
+                self.assertNotIn(b"Run local checks", index.content)
                 submission_id = str(uuid4())
             response = self.client.post(self.url(), {"submission_id": submission_id})
             self.assertEqual(response.status_code, status)

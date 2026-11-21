@@ -13,11 +13,11 @@
     <span class="muted">{{ trip.minutes|floatformat:'-1' }} min observed</span>
   </div>
   <div class="trip-route">
-    <div><span class="muted">From</span><a class="record-link" href="{{ trip.start.url }}">{{ trip.start.place }}</a><time datetime="{{ trip.start.time|date:'c' }}">{{ trip.start.time|date:'H:i T' }}</time></div>
+    <div><span class="muted">First observation</span><a class="record-link" href="{{ trip.start.url }}">{{ trip.start.place }}</a><time datetime="{{ trip.start.time|date:'c' }}">{{ trip.start.time|date:'H:i T' }}</time></div>
     <span class="trip-arrow" aria-hidden="true">→</span>
-    <div><span class="muted">To</span><a class="record-link" href="{{ trip.end.url }}">{{ trip.end.place }}</a><time datetime="{{ trip.end.time|date:'c' }}">{% if start.date != end.date %}{{ trip.end.time|date:'j M Y' }}, {% endif %}{{ trip.end.time|date:'H:i T' }}</time></div>
+    <div><span class="muted">Last observation</span><a class="record-link" href="{{ trip.end.url }}">{{ trip.end.place }}</a><time datetime="{{ trip.end.time|date:'c' }}">{% if start.date != end.date %}{{ trip.end.time|date:'j M Y' }}, {% endif %}{{ trip.end.time|date:'H:i T' }}</time></div>
   </div>
-  <div class="actions"><a class="record-link" href="{{ trip.trip_url }}">Inspect trip · {{ trip.source_count }} observation{{ trip.source_count|pluralize }}</a><a class="record-link" href="{{ trip.map_url }}">Show on map</a></div>
+  <div class="actions"><a class="record-link" href="{{ trip.trip_url }}">Inspect trip · {{ trip.source_count }} observation{{ trip.source_count|pluralize }}</a></div>
 </li>
 {% endwith %}
 {% endfor %}

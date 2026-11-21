@@ -1,8 +1,8 @@
-{% include 'ui/components/form_field.html' with field=person_form.mode only %}
 {% include 'ui/components/form_field.html' with field=person_form.person only %}
-<details class="disclosure"{% if person_form.mode.value == 'create' or person_form.errors %} open{% endif %}>
+<details class="disclosure" data-imessage-new-person{% if person_form.creating_person or person_form.errors %} open{% endif %}>
   <summary>New person details</summary>
   <div class="form-layout">
+    <p class="help-text">These details are used when you select Create a person above.</p>
     {% include 'ui/components/form_field.html' with field=person_form.first_name only %}
     {% include 'ui/components/form_field.html' with field=person_form.last_name only %}
     {% include 'ui/components/form_field.html' with field=person_form.phone_number only %}

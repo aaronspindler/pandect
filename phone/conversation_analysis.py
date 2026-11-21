@@ -172,10 +172,14 @@ def conversation_analysis_context(
         expanded = dict(selected_page.object_list.values_list("pk", "review_reason"))
         reasons.update(expanded)
         previews[selected.pk]["finding_ids"] = list(expanded)
+    shared_page_number = params.get("conversation_analysis_page")
     shared_page = Paginator(ranking.rank_findings(shared, case), PER_PAGE).get_page(
-        params.get("conversation_analysis_page")
+        shared_page_number
     )
-    shared_reasons = dict(shared_page.object_list.values_list("pk", "review_reason"))
+    shared_selection = shared_page.object_list
+    if not shared_page_number:
+        shared_selection = shared_selection[:PREVIEW_COUNT]
+    shared_reasons = dict(shared_selection.values_list("pk", "review_reason"))
     reasons.update(shared_reasons)
     shared_ids = list(shared_reasons)
     displayed_ids = set(shared_ids)
@@ -221,7 +225,11 @@ def conversation_analysis_context(
         text = raw.get("text", "") if not row["unavailable"] else ""
         text = text.strip() if isinstance(text, str) else ""
         if row["ai_suggestion"]:
-            text = participant_text(text, row.get("participant_names", {}))
+            text = participant_text(
+                text,
+                row.get("participant_names", {}),
+                include_sender_role=finding.operation != "session_summaries",
+            )
         row["text"] = text[:1000] or row["preview"]
         row["text_truncated"] = len(text) > 1000
         message_sources = [
@@ -277,9 +285,12 @@ def conversation_analysis_context(
     conversation_analysis = {
         "count": shared_page.paginator.count,
         "rows": shared_rows,
-        "open": bool(params.get("conversation_analysis_page")),
-        "page_obj": shared_page,
-        "more_url": "",
+        "page_obj": shared_page if shared_page_number else None,
+        "more_url": _context_url(
+            params, "#conversation-analysis", conversation_analysis_page=1
+        )
+        if not shared_page_number and shared_page.paginator.count > PREVIEW_COUNT
+        else "",
         **_page_links(
             shared_page,
             params,

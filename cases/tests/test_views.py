@@ -101,8 +101,16 @@ class CaseInterfaceTests(TestCase):
             with self.subTest(user=user):
                 self.login(user)
                 response = self.client.get(reverse("cases:case_list"))
-                self.assertContains(response, f'href="{self.url("case_detail")}"')
+                self.assertContains(response, f'href="{home_url}"')
                 self.assertRedirects(self.client.get(self.url("case_detail")), home_url)
+
+    def test_empty_case_list_hides_search_and_filtered_empty_list_has_one_reset(self):
+        self.login(self.invitee)
+        url = reverse("cases:case_list")
+        self.assertNotContains(self.client.get(url), 'aria-label="Search cases"')
+        response = self.client.get(url, {"q": "No synthetic case"})
+        self.assertContains(response, 'aria-label="Search cases"')
+        self.assertContains(response, "Clear filters", count=1)
 
     def test_settings_keeps_actionable_invitations_outside_history(self):
         now = timezone.now()
@@ -132,6 +140,8 @@ class CaseInterfaceTests(TestCase):
             [invitations[state] for state in ("accepted", "revoked")],
         )
         self.assertContains(response, "Invitation history (2)")
+        self.assertContains(response, "Expired on <time")
+        self.assertContains(response, "Change role and resend")
         for state in ("pending", "failed", "expired"):
             self.assertContains(
                 response,
@@ -281,6 +291,7 @@ class CaseInterfaceTests(TestCase):
         self.assertContains(response, "Newer case name", status_code=409)
         self.assertNotIn("description", response.context["form"].fields)
         self.assertContains(response, "Save reviewed changes", status_code=409)
+        self.assertContains(response, 'id="rename-case" open', status_code=409)
         reviewed_revision = response.context["form"]["expected_updated_at"].value()
         self.case.refresh_from_db()
         self.assertEqual(self.case.name, "Newer case name")

@@ -13,7 +13,7 @@
       {% for field in search_form %}{% if field.name != 'q' %}<div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endif %}{% endfor %}
     </div>
     <p class="muted">Dates use {{ display_timezone }}.</p>
-    <div class="actions"><button type="submit" form="case-search" class="button button-secondary">Apply filters</button>{% if active_filters %}<a class="record-link" href="{% querystring type=None start=None end=None state=None sort=None page=None %}">Clear filters</a>{% endif %}</div>
+    <div class="actions"><button type="submit" form="case-search" class="button button-secondary">Apply filters</button>{% if active_filters %}<a class="record-link" href="{% querystring type=None start=None end=None state=None sort=None page=None meaning=None %}">Clear filters</a>{% endif %}</div>
   </details>
   <details class="case-search-tips">
     <summary>Search tips</summary>
@@ -24,19 +24,19 @@
 {% if page_obj != None %}
 <section class="case-search-matches" aria-labelledby="keyword-matches-heading">
   <div class="case-search-results-heading"><h2 id="keyword-matches-heading">{{ page_obj.paginator.count }} keyword match{{ page_obj.paginator.count|pluralize:"es" }}</h2>
-    {% if related %}<a href="#related-passages">Related by meaning ({{ related|length }})</a>{% endif %}
+    {% if meaning_requested %}<a href="#related-passages">Related by meaning{% if related %} ({{ related|length }}){% endif %}</a>{% elif offer_meaning %}<a href="{% querystring meaning=1 page=None %}#related-passages">Search by meaning</a>{% endif %}
   </div>
-  {% if meaning_status %}<p class="muted">{{ meaning_status }} <a href="{% url 'core:analysis:processing' case.pk %}#case-search-index">Indexing status</a></p>{% endif %}
-  {% if spelling %}<p>Did you mean <a href="{% querystring q=spelling page=None %}">{{ spelling }}</a>?</p>{% endif %}
+  {% if spelling %}<p>Did you mean <a href="{% querystring q=spelling page=None meaning=None %}">{{ spelling }}</a>?</p>{% endif %}
   {% if page_obj %}{% include 'core/case_search/rows.html' with rows=page_obj terms=terms only %}{% elif not related %}<p>Try another word, check a spelling, or clear your filters.</p>{% endif %}
   {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Case search pages">
-    {% if page_obj.has_previous %}<a href="{% querystring page=page_obj.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="{% querystring page=page_obj.next_page_number %}">Next</a>{% endif %}
+    {% if page_obj.has_previous %}<a href="{% querystring page=page_obj.previous_page_number meaning=None %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="{% querystring page=page_obj.next_page_number meaning=None %}">Next</a>{% endif %}
   </nav>{% endif %}
 </section>
-{% if related %}
+{% if meaning_requested %}
 <section class="case-search-matches" aria-labelledby="related-passages">
   <h2 id="related-passages" tabindex="-1">Related by meaning</h2>
-  {% include 'core/case_search/rows.html' with rows=related terms='' only %}
+  {% if meaning_status %}<p class="muted">{{ meaning_status }} <a href="{% url 'core:analysis:processing' case.pk %}#case-search-index">Indexing status</a></p>{% endif %}
+  {% if related %}{% include 'core/case_search/rows.html' with rows=related terms='' only %}{% elif not meaning_status %}<p>No related passages matched this search.</p>{% endif %}
 </section>
 {% endif %}
 {% elif not search_form.errors %}<p>Enter a name, identifier, or phrase in <a href="#case-search-query">Search this case</a>.</p>{% endif %}

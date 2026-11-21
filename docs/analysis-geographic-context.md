@@ -49,8 +49,9 @@ Without a historical timestamp, results describe the retrieved current snapshot.
 Dataset, retrieval and observation times remain distinct; current context does
 not establish historical conditions.
 
-Historical timestamps require an explicit timezone and whole seconds, normalized
-to UTC and sent exactly through Overpass's date setting. The operator must declare
+The historical snapshot field reads whole-second input in UTC regardless of your
+account or device timezone. Pandect sends the exact UTC timestamp through
+Overpass's date setting. The operator must declare
 a history start. Missing history, errors or malformed responses never fall back
 to current data or generated-area indexes. Historical snapshots describe map data,
 not independently verified real-world conditions.

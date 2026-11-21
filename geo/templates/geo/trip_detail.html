@@ -1,10 +1,21 @@
 {% extends "geo/map.html" %}
 {% block trip_listing %}
 <section class="content-section" aria-labelledby="trip-list" tabindex="-1">
-  <div class="section-header"><h2 id="trip-list">Trip observations</h2><span class="muted">{{ selected_trip.source_count }} observations</span></div>
-  <p class="muted">{{ selected_trip.basis }}. Addresses without a selected estimate interrupt the mapped path.</p>
+  <div class="section-header"><h2 id="trip-list">{% if review_estimates %}Address estimates{% else %}Trip observations{% endif %}</h2><span class="muted">{{ source_page.paginator.count }} observation{{ source_page.paginator.count|pluralize }}</span></div>
+  {% if review_estimates %}
+    <p class="muted">Observations with a reported address. Open a lookup to review and select an estimate for that observation.</p>
+    <a class="record-link" href="{{ geometry_url }}{% querystring view=None sources_page=None %}#trip-list">Show all trip observations</a>
+  {% else %}
+    {% if has_address_sources %}<a class="record-link" href="{% querystring view='estimates' sources_page=None %}#trip-list">Review address estimates for this trip</a>{% endif %}
+  {% endif %}
   <ol class="map-location-list" start="{{ source_page.start_index }}">
-    {% for source in source_rows %}<li><a class="record-link" href="{{ source.url }}">{{ source.place }}</a><p><time datetime="{{ source.time|date:'c' }}">{{ source.time|date:'j M Y, H:i T' }}</time>{% if source.row %} · CSV row {{ source.row }} · <a href="{{ source.import_url }}">View import</a>{% endif %}</p><p class="muted">{{ source.position_label }}{% if source.attribution %} · {{ source.attribution }}{% endif %}{% if source.estimate_url %} · <a href="{{ source.estimate_url }}">Open address lookup</a>{% endif %}</p></li>{% endfor %}
+    {% for source in source_rows %}
+    <li>
+      <a class="record-link" href="{{ source.url }}">{{ source.place }}</a>
+      <p><time datetime="{{ source.time|date:'c' }}">{{ source.time|date:'j M Y, H:i T' }}</time>{% if source.row %} · CSV row {{ source.row }} · <a href="{{ source.import_url }}">View import</a>{% endif %}</p>
+      <p class="muted">{{ source.position_label }} · {% if source.speed_kmh is not None %}Reported speed {{ source.speed_kmh|floatformat:'-3' }} km/h{% else %}Reported speed unavailable{% endif %}{% if source.attribution %} · {{ source.attribution }}{% endif %}{% if source.estimate_url %} · <a href="{{ source.estimate_url }}">Open address lookup</a>{% endif %}</p>
+    </li>
+    {% empty %}<li>No address-only observations in this trip.</li>{% endfor %}
   </ol>
   {% if source_page.has_other_pages %}<nav class="pagination" aria-label="Trip observation pages">{% if source_page.has_previous %}<a class="button button-secondary" href="{% querystring sources_page=source_page.previous_page_number %}#trip-list">Previous observations</a>{% endif %}<span>Page {{ source_page.number }} of {{ source_page.paginator.num_pages }}</span>{% if source_page.has_next %}<a class="button button-secondary" href="{% querystring sources_page=source_page.next_page_number %}#trip-list">Next observations</a>{% endif %}</nav>{% endif %}
 </section>

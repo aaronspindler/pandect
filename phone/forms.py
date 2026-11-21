@@ -6,6 +6,13 @@ from core.evidence.forms import EvidenceForm, validate_file, validate_text
 from phone.models import CallEvidenceAttachment
 
 
+class ConversationDayForm(forms.Form):
+    day = forms.DateField(
+        input_formats=["%Y-%m-%d"],
+        widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+    )
+
+
 class CommunicationEvidenceForm(EvidenceForm):
     def configure_original_fields(self, kind):
         if self.instance._state.adding:

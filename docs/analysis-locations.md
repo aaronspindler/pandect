@@ -69,7 +69,8 @@ instructions.
 
 ## Comparing movement across periods
 
-Supply all four ISO timestamps with explicit timezones:
+Fill all four movement-period fields in UTC. The form uses UTC independently of
+your account or device timezone. Saved parameters use ISO timestamps:
 `period_a_start`, `period_a_end`, `period_b_start`, `period_b_end`, e.g.
 `2026-10-01T00:00:00+00:00`. Times normalize to UTC; windows include starts and
 exclude ends. Ends must follow starts, without overlap. Incomplete, naive, reversed
@@ -171,7 +172,10 @@ most three attempts per recovery phase. Startup/migrations never process evidenc
 Vehicle pages show five recent trips; map/report pages show 25. Date filters retain
 complete overlapping trips, without shortening input sequences. Times use account/
 device timezone, falling back to UTC. Archived observations are excluded by default.
-Paginated detail exposes every source and imported row provenance.
+Trip detail leads with the first and last recorded observations and the elapsed
+span. The source list exposes every observation and imported row provenance.
+An evidence reader links back when its exact observation belongs to one
+current possible trip in its active or archived selection.
 
 Vehicles segment independently using same-case observations and consistent import/
 document relationships. Untimed rows remain in coverage but cannot form trips.

@@ -44,9 +44,8 @@ unchanged. See [recording previews](original-previews.md#recordings).
 Ollama is the **Local** text backend for Qwen3.5, including `qwen3.5:9b`.
 It supplies topics, claims, session summaries, semantic links and processing for
 retained question-synthesis runs. Transcription uses the separate Whisper runtime,
-and printed-English OCR remains in the bounded Tesseract parser. Cloudflare configuration is
-unnecessary for Ollama; selecting **External AI service** continues to use
-Cloudflare.
+and printed-English OCR remains in the bounded Tesseract parser. **External AI**
+uses the [configured external provider](analysis.md#external-ai-configuration).
 
 Use Ollama **0.40.11 or later**, with an exact reviewed server version pinned in
 Pandect. This adapter needs digest-addressed local models and prompt rendering;
@@ -146,7 +145,9 @@ service and inspect `/api/version` and the model's local manifest digest in
 
 The client requests the digest-addressed local model and validates the response.
 Query text and source passages go only to this configured private endpoint.
-Keyword search works independently. See [case search](interface-design.md) for
+Keyword results return independently. Choose **Search by meaning** from the
+first page of eligible results to request related passages.
+See [case search](interface-design.md) for
 source coverage. Each chunk retains its source, offset and text fingerprint.
 Each case index records the embedding model, manifest digest, runtime, and
 chunking version. The worker embeds up to 32 passages of 246 UTF-8 bytes per
@@ -219,7 +220,7 @@ The internal `inference` network joins web/workers and transcription, with no
 published ports or transcription runtime internet route. Host-based web/workers
 need a separately reachable private transcription endpoint preserving this
 identity/authentication contract. The container has a read-only filesystem,
-private temporary memory, no evidence mount/Gateway credentials/privileged
+private temporary memory, no evidence mount/external AI credentials/privileged
 capabilities, and no payload logging. It accepts one request at a time. Deadlines
 kill/reap the native process group; container restart reloads the verified model.
 Cancellation withholds publication, but submitted requests may continue until
@@ -305,11 +306,11 @@ Request/interpretation changes require adapter-version changes, preserving histo
 Queued model/endpoint or execution-setting drift fails recoverably; select new
 settings in a new run. Updating application defaults can therefore require new
 runs; earlier results and their recorded settings remain unchanged.
-Text retains adapter version `ollama-1`; transcription and Gateway retain version
-2. Shared prompts and strict JSON validation reject nonfinite numbers (including
-exponent overflow) and malformed output. Queued older execution identities fail
-with `execution_changed` before dispatch. Cloud requests retain separate
-`GatewayRequest` accounting/approval; there is no implicit failover.
+Private text retains adapter version `ollama-1`. Shared prompts and strict JSON
+validation reject nonfinite numbers (including exponent overflow) and malformed
+output. Queued older execution identities fail with `execution_changed` before
+dispatch. External requests use separate `GatewayRequest` accounting and
+require approval.
 
 ## Upgrade existing local text setups
 
@@ -361,10 +362,11 @@ uv run --locked --env-file .env python manage.py evaluate_local_analysis --metho
 ```
 
 The command runs listed text methods through real local adapters/citation validators
-on fixed synthetic messages. It writes no database records, calls no Gateway and
-exits nonzero on any selected failure. Optional audio exercises PCM parsing and
-chunk/timeline handling. JSON records expected distinctions, validated output,
-usage and elapsed time without assigning a quality grade. Keep audio/output private.
+on fixed synthetic messages. It writes no database records, calls no external
+AI service and exits nonzero on any selected failure. Optional audio exercises
+PCM parsing and chunk/timeline handling. JSON records expected distinctions,
+validated output, usage and elapsed time without assigning a quality grade.
+Keep audio/output private.
 
 1. Exercise every path and required external AI/geographic choice/approval;
    control basemap egress too.

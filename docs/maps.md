@@ -41,12 +41,17 @@ with a new database/queue; no old-table conversion is retained.
 
 ## Processed vehicle trips
 
-Map initially selects the latest matching saved possible trip. Choose another
-to inspect its complete path/sources. Raw Location, Person location, and Vehicle
+Map initially selects the latest matching saved possible trip. The first and
+last observations appear above the map with links to their sources and **Open trip**.
+Choose another trip from the list to inspect its complete path and sources.
+Raw Location, Person location, and Vehicle
 location observations remain in Evidence rather than the map's main display.
+Editors can open vehicle CSV intake or add a vehicle observation from an empty map.
 
-Filter by vehicle, active/archived/all evidence, and dates in the displayed account/
-device timezone. Dates select whole overlapping trips, never trim observations
+Expand **Search and filters** to filter by vehicle, evidence state, and dates in
+the displayed account/device timezone or to search POIs. Applied filters appear
+as a short summary. The form opens automatically when a filter needs correction.
+Dates select whole overlapping trips, never trim observations
 before segmentation. Trip lists paginate at 25; details show 50 observations per
 page with evidence/CSV-row links. Pagination never limits processing history.
 See [trip rules](analysis-locations.md#automatic-vehicle-trips).
@@ -59,20 +64,30 @@ superseded output is not current. Cases lacking trips offer owner/editor-only
 cannot start work and GET never enqueues. Processing shows progress/recovery.
 
 Lines connect reported positions or selected address estimates in
-time order, interrupted by missing/ambiguous positions. They show no raw observation
-markers or reconstructed roads. Concise route and tile-provider privacy details
-stay visible beside the map; **Map details** retains interpretation, lookup,
-and keyboard help.
+time order, interrupted by missing or ambiguous positions. Arrows follow
+observation order. Color and line pattern show the speed reported at the next
+observation. The key distinguishes under 30, 30 to under 60, 60 km/h or more, and
+unavailable speed. The bands represent point-in-time readings. Speed between
+observations remains unknown. **Trip observations** lists exact reported speeds,
+including zero, and identifies unavailable readings. Concise context and
+tile-provider privacy details stay visible beside the map. **Map details**
+retains interpretation, lookup, and keyboard help.
 Trips without drawable positions remain listed.
 First/last observed places/times verify no departure/arrival, continuous presence,
 driver, or travelled distance. Positions beyond Web Mercator ±85.05112878° remain
 inspectable without clamping originals.
 
 Geometry arrives in cursor pages of at most 500 sources, progressively drawn on
-one canvas. Completed coordinate buffers are discarded; pan/zoom replays the trip.
-Status distinguishes partial/completed drawing. Requests recheck case access and
-published generation; changed address selections stop obsolete replay. Server-rendered
-trip/source lists work without JavaScript or tiles.
+one canvas. A trip made entirely of reported coordinates can reuse one complete
+response in tab memory after a successful server recheck of that trip and its
+generation. Address lookups elsewhere in the case leave these reported positions
+unchanged. The map clears the previous overlay and shows loading during the
+recheck. A changed revision triggers a fresh read. Trips with address estimates
+or missing coordinates also fetch fresh positions on redraw. Larger trips
+stream without retaining completed coordinates. Requests recheck case access
+and the published generation. Fresh position reads resolve current address
+selections.
+Server-rendered trip/source lists work without JavaScript or tiles.
 
 ## Local address lookup
 
@@ -90,7 +105,8 @@ no public default/cloud fallback; browsers never contact the geocoder. Workers
 send selected original addresses only, excluding files, titles, case IDs, and
 vehicle identifiers. Endpoint/version checks, authorization, bounds, and provenance apply.
 
-Follow **Open address lookup** from observations. Open a candidate and choose
+Open **Review address estimates for this trip** to see address-only observations
+together, then follow **Open address lookup** for an observation. Open a candidate and choose
 **Use this estimate**. The map uses exactly one selected candidate from the latest
 matching local lookup. Reported coordinates take precedence. Selecting or clearing
 an estimate refreshes geometry and preserves original observations and segmentation. There is no global address cache.

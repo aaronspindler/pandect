@@ -8,10 +8,33 @@
   <form method="post" enctype="multipart/form-data" class="form-layout" data-unsaved-form>
     {% csrf_token %}{{ form.submission_id }}
     {% include 'ui/components/form_errors.html' with form=form %}
-    {% include 'ui/components/form_field.html' with field=form.file only %}
-    {% include 'ui/components/form_field.html' with field=form.document only %}
+    {% if form.document.value %}
+      {% include 'ui/components/form_field.html' with field=form.document only %}
+    {% else %}
+      {% include 'ui/components/form_field.html' with field=form.file only %}
+    {% endif %}
     {% include 'ui/components/form_field.html' with field=form.timezone only %}
     {% include 'ui/components/form_field.html' with field=form.confirm_timezone only %}
+    {% if form.document.value %}
+      <details class="disclosure"{% if form.file.errors or form.files.file %} open{% endif %}>
+        <summary>Upload a new CSV instead</summary>
+        <p class="help-text">Clear the retained CSV above before selecting a new file.</p>
+        {% include 'ui/components/form_field.html' with field=form.file only %}
+      </details>
+    {% elif form.has_retained_documents %}
+      <details class="disclosure">
+        <summary>Choose a retained CSV instead</summary>
+        {% include 'ui/components/form_field.html' with field=form.document only %}
+      </details>
+    {% endif %}
+    <details class="disclosure"{% if form.start_date.value or form.end_date.value or form.start_date.errors or form.end_date.errors %} open{% endif %}>
+      <summary>Limit by date</summary>
+      <div class="form-layout">
+        <p class="help-text">Dates include the whole day in the export timezone. Leave both blank to import across all dates.</p>
+        {% include 'ui/components/form_field.html' with field=form.start_date only %}
+        {% include 'ui/components/form_field.html' with field=form.end_date only %}
+      </div>
+    </details>
     <details class="disclosure"{% if form.title.value or form.source.value or form.title.errors or form.source.errors %} open{% endif %}><summary>Source details for a new CSV</summary><div class="form-layout">{% include 'ui/components/form_field.html' with field=form.title only %}{% include 'ui/components/form_field.html' with field=form.source only %}</div></details>
     <p class="muted">The original CSV stays in your evidence. Messages and people are added only after review. After a file error, select the file again; other values remain.</p>
     <div class="actions"><button class="button button-primary" type="submit">Prepare message review</button><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Cancel</a></div>

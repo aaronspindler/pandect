@@ -98,7 +98,7 @@ def duplicate_report(case, state, start, end, page, page_size):
                 url += f"#attachment-{item.pk}"
             items.append(
                 {
-                    "label": f"Group {number} · {item.original_filename}",
+                    "label": item.original_filename,
                     "text": (
                         "Identical file-byte checksum; "
                         "retained sources remain separate."

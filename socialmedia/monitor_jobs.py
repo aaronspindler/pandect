@@ -10,6 +10,7 @@ from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
+from django.db.models import Max
 from django.http import Http404
 from django.utils import timezone
 
@@ -23,6 +24,8 @@ from socialmedia.monitor_evidence import publish_captures
 from socialmedia.tasks import check_instagram_monitor
 
 logger = logging.getLogger(__name__)
+
+RECOVERY_GRACE = timedelta(seconds=connector.LIVE_COLLECTION_SECONDS + 60)
 
 MESSAGES = {
     "access_removed": "The investigator no longer has verified case edit access.",
@@ -315,7 +318,14 @@ def _locked_monitor(monitor_id, case_id):
     )
 
 
-def _manage(user, case_id, monitor_id, action):
+def check_needs_recovery(monitor, running, *, now):
+    if monitor.status != "active":
+        return False
+    due = running.started_at if running else monitor.next_check_at
+    return due is not None and due <= now - RECOVERY_GRACE
+
+
+def _manage(user, case_id, monitor_id, action, *, interval_hours=None):
     get_case(user, case_id, edit=True)
     with transaction.atomic():
         monitor = _locked_monitor(monitor_id, case_id)
@@ -335,6 +345,34 @@ def _manage(user, case_id, monitor_id, action):
             raise ValidationError("This monitor has been stopped.")
         elif action == "pause":
             _retire(rows, "paused", "paused")
+        elif action == "interval":
+            _verified(user)
+            error = _collection_error(
+                monitor.connection,
+                user.pk,
+                case.pk,
+                monitor.source,
+                monitor.target,
+                interval_hours,
+            )
+            if error:
+                raise _validation_error(error)
+            replace_early_delivery = monitor.next_check_at is not None and not (
+                connector.allowed_target(
+                    monitor.source, monitor.target, monitor.interval_hours
+                )
+            )
+            monitor.interval_hours = interval_hours
+            monitor.save(update_fields=["interval_hours"])
+            # Keep an existing delivery unless the operator raised the minimum.
+            if replace_early_delivery:
+                last_finish = monitor.checks.aggregate(latest=Max("finished_at"))[
+                    "latest"
+                ]
+                if last_finish is not None:
+                    due = last_finish + timedelta(hours=interval_hours)
+                    if due > monitor.next_check_at:
+                        _schedule(monitor, due)
         else:
             _verified(user)
             if error := _monitor_error(monitor):
@@ -348,8 +386,13 @@ def _manage(user, case_id, monitor_id, action):
                             "A check is still running on this connection."
                         )
                     now = timezone.now()
-                    if monitor.next_check_at and monitor.next_check_at > now:
-                        raise ValidationError("The next check is already scheduled.")
+                    running = monitor.checks.filter(
+                        generation=monitor.generation, status="running"
+                    ).first()
+                    if not check_needs_recovery(monitor, running, now=now):
+                        raise ValidationError(
+                            "This check is within its scheduled window."
+                        )
                     monitor.checks.filter(status="running").update(
                         status="failed", error="interrupted", finished_at=now
                     )
@@ -372,6 +415,10 @@ def stop_monitor(user, case_id, monitor_id):
 
 def recover_monitor(user, case_id, monitor_id):
     return _manage(user, case_id, monitor_id, "recover")
+
+
+def change_interval(user, case_id, monitor_id, interval_hours):
+    return _manage(user, case_id, monitor_id, "interval", interval_hours=interval_hours)
 
 
 def _current(monitor_id, case_id, generation):

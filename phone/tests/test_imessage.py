@@ -410,6 +410,56 @@ class IMessageImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.publish(run, data, source), 1)
         self.assertIsNone(TextMessageEvidence.objects.get().occurred_at)
 
+    def test_date_bounds_use_inclusive_export_days_and_exclude_unknown_times(self):
+        source = self.source(
+            csv_content(
+                {"Message Date": "2026-07-30 00:00:00"},
+                {"Message Date": "2026-07-29T03:59:59+00:00"},
+                {"Message Date": "2026-07-29T04:00:00+00:00"},
+                {"Message Date": "2026-07-29 23:59:59.999999"},
+                {"Message Date": ""},
+                {"Message Date": "invalid"},
+            )
+        )
+        start = {"start_date": "2026-07-29"}
+        end = {"end_date": "2026-07-29"}
+        for bounds, ready in (
+            (start, [2, 4, 5]),
+            (end, [3, 4, 5]),
+            (start | end, [4, 5]),
+        ):
+            with self.subTest(bounds=bounds):
+                parameters = {"timezone": "America/Toronto"} | bounds
+                result = prepare_import([source], parameters)
+                rows, total, _ = read_import_page(
+                    source,
+                    parameters
+                    | {
+                        "_imessage_interpretation_sha256": result["imessage"][
+                            "interpretation_sha256"
+                        ],
+                    },
+                    page=1,
+                )
+                self.assertEqual(total, 6)
+                self.assertEqual(
+                    [
+                        row["values"]["source_row"]
+                        for row in rows
+                        if not row["values"].get("unresolved_reason")
+                    ],
+                    ready,
+                )
+                self.assertEqual(
+                    result["metrics"],
+                    {
+                        "source_rows": 6,
+                        "ready_rows": len(ready),
+                        "date_excluded_rows": 4 - len(ready),
+                        "unresolved_rows": 2,
+                    },
+                )
+
     def test_configured_text_byte_limit_excludes_only_oversized_message(self):
         source = self.source(csv_content({"Text": "ééé"}, {"Text": "ok"}))
         with self.settings(PANDECT_MAX_TEXT_BYTES=5):

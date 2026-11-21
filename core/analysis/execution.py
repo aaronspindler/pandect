@@ -1,6 +1,7 @@
 """Snapshot concrete execution routes without equating HTTP with cloud use."""
 
 import json
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -18,7 +19,16 @@ OPENAI_TEXT_MODELS = {
     "content_events": "gpt-6-luna",
     "session_summaries": "gpt-6.1-terra",
     "conversation_link": "gpt-6.1-terra",
-    "question_synthesis": "gpt-6.1-sol",
+    "question_synthesis": "gpt-6.2-sol",
+}
+
+DIRECT_AI_ENDPOINTS = {
+    "openai-direct": ("openai", "responses", "https://api.openai.com/v1/responses"),
+    "anthropic-direct": (
+        "anthropic",
+        "messages",
+        "https://api.anthropic.com/v1/messages",
+    ),
 }
 
 
@@ -28,6 +38,30 @@ def gateway_execution(purpose, operation):
     provider = (
         config.get("text_provider", "workers-ai") if purpose == "text" else "workers-ai"
     )
+    limits = {
+        key: config[key]
+        for key in ("timeout", "max_request_bytes", "max_response_bytes")
+    }
+    if provider in DIRECT_AI_ENDPOINTS:
+        provider, api, url = DIRECT_AI_ENDPOINTS[provider]
+        execution = limits | {
+            "provider": provider,
+            "api": api,
+            "url": url,
+            "adapter_version": "direct-1",
+            "model": settings.PANDECT_DIRECT_AI.get(f"{provider}_model", ""),
+            "timeout": 300,
+        }
+        if provider == "openai":
+            execution["inference_settings"] = {
+                "store": False,
+                "max_output_tokens": 32768,
+                "text": {"format": {"type": "json_object"}},
+            }
+        else:
+            execution["api_version"] = "2023-06-01"
+            execution["inference_settings"] = {"max_tokens": 8192}
+        return execution
     execution = {
         "provider": provider,
         "api": "responses" if provider == "openai" else "workers-ai",
@@ -35,14 +69,7 @@ def gateway_execution(purpose, operation):
         "account": config["account"],
         "gateway": config["gateway"],
         "model": config["models"].get(purpose, ""),
-        **{
-            key: config[key]
-            for key in (
-                "timeout",
-                "max_request_bytes",
-                "max_response_bytes",
-            )
-        },
+        **limits,
     }
     if provider == "openai":
         if execution["model"] == "auto":
@@ -68,15 +95,55 @@ def gateway_execution(purpose, operation):
     return execution
 
 
-def gateway_destination(execution):
-    provider = {"openai": "OpenAI", "workers-ai": "Workers AI"}.get(
-        execution.get("provider", "workers-ai"), "Unconfigured provider"
-    )
+def external_ai_destination(execution):
+    provider = {
+        "openai": "OpenAI",
+        "anthropic": "Anthropic",
+        "workers-ai": "Workers AI",
+    }.get(execution.get("provider", "workers-ai"))
+    if not provider:
+        return "an external AI service the operator must select"
     model = execution.get("model") or "model not configured"
+    if execution.get("url"):
+        return f"{provider} · {model}"
     destination = f"{provider} via Cloudflare AI Gateway · {model}"
     if execution.get("account") and execution.get("gateway"):
         destination += f" · {execution['account']} / {execution['gateway']}"
     return destination
+
+
+def execution_destination(execution):
+    """Display the reviewed service without credentials or URL paths."""
+    if execution["backend"] == "gateway":
+        return external_ai_destination(execution)
+    try:
+        endpoint = urlsplit(execution.get("url", ""))
+    except ValueError:
+        return ""
+    if endpoint.scheme in {"http", "https"} and endpoint.hostname:
+        return f"{endpoint.scheme}://{endpoint.netloc.rsplit('@', 1)[-1]}"
+    return ""
+
+
+def inference_configured(execution, operation):
+    """Check the current settings without contacting the processing service."""
+    if execution["backend"] == "gateway":
+        from core.analysis.gateway import gateway_configured
+
+        return gateway_configured(execution["purpose"], operation)
+    from core.analysis.local import validate_local_configuration
+
+    try:
+        validate_local_configuration(execution)
+    except AnalysisError:
+        return False
+    return True
+
+
+def execution_confirmation(salt, scope, execution):
+    """Bind a workflow's review identity to its current processing route(s)."""
+    value = json.dumps([*scope, execution], sort_keys=True)
+    return salted_hmac(salt, value, algorithm="sha256").hexdigest()
 
 
 def requires_inference(operation, parameters):
@@ -182,12 +249,11 @@ def snapshot_execution(operation, parameters):
 
 def retry_execution_confirmation(actor_id, run_id, submission_id, execution):
     """Bind approval to the investigator, new submission, and reviewed route."""
-    value = json.dumps(
-        [str(actor_id), str(run_id), str(submission_id), execution], sort_keys=True
+    return execution_confirmation(
+        "analysis.retry.execution",
+        [str(actor_id), str(run_id), str(submission_id)],
+        execution,
     )
-    return salted_hmac(
-        "analysis.retry.execution", value, algorithm="sha256"
-    ).hexdigest()
 
 
 def validate_execution(run):

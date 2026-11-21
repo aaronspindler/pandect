@@ -112,13 +112,26 @@ class TripEvidenceIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.source(0, "10 Example Street")
         self.source(5, "20 Example Street")
         generation = self.build()
-        for role in ("owner", "editor", "viewer"):
-            self.login(role)
-            response = self.client.get(
-                reverse("core:analysis:processing", args=(self.case.pk,))
+        for geocode_status in ("queued", "complete"):
+            VehicleTripGeneration.objects.filter(pk=generation.pk).update(
+                geocode_status=geocode_status
             )
-            self.assertContains(response, "Trip processing history")
-            self.assertContains(response, str(self.vehicle))
+            for role in ("owner", "editor", "viewer"):
+                self.login(role)
+                response = self.client.get(
+                    reverse("core:analysis:processing", args=(self.case.pk,))
+                )
+                self.assertContains(response, str(self.vehicle))
+                self.assertContains(
+                    response,
+                    "Trip processing history",
+                    count=int(geocode_status == "complete"),
+                )
+                self.assertContains(
+                    response,
+                    "Preparing local address lookups",
+                    count=int(geocode_status == "queued"),
+                )
         self.case.delete()
         self.assertFalse(
             VehicleTripGeneration.objects.filter(pk=generation.pk).exists()

@@ -16,7 +16,8 @@ from config.access import product_login_required
 
 from .indexing import prepare_case_search
 from .queries import highlight_terms, search, suggest
-from .semantic import related_results
+from .semantic import meaning_query, related_results
+from .semantic_model import profile
 from .sources import TYPE_CHOICES
 
 
@@ -133,13 +134,18 @@ def results(request, case_id):
             if page.number == 1:
                 if not page.paginator.count:
                     _, context["spelling"] = suggest(case, query)
-                context["related"], context["meaning_status"] = related_results(
-                    case,
-                    user=request.user,
-                    query=query,
-                    keyword_urls={row["url"] for row in page},
-                    **filters,
-                )
+                if meaning_query(query, values["type"]):
+                    if request.GET.get("meaning") == "1":
+                        context["meaning_requested"] = True
+                        context["related"], context["meaning_status"] = related_results(
+                            case,
+                            user=request.user,
+                            query=query,
+                            keyword_urls={row["url"] for row in page},
+                            **filters,
+                        )
+                    else:
+                        context["offer_meaning"] = bool(profile())
             # Membership can change while a keyword query or private embedding runs.
             get_case(request.user, case_id)
     return render(

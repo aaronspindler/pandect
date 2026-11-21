@@ -3,6 +3,7 @@
 import csv
 import io
 from copy import copy, deepcopy
+from datetime import date
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -13,6 +14,7 @@ from django.urls import reverse
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
+from core.analysis.import_checks import imported_sources
 from core.analysis.services import process_run, resolve_inputs
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
@@ -20,7 +22,7 @@ from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.imessage import HEADERS, iter_import_rows
 from phone.imessage_forms import IMessageConfirmForm, IMessageUploadForm
-from phone.imessage_imports import start_preview
+from phone.imessage_imports import confirm_import, start_preview
 from phone.models import CommunicationContext, TextMessageEvidence
 
 SYNTHETIC_MESSAGE_GATEWAY = {
@@ -33,6 +35,19 @@ SYNTHETIC_MESSAGE_GATEWAY = {
     "timeout": 8,
     "max_request_bytes": 100_000,
     "max_response_bytes": 100_000,
+}
+SYNTHETIC_MESSAGE_LOCAL = {
+    "text": {
+        "url": "http://private-text.test:11434",
+        "model": "qwen3.5:9b",
+        "sha256": "a" * 64,
+        "runtime": "ollama@0.40.11",
+        "context_tokens": 32768,
+    },
+    "timeout": 120,
+    "max_request_bytes": 8388608,
+    "max_response_bytes": 2097152,
+    "max_output_tokens": 4096,
 }
 
 
@@ -67,7 +82,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
     def review_url(self, run, case=None):
         return reverse("phone:imessage_review", args=[(case or self.case).pk, run.pk])
 
-    def prepare(self, content=None):
+    def prepare(self, content=None, **parameters):
         self.login("owner")
         content = message_csv() if content is None else content
         response = self.client.post(
@@ -79,6 +94,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
                 "file": SimpleUploadedFile(
                     "messages.csv", content, content_type="text/csv"
                 ),
+                **parameters,
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -106,9 +122,9 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
 
     def new_people(self):
         return {
-            "account-mode": "create",
+            "account-person": "create",
             "account-first_name": "Export account",
-            "correspondent-mode": "create",
+            "correspondent-person": "create",
             "correspondent-first_name": "Correspondent",
             "correspondent-phone_number": "17055550100",
             "direct_chat": "on",
@@ -249,7 +265,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "Retained excerpts from the first 2 source rows")
         self.assertLess(
             response.content.index(b'id="imessage-preview-heading"'),
-            response.content.index(b'name="account-mode"'),
+            response.content.index(b'name="account-person"'),
         )
         self.assertFalse(TextMessageEvidence.objects.exists())
         first = self.client.post(self.review_url(preview), self.new_people())
@@ -268,11 +284,12 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(changed.status_code, 409)
         self.assertContains(changed, "already used", status_code=409)
-        changed_mode = self.client.post(
-            self.review_url(preview),
-            self.new_people() | {"mode": "ai"},
-        )
-        self.assertEqual(changed_mode.status_code, 409)
+        with self.settings(PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL):
+            changed_mode = self.client.post(
+                self.review_url(preview),
+                self.new_people() | {"mode": "ai"},
+            )
+        self.assertContains(changed_mode, "already used", status_code=409)
         final.refresh_from_db()
         self.assertEqual(final.parameters["analysis"]["mode"], "local")
         self.assertEqual(final.parameters["analysis"]["executions"], {})
@@ -299,6 +316,182 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "Local checks")
         self.assertNotContains(response, 'name="external_processing"')
         self.assertFalse(CaseAnalysisBatch.objects.exists())
+        self.assertFalse(
+            AnalysisRun.objects.filter(parameters__phase="import").exists()
+        )
+
+    def test_date_limited_review_only_publishes_and_analyzes_selected_messages(self):
+        bounds = {"start_date": "2026-07-29", "end_date": "2026-07-29"}
+        raw = message_csv(
+            {"Message Date": "2026-07-28 23:59:59", "Text": "Before the range"},
+            {"Text": "Selected message"},
+            {"Message Date": "2026-07-30 00:00:00", "Text": "After the range"},
+        )
+        preview = self.prepare(raw, **bounds)
+        self.assertEqual(preview.status, "complete", preview.error_code)
+        review = self.client.get(self.review_url(preview), {"page": 1})
+        self.assertContains(review, "2026-07-29 to 2026-07-29")
+        self.assertContains(review, "2 outside date range")
+        self.assertContains(review, "Before the range")
+        excluded = self.client.get(self.review_url(preview), {"rows": "excluded"})
+        self.assertContains(excluded, "Excluded message rows")
+        self.assertNotContains(excluded, "Selected message")
+        self.assertEqual(
+            [item["values"]["source_row"] for item in excluded.context["rows"]],
+            [2, 4],
+        )
+        confirmation = self.client.post(
+            self.review_url(preview),
+            self.new_people() | {"start_date": "2026-07-28", "end_date": "2026-07-30"},
+        )
+        final = AnalysisRun.objects.get(parameters__phase="import")
+        self.assertRedirects(confirmation, self.review_url(final))
+        self.assertEqual({field: final.parameters[field] for field in bounds}, bounds)
+        process_run(final.pk)
+        final.refresh_from_db()
+        self.assertEqual(final.status, "complete", final.error_code)
+        message = TextMessageEvidence.objects.get()
+        self.assertEqual(message.body, "Selected message")
+        self.assertEqual(
+            CommunicationContext.objects.get(message=message).source_row, 3
+        )
+        _, sources = imported_sources(self.case, CaseAnalysisBatch.objects.get().scope)
+        self.assertEqual(list(sources.values_list("pk", flat=True)), [message.pk])
+        with DocumentEvidence.objects.get().file.open("rb") as retained:
+            self.assertEqual(retained.read(), raw)
+
+    def test_reversed_date_range_is_rejected_before_retaining_the_file(self):
+        self.login("owner")
+        response = self.client.post(
+            self.upload_url(),
+            {
+                "submission_id": str(uuid4()),
+                "timezone": "America/Toronto",
+                "confirm_timezone": "on",
+                "start_date": "2026-07-30",
+                "end_date": "2026-07-29",
+                "file": SimpleUploadedFile("messages.csv", message_csv()),
+            },
+        )
+        self.assertContains(
+            response,
+            "The end date must be on or after the start date.",
+            status_code=400,
+        )
+        self.assertEqual(response.context["form"]["start_date"].value(), "2026-07-30")
+        self.assertEqual(response.context["form"]["end_date"].value(), "2026-07-29")
+        self.assertFalse(DocumentEvidence.objects.exists())
+        self.assertFalse(AnalysisRun.objects.exists())
+
+    def test_completed_import_opens_the_currently_published_message(self):
+        earlier = self.prepare(
+            message_csv(
+                {"Text": "Earlier publication"},
+                {"Message Date": "2026-07-30 08:00:00", "Text": "New publication"},
+            ),
+            end_date="2026-07-29",
+        )
+        document = DocumentEvidence.objects.get()
+        other = Person.objects.create(case=self.case, first_name="Correspondent")
+        owner = self.users["owner"]
+        people = {
+            "account": {"id": str(self.person.pk), "create": None},
+            "correspondent": {"id": str(other.pk), "create": None},
+        }
+        final, _ = confirm_import(owner, self.case.pk, earlier.pk, people)
+        process_run(final.pk)
+        final.refresh_from_db()
+        self.assertEqual(final.status, "complete", final.error_code)
+
+        later, _ = start_preview(
+            owner,
+            self.case.pk,
+            {
+                "submission_id": uuid4(),
+                "document": document,
+                "timezone": "America/Toronto",
+                "start_date": date(2026, 7, 30),
+            },
+        )
+        process_run(later.pk)
+        later.refresh_from_db()
+        self.assertEqual(later.status, "complete", later.error_code)
+        final, _ = confirm_import(owner, self.case.pk, later.pk, people)
+        process_run(final.pk)
+        final.refresh_from_db()
+        self.assertEqual(final.status, "complete", final.error_code)
+        message = TextMessageEvidence.objects.get(body="New publication")
+        receipt = self.client.get(self.review_url(final))
+        self.assertContains(receipt, f"?focus={message.pk}#message-{message.pk}")
+        self.assertContains(receipt, "1 new message added")
+
+    def test_reused_import_opens_message_within_reviewed_export_dates(self):
+        preview = self.prepare(
+            message_csv(
+                {"Message Date": "2026-07-30 01:00:00+00:00", "Text": "Earlier"},
+                {"Message Date": "2026-07-31 03:30:00+00:00", "Text": "Selected"},
+                {"Message Date": "2026-07-31 04:00:00+00:00", "Text": "Later"},
+            )
+        )
+        document = DocumentEvidence.objects.get()
+        owner = self.users["owner"]
+        other = Person.objects.create(case=self.case, first_name="Correspondent")
+        people = {
+            "account": {"id": str(self.person.pk), "create": None},
+            "correspondent": {"id": str(other.pk), "create": None},
+        }
+        final, _ = confirm_import(owner, self.case.pk, preview.pk, people)
+        process_run(final.pk)
+        self.assertEqual(TextMessageEvidence.objects.count(), 3)
+
+        limited, _ = start_preview(
+            owner,
+            self.case.pk,
+            {
+                "submission_id": uuid4(),
+                "document": document,
+                "timezone": "America/Toronto",
+                "start_date": date(2026, 7, 30),
+                "end_date": date(2026, 7, 30),
+            },
+        )
+        process_run(limited.pk)
+        final, _ = confirm_import(owner, self.case.pk, limited.pk, people)
+        process_run(final.pk)
+        receipt = self.client.get(self.review_url(final))
+        message = TextMessageEvidence.objects.get(body="Selected")
+        self.assertContains(receipt, f"?focus={message.pk}#message-{message.pk}")
+        self.assertContains(receipt, "0 new messages added · 1 already retained")
+        self.assertEqual(TextMessageEvidence.objects.count(), 3)
+
+    def test_retained_csv_with_no_matching_dates_cannot_be_confirmed(self):
+        self.login("owner")
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Retained CSV",
+            file=SimpleUploadedFile("messages.csv", message_csv()),
+        )
+        response = self.client.post(
+            self.upload_url(),
+            {
+                "submission_id": str(uuid4()),
+                "timezone": "America/Toronto",
+                "confirm_timezone": "on",
+                "document": str(document.pk),
+                "end_date": "2026-07-28",
+            },
+        )
+        preview = AnalysisRun.objects.get(parameters__phase="preview")
+        self.assertRedirects(response, self.review_url(preview))
+        process_run(preview.pk)
+        review = self.client.get(self.review_url(preview))
+        self.assertContains(review, "Through 2026-07-28")
+        self.assertContains(review, "No messages are ready to import for these dates.")
+        self.assertContains(review, f"?document={document.pk}")
+        self.assertFalse(review.context["can_confirm"])
+        confirmation = self.client.post(self.review_url(preview), self.new_people())
+        self.assertEqual(confirmation.status_code, 409)
         self.assertFalse(
             AnalysisRun.objects.filter(parameters__phase="import").exists()
         )
@@ -345,16 +538,17 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         final.refresh_from_db()
         self.assertEqual(final.status, "complete", final.error_code)
         response = self.client.get(self.review_url(final))
-        self.assertContains(response, "Selected analysis: Both")
+        self.assertContains(response, "Selected analysis: Local checks and AI")
         self.assertEqual(CaseAnalysisBatch.objects.get().scope["mode"], "both")
 
-    @override_settings(PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY | {"account": ""})
+    @override_settings(
+        PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY | {"account": ""},
+        PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,
+    )
     def test_missing_external_configuration_uses_local_ai_without_approval(self):
         preview = self.prepare()
         response = self.client.get(self.review_url(preview))
-        self.assertContains(
-            response, "AI will run locally because external AI is not configured."
-        )
+        self.assertContains(response, "AI will use the configured private service.")
         self.assertNotContains(response, 'name="external_processing"')
         for mode in ("ai", "both"):
             with self.subTest(mode=mode):
@@ -384,6 +578,36 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
                 route["backend"] == "local"
                 for route in final.parameters["analysis"]["executions"].values()
             )
+        )
+
+    @override_settings(PANDECT_LOCAL_AI={})
+    def test_unconfigured_ai_is_unavailable_and_local_checks_ignore_route_drift(self):
+        preview = self.prepare()
+        response = self.client.get(self.review_url(preview))
+        self.assertContains(response, "AI analysis is unavailable")
+        self.assertEqual(
+            list(response.context["form"].fields["mode"].choices),
+            [("local", "Local checks")],
+        )
+        payload = self.new_people()
+        self.assertEqual(
+            self.client.post(
+                self.review_url(preview), payload | {"mode": "ai"}
+            ).status_code,
+            400,
+        )
+        self.assertFalse(
+            AnalysisRun.objects.filter(parameters__phase="import").exists()
+        )
+        with self.settings(PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY):
+            self.assertEqual(
+                self.client.post(self.review_url(preview), payload).status_code, 302
+            )
+        self.assertEqual(
+            AnalysisRun.objects.get(parameters__phase="import").parameters["analysis"][
+                "executions"
+            ],
+            {},
         )
 
     def test_invalid_or_missing_analysis_mode_cannot_queue_import(self):
@@ -477,9 +701,8 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
             case=self.other_case, first_name="Foreign participant"
         )
         data = {
-            "account-mode": "existing",
             "account-person": str(self.person.pk),
-            "correspondent-mode": "existing",
+            "account-email": "unfinished draft",
             "correspondent-person": str(foreign.pk),
             "direct_chat": "on",
             "confirm": "on",
@@ -514,7 +737,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.client.get(self.upload_url()).status_code, 403)
         page = self.client.get(self.review_url(preview))
         self.assertContains(page, "Viewer access")
-        self.assertNotContains(page, 'name="account-mode"')
+        self.assertNotContains(page, 'name="account-person"')
         self.assertEqual(
             self.client.post(self.review_url(preview), self.new_people()).status_code,
             403,
@@ -540,7 +763,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         preview = self.prepare(message_csv({"Text": "", "Attachment": "photo.jpg"}))
         before = Person.objects.count()
         page = self.client.get(self.review_url(preview))
-        self.assertNotContains(page, 'name="account-mode"')
+        self.assertNotContains(page, 'name="account-person"')
         self.assertEqual(
             self.client.post(self.review_url(preview), self.new_people()).status_code,
             409,
@@ -568,6 +791,23 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(invalid.status_code, 400)
         self.assertIn("confirm_timezone", invalid.context["form"].errors)
         self.assertIn("timezone", invalid.context["form"].errors)
+        both = self.client.post(
+            self.upload_url(),
+            {
+                "submission_id": str(uuid4()),
+                "document": str(document.pk),
+                "file": SimpleUploadedFile("another.csv", message_csv()),
+                "timezone": "UTC",
+                "confirm_timezone": "on",
+            },
+        )
+        self.assertContains(
+            both,
+            "Upload one CSV or choose one retained document.",
+            status_code=400,
+        )
+        self.assertEqual(DocumentEvidence.objects.count(), 1)
+        self.assertEqual(AnalysisRun.objects.count(), 1)
         response = self.client.get(self.review_url(preview) + "?page=1")
         self.assertContains(response, "&lt;script&gt;")
         self.assertNotContains(response, '<script>alert("x")</script>')
@@ -592,6 +832,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
             self.new_people()
             | {
                 "account-first_name": "Preserved draft",
+                "account-email": "unfinished draft",
                 "confirm": "",
             },
         )
@@ -599,13 +840,14 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             invalid.context["account_form"]["first_name"].value(), "Preserved draft"
         )
+        self.assertIn("email", invalid.context["account_form"].errors)
         self.assertFalse(
             AnalysisRun.objects.filter(parameters__phase="import").exists()
         )
         DocumentEvidence.objects.update(case=self.other_case)
         removed = self.client.get(self.review_url(preview))
         self.assertNotContains(removed, "Original café")
-        self.assertNotContains(removed, 'name="account-mode"')
+        self.assertNotContains(removed, 'name="account-person"')
 
     def test_changed_source_hash_hides_rows_and_retry_follows_original_preview(self):
         preview = self.prepare()
@@ -630,7 +872,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         DocumentEvidence.objects.update(sha256="0" * 64)
         changed = self.client.get(self.review_url(attempt))
         self.assertNotContains(changed, "Original café")
-        self.assertNotContains(changed, 'name="account-mode"')
+        self.assertNotContains(changed, 'name="account-person"')
 
     def test_large_compact_review_has_no_row_cap_and_paginates_source_rows(self):
         raw = message_csv(
@@ -664,9 +906,23 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(first.context["imported"].paginator.count, 31)
         self.assertEqual(len(first.context["imported"].object_list), 25)
         self.assertContains(first, "31 new messages added")
+        self.assertContains(first, "View conversation")
+        self.assertContains(
+            first, '<details class="disclosure" id="imported-messages">'
+        )
+        self.assertLess(
+            first.content.index(b"View conversation"),
+            first.content.index(b"Source and import details"),
+        )
+        self.assertContains(
+            self.client.get(first.context["conversation_url"]), "31 messages"
+        )
         second = self.client.get(self.review_url(final) + "?messages_page=2")
         self.assertEqual(len(second.context["imported"].object_list), 6)
         self.assertContains(second, "Messages page 2 of 2")
+        self.assertContains(
+            second, '<details class="disclosure" id="imported-messages" open>'
+        )
 
     def test_legacy_preview_stays_readable_and_requires_a_new_review(self):
         preview = self.prepare()
@@ -679,7 +935,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         page = self.client.get(self.review_url(preview))
         self.assertContains(page, "Original café")
         self.assertContains(page, "earlier CSV review is retained for inspection")
-        self.assertNotContains(page, 'name="account-mode"')
+        self.assertNotContains(page, 'name="account-person"')
         self.assertEqual(
             self.client.post(self.review_url(preview), self.new_people()).status_code,
             409,
@@ -703,7 +959,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(changed.context["samples"], [])
         self.assertNotContains(changed, "Retained message")
         self.assertNotContains(changed, "Changed source bytes")
-        self.assertNotContains(changed, 'name="account-mode"')
+        self.assertNotContains(changed, 'name="account-person"')
 
     def test_summary_and_progress_never_parse_the_csv(self):
         preview = self.prepare()
@@ -717,7 +973,6 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         final = AnalysisRun.objects.get(parameters__phase="import")
         with (
             patch("phone.imessage_views.preview_source") as source,
-            patch("phone.imessage_views.resolve_inputs") as resolve,
             patch("phone.imessage_views.read_import_page") as read,
         ):
             for run in (preview, final):
@@ -729,14 +984,51 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertIn("no-store", response["Cache-Control"])
                 self.assertNotContains(response, "Original café")
             source.assert_not_called()
-            resolve.assert_not_called()
             read.assert_not_called()
         AnalysisRun.objects.filter(pk=final.pk).update(status="complete")
-        ready = self.client.get(self.review_url(final), HTTP_X_PANDECT_LIVE="1")
+        receipt = "?reviews=messages&history_page=2"
+        ready = self.client.get(
+            self.review_url(final) + receipt, HTTP_X_PANDECT_LIVE="1"
+        )
         self.assertContains(ready, "Open message import")
         self.assertContains(ready, 'data-live-poll="false"')
+        self.assertContains(
+            ready, self.review_url(final) + "?reviews=messages&amp;history_page=2"
+        )
+        self.assertContains(ready, "?reviews=messages&amp;page=2#processing-history")
 
-    def test_confirmation_still_verifies_changed_bytes_and_interpretation(self):
+    def test_processing_return_survives_cancel_confirmation_and_recovery(self):
+        preview = self.prepare()
+        review_query = {"reviews": "messages", "history_page": "2"}
+        origin = reverse(
+            "core:analysis:processing",
+            args=(self.case.pk,),
+            query={"reviews": "messages", "page": "2"},
+            fragment="processing-history",
+        )
+        review_url = reverse(
+            "phone:imessage_review", args=(self.case.pk, preview.pk), query=review_query
+        )
+        review = self.client.get(review_url)
+        self.assertContains(review, f'href="{origin.replace("&", "&amp;")}"', count=2)
+        confirmed = self.client.post(review_url, self.new_people())
+        final = AnalysisRun.objects.get(parameters__phase="import")
+        self.assertRedirects(
+            confirmed,
+            reverse(
+                "phone:imessage_review",
+                args=(self.case.pk, final.pk),
+                query=review_query,
+            ),
+        )
+        AnalysisRun.objects.filter(pk=final.pk).update(status="failed")
+        stopped = self.client.get(confirmed.url)
+        recovery = self.client.get(stopped.context["processing_details_url"])
+        self.assertContains(recovery, f'href="{origin.replace("&", "&amp;")}"')
+
+    def test_publication_verifies_changed_bytes_and_interpretation_after_confirmation(
+        self,
+    ):
         for drift in ("bytes", "interpretation"):
             with self.subTest(drift=drift):
                 preview = self.prepare()
@@ -750,13 +1042,22 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
                     data = deepcopy(preview.result.data)
                     data["imessage"]["interpretation_sha256"] = "0" * 64
                     AnalysisResult.objects.filter(run=preview).update(data=data)
-                denied = self.client.post(self.review_url(preview), self.new_people())
-                self.assertEqual(denied.status_code, 409)
-                self.assertFalse(
-                    AnalysisRun.objects.filter(
-                        parameters__phase="import", previous_run=preview
-                    ).exists()
+                with patch("phone.imessage_views.read_import_page") as read:
+                    accepted = self.client.post(
+                        self.review_url(preview), self.new_people()
+                    )
+                    read.assert_not_called()
+                self.assertEqual(accepted.status_code, 302)
+                final = AnalysisRun.objects.get(
+                    parameters__phase="import", previous_run=preview
                 )
+                process_run(final.pk)
+                final.refresh_from_db()
+                self.assertEqual(final.status, "failed")
+                self.assertFalse(TextMessageEvidence.objects.exists())
+                self.assertFalse(CaseAnalysisBatch.objects.exists())
+                response = self.client.get(accepted.url)
+                self.assertContains(response, "The original remains retained.")
                 AnalysisRun.objects.all().delete()
                 DocumentEvidence.objects.all().delete()
 

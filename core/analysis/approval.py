@@ -1,22 +1,32 @@
 """Bind a form's external approval to the destination actually displayed."""
 
-import json
 from uuid import uuid4
 
 from django import forms
-from django.utils.crypto import constant_time_compare, salted_hmac
+from django.utils.crypto import constant_time_compare
+from django.utils.html import format_html
 
-from core.analysis.execution import gateway_destination, snapshot_execution
+from core.analysis.execution import (
+    execution_confirmation,
+    execution_destination,
+    inference_configured,
+    snapshot_execution,
+)
+
+TRANSFER_CONTENT = {
+    "text": "text and source references",
+    "transcription": "recordings",
+    "geocode": "addresses or coordinates",
+    "map_context": "coordinates and search areas",
+}
 
 
 def _confirmation(form, submission_id):
-    value = json.dumps(
-        [*form.approval_context, str(submission_id), form.external_execution],
-        sort_keys=True,
+    return execution_confirmation(
+        "analysis.initial.execution",
+        [*form.approval_context, str(submission_id)],
+        form.external_execution,
     )
-    return salted_hmac(
-        "analysis.initial.execution", value, algorithm="sha256"
-    ).hexdigest()
 
 
 def prepare_external_approval(form, *, actor, case, operation, scope=()):
@@ -27,16 +37,28 @@ def prepare_external_approval(form, *, actor, case, operation, scope=()):
         operation,
         *scope,
     ]
-    form.external_execution = snapshot_execution(
+    execution = snapshot_execution(
         operation,
         {"backend": "gateway", "include_summary": True, "semantic_links": True},
     )
+    form.external_execution = execution
     form.fields["execution_confirmation"] = forms.CharField(
         required=False, widget=forms.HiddenInput
     )
     field = form.fields["external_processing"]
-    field.help_text = (
-        gateway_destination(form.external_execution) + ". " + field.help_text
+    destination = execution_destination(execution)
+    readiness = (
+        " Ask the operator to configure external AI for this analysis."
+        if execution["backend"] == "gateway"
+        and not inference_configured(execution, operation)
+        else ""
+    )
+    field.help_text = format_html(
+        "Sends selected {} to {}. Provider retention policies apply. "
+        "Sent requests cannot be recalled.{}",
+        TRANSFER_CONTENT[execution["purpose"]],
+        destination or "a geographic lookup service the operator must configure",
+        readiness,
     )
     if not form.is_bound:
         submission_id = form.initial.get("submission_id") or uuid4()

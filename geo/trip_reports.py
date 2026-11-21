@@ -5,7 +5,7 @@ from django.core.paginator import Paginator
 from core.evidence.queries import scoped_evidence
 from geo.trip_processing import (
     current_generations,
-    format_trip,
+    format_trips,
     saved_trips,
     trip_readiness,
 )
@@ -61,9 +61,9 @@ def saved_trip_report(
             f"{page_obj.paginator.count} possible "
             f"trip{'s' if page_obj.paginator.count != 1 else ''}"
         ),
-        "items": [format_trip(case, trip) for trip in page_obj],
+        "items": format_trips(case, page_obj),
         "page_obj": page_obj,
-        "gaps": [format_trip(case, gap) for gap in gap_page_obj],
+        "gaps": format_trips(case, gap_page_obj),
         "gap_page_obj": gap_page_obj,
         "warnings": warnings,
         "pending": pending,

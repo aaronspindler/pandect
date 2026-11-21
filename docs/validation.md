@@ -50,9 +50,10 @@ The development Compose smoke does not validate public DNS, TLS, or a remote rol
 
 `make test` and `make browser-check` select `config.test_settings`: PostgreSQL and
 application settings with source assets, without a release manifest. Test settings
-clear live Gateway destinations/credentials and select the default Workers AI
-route; provider tests supply synthetic settings and mock HTTP transport. Direct test
-commands also need `--settings=config.test_settings`; override Make's module with
+clear live gateway destinations and external AI credentials. Compose smoke also
+uses isolated synthetic configuration. Provider tests supply synthetic settings
+and mock HTTP transport. Direct test commands also need
+`--settings=config.test_settings`; override Make's module with
 `TEST_SETTINGS=<module>` for a separate test database configuration. Static tests
 exercise manifest collection/cache headers; Compose smoke checks the non-debug build.
 Synthetic test users use a fast password hasher only in test settings. A focused

@@ -22,7 +22,7 @@ not rotate passwords in initialized PostgreSQL volumes: rotate in PostgreSQL fir
 
 HTTP readiness does not prove queue execution. Use the [worker diagnostic and
 recovery procedures](background-tasks.md#startup-and-diagnostics) after startup.
-Independent Gateway analysis can use a bounded pool of
+Independent external AI analysis can use a bounded pool of
 [parallel local workers](background-tasks.md#parallel-local-workers) without
 replacing an active worker.
 
@@ -258,9 +258,11 @@ stop-first worker owns migrations; never migrate concurrently elsewhere. Migrati
 must support the running web release; plan destructive changes separately.
 
 Closed registration rejects GET/POST, including new invitees; existing accounts
-can sign in. Leave inference URLs/tokens unset for this first deployment. SMTP is
-optional for the marketing launch but required before password resets,
-verification, or invitation delivery.
+can sign in. Leave inference credentials and URLs unset for this first deployment.
+When enabling [external AI](analysis.md#external-ai-configuration), apply the
+same provider settings and credentials to both Applications. SMTP is optional
+for the marketing launch but required before password resets, verification, or
+invitation delivery.
 
 Trust `X-Forwarded-Proto` only behind the controlled proxy; retain secure
 session/CSRF cookies. `DJANGO_TRUST_PROXY_HEADERS` defaults to `false`; the Dokploy

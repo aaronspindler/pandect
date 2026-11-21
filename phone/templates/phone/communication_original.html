@@ -11,12 +11,12 @@
 </section>
 {% if is_call %}
 <section aria-labelledby="call-content-heading">
-  <div class="section-header"><h3 id="call-content-heading">Transcripts and audio</h3>{% if can_edit %}<a class="button button-secondary" href="{% url 'phone:add_attachment' case_id=case.pk kind=kind evidence_id=item.pk %}">Add transcript or audio</a>{% endif %}</div>
+  <div class="section-header"><h3 id="call-content-heading">Recordings and transcripts</h3>{% if can_edit %}<a class="button button-secondary" href="{% url 'phone:add_attachment' case_id=case.pk kind=kind evidence_id=item.pk %}">Add transcript or audio</a>{% endif %}</div>
   {% for attachment in attachments %}
   <article class="description-section" id="attachment-{{ attachment.pk }}" aria-labelledby="attachment-heading-{{ attachment.pk }}">
     <h4 id="attachment-heading-{{ attachment.pk }}">{% if attachment.file %}{{ attachment.original_filename }}{% else %}Supplied transcript{% endif %}</h4>
-    {% if attachment.transcript %}{% if attachment.file %}<h5>Supplied transcript</h5>{% endif %}<div class="original-text">{{ attachment.transcript }}</div><p><a href="{% url 'phone:attachment_download' case_id=case.pk kind=kind evidence_id=item.pk attachment_id=attachment.pk component='transcript' %}">Download transcript</a></p>{% endif %}
     {% if attachment.file %}<p>{{ attachment.byte_size|filesizeformat }} · {{ attachment.declared_content_type|default:"Content type not supplied" }}</p>{% audio_reader item attachment %}<p><a class="button button-secondary" href="{% url 'phone:attachment_download' case_id=case.pk kind=kind evidence_id=item.pk attachment_id=attachment.pk component='audio' %}">Download audio</a></p>{% endif %}
+    {% if attachment.transcript %}{% if attachment.file %}<h5>Supplied transcript</h5>{% endif %}<div class="original-text">{{ attachment.transcript }}</div><p><a href="{% url 'phone:attachment_download' case_id=case.pk kind=kind evidence_id=item.pk attachment_id=attachment.pk component='transcript' %}">Download transcript</a></p>{% endif %}
 
   </article>
   {% empty %}<p class="notice">No transcript or audio.</p>{% endfor %}

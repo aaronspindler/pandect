@@ -37,6 +37,15 @@
   max-width:48rem;
 }
 
+.evidence-query-label {
+  flex:none;
+  font-size:.875rem;
+}
+
+.evidence-match-link {
+  margin-inline-start:.625rem;
+}
+
 .evidence-search-row {
   display:flex;
   align-items:flex-start;
@@ -56,6 +65,10 @@
   background:var(--surface);
 }
 
+.evidence-search-field:focus-within {
+  border-color:var(--accent);
+}
+
 .evidence-search-field .icon-button {
   flex:none;
   padding:.5rem;
@@ -64,6 +77,7 @@
 }
 
 .workspace-page .evidence-search .evidence-search-field input {
+  flex:1;
   min-width:0;
   min-height:42px;
   padding:.5rem 0;
@@ -71,6 +85,17 @@
   border-radius:0;
   background:transparent;
   font-size:.875rem;
+}
+
+@media (max-width:32rem) {
+  .evidence-search-field {
+    flex-wrap:wrap;
+    row-gap:0;
+  }
+  .evidence-query-label {
+    flex-basis:100%;
+    padding-top:.25rem;
+  }
 }
 
 .evidence-filters {

@@ -18,16 +18,19 @@ from core.analysis.operations import OPERATIONS
 from core.analysis.reprocessing import (
     CONTEXT_REQUIRED_OPERATIONS,
     REPROCESS_OPERATIONS,
-    reprocessing_executions,
+    configured_reprocessing_executions,
     start_reprocessing,
 )
 from core.analysis.services import process_run
+from core.analysis.tests.test_execution import LOCAL
+from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from text.models import TextEvidence
 
 
+@override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=CONFIG)
 class ReprocessingTests(EvidenceViewTestMixin, TestCase):
     def test_every_available_operation_has_an_explicit_bulk_or_context_path(self):
         self.assertEqual(
@@ -43,7 +46,7 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
             submission_id=kwargs.pop("submission_id", uuid4()),
             kinds=list(kinds),
             mode=mode,
-            executions=kwargs.pop("executions", reprocessing_executions()),
+            executions=kwargs.pop("executions", configured_reprocessing_executions()),
             external_processing=kwargs.pop("external_processing", mode != "local"),
             **kwargs,
         )
@@ -198,7 +201,7 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
 
     def test_execution_drift_cannot_queue_unreviewed_destinations(self):
         self.text()
-        executions = reprocessing_executions()
+        executions = configured_reprocessing_executions()
         batch, _ = self.start(executions=executions)
         configuration = settings.PANDECT_LOCAL_AI
         with self.settings(

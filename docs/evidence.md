@@ -13,11 +13,15 @@ registered placeholder without an evidence category.
 
 ## Reading and editing evidence
 
-Readers keep originals beside source-linked findings. **Info** exposes provenance,
-integrity, retained descriptions, and processing history. **Edit details** and
-**Analyze evidence** are directly visible to owners/editors;
+Readers keep originals beside source-linked findings. **Findings** near the
+original's title jumps directly to its saved findings and check outcomes.
+**Analysis outcomes**
+links to checks and saved results that used the evidence. **Info** exposes
+provenance, integrity and retained descriptions. **Edit details** and
+**Analyze evidence** are directly visible to owners/editors.
 **More** holds secondary actions such as archive/restore. **Processing** shows
-case-wide history. See [screen specifications](interface-design.md#evidence-browsing-and-reading)
+current case work and opens case-wide history on demand. See the
+[screen specifications](interface-design.md#evidence-browsing-and-reading)
 and [automatic checks/recovery](analysis.md#retained-processing).
 
 Text messages use a compact message excerpt, reported sender, and reported time
@@ -29,16 +33,18 @@ retained; these labels also apply to messages imported earlier.
 
 ## Investigator workflow
 
-Owners/editors choose **Add evidence → Upload files** for documents, images, and
-audio together. **Add a record** offers Text, Location, Person location, Vehicle
+Owners/editors open **Add evidence** to jump directly to uploads, manual records,
+or CSV imports. **Upload files** accepts documents, images, and audio together.
+**Add a record** offers Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime. **Import records** offers vehicle
 locations and iMessage CSV. Message import retains its CSV, prepares background
 review, and requires confirmed people/timezone before publishing valid messages.
-Choose Local checks, AI, or Both for automatic analysis of new messages.
-Local checks is the default and runs no models; Both adds one AI suite.
-AI uses Gateway when configured, otherwise local/private inference. Review shows
-the destination; external AI requires explicit transfer approval;
-see [message imports](analysis-communications.md#message-csv-imports).
+Choose **Local checks** for new messages or, when AI is configured, choose
+**AI only** or **Local checks and AI**. Local checks is the default and runs no
+models. The combined option adds one AI suite.
+AI uses external AI when configured, otherwise private inference. Review shows
+the destination and requires explicit approval before
+external transfer. See [message imports](analysis-communications.md#message-csv-imports).
 
 Categories describe submitted material; parsers do not verify them. Text captures
 one browser-submitted original. Upload a text file as Document to preserve exact
@@ -56,7 +62,9 @@ it. Saved/unconfirmed submissions retain submitted values.
 Collection-time labels in shared and per-file details use the active display
 timezone, matching how the server interprets those times.
 
-Without browser support/JavaScript, intake links to a single-document form;
+The typed upload form always submits one file with the selected evidence type
+and its own source details. The batch queue stays under **Add evidence**.
+Without browser support/JavaScript, intake links to the single-document form.
 **Change type** selects other records. Forms show configured limits. Saved entries
 count toward the batch cap; **Start another batch** resets intake. See [configuration](development.md#configuration).
 
@@ -71,12 +79,14 @@ Validation errors name the affected field and open its source details so the
 correction is visible. A failed file can be retried independently; successful
 files stay saved.
 
-Evidence searches titles, descriptions, source details/URLs, filenames, location
+**Filter evidence** matches titles, descriptions, source details/URLs, filenames, location
 addresses, and linked people/contacts, with type, explicit person, and Active/
 Archived/All filters. Person filters include person locations and communication
 sender/recipient links with role labels, never inferred name/contact matches.
 Invalid/foreign person filters are rejected. Reader navigation retains filters;
-collections paginate at 25. Text originals display escaped and read-only.
+collections paginate at 25. The record title opens the original reader. Matches
+in extracted findings or supplied transcripts include a separate link to the
+matching passage. Text originals display escaped and read-only.
 
 Image previews support JPEG (`.jpg`/`.jpeg`) and single-frame PNG up to 16 MiB/
 50 million pixels, including 48 MP iPhone RAW exports saved as JPEG. Multi-picture
@@ -172,6 +182,12 @@ without moving the current position. Unknown times sort last; UUID ties imply no
 event order. Earlier/later links work by keyboard, without JavaScript, or after
 loading failure. Every batch checks current access.
 
+Use **Jump to date** on either tab to go to the first recorded message on that
+day in the reader's display timezone. In **Sessions & summaries**, Pandect opens
+the first saved session with a message on that day. Scroll up for earlier entries or down
+for later ones. If the day has no matches, choose another date from the same
+reader page.
+
 **Messages** combines all exports and individually retained messages. Matching
 copies share one timeline row when distinct exports supply an unambiguous
 matching native message ID and the same original wording, reported sender,
@@ -199,19 +215,22 @@ means saved sessions disagree about membership. Expand it for the alternatives
 and a link to the full paginated list when there are more than 25.
 Missing messages and overlapping topics can affect any inferred boundary.
 
-Switch to **Instances** to browse saved groupings for the pair, 25 per page.
+Switch to **Sessions & summaries** to browse saved groupings for the pair, 25 per page.
 Identical memberships appear once. Distinct groupings can overlap. **Show
 messages** expands the saved originals in order, 50 at a time, including their
-source references and links to Message details. The AI suggestion preview links
-to the cited summary report. It appears only when the report covers the entire
-instance. Owners and editors can **Request summary** when a full summary is
+source references and links to Message details. When a saved report covers the
+entire instance, a short AI suggestion appears by default. Expand **Full
+summary** to read all saved statements inline and reach the cited report.
+Long summaries load in the instance when you expand them.
+Owners and editors can **Request summary** when a full summary is
 missing and review the processing destination before submitting.
 
 **Findings** starts open with up to three short previews of saved findings for
 the message. Select a finding title for its full details. **More findings** opens
 the complete list at that message, 25 per page.
-**Conversation findings** above the stream holds session results and findings
-citing multiple sources, with separate pagination and links to cited messages.
+**Conversation findings** above the stream shows up to three saved session
+results and findings citing multiple sources, with links to cited messages.
+**More findings** opens the rest with separate pagination.
 Findings follow the participant pair through their exact citations. Results may also cite sources outside the
 current view and say so. **Open finding** retains full context, source inventory,
 and history. AI suggestions and partial coverage remain labelled. If an analyzed

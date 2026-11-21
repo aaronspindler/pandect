@@ -16,7 +16,11 @@ from core.models import AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import TextMessageEvidence
-from phone.tests.test_imessage_views import SYNTHETIC_MESSAGE_GATEWAY, message_csv
+from phone.tests.test_imessage_views import (
+    SYNTHETIC_MESSAGE_GATEWAY,
+    SYNTHETIC_MESSAGE_LOCAL,
+    message_csv,
+)
 
 
 class IMessageImportBrowserTests(BrowserTestCase):
@@ -40,13 +44,36 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     {
                         "name": "synthetic-messages.csv",
                         "mimeType": "text/csv",
-                        "buffer": message_csv(),
+                        "buffer": message_csv(
+                            {},
+                            {"Type": "Outgoing", "Sender ID": "", "Sender Name": ""},
+                            {"Message Date": "2026-07-30 00:00:00", "Text": "Later"},
+                        ),
                     }
                 )
                 page.get_by_label("Export timezone", exact=True).fill("America/Toronto")
                 page.get_by_label(
                     "I confirm this is the export's timezone", exact=True
                 ).check()
+                start_date = page.get_by_label("Start date", exact=True)
+                expect(start_date).to_be_hidden()
+                page.get_by_text("Limit by date", exact=True).press("Enter")
+                start_date.focus()
+                expect(start_date).to_be_focused()
+                start_date.fill("2026-07-29")
+                page.get_by_label("End date", exact=True).fill("2026-07-29")
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"upload-date-range-{width}-{height}")
                 page.get_by_role(
                     "button", name="Prepare message review", exact=True
                 ).click()
@@ -57,8 +84,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 self.db(process_run, preview_id)
                 page.reload()
                 expect(
-                    page.get_by_text("2 source rows · 2 ready · 0 excluded", exact=True)
+                    page.get_by_text("1 outside date range", exact=False)
                 ).to_be_visible()
+                expect(page.get_by_text("2026-07-29 to 2026-07-29")).to_be_visible()
                 expect(
                     page.get_by_role("heading", name="Message preview", exact=True)
                 ).to_be_visible()
@@ -69,7 +97,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     "link", name="Review all message rows", exact=True
                 ).click()
                 expect(
-                    page.get_by_text("Showing 1–2 of 2 rows.", exact=False)
+                    page.get_by_text("Showing 1–3 of 3 rows.", exact=False)
                 ).to_be_visible()
                 expect(page.locator("#imessage-message-rows")).to_contain_text(
                     "Original café"
@@ -77,18 +105,14 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 account = page.get_by_role(
                     "group", name="Export account — outgoing sender", exact=True
                 )
-                account.get_by_label("Person record", exact=True).select_option(
-                    "create"
-                )
+                account.get_by_label("Person", exact=True).select_option("create")
                 if not account.get_by_label("First name", exact=True).is_visible():
                     account.get_by_text("New person details", exact=True).click()
                 account.get_by_label("First name", exact=True).fill("Account sender")
                 correspondent = page.get_by_role(
                     "group", name="Correspondent — incoming sender", exact=True
                 )
-                correspondent.get_by_label("Person record", exact=True).select_option(
-                    "create"
-                )
+                correspondent.get_by_label("Person", exact=True).select_option("create")
                 if not correspondent.get_by_label(
                     "First name", exact=True
                 ).is_visible():
@@ -114,8 +138,8 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     exact=True,
                 ).check()
                 local = page.get_by_role("radio", name="Local checks", exact=True)
-                ai = page.get_by_role("radio", name="AI", exact=True)
-                both = page.get_by_role("radio", name="Both", exact=True)
+                ai = page.get_by_role("radio", name="AI only", exact=True)
+                both = page.get_by_role("radio", name="Local checks and AI", exact=True)
                 expect(local).to_be_checked()
                 expect(ai).not_to_be_checked()
                 both.focus()
@@ -208,7 +232,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 batch = self.db(CaseAnalysisBatch.objects.get, scope__id=str(final_id))
                 self.assertEqual(batch.scope["mode"], "both")
                 expect(
-                    page.get_by_text("Selected analysis: Both", exact=True)
+                    page.get_by_text(
+                        "Selected analysis: Local checks and AI", exact=True
+                    )
                 ).to_be_visible()
                 self.assertEqual(self.db(Person.objects.count), before + 2)
                 self.assertEqual(
@@ -236,6 +262,15 @@ class IMessageImportBrowserTests(BrowserTestCase):
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
                     self.capture(page, engine, f"automatic-analysis-{width}-{height}")
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.get_by_role("link", name="View conversation", exact=True).click()
+                expect(page.locator(".conversation-stream")).to_be_visible()
+                expect(page.locator("[data-message-panel]")).to_be_hidden()
+                expect(
+                    page.locator(f"#{urlsplit(page.url).fragment}")
+                ).to_be_in_viewport()
+                self.capture(page, engine, "conversation-after-import-mobile")
+                page.go_back()
                 follow.focus()
                 expect(follow).to_be_focused()
                 page.keyboard.press("Enter")
@@ -408,11 +443,14 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     )
                 )
                 expect(
-                    page.get_by_text("Selected analysis: AI", exact=True)
+                    page.get_by_text("Selected analysis: AI only", exact=True)
                 ).to_be_visible()
                 self.capture(page, engine, "rerun-analysis-processing")
 
-    @override_settings(PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY | {"account": ""})
+    @override_settings(
+        PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY | {"account": ""},
+        PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,
+    )
     def test_ai_uses_local_service_without_external_approval_when_not_configured(self):
         for engine in self.engines:
             account = Person.objects.create(
@@ -447,7 +485,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 )
                 expect(
                     page.get_by_text(
-                        "AI will run locally because external AI is not configured.",
+                        "AI will use the configured private service.",
                         exact=True,
                     )
                 ).to_be_visible()
@@ -457,19 +495,28 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("radio", name="Local checks", exact=True)
                 ).to_be_checked()
-                ai = page.get_by_role("radio", name="AI", exact=True)
+                ai = page.get_by_role("radio", name="AI only", exact=True)
                 ai.focus()
                 expect(ai).to_be_focused()
                 ai.press("Space")
                 expect(ai).to_be_checked()
-                page.get_by_role(
+                account_fields = page.get_by_role(
                     "group", name="Export account — outgoing sender", exact=True
-                ).get_by_label("Existing case person", exact=True).select_option(
-                    str(account.pk)
                 )
+                person = account_fields.get_by_label("Person", exact=True)
+                person.select_option(label="Create a person")
+                person_details = account_fields.get_by_text(
+                    "New person details", exact=True
+                )
+                person_details.click()
+                account_fields.get_by_label("Email", exact=True).fill(
+                    "unfinished draft"
+                )
+                person.select_option(str(account.pk))
+                person_details.click()
                 page.get_by_role(
                     "group", name="Correspondent — incoming sender", exact=True
-                ).get_by_label("Existing case person", exact=True).select_option(
+                ).get_by_label("Person", exact=True).select_option(
                     str(correspondent.pk)
                 )
                 page.get_by_label(
@@ -510,7 +557,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Messages imported", exact=True)
                 ).to_be_visible()
                 expect(
-                    page.get_by_text("Selected analysis: AI", exact=True)
+                    page.get_by_text("Selected analysis: AI only", exact=True)
                 ).to_be_visible()
                 batch = self.db(CaseAnalysisBatch.objects.get, scope__id=str(final_id))
                 self.db(prepare_case_analysis_batch, batch.pk)
@@ -535,6 +582,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 self.capture(page, engine, "local-ai-imported")
 
     def test_progress_completion_opens_prepared_review(self):
+        existing = Person.objects.create(case=self.case, first_name="Existing person")
         for engine in self.engines:
             document = DocumentEvidence.objects.create(
                 case=self.case,
@@ -579,3 +627,16 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("region", name="Message preview")
                 ).to_contain_text("Original café")
+                account = page.get_by_role(
+                    "group", name="Export account — outgoing sender", exact=True
+                )
+                person = account.get_by_label("Person", exact=True)
+                new_name = account.get_by_label("First name", exact=True)
+                expect(new_name).to_be_hidden()
+                person.select_option(label="Create a person")
+                expect(new_name).to_be_visible()
+                new_name.fill("Draft name")
+                person.select_option(str(existing.pk))
+                expect(new_name).to_be_hidden()
+                person.select_option(label="Create a person")
+                expect(new_name).to_have_value("Draft name")

@@ -123,6 +123,7 @@
 .catalogue-families a { display:flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; padding:.75rem 1rem; color:var(--secondary); border:1px solid transparent; border-radius:.25rem; font-size:.875rem; font-weight:600; text-decoration:none; }
 .catalogue-families a:hover { text-decoration:underline; color:var(--text); }
 .catalogue-families a[aria-current] { color:var(--accent); background:var(--selected); border-color:var(--boundary); text-decoration:underline; text-underline-offset:4px; }
+.catalogue-formats-link { margin-top:.5rem; }
 .catalogue-layout { display:grid; grid-template-columns:minmax(0,2.6fr) minmax(0,1fr); gap:3rem; padding-block:3rem 4rem; }
 .catalogue-results,.catalogue-support { min-width:0; }
 .catalogue-section { margin-bottom:3rem; scroll-margin-top:1.5rem; }

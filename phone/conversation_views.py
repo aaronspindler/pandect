@@ -28,7 +28,10 @@ from phone.conversations import (
     preceding_messages,
     timeline_messages,
 )
+from phone.forms import ConversationDayForm
 from phone.instance_views import conversation_instances
+
+MESSAGES_PER_PAGE = 50
 
 
 @product_login_required
@@ -93,35 +96,45 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
             key: request.GET[key]
             for key in (
                 *CONTEXT_PARAMETERS,
+                "focus",
                 "tab",
                 "instance",
+                "full_summary",
                 "message_page",
                 "copies",
                 "copy_page",
+                "day",
             )
             if request.GET.get(key)
         }
         return redirect(url + (f"?{urlencode(params)}" if params else ""))
 
+    day_form = ConversationDayForm(request.GET if "day" in request.GET else None)
+    day = day_form.cleaned_data["day"] if day_form.is_valid() else None
     if request.GET.get("tab") == "instances":
-        return conversation_instances(request, case, first, second)
+        return conversation_instances(request, case, first, second, day_form, day)
 
     messages = pair_messages(case, first, second)
     contexts = imported_contexts(case).filter(message__in=messages)
     groups = matching_copy_groups(contexts)
     timeline = timeline_messages(messages, contexts, groups)
     selected = None
-    if request.GET.get("message"):
+    selected_value = request.GET.get("message")
+    target_value = selected_value or request.GET.get("focus")
+    if target_value:
         try:
-            message_id = UUID(request.GET["message"])
+            message_id = UUID(target_value)
         except ValueError:
             raise Http404("Message not found.") from None
         selected = get_object_or_404(
             messages.select_related("sender", "recipient"), pk=message_id
         )
 
+    day_message = None
     for _attempt in range(2):
-        paginator = Paginator(timeline.select_related("sender", "recipient"), 50)
+        paginator = Paginator(
+            timeline.select_related("sender", "recipient"), MESSAGES_PER_PAGE
+        )
         page_number = request.GET.get("page")
         if selected:
             # Rank the logical row, even when the URL names another retained copy.
@@ -136,14 +149,30 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
             )
             page_number = (
                 preceding_messages(timeline, selected, row_id=representative).count()
-                // 50
+                // MESSAGES_PER_PAGE
                 + 1
             )
+        elif day is not None:
+            day_message = (
+                timeline.filter(occurred_at__date=day).only("occurred_at").first()
+            )
+            if day_message is not None:
+                page_number = (
+                    preceding_messages(
+                        timeline, day_message, row_id=day_message.pk
+                    ).count()
+                    // MESSAGES_PER_PAGE
+                    + 1
+                )
         page = paginator.get_page(page_number)
         rows = list(page.object_list)
         for message in rows:
             message.timeline_id = message.pk
         if selected is None:
+            if day_message is not None and not any(
+                row.pk == day_message.pk for row in rows
+            ):
+                continue
             break
         target = next(
             (i for i, row in enumerate(rows) if row.pk == representative), None
@@ -218,6 +247,11 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
                 )
 
     page.object_list = rows
+    params = request.GET.copy()
+    if day_message is not None or (target_value and not selected_value):
+        params["page"] = page.number
+    if not selected_value:
+        selected = None
     list_url = reverse(
         "phone:conversation_list",
         args=(case.pk,),
@@ -228,10 +262,13 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         "second_person": second,
         "page_obj": page,
         "selected_message": selected,
+        "day_form": day_form,
+        "day_message": day_message,
+        "day_not_found": day is not None and day_message is None and selected is None,
         "conversation_list_url": list_url,
         "list_page": list_page,
         "transcript_query": {
-            key: request.GET[key] for key in CONTEXT_PARAMETERS if request.GET.get(key)
+            key: params[key] for key in CONTEXT_PARAMETERS if params.get(key)
         },
         "page_query": urlencode(page_params),
         "nav_section": "analysis",
@@ -242,7 +279,7 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
             messages,
             rows,
             selected=selected,
-            params=request.GET,
+            params=params,
             list_page=list_page,
         )
     )

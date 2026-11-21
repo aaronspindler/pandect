@@ -3,7 +3,6 @@
 {% block title %}{% if item %}{{ display_title|default:item.title }}{% else %}Evidence{% endif %} · {{ case.name }}{% endblock %}
 {% block body_class %}workspace-page{% endblock %}
 {% block extra_head %}{% if item %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endif %}<link rel="stylesheet" href="{% static 'core/workspace.css' %}">{% endblock %}
-{% block case_context %}<a class="case-context" href="{% url 'cases:case_list' %}" aria-label="Change case, current case {{ case.name }}"><span class="muted">Case</span> <span class="case-context-name">{{ case.name }}</span>{% include 'ui/components/icon.html' with name='chevron-down' %}</a>{% endblock %}
 {% block extra_js %}{% include 'core/evidence/assets.html' only %}{% endblock %}
 {% block content %}
 <div class="evidence-workspace{% if item %} has-selection{% endif %}">
@@ -17,11 +16,10 @@
         {% if can_edit %}<div class="evidence-create-actions"><a class="button button-primary" href="{% url 'core:evidence:create' case_id=case.pk %}">Add<span class="visually-hidden"> evidence</span></a></div>{% endif %}
       </div>
       {% if checksum %}<p class="muted">Matching original checksum. <a href="{% url 'core:evidence:list' case.pk %}">Show all evidence</a></p>{% endif %}
-      <form method="get" action="{% url 'core:evidence:list' case_id=case.pk %}" class="evidence-search" role="search" aria-label="Search case evidence">
+    <form method="get" action="{% url 'core:evidence:list' case_id=case.pk %}" class="evidence-search" role="search" aria-label="Evidence list filter">
         {% if checksum %}<input type="hidden" name="checksum" value="{{ checksum }}">{% endif %}
-        <label class="visually-hidden" for="evidence-query">Search evidence</label>
         <div class="evidence-search-row">
-          <div class="evidence-search-field"><input id="evidence-query" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Search evidence…"><button class="icon-button" type="submit" aria-label="Search" title="Search" data-tooltip="Search">{% include 'ui/components/icon.html' with name='search' %}</button></div>
+          <div class="evidence-search-field"><label class="evidence-query-label" for="evidence-query">Filter evidence</label><input id="evidence-query" name="q" type="search" value="{{ query }}" maxlength="200"><button class="icon-button" type="submit" aria-label="Apply evidence filter" title="Apply evidence filter" data-tooltip="Apply evidence filter">{% include 'ui/components/icon.html' with name='search' %}</button></div>
           <details class="evidence-filters" data-disclosure{% if selected_kind or selected_person or state != 'active' %} open{% endif %}>
             <summary class="button button-secondary" aria-label="Filters{% if selected_kind or selected_person or state != 'active' %}, applied{% endif %}" title="Filters" data-tooltip="Filters">{% include 'ui/components/icon.html' with name='filter' %}<span>Filters</span></summary>
             <div class="evidence-filter-panel">
@@ -66,18 +64,19 @@
         {% if can_edit or can_delete_evidence %}{% include 'core/evidence/more.html' %}{% endif %}
       </div>
     </header>
-    {% if can_edit %}
     <nav class="evidence-task-actions actions" aria-label="Evidence actions">
+      <a class="record-link" href="#evidence-findings-heading">Findings</a>
+      {% if can_edit %}
       <a class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
       <details class="evidence-analyze" data-disclosure>
         <summary class="button button-secondary">Analyze evidence</summary>
         <div class="evidence-more-panel evidence-analysis-panel">
           {% for key,spec in additional_operations %}<a class="record-link" href="{% url 'core:analysis:external_evidence' case.pk kind item.pk %}?operation={{ key }}">{{ spec.label }}</a>{% endfor %}
-          <a class="record-link" href="{% url 'core:analysis:create' case.pk %}">Choose analysis</a>
+          <a class="record-link" href="{% url 'core:analysis:create' case.pk %}?source={{ kind|urlencode }}:{{ item.pk }}">Choose analysis</a>
         </div>
       </details>
+      {% endif %}
     </nav>
-    {% endif %}
     <section class="evidence-original" aria-labelledby="evidence-original-heading">
       <h2 class="visually-hidden" id="evidence-original-heading" tabindex="-1">Original</h2>
       {% include reader_template %}
@@ -92,6 +91,5 @@
 
 {% partialdef live %}
 {% include 'core/analysis/evidence.html' with evidence=item %}
-{% include 'core/evidence/info.html#history' %}
 {% include 'core/evidence/more.html#checks' %}
 {% endpartialdef %}

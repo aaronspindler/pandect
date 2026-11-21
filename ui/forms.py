@@ -1,12 +1,31 @@
+from datetime import UTC
+
 from django import forms
 from django.core import signing
 from django.utils import timezone
 
 
+class UTCDateTimeField(forms.DateTimeField):
+    """Parse and display a UTC wall time independently of the account timezone."""
+
+    def to_python(self, value):
+        with timezone.override(UTC):
+            value = super().to_python(value)
+        return value.astimezone(UTC) if value is not None else None
+
+    def prepare_value(self, value):
+        with timezone.override(UTC):
+            return super().prepare_value(value)
+
+
 def localize_datetime_labels(form):
     """Keep date/time input labels aligned with Django's active timezone."""
     for field in form.fields.values():
-        if isinstance(field, forms.DateTimeField) and field.label:
+        if (
+            isinstance(field, forms.DateTimeField)
+            and not isinstance(field, UTCDateTimeField)
+            and field.label
+        ):
             field.label = field.label.replace(
                 "(UTC", f"({timezone.get_current_timezone_name()}"
             )

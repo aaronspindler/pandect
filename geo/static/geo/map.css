@@ -2,9 +2,24 @@
 .map-filters > div { flex:1 1 12rem; min-width:0; }
 .map-filters label { display:block; margin-bottom:.25rem; font-weight:600; }
 .map-filters input, .map-filters select { width:100%; }
-.case-map-section { min-width:0; }
+.map-scope { overflow-wrap:anywhere; }
+.case-map-section {
+  min-width:0;
+  --trip-speed-slow:#12645e;
+  --trip-speed-medium:#2153ad;
+  --trip-speed-fast:#a53b1b;
+  --trip-speed-unknown:#56636d;
+}
 .case-map { height:clamp(22rem, 55vh, 40rem); width:100%; isolation:isolate; border:1px solid var(--boundary); border-radius:var(--radius); margin-bottom:1rem; color:#1d1d1f; background:#f0f2f5; font-family:inherit; }
 .map-summary { margin-bottom:0; }
+.trip-map-legend p { margin-bottom:.25rem; }
+.trip-speed-key { display:flex; flex-wrap:wrap; gap:.25rem 1rem; margin:0 0 1rem; padding:0; list-style:none; font-size:.875rem; }
+.trip-speed-key li { white-space:nowrap; }
+.trip-speed-key li::before { content:""; display:inline-block; vertical-align:middle; width:2.5rem; height:.25rem; margin-inline-end:.375rem; background:var(--trip-speed-pattern); forced-color-adjust:none; }
+.trip-speed-slow { --trip-speed-pattern:var(--trip-speed-slow); }
+.trip-speed-medium { --trip-speed-pattern:repeating-linear-gradient(to right,var(--trip-speed-medium) 0 8px,transparent 8px 14px); }
+.trip-speed-fast { --trip-speed-pattern:repeating-linear-gradient(to right,var(--trip-speed-fast) 0 2px,transparent 2px 8px); }
+.trip-speed-unknown { --trip-speed-pattern:repeating-linear-gradient(to right,var(--trip-speed-unknown) 0 8px,transparent 8px 14px,var(--trip-speed-unknown) 14px 16px,transparent 16px 22px); }
 .map-details { margin-top:.75rem; }
 .map-details summary { cursor:pointer; min-height:44px; align-content:center; }
 .map-details p { margin:.75rem 0; }
@@ -29,11 +44,10 @@
   .case-map { height:24rem; }
 }
 @media (forced-colors:active) {
+  .trip-speed-key { --trip-speed-slow:CanvasText; --trip-speed-medium:CanvasText; --trip-speed-fast:CanvasText; --trip-speed-unknown:CanvasText; }
   .case-map-marker span { border-color:CanvasText; background:Highlight; color:HighlightText; forced-color-adjust:none; }
 }
 .trip-path-canvas { position:absolute; pointer-events:none; }
-.map-selected-trip { padding:.75rem 0; border-bottom:1px solid var(--divider); overflow-wrap:anywhere; }
-.map-selected-trip h2 { margin-bottom:.25rem; font-size:1.25rem; }
 .map-prepare { margin-bottom:1rem; }
 .case-map-endpoint span { background:#0066cc; color:#fff; }
 @media (forced-colors:active) {

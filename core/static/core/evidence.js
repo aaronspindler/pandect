@@ -35,12 +35,12 @@
     if (typeof state.evidenceScroll === "number") records.scrollTop = state.evidenceScroll;
     else if (selected && selected.offsetTop > records.clientHeight) selected.scrollIntoView({block:"nearest"});
     records.addEventListener("click", (event) => {
-      if (event.target.closest(".evidence-row")) {
+      if (event.target.closest(".evidence-row, .evidence-match-link")) {
         history.replaceState({...history.state, evidenceScroll: records.scrollTop}, "");
       }
     });
   }
-  const form = document.querySelector("[data-evidence-upload]");
+  const form = document.querySelector("[data-bulk-upload]");
   if (!form) return;
   let formDirty = false;
   let entries = [];
@@ -64,25 +64,13 @@
   const submit = form.querySelector('button[type="submit"]');
   const limit = Number(form.dataset.maxFileBytes);
   const maxFiles = Number(form.dataset.maxBatchFiles);
-  const fields = Array.from(form.querySelectorAll(".field"));
-  const fileField = fileInput.closest(".field");
-  const additionalDetails = form.querySelector("[data-additional-evidence-details]");
   const csrf = form.querySelector('[name="csrfmiddlewaretoken"]').value;
-  const bulk = form.hasAttribute("data-bulk-upload");
   const sharedDetails = form.querySelector("[data-shared-details]");
-  const sharedInputs = Array.from(sharedDetails?.querySelectorAll("input, textarea") || []);
-  const collectedLabel = form.querySelector('[name="collected_at"]')?.labels?.[0]?.textContent || "Source collected at";
+  const sharedInputs = Array.from(sharedDetails.querySelectorAll("input, textarea"));
+  const collectedLabel = sharedDetails.querySelector('[name="collected_at"]').labels[0].textContent;
   const newBatch = form.querySelector("[data-new-batch]");
   const uploadActions = form.querySelector("[data-upload-actions]");
   let running = false, stopRequested = false, blocked = false;
-  fileInput.multiple = true;
-  fileInput.setAttribute("aria-describedby", `${fileInput.id}_helptext`);
-  const fileHelp = document.getElementById(`${fileInput.id}_helptext`);
-  if (!bulk) {
-    if (fileHelp) fileHelp.textContent += ` Select up to ${maxFiles} files, or drop them here. Each file is uploaded separately.`;
-    form.prepend(fileField);
-    form.insertBefore(section, form.querySelector(".actions"));
-  }
 
   const refreshControls = () => {
     const unknown = entries.some((entry) => entry.state === "unknown");
@@ -90,18 +78,11 @@
     submit.disabled = running || blocked || !entries.some((entry) => !entry.invalidFile && ["ready", "failed", "unknown"].includes(entry.state));
     fileInput.disabled = running || blocked || unknown;
     stopButton.hidden = !running;
-    if (uploadActions) uploadActions.hidden = !entries.length;
-    if (sharedDetails) sharedDetails.disabled = running || blocked;
-    if (newBatch) newBatch.hidden = running || blocked || unfinished || !entries.length;
-    const label = form.querySelector("[data-file-label]");
-    if (label) label.textContent = entries.length ? "Add more files" : "Select files";
-    submit.textContent = entries.length === 1 || (!bulk && !entries.length) ? "Upload file" : "Upload files";
-    if (!bulk) {
-      const hasFiles = entries.length > 0;
-      fields.filter((field) => field !== fileField).forEach((field) => {field.hidden = hasFiles;});
-      if (additionalDetails) additionalDetails.hidden = hasFiles;
-      form.noValidate = hasFiles;
-    }
+    uploadActions.hidden = !entries.length;
+    sharedDetails.disabled = running || blocked;
+    newBatch.hidden = running || blocked || unfinished || !entries.length;
+    form.querySelector("[data-file-label]").textContent = entries.length ? "Add more files" : "Select files";
+    submit.textContent = entries.length === 1 ? "Upload file" : "Upload files";
   };
   const inheritShared = (entry) => {
     if (blocked || entry.frozen || !["ready", "failed", "duplicate"].includes(entry.state)) return;
@@ -148,12 +129,12 @@
     entry.matches.hidden = state !== "duplicate";
     entry.remove.hidden = ["uploading", "saving", "added", "unknown"].includes(state) || running;
     entry.inputs.forEach((input) => input.disabled = Boolean(entry.frozen) || state === "added" || blocked);
-    if (entry.resetShared) entry.resetShared.disabled = Boolean(entry.frozen) || state === "added" || blocked || running;
+    entry.resetShared.disabled = Boolean(entry.frozen) || state === "added" || blocked || running;
     entry.progress.hidden = !["uploading", "saving"].includes(state);
   };
   const renderEntry = (file, defaults) => {
-    const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : bulk ? "document" : form.dataset.kind;
-    const entry = {id:crypto.randomUUID(), file, state:"ready", frozen:null, inputs:[], overrides:new Set(), defaults:{...defaults}};
+    const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : "document";
+    const entry = {id:crypto.randomUUID(), file, state:"ready", frozen:null, inputs:[], overrides:new Set()};
     entry.node = element("article", null, {class:"upload-entry"});
     const header = element("div", null, {class:"upload-entry-header"});
     header.append(element("strong", file.name));
@@ -172,7 +153,7 @@
     });
     header.append(entry.remove); entry.node.append(header);
     const basic = element("div", null, {class:"upload-entry-fields"});
-    entry.title = inputField(basic, entry, "title", "Title", "text", defaults.title || file.name);
+    entry.title = inputField(basic, entry, "title", "Title", "text", file.name);
     const category = element("div", null);
     const selectId = `queue-${entry.id}-kind`;
     category.append(element("label", "Category", {for:selectId}));
@@ -187,16 +168,14 @@
     inputField(details, entry, "source_description", "Source description", "textarea", defaults.source_description);
     inputField(details, entry, "source_url", "Source URL", "url", defaults.source_url);
     inputField(details, entry, "collected_at", collectedLabel, "datetime-local", defaults.collected_at);
-    if (bulk) {
-      details.append(element("p", "Source fields follow shared details until you edit them here. Clearing a field also overrides its shared value.", {class:"muted"}));
-      entry.resetShared = element("button", "Use shared details", {type:"button", class:"button button-secondary"});
-      entry.resetShared.addEventListener("click", () => {
-        entry.overrides.clear();
-        inheritShared(entry);
-        announce(`Shared source details restored for ${file.name}.`);
-      });
-      details.append(entry.resetShared);
-    }
+    details.append(element("p", "Source fields follow shared details until you edit them here. Clearing a field also overrides its shared value.", {class:"muted"}));
+    entry.resetShared = element("button", "Use shared details", {type:"button", class:"button button-secondary"});
+    entry.resetShared.addEventListener("click", () => {
+      entry.overrides.clear();
+      inheritShared(entry);
+      announce(`Shared source details restored for ${file.name}.`);
+    });
+    details.append(entry.resetShared);
     entry.node.append(details);
     entry.status = element("p", null, {class:"upload-status", id:`status-${entry.id}`});
     entry.matches = element("div", null, {class:"notice", "aria-label":"Matching evidence"});
@@ -225,18 +204,14 @@
     }
     const selected = Array.from(files);
     if (!selected.length) return;
-    if (selected.length + (bulk ? entries.length : 0) > maxFiles) {
+    if (selected.length + entries.length > maxFiles) {
       section.hidden = false;
-      const available = bulk ? maxFiles - entries.length : maxFiles;
+      const available = maxFiles - entries.length;
       overall.textContent = `This batch has room for ${available} more file${available === 1 ? "" : "s"} (${maxFiles} per batch). Your current queue is unchanged.`;
       refreshControls();
       return;
     }
-    if (!bulk && entries.some((entry) => ["ready", "failed", "duplicate"].includes(entry.state)) && !window.confirm("Replace the pending selection? Unsaved changes in this queue will be discarded. Previously added evidence stays saved.")) return;
-    const defaults = Object.fromEntries(new FormData(form).entries());
-    delete defaults.file; delete defaults.csrfmiddlewaretoken; delete defaults.submission_id;
-    defaults.title = !bulk && selected.length === 1 ? (defaults.title || "") : "";
-    if (!bulk) {container.replaceChildren(); entries = [];}
+    const defaults = Object.fromEntries(sharedInputs.map((input) => [input.name, input.value]));
     entries.push(...selected.map((file) => renderEntry(file, defaults)));
     section.hidden = !entries.length;
     overall.textContent = `${entries.length} file${entries.length === 1 ? "" : "s"} in this batch; ${entries.filter((entry) => entry.state === "added").length} added. Review titles and suggested categories before uploading.`;
@@ -252,14 +227,15 @@
     entry.inputs.forEach((input) => {input.removeAttribute("aria-invalid"); input.removeAttribute("aria-describedby");});
     if (!entry.frozen) {
       // Read the editable fields once, then reuse the exact payload on uncertain retries.
-      entry.frozen = {...entry.defaults};
+      entry.frozen = {};
+      if (entry.duplicateConfirmation) entry.frozen.duplicate_confirmation = entry.duplicateConfirmation;
       for (const input of entry.inputs) entry.frozen[input.dataset.fieldName] = input.value;
     }
     const data = new FormData();
-    Object.entries(entry.frozen).forEach(([key,value]) => {if (key !== "body" && value !== undefined) data.set(key, value);});
+    Object.entries(entry.frozen).forEach(([key, value]) => data.set(key, value));
     data.set("csrfmiddlewaretoken", csrf); data.set("submission_id", entry.id); data.set("file", entry.file, entry.file.name);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", form.dataset.uploadUrl);
+    xhr.open("POST", form.action);
     xhr.timeout = 180000;
     xhr.setRequestHeader("Accept", "application/json");
     xhr.setRequestHeader("X-CSRFToken", csrf);
@@ -281,7 +257,7 @@
         setStatus(entry, "blocked", result?.message || "Access is unavailable. Sign in again or ask the case owner for access before continuing.");
       } else if (xhr.status === 409 && result?.code === "duplicate_evidence") {
         entry.frozen = null;
-        entry.defaults.duplicate_confirmation = result.confirmation;
+        entry.duplicateConfirmation = result.confirmation;
         entry.matches.replaceChildren(element("p", "Matching evidence already exists. Review matches in a new tab, remove this file from the queue, or add a separate copy for its source."));
         const list = element("ul", null);
         result.matches.forEach((match) => {
@@ -335,8 +311,11 @@
     if (running || blocked) return;
     running = true; stopRequested = false;
     refreshControls(); stopButton.disabled = false;
-    if (bulk) entries.forEach((entry) => {if (entry.resetShared) entry.resetShared.disabled = true;});
-    entries.forEach((entry) => {entry.remove.hidden = true; entry.retry.disabled = true;});
+    entries.forEach((entry) => {
+      entry.resetShared.disabled = true;
+      entry.remove.hidden = true;
+      entry.retry.disabled = true;
+    });
     for (const entry of pending) {
       if (stopRequested || blocked) break;
       if (entry.invalidFile || !["ready", "failed", "unknown"].includes(entry.state)) continue;
@@ -355,14 +334,11 @@
   stopButton.disabled = true;
   stopButton.addEventListener("click", () => {stopRequested = true; stopButton.disabled = true; overall.textContent = "The current file will finish; pending files will stay queued.";});
   form.addEventListener("submit", (event) => {
-    if (!entries.length && !bulk) return;
     event.preventDefault();
     run(entries.slice());
   });
-  if (bulk) {
-    form.noValidate = true;
-    form.hidden = false;
-    document.querySelector("[data-bulk-fallback]").hidden = true;
-    refreshControls();
-  }
+  form.noValidate = true;
+  form.hidden = false;
+  document.querySelector("[data-bulk-fallback]").hidden = true;
+  refreshControls();
 })();

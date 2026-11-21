@@ -18,6 +18,7 @@ from cases.models import CaseMembership
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
+from phone.conversations import conversation_url
 from phone.models import CommunicationContext, TextMessageEvidence
 
 
@@ -239,6 +240,39 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
                 for context in evidence.context["native_thread_messages"]
             },
             {first.pk, second.pk},
+        )
+
+    def test_jump_to_date_uses_display_timezone_and_keeps_the_full_timeline(self):
+        midnight = datetime(2026, 11, 11, 5, tzinfo=UTC)
+        earlier = [
+            self.message(occurred_at=midnight - timedelta(minutes=52 - number))
+            for number in range(52)
+        ]
+        target = self.message(occurred_at=midnight)
+        later = self.message(occurred_at=midnight + timedelta(days=1))
+        unknown = self.message()
+        self.login("viewer")
+        self.client.cookies["pandect_timezone"] = "America/Toronto"
+        result = self.client.get(self.reader_url(), {"day": "2026-11-11"})
+        page = result.context["page_obj"]
+        self.assertEqual(page.number, 2)
+        self.assertEqual(page.paginator.count, 55)
+        self.assertEqual(list(page), [*earlier[50:], target, later, unknown])
+        self.assertIsNone(result.context["selected_message"])
+        self.assertContains(
+            result,
+            'data-conversation-day="2026-11-11" id="conversation-day-result"',
+        )
+        self.assertContains(result, 'href="?page=1"')
+        no_match = self.client.get(self.reader_url(), {"day": "2026-11-14", "page": 2})
+        self.assertEqual(list(no_match.context["page_obj"]), list(page))
+        self.assertContains(no_match, "No messages were recorded on that date.")
+        invalid = self.client.get(self.reader_url(), {"day": "2026-02-30"})
+        self.assertContains(invalid, "Enter a valid date.")
+
+        self.login("outsider")
+        self.assertEqual(
+            self.client.get(self.reader_url(), {"day": "2026-11-11"}).status_code, 404
         )
 
     def test_time_order_ties_unknowns_and_deep_links_beyond_first_page(self):
@@ -490,19 +524,25 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         )
         evidence = self.client.get(evidence_url)
         self.assertContains(evidence, "View in conversation")
-        conversation_url = evidence.context["conversation_url"]
-        params = parse_qs(urlsplit(conversation_url).query)
+        selected_url = evidence.context["conversation_url"]
+        params = parse_qs(urlsplit(selected_url).query)
         self.assertNotIn("source", params)
         self.assertEqual(params["message"], [str(messages[-1].pk)])
         self.assertEqual(params["list_page"], ["2"])
-        self.assertEqual(
-            urlsplit(conversation_url).fragment, f"message-{messages[-1].pk}"
-        )
-        returned = self.client.get(conversation_url)
+        self.assertEqual(urlsplit(selected_url).fragment, f"message-{messages[-1].pk}")
+        returned = self.client.get(selected_url)
         self.assertEqual(returned.context["page_obj"].number, 2)
         self.assertEqual(returned.context["selected_message"].pk, messages[-1].pk)
         self.assertEqual(
             returned.context["conversation_list_url"], self.list_url() + "?page=2"
+        )
+        focused_url = conversation_url(self.case, messages[-1], open_details=False)
+        focused = self.client.get(focused_url)
+        self.assertEqual(focused.context["page_obj"].number, 2)
+        self.assertIsNone(focused.context["selected_message"])
+        self.assertContains(focused, f'id="{urlsplit(focused_url).fragment}"')
+        self.assertEqual(
+            self.client.get(self.reader_url(), {"focus": uuid4()}).status_code, 404
         )
 
     def test_reversed_pair_redirect_preserves_reader_and_list_context(self):

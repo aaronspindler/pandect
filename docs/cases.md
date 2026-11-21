@@ -11,7 +11,7 @@ The creator becomes owner. Opening, creating, or joining a case checks access
 and opens **Case Tools**, as do saved case URLs. Shared navigation links to
 **Case Tools**, **Evidence**, and **Processing**. Case Tools groups evidence views,
 organizing tools, and reports in one directory, with recent evidence and
-source-linked findings below. Its header also links to Evidence and Processing
+source-linked findings above it. Its header also links to Evidence and Processing
 and offers **Add evidence** to owners/editors and **Case settings** to owners.
 **Case details** holds ownership, timestamps, your role, and saved read-only
 descriptions. Navigation labels stay visible on desktop and mobile.
@@ -29,8 +29,9 @@ and archive/restore evidence. Owners manage access and delete people, vehicles,
 or the case, subject to retained-evidence protections. Product users need no staff
 status or model permissions. See [maps](maps.md) for Map coverage and privacy.
 
-Owners rename cases and manage collaborators in Settings. Stale edits show the
-preserved draft beside newer values and require **Save reviewed changes**.
+Settings leads with collaborators and invitations. Owners open **Rename case**
+to edit the name. Stale edits reopen the form and show the draft beside newer
+values for **Save reviewed changes**.
 **Delete this case → Delete case** opens a named confirmation listing affected
 records, including archived evidence. There is no in-app undo; user accounts
 remain. See [operations](operations.md) and [evidence](evidence.md) for storage
@@ -64,8 +65,9 @@ or Editor. Recipients need an account with the invited email verified.
 operator-provisioned account. Invitations do not bypass registration. Acceptance
 requires POST and resumes after sign-in/verification; opening a link grants no access.
 
-Links expire after seven days. Owners can
-resend, revoke, or change pending roles; resend/role changes invalidate old tokens.
+Links expire after seven days. **Edit role** changes a current member's access.
+**Change role and resend** for an invitation sends a replacement link and
+invalidates the previous token. Owners can also resend or revoke an invitation.
 Mail failure retains an actionable pending invitation: check SMTP before resending.
 Pending/failed invitations remain visible; accepted/revoked records appear under
 **Invitation history**. `PANDECT_PUBLIC_ORIGIN` supplies email link origins.

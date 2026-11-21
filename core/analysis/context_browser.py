@@ -269,7 +269,7 @@ class ContextBrowserTests(BrowserTestCase):
                         exact=True,
                     )
                 ).to_be_visible()
-                page.get_by_text("Processing details", exact=True).press("Enter")
+                page.get_by_text("Details and history", exact=True).press("Enter")
                 summary = page.locator("summary").filter(has_text="Processing summary")
                 summary.focus()
                 expect(summary).to_be_focused()
@@ -338,9 +338,8 @@ class ContextBrowserTests(BrowserTestCase):
                 limits = page.locator("summary").filter(
                     has_text=re.compile(r"^Limitations$")
                 )
-                expect(page.locator(".analysis-result-limits")).to_have_attribute(
-                    "open", ""
-                )
+                expect(page.locator(".analysis-result-limits[open]")).to_have_count(0)
+                limits.press("Enter")
                 expect(
                     page.get_by_text(
                         "Printed English OCR runs locally; no image is sent "
@@ -358,7 +357,7 @@ class ContextBrowserTests(BrowserTestCase):
                 self.assertEqual(response.headers["content-type"], "image/jpeg")
                 self._capture_layouts(page, engine, "local-ocr-result")
                 page.goto(self.url("core:evidence:list", case_id=self.case.pk))
-                search = page.get_by_label("Search evidence", exact=True)
+                search = page.get_by_label("Filter evidence", exact=True)
                 search.fill("printed pickup")
                 search.press("Enter")
                 row = page.locator(".evidence-row").filter(
@@ -366,9 +365,14 @@ class ContextBrowserTests(BrowserTestCase):
                 )
                 expect(row).to_have_count(1)
                 expect(row).to_contain_text("printed pickup")
-                row.click()
+                expect(row).to_have_attribute("href", re.compile(r"/evidence/image/"))
+                page.get_by_role(
+                    "link", name="Open matching finding for Synthetic OCR page"
+                ).click()
                 expect(
-                    page.get_by_role("heading", name="Read text in images", exact=True)
+                    page.get_by_role(
+                        "heading", name="Synthetic printed pickup 07:30", exact=True
+                    )
                 ).to_be_visible()
                 page.locator("#finding-1").get_by_role(
                     "link", name="Synthetic OCR page", exact=True

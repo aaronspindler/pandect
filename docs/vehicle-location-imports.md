@@ -9,6 +9,8 @@ superusers have no access bypass.
 
 1. Choose a UTF-8 Asset Location CSV, an optional vehicle for the whole file, and
    the export timezone (initially **America/Toronto**, editable).
+   Starting from a vehicle's details preselects that vehicle, which you can change.
+   **Back to vehicle** and **Cancel** return to the vehicle record.
    [miTrail's Profile Preferences](https://info.mitrail.com/en-US/profile-preferences-password-change-740866)
    describes account timezone selection, not a universal export timezone. Check
    that preference; never infer timezone from an address. Optionally supply a
@@ -21,7 +23,10 @@ superusers have no access bypass.
 3. Review paginated original cells and interpreted timestamps in your
    [account/device timezone](cases.md#account-settings); the export timezone still
    controls interpretation. The upload vehicle preselects every `(Asset, Serial Number)` pair. Change these choices or select all vehicles now if none was
-   chosen. Assets never create vehicles or overwrite their details automatically.
+   chosen. **Add a vehicle** preserves your vehicle choices and duplicate setting
+   when you return from saving or cancelling. Choose the new vehicle for each
+   applicable asset and confirm the reviewed associations. Assets never create
+   vehicles or overwrite their details automatically.
 4. Confirm associations/import. Leave **Keep the possible duplicates as separate
    observations** unchecked to skip matches, or check it to retain them. Background
    publication commits all observations and completion together, reporting imported
@@ -40,9 +45,12 @@ verified email during preparation/publication. A verified owner/editor can retry
 if the original requester loses access/verification.
 
 Screens lead with progress and matching, with the export timezone and Created Time
-interpretation visible beside the review. **Source and time interpretation** and
-source rows use native disclosures; invalid rows open the preview. **View findings**
-opens findings/trips with raw observations in a disclosure. Saved trips process
+interpretation visible beside the review. **Rows to correct** lists the blocking
+errors beside their original row numbers, with a separate link to all source rows.
+**Source and time interpretation** and individual source rows use native
+disclosures. The completed import leads with published and skipped counts, a
+direct **View source CSV** link, and **Open case map** when observations are
+retained. Expand **Imported observations** to see the individual records. Saved trips process
 retained addresses/times without geocoding or review; see [automatic trips](analysis-locations.md#automatic-vehicle-trips).
 Each observation retains **Original CSV row and interpretation**, including receipt
 time, source cells, asset labels, and parser provenance.

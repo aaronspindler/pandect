@@ -36,9 +36,10 @@ truncated. Output allows 100 observations of 4,000 characters, ten citations per
 observation and 20 unknowns of 2,000 characters each, within shared result/inference
 limits. Retained dependency depth is limited to eight.
 
-Operator-controlled private inference is the default. External processing requires
-explicit approval through Cloudflare AI Gateway, disclosing the selected text and findings. Raw files are excluded. There is no cloud fallback. See
-[local analysis](local-analysis.md) for identities, capacity and qualification.
+Operator-controlled private inference is the default. External processing
+requires explicit approval of the provider and model before sending the
+selected text and findings. Raw files are excluded. See
+[local analysis](local-analysis.md) and [external AI setup](analysis.md#external-ai-configuration).
 
 Access and contributing originals are rechecked at enqueue, execution,
 publication and inspection. Missing sources/prior results withhold downstream
@@ -58,7 +59,7 @@ validity and interpretation errors. This guide claims no live qualification or
 deployment.
 
 Deliberately run the synthetic text-only harness against the configured private
-runtime, without database writes or Gateway calls:
+runtime, without database writes or external AI calls:
 
 ```sh
 uv run --locked --env-file .env python manage.py evaluate_local_analysis --method question_synthesis > /tmp/synthesis-qualification.json

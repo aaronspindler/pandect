@@ -1,8 +1,17 @@
 {% load l10n %}
 <article class="analysis-finding" id="finding-{{ item.number }}" tabindex="-1" aria-labelledby="finding-heading-{{ item.number }}">
   <header class="analysis-finding-heading">
-    {% if focused_finding %}<h2 id="finding-heading-{{ item.number }}">{{ item.label }}</h2>{% else %}<h3 id="finding-heading-{{ item.number }}">{% include 'core/analysis/finding_link.html' %}</h3>{% endif %}
+    {% if focused_finding %}
+      {% if show_result_overview %}<h2 id="finding-heading-{{ item.number }}">{{ item.short_value|default:item.label }}</h2>
+      {% else %}<h1 id="finding-heading-{{ item.number }}">{{ item.short_value|default:item.label }}</h1>{% endif %}
+      {% if item.short_value %}<p class="muted">{{ item.label }}</p>{% endif %}
+    {% else %}<h3 id="finding-heading-{{ item.number }}">{% include 'core/analysis/finding_link.html' %}</h3>{% endif %}
   </header>
+  {% if item.text or item.weak_ocr_text %}
+    {% if not focused_finding or not item.short_value %}
+    <div class="original-text analysis-finding-text{% if item.value_first and item.summary_text == item.text %} analysis-finding-short-value{% endif %}">{% firstof item.text item.weak_ocr_text %}</div>
+    {% endif %}
+  {% endif %}
   {% if item.review_reason %}<p class="muted">{{ item.review_reason }}{% if focused_finding and review_followup %} <a href="{{ review_followup.1 }}">{{ review_followup.0 }}</a>{% endif %}</p>{% endif %}
   {% if item.ai_suggestion %}<p class="muted analysis-finding-status">AI suggestion</p>{% endif %}
   {% if item.audio_url %}
@@ -13,9 +22,6 @@
   {% endif %}
   {% if item.plate_score != None %}
   <p><strong>Plate-likeness: {{ item.plate_score }}/100.</strong> Heuristic score, not a probability.{% if item.weak_plate_region %} Weak region. This region is below the default filter threshold.{% endif %}</p>
-  {% endif %}
-  {% if item.text or item.weak_ocr_text %}
-  <div class="original-text analysis-finding-text{% if item.value_first and item.summary_text == item.text %} analysis-finding-short-value{% endif %}">{% firstof item.text item.weak_ocr_text %}</div>
   {% endif %}
   {% if item.low_ocr_score %}
   <p class="analysis-finding-limit"><strong>Low OCR score.</strong> Compare this candidate with the original. The OCR engine score is uncalibrated.</p>
@@ -59,27 +65,30 @@
     {% if item.measurements and not item.collapse_measurements %}
       {% include 'core/analysis/measurements.html' with measurements=item.measurements only %}
     {% endif %}
-    {% if item.measurements and item.collapse_measurements or item.message_details %}
-    <details class="analysis-finding-details disclosure"{% if item.details_open %} open{% endif %}>
-      <summary>Details</summary>
-      {% if item.collapse_measurements and item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
-      {% for message in item.message_details %}
-      <section class="analysis-message-details">
-        <p><a href="{{ message.source.url }}">{{ message.source.label }}</a></p>
-        {% if message.source.anchors %}<div class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=message.source.anchors %}</div>{% endif %}
-        {% if message.references %}{% include 'core/analysis/measurements.html' with measurements=message.references only %}{% endif %}
-      </section>
-      {% endfor %}
-    </details>
-    {% endif %}
   {% endif %}
 
-  {% if item.prior_finding_links %}<h3>Quoted prior findings</h3><p class="muted">These quotations are from derived findings, not original evidence.</p>{% for citation in item.prior_finding_links %}<blockquote>{{ citation.quote }}</blockquote><p><a href="{{ citation.url }}">Open exact prior finding</a></p>{% endfor %}{% endif %}
+  {% if item.prior_finding_links %}{% if focused_finding and not show_result_overview %}<h2>Quoted prior findings</h2>{% else %}<h3>Quoted prior findings</h3>{% endif %}<p class="muted">These quotations are from derived findings, not original evidence.</p>{% for citation in item.prior_finding_links %}<blockquote>{{ citation.quote }}</blockquote><p><a href="{{ citation.url }}">Open exact prior finding</a></p>{% endfor %}{% endif %}
   {% if item.display_sources %}
-  {% if focused_finding %}<h3 class="analysis-finding-sources-heading">Sources</h3>{% else %}<h4 class="analysis-finding-sources-heading">Sources</h4>{% endif %}
+  {% if focused_finding and not show_result_overview %}<h2 class="analysis-finding-sources-heading">Sources</h2>{% elif focused_finding %}<h3 class="analysis-finding-sources-heading">Sources</h3>{% else %}<h4 class="analysis-finding-sources-heading">Sources</h4>{% endif %}
   <div{% if item.comparison_sources %} class="analysis-source-comparison"{% endif %}>
     {% include 'core/analysis/finding_sources.html' with sources=item.display_sources %}
   </div>
+  {% endif %}
+
+  {% if not metadata_result or not item.metadata_rows %}
+  {% if item.measurements and item.collapse_measurements or item.message_details %}
+  <details class="analysis-finding-details disclosure"{% if item.details_open %} open{% endif %}>
+    <summary>Details</summary>
+    {% if item.collapse_measurements and item.measurements %}{% include 'core/analysis/measurements.html' with measurements=item.measurements only %}{% endif %}
+    {% for message in item.message_details %}
+    <section class="analysis-message-details">
+      <p><a href="{{ message.source.url }}">{{ message.source.label }}</a></p>
+      {% if message.source.anchors %}<div class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=message.source.anchors %}</div>{% endif %}
+      {% if message.references %}{% include 'core/analysis/measurements.html' with measurements=message.references only %}{% endif %}
+    </section>
+    {% endfor %}
+  </details>
+  {% endif %}
   {% endif %}
 
   {% if focused_finding and item.can_select_estimate %}

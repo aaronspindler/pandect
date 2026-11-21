@@ -6,8 +6,9 @@ from .settings import PANDECT_AI_GATEWAY, STORAGES
 # Deliberately fast for synthetic test users; production settings are unchanged.
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
-# Routine tests never inherit live gateway destinations or credentials from .env.
+# Routine tests never inherit live external AI destinations or credentials.
 # Provider tests opt in with synthetic configuration and mocked HTTP transport.
+PANDECT_DIRECT_AI = {}
 PANDECT_AI_GATEWAY = PANDECT_AI_GATEWAY | {
     "account": "",
     "gateway": "",

@@ -2,7 +2,8 @@
 {% block title %}Import vehicle locations · {{ case.name }}{% endblock %}
 {% block content %}
 <div class="page-content">
-  <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
+  {% if launch_vehicle %}{% url 'vehicle:detail' case.pk launch_vehicle.pk as back_url %}{% else %}{% url 'core:evidence:list' case.pk as back_url %}{% endif %}
+  <a class="back-link" href="{{ back_url }}">{% if launch_vehicle %}Back to vehicle{% else %}Back to evidence{% endif %}</a>
   <header class="page-header"><div><h1>Import vehicle locations</h1><p>Upload an Asset Location CSV, then match its assets to your case vehicles.</p></div></header>
   <p>UTF-8 CSV · Up to {{ max_csv_rows }} observations · {{ max_csv_bytes|filesizeformat }} maximum</p>
   <details><summary>Supported CSV format</summary><p>Use the export with Asset, Serial Number, Address, Speed, Heading, Trigger, Time Summary, Created Time, and Received Time columns. Each CSV can describe up to {{ max_csv_groups }} distinct Asset and Serial Number pairs. Split exports with more source assets into separate files.</p>
@@ -12,7 +13,7 @@
   <form method="post" enctype="multipart/form-data" class="form-layout" data-unsaved-form>
     {% csrf_token %}{% include 'ui/components/form_fields.html' with form=form %}
     <p class="muted">The original CSV stays in your evidence. Review and confirm before locations are added. You can return later to finish.</p>
-    <div class="actions"><button class="button button-primary" type="submit">Upload CSV</button><a class="button button-secondary" href="{% url 'core:evidence:list' case_id=case.pk %}">Cancel</a></div>
+    <div class="actions"><button class="button button-primary" type="submit">Upload CSV</button><a class="button button-secondary" href="{{ back_url }}">Cancel</a></div>
   </form>
 </div>
 {% endblock %}

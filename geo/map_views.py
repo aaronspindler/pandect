@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
@@ -19,6 +19,7 @@ from geo.trip_geometry import GEOMETRY_CHUNK_SIZE, geometry_revision, source_pos
 from geo.trip_models import VehicleTrip
 from geo.trip_processing import (
     format_trip,
+    format_trips,
     prepare_case_trips,
     saved_trips,
     trip_readiness,
@@ -64,15 +65,6 @@ def poi_map_data(request, case, query):
     return page, points
 
 
-def _trip_url(case, trip, params=None):
-    url = reverse("geo:trip_detail", args=(case.pk, trip.pk))
-    return url + (f"?{params.urlencode()}" if params else "")
-
-
-def _summary(case, trip, params=None):
-    return format_trip(case, trip) | {"detail_url": _trip_url(case, trip, params)}
-
-
 def _map_context(request, case):
     query = request.GET.get("q", "")[:200].strip()
     poi_page, points = poi_map_data(request, case, query)
@@ -111,14 +103,27 @@ def case_map(request, case_id):
             trips = trips.none()
     page = Paginator(trips, 25).get_page(request.GET.get("page"))
     context = _map_context(request, case)
-    selected = page.object_list[0] if page else None
+    trip_filters_applied = filters["state"] != "active" or any(
+        filters.get(key) for key in ("vehicle_id", "start", "end")
+    )
+    summaries = format_trips(case, page)
+    for summary in summaries:
+        summary["detail_url"] = summary["trip_url"]
+        if request.GET:
+            summary["detail_url"] += "?" + request.GET.urlencode()
+    selected = summaries[0] if summaries else None
     context.update(
         form=form,
         page_obj=page,
-        trips=[_summary(case, trip, request.GET) for trip in page],
-        selected_trip=_summary(case, selected, request.GET) if selected else None,
-        geometry_url=_trip_url(case, selected) if selected else "",
-        filters_applied=bool(request.GET),
+        trips=summaries,
+        selected_trip=selected,
+        geometry_url=selected["trip_url"] if selected else "",
+        filters_applied=trip_filters_applied or bool(context["query"]),
+        trip_filters_applied=trip_filters_applied,
+        trip_filters=filters,
+        filtered_vehicle=dict(form.fields["vehicle_id"].choices).get(
+            filters.get("vehicle_id")
+        ),
         state=filters["state"],
     )
     if wants_json(request):
@@ -156,17 +161,46 @@ def trip_detail(request, case_id, trip_id):
             return JsonResponse(
                 {"message": "Choose a valid trip position."}, status=400
             )
-        revision = geometry_revision(case, trip)
+        cursor = int(cursor)
+        recheck = request.GET.get("recheck") == "1"
+        if recheck:
+            if (
+                trip.source_count > GEOMETRY_CHUNK_SIZE
+                or sources.filter(
+                    Q(snapshot__latitude=None)
+                    | Q(snapshot__longitude=None)
+                    | Q(snapshot__latitude__isnull=True)
+                    | Q(snapshot__longitude__isnull=True)
+                ).exists()
+            ):
+                return JsonResponse(
+                    {"message": "Load current trip positions."}, status=409
+                )
+            if request.GET.get("revision") != geometry_revision(
+                case, trip, reported_only=True
+            ):
+                return JsonResponse(
+                    {"message": "Trip positions changed. Reload the trip."}, status=409
+                )
+            return HttpResponse(status=204)
+        inputs = list(sources.filter(ordinal__gt=cursor)[: GEOMETRY_CHUNK_SIZE + 1])
+        has_next = len(inputs) > GEOMETRY_CHUNK_SIZE
+        can_reuse = (
+            cursor == 0
+            and not has_next
+            and all(
+                item.snapshot.get("latitude") is not None
+                and item.snapshot.get("longitude") is not None
+                for item in inputs
+            )
+        )
+        revision = geometry_revision(case, trip, reported_only=can_reuse)
         if request.GET.get("revision", revision) != revision:
             return JsonResponse(
                 {"message": "Trip positions changed. Reload the trip."}, status=409
             )
-        inputs = list(
-            sources.filter(ordinal__gt=int(cursor))[: GEOMETRY_CHUNK_SIZE + 1]
-        )
-        has_next = len(inputs) > GEOMETRY_CHUNK_SIZE
         rows = source_positions(case, inputs[:GEOMETRY_CHUNK_SIZE])
-        if revision != geometry_revision(case, trip):
+        if not can_reuse and revision != geometry_revision(case, trip):
             return JsonResponse(
                 {"message": "Trip positions changed. Reload the trip."}, status=409
             )
@@ -174,11 +208,15 @@ def trip_detail(request, case_id, trip_id):
             {
                 "trip_id": str(trip.pk),
                 "revision": revision,
+                "can_reuse": can_reuse,
                 "positions": [
                     {
                         "position": row["position"],
                         "label": row["position_label"],
                         "attribution": row["attribution"],
+                        "speed_kmh": float(row["speed_kmh"])
+                        if row["speed_kmh"] is not None
+                        else None,
                     }
                     for row in rows
                 ],
@@ -186,7 +224,11 @@ def trip_detail(request, case_id, trip_id):
                 "source_count": trip.source_count,
             }
         )
-    page = Paginator(sources, 50).get_page(request.GET.get("sources_page"))
+    address_sources = sources.filter(snapshot__latitude=None)
+    review_estimates = request.GET.get("view") == "estimates"
+    page = Paginator(address_sources if review_estimates else sources, 50).get_page(
+        request.GET.get("sources_page")
+    )
     context = _map_context(request, case)
     back_params = request.GET.copy()
     for key in tuple(back_params):
@@ -199,10 +241,12 @@ def trip_detail(request, case_id, trip_id):
         back_url += "?" + back_params.urlencode()
     context.update(
         back_url=back_url,
-        selected_trip=_summary(case, trip),
-        geometry_url=_trip_url(case, trip),
+        selected_trip=format_trip(case, trip),
+        geometry_url=reverse("geo:trip_detail", args=(case.pk, trip.pk)),
         source_page=page,
         source_rows=source_positions(case, list(page)),
+        has_address_sources=review_estimates or address_sources.exists(),
+        review_estimates=review_estimates,
         detail=True,
     )
     return render(request, "geo/trip_detail.html", context)

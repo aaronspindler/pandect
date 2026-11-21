@@ -183,12 +183,25 @@ def monitor_detail(request, case_id, monitor_id):
     case = get_case(request.user, case_id)
     monitor = get_object_or_404(InstagramMonitor, case=case, pk=monitor_id)
     captures = InstagramCapture.objects.filter(evidence__case=case).defer("entries")
-    checks = monitor.checks.order_by("-started_at", "-pk")
-    history = Paginator(
-        checks.prefetch_related(Prefetch("captures", queryset=captures)), 10
-    ).get_page(request.GET.get("page"))
+    checks = monitor.checks.prefetch_related(Prefetch("captures", queryset=captures))
+    history = Paginator(checks, 10).get_page(request.GET.get("page"))
     for check in history:
         check.message = monitor_jobs.check_message(check.error) if check.error else ""
+    if history.number == 1:
+        latest = next(iter(history), None)
+        last_success = next(
+            (check for check in history if check.status == "complete"), None
+        )
+    else:
+        latest = checks.first()
+        last_success = latest if latest and latest.status == "complete" else None
+    if last_success is None and history.paginator.num_pages > 1:
+        last_success = checks.filter(status="complete").first()
+    latest_captures = (
+        {item.direction: item for item in last_success.captures.all()}
+        if last_success
+        else {}
+    )
     # A comparison reads both sources. Enforce both relationships on every read.
     comparisons = (
         InstagramComparison.objects.filter(
@@ -196,7 +209,6 @@ def monitor_detail(request, case_id, monitor_id):
             capture__evidence__case=case,
             previous__monitor_check__monitor=monitor,
             previous__evidence__case=case,
-            addition_count__gt=0,
         )
         .select_related("capture__monitor_check", "previous__monitor_check")
         .annotate(first_handle=F("additions__0__handle"))
@@ -208,12 +220,42 @@ def monitor_detail(request, case_id, monitor_id):
         ("followers", "New followers"),
         ("following", "New accounts followed"),
     ):
-        page = Paginator(comparisons.filter(capture__direction=direction), 5).get_page(
-            request.GET.get(direction)
+        direction_comparisons = comparisons.filter(capture__direction=direction)
+        latest_comparison = direction_comparisons.first()
+        earlier_additions = direction_comparisons.filter(addition_count__gt=0)
+        if latest_comparison:
+            earlier_additions = earlier_additions.exclude(pk=latest_comparison.pk)
+        changes.append(
+            {
+                "direction": direction,
+                "title": title,
+                "comparison": latest_comparison,
+                "capture": latest_captures.get(direction),
+                "earlier": Paginator(earlier_additions, 5).get_page(
+                    request.GET.get(direction)
+                ),
+            }
         )
-        changes.append((direction, title, page))
-    latest = checks.first()
-    late = monitor.next_check_at and monitor.next_check_at < timezone.now()
+    running = (
+        latest
+        if latest
+        and latest.generation == monitor.generation
+        and latest.status == "running"
+        else None
+    )
+    recoverable = monitor_jobs.check_needs_recovery(
+        monitor, running, now=timezone.now()
+    )
+    intervals = (
+        [
+            (hours, label)
+            for hours, label in InstagramMonitor.INTERVALS
+            if instagram_connector.allowed_target(monitor.source, monitor.target, hours)
+        ]
+        if instagram_connector.available()
+        and instagram_connector.permits(monitor.created_by_id, case.pk)
+        else []
+    )
     return render(
         request,
         "socialmedia/monitor_detail.html",
@@ -221,20 +263,21 @@ def monitor_detail(request, case_id, monitor_id):
         | {
             "monitor": monitor,
             "creator": request.user.pk == monitor.created_by_id,
-            "last_success": checks.filter(status="complete").first(),
+            "last_success": last_success,
+            "latest_failed_check": latest
+            if latest and latest.status == "failed"
+            else None,
             "latest_issue": monitor_jobs.check_message(latest.error)
-            if latest and latest.error and monitor.status == "paused"
+            if latest
+            and latest.error
+            and (latest.status == "failed" or monitor.status == "paused")
             else "",
             "history": history,
             "changes": changes,
-            "recoverable": monitor.status == "active"
-            and (late or (latest and latest.status == "running")),
-            "available": instagram_connector.available()
-            and instagram_connector.current_source() == monitor.source
-            and instagram_connector.permits(monitor.created_by_id, case.pk)
-            and instagram_connector.allowed_target(
-                monitor.source, monitor.target, monitor.interval_hours
-            ),
+            "running": bool(running),
+            "recoverable": recoverable,
+            "intervals": intervals,
+            "available": monitor.interval_hours in dict(intervals),
         },
     )
 
@@ -287,17 +330,26 @@ def monitor_action(request, case_id, monitor_id, action):
         "stop": (monitor_jobs.stop_monitor, "Monitor stopped."),
         "recover": (monitor_jobs.recover_monitor, "A replacement check is queued."),
     }
-    if action not in actions:
+    if action not in actions and action != "interval":
         raise Http404
     case = get_case(request.user, case_id, edit=True)
     monitor = get_object_or_404(InstagramMonitor, case=case, pk=monitor_id)
-    operation, notice = actions[action]
     try:
+        if action == "stop" and request.POST.get("confirm_stop") != "1":
+            raise ValidationError("Confirm that you want to stop future checks.")
         if action == "recover" and request.POST.get("worker_stopped") != "1":
             raise ValidationError(
                 "Confirm the previous worker has stopped before recovering this check."
             )
-        operation(request.user, case.pk, monitor.pk)
+        if action == "interval":
+            interval = forms.TypedChoiceField(
+                coerce=int, choices=InstagramMonitor.INTERVALS
+            ).clean(request.POST.get("interval_hours"))
+            monitor_jobs.change_interval(request.user, case.pk, monitor.pk, interval)
+            notice = "Check interval saved."
+        else:
+            operation, notice = actions[action]
+            operation(request.user, case.pk, monitor.pk)
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:

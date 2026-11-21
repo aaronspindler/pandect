@@ -6,6 +6,7 @@ from django import forms
 
 from core.analysis.approval import prepare_external_approval, validate_external_approval
 from core.analysis.form_base import BaseAnalysisForm, selection
+from core.analysis.readiness import configured_backends
 from core.analysis.sources import source_id
 
 
@@ -19,22 +20,27 @@ class InstanceSummaryForm(forms.Form):
     external_processing = forms.BooleanField(
         required=False,
         label="I approve sending these messages to the external AI service",
-        help_text=(
-            "External processing sends the selected messages through the operator’s "
-            "Cloudflare AI Gateway. Previously sent requests cannot be recalled. "
-            "Operator retention policies apply."
-        ),
     )
 
-    def __init__(self, *args, case, actor, instance_id, **kwargs):
+    def __init__(self, *args, case, actor, scope, **kwargs):
         super().__init__(*args, **kwargs)
-        prepare_external_approval(
-            self,
-            actor=actor,
-            case=case,
-            operation="session_summaries",
-            scope=(str(instance_id),),
-        )
+        operation = "session_summaries"
+        self.approved_execution = None
+        self.available_backends = configured_backends(operation, {})
+        backend = self.fields["backend"]
+        backend.choices = [
+            (value, label)
+            for value, label in backend.choices
+            if value in self.available_backends
+        ]
+        if self.available_backends == ("gateway",):
+            backend.initial = ""
+            backend.choices = [("", "Choose a processing location"), *backend.choices]
+        self.show_external_approval = "gateway" in self.available_backends
+        if self.show_external_approval:
+            prepare_external_approval(
+                self, actor=actor, case=case, operation=operation, scope=scope
+            )
 
     def clean(self):
         data = super().clean()
@@ -149,3 +155,29 @@ class PhoneAnalysisForm(BaseAnalysisForm):
             if set(data.get(key, [])) - chosen:
                 self.add_error(key, "Choose sources included in this analysis.")
         return data
+
+
+class ConversationGroupingForm(forms.Form):
+    submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
+    reviewed_scope = forms.CharField(widget=forms.HiddenInput)
+    gap_minutes = forms.FloatField(
+        min_value=1,
+        max_value=10080,
+        label="Minutes between groups",
+        initial=60,
+        help_text=(
+            "A longer gap starts a new group. "
+            "Farewells and greetings can also mark a boundary."
+        ),
+    )
+
+    def clean_reviewed_scope(self):
+        reviewed = self.cleaned_data["reviewed_scope"]
+        current = self.initial["reviewed_scope"]
+        if reviewed != current:
+            self.data = self.data.copy()
+            self.data["reviewed_scope"] = current
+            raise forms.ValidationError(
+                "The messages changed. Review the current coverage and submit again."
+            )
+        return reviewed

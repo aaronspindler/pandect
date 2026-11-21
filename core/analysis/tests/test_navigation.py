@@ -378,6 +378,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(highlights[0]["review_reason"], first["review_reason"])
         self.assertContains(evidence, first["review_reason"])
         self.assertEqual(len(highlights), 2)
+        self.assertContains(evidence, "The preview checks up to 50 candidates.")
 
     def test_findings_pagination_keeps_global_indices(self):
         run, result = self.findings_fixture()
@@ -424,7 +425,8 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         focused = self.client.get(self.detail_url(run) + suffix + "&page=2&finding=52")
         self.assertEqual(focused.context["items"][0]["index"], 51)
         self.assertContains(
-            focused, f'href="{index}?kind=text&amp;status=complete&amp;page=2"'
+            focused,
+            f'href="{index}?kind=text&amp;status=complete&amp;page=2#processing-history"',
         )
 
     def test_finding_selection_uses_its_own_page(self):

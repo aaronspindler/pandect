@@ -25,13 +25,15 @@ below that disclosure and opens the separate confirmation.
 Only owners can delete people, after named-target confirmation. Unlinked-person
 deletion retains evidence, login accounts, and matching people. Retained
 person-location evidence or communication sender/recipient links block deletion,
-including when archived. Whole-case deletion removes both; see [location
+including when archived. The deletion page links to blocking originals before
+offering any confirmation. Whole-case deletion removes both; see [location
 observations](evidence.md#location-observations). Product users need no staff access.
 
 ### Related evidence and findings
 
 Details show 25 related evidence records and 25 findings per page, paginated
-independently of POIs and People. Browse links retain the person filter. Archived
+independently of POIs and People. **Findings** beside the person's name jumps to
+the findings section when results are available. Browse links retain the person filter. Archived
 evidence is included. Sender, Recipient, Both, and Location labels describe
 explicit text-message, phone-call, FaceTime, or person-location relationships.
 Self-messages appear once; call additions/extractions retain their parent

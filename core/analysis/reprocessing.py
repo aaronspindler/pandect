@@ -14,6 +14,7 @@ from django.http import Http404
 from cases.permissions import get_case
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
+    inference_configured,
     processing_external,
     requires_inference,
     retry_execution_confirmation,
@@ -66,6 +67,11 @@ MODEL_PARAMETERS = {
     "session_summaries": {"gap_minutes": 60},
     "conversation_link": {"semantic_links": True, "time_window_minutes": 10},
 }
+MODE_LABELS = {
+    "local": "Local checks and private services",
+    "external": "External services",
+    "both": "Local, private and external services",
+}
 
 
 def reprocessing_executions():
@@ -82,30 +88,59 @@ def reprocessing_executions():
     return routes
 
 
-def _route_keys(kinds, mode):
-    operations = set()
-    if set(kinds) & {"audio", *CALL_KINDS}:
-        operations.add("transcription")
-    if set(kinds) - set(LOCATION_KINDS):
-        operations.update(("text_topics", "content_events"))
-    if "text-message" in kinds:
-        operations.add("session_summaries")
-    if set(kinds) & set(COMMUNICATION_KINDS):
-        operations.add("conversation_link")
+def configured_reprocessing_executions():
+    """Offer only configured routes, with no runtime connectivity probe."""
+    from geo.analysis.external.geocoding import Geocoder
+    from geo.analysis.external.geographic_context import ContextClient
+
+    routes = reprocessing_executions()
+    available = {
+        key: route
+        for key, route in routes.items()
+        if ":" in key and inference_configured(route, key.partition(":")[0])
+    }
+    for operation, client in (
+        ("geocode_locations", Geocoder),
+        ("geographic_context", ContextClient),
+    ):
+        try:
+            client()
+        except AnalysisError, ValueError:
+            continue
+        available[operation] = routes[operation]
+    return available
+
+
+def reprocessing_routes(kinds, mode, executions):
     backends = (
         ("local", "gateway")
         if mode == "both"
         else ("local" if mode == "local" else "gateway",)
     )
+    kinds = set(kinds)
+    operations = set()
+    if kinds & {"audio", *CALL_KINDS}:
+        operations.add("transcription")
+    # Recording-only selections need a usable transcription route before text
+    # analysis can run. Combined processing can use a private transcript.
+    if kinds - {"audio", *LOCATION_KINDS} or (
+        "audio" in kinds
+        and any(f"transcription:{backend}" in executions for backend in backends)
+    ):
+        operations.update(("text_topics", "content_events"))
+    if "text-message" in kinds:
+        operations.add("session_summaries")
+    if kinds.intersection(COMMUNICATION_KINDS):
+        operations.add("conversation_link")
     keys = {
         f"{operation}:{backend}" for operation in operations for backend in backends
     }
-    if set(kinds) & set(LOCATION_KINDS):
+    if kinds.intersection(LOCATION_KINDS):
         for operation in ("geocode_locations", "geographic_context"):
-            external = processing_external(operation, {})
-            if mode == "both" or external == (mode == "external"):
+            route = executions.get(operation)
+            if route and (mode == "both" or route["location"] == mode):
                 keys.add(operation)
-    return keys
+    return {key: executions[key] for key in sorted(keys & executions.keys())}
 
 
 def validate_reprocessing_executions(batch):
@@ -128,19 +163,24 @@ def start_reprocessing(
         raise ValidationError("Choose local, external, or both processing locations.")
     if mode in {"external", "both"} and not external_processing:
         raise ValidationError("Approve external processing of the selected evidence.")
-    keys = _route_keys(kinds, mode)
-    current = reprocessing_executions()
-    if not isinstance(executions, dict) or any(
-        executions.get(key) != current[key] for key in keys
+    selected = reprocessing_routes(kinds, mode, configured_reprocessing_executions())
+    if not isinstance(executions, dict) or selected != reprocessing_routes(
+        kinds, mode, executions
     ):
         raise ValidationError(
             "Processing configuration changed. Review the processing locations again."
+        )
+    if mode != "local" and not any(
+        route["location"] == "external" for route in selected.values()
+    ):
+        raise ValidationError(
+            "No external service is configured for the selected evidence types."
         )
     scope = {
         "type": "reprocess",
         "kinds": sorted(set(kinds)),
         "mode": mode,
-        "executions": {key: current[key] for key in sorted(keys)},
+        "executions": selected,
         "external_processing": bool(external_processing and mode != "local"),
     }
     from core.analysis.bulk import start_case_analysis

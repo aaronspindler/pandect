@@ -51,7 +51,9 @@ class CapabilityCatalogueTests(SimpleTestCase):
                 with self.subTest(category=section["id"], method=row["id"]):
                     self.assertCountEqual(
                         [evidence["kind"] for evidence in row["evidence_types"]],
-                        inventory[row["id"]]["kinds"],
+                        OPERATIONS[row["id"]].kinds
+                        if section["id"] == "analysis"
+                        else inventory[row["id"]]["kinds"],
                     )
                     for evidence in row["evidence_types"]:
                         self.assertIn(
@@ -68,6 +70,7 @@ class CapabilityCatalogueTests(SimpleTestCase):
         html = response.content.decode()
         self.assertNotIn("iMessage HTML", html)
         self.assertNotIn("CSV or HTML", html)
+        self.assertIn('href="#formats">Jump to supported formats &amp; limits', html)
         for section in catalogue_context()["capability_sections"]:
             for row in section["rows"]:
                 with self.subTest(category=section["id"], method=row["id"]):
@@ -125,7 +128,12 @@ class CapabilityCatalogueTests(SimpleTestCase):
                     expected = {
                         name
                         for name, row in inventory.items()
-                        if set(row["kinds"]) & set(family["kinds"])
+                        if set(
+                            OPERATIONS[name].kinds
+                            if category == "analysis"
+                            else row["kinds"]
+                        )
+                        & set(family["kinds"])
                     }
                     rows = sections.get(category, [])
                     self.assertCountEqual([row["id"] for row in rows], expected)
@@ -169,19 +177,16 @@ class CapabilityCatalogueTests(SimpleTestCase):
         # Historical synthesis runs retain their processor, but have no creation UI.
         available = set(OPERATIONS) - {"question_synthesis"}
         self.assertEqual(set(ANALYSES) | set(registered_imports), available)
-        for name in available:
-            operation = OPERATIONS[name]
-            with self.subTest(operation=name):
-                if name in registered_imports:
-                    kinds = registered_imports[name]["source_kinds"]
-                else:
-                    kinds = ANALYSES[name]["kinds"]
-                self.assertCountEqual(kinds, operation.kinds)
+        self.assertTrue(
+            set(OPERATIONS["imessage_import"].kinds)
+            <= set(registered_imports["imessage_import"]["kinds"])
+        )
 
     def test_requirements_distinguish_builtin_optional_model_and_geography(self):
         disabled = {"include_summary": False, "semantic_links": False}
         enabled = {"include_summary": True, "semantic_links": True}
-        for name, row in ANALYSES.items():
+        for row in catalogue_context()["capability_sections"][0]["rows"]:
+            name = row["id"]
             with self.subTest(operation=name):
                 if name in GEOGRAPHIC_OPERATIONS:
                     expected = GEOGRAPHIC

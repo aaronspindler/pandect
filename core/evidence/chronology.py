@@ -14,8 +14,9 @@ from django.views.decorators.http import require_safe
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.catalogue import catalogue_page
+from core.evidence.daily_chronology import daily_chronology, timestamp_fields
 from core.evidence.queries import person_evidence, scoped_evidence
-from core.evidence.types import COMMUNICATION_KINDS, KIND_LABELS, KINDS, LOCATION_KINDS
+from core.evidence.types import KIND_LABELS, KINDS
 from people.models import Person
 from vehicle.models import Vehicle
 
@@ -51,10 +52,14 @@ class ChronologyForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date"}),
     )
 
-    def __init__(self, *args, case, **kwargs):
+    def __init__(self, *args, case, references=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["person"].queryset = Person.objects.filter(case=case)
-        self.fields["vehicle"].queryset = Vehicle.objects.filter(case=case)
+        if references:
+            for name in ("category", "vehicle", "start", "end"):
+                self.fields.pop(name)
+        else:
+            self.fields["vehicle"].queryset = Vehicle.objects.filter(case=case)
 
     def clean(self):
         values = super().clean()
@@ -80,15 +85,7 @@ def chronology_records(case, filters):
             if kind != "vehicle-location":
                 continue
             queryset = queryset.filter(vehicle=filters["vehicle"])
-        timestamps = []
-        if filters["category"] in ("all", "observed"):
-            if kind in COMMUNICATION_KINDS:
-                timestamps.append(("occurred_at", "Occurred"))
-            elif kind in LOCATION_KINDS:
-                timestamps.append(("observed_at", "Observed"))
-        if filters["category"] in ("all", "acquired"):
-            timestamps.append(("collected_at", "Collected"))
-        for field, label in timestamps:
+        for field, label in timestamp_fields(kind, filters["category"]):
             events = queryset.filter(**{f"{field}__isnull": False}).annotate(
                 event_at=F(field),
                 event_label=Value(label, output_field=CharField()),
@@ -117,12 +114,19 @@ def chronology_records(case, filters):
 @require_safe
 def chronology(request, case_id):
     case = get_case(request.user, case_id)
+    if request.GET.get("view") == "day":
+        return daily_chronology(request, case)
+    references = request.GET.get("view") == "references"
+    account_timezone = timezone.get_current_timezone_name()
+    show_utc = not references and request.GET.get("clock") == "utc"
     params = request.GET.copy()
     if not params.get("category"):
         params["category"] = "observed"
-    form = ChronologyForm(params, case=case)
+    form = ChronologyForm(params, case=case, references=references)
     valid = form.is_valid()
-    records = chronology_records(case, form.cleaned_data) if valid else []
+    records = (
+        chronology_records(case, form.cleaned_data) if valid and not references else []
+    )
     page = Paginator(records, 25).get_page(request.GET.get("page"))
     rows = list(page.object_list)
     person = form.cleaned_data.get("person") if valid else None
@@ -137,21 +141,19 @@ def chronology(request, case_id):
             + urlencode(source_params)
         )
     unplaced = None
-    # A vehicle filter has no text date-candidate source: never show unrelated dates.
-    if valid and not form.cleaned_data.get("vehicle"):
+    if valid and references:
         finding_params = QueryDict(mutable=True)
         finding_params.update(
             {
                 "method": "entities",
                 "kind": form.cleaned_data.get("type", ""),
-                "unplaced_page": request.GET.get("unplaced_page", "1"),
+                "page": request.GET.get("page", "1"),
             }
         )
         unplaced = catalogue_page(
             case,
             finding_params,
             person=person,
-            page_parameter="unplaced_page",
             labels=("Date candidate",),
         )
     return render(
@@ -164,9 +166,11 @@ def chronology(request, case_id):
             "rows": rows,
             "page_obj": page,
             "unplaced": unplaced,
-            "display_timezone": timezone.get_current_timezone_name(),
-            "filters_open": not valid
-            or params["category"] != "observed"
+            "references": references,
+            "display_timezone": "UTC" if show_utc else account_timezone,
+            "account_timezone": account_timezone,
+            "show_utc": show_utc,
+            "filters_applied": params["category"] != "observed"
             or any(
                 params.get(key) for key in ("type", "person", "vehicle", "start", "end")
             ),

@@ -3,7 +3,7 @@
 import csv
 import hashlib
 import io
-from datetime import UTC
+from datetime import UTC, date
 from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -23,6 +23,8 @@ from people.models import Person
 from phone.models import CommunicationContext, TextMessageEvidence
 
 PARSER_VERSION = "imessage-csv-v1"
+DATE_BOUND_FIELDS = ("start_date", "end_date")
+OUTSIDE_DATE_RANGE = "Message Date falls outside the selected date range."
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FIELD_CHARS = 131072
 BATCH_SIZE = 500
@@ -78,6 +80,8 @@ ROW_REVIEW_REASONS = {
     "A source identifier or timestamp exceeds 255 characters.",
     "Message Date is missing or invalid.",
     "Message Date is ambiguous or does not exist in this timezone.",
+    "Message Date is required when limiting the import by date.",
+    OUTSIDE_DATE_RANGE,
 }
 
 
@@ -264,7 +268,7 @@ def _raw_rows(source):
         raise AnalysisError("source_unavailable") from error
 
 
-def _row(source, number, start, end, raw, zone, text_limit, people):
+def _row(source, number, start, end, raw, zone, text_limit, people, date_bounds):
     direction = raw["Type"]
     sender_role = "account" if direction == "Outgoing" else "correspondent"
     recipient_role = "correspondent" if direction == "Outgoing" else "account"
@@ -332,13 +336,24 @@ def _row(source, number, start, end, raw, zone, text_limit, people):
         event = _timestamp(raw["Message Date"], zone)
         occurred_at = event.isoformat() if event is not None else None
         values["occurred_at"] = occurred_at
+        start_date, end_date = date_bounds
+        if start_date or end_date:
+            if event is None:
+                raise ValueError(
+                    "Message Date is required when limiting the import by date."
+                )
+            export_date = event.astimezone(zone).date()
+            if (start_date and export_date < start_date) or (
+                end_date and export_date > end_date
+            ):
+                raise ValueError(OUTSIDE_DATE_RANGE)
         if people is not None:
             values["import_message"] = {
                 "sender_id": people[sender_role]["id"],
                 "recipient_id": people[recipient_role]["id"],
                 "occurred_at": occurred_at,
             }
-    except (ValueError, TypeError) as error:
+    except (ValueError, TypeError, OverflowError) as error:
         values["unresolved_reason"] = next(
             (reason for reason in ROW_REVIEW_REASONS if reason == str(error)),
             "Message fields could not be interpreted; review the source row.",
@@ -379,6 +394,20 @@ def _update_digest(digest, item):
 
 def _stream_rows(source, parameters, state):
     zone = _zone(parameters)
+    date_parameters = {
+        field: parameters[field] for field in DATE_BOUND_FIELDS if field in parameters
+    }
+    try:
+        start_date, end_date = date_bounds = tuple(
+            date.fromisoformat(date_parameters[field])
+            if field in date_parameters
+            else None
+            for field in DATE_BOUND_FIELDS
+        )
+    except (ValueError, TypeError) as error:
+        raise AnalysisError("imessage_invalid_confirmation") from error
+    if start_date and end_date and end_date < start_date:
+        raise AnalysisError("imessage_invalid_confirmation")
     phase = parameters.get("phase", "preview")
     if phase not in ("preview", "import"):
         raise AnalysisError("imessage_invalid_confirmation")
@@ -408,6 +437,8 @@ def _stream_rows(source, parameters, state):
         "outgoing_rows": 0,
     }
     metrics = {"source_rows": 0, "ready_rows": 0, "unresolved_rows": 0}
+    if date_parameters:
+        metrics["date_excluded_rows"] = 0
     digest = hashlib.sha256()
     digest.update(
         canonical_bytes(
@@ -415,6 +446,7 @@ def _stream_rows(source, parameters, state):
                 "parser_version": PARSER_VERSION,
                 "timezone": zone.key,
                 "text_limit_bytes": limit,
+                **date_parameters,
             }
         )
     )
@@ -448,11 +480,15 @@ def _stream_rows(source, parameters, state):
                     summary["sender_names_omitted"] = True
         elif raw["Type"] == "Outgoing":
             summary["outgoing_rows"] += 1
-        item = _row(source, number, start, end, raw, zone, limit, people)
+        item = _row(source, number, start, end, raw, zone, limit, people, date_bounds)
         metrics["source_rows"] += 1
-        metrics[
-            "unresolved_rows" if "unresolved_reason" in item["values"] else "ready_rows"
-        ] += 1
+        reason = item["values"].get("unresolved_reason")
+        if reason == OUTSIDE_DATE_RANGE:
+            metrics["date_excluded_rows"] += 1
+        elif reason:
+            metrics["unresolved_rows"] += 1
+        else:
+            metrics["ready_rows"] += 1
         _update_digest(digest, item)
         yield item
     summary["interpretation_sha256"] = digest.hexdigest()
@@ -472,8 +508,8 @@ def iter_import_rows(source, parameters):
     return _stream_rows(source, parameters, {})
 
 
-def read_import_page(source, parameters, *, page, per_page=25):
-    """Return one page, row count, and three samples after full source verification."""
+def read_import_page(source, parameters, *, page, per_page=25, excluded_only=False):
+    """Page verified rows, optionally showing only rows omitted by the review."""
     if (
         type(page) is not int
         or page < 1
@@ -487,7 +523,9 @@ def read_import_page(source, parameters, *, page, per_page=25):
     for index, item in enumerate(iter_import_rows(source, parameters)):
         if index < 3:
             samples.append(_sample(item))
-        if start <= index < start + per_page:
+        if excluded_only and not item["values"].get("unresolved_reason"):
+            continue
+        if start <= total < start + per_page:
             rows.append(item)
         total += 1
     return rows, total, samples
@@ -563,6 +601,8 @@ def _publication_batches(rows):
     batch, characters = [], 0
     for item in rows:
         values = item["values"]
+        if "import_message" not in values:
+            continue
         size = values["source_end"] - values["source_start"]
         if batch and (len(batch) >= BATCH_SIZE or characters + size > BATCH_CHARS):
             yield batch
@@ -634,7 +674,10 @@ def apply_import(run, data, sources):
         or len(preview.inputs) != 1
         or preview.inputs[0].get("evidence_id") != str(source.item.pk)
         or preview.inputs[0].get("sha256") != source.item.sha256
-        or run.parameters.get("timezone") != preview.parameters.get("timezone")
+        or any(
+            run.parameters.get(field) != preview.parameters.get(field)
+            for field in ("timezone", *DATE_BOUND_FIELDS)
+        )
     ):
         raise AnalysisError("imessage_invalid_confirmation")
     expected = prepare_import(sources, run.parameters)
@@ -663,9 +706,7 @@ def apply_import(run, data, sources):
         }
         for item in batch:
             values = item["values"]
-            prepared = values.get("import_message")
-            if prepared is None:
-                continue
+            prepared = values["import_message"]
             fields = {name: values[name] for name in CONTEXT_FIELDS}
             existing = existing_rows.get(values["source_row"])
             if existing is not None:

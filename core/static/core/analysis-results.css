@@ -3,10 +3,8 @@
 .analysis-section { min-width: 0; margin-bottom: 1.5rem; padding-block: 1.5rem; border-top: 1px solid var(--divider); }
 .analysis-section > :last-child { margin-bottom: 0; }
 .analysis-section .section-header h2 { margin: 0; }
-.processing-run-summary { max-width: 46rem; }
-.processing-run-summary .section-header { align-items: baseline; gap: .5rem 1rem; margin-bottom: .5rem; }
-.processing-run-summary strong, .processing-run-counts dd { font-variant-numeric: tabular-nums; }
-.processing-run-counts { margin: 0; border-top: 1px solid var(--divider); }
+.processing-disclosure { margin-block: 0; }
+.processing-run-counts { max-width: 46rem; margin: 0; border-top: 1px solid var(--divider); }
 .processing-run-counts > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -15,12 +13,9 @@
   border-bottom: 1px solid var(--divider);
 }
 .processing-run-counts dt { margin: 0; color: var(--text); font-size: inherit; overflow-wrap: anywhere; }
-.processing-run-counts dd { margin: 0; font-weight: 600; text-align: end; }
-.processing-run-summary summary { color: var(--accent); }
-.processing-run-summary details > dl { margin-top: 0; }
+.processing-run-counts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: end; }
 .analysis-options { display: grid; }
 .analysis-choice-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); column-gap: 2rem; }
-.analysis-catalogue-filters { max-width: none; }
 .analysis-options a { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 44px; padding-block: .75rem; border-bottom: 1px solid var(--divider); text-decoration: none; }
 .analysis-options a:hover { text-decoration: underline; }
 .analysis-options a > span { min-width: 0; }
@@ -103,13 +98,6 @@
 
 .analysis-result-overview h2 {
   margin-bottom: .25rem;
-}
-
-.analysis-result-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 1.5rem;
 }
 
 .analysis-result-overview p {
@@ -295,13 +283,6 @@
   margin: .75rem 0;
 }
 
-.analysis-finding-back {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  margin-bottom: .5rem;
-}
-
 .analysis-finding-short-value {
   font-size: 1.125rem;
   font-weight: 550;
@@ -422,6 +403,14 @@
 
 .analysis-sources .analysis-source-option label {
   border: 0;
+}
+
+@media (max-width: 48rem) {
+  .analysis-source-option {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding-block-end: .5rem;
+  }
 }
 
 .analysis-evidence-context,
@@ -636,7 +625,7 @@
 
 .case-tool-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
   column-gap: 2rem;
 }
 .case-tool-grid > .analysis-section { margin-block: 0; }

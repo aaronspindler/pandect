@@ -1,16 +1,16 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}{{ operation_label }} · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{{ back_to_analysis }}">Back to Processing</a>
-{% include 'ui/components/live_updates.html' %}
+<a class="back-link" href="{{ back_to_analysis }}">{{ back_label }}</a>
+{% if run.status == 'queued' or run.status == 'running' %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef live inline %}
 <div id="analysis-result" data-live-region data-live-poll="{% if run.status == 'queued' or run.status == 'running' %}true{% else %}false{% endif %}">
+{% if not focused_finding or show_result_overview %}
 <header class="page-header analysis-result-header">
   <div><h1>{{ operation_label }}</h1></div>
-  {% if result %}<a class="button button-secondary" href="{% url 'core:analysis:download' case.pk run.pk %}">Download results</a>{% endif %}
   {% if source_unavailable or run.status != 'complete' %}<span class="badge" role="status">{% if source_unavailable %}Result withheld{% else %}{{ run.get_status_display }}{% endif %}</span>{% endif %}
 </header>
-
+{% endif %}
 {% if run.status == 'queued' or run.status == 'running' %}
 <section class="analysis-section">
   <h2>Processing {{ run.progress }}%</h2>
@@ -22,28 +22,20 @@
 </section>
 {% endif %}
 {% if run.status == 'failed' %}<p class="notice">Processing could not finish. {{ error_message }} {% if can_edit and can_retry %}<a href="#run-again">Run again</a> with the same inputs.{% endif %} Earlier evidence is retained.</p>{% endif %}
-{% if retry_blocked %}<p class="notice">{{ retry_blocked }}</p>{% endif %}
+{% if retry_blocked and run.status != 'complete' %}<p class="notice">{{ retry_blocked }}</p>{% endif %}
 {% if source_review_changed %}<p class="notice">An address estimate used by this run is no longer selected. This result retains the estimate used at the time.</p>{% endif %}
 {% if source_unavailable %}<p class="notice">A selected source is unavailable or changed. The result is withheld until its exact retained inputs can be verified.</p>{% endif %}
-{% if run.previous_run %}<p>Earlier run: <a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">{{ run.previous_run.created_at|date:'d M Y, H:i:s T' }}</a></p>{% endif %}
+{% if run.status == 'complete' and not result and not source_unavailable %}<p class="notice">No result was saved for this run.</p>{% endif %}
 
 {% if result and run.operation == 'conversation_import' %}{% load import_checks %}{% import_checks 'messages' run.pk %}{% endif %}
 {% if result and show_result_overview %}
 <section class="analysis-result-overview" aria-labelledby="analysis-result-summary">
   <h2 id="analysis-result-summary">{% if run.operation == 'question_synthesis' %}AI suggestions{% else %}{{ data.summary }}{% endif %}</h2>
-  <div class="analysis-result-meta">
-    {% if data.warnings %}
-    <details class="analysis-result-limits" open>
-      <summary>Limitations</summary>
-      <ul class="analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
-    </details>
-    {% endif %}
-  </div>
-
+  {% if data.warnings %}<a class="record-link" href="#result-limitations">See limitations</a>{% endif %}
 </section>
 {% endif %}
 
-{% if result and run.operation == 'question_synthesis' %}<section class="analysis-section"><h2>Question</h2><p>{{ data.question }}</p><h2>Not established by this selection</h2><p class="muted">Questions and limitations suggested by AI.</p><ul>{% for unknown in data.unknowns %}<li>{{ unknown }}</li>{% empty %}<li>No additional unknowns were returned. This does not establish completeness.</li>{% endfor %}</ul></section>{% endif %}
+{% if result and run.operation == 'question_synthesis' %}<p><strong>Question</strong> · {{ data.question }}</p>{% endif %}
 
   {% if run.operation == 'ocr' and items %}
   <p class="muted">OCR can miss text. Compare candidates with the original.</p>
@@ -63,25 +55,40 @@
     <h2 id="analysis-findings-heading" tabindex="-1">Findings</h2>
     <p class="muted">{{ finding_page.paginator.count }} finding{{ finding_page.paginator.count|pluralize }}</p>
   </div>{% endif %}
-  {% if focused_finding and finding_page.paginator.count > 1 %}
-  {% with item=items.0 %}
-  <a class="back-link analysis-finding-back" href="{% querystring run_query page=finding_page.number %}#finding-link-{{ item.number }}">Back to findings</a>
-  {% endwith %}
-  {% endif %}
   {% if not focused_finding and finding_page.has_other_pages %}
   {% include 'core/analysis/finding_pages.html' with label='Finding pages' %}
   {% endif %}
-  {% if map_points %}{% include 'geo/analysis/positions.html' %}{% endif %}
+  {% if map_points and not focused_finding %}{% include 'geo/analysis/positions.html' %}{% endif %}
   {% if focused_finding %}
     {% include 'core/analysis/finding.html' with item=items.0 %}
+    {% if map_points %}{% include 'geo/analysis/positions.html' %}{% endif %}
+    {% if finding_page.paginator.count > 1 %}<a class="record-link" href="{% querystring run_query page=finding_page.number %}#finding-link-{{ items.0.number }}">All findings in this result</a>{% endif %}
   {% else %}
     {% include result_template %}
   {% endif %}
-  {% if not show_result_overview and data.warnings %}<details class="analysis-result-limits" open><summary>Limitations</summary><ul class="analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></details>{% endif %}
   {% if not focused_finding and finding_page.has_other_pages %}
   {% include 'core/analysis/finding_pages.html' with label='Finding pages at end of results' %}
   {% endif %}
 </section>
+{% endif %}
+
+{% if evidence_analysis_url or instance_url %}
+<div class="actions">
+  {% if instance_url %}<a class="record-link" href="{{ instance_url }}">View conversation session</a>{% endif %}
+  {% if evidence_analysis_url %}<a class="record-link" href="{{ evidence_analysis_url }}">All findings for this evidence</a>{% endif %}
+</div>
+{% endif %}
+
+{% if data.warnings or run.operation == 'question_synthesis' and result %}
+<details class="analysis-result-limits"{% if data.warnings %} open{% endif %}>
+  <summary id="result-limitations">Limitations</summary>
+  {% if data.warnings %}<ul class="analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
+  {% if run.operation == 'question_synthesis' %}
+  <h3>Not established by this selection</h3>
+  <p class="muted">Questions and limitations suggested by AI.</p>
+  <ul>{% for unknown in data.unknowns %}<li>{{ unknown }}</li>{% empty %}<li>No additional unknowns were returned. This does not establish completeness.</li>{% endfor %}</ul>
+  {% endif %}
+</details>
 {% endif %}
 
 {% if reference_snapshots %}
@@ -106,10 +113,11 @@
 {% endif %}
 
 <details class="analysis-section analysis-run-details"{% if run.status == 'failed' %} open{% endif %}>
-  <summary id="run-details">Processing details</summary>
-  {% if evidence_analysis_url %}<p><a class="record-link" href="{{ evidence_analysis_url }}">All findings for this evidence</a></p>{% endif %}
-  <p class="muted">{{ run.get_status_display }} · {{ run.created_at|date:'d M Y, H:i T' }}</p>
+  <summary id="run-details">Details and history</summary>
+  <p class="muted">{{ run.get_status_display }} · {{ run.created_at|date:'d M Y, H:i T' }} · {{ operation_label }}</p>
+  {% if run.previous_run %}<p><a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">Earlier run · {{ run.previous_run.created_at|date:'d M Y, H:i:s T' }}</a></p>{% endif %}
   {% if result and not show_result_overview %}<p>{{ data.summary }}</p>{% endif %}
+  {% if result %}<a class="record-link" href="{% url 'core:analysis:download' case.pk run.pk %}">Download results</a>{% endif %}
 {% if sources %}
 <details class="analysis-run-sources disclosure">
   <summary>Selected sources · {{ sources.0.item.title }}{% if sources|length > 1 %} and {{ sources|length|add:"-1" }} more{% endif %}</summary>
@@ -136,7 +144,7 @@
     <p class="muted">Requested by {{ run.requested_by }} · {{ run.created_at|date:'d M Y, H:i:s T' }}</p>
     <h3>Method and assumptions</h3><p>Method version: {{ run.method_version }}. {{ processing.label }}.{% if processing.legacy %} This run predates execution pinning; its original approval is retained.{% endif %}</p>{% if processing.model %}<p>Model: {{ processing.model }}{% if processing.runtime %} · Runtime: {{ processing.runtime }}{% endif %}</p>{% endif %}{% include 'core/analysis/measurements.html' with measurements=assumptions only %}
   </details>
-</details>
+{% if retry_blocked and run.status == 'complete' %}<p class="notice">{{ retry_blocked }}</p>{% endif %}
 {% if can_edit and can_retry %}
 <section class="analysis-section" id="run-again" aria-labelledby="run-again-heading">
 <h2 id="run-again-heading">Run again</h2>
@@ -154,6 +162,7 @@
 </form>
 </section>
 {% endif %}
+</details>
 </div>
 {% endpartialdef %}
 {% endblock %}

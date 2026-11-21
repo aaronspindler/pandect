@@ -48,15 +48,18 @@ class LiveFragmentTests(EvidenceViewTestMixin, TestCase):
             [{"kind": "document", "id": str(document.pk)}],
             parameters={"phase": "preview", "timezone": "UTC"},
         )
+        self.idle_trip_urls = (
+            reverse("geo:case_map", args=[self.case.pk]),
+            reverse("vehicle:detail", args=[self.case.pk, self.vehicle.pk]),
+            reverse("core:analysis:report", args=[self.case.pk, "vehicle-trips"]),
+        )
         self.urls = (
             reverse("core:analysis:processing", args=[self.case.pk]),
             reverse("core:analysis:detail", args=[self.case.pk, self.run.pk]),
             self.url("detail", self.source),
             reverse("geo:vehicle_import_review", args=[self.case.pk, self.batch.pk]),
             reverse("phone:imessage_review", args=[self.case.pk, self.preview.pk]),
-            reverse("geo:case_map", args=[self.case.pk]),
-            reverse("vehicle:detail", args=[self.case.pk, self.vehicle.pk]),
-            reverse("core:analysis:report", args=[self.case.pk, "vehicle-trips"]),
+            *self.idle_trip_urls,
         )
 
     def test_roles_receive_only_live_sections_or_the_complete_page(self):
@@ -73,7 +76,10 @@ class LiveFragmentTests(EvidenceViewTestMixin, TestCase):
                     self.assertIn("no-store", fragment["Cache-Control"])
                     page = self.client.get(url)
                     self.assertContains(page, "<!doctype html>")
-                    self.assertContains(page, "Refresh status")
+                    if url in self.idle_trip_urls:
+                        self.assertNotContains(page, "Refresh status")
+                    else:
+                        self.assertContains(page, "Refresh status")
                     self.assertNotIn("X-Pandect-Live", page)
 
     def test_every_refresh_rechecks_current_access_and_case_relationships(self):
@@ -113,6 +119,7 @@ class LiveFragmentTests(EvidenceViewTestMixin, TestCase):
         complete = self.client.get(url, HTTP_X_PANDECT_LIVE="1")
         self.assertContains(complete, 'data-live-poll="false"')
         self.assertContains(complete, "Complete")
+        self.assertNotContains(self.client.get(url), "Refresh status")
         AnalysisRun.objects.filter(pk=self.run.pk).update(
             status="failed", error_code="source_unavailable"
         )

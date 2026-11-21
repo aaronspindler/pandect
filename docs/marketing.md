@@ -61,27 +61,26 @@ Each method shows its outcome and short setup requirement. Native **Details**
 disclosures retain precise inputs, configuration, uncertainty, and links to the
 applicable input profiles. The supporting column explains intake and requirements;
 **Supported formats & limits** retains a disclosure for every selected evidence
-type. On narrow screens the supporting column follows the methods, with a direct
-link from each method to its inputs. Original method and evidence-kind fragment
+type. On narrow screens the supporting column follows the methods. A jump beside
+the evidence-family navigation opens formats and limits directly, and each
+method links to its inputs. Original method and evidence-kind fragment
 identifiers remain available on the complete catalogue.
 
-`marketing/catalogue.py` owns the public presentation data, keyed by current
-evidence-kind, analysis-operation, report, and import identifiers. It describes
-supported capabilities rather than this installation's service readiness, and
-public requests do not query case material or probe services. Keep it aligned with
-the evidence/form registries, analysis operations, execution requirements, reports,
-and their owning guides when capabilities change. Catalogue coverage tests detect
-missing types/methods, incorrect source mappings, and changed model requirements;
-review descriptions and input prerequisites against the implementation as well.
+`marketing/catalogue.py` owns the public wording, keyed by current
+evidence-kind, analysis-operation, report, and import identifiers. Analysis
+input kinds and requirement labels derive from the static operation definitions
+and inference rules. Public pages describe supported capabilities independently
+of service readiness, without querying case material or probing services.
+Catalogue tests verify coverage. Review descriptions and input prerequisites
+against the owning guides when capabilities change.
 
 Visible requirements distinguish **Included**, **AI optional**, **Requires AI
 setup**, and **Geographic setup**. Details retain the complete setup descriptions,
 including private services and explicitly approved external processing. Included OCR
 and plate reading use the standard Docker image's local tools. Private models and
-geographic services need operator setup; external AI requires explicit approval
-through Cloudflare AI Gateway, and external geographic requests have their own
-approval. Private services do not imply external transfer. Runtime failure never
-silently switches processing to a cloud service.
+geographic services need operator setup. External AI requires explicit approval
+for the configured destination, and external geographic requests have their own
+approval. Runtime failure never switches processing to a cloud service.
 
 ## Content boundaries
 

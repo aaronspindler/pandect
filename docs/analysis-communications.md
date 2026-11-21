@@ -10,7 +10,7 @@ never changes source-native relationships.
 currency-marked amount, patterned identifier and coordinate strings with original
 spans. Phone country, ambiguous dates/currency symbols, ownership, names and free
 addresses remain unresolved. Host/email-domain normalization preserves URL paths
-and email local parts. No Gateway credentials are needed.
+and email local parts. No AI credentials are needed.
 
 Bare domains allow ASCII labels up to 63 characters, 253 overall, and the
 [conservative suffix allowlist](../text/analysis/deterministic.py), excluding file
@@ -41,8 +41,8 @@ anchors do not establish interpretation accuracy: negation, sarcasm, hearsay, qu
 dates, missing exchanges, conflicts and planned/completed actions need review.
 Requests allow 64,000 characters and 100 suggestions; local runtime token budgets
 also apply without truncation. Missing text is insufficient; unavailable inference
-fails recoverably. Private inference defaults; separately selected/approved
-Cloudflare Gateway has no automatic fallback. See [setup/qualification](local-analysis.md).
+fails recoverably. Private inference is the default. Review and approve the
+configured destination to use [external AI](analysis.md#external-ai-configuration).
 
 ## Descriptive writing profiles
 
@@ -104,11 +104,29 @@ identify the rejected category without retaining source text or model responses.
 
 **Case Tools → Conversations** [reads retained messages](evidence.md#reading-conversations)
 from all imports and individual entries. Select a message to inspect its source,
-findings and any saved session boundary. **Instances** pairs each saved grouping
+findings and any saved session boundary. **Conversation findings** shows up to
+three saved findings above the message stream with links to cited messages and
+the full findings. **Sessions & summaries** pairs each saved grouping
 with a current report when the summary's covered message chunks match the
-entire membership. **Request summary** opens review for precisely those messages
-and their grouping adjustments. Reading either tab starts no analysis. The methods below use
-exact selections, potentially covering only part of a conversation.
+entire membership. **Group this conversation** reviews the active messages for
+that reported pair and the time gap before queuing local grouping. A
+conversation over the source limit or one million characters needs a smaller
+manual selection.
+**Request summary** opens review for precisely those messages
+and their grouping adjustments. Owners and editors can choose **Summarize
+missing sessions** to request one summary per available unsummarized session,
+reviewing up to 50 saved sessions at a time. Each request covers the eligible
+sessions on that review page. Saved summaries are kept, pending summaries for
+the same messages and grouping settings are skipped. Different overlapping
+groupings can each have a summary. Sessions over the per-run source or chunk
+limit are skipped.
+Choose a configured AI service. External processing requires approval, and
+submitted batches are tracked in **Processing**.
+Instance summary statements show sender names and keep their AI suggestion labels
+and source citations. Open the cited summary directly from the instance or follow
+individual statements to their findings. A focused grouping or summary result
+links back when its verified message membership matches a saved instance.
+Reading either tab starts no analysis.
 
 **Read inferred message sessions**, **Inspect message timing** and **Summarize
 message sessions** accept Text messages, excluding calls/FaceTime/transcripts.
@@ -173,8 +191,12 @@ aliases; prior serialized CSV runs/contexts are unsupported and runtime imports
 are not migrated. Source files/historical provenance remain unchanged.
 
 Choose **Add evidence → Import records → Import iMessage · CSV** or a retained
-Document's **More** action. Upload/select one CSV and explicitly choose export
-timezone. These 18 headers are required in any order:
+Document's **More** action. Upload/select one CSV and confirm its export timezone.
+When starting from a retained document, the form shows that CSV first. Open
+**Limit by date** to enter a **Start date**, an **End date**, or both. Both
+dates include the entire calendar day in the confirmed export timezone, including
+when a source timestamp carries its own offset. Leaving both fields blank reviews
+all dates. These 18 headers are required in any order:
 
 `Chat Session`, `Message ID`, `Message Date`, `Delivered Date`, `Read Date`,
 `Edited Date`, `Deleted Date`, `Service`, `Type`, `Sender ID`, `Sender Name`,
@@ -188,28 +210,31 @@ at most 1 MiB UTF-8. Preparation,
 review and publication stream rows rather than accumulating conversations in results.
 
 Background preparation creates no people/messages. Review shows contact labels,
-counts, times, text and excluded-row reasons. Select same-case people or explicitly
-create **Export account**/**Other participant**. Names/numbers are unverified
+counts, times, text and excluded-row reasons. In each participant's **Person**
+chooser, pick a case person or choose **Create a person** and enter their
+details. Names/numbers are unverified
 suggestions, never automatic matches or split names. New person records can use a
 name, phone number or email; selecting an existing person needs no account phone number.
 
 Confirm one direct conversation. Multiple chats/incoming sender IDs are rejected;
 group/mixed imports are unsupported. Chat labels alone identify no participants.
-Outgoing uses account→other; incoming reverses them. Timezone changes prepare
-fresh review. Missing times stay unknown; malformed/ambiguous/nonexistent local
-times, attachment-only rows and unsupported directions are excluded. Confirmation
-imports valid text while retaining exclusions in CSV/preview.
+Outgoing uses account→other; incoming reverses them. Changing the timezone or
+dates requires a fresh review, which can use the same retained CSV. Missing times
+stay unknown in unrestricted imports. A date-limited import excludes messages
+without a usable date and counts messages outside the range separately.
+Malformed/ambiguous/nonexistent local times, attachment-only rows and unsupported
+directions are excluded. The full CSV remains available for source review.
+Confirmation publishes only ready messages from the reviewed selection.
 
-Choose **Local checks**, **AI**, or **Both** for automatic analysis after
-publication. Local checks is the default and runs no models. AI runs one model
-suite; Both adds that suite to local checks without duplicate local and external
-model runs. AI uses Cloudflare AI Gateway when fully configured, otherwise the
-configured local/private AI service. Review shows the resolved destination before
-submission. Gateway processing requires explicit transfer approval: selected
-message text is sent and operator/provider retention policies apply. Approval is
-bound to the current investigator, import, and reviewed execution settings;
-changed settings require fresh review. The selected route remains fixed during
-execution; Gateway failures never silently switch to private inference.
+**Local checks** is the default for automatic analysis after publication and
+runs no models. When an AI service is configured, choose **AI only** for one
+model suite or **Local checks and AI** to include both kinds of work. The AI
+suite uses external AI when configured, otherwise the configured private service.
+Review shows the resolved destination before submission. External processing
+sends selected message text after explicit approval. Operator and provider
+retention policies apply. Approval is bound to
+the current investigator, import, and reviewed execution settings. Changed
+settings require fresh review. The selected route remains fixed during execution.
 
 Confirmation queues method 2, separate from the immutable preview run. Publication
 rechecks edit access/integrity and atomically creates requested people, messages,
@@ -220,15 +245,23 @@ does not deduplicate distinct exports by native IDs.
 Method 2 retains compact summaries/digests of reviewed interpretation and excerpts
 from up to three initial rows. Ordinary review reads that retained summary;
 automatic updates read only authorized run progress and offer a link when review
-is ready. **Review all message rows** deliberately reads the checksum-verified
-original and shows 25 rows using retained timezone/text limits. Confirmation also
-rechecks the full source and interpretation before queueing publication. These
-full-file checks share a limit of 10 per minute per user and 30 per minute per
-case across web processes; excess requests return 429 before reading the source.
+is ready. **Review excluded rows** and **Review all message rows** deliberately
+read the checksum-verified original and show 25 matching rows using the retained
+timezone, date bounds and text limits. Confirmation queues publication using
+the prepared summary. The publication worker rechecks the complete original and
+reviewed interpretation before publishing and reports errors on the import
+status page. Row review and confirmation share a limit of 10 per minute per
+user and 30 per minute per case across web processes. Excess requests return 429
+before reading the source or queueing publication.
 Summary pages and progress remain available. Eligibility/time changes need
 fresh review. Result item/byte ceilings never truncate imports: messages are not
 individual result items. Bounded publication groups share one transaction and
-roll back entirely on conflict/failure. Completed message links paginate.
+roll back entirely on conflict/failure. The completed import shows how many
+messages were added, reused or excluded. **View conversation** opens the message
+stream at the first newly published message in the export, or at a retained
+message from the same source and conversation when all rows were reused. The
+retained CSV, row review, and linked new messages remain available in disclosures
+with separate pagination.
 
 Nullable `CommunicationContext.import_run` retains publishing runs; apply its
 additive migration before updated web/workers. Existing messages/contexts stay
@@ -244,8 +277,13 @@ edit/delete dates, reactions and attachment references. Reactions create no
 messages, markers recover no history and attachments are never opened/fetched.
 
 Publication atomically queues analysis only for newly created messages. Previews,
-excluded/reused rows start no batch. **Follow message analysis** opens Processing;
-the completed import shows the latest selected mode. **Run message analysis
+excluded/reused rows start no batch. **Follow message analysis** shows progress,
+then check counts and **View conversation** after the work settles. If a
+date-limited import reuses every row, **View conversation** opens a retained
+message within the reviewed export-timezone range. Insufficient input has its
+own count alongside completed checks. Incomplete coverage and stopped work
+remain visible. **Analysis details** gives access to
+the selected mode, preparation and individual checks. **Run message analysis
 again** offers the same analysis choice and creates a new batch preserving
 history; external processing requires fresh approval by the requesting
 investigator. Historical imports receive no automatic backfill; HTML retains its

@@ -16,6 +16,8 @@ from django_tasks_db.management.commands.db_worker import Command as WorkerComma
 from django_tasks_db.models import DBTaskResult
 
 from cases.models import Case
+from core.analysis.tasks import process_analysis
+from core.models import AnalysisRun
 from core.tasks import worker_probe
 
 COMMAND = "core.management.commands.check_task_worker"
@@ -121,6 +123,32 @@ class QueueTests(TransactionTestCase):
 
 
 class DiagnosticTests(TransactionTestCase):
+    def test_read_only_analysis_diagnostic_distinguishes_run_and_queue_status(self):
+        actor = get_user_model().objects.create_user(username="diagnostic-fixture")
+        case = Case.objects.create(owner=actor, name="Synthetic private case title")
+        run = AnalysisRun.objects.create(
+            case=case,
+            requested_by=actor,
+            operation="entities",
+            method_version="1",
+            status="failed",
+            error_code="processing_failed",
+            parameters={"private": "synthetic evidence payload"},
+        )
+        delivery = process_analysis.enqueue(str(run.pk))
+        DBTaskResult.objects.filter(pk=delivery.id).update(
+            status=TaskResultStatus.SUCCESSFUL
+        )
+        unrelated = worker_probe.enqueue("synthetic unrelated payload")
+        output = StringIO()
+        call_command("check_task_worker", "--analysis-run", str(run.pk), stdout=output)
+        self.assertIn(f"{run.pk}: failed (processing_failed)", output.getvalue())
+        self.assertIn(f"{delivery.id}: SUCCESSFUL", output.getvalue())
+        self.assertNotIn(str(unrelated.id), output.getvalue())
+        self.assertNotIn("synthetic evidence payload", output.getvalue())
+        self.assertNotIn(case.name, output.getvalue())
+        self.assertEqual(DBTaskResult.objects.count(), 2)
+
     def test_probe_waits_for_worker_and_matches_result(self):
         output = StringIO()
         with patch(f"{COMMAND}.sleep", side_effect=drain_queue):

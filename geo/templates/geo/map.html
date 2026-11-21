@@ -1,6 +1,6 @@
 {% extends "ui/base.html" %}
 {% load static %}
-{% block title %}Map · {{ case.name }}{% endblock %}
+{% block title %}{% if detail %}Possible trip{% else %}Map{% endif %} · {{ case.name }}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'geo/vendor/leaflet/leaflet.css' %}">
 <link rel="stylesheet" href="{% static 'geo/map.css' %}">
@@ -12,41 +12,53 @@
 {% block content %}
 {% if detail %}<a class="back-link" href="{{ back_url }}">Back to map</a>{% endif %}
 <header class="page-header">
-  <div><h1>{% if detail %}Trip map{% else %}Map{% endif %}</h1><p class="muted">Possible vehicle trips and investigator POIs.</p></div>
-  {% if can_edit %}<a class="button button-primary" href="{% url 'geo:poi_create' case.pk %}">Add POI</a>{% endif %}
+  <div><h1>{% if detail %}Possible trip{% else %}Map{% endif %}</h1>{% if not detail %}<p class="muted">Possible vehicle trips and investigator POIs.</p>{% endif %}</div>
+  {% if can_edit %}<a class="button {% if detail %}button-secondary{% else %}button-primary{% endif %}" href="{% url 'geo:poi_create' case.pk %}">Add POI</a>{% endif %}
 </header>
+{% if selected_trip %}{% include 'geo/trip_outcome.html' %}{% endif %}
 {% if form %}
-<details class="map-search"{% if filters_applied or form.errors %} open{% endif %}>
-  <summary>Search and filters{% if filters_applied %} · Applied{% endif %}</summary>
+{% if filters_applied and not form.errors %}
+<p class="muted map-scope">
+  {% if trip_filters_applied %}Trips · {{ filtered_vehicle|default:'All vehicles' }}{% if state == 'archived' %} · Archived evidence{% elif state == 'all' %} · All evidence{% endif %}{% if trip_filters.start %} · From {{ trip_filters.start|date:'j M Y, H:i T' }}{% endif %}{% if trip_filters.end %} · Through {{ trip_filters.end|date:'j M Y, H:i T' }}{% endif %}{% endif %}
+  {% if query %}{% if trip_filters_applied %} · {% endif %}POIs matching “{{ query }}”{% endif %}
+</p>
+{% endif %}
+<details class="map-search"{% if form.errors %} open{% endif %}>
+  <summary>Search and filters</summary>
   <form method="get" class="map-filters" aria-label="Filter trips">
     {% include 'ui/components/form_fields.html' %}
     <button class="button button-secondary" type="submit">Apply filters</button>
-    {% if filters_applied %}<a class="record-link" href="{{ map_url }}">Clear filters</a>{% endif %}
+    {% if filters_applied or form.errors %}<a class="record-link" href="{{ map_url }}">Clear filters</a>{% endif %}
   </form>
 </details>
 {% endif %}
-{% if not detail %}{% include 'ui/components/live_updates.html' %}{% endif %}
+{% if not detail %}
+{% if pending or failed or needs_prepare %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef progress inline %}
 <div id="map-progress" data-live-region data-live-poll="{{ pending|yesno:'true,false' }}">
 {% if pending %}<p class="notice" role="status">Preparing trips from the complete observation history.</p>{% elif failed %}<p class="notice" role="status">Some trip processing needs attention. <a href="{% url 'core:analysis:processing' case.pk %}">Open Processing</a>.</p>{% endif %}
 </div>
 {% endpartialdef %}
 {% if needs_prepare %}{% include 'geo/prepare_trips.html' %}{% endif %}
+{% endif %}
 <section class="case-map-section" aria-labelledby="map-heading" data-case-map data-geometry-url="{{ geometry_url }}" {% if can_edit %}data-poi-create-url="{% url 'geo:poi_create' case.pk %}"{% endif %} data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}">
-  <div class="section-header"><div><h2 id="map-heading" class="sr-only">Trip map</h2><p class="muted map-summary">{% if selected_trip %}Selected trip · {{ selected_trip.source_count }} observations{% else %}No trip selected{% endif %}{% if poi_page %} · {{ poi_mapped_count }} of {{ poi_page|length }} POIs mapped{% endif %}</p></div><div class="actions"><button type="button" class="button button-secondary" data-map-fit aria-label="Show selected trip and POIs" hidden>Show all</button><a class="record-link" href="#trip-list">{% if detail %}Trip observations{% else %}Trip list{% endif %}</a>{% if poi_page or query %}<a class="record-link" href="#poi-list">POI list</a>{% endif %}</div></div>
-  <p role="status" data-map-status>Enable JavaScript to load the interactive map. Trip summaries and sources are available below.</p>
+  <div class="section-header"><div><h2 id="map-heading"{% if not detail %} class="sr-only"{% endif %}>Trip map</h2>{% if not detail and poi_page %}<p class="muted map-summary">{{ poi_mapped_count }} of {{ poi_page|length }} POIs mapped</p>{% endif %}</div><div class="actions"><button type="button" class="button button-secondary" data-map-fit aria-label="Show selected trip and POIs" hidden>Show all</button><a class="record-link" href="#trip-list">{% if review_estimates %}Address estimates{% elif detail %}Trip observations{% else %}Trip list{% endif %}</a>{% if poi_page or query %}<a class="record-link" href="#poi-list">POI list</a>{% endif %}</div></div>
+  <p role="status" data-map-status>Enable JavaScript to load the interactive map. Trip information and sources are available on this page.</p>
   <p role="status" data-trip-status></p>
   <p class="muted">Paths connect observations. Routes, continuous presence, drivers, and distance travelled remain unverified.</p>
-  {% if tile_url %}<p class="help-text">The background map provider receives your IP address, site origin, and viewed map areas.</p>{% endif %}
-  <div id="investigation-map" class="case-map" tabindex="0" role="region" aria-label="Interactive trip map" aria-describedby="map-help" hidden></div>
   {% if selected_trip %}
-  <div class="map-selected-trip">
-    <h2>{{ selected_trip.vehicle }}</h2>
-    <p><time datetime="{{ selected_trip.start.time|date:'c' }}">{{ selected_trip.start.time|date:'j M Y, H:i T' }}</time> → <time datetime="{{ selected_trip.end.time|date:'c' }}">{{ selected_trip.end.time|date:'j M Y, H:i T' }}</time> · {{ selected_trip.minutes|floatformat:'-1' }} min observed</p>
-    <p>{{ selected_trip.start.place }} → {{ selected_trip.end.place }}</p>
-    {% if not detail %}<a class="record-link" href="{{ selected_trip.detail_url }}">View {{ selected_trip.source_count }} observations and address estimates</a>{% endif %}
+  <div class="trip-map-legend" data-trip-legend hidden>
+    <p class="muted">Arrows follow observation order. Line color and pattern show reported speed at the next observation.</p>
+    <ul class="trip-speed-key" role="list" aria-label="Reported speed in kilometres per hour">
+      <li class="trip-speed-slow">Under 30 km/h</li>
+      <li class="trip-speed-medium">30 to under 60 km/h</li>
+      <li class="trip-speed-fast">60 km/h or more</li>
+      <li class="trip-speed-unknown">Unavailable</li>
+    </ul>
   </div>
   {% endif %}
+  {% if tile_url %}<p class="help-text">The background map provider receives your IP address, site origin, and viewed map areas.</p>{% endif %}
+  <div id="investigation-map" class="case-map" tabindex="0" role="region" aria-label="Interactive trip map" aria-describedby="map-help" hidden></div>
   <details class="map-details"><summary>Map details</summary>
     {% if can_edit %}<p>Choose a spot to add a POI, or use Add POI to enter coordinates.</p>{% endif %}
     <p>Positions are reported coordinates or selected address estimates. Missing positions break the line. First and last observations do not verify departure or arrival.</p>
@@ -54,7 +66,7 @@
     <p>Evidence files, titles, and source details are not sent to the background map provider.</p>
     <p>Address lookup sends only addresses to the configured private geocoder.</p>
     <p>P markers are investigator POIs, separate from evidence. Only this POI page is mapped; selected trips include all their observations.</p>
-    <p id="map-help">Focus the map to pan with arrow keys and zoom with + or −, or use the zoom buttons. Choose a trip below to inspect its sources.</p>
+    <p id="map-help">Focus the map to pan with arrow keys and zoom with + or −, or use the zoom buttons. {% if detail %}See trip observations for the source records.{% else %}Choose a trip below to inspect its sources.{% endif %}</p>
   </details>
 </section>
 {% if poi_page or query %}<section class="content-section" aria-labelledby="poi-list">
@@ -68,10 +80,11 @@
   <div class="section-header"><h2 id="trip-list">Trips</h2><span class="muted">{{ page_obj.paginator.count }} possible trip{{ page_obj.paginator.count|pluralize }}</span></div>
   {% if trips %}
   <ol class="trip-list">
-    {% for trip in trips %}<li class="trip-row"><div class="trip-heading"><h3><a class="record-link" href="{{ trip.detail_url }}">{{ trip.vehicle }} · {{ trip.start.time|date:'j M Y, H:i T' }}</a></h3><span class="muted">{{ trip.minutes|floatformat:'-1' }} min observed</span></div><p>{{ trip.start.place }} → {{ trip.end.place }}</p><p class="muted">{{ trip.source_count }} observations · {{ trip.basis }}</p><a class="record-link" href="{{ trip.detail_url }}">Show trip and sources</a></li>{% endfor %}
+    {% for trip in trips %}<li class="trip-row"><div class="trip-heading"><h3 id="map-trip-{{ trip.id }}">{{ trip.vehicle }} · {{ trip.start.time|date:'j M Y, H:i T' }}</h3><span class="muted">{{ trip.minutes|floatformat:'-1' }} min observed</span></div><p>{{ trip.start.place }} → {{ trip.end.place }}</p><p class="muted">{{ trip.source_count }} observations · {{ trip.basis }}</p><a class="record-link" href="{{ trip.detail_url }}" aria-describedby="map-trip-{{ trip.id }}">Show trip and sources</a></li>{% endfor %}
   </ol>
   {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Trip pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#trip-list">Previous trips</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#trip-list">Next trips</a>{% endif %}</nav>{% endif %}
-  {% else %}<div class="empty-state compact-empty"><h3>{% if filters_applied %}No matching trips{% else %}No trips available yet{% endif %}</h3><p>{% if filters_applied %}Clear or broaden the filters to see more trips.{% elif pending %}Trips will appear when preparation finishes.{% else %}Timed observations for the same vehicle must show a change of place to form a possible trip. Stationary observations alone do not form a trip.{% endif %}</p><a class="record-link" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a></div>{% endif %}
+  {% else %}<div class="empty-state compact-empty"><h3>{% if form.errors %}Check the search and filters{% elif trip_filters_applied %}No matching trips{% else %}No trips available yet{% endif %}</h3><p>{% if form.errors %}Correct the highlighted fields to see trips.{% elif trip_filters_applied %}Clear or broaden the filters to see more trips.{% elif pending %}Trips will appear when preparation finishes.{% else %}Timed observations for the same vehicle must show a change of place to form a possible trip. Stationary observations alone do not form a trip.{% endif %}</p>
+  {% if trip_filters_applied or form.errors %}<a class="record-link" href="{{ map_url }}">Clear filters</a>{% elif can_edit and not pending %}<div class="actions"><a class="record-link" href="{% url 'geo:vehicle_import_upload' case.pk %}">Import vehicle locations</a><a class="record-link" href="{% url 'core:evidence:create' case.pk %}?kind=vehicle-location">Add a vehicle location</a></div>{% else %}<a class="record-link" href="{% url 'core:evidence:list' case.pk %}">Open evidence</a>{% endif %}</div>{% endif %}
 </section>
 </div>
 {% endpartialdef %}

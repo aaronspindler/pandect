@@ -1,4 +1,4 @@
-"""Bounded Workers AI and OpenAI inference through Cloudflare AI Gateway only."""
+"""Bounded external inference with per-request authorization and usage accounting."""
 
 import re
 import time
@@ -18,12 +18,20 @@ from core.models import GatewayRequest
 
 
 def gateway_configured(purpose, operation):
-    """Check the selected Gateway configuration without contacting a provider."""
+    """Check the selected external AI configuration without contacting a provider."""
     config = settings.PANDECT_AI_GATEWAY
     try:
-        account, gateway = config["account"], config["gateway"]
         execution = gateway_execution(purpose, operation)
         model, provider = execution["model"], execution["provider"]
+        if execution.get("url"):
+            prefix = "gpt" if provider == "openai" else "claude"
+            return bool(
+                re.fullmatch(rf"{prefix}-[A-Za-z0-9._-]{{1,100}}", model)
+                and re.fullmatch(
+                    r"[!-~]+", settings.PANDECT_DIRECT_AI.get(f"{provider}_api_key", "")
+                )
+            )
+        account, gateway = config["account"], config["gateway"]
         workers = provider == "workers-ai"
         return bool(
             purpose in {"text", "transcription"}
@@ -44,6 +52,40 @@ def gateway_configured(purpose, operation):
         return False
 
 
+def _endpoint_and_headers(execution):
+    headers = {"Content-Type": "application/json", "User-Agent": "Pandect/0.1"}
+    provider = execution["provider"]
+    if execution.get("url"):
+        key = settings.PANDECT_DIRECT_AI[f"{provider}_api_key"]
+        if provider == "anthropic":
+            headers["X-Api-Key"] = key
+            headers["anthropic-version"] = execution["api_version"]
+        else:
+            headers["Authorization"] = f"Bearer {key}"
+        return execution["url"], headers
+
+    config = settings.PANDECT_AI_GATEWAY
+    headers.update(
+        {
+            "cf-aig-authorization": f"Bearer {config['gateway_token']}",
+            "cf-aig-skip-cache": "true",
+            "cf-aig-collect-log": "false",
+        }
+    )
+    if provider == "workers-ai":
+        path = f"workers-ai/{execution['model']}"
+        headers["Authorization"] = f"Bearer {config['workers_token']}"
+    else:
+        path = "openai/responses"
+        headers["cf-aig-byok-alias"] = execution["key_alias"]
+        headers["cf-aig-request-timeout"] = str(execution["timeout"] * 1000)
+    url = (
+        f"https://gateway.ai.cloudflare.com/v1/"
+        f"{execution['account']}/{execution['gateway']}/{path}"
+    )
+    return url, headers
+
+
 class GatewayClient:
     def __init__(self, run, authorize):
         self.run = run
@@ -52,8 +94,6 @@ class GatewayClient:
     def request(self, purpose, payload):
         if not gateway_configured(purpose, self.run.operation):
             raise AnalysisError("gateway_not_configured")
-        config = settings.PANDECT_AI_GATEWAY
-        account, gateway = config["account"], config["gateway"]
         execution = gateway_execution(purpose, self.run.operation)
         model, provider = execution["model"], execution["provider"]
         workers = provider == "workers-ai"
@@ -66,10 +106,9 @@ class GatewayClient:
             body = encode_json(payload)
         except ValueError, TypeError, RecursionError:
             raise AnalysisError("gateway_invalid_input") from None
-        if len(body) > config["max_request_bytes"]:
+        if len(body) > execution["max_request_bytes"]:
             raise AnalysisError("gateway_input_limit")
-        path = f"workers-ai/{model}" if workers else "openai/responses"
-        url = f"https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/{path}"
+        url, headers = _endpoint_and_headers(execution)
         for attempt in range(2):
             validate_execution(self.run)
             if gateway_execution(purpose, self.run.operation) != execution:
@@ -79,18 +118,6 @@ class GatewayClient:
                 usage = GatewayRequest.objects.create(
                     case=case, run=self.run, model=model, request_bytes=len(body)
                 )
-            headers = {
-                "Content-Type": "application/json",
-                "User-Agent": "Pandect/0.1",
-                "cf-aig-authorization": f"Bearer {config['gateway_token']}",
-                "cf-aig-skip-cache": "true",
-                "cf-aig-collect-log": "false",
-            }
-            if workers:
-                headers["Authorization"] = f"Bearer {config['workers_token']}"
-            else:
-                headers["cf-aig-byok-alias"] = execution["key_alias"]
-                headers["cf-aig-request-timeout"] = str(execution["timeout"] * 1000)
             request = Request(url, data=body, headers=headers, method="POST")
             try:
                 self.authorize()
@@ -100,13 +127,14 @@ class GatewayClient:
                 with build_opener(NoRedirect()).open(
                     request, timeout=execution["timeout"]
                 ) as response:
-                    raw = response.read(config["max_response_bytes"] + 1)
-                if len(raw) > config["max_response_bytes"]:
+                    raw = response.read(execution["max_response_bytes"] + 1)
+                if len(raw) > execution["max_response_bytes"]:
                     raise AnalysisError("gateway_output_limit")
                 result = decode_json(raw)
                 if not isinstance(result, dict) or result.get("success") is False:
                     raise AnalysisError("gateway_invalid_response")
-                result = result.get("result", result)
+                if not execution.get("url"):
+                    result = result.get("result", result)
                 if not isinstance(result, dict):
                     raise AnalysisError("gateway_invalid_response")
                 usage.status = "complete"
@@ -146,7 +174,10 @@ class GatewayClient:
                     429: "rate_limit",
                 }.get(error.code, "provider_failure")
                 usage.save(update_fields=["status"])
-                if attempt == 0 and error.code in {429, 502, 503, 504}:
+                if attempt == 0 and (
+                    error.code in {429, 502, 503, 504}
+                    or (provider == "anthropic" and error.code == 529)
+                ):
                     self.authorize()
                     time.sleep(1)
                     continue
@@ -176,24 +207,50 @@ class GatewayClient:
         except ValueError, TypeError, RecursionError:
             raise AnalysisError("gateway_invalid_input") from None
         execution = gateway_execution("text", self.run.operation)
-        openai = execution["provider"] == "openai"
-        result = self.request(
-            "text",
-            {
-                "input" if openai else "messages": messages,
-                **execution.get("inference_settings", {}),
-            },
-        )
-        response = self._openai_text(result) if openai else result.get("response")
+        provider = execution["provider"]
+        if provider == "anthropic":
+            payload = {"system": messages[0]["content"], "messages": messages[1:]}
+        else:
+            payload = {"input" if provider == "openai" else "messages": messages}
+        result = self.request("text", payload | execution.get("inference_settings", {}))
+        if provider == "openai":
+            response = self._openai_text(result)
+        elif provider == "anthropic":
+            response = self._anthropic_text(result)
+        else:
+            response = result.get("response")
         if not isinstance(response, str):
             raise AnalysisError("gateway_invalid_response")
         try:
             value = decode_json(response)
         except ValueError, RecursionError:
             raise AnalysisError("gateway_invalid_response") from None
-        if not isinstance(value, dict if openai else (dict, list)):
+        if not isinstance(value, (dict, list) if provider == "workers-ai" else dict):
             raise AnalysisError("gateway_invalid_response")
         return value
+
+    @staticmethod
+    def _anthropic_text(result):
+        if result.get("type") != "message" or result.get("role") != "assistant":
+            raise AnalysisError("gateway_invalid_response")
+        stop_reason = result.get("stop_reason")
+        if stop_reason == "refusal":
+            raise AnalysisError("gateway_refused")
+        if stop_reason != "end_turn":
+            raise AnalysisError("gateway_incomplete_response")
+        content = result.get("content")
+        if not isinstance(content, list) or not content:
+            raise AnalysisError("gateway_invalid_response")
+        texts = []
+        for part in content:
+            if not isinstance(part, dict):
+                raise AnalysisError("gateway_invalid_response")
+            if part.get("type") in ("thinking", "redacted_thinking"):
+                continue
+            if part.get("type") != "text" or not isinstance(part.get("text"), str):
+                raise AnalysisError("gateway_invalid_response")
+            texts.append(part["text"])
+        return "".join(texts)
 
     @staticmethod
     def _openai_text(result):

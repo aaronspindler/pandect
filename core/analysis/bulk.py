@@ -24,7 +24,7 @@ SOURCES_PER_STEP = 25
 def start_case_analysis(actor, case_id, *, submission_id, scope=None):
     case = get_case(actor, case_id, edit=True, lock=True)
     scope = scope or {}
-    if scope and scope.get("type") != "reprocess":
+    if scope and scope.get("type") not in {"reprocess", "instance_summaries"}:
         from core.analysis.import_checks import imported_sources
 
         if not imported_sources(case, scope)[1].exists():
@@ -117,6 +117,60 @@ def _next_sources(batch, case):
     return []
 
 
+def _prepare_evidence_step(batch, case):
+    if batch.scope.get("automatic") is True:
+        from phone.analysis.ingest import next_messages, prepare_import_analysis
+
+        selected = next_messages(batch, case)
+        if selected:
+            prepare_import_analysis(batch, case, selected)
+            batch.source_cursor = selected[-1].pk
+            batch.source_kind = "text-message"
+            batch.processed_sources += len(selected)
+        return bool(selected)
+
+    rows = _next_sources(batch, case)
+    if batch.scope and rows:
+        from core.analysis.import_checks import prepare_import_checks
+
+        prepare_import_checks(batch, case, rows)
+        batch.source_cursor = rows[-1][0]
+        batch.processed_sources += len(rows)
+        return True
+
+    for source_id, evidence_id in rows:
+        attachment_id = source_id if batch.source_kind in CALL_KINDS else None
+        try:
+            runs, _ = start_evidence_analysis(
+                batch.requested_by,
+                case.pk,
+                batch.source_kind,
+                evidence_id,
+                attachment_id=attachment_id,
+                submission_id=uuid5(batch.pk, f"{batch.source_kind}:{source_id}"),
+                batch=batch,
+            )
+        except (AnalysisError, ValidationError, Http404) as error:
+            batch.unavailable_sources += 1
+            if len(batch.preparation_errors) < 100:
+                batch.preparation_errors.append(
+                    {
+                        "kind": batch.source_kind,
+                        "evidence_id": str(evidence_id),
+                        "message": error_message(
+                            error.code
+                            if isinstance(error, AnalysisError)
+                            else "source_unavailable"
+                        ),
+                    }
+                )
+        else:
+            batch.queued_runs += len(runs)
+        batch.processed_sources += 1
+        batch.source_cursor = source_id
+    return bool(rows)
+
+
 def prepare_case_analysis_batch(batch_id):
     """Commit a page of runs, its cursor and its continuation task together."""
     try:
@@ -138,69 +192,18 @@ def prepare_case_analysis_batch(batch_id):
             batch = CaseAnalysisBatch.objects.select_for_update().get(pk=batch_id)
             if batch.status != CaseAnalysisBatch.Status.QUEUED:
                 return batch.status
-            reprocessing = batch.scope.get("type") == "reprocess"
-            automatic_import = batch.scope.get("automatic") is True
-            if reprocessing:
+            scope_type = batch.scope.get("type")
+            if scope_type == "instance_summaries":
+                from phone.instance_summaries import prepare_instance_summaries
+
+                has_more = prepare_instance_summaries(batch, case)
+            elif scope_type == "reprocess":
                 from core.analysis.reprocessing import prepare_reprocessing
 
-                rows = [True] if prepare_reprocessing(batch, case) else []
-            elif automatic_import:
-                from phone.analysis.ingest import next_messages, prepare_import_analysis
-
-                selected = next_messages(batch, case)
-                rows = [(message.pk, message.pk) for message in selected]
+                has_more = prepare_reprocessing(batch, case)
             else:
-                rows = _next_sources(batch, case)
-            if reprocessing:
-                rows_to_prepare = []
-            elif automatic_import and rows:
-                prepare_import_analysis(batch, case, selected)
-                batch.source_cursor = rows[-1][0]
-                batch.source_kind = "text-message"
-                batch.processed_sources += len(rows)
-                rows_to_prepare = []
-            elif batch.scope and rows:
-                from core.analysis.import_checks import prepare_import_checks
-
-                prepare_import_checks(batch, case, rows)
-                batch.source_cursor = rows[-1][0]
-                batch.processed_sources += len(rows)
-                rows_to_prepare = []
-            else:
-                rows_to_prepare = rows
-            for source_id, evidence_id in rows_to_prepare:
-                attachment_id = source_id if batch.source_kind in CALL_KINDS else None
-                try:
-                    runs, _ = start_evidence_analysis(
-                        batch.requested_by,
-                        case.pk,
-                        batch.source_kind,
-                        evidence_id,
-                        attachment_id=attachment_id,
-                        submission_id=uuid5(
-                            batch.pk, f"{batch.source_kind}:{source_id}"
-                        ),
-                        batch=batch,
-                    )
-                except (AnalysisError, ValidationError, Http404) as error:
-                    batch.unavailable_sources += 1
-                    if len(batch.preparation_errors) < 100:
-                        batch.preparation_errors.append(
-                            {
-                                "kind": batch.source_kind,
-                                "evidence_id": str(evidence_id),
-                                "message": error_message(
-                                    error.code
-                                    if isinstance(error, AnalysisError)
-                                    else "source_unavailable"
-                                ),
-                            }
-                        )
-                else:
-                    batch.queued_runs += len(runs)
-                batch.processed_sources += 1
-                batch.source_cursor = source_id
-            if rows:
+                has_more = _prepare_evidence_step(batch, case)
+            if has_more:
                 from core.analysis.tasks import prepare_case_analysis
 
                 prepare_case_analysis.enqueue(str(batch.pk))

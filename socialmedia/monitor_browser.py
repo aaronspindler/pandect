@@ -74,10 +74,13 @@ class InstagramMonitorBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="@demo.account")
                 ).to_be_visible()
                 expect(
-                    page.get_by_role("heading", name="New accounts followed")
+                    page.get_by_text("No completed check to compare yet.")
                 ).to_be_visible()
                 self.db(self.run_two_checks)
                 page.reload()
+                expect(
+                    page.get_by_role("heading", name="New accounts followed")
+                ).to_be_visible()
                 page.get_by_role("link", name=re.compile("@lake.survey")).click()
                 expect(
                     page.get_by_text("Handle match only", exact=False)
@@ -86,6 +89,8 @@ class InstagramMonitorBrowserTests(BrowserTestCase):
                     page.get_by_role("link", name="View previous capture", exact=False)
                 ).to_be_visible()
                 page.get_by_role("link", name="Monitor for @demo.account").click()
+                expect(page.get_by_role("button", name="Pause monitor")).to_be_hidden()
+                page.get_by_text("Schedule", exact=True).click()
                 page.get_by_role("button", name="Pause monitor").click()
                 expect(
                     page.get_by_role("button", name="Resume monitor")
@@ -122,6 +127,8 @@ class InstagramMonitorBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("button", name="Resume monitor")
                 ).to_be_visible()
+                page.get_by_text("Schedule", exact=True).click()
+                page.get_by_text("Stop monitor", exact=True).click()
                 page.get_by_role("button", name="Stop monitor permanently").click()
                 expect(page.get_by_role("button", name="Resume monitor")).to_have_count(
                     0

@@ -2,6 +2,8 @@
 {% for group in result_groups %}
   {% if group.source %}{% include 'core/analysis/source_heading.html' with source=group.source only %}{% endif %}
   {% if group.preview %}
+  <details class="disclosure">
+  <summary>Compare extracted text with the image</summary>
   <figure class="analysis-group-preview">
     <svg class="analysis-image-preview" viewBox="0 0 {{ group.preview.width }} {{ group.preview.height }}" role="img" aria-label="Retained image preview with the extracted text regions marked">
       <image href="{{ group.preview.url }}" width="{{ group.preview.width }}" height="{{ group.preview.height }}"/>
@@ -13,6 +15,7 @@
     </svg>
     <figcaption>Outlines mark the retained regions shown on this page.</figcaption>
   </figure>
+  </details>
   {% endif %}
   {% if run.operation == 'plate_ocr' %}
     {% for region in group.regions %}

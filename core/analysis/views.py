@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from urllib.parse import urlsplit
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from django.contrib import messages
@@ -22,18 +22,23 @@ from django.views.decorators.http import (
 from audio.views import playback_response
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
+from core.analysis.approval import TRANSFER_CONTENT
 from core.analysis.artifacts import MAX_ARTIFACT_BYTES
 from core.analysis.automatic import start_evidence_analysis
 from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
-    gateway_destination,
+    execution_destination,
     requires_inference,
     retry_execution_confirmation,
     snapshot_execution,
 )
 from core.analysis.findings import additional_operations, case_highlights, finding_row
-from core.analysis.form_base import selection
+from core.analysis.form_base import (
+    CALL_RECORDING_OPERATIONS,
+    EXTRACTIONS_BY_KIND,
+    selection,
+)
 from core.analysis.forms import (
     EvidenceAnalysisForm,
     analysis_form,
@@ -43,8 +48,10 @@ from core.analysis.gateway import gateway_configured
 from core.analysis.navigation import (
     FINDINGS_PER_PAGE,
     finding_url,
-    history_filters,
+    findings_list_query,
     history_query,
+    processing_back_query,
+    result_navigation,
 )
 from core.analysis.navigation import query_suffix as analysis_query_suffix
 from core.analysis.operations import (
@@ -55,10 +62,14 @@ from core.analysis.operations import (
 from core.analysis.presentation import (
     measurement_formatter,
     prioritize_measurements,
-    table_rows,
 )
 from core.analysis.projection import is_timing_only
 from core.analysis.ranking import rank_findings, review_context
+from core.analysis.readiness import (
+    COORDINATE_OPERATIONS,
+    TEXT_OPERATIONS,
+    source_readiness,
+)
 from core.analysis.reports import REPORT_NAMES, report
 from core.analysis.result_views import result_view
 from core.analysis.services import (
@@ -72,7 +83,7 @@ from core.analysis.services import (
 from core.evidence.collection import collection_context
 from core.evidence.navigation import list_params
 from core.evidence.queries import get_evidence
-from core.evidence.types import KIND_LABELS
+from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.evidence.views import render_detail
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
 from geo.analysis import presentation as geo_presentation
@@ -141,9 +152,9 @@ def index(request, case_id):
         _context(request, case)
         | {
             "highlights": case_highlights(AnalysisRun.objects.filter(case=case), case)[
-                :5
+                :3
             ],
-            "recent_evidence": evidence["rows"][:5],
+            "recent_evidence": evidence["rows"][:3],
             "show_instagram_monitors": (
                 instagram_connector.available()
                 and instagram_connector.permits(request.user.pk, case.pk)
@@ -236,7 +247,14 @@ def current_report(request, case_id, name):
             )
         except ValidationError as error:
             form.add_error(None, error)
+    selected_names = []
     if data is not None:
+        if form.is_bound:
+            selected_names = [
+                dict(form.fields[field].choices)[form.cleaned_data[field]]
+                for field in ("vehicle_id", "participant_id", "other_participant_id")
+                if form.cleaned_data.get(field)
+            ]
         formatter = measurement_formatter(data, case=case, query=request.GET)
         data["measurements"] = formatter(data.get("metrics", {}))
         summary_fields = {
@@ -279,19 +297,12 @@ def current_report(request, case_id, name):
                 grouped.setdefault(item["values"]["SHA-256"], []).append(item)
             tables = [
                 {
-                    "title": f"Group {items[0]['values']['Group']}",
+                    "title": (
+                        f"Group {items[0]['values']['Group']} · "
+                        f"{items[0]['values']['Group occurrences']} identical files"
+                    ),
                     "checksum": checksum,
                     "items": items,
-                    "columns": table_rows(
-                        items,
-                        (
-                            ("Retained file", ("Source type", "Byte size")),
-                            (
-                                "Record history",
-                                ("Uploaded at (UTC)", "Archived parent"),
-                            ),
-                        ),
-                    ),
                 }
                 for checksum, items in grouped.items()
             ]
@@ -307,6 +318,7 @@ def current_report(request, case_id, name):
             "name": name,
             "tables": tables,
             "filters_applied": filters_applied,
+            "selected_names": selected_names,
             "duplicate_row": request.GET.get("duplicate_row", ""),
         },
     )
@@ -400,6 +412,16 @@ def create(request, case_id, kind=None, evidence_id=None):
         evidence_url = reverse(
             "core:evidence:detail", args=[case.pk, focused["kind"], item.pk]
         )
+    kind_filter = evidence[0] if evidence else request.GET.get("type", "")
+    if kind_filter not in KIND_LABELS:
+        kind_filter = ""
+    if kind_filter:
+        operations = {
+            name: spec for name, spec in operations.items() if kind_filter in spec.kinds
+        }
+    chooser_params = {"source": focused_source} if focused_source else {}
+    if kind_filter and not evidence:
+        chooser_params["type"] = kind_filter
     chooser_context = _context(request, case) | {
         "operation_groups": [
             (
@@ -419,17 +441,39 @@ def create(request, case_id, kind=None, evidence_id=None):
         ],
         "evidence": evidence[1] if evidence else None,
         "evidence_url": evidence_url,
-        "chooser_url": request.path,
+        "chooser_url": request.path + analysis_query_suffix(chooser_params),
+        "chooser_kinds": KIND_LABELS.items(),
+        "chooser_kind": kind_filter,
+        "focused_source": focused_source,
     }
     operation = (
         request.POST.get("operation")
         if request.method == "POST"
         else request.GET.get("operation")
     )
-    if request.method == "GET" and operation not in operations:
-        return render(request, "core/analysis/create.html", chooser_context)
     if operation not in operations:
+        if request.method == "GET" or not operations:
+            return render(request, "core/analysis/create.html", chooser_context)
         operation = next(iter(operations))
+    call_recording = (
+        kind_filter in CALL_KINDS and operation in CALL_RECORDING_OPERATIONS
+    )
+    choose_retained_material = focused_source.count(":") == 1 and (
+        call_recording
+        or (
+            kind_filter in EXTRACTIONS_BY_KIND
+            and (operation in TEXT_OPERATIONS or operation in COORDINATE_OPERATIONS)
+            and source_readiness(case, operation, [(focused_source, "")])[
+                focused_source
+            ]["blocking"]
+        )
+    )
+    exact_source = "" if choose_retained_material else focused_source
+    fixed_source = (
+        evidence_id is not None
+        or choose_retained_material
+        or (call_recording and evidence is not None)
+    )
     posted = request.POST.copy() if request.method == "POST" else None
     browse = request.POST.get("browse_sources") if posted is not None else None
     if posted is not None and request.POST.get("remove_source"):
@@ -446,7 +490,7 @@ def create(request, case_id, kind=None, evidence_id=None):
         posted["q"] = ""
     query = (
         (posted if posted is not None else request.GET).get("q", "")[:200]
-        if evidence is None
+        if not fixed_source
         else ""
     )
     navigation = posted if posted is not None else request.GET
@@ -470,20 +514,21 @@ def create(request, case_id, kind=None, evidence_id=None):
         actor=request.user,
         operation=operation,
         query=query,
-        evidence=evidence,
+        evidence=evidence if fixed_source else None,
         sources_page=sources_page,
         sources_cursor=sources_cursor,
         sources_reverse=sources_reverse,
-        selected_sources=(focused_source,) if focused_source else (),
+        selected_sources=(exact_source,) if exact_source else (),
     )
     form.fields["operation"].choices = [
         (key, spec.label) for key, spec in operations.items()
     ]
-    if focused_source:
-        if focused_source not in dict(form.fields["sources"].choices):
+    if request.method == "GET" and choose_retained_material:
+        form.initial.pop("sources", None)
+    elif request.method == "GET" and exact_source:
+        if exact_source not in dict(form.fields["sources"].choices):
             raise Http404("Source not available for this analysis.")
-        if request.method == "GET":
-            form.initial["sources"] = [focused_source]
+        form.initial["sources"] = [exact_source]
     if request.method == "POST" and not browse and form.is_valid():
         try:
             run, created = start_run(
@@ -495,6 +540,7 @@ def create(request, case_id, kind=None, evidence_id=None):
                 submission_id=form.cleaned_data["submission_id"],
                 external_processing=form.cleaned_data["external_processing"],
                 approved_execution=form.approved_execution,
+                require_configured_inference=True,
             )
         except (ValidationError, AnalysisError) as error:
             form.add_error(
@@ -519,6 +565,17 @@ def create(request, case_id, kind=None, evidence_id=None):
         chooser_context
         | {
             "form": form,
+            "fixed_source": fixed_source,
+            "choose_retained_material": choose_retained_material,
+            "choose_call_recording": choose_retained_material and call_recording,
+            "has_compatible_source": any(
+                not readiness["blocking"] for readiness in form.readiness.values()
+            ),
+            "has_blocked_selection": form.is_bound
+            and any(
+                form.readiness.get(value, {}).get("blocking")
+                for value in (form["sources"].value() or ())
+            ),
             "source_options": [
                 (
                     choice,
@@ -697,37 +754,40 @@ def _retry_parameters(run):
     return parameters
 
 
-def _retry_destination(execution):
-    if execution["backend"] == "gateway":
-        return gateway_destination(execution)
-    try:
-        endpoint = urlsplit(execution["url"])
-        if endpoint.scheme in {"http", "https"} and endpoint.hostname:
-            # Disclose the destination origin without credentials or route details.
-            return f"{endpoint.scheme}://{endpoint.netloc.rsplit('@', 1)[-1]}"
-    except ValueError:
-        pass
-    return "the geographic lookup service (configuration required)"
-
-
 @product_login_required
 @require_safe
 def detail(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
-    if run.operation == "imessage_import" and request.GET.get("processing") != "1":
-        return redirect("phone:imessage_review", case_id=case.pk, run_id=run.pk)
     history = history_query(request.GET)
-    history_page = history.get("history_page")
-    history_back = history_filters(history) | (
-        {"page": history_page} if history_page else {}
+    history_back = processing_back_query(history, batch_id=run.batch_id)
+    if "batch" not in history_back:
+        history.pop("batch", None)
+    if run.operation == "imessage_import" and request.GET.get("processing") != "1":
+        return redirect(
+            reverse("phone:imessage_review", args=[case.pk, run.pk], query=history)
+        )
+    findings_back = findings_list_query(request.GET)
+    back_to_analysis = (
+        reverse("core:analysis:processing", args=[case.pk])
+        + analysis_query_suffix(history_back)
+        + ("#processing-history" if history_back else "")
     )
+    back_label = (
+        "Back to batch checks" if "batch" in history_back else "Back to Processing"
+    )
+    if findings_back is not None:
+        back_label = "Back to findings"
+        back_to_analysis = reverse(
+            "core:analysis:browse", args=[case.pk], query=findings_back
+        )
+        history["return_findings"] = urlencode(findings_back)
     context = _context(request, case) | {
-        "nav_section": "processing",
+        "nav_section": "analysis" if findings_back is not None else "processing",
         "run": run,
         "history_suffix": analysis_query_suffix(history),
-        "back_to_analysis": reverse("core:analysis:processing", args=[case.pk])
-        + analysis_query_suffix(history_back),
+        "back_to_analysis": back_to_analysis,
+        "back_label": back_label,
         "operation_label": (
             OPERATIONS[run.operation].label
             if run.operation in OPERATIONS
@@ -826,6 +886,16 @@ def detail(request, case_id, run_id):
             entries = finding_page.object_list
             if selected_position is not None:
                 entries = [entries[selected_position % FINDINGS_PER_PAGE]]
+            if (
+                focused
+                and entries
+                and run.operation in {"sessions", "session_summaries"}
+            ):
+                from phone.conversation_instances import result_instance_url
+
+                context["instance_url"] = result_instance_url(
+                    case, run, entries[0][0], result.data.get("items", []), sources
+                )
             if focused and entries and (priority := priorities.get(entries[0][0])):
                 _, reason, pk = priority
                 if reason and pk in matches:
@@ -983,13 +1053,10 @@ def detail(request, case_id, run_id):
                 else:
                     context["retry_blocked"] = unavailable
             else:
-                context["retry_destination"] = _retry_destination(execution)
-                context["retry_data"] = {
-                    "text": "selected evidence content",
-                    "transcription": "selected recordings",
-                    "geocode": "selected addresses or coordinates",
-                    "map_context": "coordinates and search areas",
-                }[purpose]
+                context["retry_destination"] = execution_destination(execution) or (
+                    "the geographic lookup service (configuration required)"
+                )
+                context["retry_data"] = f"selected {TRANSFER_CONTENT[purpose]}"
                 context["retry_confirmation"] = retry_execution_confirmation(
                     request.user.pk, run.pk, context["retry_submission_id"], execution
                 )
@@ -1008,7 +1075,7 @@ def cancel(request, case_id, run_id):
         ),
     )
     return redirect(
-        _url(run.case, run) + analysis_query_suffix(history_query(request.GET))
+        _url(run.case, run) + analysis_query_suffix(result_navigation(request.GET))
     )
 
 
@@ -1026,7 +1093,7 @@ def retry(request, case_id, run_id):
             ),
         )
         return redirect(
-            _url(case, prior) + analysis_query_suffix(history_query(request.GET))
+            _url(case, prior) + analysis_query_suffix(result_navigation(request.GET))
         )
     choices = [
         {
@@ -1065,10 +1132,12 @@ def retry(request, case_id, run_id):
             ),
         )
         return redirect(
-            _url(case, prior) + analysis_query_suffix(history_query(request.GET))
+            _url(case, prior) + analysis_query_suffix(result_navigation(request.GET))
         )
     messages.success(request, "A new run is queued; the earlier history is retained.")
-    return redirect(_url(case, run) + analysis_query_suffix(history_query(request.GET)))
+    return redirect(
+        _url(case, run) + analysis_query_suffix(result_navigation(request.GET))
+    )
 
 
 @product_login_required
@@ -1094,7 +1163,7 @@ def select_estimate(request, case_id, run_id, item_index):
             else "Address estimate cleared.",
         )
     return redirect(
-        finding_url(case_id, run_id, item_index, history=history_query(request.GET))
+        finding_url(case_id, run_id, item_index, history=result_navigation(request.GET))
     )
 
 

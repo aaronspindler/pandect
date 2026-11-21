@@ -40,6 +40,16 @@ from people.models import Person
 
 SUCCESSFUL = ("complete", "partial", "empty")
 PER_PAGE = 25
+VALUE_HEADINGS = {
+    "entities",
+    "native_text",
+    "ocr",
+    "plate_ocr",
+    "transcription",
+    "copied_text",
+    "content_events",
+    "question_synthesis",
+}
 TIMING_ONLY_FINDINGS = Q(result__run__operation="conversation_link", weak=True)
 REPORT_OPERATIONS = (
     "comm_patterns",
@@ -173,9 +183,7 @@ def project_result(result):
             AnalysisFindingSource.objects.bulk_create(source_chunk, batch_size=500)
 
 
-class CatalogueForm(forms.Form):
-    q = forms.CharField(label="Search findings", required=False, max_length=200)
-    method = forms.ChoiceField(label="Method", required=False)
+class FindingScopeForm(forms.Form):
     kind = forms.ChoiceField(
         label="Evidence type",
         required=False,
@@ -198,15 +206,25 @@ class CatalogueForm(forms.Form):
             ("all", "All saved results"),
         ],
     )
+
+    def __init__(self, data, *, case):
+        super().__init__(data)
+        self.fields["person"].queryset = Person.objects.filter(case=case)
+
+
+class CatalogueForm(FindingScopeForm):
+    q = forms.CharField(label="Search findings", required=False, max_length=200)
+    method = forms.ChoiceField(label="Method", required=False)
     weak = forms.ChoiceField(
         label="Timing-only findings",
         required=False,
         choices=[("", "Hide"), ("1", "Show")],
         widget=forms.HiddenInput,
     )
+    field_order = ("q", "method", "kind", "evidence", "person", "history", "weak")
 
     def __init__(self, data, *, case):
-        super().__init__(data)
+        super().__init__(data, case=case)
         methods = set(
             AnalysisRun.objects.filter(case=case).values_list("operation", flat=True)
         )
@@ -221,7 +239,6 @@ class CatalogueForm(forms.Form):
                 key=lambda choice: choice[1],
             ),
         ]
-        self.fields["person"].queryset = Person.objects.filter(case=case)
 
 
 def finding_queryset(case, filters, *, person=None, labels=None):
@@ -287,7 +304,7 @@ def finding_queryset(case, filters, *, person=None, labels=None):
     )
 
 
-def finding_rows(case, findings, *, show_weak=False):
+def finding_rows(case, findings, *, show_weak=False, navigation=None):
     """Resolve only the page, without fetching canonical result payloads."""
     from core.analysis.services import (
         SourceResolutionCache,
@@ -371,6 +388,7 @@ def finding_rows(case, findings, *, show_weak=False):
                 run.pk,
                 finding.item_index,
                 show_weak=show_weak or finding.weak,
+                history=navigation,
             ),
             "method": OPERATIONS[run.operation].label
             if run.operation in OPERATIONS
@@ -392,22 +410,21 @@ def finding_rows(case, findings, *, show_weak=False):
             if unavailable
             else getattr(finding, "review_reason", ""),
             "sources": [],
-            "additional_sources": max(0, len(cited) - 3),
         }
         if not unavailable:
+            cited_sources = [source for key, source in sources.items() if key in cited]
             row["participant_names"] = (
-                participant_names(
-                    source for key, source in sources.items() if key in cited
-                )
-                if row["uses_ai"]
-                else {}
+                participant_names(cited_sources) if row["uses_ai"] else {}
             )
-            row["preview"] = participant_text(row["preview"], row["participant_names"])
-            row["label"] = participant_text(row["label"], row["participant_names"])
-            row["excerpt"] = participant_text(row["excerpt"], row["participant_names"])
+            for field in ("preview", "label", "excerpt"):
+                row[field] = participant_text(
+                    row[field],
+                    row["participant_names"],
+                    include_sender_role=run.operation != "session_summaries",
+                )
             row["sources"] = [
                 {
-                    "source_id": key,
+                    "source_id": str(source.id),
                     "title": source.item.title,
                     "url": source.original_url,
                     "kind": KIND_LABELS[source.kind],
@@ -417,14 +434,45 @@ def finding_rows(case, findings, *, show_weak=False):
                     if source.attachment
                     else source.item.sha256,
                 }
-                for key, source in sources.items()
-                if key in cited
+                for source in cited_sources
             ]
+            if run.operation in VALUE_HEADINGS and row["preview"]:
+                value = " ".join(row["preview"].split())
+                row["headline"] = value if len(value) <= 110 else value[:110] + "…"
+            elif run.operation == "sessions":
+                messages = [s for s in cited_sources if s.kind == "text-message"]
+                if messages:
+                    people = {
+                        person_id: name
+                        for (_, person_id), name in participant_names(messages).items()
+                    }
+                    names = list(people.values())
+                    times = [
+                        source.item.occurred_at
+                        for source in messages
+                        if source.item.occurred_at is not None
+                    ]
+                    row["headline"] = " and ".join(names[:2])
+                    if len(names) > 2:
+                        row["headline"] += f" and {len(names) - 2} more"
+                    row["message_count"] = len(messages)
+                    if times:
+                        row["first_message_at"] = min(times)
+                        row["last_message_at"] = max(times)
+            row["more_source_count"] = max(0, len(row["sources"]) - 1)
         rows.append(row)
     return rows
 
 
-def catalogue_page(case, params, *, person=None, page_parameter="page", labels=None):
+def catalogue_page(
+    case,
+    params,
+    *,
+    person=None,
+    page_parameter="page",
+    labels=None,
+    return_to_list=False,
+):
     form = CatalogueForm(params, case=case)
     valid = form.is_valid()
     filters = form.cleaned_data if valid else {}
@@ -451,10 +499,16 @@ def catalogue_page(case, params, *, person=None, page_parameter="page", labels=N
         run_id=F("result__run_id"),
     ).only("id", "case_id", "result_id", "item_index", "label", "weak", "preview")
     page = Paginator(queryset, PER_PAGE).get_page(params.get(page_parameter))
-    page.object_list = finding_rows(case, page.object_list, show_weak=show_timing_only)
     query = {
         key: value for key, value in params.items() if key in form.fields and value
     }
+    navigation = None
+    if return_to_list:
+        return_query = query | ({"page": page.number} if page.number > 1 else {})
+        navigation = {"return_findings": urlencode(return_query)}
+    page.object_list = finding_rows(
+        case, page.object_list, show_weak=show_timing_only, navigation=navigation
+    )
     prefix = "?" + urlencode(query) + ("&" if query else "") + page_parameter + "="
     visibility_query = query.copy()
     if show_timing_only:
@@ -487,8 +541,7 @@ def catalogue_page(case, params, *, person=None, page_parameter="page", labels=N
         else "",
         "next_url": prefix + str(page.next_page_number()) if page.has_next() else "",
         "evidence_title": evidence_title,
-        "advanced_filters": bool(form.errors)
-        or any(
-            filters.get(key) for key in ("method", "kind", "person", "history", "weak")
+        "advanced_filters": any(
+            filters.get(key) for key in ("method", "kind", "person", "history")
         ),
     }

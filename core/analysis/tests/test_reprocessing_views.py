@@ -3,11 +3,13 @@
 from uuid import uuid4
 
 from django.conf import settings
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
 from cases.models import CaseMembership
+from core.analysis.tests.test_execution import LOCAL
+from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
@@ -104,6 +106,7 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(DBTaskResult.objects.count(), tasks)
         self.assertFalse(AnalysisRun.objects.exists())
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_external_and_both_require_deliberate_approval(self):
         for mode in ("external", "both"):
             with self.subTest(mode=mode):
@@ -144,6 +147,7 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(CaseAnalysisBatch.objects.exists())
         self.assertFalse(DBTaskResult.objects.exists())
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_checkbox_and_radio_groups_describe_their_validation_errors(self):
         payload = self.selection(evidence_types=[], mode="unapproved-service")
         response = self.client.post(self.reprocess_url(), payload)
@@ -182,6 +186,7 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(cross_case.context["form"].errors)
         self.assertFalse(CaseAnalysisBatch.objects.exists())
 
+    @override_settings(PANDECT_LOCAL_AI=LOCAL)
     def test_changed_processing_destination_requires_a_fresh_review(self):
         payload = self.selection()
         configuration = settings.PANDECT_LOCAL_AI
@@ -195,6 +200,29 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.context["form"]["mode"].value(), "local")
         self.assertFalse(CaseAnalysisBatch.objects.exists())
         self.assertFalse(DBTaskResult.objects.exists())
+
+    @override_settings(PANDECT_LOCAL_AI={})
+    def test_unconfigured_network_modes_are_not_offered_or_queued(self):
+        payload = self.selection(evidence_types=["text"])
+        response = self.client.get(self.reprocess_url())
+        self.assertEqual(
+            list(response.context["form"].fields["mode"].choices),
+            [("local", "Local checks and private services")],
+        )
+        self.assertContains(response, 'type="hidden" name="mode" value="local"')
+        self.assertContains(response, "Processing uses local checks")
+        self.assertNotContains(response, "Choose processing location")
+        self.assertNotContains(response, "0 active")
+        self.assertNotContains(response, "Cloudflare")
+        rejected = self.client.post(
+            self.reprocess_url(),
+            payload | {"mode": "external", "external_processing": "on"},
+        )
+        self.assertIn("mode", rejected.context["form"].errors)
+        accepted = self.client.post(self.reprocess_url(), payload)
+        self.assertEqual(accepted.status_code, 302)
+        batch = CaseAnalysisBatch.objects.get(pk=payload["submission_id"])
+        self.assertEqual(batch.scope["executions"], {})
 
     def test_viewers_and_unrelated_or_revoked_users_cannot_reprocess(self):
         payload = self.selection("editor")

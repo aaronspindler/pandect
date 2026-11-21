@@ -4,11 +4,16 @@
 {% block content %}
 <div class="page-content">
   <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
-  <header class="page-header"><div><h1>Add evidence</h1><p>Upload files, add a record, or import a CSV.</p></div></header>
+  <header class="page-header"><h1>Add evidence</h1></header>
+  <nav class="actions" aria-label="Ways to add evidence">
+    <a class="record-link" href="#upload-files-heading">Upload files</a>
+    <a class="record-link" href="#add-record-heading">Add a record</a>
+    <a class="record-link" href="#import-records-heading">Import CSV</a>
+  </nav>
   <section class="form-layout" aria-labelledby="upload-files-heading">
-  <h2 id="upload-files-heading">Upload files</h2>
+  <h2 id="upload-files-heading" tabindex="-1">Upload files</h2>
   <p data-bulk-fallback class="notice">Bulk uploads need browser support and JavaScript. You can always <a href="{% url 'core:evidence:create' case_id=case.pk %}?kind=document">add one file at a time</a>.</p>
-  <form method="post" action="{% url 'core:evidence:create' case_id=case.pk %}" enctype="multipart/form-data" class="form-layout bulk-upload-form" data-evidence-upload data-bulk-upload data-upload-url="{% url 'core:evidence:create' case_id=case.pk %}" data-max-file-bytes="{{ max_file_bytes }}" data-max-batch-files="{{ max_batch_files }}" data-kind="document" hidden>
+  <form method="post" action="{% url 'core:evidence:create' case_id=case.pk %}" enctype="multipart/form-data" class="form-layout bulk-upload-form" data-bulk-upload data-max-file-bytes="{{ max_file_bytes }}" data-max-batch-files="{{ max_batch_files }}" hidden>
     {% csrf_token %}
     <div class="field bulk-file-picker">
       <label for="id_file" data-file-label>Select files</label>
@@ -34,14 +39,14 @@
   </form>
   </section>
   <section class="content-section form-layout evidence-entry-methods" aria-labelledby="add-record-heading">
-    <h2 id="add-record-heading">Add a record</h2>
+    <h2 id="add-record-heading" tabindex="-1">Add a record</h2>
     <nav class="related-actions" aria-labelledby="add-record-heading">
       <a class="record-link" href="{% url 'core:evidence:create' case_id=case.pk %}?kind=text">Add text</a>
       {% for kind,label in manual_kinds %}<a class="record-link" href="{% url 'core:evidence:create' case_id=case.pk %}?kind={{ kind }}">Add {{ label|lower }}</a>{% endfor %}
     </nav>
   </section>
   <section class="content-section form-layout evidence-entry-methods" aria-labelledby="import-records-heading">
-    <h2 id="import-records-heading">Import records</h2>
+    <h2 id="import-records-heading" tabindex="-1">Import records</h2>
     <nav class="related-actions" aria-labelledby="import-records-heading">
       <a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a>
       <a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}">Import iMessage · CSV</a>

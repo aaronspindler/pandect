@@ -293,10 +293,16 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
 
     def test_malformed_rows_remain_reviewable_without_partial_import(self):
         first = parse_csv(csv_content(), "UTC")[0].raw
-        batch = self.new_batch(csv_content(first, first | {"Speed": "invalid"}))
-        self.assertContains(
-            self.client.get(self.review_url(batch)), "Some rows need correction"
+        batch = self.new_batch(
+            csv_content(*([first] * 60), first | {"Speed": "invalid"})
         )
+        response = self.client.get(self.review_url(batch))
+        self.assertContains(response, "Rows to correct")
+        self.assertEqual([row.number for row in response.context["rows"]], [62])
+        self.assertContains(response, "View all 61 source rows")
+        response = self.client.get(self.review_url(batch), {"rows": "all"})
+        self.assertEqual(response.context["rows"][0].number, 2)
+        self.assertContains(response, "?rows=all&amp;page=2")
         self.assertEqual(self.complete(batch).status_code, 400)
         self.assertFalse(VehicleLocationEvidence.objects.exists())
         self.assertTrue(DocumentEvidence.objects.filter(pk=batch.document_id).exists())
@@ -365,6 +371,9 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             batch = self.new_batch(original)
             review = self.client.get(self.review_url(batch))
             self.assertContains(review, "2 observations ready without them")
+            self.assertContains(
+                review, "Created Time is the reported observation time."
+            )
             self.assertFalse(
                 review.context["form"].fields["confirm_duplicates"].required
             )
@@ -385,6 +394,10 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         results = self.client.get(self.review_url(batch))
         self.assertContains(results, "2 observations imported.")
         self.assertContains(results, "2 possible duplicate rows skipped.")
+        self.assertContains(results, reverse("geo:case_map", args=(self.case.pk,)))
+        self.assertContains(results, "Open case map")
+        self.assertContains(results, "View source CSV")
+        self.assertNotContains(results, "Refresh status")
         self.assertEqual(self.complete(batch, confirm_duplicates="on").status_code, 302)
         self.assertEqual(batch.observations.count(), 2)
         for field, value in (("duplicates_confirmed", True), ("duplicate_count", 0)):
@@ -411,6 +424,8 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         result = self.client.get(self.review_url(another))
         self.assertContains(result, "0 observations imported.")
         self.assertContains(result, "1 possible duplicate row skipped.")
+        self.assertNotContains(result, "Open case map")
+        self.assertContains(result, "View source CSV")
         self.assertEqual(self.complete(another).status_code, 302)
         self.assertEqual(VehicleLocationEvidence.objects.count(), 1)
 
@@ -461,6 +476,17 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         page = self.client.get(self.upload_url())
         self.assertEqual(page.context["form"]["timezone"].value(), "America/Toronto")
         self.assertNotContains(page, "Private van")
+        page = self.client.get(self.upload_url(), {"vehicle": self.vehicle.pk})
+        self.assertEqual(page.context["form"]["vehicle"].value(), self.vehicle.pk)
+        vehicle_url = reverse("vehicle:detail", args=[self.case.pk, self.vehicle.pk])
+        self.assertContains(page, f'href="{vehicle_url}">Back to vehicle')
+        self.assertContains(page, f'href="{vehicle_url}">Cancel')
+        page = self.client.post(f"{self.upload_url()}?vehicle={self.vehicle.pk}", {})
+        self.assertContains(page, f'href="{vehicle_url}">Cancel', status_code=400)
+        for invalid in (other_vehicle.pk, "invalid"):
+            page = self.client.get(self.upload_url(), {"vehicle": invalid})
+            self.assertIsNone(page.context["form"]["vehicle"].value())
+            self.assertContains(page, "Back to evidence")
         self.assertEqual(self.upload(vehicle=str(other_vehicle.pk)).status_code, 400)
         self.assertFalse(DocumentEvidence.objects.exists())
         submission = str(uuid4())
@@ -481,7 +507,98 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(VehicleLocationImport.objects.count(), 1)
         self.assertEqual(self.complete(batch).status_code, 302)
-        self.assertEqual(batch.observations.get().vehicle, self.vehicle)
+
+    def test_add_vehicle_from_review_returns_without_publishing_or_weaker_access(self):
+        row = parse_csv(csv_content(), "UTC")[0].raw
+        batch = self.new_batch(
+            csv_content(row, row, row | {"Asset": "Second asset"}),
+            vehicle=str(self.vehicle.pk),
+        )
+        alternate = Vehicle.objects.create(case=self.case, make="Alternate vehicle")
+        review_url = self.review_url(batch)
+        create_url = reverse("vehicle:create_for_import", args=[self.case.pk, batch.pk])
+        return_url = f"{review_url}#mapping-heading"
+        self.assertContains(self.client.get(review_url), "Add a vehicle")
+        draft = {
+            "action": "add_vehicle",
+            "vehicle_0": str(alternate.pk),
+            "vehicle_1": "",
+            "confirm_duplicates": "on",
+            "confirm": "on",
+        }
+        self.assertRedirects(self.client.post(review_url, draft), create_url)
+        response = self.client.get(create_url)
+        self.assertContains(response, "Add vehicle and return")
+        self.assertContains(response, f'href="{return_url}">Cancel')
+        response = self.client.post(create_url, {"color": "Blue"})
+        self.assertContains(response, f'href="{return_url}"', status_code=400)
+        cancelled = self.client.get(return_url).context["form"]
+        self.assertEqual(cancelled["vehicle_0"].value(), str(alternate.pk))
+        self.assertEqual(cancelled["vehicle_1"].value(), "")
+        self.assertTrue(cancelled["confirm_duplicates"].value())
+        self.assertFalse(cancelled["confirm"].value())
+
+        for role, expected in (("viewer", 403), ("outsider", 404)):
+            self.login(role)
+            self.assertEqual(self.client.post(review_url, draft).status_code, expected)
+            self.assertEqual(self.client.get(create_url).status_code, expected)
+            self.assertEqual(
+                self.client.post(create_url, {"make": "Unauthorized"}).status_code,
+                expected,
+            )
+        self.login("editor")
+        mismatched_url = reverse(
+            "vehicle:create_for_import", args=[self.case.pk, uuid4()]
+        )
+        self.assertEqual(self.client.get(mismatched_url).status_code, 404)
+        self.assertEqual(
+            self.client.post(mismatched_url, {"make": "Unauthorized"}).status_code, 404
+        )
+
+        self.assertRedirects(self.client.post(review_url, draft), create_url)
+        response = self.client.post(
+            create_url, {"make": "Synthetic second vehicle"}, follow=True
+        )
+        self.assertRedirects(response, return_url)
+        review = response
+        self.assertContains(review, "Synthetic second vehicle")
+        mapping = review.context["form"]
+        self.assertEqual(mapping["vehicle_0"].value(), str(alternate.pk))
+        self.assertEqual(mapping["vehicle_1"].value(), "")
+        self.assertTrue(mapping["confirm_duplicates"].value())
+        self.assertFalse(mapping["confirm"].value())
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "review")
+        self.assertFalse(batch.vehicle_mapping)
+        self.assertFalse(batch.observations.exists())
+        self.assertEqual(
+            self.complete(
+                batch,
+                vehicle_0=str(alternate.pk),
+                vehicle_1=str(self.vehicle.pk),
+                confirm_duplicates="on",
+            ).status_code,
+            302,
+        )
+        response = self.client.post(create_url, {"make": "Already finished"})
+        self.assertRedirects(response, review_url)
+        self.assertFalse(Vehicle.objects.filter(make="Already finished").exists())
+        self.assertEqual(batch.observations.filter(vehicle=alternate).count(), 2)
+        self.assertEqual(batch.observations.filter(vehicle=self.vehicle).count(), 1)
+
+    def test_retained_import_blocks_vehicle_deletion_before_publication(self):
+        batch = self.new_batch(vehicle=str(self.vehicle.pk))
+        self.login("owner")
+        delete_url = reverse("vehicle:delete", args=(self.case.pk, self.vehicle.pk))
+        page = self.client.get(delete_url)
+        self.assertContains(page, f'href="{self.review_url(batch)}"')
+        self.assertContains(page, "synthetic-assets.csv")
+        self.assertNotContains(page, "Permanently delete vehicle")
+        blocked = self.client.post(delete_url, {"confirm": "on"})
+        self.assertContains(
+            blocked, "linked to a retained location import", status_code=400
+        )
+        self.assertTrue(Vehicle.objects.filter(pk=self.vehicle.pk).exists())
 
     def test_worker_rechecks_access_and_retry_ignores_replaced_task_token(self):
         self.login("editor")
@@ -796,12 +913,17 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
             "vehicle:delete",
             kwargs={"case_id": self.case.pk, "vehicle_id": self.vehicle.pk},
         )
+        blocked = self.client.get(delete_url)
+        self.assertContains(blocked, self.url("detail", item, "vehicle-location"))
+        self.assertContains(blocked, "View all linked locations")
+        self.assertNotContains(blocked, "Permanently delete vehicle")
         self.assertContains(
             self.client.post(delete_url, {"confirm": "on"}),
             "linked to retained location evidence",
             status_code=400,
         )
         self.client.post(self.url("archive", item, kind="vehicle-location"))
+        self.assertContains(self.client.get(delete_url), "Archived")
         self.assertContains(
             self.client.post(delete_url, {"confirm": "on"}),
             "linked to retained location evidence",

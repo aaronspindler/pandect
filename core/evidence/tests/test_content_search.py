@@ -76,10 +76,11 @@ class RetainedContentSearchTests(EvidenceViewTestMixin, TestCase):
                 rows = response.context["rows"]
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]["id"], call.pk)
-                self.assertTrue(rows[0]["url"].endswith(f"#attachment-{match.pk}"))
+                match_url = rows[0]["content_match"]["url"]
+                self.assertEqual(match_url, f"{rows[0]['url']}#attachment-{match.pk}")
                 self.assertIn("type=" + kind, rows[0]["url"])
                 self.assertContains(response, "First matching supplied transcript")
-                detail = self.client.get(rows[0]["url"])
+                detail = self.client.get(match_url)
                 self.assertContains(detail, f'id="attachment-{match.pk}"')
 
     def test_content_excerpts_escape_markup_and_are_bounded_around_the_match(self):

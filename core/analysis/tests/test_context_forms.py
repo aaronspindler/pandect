@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from core.analysis.form_base import source_choices
 from core.analysis.forms import analysis_form
@@ -18,6 +19,7 @@ from geo.models import LocationEvidence
 from image.models import ImageEvidence
 
 
+@override_settings(PANDECT_GEOCODER_LOCAL=True, PANDECT_MAP_CONTEXT_LOCAL=True)
 class ContextAndOCRFormTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -101,10 +103,14 @@ class ContextAndOCRFormTests(EvidenceViewTestMixin, TestCase):
 
     def test_historical_context_uses_utc_and_rejects_future_or_invalid_dates(self):
         now = datetime(2026, 10, 28, 12, tzinfo=UTC)
-        with patch("geo.analysis_forms.timezone.now", return_value=now):
+        with (
+            timezone.override("America/Toronto"),
+            patch("geo.analysis_forms.timezone.now", return_value=now),
+        ):
             for timestamp in ("2026-10-01T12:00", "2026-10-01T08:00:00-04:00"):
                 with self.subTest(timestamp=timestamp):
                     form = self.form("geographic_context", context_as_of=timestamp)
+                    self.assertIn("UTC", form["context_as_of"].label)
                     self.assertTrue(form.is_valid(), form.errors)
                     self.assertEqual(
                         form.parameters()["context_as_of"],
@@ -121,6 +127,20 @@ class ContextAndOCRFormTests(EvidenceViewTestMixin, TestCase):
             current = self.form("geographic_context", context_as_of="")
             self.assertTrue(current.is_valid(), current.errors)
             self.assertNotIn("context_as_of", current.parameters())
+
+    def test_movement_period_form_retains_utc_labels_and_boundaries(self):
+        with timezone.override("America/Toronto"):
+            values = {
+                "period_a_start": "2026-03-08T02:30",
+                "period_a_end": "2026-03-08T03:00",
+                "period_b_start": "2026-03-09T02:30",
+                "period_b_end": "2026-03-09T03:00",
+            }
+            form = self.form("movement_routines", **values)
+            self.assertTrue(form.is_valid(), form.errors)
+            for field, value in values.items():
+                self.assertIn("UTC", form[field].label)
+                self.assertEqual(form.parameters()[field], value + ":00+00:00")
 
     def test_profile_and_context_parameters_are_isolated_to_their_operations(self):
         ocr = self.form(
@@ -156,7 +176,6 @@ class ContextAndOCRFormTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "geocode_locations",
             [{"kind": "location", "id": str(address.pk)}],
-            external_processing=True,
         )
         AnalysisRun.objects.filter(pk=run.pk).update(status="complete")
         result = AnalysisResult.objects.create(

@@ -2,6 +2,7 @@
 
 import re
 
+from django import forms
 from django.core.paginator import Paginator
 from django.db.models import CharField, Count, F, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Cast, Coalesce, Concat, Substr
@@ -12,7 +13,7 @@ from django.views.decorators.http import require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.analysis.catalogue import CatalogueForm, finding_queryset, finding_rows
+from core.analysis.catalogue import FindingScopeForm, finding_queryset, finding_rows
 from core.models import AnalysisFindingSource
 
 IDENTIFIERS = {
@@ -23,6 +24,16 @@ IDENTIFIERS = {
     "identifier": "Identifier candidate",
     "plate": "Plate-text candidate",
 }
+
+
+class IdentifierForm(FindingScopeForm):
+    q = forms.CharField(label="Find an identifier", required=False, max_length=200)
+    identifier_type = forms.ChoiceField(
+        label="Identifier type",
+        required=False,
+        choices=[("", "All identifier types"), *IDENTIFIERS.items()],
+    )
+    field_order = ("q", "identifier_type", "kind", "person", "history", "evidence")
 
 
 def _page_rows(case, queryset, number):
@@ -41,10 +52,16 @@ def _page_rows(case, queryset, number):
 @require_safe
 def connections(request, case_id):
     case = get_case(request.user, case_id)
-    form = CatalogueForm(request.GET, case=case)
+    form = IdentifierForm(request.GET, case=case)
     valid = form.is_valid()
     filters = form.cleaned_data if valid else {}
-    findings = finding_queryset(case, filters).exclude(match_kind="")
+    findings = finding_queryset(
+        case, {key: value for key, value in filters.items() if key != "q"}
+    ).exclude(match_kind="")
+    if filters.get("q"):
+        findings = findings.filter(match_key__icontains=filters["q"])
+    if filters.get("identifier_type"):
+        findings = findings.filter(match_kind=filters["identifier_type"])
     if not valid:
         findings = findings.none()
     # Count exact original/attachment identities, not extraction versions or runs.

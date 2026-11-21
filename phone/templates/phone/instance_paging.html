@@ -1,0 +1,8 @@
+<nav class="conversation-paging" data-conversation-edge="{{ direction }}" aria-label="{{ label }}">
+  {% if instance %}
+  <a class="record-link" data-conversation-page href="{% querystring instance_query page=page_obj.number instance=instance.id message_page=page_number %}#instance-messages-{{ instance.id }}">{{ label }}</a>
+  {% else %}
+  <a class="record-link" data-conversation-page href="{% querystring instance_query page=page_number %}#instances-heading">{{ label }}</a>
+  {% endif %}
+  <span class="muted" role="status" data-conversation-status></span>
+</nav>

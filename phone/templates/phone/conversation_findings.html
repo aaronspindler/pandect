@@ -1,4 +1,4 @@
-{% with detailed=analysis.page_obj|default:shared %}
+{% with detailed=analysis.page_obj %}
 <ol class="conversation-findings-list">
   {% for item in analysis.rows %}
   <li class="conversation-finding{% if not detailed %} conversation-finding-compact{% endif %}" data-finding-id="{{ item.id }}">
@@ -9,20 +9,19 @@
     {% endif %}
     {% if not item.unavailable %}
     {% if item.ai_suggestion or item.weak_label or item.partial %}<p class="conversation-finding-status muted">{% include 'phone/finding_labels.html' %}</p>{% endif %}
-    {% if detailed %}
+    {% if shared and item.message_count %}
+    <p class="conversation-finding-preview">{{ item.message_count }} message{{ item.message_count|pluralize }} · {% if item.first_message_at %}<time datetime="{{ item.first_message_at|date:'c' }}">{{ item.first_message_at|date:'j M Y, H:i T' }}</time>{% if item.last_message_at and item.last_message_at != item.first_message_at %} – <time datetime="{{ item.last_message_at|date:'c' }}">{% if item.first_message_at|date:'Y-m-d' == item.last_message_at|date:'Y-m-d' %}{{ item.last_message_at|date:'H:i T' }}{% else %}{{ item.last_message_at|date:'j M Y, H:i T' }}{% endif %}</time>{% endif %}{% else %}Time not recorded{% endif %}</p>
+    {% elif detailed %}
     {% if item.text %}<div class="conversation-finding-text">{{ item.text }}</div>{% elif item.preview %}<div class="conversation-finding-text">{{ item.preview }}</div>{% endif %}
     {% elif item.text %}
     <p class="conversation-finding-preview">{{ item.text|truncatechars:160 }}</p>
     {% endif %}
-    {% if item.review_reason %}<p class="muted">{{ item.review_reason }}</p>{% endif %}
-    {% if detailed %}
-    {% if item.text_truncated %}<p class="muted">Excerpt · Open the finding for the complete text.</p>{% endif %}
-    <p class="conversation-finding-method muted">{{ item.method }} · <time datetime="{{ item.created_at|date:'c' }}">{{ item.created_at|date:'j M Y, H:i T' }}</time></p>
-    {% endif %}
+    {% if item.review_reason and detailed or item.review_reason and not shared %}<p class="muted">{{ item.review_reason }}</p>{% endif %}
+    {% if detailed and item.text_truncated and not item.message_count %}<p class="muted">Excerpt · Open the finding for the complete text.</p>{% endif %}
     {% if item.warning %}<p>{{ item.warning }}</p>{% endif %}
     {% if shared %}
-    {% if item.message_sources %}<ul class="conversation-finding-sources">{% for source in item.message_sources %}<li><a class="record-link" href="{{ source.url }}">Show message<span class="sr-only">: {{ source.title }}</span></a> · {{ source.title }}{% if source.archived %} · Archived{% endif %}</li>{% endfor %}</ul>{% endif %}
-    {% if item.additional_message_sources %}<p class="muted">{{ item.additional_message_sources }} more cited message{{ item.additional_message_sources|pluralize }} · Open the finding for all sources.</p>{% endif %}
+    {% if item.message_sources %}<ul class="conversation-finding-sources">{% for source in item.message_sources %}{% if forloop.first or detailed %}<li><a class="record-link" href="{{ source.url }}">Show message<span class="sr-only">: {{ source.title }}</span></a> · {{ source.title }}{% if source.archived %} · Archived{% endif %}</li>{% endif %}{% endfor %}</ul>{% endif %}
+    {% if detailed and item.additional_message_sources %}<p class="muted">{{ item.additional_message_sources }} more cited message{{ item.additional_message_sources|pluralize }} · Open the finding for all sources.</p>{% endif %}
     {% if item.outside_sources %}<p class="muted">Also cites sources outside this view.</p>{% endif %}
     {% endif %}
     {% else %}<p class="muted">The saved sources are no longer available in their analyzed version.</p>{% endif %}

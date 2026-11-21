@@ -10,6 +10,8 @@ from django.urls import reverse
 
 from audio.models import AudioEvidence
 from core.analysis.forms import analysis_form
+from core.analysis.tests.test_execution import LOCAL
+from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
@@ -57,6 +59,7 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
             operation=operation,
         )
 
+    @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_all_five_model_paths_default_local_and_cloud_requires_approval(self):
         methods = (
             ("transcription", "audio", self.audio, {}),
@@ -94,6 +97,7 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
                 self.assertTrue(approved.cleaned_data["external_processing"])
                 self.assertEqual(approved.parameters()["backend"], "gateway")
 
+    @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_local_approval_cannot_enable_cloud_or_deterministic_ai_options(self):
         local = self.form("content_events", external_processing=True)
         self.assertTrue(local.is_valid(), local.errors)
@@ -146,6 +150,7 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
                         private.fields["external_processing"].widget.is_hidden
                     )
 
+    @override_settings(PANDECT_LOCAL_AI=LOCAL)
     def test_evidence_additional_analysis_uses_local_by_default(self):
         self.login("owner")
         url = reverse(
@@ -208,3 +213,22 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, "private-inference.example.test")
         self.assertNotContains(response, "predates execution pinning")
         self.assertNotContains(response, "Start another run")
+
+    @override_settings(PANDECT_LOCAL_AI={})
+    def test_optional_ai_can_be_omitted_when_no_route_is_configured(self):
+        self.login("owner")
+        url = reverse("core:analysis:create", args=(self.case.pk,))
+        page = self.client.get(url, {"operation": "text_topics"})
+        self.assertNotContains(page, "Include a source-cited topic summary")
+        self.assertNotContains(page, "External AI")
+        payload = {
+            "operation": "text_topics",
+            "submission_id": page.context["form"]["submission_id"].value(),
+            "sources": [f"text:{self.note.pk}"],
+        }
+        staged = self.client.post(url, payload | {"include_summary": "on"})
+        self.assertContains(staged, "Local AI processing is unavailable")
+        self.assertContains(staged, "Include a source-cited topic summary")
+        self.assertFalse(AnalysisRun.objects.exists())
+        self.assertEqual(self.client.post(url, payload).status_code, 302)
+        self.assertFalse(AnalysisRun.objects.get().parameters["include_summary"])

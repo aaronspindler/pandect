@@ -43,7 +43,73 @@ from vehicle.models import Vehicle
 class AnalysisBrowserTests(BrowserTestCase):
     artifact_subdirectory = "analysis-browser"
 
-    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
+    @override_settings(
+        PANDECT_LOCAL_AI=LOCAL,
+        PANDECT_AI_GATEWAY=OPENAI | {"text_provider": "anthropic-direct"},
+        PANDECT_DIRECT_AI={
+            "anthropic_api_key": "synthetic-claude-key",
+            "anthropic_model": "claude-haiku-5-5",
+        },
+    )
+    def test_direct_ai_review_and_queue_without_javascript(self):
+        url = (
+            self.url("core:analysis:create", case_id=self.case.pk)
+            + "?operation=content_events"
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.owner)
+                page.goto(url)
+                location = page.get_by_label("Processing location", exact=True)
+                expect(location).to_have_value("local")
+                location.select_option(label="External AI")
+                expect(
+                    page.get_by_text(re.compile("Anthropic.*claude-haiku-5-5"))
+                ).to_be_visible()
+                self.assertNotIn("synthetic-claude-key", page.content())
+                page.locator(
+                    f'input[name="sources"][value="text:{self.text.pk}"]'
+                ).check()
+                approval = page.get_by_label(
+                    "I approve external processing of the selected evidence", exact=True
+                )
+                expect(approval).not_to_be_checked()
+                approval.focus()
+                approval.press("Space")
+                expect(approval).to_be_checked()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    approval.scroll_into_view_if_needed()
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"direct-ai-{width}-{height}")
+                page.emulate_media(color_scheme="dark")
+                self.capture(page, engine, "direct-ai-dark")
+                page.emulate_media(forced_colors="active", reduced_motion="reduce")
+                self.capture(page, engine, "direct-ai-forced-colors")
+                page.get_by_role("button", name="Start analysis", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Suggest claims and commitments")
+                ).to_be_visible()
+                self.assertEqual(
+                    self.db(
+                        AnalysisRun.objects.filter(
+                            external_processing=True,
+                            parameters___execution__provider="anthropic",
+                        ).count
+                    ),
+                    self.engines.index(engine) + 1,
+                )
+
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI, PANDECT_LOCAL_AI=LOCAL)
     def test_openai_destination_and_stale_approval_without_javascript(self):
         url = (
             self.url("core:analysis:create", case_id=self.case.pk)
@@ -402,10 +468,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 index_url = self.url("core:analysis:processing", case_id=self.case.pk)
                 page.goto(index_url)
-                page.get_by_text("Run more checks", exact=True).press("Enter")
-                button = page.get_by_role(
-                    "button", name="Rerun all analysis", exact=True
-                )
+                actions = page.locator("#processing-actions > summary")
+                actions.press("Enter")
+                button = page.get_by_role("button", name="Run local checks", exact=True)
                 expect(button).to_have_count(1)
                 for width, height, label in (
                     (1440, 900, "desktop"),
@@ -423,7 +488,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self._assert_reflow(page)
                 self.capture(page, engine, "rerun-all-large-text")
                 page.reload()
-                page.get_by_text("Run more checks", exact=True).press("Enter")
+                actions.press("Enter")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
                 self.capture(page, engine, "rerun-all-dark")
@@ -456,7 +521,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.sign_in(page, self.viewer)
                 page.goto(index_url)
                 expect(
-                    page.get_by_role("button", name="Rerun all analysis", exact=True)
+                    page.get_by_role("button", name="Run local checks", exact=True)
                 ).to_have_count(0)
 
     def test_analysis_overview_reports_and_responsive_layout(self):
@@ -469,9 +534,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 index_url = self.url("core:analysis:index", case_id=self.case.pk)
                 page.goto(index_url)
-                expect(
-                    page.get_by_role("heading", name="No highlighted findings")
-                ).to_be_visible()
+                expect(page.locator(".analysis-highlights")).to_have_count(0)
                 self.capture(page, engine, "analysis-empty")
                 self.db(self._many_findings)
                 page.goto(index_url)
@@ -479,11 +542,14 @@ class AnalysisBrowserTests(BrowserTestCase):
                     "contact-01@example.test"
                 )
                 expect(
+                    page.locator(".case-tools-recent + .case-tools-directory")
+                ).to_be_visible()
+                expect(
                     page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
                 expect(page.locator("#processing-history")).to_have_count(0)
                 expect(
-                    page.get_by_role("button", name="Rerun all analysis", exact=True)
+                    page.get_by_role("button", name="Run local checks", exact=True)
                 ).to_have_count(0)
                 expect(
                     page.locator("#analysis-reports .analysis-options a")
@@ -501,8 +567,11 @@ class AnalysisBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Processing", exact=True)
                 ).to_be_visible()
                 expect(
-                    page.get_by_role("heading", name="History", exact=True)
+                    page.get_by_role("link", name="Browse findings", exact=True)
                 ).to_be_visible()
+                history = page.locator("#processing-history")
+                expect(history).not_to_have_attribute("open", "")
+                history.locator(":scope > summary").press("Enter")
                 page.locator("#processing-history summary").filter(
                     has_text="Filter history"
                 ).press("Enter")
@@ -516,9 +585,19 @@ class AnalysisBrowserTests(BrowserTestCase):
                 page.get_by_role("link", name="Clear filters", exact=True).press(
                     "Enter"
                 )
+                row = history.locator(".analysis-history-row").first
+                expect(row.locator("strong")).to_have_text(self.text.title)
+                expect(row.get_by_text("Saved result", exact=True)).to_be_visible()
+                row.press("Enter")
                 expect(
-                    page.locator("#processing-history .analysis-history-row").first
-                ).to_contain_text(self.text.title)
+                    page.get_by_text("contact-01@example.test").first
+                ).to_be_visible()
+                evidence = page.get_by_role(
+                    "link", name="All findings for this evidence"
+                )
+                expect(evidence).to_be_visible()
+                evidence.press("Enter")
+                expect(page).to_have_url(re.compile(r"#evidence-findings-heading$"))
                 navigation.get_by_role("link", name="Case Tools", exact=True).press(
                     "Enter"
                 )
@@ -681,7 +760,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 ):
                     self.sign_in(page)
                     page.goto(detail_url)
-                    page.get_by_text("Processing details", exact=True).press("Enter")
+                    page.get_by_text("Details and history", exact=True).press("Enter")
                     approval = page.get_by_role(
                         "checkbox", name="I approve external processing for this run"
                     )
@@ -790,14 +869,14 @@ class AnalysisBrowserTests(BrowserTestCase):
                     limitations = page.get_by_text("Limitations", exact=True)
                     expect(
                         page.get_by_role("link", name="Download results", exact=True)
-                    ).to_be_visible()
+                    ).to_be_hidden()
                     expect(
                         page.get_by_role(
                             "button",
                             name="Start another run with these inputs",
                             exact=True,
                         )
-                    ).to_be_visible()
+                    ).to_be_hidden()
                     limitations.focus()
                     expect(page.locator(".analysis-result-limits")).to_have_attribute(
                         "open", ""
@@ -826,7 +905,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                                 page, engine, f"topic-recovery-{label}-{scheme}"
                             )
                     page.set_viewport_size({"width": 1440, "height": 900})
-                    page.get_by_text("Processing details", exact=True).press("Enter")
+                    page.get_by_text("Details and history", exact=True).press("Enter")
                     retry = page.get_by_role(
                         "button", name="Start another run with these inputs", exact=True
                     )
@@ -853,7 +932,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     expect(
                         page.get_by_role("heading", name="Findings", exact=True)
                     ).to_be_visible()
-                    page.get_by_text("Processing details", exact=True).press("Enter")
+                    page.get_by_text("Details and history", exact=True).press("Enter")
                     expect(
                         page.get_by_role(
                             "button", name="Start another run with these inputs"
@@ -914,7 +993,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                     inspector.get_by_role("link", name=self.text.title)
                 ).to_be_visible()
                 self.capture(page, engine, "analysis-findings-mobile-detail")
-                back = page.get_by_role("link", name="Back to findings", exact=True)
+                back = page.get_by_role(
+                    "link", name="All findings in this result", exact=True
+                )
                 back.press("Enter")
                 expect(page).to_have_url(re.compile(r"\?page=2#finding-link-52$"))
                 expect(row).to_be_visible()
@@ -993,9 +1074,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                     page.get_by_role("link", name="Pickup receipt", exact=True)
                 ).to_be_visible()
                 page.go_back()
-                page.get_by_role("link", name="Back to findings", exact=True).press(
-                    "Enter"
-                )
+                page.get_by_role(
+                    "link", name="All findings in this result", exact=True
+                ).press("Enter")
                 first = page.locator(".analysis-findings-table tbody tr").first
                 expect(first).to_contain_text("REF-1847")
                 expect(first).to_contain_text(reason)
@@ -1075,7 +1156,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("link", name=titles[0], exact=True)
                 ).to_be_visible()
-                page.get_by_role("link", name="Back to findings").press("Enter")
+                page.get_by_role("link", name="All findings in this result").press(
+                    "Enter"
+                )
                 selected = tags.get_by_role("row").filter(has_text=makes[0])
                 expect(
                     selected.get_by_role("cell", name=makes[0], exact=True)
@@ -1159,22 +1242,35 @@ class AnalysisBrowserTests(BrowserTestCase):
                 for name, field in (
                     ("vehicle-coverage", "Receipt minus event (seconds)"),
                     ("vehicle-speed", "Reported speed (km/h)"),
-                    ("duplicates", "Source type"),
+                    ("duplicates", None),
                 ):
                     page.goto(
                         self.live_server_url
                         + reverse("core:analysis:report", args=[self.case.pk, name])
                     )
-                    expect(page.get_by_role("table")).to_have_count(1)
-                    expect(
-                        page.get_by_role("table").get_by_text(field, exact=True).first
-                    ).to_be_visible()
-                    if name == "duplicates":
+                    table = page.get_by_role("table")
+                    expect(table).to_have_count(1)
+                    if field:
                         expect(
-                            page.get_by_role("table")
-                            .get_by_text("No", exact=True)
-                            .first
+                            table.get_by_text(field, exact=True).first
                         ).to_be_visible()
+                    if name == "duplicates":
+                        expect(table).to_have_accessible_name(
+                            "Group 1 · 2 identical files"
+                        )
+                        for filename in ("recorder.wav", "retained-call.wav"):
+                            expect(
+                                table.get_by_role("link", name=filename)
+                            ).to_be_visible()
+                        details = table.locator("summary").first
+                        details.press("Enter")
+                        expect(
+                            table.get_by_text("Source type", exact=True).first
+                        ).to_be_visible()
+                        expect(
+                            table.get_by_text("No", exact=True).first
+                        ).to_be_visible()
+                        details.press("Enter")
                     if name == "vehicle-coverage":
                         observed = page.get_by_role(
                             "table", name="Report records"
@@ -1184,7 +1280,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     page.locator("#report-totals").scroll_into_view_if_needed()
                     self.capture(page, engine, f"analysis-report-totals-{name}-320")
                     self._assert_reflow(page)
-                    page.get_by_role("table").scroll_into_view_if_needed()
+                    table.scroll_into_view_if_needed()
                     self.capture(page, engine, f"analysis-report-{name}-320")
 
                 page.goto(
@@ -1293,7 +1389,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                         "link", name="Synthetic retained report", exact=True
                     )
                 ).to_have_attribute("href", re.compile(r"/evidence/document/"))
-                page.get_by_text("Processing details", exact=True).press("Enter")
+                page.get_by_text("Details and history", exact=True).press("Enter")
                 processing_summary = page.locator("summary").filter(
                     has_text=re.compile(r"^Processing summary$")
                 )
@@ -1326,7 +1422,6 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.capture(page, engine, "analysis-result-forced-colors")
                 page.emulate_media(forced_colors="none")
                 page.set_viewport_size({"width": 1440, "height": 900})
-                page.get_by_text("Processing details", exact=True).press("Enter")
                 with page.expect_download() as waiting:
                     page.get_by_role(
                         "link", name="Download results", exact=True
@@ -1348,6 +1443,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     )
                 ).to_be_visible()
 
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI, PANDECT_LOCAL_AI=LOCAL)
     def test_process_single_evidence_without_javascript_and_responsive_layout(self):
         DocumentEvidence.objects.create(
             case=self.case,
@@ -1428,8 +1524,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                         "Another document outside this selection", exact=False
                     )
                 ).to_have_count(0)
-                self.open_evidence_panel(page, "info")
-                native = page.get_by_role(
+                outcomes = page.locator("#evidence-outcomes")
+                outcomes.locator(":scope > summary").press("Enter")
+                native = outcomes.get_by_role(
                     "link", name=re.compile("Extract document text")
                 ).first
                 expect(native).to_contain_text("Queued")
@@ -1438,19 +1535,19 @@ class AnalysisBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 run_id = UUID(native.get_attribute("href").rstrip("/").split("/")[-1])
                 self.db(self._complete, run_id)
-                page.locator(".evidence-info > summary").press("Enter")
                 refresh = page.get_by_role("link", name="Refresh status", exact=True)
                 refresh.focus()
                 expect(refresh).to_be_focused()
                 refresh.press("Enter")
-                self.open_evidence_panel(page, "info")
+                if outcomes.get_attribute("open") is None:
+                    outcomes.locator(":scope > summary").press("Enter")
                 expect(native).to_contain_text("Complete")
                 expect(
                     page.get_by_role(
                         "link", name=re.compile("Extract identifiers and dates")
                     ).first
                 ).to_be_visible()
-                page.locator(".evidence-info > summary").press("Enter")
+                outcomes.locator(":scope > summary").press("Enter")
                 for width, height, label in viewports:
                     page.set_viewport_size({"width": width, "height": height})
                     self._assert_reflow(page)
@@ -1495,18 +1592,15 @@ class AnalysisBrowserTests(BrowserTestCase):
                     self.db(AnalysisRun.objects.filter(external_processing=True).exists)
                 )
                 page.goto(analysis_url)
-                self.open_evidence_panel(page, "info")
-                page.get_by_role(
-                    "link", name=re.compile("Extract document text")
-                ).first.click()
+                if outcomes.get_attribute("open") is None:
+                    outcomes.locator(":scope > summary").press("Enter")
+                native.click()
                 expect(
                     page.get_by_role("heading", name="Native UTF-8 text", exact=True)
                 ).to_be_visible()
                 source_findings = page.get_by_role(
                     "link", name="All findings for this evidence", exact=True
                 )
-                expect(source_findings).to_be_hidden()
-                page.locator("#run-details").press("Enter")
                 expect(source_findings).to_be_visible()
                 source_findings.focus()
                 expect(source_findings).to_be_focused()
@@ -1573,8 +1667,10 @@ class AnalysisBrowserTests(BrowserTestCase):
                         exact=True,
                     )
                 ).to_be_visible()
-                expect(page.locator(".report-filters")).to_have_attribute("open", "")
-                expect(report_filters).to_contain_text("Applied")
+                expect(page.locator(".report-filters")).not_to_have_attribute(
+                    "open", ""
+                )
+                expect(report_filters).to_contain_text(f"All evidence · {person}")
                 details = page.locator("details").filter(
                     has=page.locator("summary", has_text="About this report")
                 )
@@ -1582,6 +1678,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(details).to_contain_text(str(person))
                 expect(details).not_to_contain_text(str(person.pk))
                 self.capture(page, engine, "analysis-viewer-call-report")
+                report_filters.press("Enter")
                 page.get_by_label("From (UTC)", exact=True).fill("2026-11-02T10:00")
                 page.get_by_label("Through (UTC)", exact=True).fill("2026-11-01T10:00")
                 page.get_by_role("button", name="Update report", exact=True).click()

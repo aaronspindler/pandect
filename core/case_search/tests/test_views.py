@@ -107,7 +107,7 @@ class CaseSearchViewTests(EvidenceViewTestMixin, TestCase):
         with patch("core.case_search.views.related_results", side_effect=revoke):
             self.assertEqual(
                 self.client.get(
-                    self.route("results"), {"q": "case", "type": "person"}
+                    self.route("results"), {"q": "case", "type": "text", "meaning": "1"}
                 ).status_code,
                 404,
             )
@@ -128,11 +128,20 @@ class CaseSearchViewTests(EvidenceViewTestMixin, TestCase):
             "excerpt": item.body,
             "badges": (),
         }
-        with patch(
-            "core.case_search.views.related_results",
-            return_value=([row], "Indexing this case."),
+        with (
+            patch(
+                "core.case_search.views.related_results",
+                return_value=([row], "Indexing this case."),
+            ) as related,
+            patch("core.case_search.views.profile", return_value="test-profile"),
         ):
-            response = self.client.get(self.route("results"), params)
+            initial = self.client.get(self.route("results"), params)
+            self.assertContains(initial, "0 keyword matches")
+            self.assertContains(initial, "Search by meaning")
+            self.assertNotContains(initial, 'id="related-passages"')
+            related.assert_not_called()
+            response = self.client.get(self.route("results"), params | {"meaning": "1"})
+            related.assert_called_once()
         self.assertContains(response, "0 keyword matches")
         self.assertContains(response, "Indexing this case.")
         self.assertContains(response, "Related by meaning (1)")
@@ -142,10 +151,8 @@ class CaseSearchViewTests(EvidenceViewTestMixin, TestCase):
         response = self.client.get(
             self.route("results"), {"q": "Ferry", "type": "text"}
         )
-        content = response.content.decode()
-        self.assertLess(
-            content.index("Indexing status"), content.index('class="case-search-hit"')
-        )
+        self.assertContains(response, "1 keyword match")
+        self.assertNotContains(response, "Search by meaning")
         self.assertNotContains(response, 'id="related-passages"')
         response = self.client.get(
             self.route("results"), {"q": '"Ferry departure"', "type": "text"}

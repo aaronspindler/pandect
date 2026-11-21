@@ -26,16 +26,6 @@
     {% for attachment in attachments %}
     <section class="evidence-info-section" id="attachment-details-{{ attachment.pk }}"><h3>{% if attachment.file %}{{ attachment.original_filename }}{% else %}Supplied transcript{% endif %}</h3><dl class="metadata-grid"><div><dt>Added by</dt><dd>{{ attachment.uploaded_by }}</dd></div><div><dt>Added at</dt><dd>{{ attachment.created_at|date:"d M Y, H:i:s T" }}</dd></div><div><dt>Attachment SHA-256</dt><dd><code>{{ attachment.sha256 }}</code></dd></div>{% if attachment.file %}<div><dt>Audio SHA-256</dt><dd><code>{{ attachment.audio_sha256 }}</code></dd></div>{% endif %}</dl><a class="record-link" href="{% url 'phone:attachment_download' case_id=case.pk kind=kind evidence_id=item.pk attachment_id=attachment.pk component='manifest' %}">Download attachment record</a></section>
     {% endfor %}
-    {% partialdef history inline %}
-    <div id="evidence-processing-history" data-live-region data-live-poll="false">
-    {% if analysis_page_obj %}
-    <section class="evidence-info-section" aria-labelledby="evidence-history-heading">
-      <h3 id="evidence-history-heading" tabindex="-1">Processing history</h3>
-      {% for run in analysis_page_obj %}<a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}"><div><strong>{{ run.label }}</strong><p class="muted">{{ run.created_at|date:'d M Y, H:i T' }}{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}</p></div><span>{{ run.get_status_display }}</span></a>{% endfor %}
-      {% if analysis_page_obj.has_other_pages %}<nav class="pagination" aria-label="Run history pages">{% if analysis_page_obj.has_previous %}<a class="button button-secondary" href="?info=1&amp;results_page={{ analysis_page_obj.previous_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Previous</a>{% endif %}<span>Page {{ analysis_page_obj.number }} of {{ analysis_page_obj.paginator.num_pages }}</span>{% if analysis_page_obj.has_next %}<a class="button button-secondary" href="?info=1&amp;results_page={{ analysis_page_obj.next_page_number }}{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Next</a>{% endif %}</nav>{% endif %}
-    </section>
-    {% endif %}
-    </div>
-    {% endpartialdef %}
+    {% if analysis_page_obj %}<a class="record-link" href="?results_page=1{% if list_suffix %}&amp;{{ list_suffix|slice:'1:' }}{% endif %}#evidence-history-heading">Analysis outcomes</a>{% endif %}
   </aside>
 </details>

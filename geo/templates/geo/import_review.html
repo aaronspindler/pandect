@@ -1,14 +1,25 @@
 {% extends "ui/base.html" %}
 {% block title %}{% if batch.completed_at %}Vehicle locations imported{% else %}Import vehicle locations{% endif %} · {{ case.name }}{% endblock %}
 {% block content %}
-{% load tz %}
-{% include 'ui/components/live_updates.html' %}
+{% load import_checks tz %}
+{% if not batch.completed_at %}{% include 'ui/components/live_updates.html' %}{% endif %}
+{% partialdef import_pages %}
+  {% if page_obj.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Vehicle location import pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
+{% endpartialdef %}
 {% partialdef live inline %}
 {% get_current_timezone as current_timezone %}
 <div class="page-content" id="vehicle-import" data-live-region data-live-poll="{% if batch.status == 'queued' or batch.status == 'running' %}true{% else %}false{% endif %}">
   <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
-  <header class="page-header"><div><h1>{% if batch.completed_at %}Vehicle locations imported{% else %}Import vehicle locations{% endif %}</h1>{% if batch.status == 'review' %}<p>Match each asset to a case vehicle.</p>{% endif %}</div></header>
-  <p class="muted">Export timezone: <strong>{{ batch.timezone }}</strong> · Created Time is the reported observation time.</p>
+  <header class="page-header"><div><h1>{% if batch.completed_at %}Vehicle locations imported{% else %}Import vehicle locations{% endif %}</h1></div></header>
+  {% if batch.completed_at %}
+    <p role="status">{{ imported_count }} observation{{ imported_count|pluralize }} imported.{% if skipped_count %} {{ skipped_count }} possible duplicate row{{ skipped_count|pluralize }} skipped.{% endif %}</p>
+    <div class="actions">
+      {% if observations %}<a class="button button-primary" href="{% url 'geo:case_map' case.pk %}">Open case map</a>{% endif %}
+      <a class="record-link" href="{% url 'core:evidence:detail' case_id=case.pk kind='document' evidence_id=batch.document_id %}">View source CSV</a>
+    </div>
+  {% else %}
+    <p class="muted">Export timezone: <strong>{{ batch.timezone }}</strong> · Created Time is the reported observation time.</p>
+  {% endif %}
   <details class="disclosure"><summary>Source and time interpretation</summary><div class="disclosure-body">
   <dl class="metadata-grid"><div><dt>Source CSV</dt><dd><a href="{% url 'core:evidence:detail' case_id=case.pk kind='document' evidence_id=batch.document_id %}">{{ batch.document.original_filename }}</a></dd></div><div><dt>Export timezone</dt><dd>{{ batch.timezone }}</dd></div><div><dt>Observation time</dt><dd>Created Time from the export, shown in {{ current_timezone }}</dd></div></dl>
   <p class="muted">A reported association does not verify identity, ownership, or presence. Received Time is separate from observation and collection times. No coordinates or observation intervals are inferred.</p>
@@ -31,32 +42,44 @@
     {% if can_retry %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="retry"><button class="button button-primary" type="submit">Retry import</button></form>{% elif can_edit %}<p>This import has reached its retry limit. Review the source and upload a corrected CSV, or ask the operator for help.</p>{% endif %}
   {% endif %}
   {% if batch.completed_at %}
-    {% load import_checks %}{% import_checks 'vehicle' batch.pk %}
-    <p role="status">{{ imported_count }} observation{{ imported_count|pluralize }} imported.{% if skipped_count %} {{ skipped_count }} possible duplicate row{{ skipped_count|pluralize }} skipped.{% endif %} The original CSV stays saved.</p>
-    <p><a class="button button-primary" href="{% url 'core:analysis:index' case.pk %}">View findings</a></p>
-    <details class="disclosure"{% if request.GET.page %} open{% endif %}><summary>Imported observations</summary>
-    <ul class="import-results">{% for observation in observations %}<li><a href="{% url 'core:evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=observation.pk %}">{{ observation.title }}</a> · {{ observation.vehicle }}{% if observation.is_archived %} · Archived{% endif %}</li>{% endfor %}</ul>
-    </details>
+    {% if observations %}<details class="disclosure"{% if request.GET.page %} open{% endif %}><summary>Imported observations</summary>
+      <ul class="import-results">{% for observation in observations %}<li><a href="{% url 'core:evidence:detail' case_id=case.pk kind='vehicle-location' evidence_id=observation.pk %}">{{ observation.title }}</a> · {{ observation.vehicle }}{% if observation.is_archived %} · Archived{% endif %}</li>{% endfor %}</ul>
+      {% partial import_pages %}
+    </details>{% endif %}
+    {% import_checks 'vehicle' batch.pk %}
   {% else %}
-    {% if invalid %}<p class="notice" role="alert">Some rows need correction before import. Open the row preview below, then upload a corrected CSV. The original file stays saved.</p>{% endif %}
+    {% if invalid %}<p class="notice" role="alert"><a href="{% if correction_only %}#import-source-rows{% else %}{% querystring rows=None page=None %}#import-source-rows{% endif %}">{{ batch.invalid_count }} row{{ batch.invalid_count|pluralize }} need{{ batch.invalid_count|pluralize:"s," }} correction</a> before import. Upload a corrected CSV after reviewing the errors. The original file stays saved.</p>{% endif %}
     {% if batch.duplicate_count %}<p class="notice">{{ batch.duplicate_count }} possible duplicate{{ batch.duplicate_count|pluralize }} · {{ nonduplicate_count }} observation{{ nonduplicate_count|pluralize }} ready without them. Matches are checked again before import.</p>{% endif %}
     {% if can_edit and form and not invalid %}
-    <section aria-labelledby="mapping-heading"><h2 id="mapping-heading" tabindex="-1">Choose the vehicles</h2><p>Match each asset to its reported vehicle. This association does not verify identity, ownership, or presence. <a href="{% url 'vehicle:create' case_id=case.pk %}">Add a vehicle</a> if needed.</p>
-    <form method="post" class="form-layout" data-unsaved-form>
+    <section aria-labelledby="mapping-heading">
+    <div class="section-header"><h2 id="mapping-heading" tabindex="-1">Choose the vehicles</h2><button class="button button-secondary" type="submit" form="vehicle-mapping" name="action" value="add_vehicle" formnovalidate>Add a vehicle</button></div>
+    <p class="muted">A reported association does not verify identity, ownership, or presence.</p>
+    <form id="vehicle-mapping" method="post" class="form-layout" data-unsaved-form>
       {% csrf_token %}{% include 'ui/components/form_fields.html' with form=form %}
       <div class="actions"><button class="button button-primary" type="submit">Import locations</button><a class="button button-secondary" href="{% url 'core:evidence:list' case_id=case.pk %}">Cancel</a></div>
     </form></section>
-    {% elif not can_edit %}<p class="role-note">You have Viewer access. An owner or editor can complete this import.</p>{% endif %}
-    {% if rows %}<details class="disclosure"{% if invalid or request.GET.page %} open{% endif %}><summary>{{ batch.row_count }} source row{{ batch.row_count|pluralize }} · Preview</summary><p class="muted">Showing {{ rows.start_index }}–{{ rows.end_index }}. Open a row to inspect its original values.</p>
+    {% elif not can_edit and not invalid %}<p class="role-note">You have Viewer access. An owner or editor can complete this import.</p>{% endif %}
+    {% if rows %}
+      {% if correction_only %}
+      <section class="content-section" aria-labelledby="import-source-rows">
+        <h2 id="import-source-rows" tabindex="-1">Rows to correct</h2>
+        <p><a href="{% querystring rows='all' page=None %}#import-source-rows">View all {{ batch.row_count }} source rows</a></p>
+      {% else %}
+      <details class="disclosure"{% if invalid or request.GET.page %} open{% endif %}>
+        <summary id="import-source-rows">{{ batch.row_count }} source row{{ batch.row_count|pluralize }} · Preview</summary>
+      {% endif %}
+      <p class="muted">Showing {{ rows.start_index }}–{{ rows.end_index }} of {{ rows.paginator.count }}. Open a row to inspect its original values.</p>
 
     {% for row in rows %}<details class="import-observation"{% if row.errors %} open{% endif %}>
       <summary>Row {{ row.number }} · {{ row.asset|default:row.serial }}{% if row.values.observed_at %} · {{ row.values.observed_at|date:"d M Y, H:i:s T" }}{% endif %}{% if row.errors %} · Needs correction{% endif %}{% if row.duplicate %} · Possible duplicate{% endif %}</summary>
       {% if row.errors %}<ul class="errorlist">{% for error in row.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
       {% if row.duplicate %}<p class="notice">An identical source row appears earlier in this CSV or in a retained import using this timezone. It may describe the same event. Check its vehicle association before continuing.</p>{% endif %}
       <dl class="metadata-grid">{% for label,value in row.raw.items %}<div><dt>{{ label }}</dt><dd>{{ value|default:"Not supplied"|linebreaksbr }}</dd></div>{% endfor %}<div><dt>Interpreted observation time</dt><dd>{% if row.values.observed_at %}{{ row.values.observed_at|date:"d M Y, H:i:s T" }}{% else %}Unavailable{% endif %}</dd></div><div><dt>Interpreted receipt time</dt><dd>{% if row.values.received_at %}{{ row.values.received_at|date:"d M Y, H:i:s T" }}{% else %}Not supplied or invalid{% endif %}</dd></div></dl>
-    </details>{% endfor %}</details>{% endif %}
+    </details>{% endfor %}
+    {% if correction_only %}</section>{% else %}</details>{% endif %}
+    {% endif %}
+    {% partial import_pages %}
   {% endif %}
-  {% if page_obj.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Vehicle location import pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
   {% if can_edit %}<p><a href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Upload another CSV</a></p>{% endif %}
 </div>
 {% endpartialdef %}
