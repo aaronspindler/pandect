@@ -8,6 +8,12 @@ def list_params(request):
 def collection_params(values):
     params = values.copy()
     for key in list(params):
+        if (
+            key == "view"
+            and params.get(key) == "gallery"
+            and params.get("type") == "image"
+        ):
+            continue
         if key not in {"q", "type", "state", "page", "person", "checksum"}:
             del params[key]
     if "q" in params:

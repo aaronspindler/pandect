@@ -44,6 +44,7 @@ from core.analysis.forms import (
 from core.analysis.manual import start_available_run, start_selected_analysis
 from core.analysis.navigation import (
     FINDINGS_PER_PAGE,
+    evidence_return_url,
     finding_url,
     findings_list_query,
     history_query,
@@ -84,6 +85,11 @@ from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.evidence.views import render_detail
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
 from geo.analysis import presentation as geo_presentation
+from image.analysis.presentation import (
+    finding_images,
+    previews_by_result,
+    visible_structure,
+)
 from phone.analysis import presentation as phone_presentation
 from socialmedia import instagram_connector
 from socialmedia.models import InstagramMonitor
@@ -390,7 +396,7 @@ def create(request, case_id, kind=None, evidence_id=None):
     operations = {
         name: spec
         for name, spec in OPERATIONS.items()
-        if name not in {"question_synthesis", "imessage_import"}
+        if name not in {"question_synthesis", "imessage_import", "sighting_group"}
     }
     if evidence_id is not None:
         item = get_evidence(case, kind, evidence_id)
@@ -458,6 +464,10 @@ def create(request, case_id, kind=None, evidence_id=None):
         if request.method == "GET" or not operations:
             return render(request, "core/analysis/create.html", chooser_context)
         operation = next(iter(operations))
+    if operation == "journey_claims":
+        from geo.journey_claim_views import create as create_comparison
+
+        return create_comparison(request, case)
     call_recording = (
         kind_filter in CALL_KINDS and operation in CALL_RECORDING_OPERATIONS
     )
@@ -623,11 +633,7 @@ def _finding_detail(
     values = item.get("values", {})
     item["measurements"] = formatter(values, duplicate_text=item.get("text", ""))
     item["plate_candidate"] = run.operation == "plate_ocr"
-    for source_id in item.get("source_ids", []):
-        prepared = previews.get((source_id, row["index"]))
-        if prepared is not None:
-            item["prepared_preview"] = _preview_details(prepared, case, run)
-            break
+    item.update(finding_images(finding, row["index"], previews))
     links = []
     for source_id in item.get("source_ids", []):
         source = source_map.get(source_id)
@@ -709,32 +715,17 @@ def _finding_detail(
                         audio_url=f"{item['recording_url']}#t={start},{end}",
                     )
     item["sources"] = links
+    if run.operation == "journey_claims":
+        from geo.journey_claim_readers import comparison_sources
+
+        item["comparison_links"] = comparison_sources(item, run, source_map)
     reference_key = values.get("Reference snapshot")
     reference = (
         references.get(reference_key) if isinstance(reference_key, str) else None
     )
     if reference is not None:
         item["reference_snapshot"] = reference
-    for anchor in item.get("anchors", []):
-        preview = previews.get((anchor.get("source_id"), None))
-        if preview and "region" in anchor:
-            left, top, right, bottom = anchor["region"]
-            item["preview"] = _preview_details(preview, case, run) | {
-                "x": left * preview.width,
-                "y": top * preview.height,
-                "region_width": (right - left) * preview.width,
-                "region_height": (bottom - top) * preview.height,
-            }
-            break
     return item
-
-
-def _preview_details(artifact, case, run):
-    return {
-        "url": reverse("core:analysis:artifact", args=[case.pk, run.pk, artifact.pk]),
-        "width": artifact.width,
-        "height": artifact.height,
-    }
 
 
 def _source_excerpt(source, anchors):
@@ -778,11 +769,22 @@ def _retry_execution(case, run, parameters):
 def detail(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
+    if run.operation == "sighting_group" and run.status == AnalysisRun.Status.COMPLETE:
+        if request.headers.get("X-Pandect-Live") == "1":
+            return render_live(
+                request, "core/analysis/sighting_ready.html", {"case": case, "run": run}
+            )
+        return redirect("core:analysis:sighting_detail", case.pk, run.pk)
     history = history_query(request.GET)
     history_back = processing_back_query(history, batch_id=run.batch_id)
     if "batch" not in history_back:
         history.pop("batch", None)
-    if run.operation == "imessage_import" and request.GET.get("processing") != "1":
+    reader_url = evidence_return_url(case.pk, request.GET)
+    if (
+        run.operation == "imessage_import"
+        and not reader_url
+        and request.GET.get("processing") != "1"
+    ):
         return redirect(
             reverse("phone:imessage_review", args=[case.pk, run.pk], query=history)
         )
@@ -801,8 +803,14 @@ def detail(request, case_id, run_id):
             "core:analysis:browse", args=[case.pk], query=findings_back
         )
         history["return_findings"] = urlencode(findings_back)
+    section = "analysis" if findings_back is not None else "processing"
+    if reader_url:
+        back_label = "Back to evidence"
+        back_to_analysis = reader_url
+        history["return_evidence"] = request.GET["return_evidence"]
+        section = "evidence"
     context = _context(request, case) | {
-        "nav_section": "analysis" if findings_back is not None else "processing",
+        "nav_section": section,
         "run": run,
         "history_suffix": analysis_query_suffix(history),
         "back_to_analysis": back_to_analysis,
@@ -837,7 +845,11 @@ def detail(request, case_id, run_id):
             + "#evidence-findings-heading"
         )
     assumptions = {
-        key: value for key, value in run.parameters.items() if not key.startswith("_")
+        key: value
+        for key, value in run.parameters.items()
+        if not key.startswith("_")
+        and not context.get("source_unavailable")
+        and run.operation != "journey_claims"
     }
     context["assumptions"] = measurement_formatter(
         assumptions, case=case, sources=sources, query=request.GET
@@ -941,18 +953,19 @@ def detail(request, case_id, run_id):
             )
             artifacts = result.artifacts.filter(case=case)
             previews = (
-                {
-                    (
-                        str(artifact.source_id),
-                        artifact.metadata.get("finding_index"),
-                    ): artifact
-                    for artifact in artifacts.filter(
-                        kind=AnalysisArtifact.Kind.IMAGE_PREVIEW
-                    )
-                }
+                previews_by_result(case, artifacts).get(result.pk, {})
                 if run.operation in {"ocr", "plate_ocr"} or focused
                 else {}
             )
+            if run.operation == "ocr":
+                context["layout"] = visible_structure(
+                    result,
+                    source_map,
+                    previews,
+                    request.GET,
+                    history,
+                    entries[0][1] if selected_position is not None else None,
+                )
             snapshots = list(
                 artifacts.filter(kind=AnalysisArtifact.Kind.GEOGRAPHIC_REFERENCE)
             )
@@ -1079,7 +1092,8 @@ def cancel(request, case_id, run_id):
         ),
     )
     return redirect(
-        _url(run.case, run) + analysis_query_suffix(result_navigation(request.GET))
+        _url(run.case, run)
+        + analysis_query_suffix(result_navigation(request.GET, case_id))
     )
 
 
@@ -1098,7 +1112,8 @@ def retry(request, case_id, run_id):
             ),
         )
         return redirect(
-            _url(case, prior) + analysis_query_suffix(result_navigation(request.GET))
+            _url(case, prior)
+            + analysis_query_suffix(result_navigation(request.GET, case_id))
         )
     choices = [
         {
@@ -1127,7 +1142,7 @@ def retry(request, case_id, run_id):
         if existing is not None:
             return redirect(
                 _url(case, existing)
-                + analysis_query_suffix(result_navigation(request.GET))
+                + analysis_query_suffix(result_navigation(request.GET, case_id))
             )
         parameters = _retry_parameters(prior)
         run, _ = start_available_run(
@@ -1152,11 +1167,12 @@ def retry(request, case_id, run_id):
             ),
         )
         return redirect(
-            _url(case, prior) + analysis_query_suffix(result_navigation(request.GET))
+            _url(case, prior)
+            + analysis_query_suffix(result_navigation(request.GET, case_id))
         )
     messages.success(request, "A new run is queued; the earlier history is retained.")
     return redirect(
-        _url(case, run) + analysis_query_suffix(result_navigation(request.GET))
+        _url(case, run) + analysis_query_suffix(result_navigation(request.GET, case_id))
     )
 
 
@@ -1183,7 +1199,9 @@ def select_estimate(request, case_id, run_id, item_index):
             else "Address estimate cleared.",
         )
     return redirect(
-        finding_url(case_id, run_id, item_index, history=result_navigation(request.GET))
+        finding_url(
+            case_id, run_id, item_index, history=result_navigation(request.GET, case_id)
+        )
     )
 
 

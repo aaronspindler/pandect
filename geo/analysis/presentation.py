@@ -3,6 +3,20 @@
 from core.analysis.presentation import prioritize_measurements, table_rows
 
 PRIMARY_FIELDS = {
+    "journey_claims": (
+        "Claim status",
+        "Claim passage",
+        "Claimed subject",
+        "Claimed subjects",
+        "Observation subject",
+        "Claimed place",
+        "Recorded place",
+        "Window start",
+        "Window end",
+        "Observed at",
+        "Interpreted position",
+        "Comparison radius (m)",
+    ),
     "normalize_addresses": ("Original", "Normalized", "Unit", "Matching observations"),
     "location_quality": (
         "Event time",

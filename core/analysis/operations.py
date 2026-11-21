@@ -7,10 +7,12 @@ from django.core.exceptions import ValidationError
 
 from audio.analysis import ai as audio_ai
 from audio.analysis import metadata as audio_metadata
+from core.analysis.sightings import build_sighting_group
 from core.evidence.types import COMMUNICATION_KINDS as COMMUNICATIONS
+from core.evidence.types import KINDS
 from core.evidence.types import LOCATION_KINDS as LOCATIONS
 from document.analysis import deterministic as documents
-from geo.analysis.deterministic import locations
+from geo.analysis.deterministic import journey_claims, locations
 from geo.analysis.external import geocoding, geographic_context
 from image.analysis import ai as image_ai
 from image.analysis import metadata as image_metadata
@@ -88,6 +90,7 @@ INPUT_GUIDANCE = {
 }
 
 OPERATIONS = {
+    "sighting_group": Operation("Sighting group", build_sighting_group, tuple(KINDS)),
     "question_synthesis": Operation(
         "Answer a question from selected material", synthesize, (*TEXT, *LOCATIONS)
     ),
@@ -104,7 +107,7 @@ OPERATIONS = {
         version="2",
     ),
     "ocr": Operation(
-        "Read text in images", image_ai.ocr, ("image", "document"), version="5"
+        "Read text in images", image_ai.ocr, ("image", "document"), version="6"
     ),
     "plate_ocr": Operation(
         "Find vehicle plates",
@@ -218,6 +221,9 @@ OPERATIONS = {
         locations.location_conflicts,
         LOCATIONS,
     ),
+    "journey_claims": Operation(
+        "Compare plans with locations", journey_claims.compare_plans, TEXT + LOCATIONS
+    ),
     "geocode_locations": Operation(
         "Look up geographic coordinates or addresses",
         geocoding.geocode_locations,
@@ -244,7 +250,7 @@ OPERATION_GROUPS = {
         "audio_metadata": (
             "Inspect recording properties and numerical signal intervals."
         ),
-        "ocr": "Read printed text and compare candidates with their image regions.",
+        "ocr": "Compare printed text and inferred layout with the source image.",
         "plate_ocr": "Compare possible plate readings and their source regions.",
         "transcription": (
             "Read candidate speech with recording timestamps and coverage gaps."
@@ -281,6 +287,10 @@ OPERATION_GROUPS = {
         ),
     },
     "Compare locations and movement": {
+        "journey_claims": (
+            "Compare quoted plans or reported events with selected observations, "
+            "visits, and possible trips."
+        ),
         "normalize_addresses": (
             "Compare the recorded and normalized wording of addresses."
         ),

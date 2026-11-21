@@ -309,7 +309,4 @@ def conversation_analysis_context(
             analysis_page="",
             conversation_analysis_page=1,
         ),
-        "has_conversation_findings": bool(conversation_analysis["count"])
-        or bool(timing_only_count)
-        or findings.exists(),
     }

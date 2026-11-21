@@ -304,8 +304,8 @@ def finding_queryset(case, filters, *, person=None, labels=None):
     )
 
 
-def finding_rows(case, findings, *, show_weak=False, navigation=None):
-    """Resolve only the page, without fetching canonical result payloads."""
+def resolved_findings(case, findings):
+    """Resolve citations on one page, sharing source checks across its runs."""
     from core.analysis.services import (
         SourceResolutionCache,
         require_current_geocode_reviews,
@@ -342,7 +342,6 @@ def finding_rows(case, findings, *, show_weak=False, navigation=None):
             reference
         )
     checked = {}
-    rows = []
     for finding in findings:
         run = runs[finding.run_id]
         if run.pk not in checked:
@@ -376,6 +375,19 @@ def finding_rows(case, findings, *, show_weak=False, navigation=None):
                 )
                 for key, reference in cited.items()
             )
+        cited_sources = (
+            []
+            if unavailable
+            else [source for key, source in sources.items() if key in cited]
+        )
+        yield finding, run, cited_sources, warning
+
+
+def finding_rows(case, findings, *, show_weak=False, navigation=None):
+    """Resolve only the page, without fetching canonical result payloads."""
+    rows = []
+    for finding, run, cited_sources, warning in resolved_findings(case, findings):
+        unavailable = not cited_sources
         row = {
             "id": finding.pk,
             "result_id": finding.result_id,
@@ -412,7 +424,6 @@ def finding_rows(case, findings, *, show_weak=False, navigation=None):
             "sources": [],
         }
         if not unavailable:
-            cited_sources = [source for key, source in sources.items() if key in cited]
             row["participant_names"] = (
                 participant_names(cited_sources) if row["uses_ai"] else {}
             )

@@ -1,0 +1,6 @@
+{% partialdef live %}
+<section id="analysis-result" class="analysis-section" data-live-region data-live-poll="false">
+  <h1>Sighting group ready</h1>
+  <a class="button button-primary" href="{% url 'core:analysis:sighting_detail' case.pk run.pk %}">Open sighting group</a>
+</section>
+{% endpartialdef %}

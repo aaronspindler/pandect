@@ -19,7 +19,7 @@
     <summary>Search tips</summary>
     <p>Use quotation marks for an exact phrase, <code>OR</code> for alternatives, or a minus sign to exclude a word. For example, <code>"meeting place" OR rendezvous -tentative</code>.</p>
   </details>
-  {% if case_search_query or active_filters or search_form.errors %}<a class="record-link" href="{% url 'core:search:results' case.pk %}">Clear search</a>{% endif %}
+  {% if case_search_query or search_form.errors %}<a class="record-link" href="{% url 'core:search:results' case.pk %}">Clear search</a>{% endif %}
 </div>
 {% if page_obj != None %}
 <section class="case-search-matches" aria-labelledby="keyword-matches-heading">
@@ -27,7 +27,7 @@
     {% if meaning_requested %}<a href="#related-passages">Related by meaning{% if related %} ({{ related|length }}){% endif %}</a>{% elif offer_meaning %}<a href="{% querystring meaning=1 page=None %}#related-passages">Search by meaning</a>{% endif %}
   </div>
   {% if spelling %}<p>Did you mean <a href="{% querystring q=spelling page=None meaning=None %}">{{ spelling }}</a>?</p>{% endif %}
-  {% if page_obj %}{% include 'core/case_search/rows.html' with rows=page_obj terms=terms only %}{% elif not related %}<p>Try another word, check a spelling, or clear your filters.</p>{% endif %}
+  {% if page_obj %}{% include 'core/case_search/rows.html' with rows=page_obj terms=terms only %}{% elif not related %}<p>Try another word{% if active_filters %} or broaden your filters{% endif %}.</p>{% endif %}
   {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Case search pages">
     {% if page_obj.has_previous %}<a href="{% querystring page=page_obj.previous_page_number meaning=None %}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="{% querystring page=page_obj.next_page_number meaning=None %}">Next</a>{% endif %}
   </nav>{% endif %}

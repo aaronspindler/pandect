@@ -17,10 +17,11 @@
       </div>
       {% if checksum %}<p class="muted">Matching original checksum. <a href="{% url 'core:evidence:list' case.pk %}">Show all evidence</a></p>{% endif %}
     <form method="get" action="{% url 'core:evidence:list' case_id=case.pk %}" class="evidence-search" role="search" aria-label="Evidence list filter">
+        {% if selected_kind == 'image' and request.GET.view == 'gallery' %}<input type="hidden" name="view" value="gallery">{% endif %}
         {% if checksum %}<input type="hidden" name="checksum" value="{{ checksum }}">{% endif %}
         <div class="evidence-search-row">
           <div class="evidence-search-field"><label class="evidence-query-label" for="evidence-query">Filter evidence</label><input id="evidence-query" name="q" type="search" value="{{ query }}" maxlength="200"><button class="icon-button" type="submit" aria-label="Apply evidence filter" title="Apply evidence filter" data-tooltip="Apply evidence filter">{% include 'ui/components/icon.html' with name='search' %}</button></div>
-          <details class="evidence-filters" data-disclosure{% if selected_kind or selected_person or state != 'active' %} open{% endif %}>
+          <details class="evidence-filters" data-disclosure{% if selected_kind and request.GET.view != 'gallery' or selected_person or state != 'active' %} open{% endif %}>
             <summary class="button button-secondary" aria-label="Filters{% if selected_kind or selected_person or state != 'active' %}, applied{% endif %}" title="Filters" data-tooltip="Filters">{% include 'ui/components/icon.html' with name='filter' %}<span>Filters</span></summary>
             <div class="evidence-filter-panel">
               <label for="evidence-type">Evidence type</label>
@@ -55,7 +56,7 @@
   {% if item %}
   <section class="evidence-reader" id="evidence-reader" tabindex="0" aria-label="Selected evidence">
     <div class="evidence-content">
-    <a class="back-link" href="{{ list_url }}">Back to evidence</a>
+    {% if selected_kind == 'image' and request.GET.view == 'gallery' %}<a class="record-link" href="{{ list_url }}#image-{{ item.pk }}">Back to images</a>{% else %}<a class="back-link" href="{{ list_url }}">Back to evidence</a>{% endif %}
     <header class="evidence-reader-header">
       <div><h1>{{ display_title|default:item.title }}</h1><p class="evidence-meta">{{ kind_label }}{% if item.source %} · {{ item.source }}{% endif %}{% if item.collected_at %} · Collected {{ item.collected_at|date:"d M Y" }}{% endif %}{% if item.is_archived %} · Archived{% endif %}</p></div>
       <div class="actions">
@@ -65,7 +66,7 @@
       </div>
     </header>
     <nav class="evidence-task-actions actions" aria-label="Evidence actions">
-      <a class="record-link" href="#evidence-findings-heading">Findings</a>
+      {% partialdef findings_link inline %}<span id="evidence-findings-link" data-live-region data-live-poll="false"><a class="record-link" href="#evidence-findings-heading">Findings ({{ findings_page.paginator.count }})</a></span>{% endpartialdef %}
       {% if can_edit %}
       <a class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
       <details class="evidence-analyze" data-disclosure>
@@ -81,7 +82,7 @@
       <h2 class="visually-hidden" id="evidence-original-heading" tabindex="-1">Original</h2>
       {% include reader_template %}
     </section>
-    {% include 'ui/components/live_updates.html' %}
+    {% if analysis_pending %}{% include 'ui/components/live_updates.html' %}{% endif %}
     {% include 'core/analysis/evidence.html' with evidence=item %}
     </div>
   </section>
@@ -90,6 +91,7 @@
 {% endblock %}
 
 {% partialdef live %}
+{% partial findings_link %}
 {% include 'core/analysis/evidence.html' with evidence=item %}
 {% include 'core/evidence/more.html#checks' %}
 {% endpartialdef %}

@@ -22,7 +22,7 @@ The guides below describe current behavior and procedures; the
 - [Evidence, communications, retention, and private downloads](evidence.md)
 - [Vehicle locations and Asset Location CSV imports](vehicle-location-imports.md)
 - [Analysis, reports, and external AI configuration](analysis.md)
-- [Original document and recording previews](original-previews.md)
+- [Original image, document, and recording previews](original-previews.md)
 - [Chronology](chronology.md)
 - [Retained question-driven synthesis results](synthesis.md)
 - [Local inference, model qualification, and private geographic services](local-analysis.md)

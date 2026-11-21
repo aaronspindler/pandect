@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 from core.parser_contract import MAX_TEXT, ParserFailure
-from image.analysis import MIN_OCR_WORD_SCORE
+from image.analysis import MAX_LAYOUT_LINES, MAX_LAYOUT_WORDS, MIN_OCR_WORD_SCORE
 from image.parsers import _image
 
 
@@ -50,7 +50,9 @@ def _ocr(content):
         ["stdin", "stdout", "-l", "eng", "--psm", "3", "tsv"],
         base64.b64decode(prepared["image"]),
     )
-    regions = text_regions(raw, prepared["prepared_width"], prepared["prepared_height"])
+    regions = text_regions(
+        raw, prepared["prepared_width"], prepared["prepared_height"], layout=True
+    )
     return prepared | {
         "engine": version,
         "regions": regions,
@@ -60,7 +62,7 @@ def _ocr(content):
     }
 
 
-def text_regions(raw, width, height):
+def text_regions(raw, width, height, *, layout=False):
     """Validate Tesseract TSV and group words into source-linked lines."""
     lines = {}
     try:
@@ -72,7 +74,11 @@ def text_regions(raw, width, height):
         if rows.fieldnames != expected:
             raise ValueError
         for row in rows:
-            if row["level"] != "5" or not row["text"].strip():
+            if row["level"] != "5":
+                continue
+            if not isinstance(row["text"], str) or None in row:
+                raise ValueError
+            if not row["text"].strip():
                 continue
             left, top, w, h = (
                 int(row[key]) for key in ("left", "top", "width", "height")
@@ -86,8 +92,11 @@ def text_regions(raw, width, height):
             ):
                 raise ValueError
             key = tuple(
-                row[name] for name in ("page_num", "block_num", "par_num", "line_num")
+                int(row[name])
+                for name in ("page_num", "block_num", "par_num", "line_num")
             )
+            if min(key) < 1:
+                raise ValueError
             line = lines.setdefault(key, {"words": [], "boxes": [], "confidence": []})
             line["words"].append(row["text"])
             line["boxes"].append((left, top, left + w, top + h))
@@ -97,7 +106,12 @@ def text_regions(raw, width, height):
     except KeyError, TypeError, ValueError, csv.Error:
         raise ParserFailure("ocr_invalid_output") from None
     regions = []
-    for line in lines.values():
+    retain_words = (
+        layout
+        and len(lines) <= MAX_LAYOUT_LINES
+        and sum(len(line["words"]) for line in lines.values()) <= MAX_LAYOUT_WORDS
+    )
+    for key, line in lines.items():
         boxes = line["boxes"]
         regions.append(
             {
@@ -112,6 +126,30 @@ def text_regions(raw, width, height):
                 "confidence": min(line["confidence"]),
             }
         )
+        if retain_words:
+            words = []
+            start = 0
+            for word, (left, top, right, bottom), score in zip(
+                line["words"], boxes, line["confidence"], strict=True
+            ):
+                end = start + len(word)
+                words.append(
+                    {
+                        "start": start,
+                        "end": end,
+                        "region": [
+                            left / width,
+                            top / height,
+                            right / width,
+                            bottom / height,
+                        ],
+                        "confidence": score,
+                    }
+                )
+                start = end + 1
+            regions[-1].update(paragraph=list(key[:3]), words=words)
+    if layout and regions and not retain_words:
+        regions[0]["layout_omitted"] = True
     return regions
 
 

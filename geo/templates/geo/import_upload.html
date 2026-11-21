@@ -12,7 +12,7 @@
   </details>
   <form method="post" enctype="multipart/form-data" class="form-layout" data-unsaved-form>
     {% csrf_token %}{% include 'ui/components/form_fields.html' with form=form %}
-    <p class="muted">The original CSV stays in your evidence. Review and confirm before locations are added. You can return later to finish.</p>
+    <p class="muted">The original CSV stays in Evidence. You can return later to review and confirm the locations.</p>
     <div class="actions"><button class="button button-primary" type="submit">Upload CSV</button><a class="button button-secondary" href="{{ back_url }}">Cancel</a></div>
   </form>
 </div>

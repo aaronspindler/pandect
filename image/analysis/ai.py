@@ -1,18 +1,35 @@
 """Bounded local printed-English OCR; images never leave the parser."""
 
+import json
+
 from core.analysis.errors import AnalysisError
 from core.analysis.sources import output
 from core.analysis.sources import source_item as _item
 from core.analysis.sources import unsupported_source as _unsupported
 from core.parser_contract import MAX_TEXT
 from core.parsers import read_source, run_parser
+from image.analysis.layout import build_structure
 
 MAX_PREVIEW_BYTES = 2 * 1024 * 1024
+MAX_STRUCTURE_BYTES = 2 * 1024 * 1024
+
+
+def omit_structure_at_result_limit(data):
+    """Retain the OCR lines if geometry and publication metadata exceed the budget."""
+    del data["visible_structure"]
+    data["outcome"] = "partial"
+    data["warnings"].append("Visible structure omitted at the result size limit.")
+    metrics = data["metrics"]
+    metrics["Partial/unreadable inputs"] = (
+        metrics["Selected sources"] - metrics["Unsupported inputs"]
+    )
 
 
 def ocr(sources, parameters, *, authorize):
     items, warnings = [], []
     artifacts = []
+    visible_structure = {}
+    structure_bytes = 0
     preview_bytes = omitted_previews = 0
     preview_limit_reached = False
     unsupported = partial = 0
@@ -90,6 +107,26 @@ def ocr(sources, parameters, *, authorize):
         source_partial = (
             status in {"partial", "unreadable"} or image_count > 1 or not regions
         )
+        structure = build_structure(regions, len(items))
+        if structure:
+            source_id = str(source.id)
+            size = len(json.dumps({source_id: structure}, allow_nan=False).encode())
+            if structure_bytes + size > MAX_STRUCTURE_BYTES:
+                structure = {
+                    "words": [],
+                    "candidates": [],
+                    "orders": [],
+                    "notes": ["Visible structure omitted at the run size limit."],
+                }
+            else:
+                structure_bytes += size
+            visible_structure[source_id] = structure
+            if (
+                structure["notes"]
+                or len(structure["orders"]) > 1
+                or any(candidate["notes"] for candidate in structure["candidates"])
+            ):
+                source_partial = True
         if not regions:
             no_text += 1
             items.append(
@@ -192,5 +229,7 @@ def ocr(sources, parameters, *, authorize):
         warnings=warnings,
         outcome=outcome,
     )
+    if visible_structure:
+        result["visible_structure"] = visible_structure
     result["artifacts"] = artifacts
     return result

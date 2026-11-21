@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from django.contrib.auth.models import Permission
 from django.core import mail
@@ -25,6 +26,7 @@ from playwright.sync_api import expect
 from audio.models import AudioEvidence
 from cases.models import Case, CaseInvitation, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.bulk import prepare_case_analysis_batch
 from document.models import DocumentEvidence
 from geo.models import (
     LocationEvidence,
@@ -701,7 +703,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 explore = page.get_by_role("navigation", name="Explore case")
                 expect(
-                    explore.get_by_role("link", name="Map", exact=True)
+                    explore.get_by_role("link", name="Trips", exact=True)
                 ).to_be_visible()
                 case_details = page.locator(".case-details-body")
                 details_summary = case_details.locator(":scope > summary")
@@ -798,11 +800,22 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.get_by_role("link", name="Jump to findings")).to_have_count(
                     0
                 )
+                expect(
+                    page.get_by_text("Preparing checks…", exact=True)
+                ).to_be_visible()
+                follow = page.get_by_role("link", name="Follow evidence analysis")
+                batch = parse_qs(urlsplit(follow.get_attribute("href")).query)["batch"][
+                    0
+                ]
+                self.assertEqual(
+                    self.db(prepare_case_analysis_batch, batch), "complete"
+                )
+                page.reload()
                 expect(page.get_by_text("Checking…", exact=True)).to_be_visible()
                 info = self.open_evidence_panel(page, "info")
                 expect(page.get_by_text("Record history", exact=True)).to_be_visible()
                 expect(page.get_by_text("Added by", exact=True)).to_be_visible()
-                info.get_by_role("link", name="Analysis outcomes", exact=True).click()
+                info.get_by_role("link", name="Analysis history", exact=True).click()
                 expect(
                     page.get_by_role(
                         "link",
@@ -1502,7 +1515,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
-                page.get_by_role("navigation", name="Explore case").get_by_role(
+                page.get_by_role("navigation", name="Other case tools").get_by_role(
                     "link", name="Vehicles", exact=True
                 ).click()
                 expect(
@@ -3356,7 +3369,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     info = self.open_evidence_panel(page, "info")
                     expect(info.locator(".evidence-info-panel")).to_be_visible()
                     expect(
-                        info.get_by_role("link", name="Analysis outcomes", exact=True)
+                        info.get_by_role("link", name="Analysis history", exact=True)
                     ).to_be_visible()
                     expect(info.get_by_text("Added by", exact=True)).to_be_visible()
                     self.capture(page, engine, f"quiet-evidence-info-{width}x{height}")

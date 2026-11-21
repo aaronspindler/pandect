@@ -12,7 +12,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, F, Func, OuterRef, Q, Subquery, Value
+from django.db.models import CharField, Exists, F, Func, OuterRef, Q, Subquery, Value
 from django.http import Http404
 from django.utils import timezone
 
@@ -23,6 +23,7 @@ from core.analysis.artifacts import (
     MAX_REFERENCE_TOTAL_BYTES,
     decode_artifact,
 )
+from core.analysis.dependencies import validate_references
 from core.analysis.diagnostics import log_analysis_failure
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
@@ -49,6 +50,7 @@ from geo.analysis.external.geocoding import GeocodingError
 from phone.models import CallEvidenceAttachment
 
 FINISHED = set(AnalysisRun.Status.values) - {"queued", "running"}
+MAX_RESULT_BYTES = 4 * 1024 * 1024
 
 
 def _uuid(value):
@@ -133,7 +135,9 @@ class SourceResolutionCache:
         for chunk in batched(additions, 500, strict=False):
             query = CallEvidenceAttachment.objects.filter(case=self.case, pk__in=chunk)
             if not self.with_content:
-                query = query.defer("transcript")
+                query = query.defer("transcript").annotate(
+                    has_transcript=~Q(transcript="")
+                )
             self.attachments.update(dict.fromkeys(chunk))
             self.attachments.update({str(item.pk): item for item in query})
 
@@ -157,6 +161,13 @@ def resolve_inputs(
     run, case, *, require_current_review=True, cache=None, finding_depth=0
 ):
     cache = cache or SourceResolutionCache(case)
+    if run.operation == "journey_claims" and cache.with_content:
+        from geo.journey_claim_checks import check_material_size
+
+        try:
+            check_material_size(case, run.inputs)
+        except ValidationError as error:
+            raise AnalysisError("source_unavailable") from error
     sources = resolve_snapshots(
         run.inputs,
         case,
@@ -164,10 +175,12 @@ def resolve_inputs(
         require_current_review=require_current_review,
         cache=cache,
     )
-    if run.operation == "question_synthesis":
-        from text.analysis.synthesis import validate_references
-
+    if run.operation in {"question_synthesis", "sighting_group"}:
         validate_references(run, sources, case, cache=cache, depth=finding_depth)
+    elif run.operation == "journey_claims":
+        from geo.journey_claim_checks import check_comparison_inputs
+
+        check_comparison_inputs(run, sources, case, cache, finding_depth)
     return sources
 
 
@@ -337,7 +350,7 @@ def resolve_snapshots(
     return sources
 
 
-def require_current_geocode_reviews(run, sources):
+def require_current_geocode_reviews(run, sources, *, exact_revision=False):
     """Check current acceptance after historical inputs have been resolved."""
     geocodes = {
         source.id for source in sources if source.derived_coordinates is not None
@@ -352,19 +365,64 @@ def require_current_geocode_reviews(run, sources):
         result_id=OuterRef("result_id"),
         item_index=OuterRef("item_index"),
     ).order_by("-created_at", "id")
-    accepted = (
-        AnalysisReview.objects.filter(
-            pk__in=review_ids,
-            case_id=run.case_id,
-            result__case_id=run.case_id,
-            result__run__case_id=run.case_id,
-        )
-        .annotate(current_decision=Subquery(latest.values("decision")[:1]))
-        .filter(current_decision=AnalysisReview.Decision.ACCEPTED)
-        .count()
+    pinned = AnalysisReview.objects.filter(
+        pk__in=review_ids,
+        case_id=run.case_id,
+        result__case_id=run.case_id,
+        result__run__case_id=run.case_id,
     )
+    if exact_revision:
+        accepted = pinned.filter(pk=Subquery(latest.values("pk")[:1])).count()
+    else:
+        accepted = (
+            pinned.annotate(current_decision=Subquery(latest.values("decision")[:1]))
+            .filter(current_decision=AnalysisReview.Decision.ACCEPTED)
+            .count()
+        )
     if accepted != len(review_ids):
         raise AnalysisError("geocode_review_required")
+
+
+def validate_current_sighting(run, case, sources=None):
+    """Current decisions use active sources and the exact selected comparisons."""
+    if sources is None:
+        sources = resolve_inputs(run, case, require_current_review=False)
+    if any(source.item.is_archived for source in sources):
+        raise AnalysisError("source_archived")
+    require_current_geocode_reviews(run, sources, exact_revision=True)
+    if (
+        not run._state.adding
+        and AnalysisRun.objects.filter(
+            case=case,
+            previous_run=run,
+            operation=run.operation,
+            status=AnalysisRun.Status.COMPLETE,
+            result__case=case,
+        ).exists()
+    ):
+        raise AnalysisError("sighting_proposal_superseded")
+    result_ids = {ref["result_id"] for ref in run.parameters.get("finding_refs", [])}
+    if not result_ids:
+        return
+    newer = (
+        AnalysisRun.objects.filter(
+            case=case,
+            equivalence_key=OuterRef("equivalence_key"),
+            status__in=("complete", "partial", "empty"),
+            result__case=case,
+        )
+        .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
+        .filter(
+            Q(created_at__gt=OuterRef("created_at"))
+            | Q(created_at=OuterRef("created_at"), pk__gt=OuterRef("pk"))
+        )
+    )
+    if (
+        AnalysisRun.objects.filter(case=case, result__pk__in=result_ids)
+        .filter(Exists(newer))
+        .exists()
+    ):
+        raise AnalysisError("sighting_comparison_superseded")
 
 
 def _authorize_run(run, *, lock=False):
@@ -386,6 +444,10 @@ def authorize_run(run, *, lock=False):
 
 
 def _processing_inputs(run, case):
+    if run.operation == "sighting_group":
+        sources = resolve_inputs(run, case, require_current_review=False)
+        validate_current_sighting(run, case, sources)
+        return sources
     sources = resolve_inputs(run, case)
     scope = run.batch.scope if run.batch_id else {}
     if scope.get("analysis_version"):
@@ -415,8 +477,8 @@ def _authorize_execution(run, case):
     return execution
 
 
-def snapshot_sources(case, selections, *, allowed_kinds=None):
-    """Validate and freeze a bounded source selection for runs or saved collections."""
+def snapshot_and_resolve_sources(case, selections, *, allowed_kinds=None):
+    """Freeze a bounded selection and return its verified source versions."""
     if not 1 <= len(selections) <= settings.PANDECT_ANALYSIS_MAX_SOURCES:
         raise ValidationError("Select between 1 and 500 retained sources.")
     snapshots = []
@@ -486,7 +548,14 @@ def snapshot_sources(case, selections, *, allowed_kinds=None):
                 "sha256": attachment.sha256 if attachment else item.sha256,
             }
         )
-    resolve_snapshots(snapshots, case)
+    return snapshots, resolve_snapshots(snapshots, case)
+
+
+def snapshot_sources(case, selections, *, allowed_kinds=None):
+    """Validate and freeze a bounded selection for runs or saved collections."""
+    snapshots, _ = snapshot_and_resolve_sources(
+        case, selections, allowed_kinds=allowed_kinds
+    )
     return snapshots
 
 
@@ -544,7 +613,17 @@ def start_run(
         validate_case_execution_grant(
             case, operation, execution, external_grant_revision
         )
+    if operation == "journey_claims":
+        from geo.journey_claim_checks import check_material_size
+
+        check_material_size(case, selections)
     snapshots = snapshot_sources(case, selections, allowed_kinds=specification.kinds)
+    if (
+        previous_run
+        and operation in {"journey_claims", "sighting_group"}
+        and (previous_run.operation != operation or previous_run.inputs != snapshots)
+    ):
+        raise AnalysisError("source_changed")
     submission_id = UUID(_uuid(submission_id or uuid4()))
     existing = AnalysisRun.objects.filter(submission_id=submission_id).first()
     if existing:
@@ -625,7 +704,7 @@ def start_run(
     return run, True
 
 
-def validate_output(data, sources):
+def validate_output(data, sources, *, operation=None):
     if (
         not isinstance(data, dict)
         or not isinstance(data.get("summary"), str)
@@ -644,7 +723,12 @@ def validate_output(data, sources):
         size = len(json.dumps(data, allow_nan=False).encode())
     except ValueError, TypeError, RecursionError:
         raise AnalysisError("invalid_result") from None
-    if size > 4 * 1024 * 1024:
+    if size > MAX_RESULT_BYTES and operation == "ocr" and data.get("visible_structure"):
+        from image.analysis.ai import omit_structure_at_result_limit
+
+        omit_structure_at_result_limit(data)
+        size = len(json.dumps(data, allow_nan=False).encode())
+    if size > MAX_RESULT_BYTES:
         raise AnalysisError("result_limit")
     source_map = {str(x.id): x for x in sources}
     items = data.get("items", [])
@@ -806,7 +890,7 @@ def process_run(run_id):
         artifacts = data.pop("artifacts", [])
         if not isinstance(artifacts, list) or len(artifacts) > 500:
             raise AnalysisError("invalid_preview")
-        data = validate_output(data, sources)
+        data = validate_output(data, sources, operation=run.operation)
         stage = "publication"
         with transaction.atomic():
             case = authorize_run(run, lock=True)

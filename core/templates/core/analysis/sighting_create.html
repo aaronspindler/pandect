@@ -1,0 +1,69 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Create sighting group · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'core:analysis:sighting_create' case.pk %}">Back to anchor observations</a>
+<header class="page-header">
+  <div>
+    <h1>Create sighting group</h1>
+    <p>Anchor observation · <a href="{{ anchor_url }}">{{ anchor.title }}</a></p>
+  </div>
+</header>
+<form method="post" action="{% url 'core:analysis:sighting_create' case.pk %}" class="analysis-form" novalidate>
+  {% csrf_token %}{{ form.anchor }}{{ form.submission_id }}
+  {% include 'ui/components/form_errors.html' %}
+  <fieldset class="analysis-sources" id="id_links" tabindex="-1" aria-describedby="sighting-link-guidance">
+    <legend>Select direct connections</legend>
+    <p id="sighting-link-guidance">Choose up to {{ selection_limit }} connections with the same anchor observation or image region.</p>
+    {% for link in links %}
+    <div class="analysis-source-option">
+      <label for="sighting-link-{{ forloop.counter }}">
+        <input type="checkbox" name="links" value="{{ link.token }}" id="sighting-link-{{ forloop.counter }}"{% if link.selected %} checked{% endif %}>
+        <span><strong>{{ link.endpoints.1.title }}</strong><br><small>{{ link.basis }}{% if link.endpoints.0.reading %} · {{ link.endpoints.0.reading }} and {{ link.endpoints.1.reading }}{% endif %}</small></span>
+      </label>
+      <details class="disclosure">
+        <summary>Inspect connection</summary>
+        {% include 'core/analysis/sighting_connection.html' with link=link only %}
+      </details>
+    </div>
+    {% empty %}
+    <p>No direct connections from available comparisons. Choose another anchor or run an applicable check in Additional analysis.</p>
+    {% endfor %}
+  </fieldset>
+  {% if links %}
+  <details class="disclosure"{% if context_open %} open{% endif %}>
+    <summary>Add supporting or contrary records</summary>
+    <p>Keep context that supports or challenges this proposal. These choices are recorded as investigator selections.</p>
+    <div class="analysis-picker">
+      <div class="field"><label for="sighting-context-query">Find context by title</label><input type="search" id="sighting-context-query" name="context_query" value="{{ context_query }}" maxlength="200"></div>
+      <button class="button button-secondary" type="submit" name="browse_context" value="search">Find records</button>
+    </div>
+    {% for record in context_records %}
+    <fieldset>
+      <legend>{{ record.title }}</legend>
+      <p class="muted">{{ record.label }}</p>
+      <div class="field-checkbox">
+        <label><input type="radio" name="context_{{ record.token }}" value=""{% if not record.role %} checked{% endif %}> Neither</label>
+        <label><input type="radio" name="context_{{ record.token }}" value="supporting"{% if record.role == 'supporting' %} checked{% endif %}> Supporting</label>
+        <label><input type="radio" name="context_{{ record.token }}" value="contrary"{% if record.role == 'contrary' %} checked{% endif %}> Contrary</label>
+      </div>
+    </fieldset>
+    {% empty %}<p>No records match this title.</p>{% endfor %}
+    {% if context_page.has_other_pages %}
+    <nav class="pagination" aria-label="Context record pages">
+      {% if context_page.has_previous %}<button class="button button-secondary" type="submit" name="browse_context" value="{{ context_page.previous_page_number }}">Previous records</button>{% endif %}
+      <span>Page {{ context_page.number }} of {{ context_page.paginator.num_pages }}</span>
+      {% if context_page.has_next %}<button class="button button-secondary" type="submit" name="browse_context" value="{{ context_page.next_page_number }}">Next records</button>{% endif %}
+    </nav>
+    {% endif %}
+  </details>
+  <div class="form-actions"><button class="button button-primary" type="submit">Save proposal</button></div>
+  {% else %}
+  <p><a class="record-link" href="{% url 'core:analysis:create' case.pk %}">Additional analysis</a></p>
+  {% endif %}
+</form>
+<details class="disclosure">
+  <summary>Available comparisons</summary>
+  <p>Direct source associations, exact matches between retained plate readings, and retained spatial comparisons can supply candidate connections. Face, object, and image-similarity comparisons are unavailable.</p>
+  <p>The picker checks up to {{ candidate_limit }} candidates per comparison method. Other connections may exist.</p>
+</details>
+{% endblock %}

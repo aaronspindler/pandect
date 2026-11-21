@@ -197,6 +197,11 @@ ERROR_MESSAGES = {
     "source_archived": (
         "A selected source was archived. Start a new analysis with active evidence."
     ),
+    "sighting_comparison_superseded": (
+        "A newer result replaced a selected comparison. Review the current "
+        "evidence and start a new sighting group."
+    ),
+    "sighting_proposal_superseded": "A newer run replaced this sighting proposal.",
     "access_removed": (
         "The requesting account no longer has permission to process these "
         "sources. A current owner or editor can start a new run."

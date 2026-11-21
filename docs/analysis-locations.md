@@ -34,6 +34,52 @@ uncertainty. Offline grouping uses coordinates alone; separate
 [geographic lookup](analysis-geographic-context.md) retains attributed, dated
 references and coverage limits.
 
+## Compare plans with locations
+
+Open **Case Tools → Additional analysis → Compare plans with locations**. Select
+a message, captured text, supplied call transcript, or exact retained document
+extraction, OCR or transcription. Select the location observations to compare,
+or choose a retained visit, journey or current active vehicle trip to include its
+individual samples. A retained claim suggestion can supply the quoted passages. Its AI
+attribution stays visible. Analysis works locally with one passage and one
+observation. It starts no model or geographic lookup.
+
+Choose the exact quotation and its occurrence. Identify who or what the passage
+describes, the stated place, and any interpretable time and UTC offset. A relative
+time needs a cited reference. Keep uncertainty explicit or add another
+interpretation of the passage. Review the selection before queuing it. The
+reported sender and recipient are separate from the subjects of the claim.
+
+For a plan naming several people or vehicles together, select them in one reading.
+Each sample can support or call into question the place and time for its own
+recorded subject. Other named participants may have no observations. If a
+passage could refer to different people or groups, add a separate interpretation
+for each possible reading. The comparison keeps competing readings unresolved.
+
+For example, a message proposes meeting at **49 Harbour Road** at 10:00. A
+10:00 observation of the identified subject at that specific address supports
+the place and time comparison. Attendance remains unverified. A later message
+calling off the meeting can be quoted and linked to the proposal. A vehicle
+sighting at the address leaves both attendance and the driver's identity open.
+
+Supporting and contrary findings cite the selected wording and sample. A
+contemporaneous observation at an incompatible position can raise a discrepancy
+for a single claimed instant. Gaps, unrelated subjects, ambiguous places, and
+competing readings stay visible in the saved result. Only recorded samples
+contribute to a journey comparison. The first and last samples cannot establish
+where the subject was between them.
+
+Open a passage to see the highlighted text and its underlying pages, lines or
+recording intervals. From a message or call passage, **Browse related exchanges**
+opens the existing cross-channel findings for that communication, including
+timing-only candidates. A saved trip comparison retains its generation, ordered
+members, and original links after a rebuild. Source changes or loss of case
+access withhold dependent material. Each comparison allows up to 500 distinct
+source snapshots, 1,000 interpretation–observation pairs, 32 KiB of settings
+and 4 MiB of result data. The input check also limits the retained source text
+and extraction data loaded for a comparison to 16 MiB by default. Narrow an
+oversized selection before queuing it.
+
 ## Parameters and bounds
 
 | Parameter | Investigator form default | Supported range |

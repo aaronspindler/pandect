@@ -1,4 +1,4 @@
-# Original document and recording inspection
+# Original image, document, and recording previews
 
 The Evidence reader offers private local previews of supported originals/call
 recordings without analysis runs, original changes, or inference credentials.
@@ -6,6 +6,14 @@ Unsupported formats and preview failures retain the original-download control.
 Missing or checksum-changed files ask the administrator to check the retained
 original and storage; the reader does not promise that an unavailable file can
 be downloaded.
+
+## Images
+
+**Case Tools → Images** opens a paginated gallery of private image previews.
+Select a title or thumbnail to open the evidence reader. The original download
+and saved findings remain available when a preview cannot be displayed.
+Where an image finding has a retained crop or marked region, the reader can
+show it beside the finding for comparison.
 
 ## Documents
 

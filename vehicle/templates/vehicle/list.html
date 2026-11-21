@@ -12,7 +12,7 @@
 </form>
 {% endif %}
 {% if page_obj.object_list %}
-<p class="result-count secondary">{{ page_obj.paginator.count }} vehicle record{{ page_obj.paginator.count|pluralize }}</p>
+<p class="result-count secondary">{{ page_obj.paginator.count }} vehicle{{ page_obj.paginator.count|pluralize }}</p>
 <div class="record-list" aria-label="Vehicles in {{ case }}">
 {% for vehicle in page_obj %}
 <a class="collection-row" aria-labelledby="vehicle-{{ vehicle.pk }}-title" aria-describedby="vehicle-{{ vehicle.pk }}-meta" href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=vehicle.pk %}{% if list_query %}?{{ list_query }}{% endif %}">
@@ -28,9 +28,9 @@
 </nav>{% endif %}
 {% else %}
 <section class="empty-state"><h2>{% if query %}No matching vehicles{% else %}No vehicles yet{% endif %}</h2>
-  <p>{% if query %}Try another make, model, year, plate, VIN, color, or note.{% else %}Add a make, model, plate, or VIN to get started.{% endif %}</p>
+  <p>{% if query %}Try another vehicle name or identifier.{% elif can_edit %}Add a make, model, plate, or VIN to get started.{% else %}The owner or an editor can add vehicles.{% endif %}</p>
   {% if not query %}
-    {% if can_edit %}<a class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a>{% else %}<p class="secondary">You have viewer access. The owner or an editor can add vehicles.</p>{% endif %}
+    {% if can_edit %}<a class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a>{% endif %}
   {% endif %}
 </section>
 {% endif %}

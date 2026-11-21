@@ -20,7 +20,7 @@
 <form method="get" class="form-layout disclosure-body" aria-label="Report selection">
   {% if duplicate_row %}<input type="hidden" name="duplicate_row" value="{{ duplicate_row }}"><p>Showing matching retained CSV rows. <a href="?">Show all observations</a></p>{% endif %}
   {% include 'ui/components/form_fields.html' %}
-  <div class="form-actions"><button class="button button-primary" type="submit">Update report</button><a class="button button-secondary" href="?">Reset selection</a></div>
+  <div class="form-actions"><button class="button button-primary" type="submit">Update report</button>{% if filters_applied or form.errors %}<a class="button button-secondary" href="{{ request.path }}">Reset selection</a>{% endif %}</div>
 </form>
 </details>
 {% if name == 'vehicle-trips' %}
@@ -54,14 +54,12 @@
 {% else %}
   <div class="empty-state">
     <h2>{% if name == 'duplicates' %}No exact file duplicates in this selection{% else %}No records in this selection{% endif %}</h2>
-    <p>Broaden the period or archive filter.</p>
-    <a class="button button-secondary" href="?">Reset selection</a>
+    {% if filters_applied %}<a class="button button-secondary" href="{{ request.path }}">Show report with default filters</a>{% else %}<p>Use Report filters to include archived evidence.</p>{% endif %}
   </div>
 {% endif %}
 <details class="analysis-section disclosure">
   <summary>About this report</summary>
   {% if data.limitations %}<ul class="analysis-notes">{% for limitation in data.limitations %}<li>{{ limitation }}</li>{% endfor %}</ul>{% endif %}
-  <h2>Additional report details</h2>
   {% if data.measurements %}{% include 'core/analysis/measurements.html' with measurements=data.measurements only %}{% endif %}
 </details>
 {% endif %}

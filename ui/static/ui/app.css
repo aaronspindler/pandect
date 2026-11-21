@@ -1478,7 +1478,6 @@ dd {
   flex-wrap: wrap;
 }
 .filter-bar .field { margin: 0; flex: 1 1 16rem; }
-.filter-bar .field:nth-child(2) { flex: 0 1 12rem; }
 .filter-bar > a { min-height: 44px; display: inline-flex; align-items: center; }
 a.record-row { color: var(--text); text-decoration: none; }
 a.record-row:hover { background: var(--background); }

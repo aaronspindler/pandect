@@ -156,6 +156,7 @@ output; keep fixtures synthetic.
 | `core.analysis.browser` | `data/validation/analysis-browser` |
 | `core.analysis.context_browser` | `data/validation/context-browser` |
 | `core.analysis.workflow_browser` | `data/validation/investigation-workflows` |
+| `core.analysis.sighting_browser` | `data/validation/sighting-browser` |
 | `core.analysis.reprocessing_browser` | `data/validation/reprocessing-browser` |
 | `core.case_search.browser` | `data/validation/case-search` |
 | `document.browser` | `data/validation/original-preview-browser` |
@@ -163,6 +164,7 @@ output; keep fixtures synthetic.
 | `phone.conversation_browser` | `data/validation/conversations-browser` |
 | `image.browser` | `data/validation/plate-browser` |
 | `geo.map_browser` | `data/validation/maps` |
+| `geo.journey_claim_browser` | `data/validation/plan-comparisons` |
 | `socialmedia.monitor_browser` | `data/validation/instagram-monitors` |
 | `ui.live_browser` | `data/validation/live-updates` |
 

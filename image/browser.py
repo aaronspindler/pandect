@@ -59,19 +59,36 @@ class PlateBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("status").filter(has_text=re.compile(r"^Partial$"))
                 ).to_be_visible()
-                page.goto(
-                    self.url(
-                        "core:analysis:process_evidence",
-                        case_id=self.case.pk,
-                        kind="image",
-                        evidence_id=self.image.pk,
+                page.goto(self.url("cases:case_detail", case_id=self.case.pk))
+                page.get_by_role("link", name="Images", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Images", exact=True)
+                ).to_be_visible()
+                image_link = page.get_by_role("link", name=self.image.title)
+                thumbnail = page.request.get(
+                    urljoin(page.url, image_link.locator("img").get_attribute("src"))
+                )
+                self.assertEqual(thumbnail.status, 200)
+                self.assertIn("no-store", thumbnail.headers["cache-control"])
+                self.capture(page, engine, "image-gallery")
+                for width in (390, 320):
+                    page.set_viewport_size({"width": width, "height": 844})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
-                )
+                self.capture(page, engine, "image-gallery-mobile")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                image_link.click()
+                page.get_by_role("link", name="Back to images").click()
+                image_link.click()
                 plate_text = re.compile(r"^TEST 482\b", re.IGNORECASE)
-                finding = page.get_by_role("region", name="Findings").get_by_role(
-                    "link", name=plate_text
+                finding_row = (
+                    page.locator(".analysis-finding-rows li")
+                    .filter(has=page.get_by_role("link", name=plate_text))
+                    .first
                 )
-                expect(finding).to_have_count(1)
+                finding = finding_row.get_by_role("link", name=plate_text)
+                expect(finding).to_be_visible()
                 expect(finding).not_to_contain_text("Awaiting review")
                 expect(finding).to_contain_text("Partial coverage")
                 expect(finding).to_contain_text("Plate-likeness:")
@@ -88,6 +105,21 @@ class PlateBrowserTests(BrowserTestCase):
                     page.get_by_text("Processing history", exact=True)
                 ).to_be_hidden()
                 expect(page.locator(".analysis-history-row:visible")).to_have_count(0)
+                finding_row.get_by_role("link", name="Compare with image").press(
+                    "Enter"
+                )
+                expect(
+                    finding_row.get_by_role(
+                        "img", name="Processed crop used for this reading"
+                    )
+                ).to_be_visible()
+                expect(
+                    finding_row.get_by_role(
+                        "img", name="Source image with the possible plate region marked"
+                    )
+                ).to_be_visible()
+                self.capture(page, engine, "image-finding-comparison")
+                finding_row.get_by_role("link", name="Hide image comparison").click()
                 for width, height in ((1440, 900), (390, 844), (320, 844)):
                     page.set_viewport_size({"width": width, "height": height})
                     self.assertLessEqual(

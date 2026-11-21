@@ -94,12 +94,13 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         self.assertNotIn("Uncited person", preview)
         self.assertContains(catalogue, "Alex &lt;script&gt;")
         self.assertNotContains(catalogue, "<script>")
-        for url in (self.index_url(), self.url("detail", message, kind="text-message")):
-            response = self.client.get(url)
-            self.assertIn(
-                "Reported sender Alex <script>",
-                response.context["highlights"][0]["summary_text"],
-            )
+        case_home = self.client.get(self.index_url())
+        evidence = self.client.get(self.url("detail", message, kind="text-message"))
+        for rows in (
+            case_home.context["highlights"],
+            evidence.context["findings_page"],
+        ):
+            self.assertIn("Reported sender Alex <script>", rows[0]["summary_text"])
         detail = self.client.get(
             reverse("core:analysis:detail", args=[self.case.pk, run.pk])
         )
@@ -310,13 +311,15 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             self.entities(call, kind="phone-call", attachment=addition)
         self.login("viewer")
         _, highlights = self.findings()
-        self.assertEqual(
-            {item["source_url"] for item in highlights},
-            {
-                self.url("detail", call, "phone-call") + f"#attachment-{a.pk}"
-                for a in additions
-            },
-        )
+        reader = self.client.get(self.url("detail", call, "phone-call"))
+        for rows in (highlights, reader.context["findings_page"]):
+            self.assertEqual(
+                {row["source_url"] for row in rows},
+                {
+                    self.url("detail", call, "phone-call") + f"#attachment-{a.pk}"
+                    for a in additions
+                },
+            )
 
     def test_current_case_access_controls_findings_and_their_links(self):
         self.entities(self.source())

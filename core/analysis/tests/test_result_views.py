@@ -45,15 +45,18 @@ class ResultViewsTests(SimpleTestCase):
                 self.assertEqual(markers, sorted(markers))
 
     def test_registered_operations_keep_a_readable_legacy_fallback(self):
-        # HTML imports are retired; their retained results remain readable.
+        # Retired HTML imports remain readable. Sighting groups have a dedicated reader.
         self.assertEqual(
-            OPERATIONS.keys() | {"conversation_import"}, RESULT_VIEWS.keys()
+            (OPERATIONS.keys() - {"sighting_group"}) | {"conversation_import"},
+            RESULT_VIEWS.keys(),
         )
         setup_operations = [
             operation for group in OPERATION_GROUPS.values() for operation in group
         ]
-        # CSV imports have a dedicated preparation/confirmation flow.
-        self.assertCountEqual(OPERATIONS.keys() - {"imessage_import"}, setup_operations)
+        # CSV imports and sighting groups have dedicated selection flows.
+        self.assertCountEqual(
+            OPERATIONS.keys() - {"imessage_import", "sighting_group"}, setup_operations
+        )
         for operation in RESULT_VIEWS:
             with self.subTest(operation=operation):
                 items = [

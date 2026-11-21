@@ -372,13 +372,27 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         exact = self.client.get(first["url"])
         self.assertEqual(exact.context["items"][0]["index"], 52)
         self.assertContains(exact, 'href="?page=1#finding-link-53"')
-        evidence = self.client.get(self.url("detail", note))
-        highlights = evidence.context["highlights"]
-        self.assertEqual(highlights[0]["index"], 52)
-        self.assertEqual(highlights[0]["review_reason"], first["review_reason"])
-        self.assertContains(evidence, first["review_reason"])
-        self.assertEqual(len(highlights), 2)
-        self.assertContains(evidence, "The preview checks up to 50 candidates.")
+        reader = self.url("detail", note)
+        collection = {"q": "Delivery", "type": "text", "state": "all"}
+        rows = []
+        for number, expected_size in ((1, 25), (2, 25), (3, 3)):
+            evidence = self.client.get(reader, collection | {"findings_page": number})
+            page = evidence.context["findings_page"]
+            self.assertContains(evidence, "Findings (53)")
+            self.assertEqual(len(page), expected_size)
+            rows.extend(page)
+        self.assertEqual(rows[0]["index"], 52)
+        self.assertEqual(rows[0]["review_reason"], first["review_reason"])
+        self.assertEqual({row["index"] for row in rows}, set(range(53)))
+        detail = self.client.get(rows[-1]["url"])
+        back = detail.context["back_to_analysis"]
+        self.assertEqual(
+            back,
+            f"{reader}?q=Delivery&type=text&state=all&findings_page=3#evidence-finding-{rows[-1]['id']}",
+        )
+        self.assertContains(
+            self.client.get(back), f'id="evidence-finding-{rows[-1]["id"]}"'
+        )
 
     def test_findings_pagination_keeps_global_indices(self):
         run, result = self.findings_fixture()

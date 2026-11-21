@@ -1,5 +1,5 @@
 <section class="location-original" aria-labelledby="location-heading">
-  <h3 id="location-heading">Reported location</h3>
+  <div class="section-header"><h3 id="location-heading">Reported location</h3>{% if observation_trip_url %}<a class="record-link" href="{{ observation_trip_url }}">View possible trip</a>{% endif %}</div>
   <dl class="metadata-grid">
     {% if kind == 'person-location' %}<div><dt>Reported person</dt><dd><a href="{% url 'people:detail' case_id=case.pk person_id=item.person_id %}">{{ item.person }}</a></dd></div>{% elif kind == 'vehicle-location' %}<div><dt>Reported vehicle</dt><dd><a href="{% url 'vehicle:detail' case_id=case.pk vehicle_id=item.vehicle_id %}">{{ item.vehicle }}</a></dd></div>{% endif %}
     {% if item.address %}<div><dt>Address</dt><dd>{{ item.address|linebreaksbr }}</dd></div>{% endif %}

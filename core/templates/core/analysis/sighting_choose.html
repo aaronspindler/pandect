@@ -1,0 +1,32 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Choose an anchor observation · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'core:analysis:sighting_groups' case.pk %}">Back to sighting groups</a>
+<header class="page-header">
+  <div>
+    <h1>Choose an anchor observation</h1>
+    <p>Start from a location observation or an image with a retained plate reading.</p>
+  </div>
+</header>
+<form class="analysis-picker" method="get" action="{% url 'core:analysis:sighting_create' case.pk %}">
+  <div class="field"><label for="sighting-query">Find evidence by title</label><input type="search" id="sighting-query" name="q" value="{{ q }}" maxlength="200"></div>
+  <button class="button button-secondary" type="submit">Find evidence</button>
+</form>
+<div class="analysis-options">
+  {% for observation in observations %}
+  <a href="{% querystring anchor=observation.token q=None page=None %}">
+    <span><strong>{{ observation.title }}</strong><small>{{ observation.label }}</small></span>
+    {% include 'ui/components/icon.html' with name='chevron-right' %}
+  </a>
+  {% empty %}
+    {% if q %}<p>No observations match this title.</p>{% else %}<p>Add a location observation or an image to start a proposal.</p>{% endif %}
+  {% endfor %}
+</div>
+{% if page.has_other_pages %}
+<nav class="pagination" aria-label="Anchor observation pages">
+  {% if page.has_previous %}<a class="button button-secondary" href="{% querystring page=page.previous_page_number %}">Previous</a>{% endif %}
+  <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a class="button button-secondary" href="{% querystring page=page.next_page_number %}">Next</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

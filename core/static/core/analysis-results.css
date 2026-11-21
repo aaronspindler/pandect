@@ -635,25 +635,28 @@
 .case-tools-header .actions { flex-wrap: wrap; }
 .case-tools-directory {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  column-gap: 2rem;
-  border-bottom: 1px solid var(--divider);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: .5rem;
+  margin-block: 1rem;
 }
-.case-tools-directory > .analysis-section { margin: 0; border-top: 0; }
-.case-tools-directory h2 { margin-bottom: .5rem; }
-.case-tools-directory .analysis-options a {
-  padding: .75rem .5rem;
-  color: var(--text);
+.case-tools-directory a {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  min-height: 44px;
+  padding: .75rem 1rem;
+  border: 1px solid var(--boundary);
   border-radius: var(--radius);
-  border-bottom: 0;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
 }
-.case-tools-directory .analysis-options a:hover { background: var(--background); }
-.case-tools-directory .analysis-options strong { font-weight: 600; }
-.case-tools-directory .analysis-options small { margin-top: 0; }
+.case-tools-directory a:hover { background: var(--selected); text-decoration: underline; }
 .case-tools-recent > .analysis-section { border-top: 0; }
+.case-tools-recent .section-header { min-height: 44px; }
 .case-tools-recent .record-row p { margin: 0; color: var(--secondary); font-size: .875rem; }
 @media (max-width: 48rem) {
-  .case-tool-grid, .case-tools-directory { grid-template-columns: minmax(0, 1fr); }
-  .case-tools-directory > .analysis-section + .analysis-section { border-top: 1px solid var(--divider); }
+  .case-tools-directory a { padding-inline: .5rem; gap: .5rem; }
+  .case-tool-grid { grid-template-columns: minmax(0, 1fr); }
   .case-tools-header .actions { width: 100%; justify-content: flex-start; }
 }

@@ -107,6 +107,49 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertNotContains(response, "Save to selection")
 
+    def test_reader_shows_only_current_findings_citing_this_record(self):
+        other = self.text()
+        inputs = snapshot_sources(
+            self.case,
+            [{"kind": "text", "id": self.note.pk}, {"kind": "text", "id": other.pk}],
+        )
+        first, second = (source["id"] for source in inputs)
+        older = self.publish(
+            sources=inputs, items=[{"label": "Earlier reading", "source_ids": [first]}]
+        )
+        self.publish(
+            sources=inputs,
+            items=[
+                {"label": "Shared reading", "source_ids": [first, second]},
+                {"label": "Neighbor only", "source_ids": [second]},
+            ],
+        )
+        reader = reverse(
+            "core:evidence:detail", args=[self.case.pk, "text", self.note.pk]
+        )
+        self.login("viewer")
+        response = self.client.get(reader)
+        self.assertContains(response, "Findings (1)")
+        rows = list(response.context["findings_page"])
+        self.assertEqual([row["label"] for row in rows], ["Shared reading"])
+        self.assertEqual(
+            [s["url"] for s in rows[0]["other_sources"]],
+            [reverse("core:evidence:detail", args=[self.case.pk, "text", other.pk])],
+        )
+        self.assertNotContains(response, "Neighbor only")
+        self.assertNotContains(response, "Earlier reading")
+        old_run = next(
+            run
+            for run in response.context["analysis_page_obj"]
+            if run.pk == older.run_id
+        )
+        history = self.client.get(old_run.history_url)
+        self.assertContains(history, "Earlier reading")
+        self.assertEqual(
+            history.context["back_to_analysis"],
+            reader + "?results_page=1#evidence-history-heading",
+        )
+
     def test_all_runs_and_items_are_paginated_without_highlight_limits(self):
         for index in range(45):
             self.publish(parameters={"sample": index})

@@ -1,0 +1,27 @@
+.image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+  align-items: start;
+  gap: 1.5rem 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+}
+
+.image-gallery-link {
+  display: grid;
+  gap: .375rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.image-gallery-link img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 8 / 5;
+  object-fit: contain;
+  background: var(--background);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+}

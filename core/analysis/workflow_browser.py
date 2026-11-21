@@ -147,9 +147,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                     "Enter"
                 )
                 self.capture_layouts(page, engine, "case-tools")
-                browse = page.get_by_role(
-                    "link", name="Browse all findings", exact=True
-                )
+                browse = page.get_by_role("link", name="Findings", exact=True)
                 browse.focus()
                 expect(browse).to_be_focused()
                 browse.press("Enter")
@@ -221,7 +219,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(message_row).to_contain_text(self.person.first_name)
                 message_row.press("Enter")
                 page.get_by_role("navigation", name="Evidence actions").get_by_role(
-                    "link", name="Findings", exact=True
+                    "link", name=re.compile(r"^Findings \(\d+\)$")
                 ).press("Enter")
                 expect(page).to_have_url(re.compile(r"#evidence-findings-heading$"))
 

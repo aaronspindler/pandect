@@ -1,0 +1,52 @@
+{% load l10n %}
+<section class="analysis-section" aria-labelledby="visible-structure">
+  <h2 id="visible-structure" tabindex="-1">Visible structure</h2>
+  <p><a class="record-link" href="{{ layout.source.original_url }}">{{ layout.source.item.title }}</a></p>
+  <p class="muted">These groupings are inferred from visible words and their positions.{% if layout.has_messages %} Displayed names and times leave the sender, delivery time, and reply relationships unverified.{% endif %}</p>
+  {% if layout.previous or layout.next %}
+  <nav class="pagination" aria-label="Layout sources">
+    {% if layout.previous %}<a class="button button-secondary" href="{% querystring run_query layout=layout.previous %}#visible-structure">Previous source</a>{% endif %}
+    {% if layout.next %}<a class="button button-secondary" href="{% querystring run_query layout=layout.next %}#visible-structure">Next source</a>{% endif %}
+  </nav>
+  {% endif %}
+  {% for note in layout.notes %}<p class="notice">{{ note }}</p>{% endfor %}
+  {% if layout.orders %}
+  <nav class="actions" aria-label="Possible reading orders">
+    {% for order in layout.orders %}
+      {% if order == layout.order %}<strong aria-current="true">{{ order.label }}</strong>
+      {% else %}<a class="record-link" href="{% querystring layout_order=order.label layout_page=None %}#visible-structure">{{ order.label }}</a>{% endif %}
+    {% endfor %}
+  </nav>
+  {% endif %}
+  {% for candidate in layout.entries %}
+  <article class="analysis-finding">
+    <div class="analysis-finding-heading"><h3>{{ candidate.label }}</h3></div>
+    {% for note in candidate.notes %}<p class="analysis-finding-status">{{ note }}</p>{% endfor %}
+    <dl class="analysis-measurements">
+      {% for field in candidate.fields %}
+      <div><dt{% if field.role == 'Text' %} class="visually-hidden"{% endif %}>{{ field.role }}</dt><dd>
+        <div class="layout-reading">{{ field.text }}</div>
+        <small>{% if field.low_score %}<strong>Low OCR score</strong> · {% endif %}Minimum word score {{ field.confidence|floatformat:"-2" }}/100</small>
+        <details class="disclosure"><summary>Inspect source words<span class="visually-hidden"> for {{ field.role }}</span></summary>
+          {% if layout.preview %}
+          <svg class="analysis-image-preview" viewBox="0 0 {{ layout.preview.width }} {{ layout.preview.height }}" role="img" aria-label="Source image with words for {{ field.role }} marked">
+            <image href="{{ layout.preview.url }}" width="{{ layout.preview.width }}" height="{{ layout.preview.height }}"/>
+            {% for word in field.words %}<rect x="{{ word.rect.x|unlocalize }}" y="{{ word.rect.y|unlocalize }}" width="{{ word.rect.region_width|unlocalize }}" height="{{ word.rect.region_height|unlocalize }}" fill="none" stroke="currentColor" stroke-width="3" vector-effect="non-scaling-stroke"/>{% endfor %}
+          </svg>
+          {% else %}<p>The prepared preview was omitted. Inspect these regions on the <a href="{{ layout.source.original_url }}">original evidence</a>.</p>{% endif %}
+          <p class="muted">Word bounds are fractions of the unrotated image, in left, top, right, bottom order.</p>
+          <ul>{% for word in field.words %}<li><a href="{{ word.url }}">{{ word.text }} · OCR finding {{ word.line_number }}</a> · {{ word.confidence|floatformat:"-2" }}/100 · {% for bound in word.region %}{{ bound|floatformat:"-5" }}{% if not forloop.last %}, {% endif %}{% endfor %}</li>{% endfor %}</ul>
+        </details>
+      </dd></div>
+      {% endfor %}
+    </dl>
+  </article>
+  {% empty %}<p>No anchored layout candidates were retained for this source.</p>{% endfor %}
+  {% if layout.page.has_other_pages %}
+  <nav class="pagination" aria-label="Layout candidate pages">
+    {% if layout.page.has_previous %}<a class="button button-secondary" href="{% querystring layout_page=layout.page.previous_page_number %}#visible-structure">Previous candidates</a>{% endif %}
+    <span>{{ layout.page.start_index }}–{{ layout.page.end_index }} of {{ layout.page.paginator.count }}</span>
+    {% if layout.page.has_next %}<a class="button button-secondary" href="{% querystring layout_page=layout.page.next_page_number %}#visible-structure">Next candidates</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>

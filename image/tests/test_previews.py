@@ -7,10 +7,13 @@ from unittest.mock import patch
 from allauth.account.models import EmailAddress
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.urls import reverse
 from PIL import Image
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
+from core.analysis.services import process_run, start_run
+from core.analysis.testing import local_ocr_response
 from core.parsers import MAX_BYTES
 from core.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence
@@ -112,10 +115,78 @@ class ImagePreviewTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(preview.size, (1024, 2048))
             self.assertFalse(preview.getexif())
         item.refresh_from_db()
+        thumbnail = self.client.get(
+            self.url("preview", item, kind="image"), {"size": "thumbnail"}
+        )
+        self.assertIn("no-store", thumbnail["Cache-Control"])
+        with Image.open(io.BytesIO(thumbnail.content)) as small:
+            self.assertEqual(small.size, (160, 320))
+            self.assertFalse(small.getexif())
         self.assertEqual(item.sha256, hashlib.sha256(original).hexdigest())
         download = self.client.get(self.url("download", item, kind="image"))
         self.assertEqual(b"".join(download.streaming_content), original)
         self.assertTrue(download["Content-Disposition"].startswith("attachment;"))
+
+    def test_gallery_pages_contain_only_case_images_and_retain_selection(self):
+        first = self.image()
+        for _ in range(25):
+            self.image()
+        self.text()
+        self.login("viewer")
+        filters = {"type": "image", "view": "gallery", "page": 2, "q": "harbour"}
+        gallery = self.client.get(self.url("list"), filters)
+        self.assertContains(gallery, "<h1>Images</h1>")
+        self.assertContains(gallery, "size=thumbnail", count=1)
+        self.assertNotContains(gallery, "Add image")
+        self.assertNotContains(gallery, "Interview notes")
+        self.assertEqual(gallery.context["rows"][0]["id"], first.pk)
+        reader = self.client.get(gallery.context["rows"][0]["url"])
+        self.assertContains(reader, "Back to images")
+        returned = self.client.get(reader.context["list_url"])
+        self.assertContains(returned, "26 images")
+        self.assertContains(returned, "Previous images")
+        self.assertEqual(returned.context["page_obj"].number, 2)
+        self.assertEqual(returned.context["query"], "harbour")
+        self.login("outsider")
+        self.assertEqual(self.client.get(self.url("list"), filters).status_code, 404)
+        self.assertEqual(
+            self.client.get(
+                self.url("preview", first, kind="image"), {"size": "thumbnail"}
+            ).status_code,
+            404,
+        )
+
+    def test_expanding_ocr_finding_loads_only_its_image_from_a_shared_run(self):
+        first, second = self.image(), self.image(image_bytes(size=(90, 60)))
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "ocr",
+            [{"kind": "image", "id": str(photo.pk)} for photo in (first, second)],
+        )
+        replies = [
+            local_ocr_response(text=text)
+            for text in ("First reading", "Second reading")
+        ]
+        with patch("image.analysis.ai.run_parser", side_effect=replies):
+            process_run(run.pk)
+        artifacts = {
+            str(artifact.source_id): reverse(
+                "core:analysis:artifact", args=[self.case.pk, run.pk, artifact.pk]
+            )
+            for artifact in run.result.artifacts.all()
+        }
+        self.login("viewer")
+        url = self.url("detail", first, kind="image")
+        detail = self.client.get(url)
+        self.assertContains(detail, "Compare with image", count=1)
+        self.assertNotContains(detail, "Second reading")
+        self.assertNotContains(detail, artifacts[run.inputs[0]["id"]])
+        row = detail.context["findings_page"][0]
+        expanded = self.client.get(url, {"image_finding": row["id"]})
+        self.assertContains(expanded, artifacts[run.inputs[0]["id"]])
+        self.assertNotContains(expanded, artifacts[run.inputs[1]["id"]])
+        self.assertContains(expanded, "Hide image comparison")
 
     def test_transparency_is_flattened_onto_white(self):
         buffer = io.BytesIO()

@@ -63,3 +63,68 @@ def jpeg_bytes(*, size=(1000, 240), multiple_pictures=False):
         else:
             image.save(stream, format="JPEG", progressive=True)
         return stream.getvalue()
+
+
+def printed_layout(kind):
+    """Draw each word at a known location and return its normalized ink box."""
+    width, height = 1050, 600
+    photo = kind == "page"
+    image = Image.new("RGB", (width, height), "#aaa9a5" if photo else "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=34)
+    boxes = {}
+
+    def write(x, y, phrase):
+        for word in phrase.split():
+            draw.text((x, y), word, font=font, fill="#121212")
+            left, top, right, bottom = draw.textbbox((x, y), word, font=font)
+            if photo:
+                top += left / 80
+                bottom += right / 80
+            boxes[word] = (left / width, top / height, right / width, bottom / height)
+            x += draw.textlength(word + " ", font=font)
+
+    if kind == "chat":
+        for x, y, person, stamp, body in (
+            (65, 70, "Morgan", "09:15", "Bring the binder"),
+            (265, 255, "Riley", "09:16", "Meet at noon"),
+        ):
+            draw.rounded_rectangle(
+                (x - 12, y - 10, x + 420, y + 104), 12, fill="#f1f4f5"
+            )
+            write(x, y, f"{person}  {stamp}")
+            write(x, y + 51, body)
+    elif kind == "receipt":
+        write(70, 40, "Stationery")
+        for number, (name, price) in enumerate(
+            (("Pencils", "$3.50"), ("Folders", "$8.25"), ("Paper", "$2.40"))
+        ):
+            write(70, 140 + 65 * number, name)
+            write(565, 140 + 65 * number, price)
+    elif kind == "form":
+        write(65, 60, "Registration")
+        for y, label, value in (
+            (155, "Name:", "River Hall"),
+            (232, "City:", "Toronto"),
+        ):
+            write(65, y, label)
+            write(315, y, value)
+    elif kind == "columns":
+        for y, left, right in ((160, "Morning", "East"), (220, "Evening", "West")):
+            write(60, y, left)
+            write(560, y, right)
+    elif photo:
+        draw.rectangle((42, 26, 1008, 554), fill="#fffefa")
+        write(90, 80, "Station report")
+        write(90, 175, "Morning trains arrived early.")
+        write(90, 225, "Passengers used another platform.")
+        image = image.transform(
+            image.size,
+            Image.Transform.AFFINE,
+            (1, 0, 0, -1 / 80, 1, 0),
+            resample=Image.Resampling.BICUBIC,
+            fillcolor="#aaa9a5",
+        )
+    stream = io.BytesIO()
+    image.save(stream, format="JPEG" if photo else "PNG")
+    return stream.getvalue(), boxes

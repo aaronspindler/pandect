@@ -11,6 +11,10 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from cases.models import CaseMembership
+from core.analysis.catalogue import project_result
+from core.analysis.operations import get_operation
+from core.analysis.services import snapshot_sources
+from core.models import AnalysisResult, AnalysisRun
 from geo.models import PointOfInterest, VehicleLocationEvidence
 from geo.testing import MapCaseFixtures
 from geo.trip_jobs import _snapshot
@@ -131,7 +135,7 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
         ]
         self.assertEqual(len(endpoint_queries), 1)
         self.assertContains(
-            response, f'href="{response.context["trips"][0]["trip_url"]}"', count=2
+            response, f'href="{response.context["trips"][0]["trip_url"]}"', count=1
         )
 
     def test_empty_map_links_to_vehicle_intake_for_editors(self):
@@ -263,6 +267,61 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
                 self.detail_url, params, HTTP_ACCEPT="application/json"
             ).status_code,
             404,
+        )
+
+    def test_findings_match_exact_citations_across_all_trip_observation_pages(self):
+        trip, records = self.add_trip(count=53, minute=30)
+        other = self.observations[0]
+        inputs = snapshot_sources(
+            self.case,
+            [
+                {"kind": "vehicle-location", "id": item.pk}
+                for item in (records[0], records[51], other)
+            ],
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="geocode_locations",
+            method_version=get_operation("geocode_locations").version,
+            inputs=inputs,
+            status="complete",
+        )
+        items = [
+            {
+                "label": f"Reading {i + 1}",
+                "source_ids": [inputs[1]["id"]],
+            }
+            for i in range(25)
+        ]
+        items.extend(
+            [
+                {"label": "Shared finding", "source_ids": [s["id"] for s in inputs]},
+                {"label": "Unrelated observation", "source_ids": [inputs[2]["id"]]},
+            ]
+        )
+        result = AnalysisResult.objects.create(
+            case=self.case, run=run, data={"items": items}
+        )
+        project_result(result)
+        url = reverse("geo:trip_detail", args=(self.case.pk, trip.pk))
+        self.client.force_login(self.viewer)
+        first = self.client.get(url)
+        self.assertEqual(first.context["source_page"].number, 1)
+        self.assertEqual(first.context["findings_page"].paginator.count, 26)
+        self.assertContains(first, "Reading 25")
+        self.assertNotContains(first, "Unrelated observation")
+        second = self.client.get(url, {"findings_page": 2, "sources_page": 2})
+        self.assertEqual(
+            [row["label"] for row in second.context["findings_page"]],
+            ["Shared finding"],
+        )
+        self.assertNotContains(second, "Unrelated observation")
+        self.assertEqual(second.context["source_page"].number, 2)
+        # A mismatched retained hash cannot associate a finding with this trip.
+        result.findings.get(label="Reading 1").sources.update(source_sha256="b" * 64)
+        self.assertEqual(
+            self.client.get(url).context["findings_page"].paginator.count, 25
         )
 
     def test_map_geometry_and_trip_detail_preserve_reported_speeds(self):

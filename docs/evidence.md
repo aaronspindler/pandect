@@ -13,11 +13,11 @@ registered placeholder without an evidence category.
 
 ## Reading and editing evidence
 
-Readers keep originals beside source-linked findings. **Findings** near the
-original's title jumps directly to its saved findings and check outcomes.
-**Analysis outcomes**
-links to checks and saved results that used the evidence. **Info** exposes
-provenance, integrity and retained descriptions. **Edit details** and
+Readers keep originals beside their source-linked findings. **Findings (count)**
+near the title jumps to every current finding citing the record or its attachments,
+25 per page. **Analysis history** links to earlier results, reports, and checks
+that used this evidence. **Info** exposes provenance, integrity and retained
+descriptions. **Edit details** and
 **Analyze evidence** are directly visible to owners/editors.
 **More** holds secondary actions such as archive/restore. **Processing** shows
 current case work and opens case-wide history on demand. See the
@@ -226,8 +226,8 @@ summary of that exact grouping.
 **Findings** starts open with up to three short previews of saved findings for
 the message. Select a finding title for its full details. **More findings** opens
 the complete list at that message, 25 per page.
-**Conversation findings** above the stream shows up to three saved session
-results and findings citing multiple sources, with links to cited messages.
+Expand **Conversation findings (count)** above the transcript to see saved
+session results and findings citing several sources, with links to cited messages.
 **More findings** opens the rest with separate pagination.
 Findings follow the participant pair through their exact citations. Results may also cite sources outside the
 current view and say so. **Open finding** retains full context, source inventory,

@@ -6,12 +6,21 @@ from . import (
     import_checks,
     processing,
     reprocessing_views,
+    sighting_views,
     views,
 )
 
 app_name = "analysis"
 urlpatterns = [
     path("connections/", connections.connections, name="connections"),
+    path("sightings/", sighting_views.index, name="sighting_groups"),
+    path("sightings/new/", sighting_views.create, name="sighting_create"),
+    path("sightings/<uuid:run_id>/", sighting_views.detail, name="sighting_detail"),
+    path(
+        "sightings/<uuid:run_id>/review/",
+        sighting_views.review,
+        name="sighting_review",
+    ),
     path("", views.index, name="index"),
     path("browse/", catalogue_views.browse, name="browse"),
     path("processing/", processing.index, name="processing"),

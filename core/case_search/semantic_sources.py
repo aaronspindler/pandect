@@ -69,7 +69,7 @@ def source_queryset(
     else:
         queryset = dated(
             sources(case, "finding", state), start, end, "finding"
-        ).exclude(preview="")
+        ).exclude(Q(preview="") | Q(result__run__operation="sighting_group"))
         if record_type and record_type != "finding":
             return queryset.none()
         if state != "all":

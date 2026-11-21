@@ -14,7 +14,7 @@
   {% if batch.completed_at %}
     <p role="status">{{ imported_count }} observation{{ imported_count|pluralize }} imported.{% if skipped_count %} {{ skipped_count }} possible duplicate row{{ skipped_count|pluralize }} skipped.{% endif %}</p>
     <div class="actions">
-      {% if observations %}<a class="button button-primary" href="{% url 'geo:case_map' case.pk %}">Open case map</a>{% endif %}
+      {% if observations %}<a class="button button-primary" href="{% url 'geo:case_map' case.pk %}#map-heading">Open case map</a>{% endif %}
       <a class="record-link" href="{% url 'core:evidence:detail' case_id=case.pk kind='document' evidence_id=batch.document_id %}">View source CSV</a>
     </div>
   {% else %}

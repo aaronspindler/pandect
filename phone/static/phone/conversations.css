@@ -63,8 +63,7 @@
 .conversation-bubble .conversation-message-body { margin-inline-end:1.75rem; }
 .conversation-message-source { display:block; font-size:.875rem; margin-top:.25rem; color:var(--secondary); }
 .conversation-analysis { min-width:0; overflow-wrap:anywhere; scroll-margin:1rem; }
-.conversation-shared-analysis { margin-bottom:1rem; padding-block:.75rem; border-block:1px solid var(--divider); }
-.conversation-shared-analysis h2 { margin:0; }
+.conversation-shared-analysis { margin-bottom:.75rem; border-block-end:1px solid var(--divider); }
 .conversation-analysis summary { min-height:44px; padding:.5rem 0; cursor:pointer; font-weight:600; color:var(--accent); }
 .conversation-findings-list { list-style:none; margin:0; padding:0; }
 .conversation-finding { padding-bottom:.75rem; }

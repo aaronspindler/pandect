@@ -35,9 +35,11 @@ from phone.models import CallEvidenceAttachment
 
 CONTEXT_REQUIRED_OPERATIONS = (
     "question_synthesis",
+    "sighting_group",
     "style_change",
     "proximity",
     "location_conflicts",
+    "journey_claims",
     "imessage_import",
 )
 REPROCESS_OPERATIONS = (
