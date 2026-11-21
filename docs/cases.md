@@ -37,6 +37,20 @@ records, including archived evidence. There is no in-app undo; user accounts
 remain. See [operations](operations.md) and [evidence](evidence.md) for storage
 and backup limits.
 
+## External analysis approval
+
+The case owner can approve or revoke the configured external services under
+**Case settings → External analysis**. The review lists each destination and the
+data it receives. Analysis can include newly added evidence, selected material,
+and relevant active case history. Approval applies to this case and the displayed
+destinations. Changes to a destination require approval in Case Settings before
+Pandect sends evidence there. Revocation stops subsequent requests. Provider
+retention still applies to requests already sent.
+
+Private and built-in checks run independently. New and existing cases start
+without external approval. Approving a case enables future eligible requests.
+Owners and editors can start **Reprocess evidence** for retained material.
+
 ## Account settings
 
 The Account link opens email, password, and timezone settings. Verified secondary

@@ -9,6 +9,7 @@ from django.urls import reverse
 from cases.models import CaseMembership
 from core.analysis.http import NoRedirect
 from core.analysis.services import process_run, start_run
+from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG, error, response
 from core.analysis.tests.test_openai_gateway import openai_reply
 from core.models import AnalysisRun, GatewayRequest
@@ -67,7 +68,7 @@ class DirectAITests(EvidenceViewTestMixin, TestCase):
             "content_events",
             [{"kind": "text", "id": str(self.note.pk)}],
             parameters={"backend": "gateway"},
-            external_processing=True,
+            **external_grant_kwargs(self.case, "content_events"),
         )
         return run
 
@@ -214,36 +215,47 @@ class DirectAITests(EvidenceViewTestMixin, TestCase):
     def test_analysis_requires_renewed_approval_after_switching_direct_providers(self):
         self.login("owner")
         url = reverse("core:analysis:create", args=[self.case.pk])
-        openai_page = self.client.get(url, {"operation": "content_events"})
+        settings_url = reverse("cases:case_settings", args=[self.case.pk])
+        approval_url = reverse("cases:case_external_analysis", args=[self.case.pk])
+        openai_page = self.client.get(settings_url)
         self.assertContains(openai_page, "OpenAI")
         self.assertContains(openai_page, DIRECT_AI["openai_model"])
         self.assertNotContains(openai_page, DIRECT_AI["openai_api_key"])
-        form = openai_page.context["form"]
-        self.assertFalse(form["backend"].is_hidden)
-        self.assertEqual(form["backend"].value(), "")
+        self.assertEqual(
+            self.client.post(
+                approval_url,
+                {
+                    "action": "approve",
+                    "confirmation": openai_page.context["external_analysis"][
+                        "approve_confirmation"
+                    ],
+                },
+            ).status_code,
+            302,
+        )
+        form = self.client.get(url, {"operation": "content_events"}).context["form"]
+        self.assertNotIn("backend", form.fields)
         data = {
             "operation": "content_events",
             "sources": [f"text:{self.note.pk}"],
             "submission_id": form["submission_id"].value(),
-            "execution_confirmation": form["execution_confirmation"].value(),
-            "backend": "gateway",
-            "external_processing": "on",
         }
-        unselected = self.client.post(url, data | {"backend": ""})
-        self.assertContains(unselected, "Review the available processing location.")
-        self.assertFalse(AnalysisRun.objects.exists())
         with self.settings(PANDECT_AI_GATEWAY=ANTHROPIC_DIRECT):
             rejected = self.client.post(url, data)
-            self.assertContains(rejected, "Processing settings changed")
-            self.assertContains(rejected, DIRECT_AI["anthropic_model"])
-            self.assertNotContains(rejected, DIRECT_AI["anthropic_api_key"])
+            self.assertNotEqual(rejected.status_code, 302)
             self.assertFalse(AnalysisRun.objects.exists())
-            recovered = rejected.context["form"]
-            self.assertFalse(recovered["external_processing"].value())
-            data |= {
-                "submission_id": recovered["submission_id"].value(),
-                "execution_confirmation": recovered["execution_confirmation"].value(),
-            }
+            anthropic_page = self.client.get(settings_url)
+            self.assertContains(anthropic_page, DIRECT_AI["anthropic_model"])
+            self.assertNotContains(anthropic_page, DIRECT_AI["anthropic_api_key"])
+            self.client.post(
+                approval_url,
+                {
+                    "action": "approve",
+                    "confirmation": anthropic_page.context["external_analysis"][
+                        "approve_confirmation"
+                    ],
+                },
+            )
             self.assertEqual(self.client.post(url, data).status_code, 302)
         reviewed = AnalysisRun.objects.get().parameters["_execution"]
         self.assertEqual(reviewed["model"], DIRECT_AI["anthropic_model"])
@@ -259,8 +271,7 @@ class DirectAITests(EvidenceViewTestMixin, TestCase):
         )
         self.assertNotContains(detail, f"OpenAI · {DIRECT_AI['openai_model']}")
         self.assertNotContains(detail, "I approve external processing")
-        self.assertContains(detail, "An AI service must be configured")
         self.assertContains(detail, 'type="submit" disabled>Start analysis')
         bulk = self.client.get(reverse("core:analysis:reprocess", args=[self.case.pk]))
         self.assertNotContains(bulk, f"OpenAI · {DIRECT_AI['openai_model']}")
-        self.assertContains(bulk, "Processing uses local checks")
+        self.assertNotContains(bulk, "Processing location")

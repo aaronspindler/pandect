@@ -1,0 +1,36 @@
+{% with iso_day=day|date:'Y-m-d' %}
+<section class="timeline-day" aria-labelledby="timeline-day-{{ iso_day }}" data-timeline-day="{{ iso_day }}" data-timeline-page="{{ page_number }}">
+  <div class="section-header day-heading">
+    <h2 id="timeline-day-{{ iso_day }}">{{ day|date:'l, j F Y' }}</h2>
+  </div>
+  {% if rows %}
+  <ol class="day-timeline">
+    {% for row in rows %}
+    <li>
+      <div class="day-time">
+        {% include 'core/evidence/_timeline_time.html' with stamp=row.start_at %}
+        {% if row.end_at and row.end_at != row.start_at %}<span>to {% include 'core/evidence/_timeline_time.html' with stamp=row.end_at %}</span>{% endif %}
+      </div>
+      <div class="day-entry">
+        <p class="day-kind">{{ row.label }}{% if row.archived %} · Archived{% endif %}{% if row.partial %} · Partial coverage{% endif %}{% if row.overlap %} · Multiple groupings{% endif %}</p>
+        <a class="record-link" href="{{ row.url }}">{{ row.title }}</a>
+        {% if row.detail %}<p>{{ row.detail }}</p>{% endif %}
+        {% if row.continues_before %}<p class="muted">Continued from a previous day.</p>{% endif %}
+        {% if row.continues_after %}<p class="muted">Continues into the next day.</p>{% endif %}
+        {% if row.preview %}<p class="day-preview"><strong>{{ row.preview_label }}</strong> · {{ row.preview }}</p>{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if previous_page or next_page %}
+  <nav class="pagination" aria-label="Entries for {{ day|date:'j F Y' }}">
+    {% if previous_page %}<a class="button button-secondary" href="{% querystring page=previous_page %}#timeline-day-{{ iso_day }}">Previous entries</a>{% endif %}
+    <span>Page {{ page_number }}</span>
+    {% if next_page %}<a class="button button-secondary" href="{% querystring page=next_page %}#timeline-day-{{ iso_day }}">Next entries</a>{% endif %}
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="empty-state compact-empty"><p>No dated activity or collections on this day.</p><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Browse evidence</a></div>
+  {% endif %}
+</section>
+{% endwith %}

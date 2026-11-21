@@ -122,24 +122,21 @@ Follow [analysis](docs/analysis.md), [local inference](docs/local-analysis.md), 
   retries, recoverable failures, and atomic publication. Retries must not duplicate
   evidence or present partial results as complete. The PostgreSQL queue supplies
   neither case authorization, automatic retries, nor stale-task recovery.
-- Queue bounded local checks for eligible new investigator evidence. Confirmed
-  message CSV imports queue local checks, AI, or both for newly published messages,
-  defaulting to local checks without model inference. Both runs local checks and
-  one AI suite; it never duplicates AI across local and external backends.
-  Resolve AI to the configured external AI service or otherwise the configured
-  private service before review. Keep the reviewed route on runtime failure.
-  Retain reviewed execution destinations, explicit external-transfer approval,
-  selection coverage, and recoverable failures.
-  Other LLM analysis, transcription, context-dependent analysis, and bulk import
-  review remain deliberate. Vehicle imports require explicit timezone/vehicle
-  interpretation and source-row provenance.
+- Queue applicable analysis for newly retained evidence, call additions and
+  newly published CSV rows. Run deterministic checks once and add configured
+  private and case-approved external methods independently. Compare with
+  bounded relevant active case history and retain exact coverage and provenance.
+  Keep methods requiring investigator-defined context and import interpretation
+  deliberate. Vehicle imports require explicit timezone/vehicle interpretation
+  and source-row provenance.
 - Keep OCR local in the bounded Tesseract worker parser, with no remote fallback.
-  Default other supported inference to explicitly configured operator-controlled
-  local/private-LAN runtimes through the shared backend. Pin model artifacts and
+  Use explicitly configured operator-controlled local/private-LAN runtimes
+  through the shared backend. Pin model artifacts and
   runtime identities, retain execution provenance, and fail recoverably on drift. Bound
   inference separately from file parsers; never silently fall back to cloud.
-- External AI requires explicit selection and approval for the configured
-  destination. Keep credentials server-side and outside source control.
+- External AI and geographic lookups require case-owner approval of the configured
+  destinations in Case Settings. Recheck approval and exact execution settings
+  before each outbound request. Keep credentials server-side and outside source control.
   Distinguish gateway/upstream authentication and keep provider/model
   configuration behind the integration boundary.
 - Explain external transfer at approval, minimize payloads, deliberately configure

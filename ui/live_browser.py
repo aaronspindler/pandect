@@ -101,7 +101,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     if name == "core:evidence:detail":
                         more = self.open_evidence_panel(page, "more")
                         rerun = more.get_by_role(
-                            "button", name="Run checks", exact=True
+                            "button", name="Run checks again", exact=True
                         )
                         expect(rerun).to_be_visible()
                         self.assertGreaterEqual(rerun.bounding_box()["height"], 44)

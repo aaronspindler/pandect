@@ -235,10 +235,15 @@ def attach_instance_summaries(
     full_summary_id=None,
     include_statements=True,
     preview_only=False,
+    executions=None,
 ):
     missing = {frozenset(instance["member_ids"]): instance for instance in instances}
     if not missing:
         return
+    executions = executions or {}
+    for instance in missing.values():
+        instance["summary_routes"] = set()
+        instance["summary_missing"] = True
     # Every candidate report must at least include the first original of one
     # visible group. Only completed, current versions can supply a suggestion.
     contains = Q(pk__in=[])
@@ -266,15 +271,36 @@ def attach_instance_summaries(
         .order_by("-created_at", "-pk")
     )
     for run in reports.iterator(chunk_size=1):
+        retained = run.parameters.get("_execution")
+        route = next(
+            (
+                backend
+                for backend, execution in executions.items()
+                if retained == execution
+            ),
+            None,
+        )
+        needs_preview = any(
+            instance["summary"] is None for instance in missing.values()
+        )
+        if route is None and not needs_preview:
+            continue
         for membership, summary in _report_sessions(
             case,
             run,
             missing,
             full_summary_id=full_summary_id,
-            include_statements=include_statements,
+            include_statements=include_statements and needs_preview,
             preview_only=preview_only,
         ):
-            missing.pop(membership)["summary"] = True if summary is None else summary
+            instance = missing[membership]
+            if instance["summary"] is None:
+                instance["summary"] = True if summary is None else summary
+            if route is not None:
+                instance["summary_routes"].add(route)
+            if instance["summary_routes"] >= executions.keys():
+                instance["summary_missing"] = False
+                missing.pop(membership)
         if not missing:
             break
 
@@ -332,7 +358,9 @@ def result_instance_url(case, run, item_index, result_items, sources):
     return instance_url(case, (first, second), instance["id"])
 
 
-def get_session_instance(case, messages, instance_id, *, include_statements=True):
+def get_session_instance(
+    case, messages, instance_id, *, include_statements=True, executions=None
+):
     """Resolve a current representative for this exact case/participant pair."""
     target = _instance_id(instance_id)
     candidates = _candidates(case, messages)
@@ -345,7 +373,10 @@ def get_session_instance(case, messages, instance_id, *, include_statements=True
         )
         if instance is not None and instance["id"] == target:
             attach_instance_summaries(
-                case, [instance], include_statements=include_statements
+                case,
+                [instance],
+                include_statements=include_statements,
+                executions=executions,
             )
             return instance
     raise Http404("Instance unavailable. Reopen the conversation and try again.")
@@ -366,13 +397,15 @@ def _page_instance_rows(case, candidates, keys):
     }
 
 
-def review_instance_page(case, messages, number, per_page):
+def review_instance_page(case, messages, number, per_page, *, executions=None):
     """Validate only the saved membership keys in one bulk review page."""
     candidates = _candidates(case, messages)
     page = Paginator(_instance_keys(candidates), per_page).get_page(number)
     keys = [tuple(row["member_key"]) for row in page.object_list]
     rows = _page_instance_rows(case, candidates, keys)
-    attach_instance_summaries(case, rows.values(), include_statements=False)
+    attach_instance_summaries(
+        case, rows.values(), include_statements=False, executions=executions
+    )
     page.object_list = [rows[key] for key in keys if key in rows]
     return page
 
@@ -403,6 +436,7 @@ def instance_page(
     message_page=None,
     day=None,
     full_summary_id=None,
+    summary_executions=None,
 ):
     """Page in SQL, then validate only findings that can represent a visible group."""
     target = _instance_id(instance_id) if instance_id is not None else None
@@ -445,7 +479,12 @@ def instance_page(
             visible = [tuple(row["member_key"]) for row in page.object_list]
 
     rows = _page_instance_rows(case, candidates, visible)
-    attach_instance_summaries(case, rows.values(), full_summary_id=full_summary_id)
+    attach_instance_summaries(
+        case,
+        rows.values(),
+        full_summary_id=full_summary_id,
+        executions=summary_executions,
+    )
     page.object_list = [rows.get(key, {"unavailable": True}) for key in visible]
     if target:
         selected = next((row for row in rows.values() if row["id"] == target), None)

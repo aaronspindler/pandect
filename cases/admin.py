@@ -94,8 +94,11 @@ class CaseAdmin(admin.ModelAdmin):
         return ((None, {"fields": self.readonly_fields}),)
 
     def save_model(self, request, obj, form, change):
-        if not change:
-            obj.owner = request.user
+        if change:
+            # Existing case details are read-only. Only the inlines are saved,
+            # so a stale admin instance cannot overwrite a newer case approval.
+            return
+        obj.owner = request.user
         super().save_model(request, obj, form, change)
 
     def get_deleted_objects(self, objs, request):

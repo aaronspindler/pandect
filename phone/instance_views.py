@@ -14,6 +14,7 @@ from django.views.decorators.http import require_http_methods
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
+from core.analysis.execution import available_executions
 from core.analysis.services import start_run
 from people.models import Person
 from phone.analysis_forms import ConversationGroupingForm
@@ -32,6 +33,7 @@ def conversation_instances(request, case, first, second, day_form, day):
         message_page=request.GET.get("message_page"),
         day=day,
         full_summary_id=request.GET.get("full_summary"),
+        summary_executions=available_executions(case, "session_summaries", {}),
     )
     day_message = None
     for instance in page:

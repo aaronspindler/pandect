@@ -20,11 +20,9 @@ class ImageAnalysisForm(BaseAnalysisForm):
     operation_fields = {"ocr": ("mode",), "plate_ocr": ()}
     field_order = [
         "mode",
-        "backend",
         "operation",
         "submission_id",
         "sources",
-        "external_processing",
     ]
 
     def parameter_values(self):

@@ -1,10 +1,14 @@
 # Chronology
 
 **Case Tools → Chronology** opens the **Daily timeline** on the latest date with
-activity in the case. Use **Previous day with activity** and **Next day with
-activity** to skip empty dates, or choose any date directly. The day uses the
-account or browser timezone, including changes for daylight saving time.
-**Show UTC times** changes the displayed clock and keeps the selected local day.
+activity in the case. Scroll down for older dates or up for newer dates.
+Scrolling skips days without entries. Choose a **Date** to open that exact day,
+including days without entries. You can also press Enter or select **Go to date**.
+If scroll loading is unavailable, use **Older dates** or **Newer dates**.
+
+Days follow the account or browser timezone, including changes for daylight
+saving time. **Show UTC times** changes the displayed clock and keeps the
+selected local day.
 
 ## Reading a day
 

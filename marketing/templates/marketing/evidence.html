@@ -63,7 +63,7 @@
           <div><dt>Requires AI setup</dt><dd>A configured private service or explicitly approved external AI.</dd></div>
           {% if not selected_family.id or selected_family.id == 'locations' %}<div><dt>Geographic setup</dt><dd>A configured private service or an approved external map lookup.</dd></div>{% endif %}
         </dl>
-        <p class="catalogue-note">External processing requires approval. A private-service failure never triggers a cloud fallback.</p>
+        <p class="catalogue-note">Case owners approve external destinations in Case Settings.</p>
         <a class="text-link" href="{% url 'marketing:trust' %}">Processing and privacy</a>
       </section>
       <section id="formats" aria-labelledby="formats-heading" tabindex="-1">

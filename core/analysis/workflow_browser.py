@@ -388,9 +388,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 date = page.get_by_label("Date", exact=True)
                 expect(date).to_have_value("2026-11-16")
                 expect(page).to_have_url(re.compile("day=2026-11-16"))
-                page.get_by_role("link", name="Previous day with activity").press(
-                    "Enter"
-                )
+                page.get_by_role("link", name="Older dates", exact=True).press("Enter")
                 expect(date).to_have_value("2026-11-15")
                 page.get_by_role("link", name="Show UTC times").press("Enter")
                 expect(date).to_have_value("2026-11-15")
@@ -410,7 +408,10 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 date.fill("2026-11-14")
                 page.get_by_role("button", name="Go to date").press("Enter")
                 expect(date).to_have_value("2026-11-14")
-                page.get_by_role("link", name="Next day with activity").press("Enter")
+                expect(
+                    page.get_by_text("No dated activity or collections on this day.")
+                ).to_be_visible()
+                page.get_by_role("link", name="Newer dates", exact=True).press("Enter")
                 expect(date).to_have_value("2026-11-15")
                 page.locator(f'a[href$="#instance-{session_id}"]').press("Enter")
                 expect(page).to_have_url(re.compile(f"#instance-{session_id}$"))
@@ -423,7 +424,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 )
                 page.go_back()
                 expect(date).to_have_value("2026-11-15")
-                page.get_by_role("link", name="Next day with activity").press("Enter")
+                page.get_by_role("link", name="Newer dates", exact=True).press("Enter")
                 expect(date).to_have_value("2026-11-16")
                 source = reverse(
                     "core:evidence:detail",
@@ -441,6 +442,110 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 )
                 expect(
                     page.get_by_text("Filter chronology", exact=True)
+                ).to_be_visible()
+
+    def test_daily_timeline_scrolls_between_days_and_opens_the_exact_date(self):
+        for day in (16, 20):
+            for minute in range(15):
+                TextEvidence.objects.create(
+                    case=self.case,
+                    uploaded_by=self.owner,
+                    title=f"Collection on the {day} at minute {minute}",
+                    body=f"Synthetic collected text for November {day}, {minute}.",
+                    collected_at=datetime(2026, 11, day, 13, minute, tzinfo=UTC),
+                )
+
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                url = self.url("core:evidence:chronology", case_id=self.case.pk)
+                page.goto(f"{url}?view=day&clock=utc")
+                date = page.get_by_label("Date", exact=True)
+                days = page.locator("[data-timeline-day]")
+                latest_day = page.locator('[data-timeline-day="2026-11-20"]')
+                earlier_day = page.locator('[data-timeline-day="2026-11-16"]')
+                empty_day = page.locator('[data-timeline-day="2026-11-18"]')
+                expect(date).to_have_value("2026-11-20")
+                expect(days).to_have_count(1)
+                expect(
+                    page.get_by_role("link", name="Older dates", exact=True)
+                ).to_be_hidden()
+                page.locator(
+                    '[data-timeline-edge="older"]'
+                ).scroll_into_view_if_needed()
+                expect(earlier_day).to_be_attached()
+                expect(days.first).to_have_attribute("data-timeline-day", "2026-11-20")
+                expect(days.nth(1)).to_have_attribute("data-timeline-day", "2026-11-16")
+                expect(empty_day).to_have_count(0)
+                earlier_day.evaluate("section => section.scrollIntoView()")
+                expect(page).to_have_url(re.compile(r"day=2026-11-16"))
+                expect(page).to_have_url(re.compile(r"clock=utc"))
+                self.capture(page, engine, "daily-timeline-scrolled")
+
+                page.goto(f"{url}?view=day&day=2026-11-20&clock=utc")
+                date.focus()
+                date.fill("2026-11-18")
+                expect(empty_day.get_by_role("heading")).to_have_text(
+                    "Wednesday, 18 November 2026"
+                )
+                expect(
+                    empty_day.get_by_text(
+                        "No dated activity or collections on this day."
+                    )
+                ).to_be_visible()
+                expect(page).to_have_url(re.compile(r"day=2026-11-18"))
+                expect(date).to_be_focused()
+                page.get_by_role("button", name="Go to date").focus()
+
+                date.fill("2026-11-16")
+                expect(earlier_day.get_by_role("heading")).to_have_text(
+                    "Monday, 16 November 2026"
+                )
+                expect(page).to_have_url(re.compile(r"day=2026-11-16"))
+                expect(earlier_day.locator("time").first).to_have_text(
+                    re.compile(r"\bUTC$")
+                )
+                expect(date).to_be_focused()
+                page.mouse.move(650, 380)
+                page.mouse.wheel(0, -400)
+                expect(latest_day).to_be_attached()
+                expect(days.first).to_have_attribute("data-timeline-day", "2026-11-20")
+                latest_day.evaluate("section => section.scrollIntoView()")
+                expect(date).to_have_value("2026-11-20")
+                page.go_back()
+                expect(page).to_have_url(re.compile(r"day=2026-11-18"))
+                expect(date).to_have_value("2026-11-18")
+                expect(empty_day.get_by_role("heading")).to_be_visible()
+                date.focus()
+                date.press("ArrowUp")
+                edited_date = date.input_value()
+                self.assertNotEqual(edited_date, "2026-11-18")
+                expect(page).to_have_url(re.compile(f"day={re.escape(edited_date)}"))
+                expect(date).to_be_focused()
+
+    def test_failed_daily_timeline_scroll_recovers_with_full_page_navigation(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                url = self.url("core:evidence:chronology", case_id=self.case.pk)
+
+                def fail_fetch(route):
+                    if route.request.resource_type == "fetch":
+                        route.abort()
+                    else:
+                        route.continue_()
+
+                page.route(f"{url}?**", fail_fetch)
+                page.goto(f"{url}?view=day&day=2026-11-16")
+                edge = page.locator('[data-timeline-edge="older"]')
+                edge.scroll_into_view_if_needed()
+                link = edge.get_by_role("link", name="Older dates", exact=True)
+                expect(link).to_be_visible()
+                expect(page.locator("[data-timeline-day]")).to_have_count(1)
+                link.press("Enter")
+                expect(page).to_have_url(re.compile(r"day=2026-11-15"))
+                expect(
+                    page.get_by_role("heading", name="Sunday, 15 November 2026")
                 ).to_be_visible()
 
     def test_processing_analysis_run_breakdown_without_javascript(self):

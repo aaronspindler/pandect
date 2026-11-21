@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
@@ -19,6 +19,7 @@ from cases.models import Case, CaseMembership
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
 from core.analysis.sources import output
+from core.analysis.testing import external_grant_kwargs
 from core.models import AnalysisArtifact, AnalysisResult
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
@@ -26,6 +27,18 @@ from geo.models import LocationEvidence
 
 class GeographicReferenceFixtures(EvidenceViewTestMixin):
     raw_response = b' { "version": 0.6, "elements": [] }\r\n'
+
+    def setUp(self):
+        super().setUp()
+        self.enterContext(
+            override_settings(
+                PANDECT_MAP_CONTEXT_LOCAL=False,
+                PANDECT_MAP_CONTEXT_URL="https://map.example.test/api/interpreter",
+                PANDECT_MAP_CONTEXT_NAME="Synthetic geographic reference",
+                PANDECT_MAP_CONTEXT_VERSION="Synthetic snapshot 2026-10",
+                PANDECT_MAP_CONTEXT_ATTRIBUTION="Synthetic reference data",
+            )
+        )
 
     def start(self, *, role="owner"):
         location = LocationEvidence.objects.create(
@@ -40,7 +53,7 @@ class GeographicReferenceFixtures(EvidenceViewTestMixin):
             self.case.pk,
             "geographic_context",
             [{"kind": "location", "id": str(location.pk)}],
-            external_processing=True,
+            **external_grant_kwargs(self.case, "geographic_context"),
         )
         return location, run
 

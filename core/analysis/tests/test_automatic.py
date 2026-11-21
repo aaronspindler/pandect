@@ -15,19 +15,28 @@ from django_tasks_db.models import DBTaskResult
 
 from audio.models import AudioEvidence
 from cases.models import CaseMembership
-from core.analysis.automatic import start_evidence_analysis
+from core.analysis.automatic import (
+    start_added_evidence_analysis,
+    start_evidence_analysis,
+)
+from core.analysis.bulk import prepare_case_analysis_batch, resume_case_analysis
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
-from core.analysis.testing import image_bytes, wav_bytes
-from core.models import AnalysisResult, AnalysisRun, GatewayRequest
+from core.analysis.testing import external_grant_kwargs, image_bytes, wav_bytes
+from core.analysis.tests.test_execution import LOCAL
+from core.analysis.tests.test_gateway import CONFIG
+from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, GatewayRequest
 from core.storage import retain_uploaded_originals
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
+from geo.testing import LOCAL_GEOCODER
 from image.models import ImageEvidence
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
+from text.models import TextEvidence
 
 
+@override_settings(PANDECT_LOCAL_AI={})
 class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
     def start(self, item, kind="text", role="owner", submission_id=None):
         return start_evidence_analysis(
@@ -63,6 +72,12 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
                 run.status, {"queued", "running", "failed"}, run.error_code
             )
 
+    def prepare_added(self):
+        for batch in CaseAnalysisBatch.objects.filter(
+            scope__type="added", status="queued"
+        ):
+            self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+
     def test_product_upload_queues_once_and_retry_returns_the_same_evidence(self):
         self.login("editor")
         submission_id = str(uuid4())
@@ -75,16 +90,72 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         repeated = self.client.post(upload, payload, HTTP_ACCEPT="application/json")
         self.assertEqual(repeated.status_code, 200)
         self.assertEqual(added.json(), repeated.json())
-        runs = list(AnalysisRun.objects.filter(case=self.case))
-        self.assertEqual({run.operation for run in runs}, {"entities", "text_topics"})
-        self.assertEqual(len(runs), 2)
-        self.assertEqual(DBTaskResult.objects.count(), 2)
-        self.assertEqual(len({run.parameters["automatic_batch"] for run in runs}), 1)
+        batch = CaseAnalysisBatch.objects.get(case=self.case)
+        self.assertFalse(batch.runs.exists())
+        self.assertEqual(DBTaskResult.objects.count(), 1)
+        self.prepare_added()
+        runs = list(batch.runs.all())
+        self.assertEqual(
+            {run.operation for run in runs},
+            {"entities", "text_topics", "style_profiles"},
+        )
+        self.assertEqual(len(runs), 3)
         for run in runs:
             self.assertEqual(run.inputs[0]["evidence_id"], added.json()["id"])
             self.assertEqual(run.requested_by, self.users["editor"])
             self.assertEqual(run.status, "queued")
             self.assertFalse(run.external_processing)
+
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
+    def test_intake_uses_both_approved_routes_and_one_rule_based_lane(self):
+        approval = external_grant_kwargs(self.case, "content_events")
+        self.login("editor")
+        response = self.client.post(
+            self.url("create"), self.payload(), HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(response.status_code, 201)
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertEqual(
+            batch.scope["external_grant_revision"], approval["external_grant_revision"]
+        )
+        with patch("core.analysis.gateway.GatewayClient.request") as gateway:
+            self.prepare_added()
+        gateway.assert_not_called()
+        self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
+        self.assertEqual(
+            set(
+                batch.runs.filter(operation="content_events").values_list(
+                    "external_processing", flat=True
+                )
+            ),
+            {True, False},
+        )
+
+    @override_settings(**LOCAL_GEOCODER)
+    def test_existing_private_forward_lookup_is_reused_by_intake(self):
+        observation = LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Test observation",
+            address="Synthetic harbour",
+        )
+        prior, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "geocode_locations",
+            [{"kind": "location", "id": str(observation.pk)}],
+        )
+        batch, _ = start_added_evidence_analysis(
+            self.users["owner"],
+            self.case.pk,
+            "location",
+            observation.pk,
+        )
+        self.prepare_added()
+        self.assertTrue(batch.runs.filter(operation="location_quality").exists())
+        self.assertEqual(
+            list(AnalysisRun.objects.filter(operation="geocode_locations")), [prior]
+        )
 
     def test_duplicate_review_enqueues_only_the_confirmed_new_copy(self):
         earlier = self.document(b"Synthetic file")
@@ -112,11 +183,12 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
 
         added = submit(duplicate_confirmation=paused.json()["confirmation"])
         self.assertEqual(added.status_code, 201)
+        self.prepare_added()
         run = AnalysisRun.objects.get()
         self.assertEqual(run.inputs[0]["evidence_id"], added.json()["id"])
         self.assertNotEqual(run.inputs[0]["evidence_id"], str(earlier.pk))
         self.assertEqual(run.inputs[0]["sha256"], earlier.sha256)
-        self.assertEqual(DBTaskResult.objects.count(), 1)
+        self.assertEqual(DBTaskResult.objects.count(), 2)
 
     def test_failed_auto_queue_rolls_back_evidence_runs_tasks_and_new_file(self):
         self.login("owner")
@@ -134,13 +206,13 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
                 HTTP_ACCEPT="application/json",
             )
 
-        def enqueue(*args, **kwargs):
-            if args[2] == "ocr":
-                raise OperationalError("Private queue failure details")
-            return start_run(*args, **kwargs)
-
         existing_files = {path for path in self.media_root.rglob("*") if path.is_file()}
-        with patch("core.analysis.automatic.start_run", side_effect=enqueue):
+        with patch(
+            "core.analysis.tasks.prepare_case_analysis",
+            **{
+                "enqueue.side_effect": OperationalError("Private queue failure details")
+            },
+        ):
             failed = upload()
         self.assertEqual(failed.status_code, 503)
         self.assertEqual(failed.json()["code"], "save_unconfirmed")
@@ -154,6 +226,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertTrue(earlier.file.storage.exists(earlier.file.name))
         self.assertEqual(upload().status_code, 201)
+        self.prepare_added()
         self.assertEqual(AnalysisRun.objects.count(), 3)
 
     def test_lost_commit_confirmation_keeps_originals_and_resolves_on_retry(self):
@@ -203,7 +276,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         attachment = call.attachments.get(submission_id=attachment_submission)
         for original in (document.file, attachment.file):
             self.assertTrue(original.storage.exists(original.name))
-        self.assertEqual(AnalysisRun.objects.count(), 2)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 2)
         self.assertEqual(DBTaskResult.objects.count(), 2)
 
         self.assertRedirects(
@@ -215,17 +288,20 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(DocumentEvidence.objects.count(), 1)
         self.assertEqual(call.attachments.count(), 1)
-        self.assertEqual(AnalysisRun.objects.count(), 2)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 2)
         self.assertEqual(DBTaskResult.objects.count(), 2)
 
-    def test_initial_call_only_queues_for_supplied_content(self):
+    def test_initial_call_queues_metadata_and_exact_supplied_content(self):
         self.login("owner")
         upload = self.url("create")
         empty_call = self.client.post(
             upload, self.payload("phone-call"), HTTP_ACCEPT="application/json"
         )
         self.assertEqual(empty_call.status_code, 201)
-        self.assertFalse(AnalysisRun.objects.exists())
+        self.prepare_added()
+        check = AnalysisRun.objects.get()
+        self.assertEqual(check.operation, "conversation_link")
+        self.assertIsNone(check.inputs[0]["attachment_id"])
 
         added = self.client.post(
             upload,
@@ -235,11 +311,11 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(added.status_code, 201)
         call = PhoneCallEvidence.objects.get(pk=added.json()["id"])
         attachment = call.attachments.get()
-        runs = list(AnalysisRun.objects.all())
-        self.assertEqual({run.operation for run in runs}, {"entities", "text_topics"})
-        self.assertEqual(len(runs), 2)
-        for run in runs:
-            self.assertEqual(run.inputs[0]["attachment_id"], str(attachment.pk))
+        self.prepare_added()
+        batch = CaseAnalysisBatch.objects.get(scope__id=str(call.pk))
+        text_check = batch.runs.get(operation="entities")
+        self.assertEqual(text_check.inputs[0]["attachment_id"], str(attachment.pk))
+        self.assertEqual(batch.runs.filter(operation="conversation_link").count(), 2)
 
     @override_settings(PANDECT_ANALYSIS_MAX_SOURCES=1)
     def test_appended_call_only_queues_for_new_attachment_and_reuses_it_on_retry(self):
@@ -269,16 +345,46 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         repeated = submit()
         self.assertEqual(repeated.status_code, 200)
         self.assertEqual(added.json(), repeated.json())
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+        self.prepare_added()
         runs = list(AnalysisRun.objects.all())
         self.assertEqual(
             {run.operation for run in runs},
-            {"audio_metadata", "entities", "text_topics"},
+            {"audio_metadata", "entities", "text_topics", "conversation_link"},
         )
-        self.assertEqual(len(runs), 3)
-        self.assertEqual(DBTaskResult.objects.count(), 3)
+        self.assertEqual(len(runs), 4)
         for run in runs:
             self.assertEqual(len(run.inputs), 1)
             self.assertEqual(run.inputs[0]["attachment_id"], added.json()["id"])
+
+    def test_failed_preparation_preserves_evidence_and_resumes_once(self):
+        self.login("owner")
+        added = self.client.post(
+            self.url("create"),
+            self.payload(),
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(added.status_code, 201)
+        batch = CaseAnalysisBatch.objects.get()
+        with patch(
+            "core.analysis.reprocessing.start_run",
+            side_effect=OperationalError("Synthetic interrupted preparation"),
+        ):
+            self.assertEqual(
+                prepare_case_analysis_batch(batch.pk), "preparation_failed"
+            )
+        self.assertTrue(
+            TextEvidence.objects.filter(case=self.case, pk=added.json()["id"]).exists()
+        )
+        self.assertFalse(batch.runs.exists())
+        self.assertTrue(
+            resume_case_analysis(self.users["owner"], self.case.pk, batch.pk)[1]
+        )
+        self.assertFalse(
+            resume_case_analysis(self.users["owner"], self.case.pk, batch.pk)[1]
+        )
+        self.prepare_added()
+        self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
 
     def test_text_batch_queues_all_applicable_local_operations_without_network(self):
         item = self.text()

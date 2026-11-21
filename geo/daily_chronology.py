@@ -42,6 +42,14 @@ def _complete_trips(case):
     return saved_trips(case, state="all").filter(Exists(complete))
 
 
+def daily_trip_covers(case, instant):
+    return (
+        _complete_trips(case)
+        .filter(start_at__lte=instant, end_at__gte=instant)
+        .exists()
+    )
+
+
 def _trip_rows(case, trips, start, end):
     archived = _members(case).filter(
         trip_id=OuterRef("pk"), input__observation__is_archived=True

@@ -356,7 +356,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             ),
         )
         self.assertContains(response, 'id="import-history" open')
-        self.assertContains(response, "Run local checks")
+        self.assertContains(response, "Reprocess evidence")
 
     def test_processing_rechecks_access_and_rejects_foreign_batches_and_import_sources(
         self,
@@ -407,7 +407,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             (AnalysisRun.objects.count(), CaseAnalysisBatch.objects.count()), before
         )
-        self.assertContains(response, "Run local checks")
+        self.assertContains(response, "Reprocess evidence")
         fragment = self.client.get(self.processing_url(), HTTP_X_PANDECT_LIVE="1")
         for result in (response, fragment):
             self.assertContains(result, 'id="processing-analysis-runs"')

@@ -259,7 +259,7 @@ OPERATION_GROUPS = {
         "style_change": "Compare two writing samples and their coverage.",
         "copied_text": "Compare matching passages and their source positions.",
         "text_topics": (
-            "Review frequent words and optionally request cited topic suggestions."
+            "Review frequent words and available source-cited topic suggestions."
         ),
         "content_events": (
             "Review model suggestions for claims and commitments with source "

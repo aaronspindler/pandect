@@ -68,7 +68,13 @@ def equivalence_key(run):
         "parameters": {
             key: value
             for key, value in run.parameters.items()
-            if key not in {"automatic_batch", "automatic_followup"}
+            if key
+            not in {
+                "automatic_batch",
+                "automatic_followup",
+                "_external_approval",
+                "_transcript_group",
+            }
         },
         "inputs": [
             {key: source[key] for key in selection_keys if key in source}

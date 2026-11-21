@@ -9,7 +9,7 @@ from django_tasks_db.models import DBTaskResult
 
 from audio.models import AudioEvidence
 from core.analysis.services import process_run
-from core.analysis.testing import wav_bytes
+from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_gateway import CONFIG, response
 from core.analysis.tests.test_openai_gateway import OPENAI
 from core.models import AnalysisRun, GatewayRequest
@@ -17,10 +17,10 @@ from core.testing import EvidenceViewTestMixin
 
 OPENAI_ONLY = OPENAI | {"max_request_bytes": 65536}
 TRANSCRIPTION_GATEWAY = OPENAI_ONLY | {"workers_token": CONFIG["workers_token"]}
-UNAVAILABLE = "Ask the operator to configure Workers AI for recordings."
+UNAVAILABLE = "The service for this run is unavailable."
 
 
-@override_settings(PANDECT_AI_GATEWAY=OPENAI_ONLY)
+@override_settings(PANDECT_AI_GATEWAY=OPENAI_ONLY, PANDECT_LOCAL_AI={})
 class TranscriptionGatewayViewTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -40,10 +40,7 @@ class TranscriptionGatewayViewTests(EvidenceViewTestMixin, TestCase):
         return page, {
             "operation": "transcription",
             "submission_id": form["submission_id"].value(),
-            "execution_confirmation": form["execution_confirmation"].value(),
             "sources": [self.source],
-            "backend": "gateway",
-            "external_processing": "on",
         }
 
     def reviewed_retry(self, detail_url):
@@ -51,8 +48,6 @@ class TranscriptionGatewayViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(page, "Workers AI via Cloudflare AI Gateway")
         return {
             "submission_id": page.context["retry_submission_id"],
-            "retry_confirmation": page.context["retry_confirmation"],
-            "external_processing": "on",
         }
 
     def test_openai_text_configuration_cannot_queue_external_transcription(self):
@@ -62,14 +57,15 @@ class TranscriptionGatewayViewTests(EvidenceViewTestMixin, TestCase):
             _, payload = self.reviewed_create()
         rejected = self.client.post(self.create_url, payload)
         self.assertEqual(rejected.status_code, 200)
-        self.assertContains(rejected, UNAVAILABLE)
-        self.assertContains(page, UNAVAILABLE)
+        self.assertContains(rejected, "No configured or approved service")
+        self.assertContains(page, "A service for this analysis is not configured.")
         self.assertEqual(rejected.context["form"]["sources"].value(), [self.source])
         self.assertFalse(AnalysisRun.objects.exists())
         self.assertFalse(DBTaskResult.objects.exists())
 
     def test_retry_is_blocked_until_workers_configuration_is_restored(self):
         with self.settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_GATEWAY):
+            external_grant_kwargs(self.case, "transcription")
             _, payload = self.reviewed_create()
             queued = self.client.post(self.create_url, payload)
         original = AnalysisRun.objects.get()

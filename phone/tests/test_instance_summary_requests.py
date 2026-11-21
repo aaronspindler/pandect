@@ -12,6 +12,7 @@ from cases.models import CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
+from core.analysis.execution import snapshot_execution
 from core.analysis.operations import get_operation
 from core.analysis.services import (
     process_run,
@@ -20,6 +21,7 @@ from core.analysis.services import (
     start_run,
 )
 from core.analysis.sources import source_id
+from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
@@ -76,19 +78,11 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             args=(self.case.pk, self.person.pk, self.person.pk),
         )
 
-    def summary_payload(self, review, backend="local"):
-        form = review.context["form"]
-        return {
-            "backend": backend,
-            "submission_id": form["submission_id"].value(),
-            "execution_confirmation": form["execution_confirmation"].value()
-            if "execution_confirmation" in form.fields
-            else "",
-            "external_processing": "on",
-        }
+    def summary_payload(self, review):
+        return {"submission_id": review.context["form"]["submission_id"].value()}
 
-    def bulk_payload(self, review, backend="local"):
-        return self.summary_payload(review, backend) | {
+    def bulk_payload(self, review):
+        return self.summary_payload(review) | {
             "reviewed_scope": review.context["reviewed_scope"]
         }
 
@@ -121,48 +115,57 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             "gap_minutes": 100,
             "external_processing": "on",
         }
-        for _ in range(2):
-            response = self.client.post(url, payload)
-            run = summaries.get()
-            self.assertRedirects(
-                response,
-                reverse("core:analysis:detail", args=(self.case.pk, run.pk)),
-                fetch_redirect_response=False,
-            )
+        response = self.client.post(url, payload)
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertIn(f"batch={batch.pk}", response.url)
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        self.assertEqual(self.client.post(url, payload).url, response.url)
+        run = summaries.get()
         self.assertEqual([s["evidence_id"] for s in run.inputs], [str(a.pk), str(b.pk)])
         self.assertEqual(run.parameters["gap_minutes"], 20)
         self.assertEqual(run.parameters["join_before"], [b_id])
         self.assertNotIn("break_before", run.parameters)
         self.assertFalse(run.external_processing)
 
-    def test_gateway_approval_binds_actor_membership_and_destination(self):
-        url = self.session(self.message(1))
-        second = self.session(self.message(2))
-        self.login("owner")
-        review = self.client.get(url)
-        form = review.context["form"]
-        payload = {
-            "backend": "gateway",
-            "submission_id": form["submission_id"].value(),
-            "execution_confirmation": form["execution_confirmation"].value(),
-        }
-        self.assertEqual(self.client.post(url, payload).status_code, 400)
-        payload["external_processing"] = "on"
-        self.assertEqual(self.client.post(second, payload).status_code, 400)
+    def test_instance_summary_queues_only_the_missing_approved_route(self):
+        original = self.message(1)
+        url = self.session(original)
+        self.save_summary(original)
+        external_grant_kwargs(self.case, "session_summaries")
         self.login("editor")
-        self.assertEqual(self.client.post(url, payload).status_code, 400)
-        self.login("owner")
-        gateway = settings.PANDECT_AI_GATEWAY | {"gateway": "changed-synthetic-route"}
-        with self.settings(PANDECT_AI_GATEWAY=gateway):
-            changed = self.client.post(url, payload)
-        self.assertContains(changed, "Review the destination", status_code=400)
-        self.assertFalse(
-            AnalysisRun.objects.filter(operation="session_summaries").exists()
+        review = self.client.get(url)
+        self.assertContains(review, "Request session summary")
+        self.assertNotContains(review, 'name="backend"')
+        self.assertNotContains(review, 'name="external_processing"')
+        self.assertEqual(
+            self.client.post(url, self.summary_payload(review)).status_code, 302
         )
-        self.assertEqual(self.client.post(url, payload).status_code, 302)
-        run = AnalysisRun.objects.get(operation="session_summaries")
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        run = batch.runs.get()
         self.assertTrue(run.external_processing)
         self.assertEqual(run.parameters["_execution"]["backend"], "gateway")
+        self.assertEqual(
+            AnalysisRun.objects.filter(operation="session_summaries").count(), 2
+        )
+
+    def test_queued_private_summary_does_not_block_newly_approved_route(self):
+        url = self.session(self.message(1))
+        self.login("editor")
+        private = self.summary_payload(self.client.get(url))
+        self.assertEqual(self.client.post(url, private).status_code, 302)
+        private_batch = CaseAnalysisBatch.objects.get()
+
+        external_grant_kwargs(self.case, "session_summaries")
+        review = self.client.get(url)
+        new_request = self.client.post(url, self.summary_payload(review))
+        self.assertEqual(new_request.status_code, 302)
+        approved_batch = CaseAnalysisBatch.objects.exclude(pk=private_batch.pk).get()
+
+        self.assertEqual(prepare_case_analysis_batch(private_batch.pk), "complete")
+        self.assertEqual(prepare_case_analysis_batch(approved_batch.pk), "complete")
+        self.assertFalse(private_batch.runs.get().external_processing)
+        self.assertTrue(approved_batch.runs.get().external_processing)
 
     def test_oversized_or_unavailable_scope_cannot_be_queued(self):
         a = self.message(0, "A" * 16001)
@@ -209,7 +212,12 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             operation="session_summaries",
             method_version=get_operation("session_summaries").version,
             status="complete",
-            parameters={"backend": "local"},
+            parameters={
+                "backend": "local",
+                "_execution": snapshot_execution(
+                    "session_summaries", {"backend": "local"}
+                ),
+            },
             inputs=inputs,
         )
         source = inputs[0]["id"]
@@ -304,28 +312,26 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.login("editor")
         first_review = self.client.get(single)
         overlapping_review = self.client.get(overlapping)
-        first_payload = self.summary_payload(first_review, "gateway")
+        first_payload = self.summary_payload(first_review)
         original_request = self.client.post(single, first_payload)
         self.assertEqual(original_request.status_code, 302)
         self.assertRedirects(self.client.get(single), original_request.url)
         self.assertRedirects(
             self.client.post(single, first_payload), original_request.url
         )
+        first_batch = CaseAnalysisBatch.objects.get()
+        self.assertEqual(prepare_case_analysis_batch(first_batch.pk), "complete")
         bulk = self.client.get(self.bulk_url)
         self.assertContains(bulk, "1 summary already in progress")
         self.assertContains(bulk, "Sessions included · 1")
-        bulk_request = self.client.post(
-            self.bulk_url, self.bulk_payload(bulk, "gateway")
-        )
+        bulk_request = self.client.post(self.bulk_url, self.bulk_payload(bulk))
         self.assertEqual(bulk_request.status_code, 302)
         # Even a single summary reviewed before the bulk request joins the batch.
         self.assertRedirects(
-            self.client.post(
-                overlapping, self.summary_payload(overlapping_review, "gateway")
-            ),
+            self.client.post(overlapping, self.summary_payload(overlapping_review)),
             bulk_request.url,
         )
-        batch = CaseAnalysisBatch.objects.get()
+        batch = CaseAnalysisBatch.objects.exclude(pk=first_batch.pk).get()
         self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
         batch.refresh_from_db()
         self.assertEqual(batch.queued_runs, 1)
@@ -373,6 +379,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             self.client.post(url, self.summary_payload(review)).status_code, 302
         )
+        prepare_case_analysis_batch(CaseAnalysisBatch.objects.get().pk)
         self.assertCountEqual(
             AnalysisRun.objects.filter(operation="session_summaries").values_list(
                 "parameters__gap_minutes", flat=True
@@ -397,40 +404,40 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             with self.subTest(url=url):
                 review = self.client.get(url)
                 self.assertContains(
-                    review, "Ask the operator to configure an AI service"
+                    review, "A service for this analysis is not configured."
                 )
-                payload = self.summary_payload(review)
+                payload = {"submission_id": uuid4()}
                 if url == self.bulk_url:
-                    payload = self.bulk_payload(review)
+                    payload["reviewed_scope"] = review.context["reviewed_scope"]
                 rejected = self.client.post(url, payload)
-                self.assertContains(rejected, "Select a valid choice", status_code=400)
+                self.assertContains(
+                    rejected,
+                    "A service for this analysis is not configured.",
+                    status_code=400,
+                )
         self.assertFalse(CaseAnalysisBatch.objects.exists())
         self.assertFalse(
             AnalysisRun.objects.filter(operation="session_summaries").exists()
         )
 
-    def test_bulk_rechecks_membership_scope_and_execution(self):
+    def test_bulk_rechecks_membership_and_keeps_unchanged_routes(self):
         self.session(self.message(1))
+        external_grant_kwargs(self.case, "session_summaries")
         self.login("owner")
         review = self.client.get(self.bulk_url)
-        payload = self.bulk_payload(review, backend="gateway")
+        payload = self.bulk_payload(review)
         self.session(self.message(2))
         changed = self.client.post(self.bulk_url, payload)
         self.assertContains(changed, "Review the updated selection", status_code=409)
-        payload = self.bulk_payload(changed, backend="gateway")
-        gateway = settings.PANDECT_AI_GATEWAY | {"gateway": "changed-synthetic-route"}
-        with self.settings(PANDECT_AI_GATEWAY=gateway):
-            self.assertContains(
-                self.client.post(self.bulk_url, payload),
-                "Review the destination",
-                status_code=400,
-            )
         self.assertFalse(CaseAnalysisBatch.objects.exists())
+        payload = self.bulk_payload(changed)
         self.assertEqual(self.client.post(self.bulk_url, payload).status_code, 302)
         batch = CaseAnalysisBatch.objects.get()
+        gateway = settings.PANDECT_AI_GATEWAY | {"gateway": "changed-synthetic-route"}
         with self.settings(PANDECT_AI_GATEWAY=gateway):
-            self.assertEqual(prepare_case_analysis_batch(batch.pk), "execution_changed")
-        self.assertFalse(batch.runs.exists())
+            self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        self.assertEqual(batch.runs.count(), 2)
+        self.assertFalse(batch.runs.filter(external_processing=True).exists())
 
     def test_bulk_preserves_other_runs_when_a_reviewed_instance_becomes_unavailable(
         self,

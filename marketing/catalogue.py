@@ -547,9 +547,9 @@ IMPORTS = {
         "requirement": INCLUDED,
         "detail": (
             "The documented 18-column UTF-8 profile, up to 100 MiB. Confirm "
-            "timezone and participants, then choose Local checks for new messages. "
-            "AI only and Local checks and AI require configured private inference "
-            "or approved external processing. Attachment references are not fetched."
+            "timezone and participants. New messages receive applicable analysis "
+            "using configured private and case-approved external services. "
+            "Attachment references are not fetched."
         ),
     },
     "vehicle_locations": {
@@ -563,8 +563,8 @@ IMPORTS = {
         "detail": (
             "The documented nine-column UTF-8 CSV profile, up to 100 MiB/100,000 "
             "rows. Confirm timezone, time interpretation and vehicle mappings. "
-            "Import performs no external lookup or AI request; this is not a live "
-            "tracking feed."
+            "New observations queue location analysis and saved trips. "
+            "Configured lookups can add geographic context."
         ),
     },
 }

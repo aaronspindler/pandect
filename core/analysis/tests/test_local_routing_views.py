@@ -1,182 +1,91 @@
-"""Deliberate inference location and third-party approval in investigator forms."""
+"""Deliberate analysis uses every configured, approved execution."""
 
-from types import SimpleNamespace
-from unittest.mock import patch
-from uuid import uuid4
+from unittest.mock import Mock, patch
 
-from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from audio.models import AudioEvidence
-from core.analysis.forms import analysis_form
+from core.analysis.errors import AnalysisError
+from core.analysis.services import process_run
+from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
-from core.models import AnalysisRun
+from core.models import AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
-from geo.models import LocationEvidence
-from phone.models import TextMessageEvidence
 
 
 class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.note = self.text()
-        self.message = TextMessageEvidence.objects.create(
-            case=self.case,
-            uploaded_by=self.users["owner"],
-            title="Synthetic message",
-            sender=self.person,
-            recipient=self.person,
-            body="The proposed meeting is unconfirmed.",
-        )
-        self.audio = AudioEvidence.objects.create(
-            case=self.case,
-            uploaded_by=self.users["owner"],
-            title="Synthetic recording",
-            file=ContentFile(b"synthetic", name="recording.wav"),
-        )
-        self.location = LocationEvidence.objects.create(
-            case=self.case,
-            uploaded_by=self.users["owner"],
-            title="Synthetic location",
-            address="Synthetic Road",
-        )
+        self.url = reverse("core:analysis:create", args=(self.case.pk,))
+        self.login("editor")
 
-    def form(self, operation, kind="text", item=None, **values):
-        reviewed = analysis_form(case=self.case, operation=operation)
-        return analysis_form(
-            {
-                "operation": operation,
-                "submission_id": reviewed["submission_id"].value(),
-                "execution_confirmation": reviewed["execution_confirmation"].value()
-                if "execution_confirmation" in reviewed.fields
-                else "",
-                "sources": [f"{kind}:{(item or self.note).pk}"],
-            }
-            | values,
-            case=self.case,
-            operation=operation,
-        )
+    def analysis(self, operation):
+        page = self.client.get(self.url, {"operation": operation})
+        self.assertNotContains(page, 'name="backend"')
+        self.assertNotContains(page, 'name="external_processing"')
+        self.assertNotContains(page, 'name="execution_confirmation"')
+        return {
+            "operation": operation,
+            "submission_id": page.context["form"]["submission_id"].value(),
+            "sources": [f"text:{self.note.pk}"],
+        }
 
     @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
-    def test_all_five_model_paths_default_local_and_cloud_requires_approval(self):
-        methods = (
-            ("transcription", "audio", self.audio, {}),
-            ("content_events", "text", self.note, {}),
-            ("session_summaries", "text-message", self.message, {}),
-            ("text_topics", "text", self.note, {"include_summary": True}),
-            (
-                "conversation_link",
-                "text-message",
-                self.message,
-                {"semantic_links": True},
-            ),
-        )
-        for operation, kind, item, values in methods:
-            with self.subTest(operation=operation):
-                local = self.form(operation, kind, item, **values)
-                self.assertTrue(local.is_valid(), local.errors)
-                self.assertEqual(local.parameters()["backend"], "local")
-                self.assertFalse(local.cleaned_data["external_processing"])
-                self.assertEqual(local.fields["backend"].initial, "local")
-                unapproved = self.form(
-                    operation, kind, item, backend="gateway", **values
-                )
-                self.assertFalse(unapproved.is_valid())
-                self.assertIn("external_processing", unapproved.errors)
-                approved = self.form(
-                    operation,
-                    kind,
-                    item,
-                    backend="gateway",
-                    external_processing=True,
-                    **values,
-                )
-                self.assertTrue(approved.is_valid(), approved.errors)
-                self.assertTrue(approved.cleaned_data["external_processing"])
-                self.assertEqual(approved.parameters()["backend"], "gateway")
-
-    @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
-    def test_local_approval_cannot_enable_cloud_or_deterministic_ai_options(self):
-        local = self.form("content_events", external_processing=True)
-        self.assertTrue(local.is_valid(), local.errors)
-        self.assertFalse(local.cleaned_data["external_processing"])
-        self.assertEqual(local.parameters()["backend"], "local")
-        for operation, values in (
-            ("entities", {"include_summary": True}),
-            ("text_topics", {"include_summary": False}),
-            ("conversation_link", {"semantic_links": False}),
-        ):
-            kind = "text-message" if operation == "conversation_link" else "text"
-            item = self.message if kind == "text-message" else self.note
-            form = self.form(
-                operation,
-                kind,
-                item,
-                backend="gateway",
-                external_processing=True,
-                **values,
-            )
-            self.assertTrue(form.is_valid(), form.errors)
-            self.assertFalse(form.cleaned_data["external_processing"])
-            self.assertNotIn("backend", form.parameters())
-        invalid = self.form("content_events", backend="unapproved-runtime")
-        self.assertFalse(invalid.is_valid())
-        self.assertIn("backend", invalid.errors)
-
-    def test_geo_approval_depends_on_explicit_operator_trust(self):
-        location = LocationEvidence.objects.create(
-            case=self.case,
-            uploaded_by=self.users["owner"],
-            title="Observed location",
-            latitude="43.000000",
-            longitude="-79.000000",
-        )
-        for operation, setting in (
-            ("geocode_locations", "PANDECT_GEOCODER_LOCAL"),
-            ("geographic_context", "PANDECT_MAP_CONTEXT_LOCAL"),
-        ):
-            with self.subTest(operation=operation):
-                with override_settings(**{setting: False}):
-                    untrusted = self.form(operation, "location", location)
-                    self.assertFalse(untrusted.is_valid())
-                    self.assertIn("external_processing", untrusted.errors)
-                with override_settings(**{setting: True}):
-                    private = self.form(operation, "location", location)
-                    self.assertTrue(private.is_valid(), private.errors)
-                    self.assertFalse(private.cleaned_data["external_processing"])
-                    self.assertTrue(
-                        private.fields["external_processing"].widget.is_hidden
-                    )
-
-    @override_settings(PANDECT_LOCAL_AI=LOCAL)
-    def test_evidence_additional_analysis_uses_local_by_default(self):
-        self.login("owner")
-        url = reverse(
-            "core:analysis:external_evidence",
-            args=(self.case.pk, "text", self.note.pk),
-        )
-        response = self.client.get(url, {"operation": "content_events"})
-        self.assertContains(response, "Suggest claims and commitments")
-        self.assertContains(response, "Processing location")
-        self.assertEqual(response.context["form"]["backend"].value(), "local")
-        with patch(
-            "core.analysis.views.start_run",
-            return_value=(SimpleNamespace(pk=uuid4()), True),
-        ) as start:
-            response = self.client.post(
-                url,
-                {
-                    "operation": "content_events",
-                    "submission_id": uuid4(),
-                    "sources": [f"text:{self.note.pk}"],
-                },
-            )
+    def test_forged_provider_and_transfer_fields_keep_unapproved_work_private(self):
+        payload = self.analysis("content_events") | {
+            "backend": "gateway",
+            "external_processing": "on",
+        }
+        response = self.client.post(self.url, payload)
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(start.call_args.kwargs["parameters"], {"backend": "local"})
-        self.assertFalse(start.call_args.kwargs["external_processing"])
-        self.assertFalse(AnalysisRun.objects.exists())
+        run = AnalysisRun.objects.get()
+        self.assertEqual(run.parameters["backend"], "local")
+        self.assertFalse(run.external_processing)
+
+        external_grant_kwargs(self.case, "content_events")
+        self.assertEqual(self.client.post(self.url, payload).url, response.url)
+        self.assertEqual(AnalysisRun.objects.count(), 1)
+
+    @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
+    def test_topics_queues_keywords_once_and_both_model_routes(self):
+        external_grant_kwargs(self.case, "text_topics")
+        payload = self.analysis("text_topics") | {"include_summary": ""}
+        response = self.client.post(self.url, payload)
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertIn(f"batch={batch.pk}", response.url)
+        runs = batch.runs.all()
+        self.assertEqual(runs.count(), 3)
+        keywords = runs.get(parameters__include_summary=False)
+        self.assertFalse(keywords.external_processing)
+        suggestions = runs.filter(
+            parameters__include_summary=True, parameters___suggestions_only=True
+        )
+        self.assertEqual(
+            set(suggestions.values_list("parameters__backend", flat=True)),
+            {"local", "gateway"},
+        )
+        self.assertEqual(self.client.post(self.url, payload).url, response.url)
+        self.assertEqual(AnalysisRun.objects.count(), 3)
+        process_run(keywords.pk)
+        client = Mock()
+        client.infer.side_effect = AnalysisError("local_ai_unavailable")
+        private = suggestions.get(parameters__backend="local")
+        with (
+            patch("core.analysis.local.LocalClient", return_value=client),
+            patch("text.analysis.ai.keywords") as repeated_keywords,
+        ):
+            self.assertEqual(process_run(private.pk), "local_ai_unavailable")
+            repeated_keywords.assert_not_called()
+        self.assertTrue(hasattr(keywords, "result"))
+        self.assertFalse(hasattr(private, "result"))
+
+    @override_settings(PANDECT_LOCAL_AI={})
+    def test_optional_model_without_service_leaves_keywords_available(self):
+        payload = self.analysis("text_topics") | {"include_summary": "on"}
+        self.assertEqual(self.client.post(self.url, payload).status_code, 302)
+        self.assertFalse(AnalysisRun.objects.get().parameters["include_summary"])
 
     def test_retained_history_shows_route_without_exposing_private_endpoint(self):
         run = AnalysisRun.objects.create(
@@ -213,22 +122,3 @@ class LocalAnalysisFormTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, "private-inference.example.test")
         self.assertNotContains(response, "predates execution pinning")
         self.assertNotContains(response, "Start another run")
-
-    @override_settings(PANDECT_LOCAL_AI={})
-    def test_optional_ai_can_be_omitted_when_no_route_is_configured(self):
-        self.login("owner")
-        url = reverse("core:analysis:create", args=(self.case.pk,))
-        page = self.client.get(url, {"operation": "text_topics"})
-        self.assertNotContains(page, "Include a source-cited topic summary")
-        self.assertNotContains(page, "External AI")
-        payload = {
-            "operation": "text_topics",
-            "submission_id": page.context["form"]["submission_id"].value(),
-            "sources": [f"text:{self.note.pk}"],
-        }
-        staged = self.client.post(url, payload | {"include_summary": "on"})
-        self.assertContains(staged, "Local AI processing is unavailable")
-        self.assertContains(staged, "Include a source-cited topic summary")
-        self.assertFalse(AnalysisRun.objects.exists())
-        self.assertEqual(self.client.post(url, payload).status_code, 302)
-        self.assertFalse(AnalysisRun.objects.get().parameters["include_summary"])

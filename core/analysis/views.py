@@ -3,12 +3,12 @@
 import hashlib
 import json
 from urllib.parse import urlencode
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse, QueryDict
 from django.shortcuts import redirect, render
@@ -22,16 +22,13 @@ from django.views.decorators.http import (
 from audio.views import playback_response
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.analysis.approval import TRANSFER_CONTENT
 from core.analysis.artifacts import MAX_ARTIFACT_BYTES
-from core.analysis.automatic import start_evidence_analysis
-from core.analysis.bulk import start_case_analysis
+from core.analysis.automatic import start_evidence_reprocessing
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
+    available_executions,
     execution_destination,
     requires_inference,
-    retry_execution_confirmation,
-    snapshot_execution,
 )
 from core.analysis.findings import additional_operations, case_highlights, finding_row
 from core.analysis.form_base import (
@@ -44,7 +41,7 @@ from core.analysis.forms import (
     analysis_form,
     report_form,
 )
-from core.analysis.gateway import gateway_configured
+from core.analysis.manual import start_available_run, start_selected_analysis
 from core.analysis.navigation import (
     FINDINGS_PER_PAGE,
     finding_url,
@@ -71,6 +68,7 @@ from core.analysis.readiness import (
     source_readiness,
 )
 from core.analysis.reports import REPORT_NAMES, report
+from core.analysis.reprocessing import start_reprocessing
 from core.analysis.result_views import result_view
 from core.analysis.services import (
     address_estimate,
@@ -78,7 +76,6 @@ from core.analysis.services import (
     require_current_geocode_reviews,
     resolve_inputs,
     set_address_estimate,
-    start_run,
 )
 from core.evidence.collection import collection_context
 from core.evidence.navigation import list_params
@@ -138,6 +135,9 @@ def _processing_details(run):
         ),
         "model": execution.get("model", ""),
         "runtime": execution.get("runtime", ""),
+        "destination": execution_destination(execution)
+        if execution.get("location") == "external" and "backend" in execution
+        else "",
     }
 
 
@@ -191,8 +191,11 @@ def rerun_all(request, case_id):
     form = EvidenceAnalysisForm(request.POST)
     if form.is_valid():
         try:
-            _, created = start_case_analysis(
-                request.user, case.pk, submission_id=form.cleaned_data["submission_id"]
+            _, created = start_reprocessing(
+                request.user,
+                case.pk,
+                submission_id=form.cleaned_data["submission_id"],
+                kinds=list(KIND_LABELS),
             )
         except ValidationError as error:
             messages.error(request, " ".join(error.messages))
@@ -342,7 +345,7 @@ def process_evidence(request, case_id, kind, evidence_id):
     form = EvidenceAnalysisForm(request.POST)
     if form.is_valid():
         try:
-            runs, created = start_evidence_analysis(
+            batch, created = start_evidence_reprocessing(
                 request.user,
                 case.pk,
                 kind,
@@ -360,20 +363,20 @@ def process_evidence(request, case_id, kind, evidence_id):
                 ),
             )
         else:
-            if not runs:
-                messages.info(
-                    request,
-                    "No local analysis is available for this evidence’s "
-                    "retained content.",
+            messages.success(
+                request,
+                "Analysis requested."
+                if created
+                else "This analysis was already requested.",
+            )
+            return redirect(
+                reverse(
+                    "core:analysis:processing",
+                    args=(case.pk,),
+                    query={"batch": batch.pk},
+                    fragment="processing-history",
                 )
-            else:
-                messages.success(
-                    request,
-                    "Local analysis queued. Follow progress below."
-                    if created
-                    else "This analysis was already queued.",
-                )
-            return redirect(detail_url)
+            )
     return render_detail(request, case, kind, item, analysis_form=form, status=400)
 
 
@@ -511,7 +514,6 @@ def create(request, case_id, kind=None, evidence_id=None):
     form = analysis_form(
         posted,
         case=case,
-        actor=request.user,
         operation=operation,
         query=query,
         evidence=evidence if fixed_source else None,
@@ -531,16 +533,13 @@ def create(request, case_id, kind=None, evidence_id=None):
         form.initial["sources"] = [exact_source]
     if request.method == "POST" and not browse and form.is_valid():
         try:
-            run, created = start_run(
+            batch, runs, created = start_selected_analysis(
                 request.user,
                 case.pk,
                 form.cleaned_data["operation"],
                 [selection(x) for x in form.cleaned_data["sources"]],
-                parameters=form.parameters(),
+                form.parameters(),
                 submission_id=form.cleaned_data["submission_id"],
-                external_processing=form.cleaned_data["external_processing"],
-                approved_execution=form.approved_execution,
-                require_configured_inference=True,
             )
         except (ValidationError, AnalysisError) as error:
             form.add_error(
@@ -554,7 +553,16 @@ def create(request, case_id, kind=None, evidence_id=None):
                 request,
                 "Analysis queued." if created else "This analysis was already queued.",
             )
-            return redirect(_url(case, run))
+            if len(runs) == 1:
+                return redirect(_url(case, runs[0]))
+            return redirect(
+                reverse(
+                    "core:analysis:processing",
+                    args=(case.pk,),
+                    query={"batch": batch.pk},
+                    fragment="processing-history",
+                )
+            )
     if browse:
         from django.forms.utils import ErrorDict
 
@@ -754,6 +762,17 @@ def _retry_parameters(run):
     return parameters
 
 
+def _retry_execution(case, run, parameters):
+    available = available_executions(case, run.operation, parameters)
+    if requires_inference(run.operation, parameters):
+        backend = parameters.get("backend", "local")
+    else:
+        backend = "external" if run.external_processing else "local"
+    if backend not in available:
+        raise AnalysisError("original_route_unavailable")
+    return available[backend]
+
+
 @product_login_required
 @require_safe
 def detail(request, case_id, run_id):
@@ -818,7 +837,7 @@ def detail(request, case_id, run_id):
             + "#evidence-findings-heading"
         )
     assumptions = {
-        key: value for key, value in run.parameters.items() if key != "_execution"
+        key: value for key, value in run.parameters.items() if not key.startswith("_")
     }
     context["assumptions"] = measurement_formatter(
         assumptions, case=case, sources=sources, query=request.GET
@@ -1040,26 +1059,11 @@ def detail(request, case_id, run_id):
         "complete",
     }
     if context["can_edit"] and context["can_retry"]:
-        execution = snapshot_execution(run.operation, _retry_parameters(run))
-        if execution and execution["location"] == "external":
-            purpose = execution["purpose"]
-            if purpose == "transcription" and not gateway_configured(
-                purpose, run.operation
-            ):
-                context["can_retry"] = False
-                unavailable = error_message("gateway_transcription_not_configured")
-                if run.error_code == "gateway_not_configured":
-                    context["error_message"] = unavailable
-                else:
-                    context["retry_blocked"] = unavailable
-            else:
-                context["retry_destination"] = execution_destination(execution) or (
-                    "the geographic lookup service (configuration required)"
-                )
-                context["retry_data"] = f"selected {TRANSFER_CONTENT[purpose]}"
-                context["retry_confirmation"] = retry_execution_confirmation(
-                    request.user.pk, run.pk, context["retry_submission_id"], execution
-                )
+        try:
+            _retry_execution(case, run, _retry_parameters(run))
+        except AnalysisError:
+            context["can_retry"] = False
+            context["retry_blocked"] = "The service for this run is unavailable."
     return render_live(request, "core/analysis/detail.html", context)
 
 
@@ -1081,8 +1085,9 @@ def cancel(request, case_id, run_id):
 
 @product_login_required
 @require_POST
+@transaction.atomic
 def retry(request, case_id, run_id):
-    case = get_case(request.user, case_id, edit=True)
+    case = get_case(request.user, case_id, edit=True, lock=True)
     prior = _run(case, run_id)
     if prior.status in {"queued", "running"}:
         messages.error(
@@ -1108,24 +1113,39 @@ def retry(request, case_id, run_id):
         for x in prior.inputs
     ]
     try:
-        run, _ = start_run(
+        submission_id = (
+            UUID(request.POST["submission_id"])
+            if request.POST.get("submission_id")
+            else uuid4()
+        )
+        existing = AnalysisRun.objects.filter(
+            submission_id=submission_id,
+            case=case,
+            requested_by=request.user,
+            previous_run=prior,
+        ).first()
+        if existing is not None:
+            return redirect(
+                _url(case, existing)
+                + analysis_query_suffix(result_navigation(request.GET))
+            )
+        parameters = _retry_parameters(prior)
+        run, _ = start_available_run(
             request.user,
-            case.pk,
+            case,
             prior.operation,
             choices,
-            parameters=_retry_parameters(prior),
-            external_processing=request.POST.get("external_processing") == "on",
+            parameters,
+            _retry_execution(case, prior, parameters),
             previous_run=prior,
-            submission_id=request.POST.get("submission_id") or uuid4(),
-            retry_confirmation=request.POST.get("retry_confirmation", ""),
+            submission_id=submission_id,
         )
-    except (ValidationError, AnalysisError) as error:
+    except (ValueError, ValidationError, AnalysisError) as error:
         messages.error(
             request,
-            error_message(error.code)
+            "The service for this run is unavailable."
             if isinstance(error, AnalysisError)
-            and error.code
-            in {"retry_approval_required", "gateway_transcription_not_configured"}
+            and error.code == "original_route_unavailable"
             else (
                 "The inputs changed or are no longer available. Start a new analysis "
                 "and review its source selection."

@@ -14,7 +14,6 @@ from core.models import AnalysisRun
 from core.storage import file_integrity, retain_uploaded_originals
 from document.models import DocumentEvidence
 from phone.analysis.deterministic.imessage import DATE_BOUND_FIELDS, import_file_limit
-from phone.analysis.ingest import import_analysis_executions
 
 
 def start_preview(actor, case_id, values):
@@ -93,7 +92,7 @@ def preview_source(preview, case):
 
 
 @transaction.atomic
-def confirm_import(actor, case_id, preview_id, people, *, analysis=None):
+def confirm_import(actor, case_id, preview_id, people):
     case = get_case(actor, case_id, edit=True, lock=True)
     try:
         preview = (
@@ -116,46 +115,30 @@ def confirm_import(actor, case_id, preview_id, people, *, analysis=None):
     document = preview_source(preview, case).item
     if not preview.result.data.get("metrics", {}).get("ready_rows"):
         raise ValidationError("This review has no ready messages to import.")
-    if analysis is None:
-        analysis = {"mode": "local", "executions": {}, "external_processing": False}
-    analysis = validate_import_analysis(analysis, actor=actor)
+    parameters = {
+        "phase": "import",
+        "timezone": preview.parameters["timezone"],
+        **{
+            field: preview.parameters[field]
+            for field in DATE_BOUND_FIELDS
+            if field in preview.parameters
+        },
+        "preview_run_id": str(preview.pk),
+        "people": people,
+    }
+    submission_id = uuid5(preview.pk, "confirmed-import")
+    # An old confirmation can be replayed after the form stops choosing a route.
+    previous = AnalysisRun.objects.filter(
+        case=case, submission_id=submission_id
+    ).first()
+    if previous is not None and "analysis" in previous.parameters:
+        parameters["analysis"] = previous.parameters["analysis"]
     return start_run(
         actor,
         case.pk,
         "imessage_import",
         [{"kind": "document", "id": str(document.pk)}],
-        parameters={
-            "phase": "import",
-            "timezone": preview.parameters["timezone"],
-            **{
-                field: preview.parameters[field]
-                for field in DATE_BOUND_FIELDS
-                if field in preview.parameters
-            },
-            "preview_run_id": str(preview.pk),
-            "people": people,
-            "analysis": analysis,
-        },
-        submission_id=uuid5(preview.pk, "confirmed-import"),
+        parameters=parameters,
+        submission_id=submission_id,
         previous_run=preview,
     )
-
-
-def validate_import_analysis(analysis, *, actor):
-    mode = analysis.get("mode") if isinstance(analysis, dict) else None
-    if mode not in {"local", "ai", "both"}:
-        raise ValidationError("Choose local checks, AI, or both for analysis.")
-    current = {} if mode == "local" else import_analysis_executions()
-    if analysis.get("executions") != current:
-        raise ValidationError(
-            "Processing configuration changed. Review the analysis settings again."
-        )
-    external = any(route["backend"] == "gateway" for route in current.values())
-    if external and not analysis.get("external_processing"):
-        raise ValidationError("Approve external processing to continue.")
-    return {
-        "mode": mode,
-        "executions": current,
-        "external_processing": external,
-        "approved_by": str(actor.pk) if external else "",
-    }

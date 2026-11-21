@@ -39,12 +39,10 @@ or CSV imports. **Upload files** accepts documents, images, and audio together.
 location, Text message, Phone call, and FaceTime. **Import records** offers vehicle
 locations and iMessage CSV. Message import retains its CSV, prepares background
 review, and requires confirmed people/timezone before publishing valid messages.
-Choose **Local checks** for new messages or, when AI is configured, choose
-**AI only** or **Local checks and AI**. Local checks is the default and runs no
-models. The combined option adds one AI suite.
-AI uses external AI when configured, otherwise private inference. Review shows
-the destination and requires explicit approval before
-external transfer. See [message imports](analysis-communications.md#message-csv-imports).
+New evidence queues eligible checks, configured private inference and
+[case-approved external analysis](cases.md#external-analysis-approval) after
+publication. Follow progress in **Processing**. See
+[message imports](analysis-communications.md#message-csv-imports).
 
 Categories describe submitted material; parsers do not verify them. Text captures
 one browser-submitted original. Upload a text file as Document to preserve exact
@@ -222,8 +220,8 @@ source references and links to Message details. When a saved report covers the
 entire instance, a short AI suggestion appears by default. Expand **Full
 summary** to read all saved statements inline and reach the cited report.
 Long summaries load in the instance when you expand them.
-Owners and editors can **Request summary** when a full summary is
-missing and review the processing destination before submitting.
+Owners and editors can **Request summary** for available services without a saved
+summary of that exact grouping.
 
 **Findings** starts open with up to three short previews of saved findings for
 the message. Select a finding title for its full details. **More findings** opens

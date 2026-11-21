@@ -41,8 +41,13 @@ or scripts. No text is partial/unresolved, never proof of blankness. Check again
 originals. Ordinary OCR can miss angled/small text, including plates; the separate
 plate profile is below. Synthetic printed images test real recognition; engine
 fixtures cover failures/publication, without establishing real-evidence accuracy.
-Transcription defaults to private whisper.cpp; Cloudflare requires separate
-selection/approval. Routine inference is mocked; see [qualification](local-analysis.md).
+Automatic transcription uses configured private whisper.cpp and case-approved
+Cloudflare Workers AI when available. Both candidates stay available. One supplies
+automatic text analysis. Routine inference is mocked. See
+[transcription qualification](local-analysis.md#transcription-qualification).
+Private Whisper timestamps may round the final boundary by up to 10 milliseconds.
+Saved playback anchors use the exact recording boundary and retain the reported
+model timestamp when clipped.
 Transcript text stays searchable as extracted content and opens at its saved
 source anchors. The findings catalogue surfaces timed segments flagged for
 uncertain speech so an investigator can check the audio.

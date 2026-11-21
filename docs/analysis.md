@@ -2,7 +2,7 @@
 
 This guide owns analysis behavior, retained results and configuration; the
 [interface guide](interface-design.md#case-tools-processing-and-additional-analysis)
-owns navigation. Eligible evidence queues local checks automatically. Owners/editors
+owns navigation. Newly added evidence queues applicable analysis automatically. Owners/editors
 start and cancel work. Viewers inspect originals and results. Case permissions apply to workers, search, downloads and playback.
 
 Case highlights inspect 40 recent eligible published runs, keep the latest result
@@ -221,61 +221,32 @@ its checks and return to that batch after inspecting a result. Batch preparation
 includes extraction follow-ups.
 See [progress and recovery](background-tasks.md#investigator-progress-and-completed-imports).
 
-Owners/editors use **Processing → Analysis actions → Run local checks** for active
-evidence and all retained call additions at request time. Background steps prepare
-25 sources at most, reporting progress, unavailable counts and queued checks.
-Resubmitting recovers the request. Fresh requests from any owner/editor are rejected
-while the existing case-wide batch is preparing checks or any of its checks are
-queued/running. Processing explains that work is already in progress. Once that
-work has finished, a fresh request starts another batch, preserving results.
-Scoped import checks and selected reprocessing remain separate. Empty calls supply
-no content. This runs
-basic local checks; **Reprocess evidence** runs the broader suite. CSV publication
-still requires timezone/vehicle confirmation and queues saved trips. Summaries
-need no geocoding. For address-only map positions, choose a lookup estimate. Conversation imports
-keep their flow. Retrying uncertain saves with the original submission recovers
-the same evidence/checks.
+New uploads, manually added evidence, call additions and newly published CSV
+rows queue applicable analysis in bounded background batches. A duplicate
+submission recovers the existing evidence and batch. **Processing → Analysis
+actions → Reprocess evidence** uses the same methods for selected active evidence
+types, with all types selected initially. Originals and earlier results remain
+available. See [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
 
-**Processing → Analysis actions → Reprocess evidence** lets owners/editors
-choose from the active evidence types, all selected initially. When processing
-is local-only, the destination is stated without a selector. External and combined
-options appear when an external service is configured for active evidence. Only
-active case-consistent sources retained at request time are included. Originals
-and history stay intact. Resubmissions recover the batch.
+Deterministic methods run once. Configured private inference and case-approved
+external inference run independently. Geographic lookups use the configured
+service for each method. Local extraction and transcription prepare exact
+retained results for text follow-ups. One candidate transcript supplies automatic
+text analysis even when multiple transcribers were run. Service configuration and
+external approval are checked during preparation, execution and follow-ups.
+Unsupported inputs and provider failures leave independent results available.
 
-Local combines deterministic checks and configured private services. External
-uses configured external AI and geographic services, with local extraction where
-needed. The combined option runs deterministic work once and runs configured AI
-in each location. Geographic lookups use the configured service once. The form
-shows the destinations and asks for approval before external transfer.
-Audio originals need transcription before text analysis. External-only mode
-requires external transcription for an audio-only selection. The combined mode
-can prepare a private transcript for approved external text analysis.
-Unconfigured services are skipped. Execution settings are checked again during
-preparation and follow-ups. Runtime failures remain recoverable with no cloud
-fallback.
+Methods cover inspection and extraction, OCR, plates, transcription, identifiers,
+writing and repeated wording, topics and claims, sessions and exchanges, location
+quality and movement, and geographic lookup. Automatic comparisons can include
+bounded relevant active same-case history. Results disclose the actual inputs.
+Use **Choose analysis** for an explicitly defined writing comparison, an area
+search, or a comparison of claimed events. Choose an address estimate before
+using it in a spatial method.
 
-Methods cover inspection/extraction, OCR/plates, transcription, identifiers,
-writing/repeated wording, topics/claims, sessions/timing/channel comparison,
-location quality/movement and geographic lookup. Derived-text follow-ups bind
-exact results. Grouped comparisons disclose selection limits, without claiming
-exhaustive cross-group comparisons. Unsupported formats/failures remain visible.
-Questions, two-sample writing comparison, area searches, claimed-event comparison
-require **Choose analysis**; choose address estimates before spatial use.
-
-Completed vehicle imports offer deliberate **Run local checks on
-imported evidence**, using bounded groups and excluding duplicates; see
-[background tasks](background-tasks.md#investigator-progress-and-completed-imports).
-Confirmed CSV messages automatically queue the analysis chosen during import
-review. **Local checks** is the default and uses no models. With a configured
-AI service, **AI only** runs one model suite and **Local checks and AI** adds
-ordinary checks to that same suite. AI uses the configured external service
-or private inference. Review shows the destination and asks for approval before
-external transfer. Execution keeps the selected route.
-**Follow message analysis** opens the batch; reruns offer the same choice and
-require renewed external approval. Model failures preserve imports and remain
-recoverable. See
-[CSV analysis](analysis-communications.md#message-csv-imports).
+Message and vehicle CSVs still require explicit interpretation. Analysis starts
+from confirmed newly published rows; see [message imports](analysis-communications.md#message-csv-imports)
+and [vehicle imports](vehicle-location-imports.md#checking-published-observations).
 
 Source choices expose prerequisites/retained inspection status. Some require exact
 extractions, transcripts or selected address estimates. Blocked sources show their
@@ -301,13 +272,11 @@ message sessions** accept Text messages only. Call transcripts use **Inspect
 keywords and topics** or **Suggest claims and commitments**. **Compare exchanges
 across channels** also accepts calls/FaceTime. Earlier runs keep their selections.
 
-Outside automatic CSV analysis, model work is deliberate. The form offers
-configured model destinations, with local processing selected when there is a
-choice. External AI requires explicit transfer approval for the displayed
-provider and model. Local failures never trigger external work. Optional AI
-controls are available when a model service is configured. Geography requires
-approval unless designated local. [Map address lookup](maps.md#local-address-lookup)
-has its own flow.
+On-demand analysis uses the same available services for the selected method.
+External AI and geographic services require the case owner's approval in
+[Case Settings](cases.md#external-analysis-approval). A private service failure
+cannot enqueue a new external request. [Map address lookup](maps.md#local-address-lookup)
+uses its dedicated private service flow.
 
 Call/vehicle report rows and filters use user timezone, with explicit UTC-hour
 analysis and missing-time warnings. Duplicate reports group byte hashes; trips
@@ -322,8 +291,7 @@ inference and result limits still apply.
 Results lead with the finding and its citations. Retained warnings stay visible
 under **Limitations**, including for completed runs. **Details and history**
 holds retained downloads, selected inputs, settings, earlier runs and authorized
-rerun controls. When a rerun sends data externally, the destination and approval
-appear beside the rerun action.
+rerun controls. Run details show the retained execution destination.
 
 Findings lead with their result, key measurements and supporting evidence.
 Secondary measurements and native references live under **Details**. Critical
@@ -371,9 +339,8 @@ and atomic publication. Revoked access blocks work and inspection. Duplicate
 delivery cannot reclaim running/completed runs; original submission IDs recover
 the same run. Failed work needs a new run, preserving queue history.
 
-**Start another run with these inputs** retains selection but uses current settings.
-Its requester reviews/approves external destinations; changed settings require
-fresh review. Local reruns need no external approval. Confirm a crashed worker
+**Run again** retains the selection and processing route. External reruns require
+current case approval for the configured route. Confirm a crashed worker
 stopped before cancellation/recovery; it may already have sent requests. Cancelled
 output remains withheld. New runs/queue inserts commit or roll back together.
 
@@ -443,9 +410,9 @@ and worker. For [native development](development.md#run-python-on-the-host),
 restart both processes with `uv run --locked --env-file .env`. For a hosted
 installation, apply the same settings to both services.
 
-Start a text analysis, choose **External AI**, review the provider and
-model, and approve the evidence transfer. The analysis runs locally by default
-for deliberate model work.
+The case owner reviews and approves configured destinations under
+[Case Settings](cases.md#external-analysis-approval). New eligible ingest and
+analysis requests then include the approved route.
 
 ### OpenAI with a key stored in Cloudflare
 
@@ -471,7 +438,7 @@ key or Workers AI token is needed in Pandect for this text route. See
 and [OpenAI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/openai/).
 
 With `PANDECT_AI_TEXT_MODEL=auto`, Pandect selects the OpenAI model by task.
-The approval screen shows the resolved model, and the run retains that choice.
+Case Settings shows the resolved model, and the run retains it.
 
 | Text analysis | OpenAI model | Reasoning effort |
 | --- | --- | --- |
@@ -484,7 +451,7 @@ The approval screen shows the resolved model, and the run retains that choice.
 An explicit model ID pins all OpenAI text tasks to that model. To switch an
 existing single-model installation to task-based routing, set the value to
 `auto` for both web and worker. If a queued run's reviewed model changes, it
-requires fresh approval before evidence can be sent to the new model.
+requires case-owner approval before evidence can be sent to the new model.
 
 OpenAI uses the Gateway's `/openai/responses` endpoint for these tasks.
 Each request has a 32,768-token total completion allowance, including reasoning,
@@ -534,21 +501,10 @@ run, model, and bytes. Missing token usage stays unknown. Provider rate and
 quota limits apply.
 
 Match web/worker configuration. Pandect retains the provider, API format, any
-stored-key alias, and inference settings without secrets. Destination changes
-stop queued work recoverably. If older cloud work has no destination snapshot,
-start a deliberate rerun with fresh approval to use a direct provider or OpenAI
-through Cloudflare. Retained results stay readable.
-Initial analysis, synthesis, bulk processing and reruns bind external approval to
-the reviewed destination; changed settings require renewed review.
-
-Queued OpenAI work approved under the previous low-effort/8,192-token settings
-stops recoverably after this upgrade. Start a deliberate rerun with fresh approval
-to use the new settings; retained results remain readable. Local Ollama settings
-are unchanged, with thinking disabled.
-
-Queued work approved under the former daily request cap needs a deliberate rerun
-with fresh approval after upgrading. Historical usage and failed runs are retained;
-removing the cap does not automatically retry failed work.
+stored-key alias, and inference settings without secrets. A changed execution
+stops queued work recoverably. Approval binds to a case and named destination.
+After revocation or a destination change, a case owner can review the new routes.
+Start a new request to use newly approved routes. Retained results stay readable.
 
 Review logging and retention with the provider and, if used, Cloudflare.
 `store=false` for OpenAI and the Cloudflare skip-cache/no-log headers are subject

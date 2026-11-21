@@ -27,7 +27,7 @@ from core.analysis.presentation import (
 from core.analysis.projection import is_ai_suggestion, is_timing_only
 from core.analysis.ranking import rank_findings
 from core.analysis.services import SourceResolutionCache, resolve_inputs
-from core.models import AnalysisFinding, AnalysisResult, AnalysisRun
+from core.models import AnalysisFinding, AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from image.analysis import MIN_OCR_WORD_SCORE
 from phone.analysis import presentation as phone_presentation
 
@@ -43,10 +43,11 @@ def additional_operations(kind):
 def evidence_findings_context(case, kind, item, *, form=None, results_page=None):
     """Keep analysis outcomes independent from the evidence collection page."""
     runs = evidence_runs(case, kind, item.pk)
-    local_runs = runs.filter(parameters__has_key="automatic_batch")
-    local_analysis_pending = local_runs.filter(
-        status__in=("queued", "running")
-    ).exists()
+    batches = CaseAnalysisBatch.objects.filter(
+        case=case, scope__contains={"type": "added", "kind": kind, "id": str(item.pk)}
+    )
+    preparing = batches.filter(status=CaseAnalysisBatch.Status.QUEUED).first()
+    latest_batch = preparing or batches.first()
     page = Paginator(runs, 25).get_page(results_page)
     has_saved_results = _evidence_outcomes(page, case)
     highlights, highlights_limited = evidence_highlights(case, kind, item.pk)
@@ -57,10 +58,10 @@ def evidence_findings_context(case, kind, item, *, form=None, results_page=None)
         or (has_saved_results and not highlights),
         "highlights": highlights,
         "highlights_limited": highlights_limited,
-        "local_analysis_pending": local_analysis_pending,
-        "analysis_pending": local_analysis_pending
+        "evidence_analysis_batch": latest_batch,
+        "analysis_pending": preparing is not None
         or runs.filter(status__in=("queued", "running")).exists(),
-        "has_local_analysis": local_analysis_pending or local_runs.exists(),
+        "has_evidence_analysis": latest_batch is not None or bool(page.paginator.count),
         "additional_operations": additional_operations(kind).items(),
     }
 
@@ -75,6 +76,7 @@ def _evidence_outcomes(page, case):
     for run in page:
         operation = OPERATIONS.get(run.operation)
         run.label = operation.label if operation else "Retained analysis"
+        run.execution = run.parameters.get("_execution")
         run.has_result = run.pk in summaries
         summary = summaries.get(run.pk)
         # A multi-source outcome belongs to the whole selection. Its canonical

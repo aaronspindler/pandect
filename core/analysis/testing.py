@@ -12,6 +12,20 @@ from PIL import Image, ImageDraw, PngImagePlugin
 from core.analysis.sources import Source
 
 
+def external_grant_kwargs(case, operation):
+    """Approve a synthetic test configuration and bind one external execution."""
+    from core.analysis.approval import approve_case_execution
+    from core.analysis.execution import configured_external_executions
+
+    executions = configured_external_executions()
+    if case.external_analysis_approval.get("executions") != executions:
+        approve_case_execution(case, case.owner, executions)
+    return {
+        "approved_execution": executions[operation],
+        "external_grant_revision": case.external_analysis_approval["revision"],
+    }
+
+
 class ByteStorage:
     def __init__(self, content):
         self.content = content

@@ -25,25 +25,36 @@ def local_geocoder_ready():
     return True
 
 
-def latest_local_run(case, kind):
+def latest_local_run(case, kind, *, execution=None):
     """Correlate source ID/checksum for already paginated address observations."""
     source = JSONObject(
         kind=Value(kind),
         evidence_id=Cast(OuterRef("id"), CharField()),
         sha256=OuterRef("sha256"),
     )
-    return Subquery(
-        AnalysisRun.objects.filter(
-            case=case,
-            operation="geocode_locations",
-            external_processing=False,
-            parameters___execution__location="local",
-            inputs__contains=Func(source, function="jsonb_build_array"),
-        )
-        .filter(Q(parameters__reverse=False) | Q(parameters__reverse__isnull=True))
-        .order_by("-created_at", "id")
-        .values("id")[:1]
+    runs = AnalysisRun.objects.filter(
+        case=case,
+        operation="geocode_locations",
+        external_processing=False,
+        parameters___execution__location="local",
+        inputs__contains=Func(source, function="jsonb_build_array"),
+    ).filter(Q(parameters__reverse=False) | Q(parameters__reverse__isnull=True))
+    if execution is not None:
+        runs = runs.filter(parameters___execution=execution)
+    return Subquery(runs.order_by("-created_at", "id").values("id")[:1])
+
+
+def unused_local_forward_choices(case, kind, choices, execution):
+    """Reuse the exact private forward lookup also consumed by map preparation."""
+    unused = set(
+        scoped_evidence(case, kind)
+        .filter(pk__in=[choice["id"] for choice in choices])
+        .annotate(geocode_run_id=latest_local_run(case, kind, execution=execution))
+        .filter(geocode_run_id__isnull=True)
+        .values_list("pk", flat=True)
     )
+    ids = {str(pk) for pk in unused}
+    return [choice for choice in choices if choice["id"] in ids]
 
 
 def address_estimates(case, rows):

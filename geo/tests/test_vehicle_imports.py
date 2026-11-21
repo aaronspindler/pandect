@@ -20,7 +20,9 @@ from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
 from cases.models import Case
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.evidence.form_registry import evidence_form
+from core.models import CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
@@ -435,6 +437,7 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         content = csv_content(*([row] * 2000))
         self.assertGreater(len(content), 1024 * 1024)
         batch = self.new_batch(content)
+        self.assertFalse(CaseAnalysisBatch.objects.exists())
         review = self.client.get(self.review_url(batch))
         self.assertEqual(review.context["batch"].row_count, 2000)
         self.assertEqual(len(review.context["rows"]), 50)
@@ -448,6 +451,30 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         results = self.client.get(self.review_url(batch))
         self.assertEqual(len(results.context["observations"]), 50)
         self.assertEqual(results.context["page_obj"].paginator.count, 2000)
+        self.assertContains(results, "Follow import analysis")
+        analysis = CaseAnalysisBatch.objects.get(
+            scope__type="vehicle", scope__id=str(batch.pk)
+        )
+        self.assertFalse(analysis.runs.exists())
+        for _ in range(2):
+            self.assertEqual(prepare_case_analysis_batch(analysis.pk), "queued")
+        analysis.refresh_from_db()
+        self.assertEqual(analysis.processed_sources, 50)
+        runs = analysis.runs.filter(operation="location_quality").order_by("created_at")
+        eligible = set(
+            str(pk)
+            for pk in batch.observations.order_by(
+                "vehicle_id", "observed_at", "pk"
+            ).values_list("pk", flat=True)[:50]
+        )
+        self.assertEqual(
+            {item["evidence_id"] for run in runs for item in run.inputs},
+            eligible,
+        )
+        self.assertEqual(self.complete(batch, confirm_duplicates="on").status_code, 302)
+        self.assertEqual(
+            CaseAnalysisBatch.objects.filter(scope__type="vehicle").count(), 1
+        )
 
     def test_upload_retry_cannot_change_file_timezone_or_uploader(self):
         self.login("editor")

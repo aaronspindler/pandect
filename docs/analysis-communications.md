@@ -120,8 +120,7 @@ sessions on that review page. Saved summaries are kept, pending summaries for
 the same messages and grouping settings are skipped. Different overlapping
 groupings can each have a summary. Sessions over the per-run source or chunk
 limit are skipped.
-Choose a configured AI service. External processing requires approval, and
-submitted batches are tracked in **Processing**.
+Requests queue summaries for available services and show progress in **Processing**.
 Instance summary statements show sender names and keep their AI suggestion labels
 and source citations. Open the cited summary directly from the instance or follow
 individual statements to their findings. A focused grouping or summary result
@@ -226,15 +225,10 @@ Malformed/ambiguous/nonexistent local times, attachment-only rows and unsupporte
 directions are excluded. The full CSV remains available for source review.
 Confirmation publishes only ready messages from the reviewed selection.
 
-**Local checks** is the default for automatic analysis after publication and
-runs no models. When an AI service is configured, choose **AI only** for one
-model suite or **Local checks and AI** to include both kinds of work. The AI
-suite uses external AI when configured, otherwise the configured private service.
-Review shows the resolved destination before submission. External processing
-sends selected message text after explicit approval. Operator and provider
-retention policies apply. Approval is bound to
-the current investigator, import, and reviewed execution settings. Changed
-settings require fresh review. The selected route remains fixed during execution.
+Publication queues built-in methods, configured private inference and
+[case-approved external analysis](cases.md#external-analysis-approval) for
+the newly added messages. Eligible routes are captured when publication queues
+analysis.
 
 Confirmation queues method 2, separate from the immutable preview run. Publication
 rechecks edit access/integrity and atomically creates requested people, messages,
@@ -282,21 +276,15 @@ then check counts and **View conversation** after the work settles. If a
 date-limited import reuses every row, **View conversation** opens a retained
 message within the reviewed export-timezone range. Insufficient input has its
 own count alongside completed checks. Incomplete coverage and stopped work
-remain visible. **Analysis details** gives access to
-the selected mode, preparation and individual checks. **Run message analysis
-again** offers the same analysis choice and creates a new batch preserving
-history; external processing requires fresh approval by the requesting
-investigator. Historical imports receive no automatic backfill; HTML retains its
-deliberate action.
+remain visible. **Analysis details** opens preparation and checks.
+**Run import analysis again** creates a new batch under the case's current
+analysis configuration and approval. Historical imports receive no automatic
+backfill.
 
-If another editor retries failed CSV publication, messages can still publish,
-but inherited external approval cannot start analysis under that editor. Use
-**Run message analysis again** to review and approve the new request.
-
-The local checks cover identifiers/dates, keywords, sessions/timing, writing
-profiles, repeated wording, and temporal exchanges. Model analysis covers
-topics/claims/session summaries and semantic exchanges through the selected
-AI destination.
+The suite covers identifiers, dates, keywords, sessions, timing, reported writing
+profiles, repeated wording, and temporal exchanges. Model analysis adds topic
+suggestions, claims, session summaries and semantic exchanges for each eligible
+service.
 Writing profiles separate reported senders. Comparisons split
 each sender's earlier/later timed samples near the middle at a distinct timestamp,
 never dividing ties. Fewer than two times cannot compare; adequacy guards yield
@@ -310,16 +298,15 @@ truncation. Results retain exact selections/counts against import population.
 Smaller selections disclose partial coverage; sessions, timing, writing and
 wording do not span groups or imply whole-conversation/case conclusions.
 
-Temporal exchanges additionally select unarchived same-case call/FaceTime metadata
-for reported participant pairs within ten minutes of message windows, up to
-remaining source capacity. Other calls, transcripts and unselected material stay
-unexamined. Semantic suggestions cover imported messages only.
+Automatic comparisons can include active same-case material with matching
+participants or a retained native thread. Timing methods use bounded windows
+and retain exact sources. A case owner's approval also covers relevant history
+used by approved external methods. Results disclose the scope used.
 
 Automatic models use retained execution settings and quotation validation. Missing
 configuration, drift, capacity and provider/output errors remain visible/retryable,
-preserving messages and independent checks. Preparation checks the reviewed
-destinations before queueing model work; execution checks the retained route.
-Execution never redirects the reviewed route after a failure.
+preserving messages and independent checks. Preparation and execution check
+the retained route and approval. Failures stay with their original run.
 Preparation/execution recheck verified editing access. Cursor,
 runs and continuation commit together; retries queue no duplicates. After confirming
 the old worker stopped, rerun failed preparation from the import page; individual

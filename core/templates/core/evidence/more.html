@@ -5,7 +5,7 @@
     {% if kind == 'document' %}<a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}?document={{ item.pk }}">Import iMessage · CSV</a>{% endif %}
     {% partialdef checks inline %}
     <div id="evidence-rerun" data-live-region data-live-poll="false">
-    {% if can_edit and highlights and not local_analysis_pending and not analysis_form.errors %}<form method="post" action="{% url 'core:analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}#evidence-analysis-error">{% csrf_token %}{{ analysis_form.submission_id }}<button type="submit">{% if has_local_analysis %}Run checks again{% else %}Run checks{% endif %}</button></form>{% endif %}
+    {% if can_edit and highlights and not analysis_pending and not analysis_form.errors %}<form method="post" action="{% url 'core:analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}#evidence-analysis-error">{% csrf_token %}{{ analysis_form.submission_id }}<button type="submit">{% if has_evidence_analysis %}Run checks again{% else %}Run checks{% endif %}</button></form>{% endif %}
     </div>
     {% endpartialdef %}
     <form method="post" action="{% if item.is_archived %}{% url 'core:evidence:restore' case_id=case.pk kind=kind evidence_id=item.pk %}{% else %}{% url 'core:evidence:archive' case_id=case.pk kind=kind evidence_id=item.pk %}{% endif %}{{ list_suffix }}">{% csrf_token %}<button type="submit">{% include 'ui/components/icon.html' with name='archive' %} {% if item.is_archived %}Restore{% else %}Archive{% endif %}</button></form>

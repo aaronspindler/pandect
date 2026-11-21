@@ -6,25 +6,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django import forms
 from django.forms.models import ModelChoiceIterator
-from django.utils.crypto import constant_time_compare
 
-from core.analysis.execution import (
-    execution_confirmation,
-    external_ai_destination,
-    inference_configured,
-)
 from core.evidence.forms import validate_file
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.imessage import import_file_limit
-from phone.analysis.ingest import import_analysis_executions
 
-ANALYSIS_MODES = (
-    ("local", "Local checks"),
-    ("ai", "AI only"),
-    ("both", "Local checks and AI"),
-)
-ANALYSIS_CONFIRMATION_SALT = "phone.imessage.analysis"
 CREATE_PERSON = "create"
 
 
@@ -208,114 +195,7 @@ class IMessagePersonForm(forms.Form):
         }
 
 
-class IMessageAnalysisForm(forms.Form):
-    mode = forms.ChoiceField(
-        label="Analysis after import",
-        choices=ANALYSIS_MODES,
-        initial="local",
-        widget=forms.RadioSelect,
-        help_text=(
-            "Local checks inspect identifiers, writing, and message timing. "
-            "AI suggests topics, claims, summaries, and links. "
-            "Each AI analysis runs once in the location shown below."
-        ),
-    )
-    external_processing = forms.BooleanField(
-        required=False,
-        label="I approve external AI processing of the newly imported messages",
-        help_text=(
-            "Required when the selected option includes external AI. "
-            "Sends selected message text and source references to the service above. "
-            "Provider retention policies apply."
-        ),
-    )
-    execution_confirmation = forms.CharField(widget=forms.HiddenInput)
-
-    def __init__(self, *args, actor, case, run, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.executions = import_analysis_executions()
-        ai_available = all(
-            inference_configured(route, key.split(":", 1)[0])
-            for key, route in self.executions.items()
-        )
-        self.external_ai = ai_available and any(
-            route["backend"] == "gateway" for route in self.executions.values()
-        )
-        if not ai_available:
-            self.fields["mode"].choices = ANALYSIS_MODES[:1]
-            self.fields[
-                "mode"
-            ].help_text = (
-                "Local checks inspect identifiers, writing, and message timing."
-            )
-            self.ai_destination = (
-                "AI analysis is unavailable until an operator configures a service."
-            )
-        elif self.external_ai:
-            destinations = dict.fromkeys(
-                external_ai_destination(route) for route in self.executions.values()
-            )
-            self.ai_destination = "AI will use " + "; ".join(destinations) + "."
-        else:
-            self.ai_destination = "AI will use the configured private service."
-        scope = [str(actor.pk), str(case.pk), str(run.pk)]
-        self.local_confirmation = execution_confirmation(
-            ANALYSIS_CONFIRMATION_SALT, scope, {}
-        )
-        self.ai_confirmation = execution_confirmation(
-            ANALYSIS_CONFIRMATION_SALT, scope, self.executions
-        )
-        self.confirmation = f"{self.local_confirmation}:{self.ai_confirmation}"
-        if not self.is_bound:
-            self.initial["execution_confirmation"] = self.confirmation
-
-    def clean(self):
-        data = super().clean()
-        if (
-            self.external_ai
-            and data.get("mode") in {"ai", "both"}
-            and not data.get("external_processing")
-        ):
-            self.add_error(
-                "external_processing", "Approve external processing to continue."
-            )
-        reviewed_local, _, reviewed_ai = data.get(
-            "execution_confirmation", ""
-        ).partition(":")
-        if not constant_time_compare(reviewed_local, self.local_confirmation) or (
-            data.get("mode") != "local"
-            and not constant_time_compare(reviewed_ai, self.ai_confirmation)
-        ):
-            self.add_error(
-                None,
-                "Processing settings changed or this request expired. "
-                "Review the current settings and submit again.",
-            )
-            values = self.data.copy()
-            values["execution_confirmation"] = self.confirmation
-            values.pop("external_processing", None)
-            self.data = values
-            data["external_processing"] = False
-        return data
-
-    def specification(self):
-        mode = self.cleaned_data["mode"]
-        return {
-            "mode": mode,
-            "executions": self.executions if mode != "local" else {},
-            "external_processing": bool(
-                mode != "local"
-                and self.external_ai
-                and self.cleaned_data["external_processing"]
-            ),
-        }
-
-
-class IMessageAnalysisRetryForm(IMessageAnalysisForm):
-    submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
-
-
-class IMessageConfirmForm(IMessageAnalysisForm):
+class IMessageConfirmForm(forms.Form):
     direct_chat = forms.BooleanField(
         label="I confirm this export is a direct conversation between these two people"
     )

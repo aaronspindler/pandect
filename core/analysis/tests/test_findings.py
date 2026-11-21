@@ -8,13 +8,14 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import project_result
 from core.analysis.services import (
     process_run,
     snapshot_sources,
     start_run,
 )
-from core.models import AnalysisResult, AnalysisReview, AnalysisRun
+from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationImport
 from geo.testing import csv_content, parse_csv
@@ -206,10 +207,14 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(
             pending, reverse("core:analysis:processing", args=[self.case.pk])
         )
-        for run in AnalysisRun.objects.filter(case=self.case):
+        batch = CaseAnalysisBatch.objects.get(case=self.case)
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        for run in batch.runs.all():
             process_run(run.pk)
             run.refresh_from_db()
-            self.assertEqual(run.status, "complete", run.error_code)
+            self.assertIn(
+                run.status, {"complete", "empty", "insufficient"}, run.error_code
+            )
         self.assertFalse(AnalysisReview.objects.exists())
 
         self.login("viewer")

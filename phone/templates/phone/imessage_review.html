@@ -69,11 +69,7 @@
       <p>Source labels and contact matches do not verify identity. Review both people before importing.</p>
       <fieldset class="form-layout"><legend>Export account — outgoing sender</legend><p>Sent Outgoing messages; received Incoming messages.</p>{% include 'phone/imessage_person_fields.html' with person_form=account_form only %}</fieldset>
       <fieldset class="form-layout"><legend>Correspondent — incoming sender</legend><p>Sent Incoming messages; received Outgoing messages.</p>{% if summary.sender_id %}<p>Source Sender ID: <strong>{{ summary.sender_id }}</strong>{% if summary.sender_names %} · {% for name in summary.sender_names %}{{ name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</p><p class="help-text">This identifier may prefill a new person's phone number. Review it before importing.</p>{% endif %}{% include 'phone/imessage_person_fields.html' with person_form=correspondent_form only %}</fieldset>
-      {{ form.execution_confirmation }}
-      <section aria-labelledby="import-analysis-heading"><h2 id="import-analysis-heading">Automatic analysis</h2><p>Analyze newly imported messages after this import completes.</p>
-      {% include 'ui/components/form_field.html' with field=form.mode only %}
-      <p class="help-text">{{ form.ai_destination }}</p>
-      {% if form.external_ai %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}</section>
+      <p>Analysis starts automatically for newly imported messages.</p>
       {% include 'ui/components/form_field.html' with field=form.direct_chat only %}
       {% include 'ui/components/form_field.html' with field=form.confirm only %}
       <div class="actions"><button class="button button-primary" type="submit">Import messages</button><a class="button button-secondary" href="{% if processing_back_url %}{{ processing_back_url }}{% else %}{% url 'core:evidence:list' case.pk %}{% endif %}">Cancel</a></div>

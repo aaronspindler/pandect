@@ -1,4 +1,4 @@
-"""Queue the applicable local checks for a newly retained or selected original."""
+"""Queue analysis for newly retained evidence and historical local checks."""
 
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -11,7 +11,7 @@ from cases.permissions import get_case
 from core.analysis.services import start_run
 from core.evidence.queries import get_evidence
 from core.evidence.types import CALL_KINDS, LOCATION_KINDS
-from core.models import AnalysisRun
+from core.models import AnalysisRun, CaseAnalysisBatch
 
 
 def evidence_runs(case, kind, evidence_id):
@@ -80,21 +80,56 @@ def _plan(case, kind, item, attachment_id):
     return []
 
 
+@transaction.atomic
 def start_added_evidence_analysis(
-    actor, case_id, kind, evidence_id, *, attachment_id=None
+    actor, case_id, kind, evidence_id, *, attachment_id=None, new_call=False
 ):
     """Give newly added evidence an analysis identity independent of HTTP retries."""
+    from core.analysis.bulk import start_case_analysis
+    from core.analysis.reprocessing import analysis_scope
+
+    case = get_case(actor, case_id, edit=True, lock=True)
     submission_id = uuid5(
         NAMESPACE_URL,
         f"pandect:analysis-on-add:{case_id}:{kind}:{evidence_id}:{attachment_id}",
     )
-    return start_evidence_analysis(
+    return start_case_analysis(
         actor,
-        case_id,
-        kind,
-        evidence_id,
+        case.pk,
         submission_id=submission_id,
-        attachment_id=attachment_id,
+        scope={
+            "type": "added",
+            "kind": kind,
+            "id": str(evidence_id),
+            **({"attachment_id": str(attachment_id)} if attachment_id else {}),
+            **({"new_call": True} if new_call else {}),
+        }
+        | analysis_scope(case, [kind]),
+    )
+
+
+@transaction.atomic
+def start_evidence_reprocessing(actor, case_id, kind, evidence_id, *, submission_id):
+    """Queue the broad analysis suite for one explicitly selected original."""
+    from core.analysis.bulk import start_case_analysis
+    from core.analysis.reprocessing import analysis_scope
+
+    case = get_case(actor, case_id, edit=True, lock=True)
+    original = get_evidence(case, kind, evidence_id)
+    scope = {"type": "added", "kind": kind, "id": str(original.pk), "reprocess": True}
+    existing = CaseAnalysisBatch.objects.filter(
+        pk=submission_id,
+        case=case,
+        requested_by=actor,
+        scope__contains=scope,
+    ).first()
+    if existing:
+        return existing, False
+    return start_case_analysis(
+        actor,
+        case.pk,
+        submission_id=submission_id,
+        scope=scope | analysis_scope(case, [kind]),
     )
 
 
@@ -158,7 +193,7 @@ def follow_up_extraction(run, result):
     """Publish local text work in the same transaction as its batch's extraction."""
     if (
         run.batch_id
-        and run.batch.scope.get("type") == "reprocess"
+        and run.batch.scope.get("type") in {"reprocess", "added"}
         and run.operation in {"native_text", "ocr", "transcription"}
         and run.parameters.get("automatic_followup")
     ):

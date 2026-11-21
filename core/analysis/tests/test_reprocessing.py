@@ -18,10 +18,10 @@ from core.analysis.operations import OPERATIONS
 from core.analysis.reprocessing import (
     CONTEXT_REQUIRED_OPERATIONS,
     REPROCESS_OPERATIONS,
-    configured_reprocessing_executions,
     start_reprocessing,
 )
 from core.analysis.services import process_run
+from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisRun
@@ -39,15 +39,14 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertFalse(set(REPROCESS_OPERATIONS) & set(CONTEXT_REQUIRED_OPERATIONS))
 
-    def start(self, *, role="owner", kinds=("text",), mode="local", **kwargs):
+    def start(self, *, role="owner", kinds=("text",), approved=False, **kwargs):
+        if approved:
+            external_grant_kwargs(self.case, "content_events")
         return start_reprocessing(
             self.users[role],
             self.case.pk,
             submission_id=kwargs.pop("submission_id", uuid4()),
             kinds=list(kinds),
-            mode=mode,
-            executions=kwargs.pop("executions", configured_reprocessing_executions()),
-            external_processing=kwargs.pop("external_processing", mode != "local"),
             **kwargs,
         )
 
@@ -61,6 +60,7 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         self.fail("Reprocessing did not finish preparing its bounded groups")
 
     def test_local_includes_deterministic_and_private_ai_methods(self):
+        self.text()
         self.text()
         batch, _ = self.start()
         self.drain(batch)
@@ -82,28 +82,22 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(models)
         self.assertTrue(all(run.parameters["backend"] == "local" for run in models))
 
-    def test_external_and_both_queue_separate_explicit_backends(self):
+    def test_owner_approval_enables_both_models_and_one_deterministic_lane(self):
         self.text()
-        for mode in ("external", "both"):
-            with self.subTest(mode=mode):
-                batch, _ = self.start(mode=mode)
-                self.drain(batch)
-                runs = list(batch.runs.all())
-                models = [
-                    run
-                    for run in runs
-                    if requires_inference(run.operation, run.parameters)
-                ]
-                self.assertEqual(
-                    {run.parameters["backend"] for run in models},
-                    {"gateway"} if mode == "external" else {"local", "gateway"},
-                )
-                for run in models:
-                    self.assertEqual(
-                        run.external_processing, run.parameters["backend"] == "gateway"
-                    )
-                deterministic = [run for run in runs if run.operation == "entities"]
-                self.assertEqual(len(deterministic), int(mode == "both"))
+        batch, _ = self.start(approved=True)
+        self.drain(batch)
+        runs = list(batch.runs.all())
+        models = [
+            run for run in runs if requires_inference(run.operation, run.parameters)
+        ]
+        self.assertEqual(
+            {run.parameters["backend"] for run in models}, {"local", "gateway"}
+        )
+        for run in models:
+            self.assertEqual(
+                run.external_processing, run.parameters["backend"] == "gateway"
+            )
+        self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
 
     def test_selected_active_sources_only_and_original_results_remain(self):
         active = self.text()
@@ -166,11 +160,26 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         with self.assertRaises(ValidationError):
             self.start(submission_id=batch.pk, role="editor")
 
-    def test_external_approval_and_selection_are_enforced_in_backend(self):
+    @override_settings(PANDECT_ANALYSIS_MAX_SOURCES=1)
+    def test_deleted_cursor_source_does_not_stop_already_requested_preparation(self):
+        earlier = self.text()
+        retained = self.text()
+        batch, _ = self.start()
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "queued")
+        batch.refresh_from_db()
+        self.assertEqual(batch.source_cursor, earlier.pk)
+        TextEvidence.objects.filter(pk=batch.source_cursor).delete()
+        self.drain(batch)
+        self.assertEqual(batch.processed_sources, 2)
+        self.assertTrue(
+            batch.runs.filter(
+                operation="entities",
+                inputs__contains=[{"evidence_id": str(retained.pk)}],
+            ).exists()
+        )
+
+    def test_invalid_selection_is_rejected_in_backend(self):
         for values in (
-            {"mode": "external", "external_processing": False},
-            {"mode": "both", "external_processing": False},
-            {"mode": "invented"},
             {"kinds": ()},
             {"kinds": ("invented",)},
         ):
@@ -201,19 +210,17 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
 
     def test_execution_drift_cannot_queue_unreviewed_destinations(self):
         self.text()
-        executions = configured_reprocessing_executions()
-        batch, _ = self.start(executions=executions)
+        batch, _ = self.start()
         configuration = settings.PANDECT_LOCAL_AI
         with self.settings(
             PANDECT_LOCAL_AI=configuration
             | {"text": configuration.get("text", {}) | {"runtime": "different-runtime"}}
         ):
-            with self.assertRaises(ValidationError):
-                self.start(executions=executions)
-            prepare_case_analysis_batch(batch.pk)
-        batch.refresh_from_db()
-        self.assertEqual(batch.status, "failed")
-        self.assertFalse(batch.runs.exists())
+            self.drain(batch)
+        self.assertEqual(batch.status, "complete")
+        self.assertTrue(batch.runs.filter(operation="entities").exists())
+        self.assertFalse(batch.runs.filter(operation="content_events").exists())
+        self.assertGreater(batch.unavailable_sources, 0)
 
     def test_document_extraction_queues_exact_text_followups_in_same_batch(self):
         document = DocumentEvidence.objects.create(
@@ -222,7 +229,7 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
             title="Synthetic text document",
             file=ContentFile(b"Contact synthetic@example.test", name="source.txt"),
         )
-        batch, _ = self.start(kinds=("document",), mode="both")
+        batch, _ = self.start(kinds=("document",), approved=True)
         self.drain(batch)
         extraction = batch.runs.get(operation="native_text")
         process_run(extraction.pk)
@@ -262,7 +269,7 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(batch.runs.filter(operation="content_events").exists())
         self.assertGreater(batch.unavailable_sources, 0)
 
-    def test_settings_drift_during_extraction_preserves_text_without_new_transfers(
+    def test_settings_drift_during_extraction_preserves_independent_routes(
         self,
     ):
         DocumentEvidence.objects.create(
@@ -271,7 +278,7 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
             title="Synthetic extraction before settings change",
             file=ContentFile(b"Contact synthetic@example.test", name="source.txt"),
         )
-        batch, _ = self.start(kinds=("document",), mode="both")
+        batch, _ = self.start(kinds=("document",), approved=True)
         self.drain(batch)
         extraction = batch.runs.get(operation="native_text")
         configuration = settings.PANDECT_LOCAL_AI
@@ -284,5 +291,16 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         batch.refresh_from_db()
         self.assertEqual(extraction.status, "complete", extraction.error_code)
         self.assertTrue(extraction.result.passages.exists())
-        self.assertFalse(batch.runs.filter(previous_run=extraction).exists())
+        followups = batch.runs.filter(previous_run=extraction)
+        self.assertTrue(followups.filter(operation="entities").exists())
+        self.assertTrue(
+            followups.filter(
+                operation="content_events", external_processing=True
+            ).exists()
+        )
+        self.assertFalse(
+            followups.filter(
+                operation="content_events", external_processing=False
+            ).exists()
+        )
         self.assertGreater(batch.unavailable_sources, 0)

@@ -10,7 +10,6 @@ from django.views.decorators.http import require_safe
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import error_message
-from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.navigation import history_filters, query_suffix
 from core.analysis.operations import OPERATION_GROUPS, OPERATIONS
 from core.analysis.reprocessing import MODE_LABELS
@@ -67,6 +66,7 @@ def index(request, case_id):
         first_evidence=F("inputs__0__evidence_id"),
         second_kind=F("inputs__1__kind"),
         import_phase=F("parameters__phase"),
+        execution=F("parameters___execution"),
         has_saved_result=Exists(
             AnalysisResult.objects.filter(case=case, run=OuterRef("pk"))
         ),
@@ -154,7 +154,10 @@ def index(request, case_id):
             Q(scope__type="reprocess"),
             scope__type=OuterRef("scope__type"),
             scope__kinds=OuterRef("scope__kinds"),
-            scope__mode=OuterRef("scope__mode"),
+        )
+        & (
+            Q(scope__mode=OuterRef("scope__mode"))
+            | Q(scope__analysis_version=OuterRef("scope__analysis_version"))
         )
         | Q(
             scope__type__in=("messages", "vehicle"),
@@ -315,6 +318,5 @@ def index(request, case_id):
             ),
             "evidence_kinds": KIND_LABELS.items(),
             "statuses": AnalysisRun.Status.choices,
-            "case_analysis_form": EvidenceAnalysisForm(),
         },
     )

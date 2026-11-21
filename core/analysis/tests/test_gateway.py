@@ -9,12 +9,13 @@ from urllib.error import HTTPError, URLError
 from django.core.exceptions import PermissionDenied
 from django.test import TestCase, override_settings
 
+from core.analysis.approval import revoke_case_execution
 from core.analysis.errors import AnalysisError
 from core.analysis.gateway import GatewayClient
 from core.analysis.http import NoRedirect
-from core.analysis.services import authorize_run
-from core.analysis.sources import source_id
-from core.models import AnalysisRun, GatewayRequest
+from core.analysis.services import authorize_run, start_run
+from core.analysis.testing import external_grant_kwargs
+from core.models import GatewayRequest
 from core.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
@@ -67,30 +68,15 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
         self.client = GatewayClient(self.run, self.authorize)
 
     def gateway_run(self, actor, case, original):
-        # Exercise transport settings independently of new-run route pinning.
-        # Older retained runs have no execution snapshot and keep their approved
-        # Gateway route; execution tests cover snapshots on newly queued work.
-        choice = {"kind": "text", "id": str(original.pk)}
-        return AnalysisRun.objects.create(
-            case=case,
-            requested_by=actor,
-            operation="content_events",
-            method_version="1",
+        run, _ = start_run(
+            actor,
+            case.pk,
+            "content_events",
+            [{"kind": "text", "id": str(original.pk)}],
             parameters={"backend": "gateway"},
-            external_processing=True,
-            inputs=[
-                {
-                    "id": source_id(choice),
-                    "kind": "text",
-                    "evidence_id": str(original.pk),
-                    "attachment_id": None,
-                    "result_id": None,
-                    "geocode_candidate": None,
-                    "review_id": None,
-                    "sha256": original.sha256,
-                }
-            ],
+            **external_grant_kwargs(case, "content_events"),
         )
+        return run
 
     def test_only_configured_cloudflare_endpoint_and_two_distinct_auth_headers_are_used(
         self,
@@ -186,12 +172,9 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
                 build.assert_not_called()
 
     def test_request_limit_and_non_json_payloads_fail_before_usage_or_dispatch(self):
-        with (
-            override_settings(PANDECT_AI_GATEWAY=CONFIG | {"max_request_bytes": 4}),
-            patch("core.analysis.gateway.build_opener") as build,
-        ):
+        with patch("core.analysis.gateway.build_opener") as build:
             with self.assertRaisesMessage(AnalysisError, "gateway_input_limit"):
-                self.client.request("text", {"text": "Too long"})
+                self.client.request("text", {"text": "x" * CONFIG["max_request_bytes"]})
             build.assert_not_called()
         with patch("core.analysis.gateway.build_opener") as build:
             with self.assertRaisesMessage(AnalysisError, "gateway_invalid_input"):
@@ -259,6 +242,22 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
         sleep.assert_called_once_with(1)
         self.assertGreaterEqual(self.authorize.call_count, 6)
         self.assertTrue(retry.closed)
+
+    def test_revoked_case_approval_stops_rate_limit_retry_before_another_send(self):
+        with (
+            patch("core.analysis.gateway.build_opener") as build,
+            patch(
+                "core.analysis.gateway.time.sleep",
+                side_effect=lambda _: revoke_case_execution(self.case),
+            ),
+        ):
+            build.return_value.open.side_effect = error(429)
+            with self.assertRaisesMessage(
+                AnalysisError, "external_processing_not_approved"
+            ):
+                self.client.request("text", {})
+        build.return_value.open.assert_called_once()
+        self.assertEqual(GatewayRequest.objects.get().status, "rate_limit")
 
     def test_authentication_quota_and_provider_failures_have_safe_distinct_codes(self):
         for status, expected in (
@@ -365,6 +364,21 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
                 self.client.request("text", {})
             build.assert_not_called()
         self.assertEqual(GatewayRequest.objects.get().status, "access_removed")
+
+    def test_revoked_grant_cancels_usage_before_dispatch(self):
+        def authorize(**kwargs):
+            if not kwargs.get("lock"):
+                revoke_case_execution(self.case)
+            return authorize_run(self.run, **kwargs)
+
+        self.authorize.side_effect = authorize
+        with patch("core.analysis.gateway.build_opener") as build:
+            with self.assertRaisesMessage(
+                AnalysisError, "external_processing_not_approved"
+            ):
+                self.client.request("text", {})
+        build.assert_not_called()
+        self.assertEqual(GatewayRequest.objects.get().status, "cancelled")
 
     def test_access_removed_after_response_prevents_returning_evidence_content(self):
         self.authorize.side_effect = [

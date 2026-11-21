@@ -1,4 +1,4 @@
-"""New local routes, explicit disclosure, pinned execution and legacy history."""
+"""Private routes, case approval, pinned execution and legacy history."""
 
 import json
 from copy import deepcopy
@@ -14,17 +14,22 @@ from django.utils import timezone
 
 from audio.models import AudioEvidence
 from cases.models import CaseMembership
+from core.analysis.approval import revoke_case_execution
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
+    available_executions,
+    configured_executions,
     processing_external,
     requires_inference,
     snapshot_execution,
 )
 from core.analysis.services import process_run, start_run
-from core.analysis.testing import wav_bytes
+from core.analysis.testing import external_grant_kwargs, wav_bytes
+from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisRun, GatewayRequest
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence
+from geo.testing import LOCAL_GEOCODER
 from phone.models import TextMessageEvidence
 from text.models import TextEvidence
 
@@ -51,6 +56,15 @@ LOCAL = {
 
 
 class ExecutionSelectionTests(SimpleTestCase):
+    @override_settings(PANDECT_AI_GATEWAY={}, PANDECT_LOCAL_AI={})
+    def test_empty_gateway_configuration_does_not_enable_a_route(self):
+        self.assertEqual(configured_executions("content_events", {}), {})
+        self.assertEqual(configured_executions("transcription", {}), {})
+        self.assertEqual(
+            snapshot_execution("content_events", {"backend": "gateway"})["model"],
+            "",
+        )
+
     def test_all_five_ai_paths_and_optional_local_modes(self):
         for operation, parameters, purpose in (
             ("transcription", {}, "transcription"),
@@ -133,8 +147,10 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
         client.usage = {"request_count": 1, "input_tokens": 50, "output_tokens": 20}
         return client
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_new_runs_default_local_and_approval_never_selects_cloud(self):
-        run = self.start(external_processing=True)
+        external_grant_kwargs(self.case, "content_events")
+        run = self.start()
         self.assertFalse(run.external_processing)
         self.assertEqual(run.parameters["_execution"]["backend"], "local")
         with (
@@ -149,10 +165,39 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.result.provenance["execution"]["sha256"], "a" * 64)
         self.assertEqual(run.result.provenance["local_usage"]["request_count"], 1)
 
-    def test_cloud_requires_explicit_selection_and_approval(self):
-        with self.assertRaisesMessage(ValidationError, "Approve external"):
-            self.start(parameters={"backend": "gateway"})
-        run = self.start(parameters={"backend": "gateway"}, external_processing=True)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_cloud_requires_current_case_approval_for_the_exact_destination(self):
+        parameters = {"backend": "gateway"}
+        with self.assertRaisesMessage(
+            AnalysisError, "external_processing_not_approved"
+        ):
+            self.start(
+                parameters=parameters
+                | {
+                    "_external_approval": {"revision": str(uuid4())},
+                    "external_processing": True,
+                },
+            )
+        self.assertEqual(
+            set(available_executions(self.case, "content_events", {})), {"local"}
+        )
+        grant = external_grant_kwargs(self.case, "content_events")
+        self.assertEqual(
+            set(available_executions(self.case, "content_events", {})),
+            {"local", "gateway"},
+        )
+        with self.assertRaisesMessage(
+            AnalysisError, "external_processing_not_approved"
+        ):
+            start_run(
+                self.users["outsider"],
+                self.other_case.pk,
+                "content_events",
+                [{"kind": "text", "id": str(self.note.pk)}],
+                parameters=parameters,
+                **grant,
+            )
+        run = self.start(parameters=parameters, role="editor", **grant)
         self.assertTrue(run.external_processing)
         with (
             patch(
@@ -163,6 +208,27 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
         ):
             self.assertEqual(self.process(run), "complete")
         local.assert_not_called()
+        self.assertEqual(
+            run.result.provenance["external_approval"]["approved_by"],
+            str(self.users["owner"].pk),
+        )
+
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_case_revoke_and_reapprove_cannot_resume_previously_queued_work(self):
+        parameters = {"backend": "gateway"}
+        grant = external_grant_kwargs(self.case, "content_events")
+        old = self.start(parameters=parameters, **grant)
+        revoke_case_execution(self.case)
+        new_grant = external_grant_kwargs(self.case, "content_events")
+        self.assertNotEqual(
+            grant["external_grant_revision"], new_grant["external_grant_revision"]
+        )
+        with patch("core.analysis.gateway.build_opener") as transport:
+            self.assertEqual(self.process(old), "failed")
+        transport.assert_not_called()
+        self.assertEqual(old.error_code, "external_processing_not_approved")
+        retry = self.start(parameters=parameters, previous_run=old, **new_grant)
+        self.assertEqual(retry.previous_run_id, old.pk)
 
     def test_each_text_mode_runs_local_with_existing_source_validation(self):
         messages = [
@@ -296,6 +362,38 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
             self.assertFalse(context.external_processing)
             self.assertEqual(context.result.artifacts.count(), 1)
         cloud.assert_not_called()
+
+    @override_settings(**(LOCAL_GEOCODER | {"PANDECT_GEOCODER_LOCAL": False}))
+    def test_revoked_grant_stops_external_geocoding_after_first_authorized_request(
+        self,
+    ):
+        selections = []
+        for number in (1, 2):
+            observation = LocationEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["editor"],
+                title=f"Synthetic place {number}",
+                address=f"{number} Synthetic Street",
+            )
+            selections.append({"kind": "location", "id": str(observation.pk)})
+        run = self.start(
+            "geocode_locations",
+            selections,
+            role="editor",
+            **external_grant_kwargs(self.case, "geocode_locations"),
+        )
+
+        def revoke(**kwargs):
+            revoke_case_execution(self.case)
+            return []
+
+        with patch(
+            "geo.analysis.external.geocoding.Geocoder.lookup", side_effect=revoke
+        ) as lookup:
+            self.assertEqual(self.process(run), "failed")
+        lookup.assert_called_once()
+        self.assertEqual(run.error_code, "external_processing_not_approved")
+        self.assertFalse(hasattr(run, "result"))
 
     def test_configuration_drift_refuses_work_and_preserves_submission_identity(self):
         submission_id = uuid4()
@@ -438,7 +536,7 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.error_code, "access_removed")
         self.assertFalse(hasattr(run, "result"))
 
-    def test_legacy_queued_cloud_run_keeps_its_route_and_parameters(self):
+    def test_legacy_queued_cloud_run_stops_and_keeps_its_route_and_parameters(self):
         selected = self.start()
         legacy = AnalysisRun.objects.create(
             case=self.case,
@@ -450,17 +548,16 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
             parameters={},
         )
         with (
-            patch(
-                "core.analysis.gateway.GatewayClient.infer",
-                return_value=self.suggestion(legacy),
-            ),
+            patch("core.analysis.gateway.GatewayClient.infer") as external,
             patch("core.analysis.local.LocalClient") as local,
         ):
-            self.assertEqual(self.process(legacy), "complete")
+            self.assertEqual(self.process(legacy), "failed")
+        external.assert_not_called()
         local.assert_not_called()
         legacy.refresh_from_db()
         self.assertEqual(legacy.parameters, {})
         self.assertTrue(legacy.external_processing)
+        self.assertEqual(legacy.error_code, "external_processing_not_approved")
 
     @override_settings(PANDECT_GEOCODER_LOCAL=False, PANDECT_MAP_CONTEXT_LOCAL=False)
     def test_private_geographic_services_need_explicit_operator_trust(self):
@@ -478,7 +575,9 @@ class LocalExecutionTests(EvidenceViewTestMixin, TestCase):
             ("geographic_context", "PANDECT_MAP_CONTEXT_LOCAL"),
         ):
             with self.subTest(operation=operation):
-                with self.assertRaisesMessage(ValidationError, "Approve external"):
+                with self.assertRaisesMessage(
+                    AnalysisError, "external_processing_not_approved"
+                ):
                     self.start(operation, selections)
                 with override_settings(**{flag: True}):
                     run = self.start(operation, selections)

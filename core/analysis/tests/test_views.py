@@ -7,20 +7,20 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.conf import settings
 from django.core.files.base import ContentFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from audio.models import AudioEvidence
 from cases.models import CaseMembership
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.form_base import source_choices
 from core.analysis.navigation import finding_url
 from core.analysis.services import process_run, start_run
-from core.analysis.testing import image_bytes
+from core.analysis.testing import external_grant_kwargs, image_bytes
 from core.analysis.tests.test_gateway import CONFIG
-from core.models import AnalysisResult, AnalysisReview, AnalysisRun
+from core.models import AnalysisResult, AnalysisReview, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
@@ -248,8 +248,11 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
     @override_settings(
         PANDECT_GEOCODER_URL="https://lookup.example.test/first",
         PANDECT_GEOCODER_LOCAL=False,
+        PANDECT_GEOCODER_NAME="Synthetic geocoder",
+        PANDECT_GEOCODER_VERSION="1",
+        PANDECT_GEOCODER_ATTRIBUTION="Synthetic reference data",
     )
-    def test_geographic_initial_approval_binds_the_displayed_origin(self):
+    def test_geographic_initial_selection_uses_only_the_approved_origin(self):
         point = LocationEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
@@ -259,20 +262,18 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.login("owner")
         chooser = self.analysis_url("create")
         screen = self.client.get(chooser, {"operation": "geocode_locations"})
-        self.assertContains(screen, "https://lookup.example.test")
+        self.assertNotContains(screen, "external_processing")
         self.assertNotContains(screen, "https://lookup.example.test/first")
         form = screen.context["form"]
         payload = {
             "operation": "geocode_locations",
             "sources": [f"location:{point.pk}"],
             "submission_id": form["submission_id"].value(),
-            "execution_confirmation": form["execution_confirmation"].value(),
-            "external_processing": "on",
         }
+        external_grant_kwargs(self.case, "geocode_locations")
         with self.settings(PANDECT_GEOCODER_URL="https://another.example.test/second"):
             changed = self.client.post(chooser, payload)
-        self.assertContains(changed, "Processing settings changed")
-        self.assertFalse(changed.context["form"]["external_processing"].value())
+        self.assertContains(changed, "No configured or approved service")
         self.assertEqual(AnalysisRun.objects.count(), 0)
 
     def test_required_comparison_inputs_are_visible_and_blank_event_never_queues(self):
@@ -354,6 +355,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(form["sources"].value(), [f"location:{point.pk}"])
         self.assertFalse(AnalysisRun.objects.exists())
 
+    @override_settings(PANDECT_LOCAL_AI={})
     def test_configuration_errors_keep_the_exact_extraction_version(self):
         document = DocumentEvidence.objects.create(
             case=self.case,
@@ -380,7 +382,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             ),
         )
         form = response.context["form"]
-        self.assertIn("backend", form.errors)
+        self.assertIn("No configured or approved service", str(form.non_field_errors()))
         self.assertEqual(form["sources"].value(), [selected])
         self.assertIn(
             f"document:{document.pk}:-:{runs[1].result.pk}",
@@ -609,7 +611,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             [run.pk for run in response.context["analysis_page_obj"]], [selected.pk]
         )
-        self.assertContains(
+        self.assertNotContains(
             response,
             f'action="{(url + suffix).replace("&", "&amp;")}#evidence-analysis-error"',
         )
@@ -619,13 +621,12 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             'href="?results_page=1&amp;q=Selected&amp;type=text&amp;state=all'
             '&amp;page=2#evidence-history-heading"',
         )
-        self.assertRedirects(
-            self.client.post(
-                url + suffix + "&results_page=2", {"submission_id": str(uuid4())}
-            ),
-            original + "#evidence-findings-heading",
+        batch_response = self.client.post(
+            url + suffix + "&results_page=2", {"submission_id": str(uuid4())}
         )
+        self.assertIn(f"batch={CaseAnalysisBatch.objects.get().pk}", batch_response.url)
 
+    @override_settings(PANDECT_LOCAL_AI={})
     def test_evidence_analysis_uses_url_source_and_ignores_forged_operation_settings(
         self,
     ):
@@ -646,14 +647,14 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             external_processing="on",
             include_summary="on",
         )
-        self.assertRedirects(
-            self.client.post(url, payload),
-            self.url("detail", self.note) + "#evidence-findings-heading",
-        )
-        runs = list(AnalysisRun.objects.all())
-        self.assertEqual(
-            {run.operation for run in runs},
-            {"entities", "text_topics"},
+        submitted = self.client.post(url, payload)
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertIn(f"batch={batch.pk}", submitted.url)
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        runs = list(batch.runs.all())
+        self.assertTrue(
+            {"entities", "style_profiles", "text_topics"}
+            <= {run.operation for run in runs}
         )
         for run in runs:
             self.assertFalse(run.external_processing)
@@ -683,12 +684,12 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(self.client.get(self.url("detail", self.note)), "Archived")
         payload = {"submission_id": str(uuid4())}
         first = self.client.post(url, payload)
-        first_ids = set(AnalysisRun.objects.values_list("pk", flat=True))
-        self.assertEqual(len(first_ids), 2)
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertIn(f"batch={batch.pk}", first.url)
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        first_ids = set(batch.runs.values_list("pk", flat=True))
+        self.assertTrue(first_ids)
         repeated = self.client.post(url, payload)
-        self.assertRedirects(
-            first, self.url("detail", self.note) + "#evidence-findings-heading"
-        )
         self.assertEqual(first["Location"], repeated["Location"])
         self.assertEqual(
             set(AnalysisRun.objects.values_list("pk", flat=True)), first_ids
@@ -762,7 +763,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         submission_id = str(uuid4())
         with patch(
-            "core.analysis.views.start_evidence_analysis",
+            "core.analysis.views.start_evidence_reprocessing",
             side_effect=AnalysisError("source_changed"),
         ):
             response = self.client.post(
@@ -911,7 +912,7 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, self.foreign.title)
         self.assertNotContains(response, "Find evidence by title")
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI={})
     def test_external_evidence_requires_approval_current_edit_access_and_csrf(self):
         url = self.analysis_url(
             "external_evidence", kind="text", evidence_id=self.note.pk
@@ -923,20 +924,13 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(self.client.post(url, payload).status_code, expected)
         self.login("owner")
         response = self.client.post(url, payload)
-        self.assertIn("external_processing", response.context["form"].errors)
+        self.assertContains(response, "No configured or approved service")
         self.assertFalse(AnalysisRun.objects.exists())
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(url, payload).status_code, 403)
-        reviewed = self.client.get(url, {"operation": "content_events"}).context["form"]
-        payload |= {
-            "submission_id": reviewed["submission_id"].value(),
-            "execution_confirmation": reviewed["execution_confirmation"].value(),
-        }
-        self.assertEqual(
-            self.client.post(url, payload | {"external_processing": "on"}).status_code,
-            302,
-        )
+        external_grant_kwargs(self.case, "content_events")
+        self.assertEqual(self.client.post(url, payload).status_code, 302)
         self.assertTrue(AnalysisRun.objects.get().external_processing)
 
     def test_external_evidence_rejects_other_sources_and_local_operations(self):
@@ -1027,8 +1021,14 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             {"submission_id": str(uuid4())},
             follow=True,
         )
-        self.assertContains(response, "No local analysis is available")
-        self.assertEqual(AnalysisRun.objects.count(), 1)
+        self.assertContains(response, "Preparing evidence analysis")
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        self.assertFalse(
+            batch.runs.filter(
+                operation__in=("audio_metadata", "transcription")
+            ).exists()
+        )
 
     def test_start_result_download_and_escaped_findings(self):
         self.login("editor")
@@ -1218,94 +1218,46 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(AnalysisRun.objects.count(), 2)
 
-    def test_external_rerun_requires_current_editor_approval_of_current_destination(
-        self,
-    ):
-        gateway = settings.PANDECT_AI_GATEWAY | {
-            "account": "a" * 32,
-            "gateway": "original-gateway",
-            "models": {"text": "@cf/synthetic/old-model"},
-        }
-        with self.settings(PANDECT_AI_GATEWAY=gateway):
-            original, _ = start_run(
-                self.users["owner"],
-                self.case.pk,
-                "content_events",
-                [{"kind": "text", "id": str(self.note.pk)}],
-                parameters={"backend": "gateway"},
-                external_processing=True,
-            )
-            self.login("owner")
-            self.client.post(self.analysis_url("cancel", run=original))
-            detail_url = self.analysis_url("detail", run=original)
-            retry_url = self.analysis_url("retry", run=original)
-            owner_page = self.client.get(detail_url)
-            self.assertContains(owner_page, "original-gateway")
-            owner_data = {
-                "submission_id": owner_page.context["retry_submission_id"],
-                "retry_confirmation": owner_page.context["retry_confirmation"],
-                "external_processing": "on",
-            }
-            self.login("editor")
-            editor_page = self.client.get(detail_url)
-            editor_data = owner_data | {
-                "submission_id": editor_page.context["retry_submission_id"],
-                "retry_confirmation": editor_page.context["retry_confirmation"],
-            }
-            for rejected in (
-                owner_data,
-                editor_data | {"external_processing": ""},
-                editor_data | {"retry_confirmation": ""},
-                editor_data | {"submission_id": uuid4()},
-            ):
-                with self.subTest(rejected=rejected):
-                    response = self.client.post(retry_url, rejected, follow=True)
-                    self.assertContains(
-                        response, "Review the current processing destination"
-                    )
-                    self.assertEqual(AnalysisRun.objects.count(), 1)
-
-        changed_gateway = gateway | {
-            "account": "b" * 32,
-            "gateway": "replacement-gateway",
-            "models": {"text": "@cf/synthetic/new-model"},
-        }
-        with self.settings(PANDECT_AI_GATEWAY=changed_gateway):
-            response = self.client.post(retry_url, editor_data, follow=True)
-            self.assertContains(response, "Review the current processing destination")
-            self.assertContains(response, "replacement-gateway")
-            self.assertContains(response, "@cf/synthetic/new-model")
-            self.assertNotContains(response, "original-gateway")
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_external_rerun_requires_current_route_and_recovers_receipt(self):
+        original, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "content_events",
+            [{"kind": "text", "id": str(self.note.pk)}],
+            parameters={"backend": "gateway"},
+            **external_grant_kwargs(self.case, "content_events"),
+        )
+        self.login("owner")
+        self.client.post(self.analysis_url("cancel", run=original))
+        detail = self.client.get(self.analysis_url("detail", run=original))
+        retry_url = self.analysis_url("retry", run=original)
+        payload = {"submission_id": detail.context["retry_submission_id"]}
+        self.assertNotContains(detail, "retry_confirmation")
+        self.login("editor")
+        replacement = CONFIG | {"gateway": "replacement-gateway"}
+        with self.settings(PANDECT_AI_GATEWAY=replacement):
+            blocked = self.client.post(retry_url, payload, follow=True)
+            self.assertContains(blocked, "The service for this run is unavailable.")
             self.assertEqual(AnalysisRun.objects.count(), 1)
-
-            current_data = editor_data | {
-                "submission_id": response.context["retry_submission_id"],
-                "retry_confirmation": response.context["retry_confirmation"],
-            }
-            response = self.client.post(retry_url, current_data)
-            self.assertEqual(response.status_code, 302)
-            new_run = AnalysisRun.objects.get(previous_run=original)
+            external_grant_kwargs(self.case, "content_events")
+            queued = self.client.post(retry_url, payload)
+            run = AnalysisRun.objects.get(previous_run=original)
+            self.assertEqual(run.requested_by, self.users["editor"])
+            self.assertEqual(run.inputs, original.inputs)
             self.assertEqual(
-                response["Location"], self.analysis_url("detail", run=new_run)
+                run.parameters["_execution"]["gateway"], "replacement-gateway"
             )
-            self.assertEqual(new_run.requested_by, self.users["editor"])
-            self.assertEqual(new_run.inputs, original.inputs)
-            self.assertTrue(new_run.external_processing)
-            self.assertEqual(
-                new_run.parameters["_execution"]["gateway"], "replacement-gateway"
-            )
+            self.assertTrue(run.external_processing)
+        self.assertEqual(self.client.post(retry_url, payload).url, queued.url)
+        self.assertEqual(AnalysisRun.objects.count(), 2)
 
-        with self.settings(PANDECT_AI_GATEWAY=gateway):
-            # Recover the already queued run after losing the POST response.
-            repeat = self.client.post(retry_url, current_data)
-            self.assertRedirects(
-                repeat, response["Location"], fetch_redirect_response=False
-            )
-            self.assertEqual(AnalysisRun.objects.count(), 2)
-
-    def test_local_geographic_rerun_requires_approval_after_external_reconfiguration(
-        self,
-    ):
+    @override_settings(
+        PANDECT_GEOCODER_NAME="Synthetic geocoder",
+        PANDECT_GEOCODER_VERSION="1",
+        PANDECT_GEOCODER_ATTRIBUTION="Synthetic reference data",
+    )
+    def test_local_geographic_rerun_keeps_the_original_processing_location(self):
         location = LocationEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
@@ -1324,22 +1276,20 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             self.login("owner")
             self.client.post(self.analysis_url("cancel", run=original))
             response = self.client.get(self.analysis_url("detail", run=original))
-            self.assertNotContains(response, "I approve external processing")
-            prior_submission_id = response.context["retry_submission_id"]
+            payload = {"submission_id": response.context["retry_submission_id"]}
 
         with self.settings(
             PANDECT_GEOCODER_LOCAL=False,
             PANDECT_GEOCODER_URL="https://geocoder.example.test/internal-path",
         ):
+            external_grant_kwargs(self.case, "geocode_locations")
             response = self.client.post(
                 self.analysis_url("retry", run=original),
-                {"submission_id": prior_submission_id, "external_processing": "on"},
+                payload,
                 follow=True,
             )
-            self.assertContains(response, "Review the current processing destination")
-            self.assertContains(response, "https://geocoder.example.test")
-            self.assertNotContains(response, "internal-path")
-            self.assertContains(response, "I approve external processing")
+            self.assertContains(response, "The service for this run is unavailable.")
+            self.assertNotContains(response, "geocoder.example.test")
             self.assertEqual(AnalysisRun.objects.count(), 1)
 
     def test_revocation_and_downgrade_before_publication_blocks_result(self):

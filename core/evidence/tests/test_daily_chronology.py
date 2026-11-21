@@ -150,12 +150,50 @@ class DailyChronologyTests(EvidenceViewTestMixin, TestCase):
         self.login("editor")
         response = self.day()
         self.assertEqual([row["id"] for row in response.context["rows"]], [latest.pk])
+        self.assertEqual(response.context["previous_day"], date(2026, 7, 3))
+        self.assertIsNone(response.context["next_day"])
+        earliest = self.day("2026-07-03")
+        self.assertIsNone(earliest.context["previous_day"])
+        self.assertEqual(earliest.context["next_day"], date(2026, 7, 8))
         empty = self.day("2026-07-05")
         self.assertEqual(list(empty.context["rows"]), [])
         self.assertContains(empty, 'value="2026-07-05"')
-        self.assertContains(empty, "day=2026-07-03")
-        self.assertContains(empty, "day=2026-07-08")
-        self.assertNotContains(empty, "2026-07-15")
+        self.assertEqual(empty.context["previous_day"], date(2026, 7, 3))
+        self.assertEqual(empty.context["next_day"], date(2026, 7, 8))
+
+    def test_navigation_includes_a_day_with_only_a_continuing_trip(self):
+        start = datetime(2026, 7, 3, 23, 55, tzinfo=UTC)
+        end = start + timedelta(days=1, minutes=10)
+        for observed_at, address in (
+            (start, "2 Market Street"),
+            (end, "6 Harbour Road"),
+        ):
+            VehicleLocationEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.case.owner,
+                vehicle=self.vehicle,
+                title="Vehicle position",
+                address=address,
+                observed_at=observed_at,
+            )
+        (generation,) = prepare_case_trips(self.case.owner, self.case.pk)
+        # Exercise retained intervals independently of the current segmentation gap.
+        with patch("geo.analysis.deterministic.trips.GAP_SECONDS", 2 * 24 * 60 * 60):
+            for _ in range(2):
+                process_trips(str(generation.pk), str(generation.token))
+                generation.refresh_from_db()
+        self.assertEqual(generation.status, "complete", generation.error_code)
+        trip = saved_trips(self.case, state="all").get()
+
+        self.login("viewer")
+        self.assertEqual(self.day("2026-07-03").context["next_day"], date(2026, 7, 4))
+        self.assertEqual(
+            self.day("2026-07-05").context["previous_day"], date(2026, 7, 4)
+        )
+        middle = self.day("2026-07-04")
+        self.assertEqual([row["id"] for row in middle.context["rows"]], [trip.pk])
+        self.assertEqual(middle.context["previous_day"], date(2026, 7, 3))
+        self.assertEqual(middle.context["next_day"], date(2026, 7, 5))
 
     def test_navigation_skips_a_date_omitted_by_the_local_timezone(self):
         viewer = self.users["viewer"]
@@ -171,6 +209,25 @@ class DailyChronologyTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(omitted.context["rows"], [])
         self.assertEqual(omitted.context["previous_day"], date(2011, 12, 29))
         self.assertEqual(omitted.context["next_day"], date(2011, 12, 31))
+
+    def test_navigation_uses_rendered_day_when_local_clock_rolls_back_past_midnight(
+        self,
+    ):
+        viewer = self.users["viewer"]
+        viewer.timezone = "America/St_Johns"
+        viewer.save(update_fields=["timezone"])
+        midnight = datetime(2006, 10, 29, 2, 30, tzinfo=UTC)
+        self.text(collected_at=midnight - timedelta(minutes=5))
+        # This original displays a repeated 23:10 but follows the first midnight.
+        latest = self.text(collected_at=midnight + timedelta(minutes=10))
+        self.login("viewer")
+        first = self.day("2006-10-28")
+        self.assertEqual(first.context["next_day"], date(2006, 10, 29))
+        last = self.day()
+        self.assertEqual(last.context["day"], date(2006, 10, 29))
+        self.assertEqual([row["id"] for row in last.context["rows"]], [latest.pk])
+        self.assertEqual(last.context["previous_day"], date(2006, 10, 28))
+        self.assertIsNone(last.context["next_day"])
 
     def test_archive_paging_and_stable_timestamp_ties(self):
         at = datetime(2026, 7, 3, 12, tzinfo=UTC)

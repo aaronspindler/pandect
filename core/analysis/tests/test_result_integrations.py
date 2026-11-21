@@ -11,7 +11,7 @@ from uuid import uuid4
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -29,7 +29,7 @@ from core.analysis.services import (
     start_run,
 )
 from core.analysis.sources import output
-from core.analysis.testing import local_ocr_response
+from core.analysis.testing import external_grant_kwargs, local_ocr_response
 from core.analysis.testing import preview_image_bytes as image_bytes
 from core.models import (
     AnalysisArtifact,
@@ -42,6 +42,7 @@ from core.models import (
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
+from geo.testing import LOCAL_GEOCODER
 from image.models import ImageEvidence
 
 
@@ -153,7 +154,6 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "ocr",
             [{"kind": "image", "id": str(image.pk)}],
-            external_processing=True,
         )
         self.assertFalse(run.external_processing)
         AnalysisRun.objects.filter(pk=run.pk).update(
@@ -445,6 +445,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(len(response.context["rows"]), 0)
 
+    @override_settings(**(LOCAL_GEOCODER | {"PANDECT_GEOCODER_LOCAL": False}))
     def geocode_fixture(self):
         location = LocationEvidence.objects.create(
             case=self.case,
@@ -457,7 +458,7 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "geocode_locations",
             [{"kind": "location", "id": str(location.pk)}],
-            external_processing=True,
+            **external_grant_kwargs(self.case, "geocode_locations"),
         )
         AnalysisRun.objects.filter(pk=run.pk).update(status="complete", progress=100)
         run.refresh_from_db()

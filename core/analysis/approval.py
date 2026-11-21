@@ -1,16 +1,13 @@
-"""Bind a form's external approval to the destination actually displayed."""
+"""Bind a case owner's external approval to the destinations they reviewed."""
 
 from uuid import uuid4
 
-from django import forms
-from django.utils.crypto import constant_time_compare
-from django.utils.html import format_html
+from django.utils import timezone
 
 from core.analysis.execution import (
+    configured_external_executions,
     execution_confirmation,
     execution_destination,
-    inference_configured,
-    snapshot_execution,
 )
 
 TRANSFER_CONTENT = {
@@ -21,70 +18,60 @@ TRANSFER_CONTENT = {
 }
 
 
-def _confirmation(form, submission_id):
+def case_approval_confirmation(case, actor, action, executions):
     return execution_confirmation(
-        "analysis.initial.execution",
-        [*form.approval_context, str(submission_id)],
-        form.external_execution,
+        "analysis.case.execution",
+        [
+            str(case.pk),
+            str(actor.pk),
+            action,
+            case.external_analysis_approval.get("revision", ""),
+        ],
+        executions,
     )
 
 
-def prepare_external_approval(form, *, actor, case, operation, scope=()):
-    form.approved_execution = None
-    form.approval_context = [
-        str(actor.pk) if actor else "",
-        str(case.pk),
-        operation,
-        *scope,
-    ]
-    execution = snapshot_execution(
-        operation,
-        {"backend": "gateway", "include_summary": True, "semantic_links": True},
-    )
-    form.external_execution = execution
-    form.fields["execution_confirmation"] = forms.CharField(
-        required=False, widget=forms.HiddenInput
-    )
-    field = form.fields["external_processing"]
-    destination = execution_destination(execution)
-    readiness = (
-        " Ask the operator to configure external AI for this analysis."
-        if execution["backend"] == "gateway"
-        and not inference_configured(execution, operation)
-        else ""
-    )
-    field.help_text = format_html(
-        "Sends selected {} to {}. Provider retention policies apply. "
-        "Sent requests cannot be recalled.{}",
-        TRANSFER_CONTENT[execution["purpose"]],
-        destination or "a geographic lookup service the operator must configure",
-        readiness,
-    )
-    if not form.is_bound:
-        submission_id = form.initial.get("submission_id") or uuid4()
-        form.initial |= {
-            "submission_id": submission_id,
-            "execution_confirmation": _confirmation(form, submission_id),
-        }
+def case_approval_context(case, actor):
+    executions = configured_external_executions()
+    approval = case.external_analysis_approval
+    approved = approval.get("executions", {})
+    destinations = {}
+    for operation, execution in executions.items():
+        name = execution_destination(execution)
+        if execution.get("key_alias"):
+            name += f" · Key alias {execution['key_alias']}"
+        if execution.get("name"):
+            name = f"{execution['name']} · {name} · {execution['version']}"
+        key = TRANSFER_CONTENT[execution["purpose"]].capitalize(), name
+        destinations[key] = destinations.get(key, True) and execution == approved.get(
+            operation
+        )
+    return {
+        "destinations": [
+            {"material": material, "name": name, "approved": is_approved}
+            for (material, name), is_approved in destinations.items()
+        ],
+        "active": bool(approved),
+        "can_approve": bool(executions and approved != executions),
+        "approve_confirmation": case_approval_confirmation(
+            case, actor, "approve", executions
+        ),
+        "revoke_confirmation": case_approval_confirmation(case, actor, "revoke", {}),
+    }
 
 
-def validate_external_approval(form, data):
-    submission_id = data.get("submission_id")
-    expected = _confirmation(form, submission_id)
-    if submission_id and constant_time_compare(
-        data.get("execution_confirmation") or "", expected
-    ):
-        form.approved_execution = form.external_execution
-        return
-    form.add_error(
-        None,
-        "Processing settings changed or this request expired. "
-        "Review the destination and approve external processing again.",
-    )
-    values = form.data.copy()
-    submission_id = uuid4()
-    values["submission_id"] = str(submission_id)
-    values["execution_confirmation"] = _confirmation(form, submission_id)
-    values.pop("external_processing", None)
-    data["external_processing"] = False
-    form.data = values
+def approve_case_execution(case, owner, executions):
+    """Record the request's locked, verified case-owner approval."""
+    case.external_analysis_approval = {
+        "revision": str(uuid4()),
+        "approved_by": str(owner.pk),
+        "approved_at": timezone.now().isoformat(),
+        "executions": executions,
+    }
+    case.save(update_fields=("external_analysis_approval",))
+
+
+def revoke_case_execution(case):
+    """Replace the revision even when approval returns to the inactive state."""
+    case.external_analysis_approval = {"revision": str(uuid4())}
+    case.save(update_fields=("external_analysis_approval",))

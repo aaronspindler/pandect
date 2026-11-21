@@ -20,9 +20,10 @@ from playwright.sync_api import expect
 from audio.models import AudioEvidence
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.approval import revoke_case_execution
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.services import cancel_run, process_run, start_run
-from core.analysis.testing import wav_bytes
+from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_openai_gateway import OPENAI
 from core.analysis.tests.test_topic_recovery import LOCAL
 from core.models import AnalysisRun, CaseAnalysisBatch
@@ -52,7 +53,8 @@ class AnalysisBrowserTests(BrowserTestCase):
         },
     )
     def test_direct_ai_review_and_queue_without_javascript(self):
-        url = (
+        settings_url = self.url("cases:case_settings", case_id=self.case.pk)
+        analysis_url = (
             self.url("core:analysis:create", case_id=self.case.pk)
             + "?operation=content_events"
         )
@@ -62,24 +64,16 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page, self.owner)
-                page.goto(url)
-                location = page.get_by_label("Processing location", exact=True)
-                expect(location).to_have_value("local")
-                location.select_option(label="External AI")
+                page.goto(settings_url)
                 expect(
                     page.get_by_text(re.compile("Anthropic.*claude-haiku-5-5"))
                 ).to_be_visible()
                 self.assertNotIn("synthetic-claude-key", page.content())
-                page.locator(
-                    f'input[name="sources"][value="text:{self.text.pk}"]'
-                ).check()
-                approval = page.get_by_label(
-                    "I approve external processing of the selected evidence", exact=True
+                approval = page.get_by_role(
+                    "button", name="Approve listed destinations"
                 )
-                expect(approval).not_to_be_checked()
                 approval.focus()
-                approval.press("Space")
-                expect(approval).to_be_checked()
+                expect(approval).to_be_focused()
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -95,49 +89,71 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.capture(page, engine, "direct-ai-dark")
                 page.emulate_media(forced_colors="active", reduced_motion="reduce")
                 self.capture(page, engine, "direct-ai-forced-colors")
-                page.get_by_role("button", name="Start analysis", exact=True).click()
+                approval.press("Enter")
                 expect(
-                    page.get_by_role("heading", name="Suggest claims and commitments")
+                    page.get_by_text("External analysis approved for this case.")
                 ).to_be_visible()
-                self.assertEqual(
+                page.goto(analysis_url)
+                expect(
+                    page.get_by_label("Processing location", exact=True)
+                ).to_have_count(0)
+                expect(page.locator('input[name="external_processing"]')).to_have_count(
+                    0
+                )
+                page.locator(
+                    f'input[name="sources"][value="text:{self.text.pk}"]'
+                ).check()
+                page.get_by_role("button", name="Start analysis", exact=True).press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                batch = self.db(
+                    lambda: CaseAnalysisBatch.objects.filter(case=self.case).latest(
+                        "created_at"
+                    )
+                )
+                self.assertCountEqual(
                     self.db(
-                        AnalysisRun.objects.filter(
+                        lambda batch=batch: list(
+                            batch.runs.values_list("parameters__backend", flat=True)
+                        )
+                    ),
+                    ["local", "gateway"],
+                )
+                self.assertTrue(
+                    self.db(
+                        batch.runs.filter(
                             external_processing=True,
                             parameters___execution__provider="anthropic",
-                        ).count
-                    ),
-                    self.engines.index(engine) + 1,
+                        ).exists
+                    )
                 )
+                page.goto(settings_url)
+                page.get_by_role(
+                    "button", name="Revoke external analysis approval"
+                ).click()
+                expect(approval).to_be_visible()
 
     @override_settings(PANDECT_AI_GATEWAY=OPENAI, PANDECT_LOCAL_AI=LOCAL)
     def test_openai_destination_and_stale_approval_without_javascript(self):
-        url = (
-            self.url("core:analysis:create", case_id=self.case.pk)
-            + "?operation=content_events"
-        )
+        settings_url = self.url("cases:case_settings", case_id=self.case.pk)
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page, self.owner)
-                page.goto(url)
+                page.goto(settings_url)
                 expect(
                     page.get_by_text(re.compile("OpenAI via Cloudflare AI Gateway"))
                 ).to_be_visible()
-                page.get_by_label("Processing location", exact=True).select_option(
-                    "gateway"
-                )
-                page.locator(
-                    f'input[name="sources"][value="text:{self.text.pk}"]'
-                ).check()
-                approval = page.get_by_label(
-                    re.compile("I approve external processing")
+                approval = page.get_by_role(
+                    "button", name="Approve listed destinations"
                 )
                 approval.focus()
                 expect(approval).to_be_focused()
-                approval.press("Space")
-                expect(approval).to_be_checked()
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -161,22 +177,20 @@ class AnalysisBrowserTests(BrowserTestCase):
                     PANDECT_AI_GATEWAY=OPENAI
                     | {"models": OPENAI["models"] | {"text": "gpt-6-astra"}}
                 ):
-                    page.get_by_role(
-                        "button", name="Start analysis", exact=True
-                    ).click()
+                    approval.press("Enter")
                     expect(
-                        page.get_by_text(re.compile("Processing settings changed"))
+                        page.get_by_text(
+                            "Settings changed. Review the current destinations."
+                        )
                     ).to_be_visible()
                     expect(
                         page.get_by_text(
                             re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6-astra")
                         )
                     ).to_be_visible()
-                    expect(approval).not_to_be_checked()
-                page.emulate_media(color_scheme="light", forced_colors="none")
-                self.assertFalse(
-                    self.db(AnalysisRun.objects.filter(external_processing=True).exists)
-                )
+                    expect(approval).to_be_visible()
+                self.db(self.case.refresh_from_db)
+                self.assertFalse(self.case.external_analysis_approval)
 
     def setUp(self):
         super().setUp()
@@ -448,16 +462,17 @@ class AnalysisBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 expect(page.get_by_text(message.body, exact=True)).to_be_visible()
 
-    def test_rerun_all_with_keyboard_without_javascript(self):
+    def test_reprocess_case_evidence_with_keyboard_without_javascript(self):
         def finish_preparation():
-            batch = CaseAnalysisBatch.objects.filter(case=self.case).first()
+            batch = CaseAnalysisBatch.objects.get(case=self.case)
             for _ in range(20):
                 prepare_case_analysis_batch(str(batch.pk))
                 batch.refresh_from_db()
                 if batch.status != "queued":
                     break
             self.assertEqual(batch.status, "complete")
-            self.assertEqual(batch.queued_runs, 3)
+            self.assertGreaterEqual(batch.queued_runs, 3)
+            return batch
 
         for engine in self.engines:
             with (
@@ -470,8 +485,17 @@ class AnalysisBrowserTests(BrowserTestCase):
                 page.goto(index_url)
                 actions = page.locator("#processing-actions > summary")
                 actions.press("Enter")
-                button = page.get_by_role("button", name="Run local checks", exact=True)
-                expect(button).to_have_count(1)
+                link = page.get_by_role("link", name="Reprocess evidence", exact=True)
+                expect(link).to_be_visible()
+                expect(
+                    page.get_by_role("button", name="Run local checks")
+                ).to_have_count(0)
+                link.focus()
+                expect(link).to_be_focused()
+                link.press("Enter")
+                button = page.get_by_role(
+                    "button", name="Start reprocessing", exact=True
+                )
                 for width, height, label in (
                     (1440, 900, "desktop"),
                     (1440, 1024, "tall-desktop"),
@@ -488,7 +512,6 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self._assert_reflow(page)
                 self.capture(page, engine, "rerun-all-large-text")
                 page.reload()
-                actions.press("Enter")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
                 self.capture(page, engine, "rerun-all-dark")
@@ -499,29 +522,26 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(button).to_be_focused()
                 button.press("Enter")
                 expect(
-                    page.get_by_role("link", name="Preparing local checks", exact=False)
+                    page.get_by_role(
+                        "link", name="Preparing selected checks", exact=False
+                    )
                 ).to_be_visible()
-                self.assertEqual(
-                    self.db(CaseAnalysisBatch.objects.filter(case=self.case).count), 1
-                )
                 self.capture(page, engine, "rerun-all-preparing")
-                self.db(finish_preparation)
-                batch_id = self.db(
-                    lambda: CaseAnalysisBatch.objects.filter(case=self.case).first().pk
-                )
-                page.goto(index_url + f"?batch={batch_id}")
+                batch = self.db(finish_preparation)
+                page.goto(index_url + f"?batch={batch.pk}")
                 expect(page.locator("#processing-history .notice")).to_contain_text(
                     "Selected batch · Checks queued"
                 )
                 expect(page.locator("#processing-history .notice")).to_contain_text(
-                    "2 sources prepared · 3 initial checks queued"
+                    f"{batch.processed_sources} sources prepared · "
+                    f"{batch.queued_runs} initial checks queued"
                 )
                 self.capture(page, engine, "rerun-all-queued")
             with self.browser_page(engine, java_script_enabled=False) as (_, page):
                 self.sign_in(page, self.viewer)
                 page.goto(index_url)
                 expect(
-                    page.get_by_role("button", name="Run local checks", exact=True)
+                    page.get_by_role("link", name="Reprocess evidence", exact=True)
                 ).to_have_count(0)
 
     def test_analysis_overview_reports_and_responsive_layout(self):
@@ -734,10 +754,12 @@ class AnalysisBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Choose an analysis", exact=True)
                 ).to_be_visible()
 
-    def test_external_rerun_approval_is_keyboard_accessible_without_javascript(self):
+    def test_external_rerun_uses_current_case_approval_without_javascript(self):
         gateway = settings.PANDECT_AI_GATEWAY | {
             "account": "a" * 32,
             "gateway": "synthetic-rerun",
+            "gateway_token": "synthetic-gateway-key",
+            "workers_token": "synthetic-workers-key",
             "models": {"text": "@cf/synthetic/reviewed-model"},
         }
         with self.settings(PANDECT_AI_GATEWAY=gateway):
@@ -747,7 +769,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 "content_events",
                 [{"kind": "text", "id": str(self.text.pk)}],
                 parameters={"backend": "gateway"},
-                external_processing=True,
+                **external_grant_kwargs(self.case, "content_events"),
             )
             cancel_run(self.owner, self.case.pk, prior.pk)
             detail_url = self.url(
@@ -758,18 +780,15 @@ class AnalysisBrowserTests(BrowserTestCase):
                     self.subTest(engine=engine),
                     self.browser_page(engine, java_script_enabled=False) as (_, page),
                 ):
+                    self.db(external_grant_kwargs, self.case, "content_events")
                     self.sign_in(page)
                     page.goto(detail_url)
                     page.get_by_text("Details and history", exact=True).press("Enter")
-                    approval = page.get_by_role(
-                        "checkbox", name="I approve external processing for this run"
-                    )
-                    expect(approval).not_to_be_checked()
-                    expect(approval).to_have_accessible_description(
-                        re.compile("synthetic-rerun")
-                    )
-                    expect(approval).to_have_accessible_description(
-                        re.compile("reviewed-model")
+                    expect(
+                        page.locator('input[name="external_processing"]')
+                    ).to_have_count(0)
+                    submit = page.get_by_role(
+                        "button", name="Start another run with these inputs"
                     )
                     next_control = (
                         "Alt+Tab"
@@ -778,11 +797,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                     )
                     page.get_by_text("Method and settings", exact=True).focus()
                     page.keyboard.press(next_control)
-                    expect(approval).to_be_focused()
+                    expect(submit).to_be_focused()
                     self.assertNotEqual(
-                        approval.evaluate(
-                            "node => getComputedStyle(node).outlineStyle"
-                        ),
+                        submit.evaluate("node => getComputedStyle(node).outlineStyle"),
                         "none",
                     )
                     for width, height, label in (
@@ -794,26 +811,30 @@ class AnalysisBrowserTests(BrowserTestCase):
                     ):
                         page.set_viewport_size({"width": width, "height": height})
                         self._assert_reflow(page)
-                        approval.scroll_into_view_if_needed()
-                        self.capture(page, engine, f"external-rerun-approval-{label}")
+                        submit.scroll_into_view_if_needed()
+                        self.capture(page, engine, f"external-rerun-{label}")
                     page.emulate_media(color_scheme="dark", reduced_motion="reduce")
-                    self.capture(page, engine, "external-rerun-approval-dark")
+                    self.capture(page, engine, "external-rerun-dark")
                     if engine == "chromium":
                         page.emulate_media(color_scheme="light", forced_colors="active")
-                        self.capture(
-                            page, engine, "external-rerun-approval-forced-colors"
-                        )
-                    page.keyboard.press("Space")
-                    expect(approval).to_be_checked()
-                    submit = page.get_by_role(
-                        "button", name="Start another run with these inputs"
-                    )
-                    page.keyboard.press(next_control)
-                    expect(submit).to_be_focused()
-                    page.keyboard.press("Enter")
+                        self.capture(page, engine, "external-rerun-forced-colors")
+                    submit.press("Enter")
                     expect(page).not_to_have_url(detail_url)
                     expect(
                         page.get_by_role("heading", name="Processing 0%")
+                    ).to_be_visible()
+                    self.assertTrue(
+                        self.db(
+                            AnalysisRun.objects.filter(
+                                previous_run=prior, external_processing=True
+                            ).exists
+                        )
+                    )
+                    self.db(revoke_case_execution, self.case)
+                    page.goto(detail_url)
+                    expect(submit).to_have_count(0)
+                    expect(
+                        page.get_by_role("link", name="Case settings").last
                     ).to_be_visible()
 
     def test_topic_failure_retains_keywords_and_keyboard_retry_without_javascript(self):
@@ -1476,6 +1497,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.db(AnalysisRun.objects.filter(case=self.case).delete)
+                self.db(CaseAnalysisBatch.objects.filter(case=self.case).delete)
                 self.sign_in(page)
                 page.goto(detail_url)
                 expect(page.locator("#evidence-original-heading")).to_have_count(1)
@@ -1513,10 +1535,29 @@ class AnalysisBrowserTests(BrowserTestCase):
                 )
                 page.goto(detail_url)
                 process.press("Enter")
-                expect(page).to_have_url(detail_url + "#evidence-findings-heading")
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                batch = self.db(CaseAnalysisBatch.objects.get, case=self.case)
+                page.goto(detail_url)
                 expect(
                     page.get_by_role("heading", name=self.document.title, exact=True)
                 ).to_be_visible()
+                expect(
+                    page.get_by_role("status").filter(has_text="Preparing checks…")
+                ).to_be_visible()
+                follow = page.get_by_role(
+                    "link", name="Follow evidence analysis", exact=True
+                )
+                follow.focus()
+                follow.press("Enter")
+                expect(page.locator("#processing-history .notice")).to_contain_text(
+                    "Selected batch"
+                )
+                for _ in range(3):
+                    if self.db(prepare_case_analysis_batch, batch.pk) == "complete":
+                        break
+                page.goto(detail_url)
                 expect(page.get_by_label("Analysis", exact=True)).to_have_count(0)
                 expect(page.locator('input[name="sources"]')).to_have_count(0)
                 expect(
@@ -1572,22 +1613,27 @@ class AnalysisBrowserTests(BrowserTestCase):
                         "heading", name="Suggest claims and commitments", exact=True
                     )
                 ).to_be_visible()
-                location = page.get_by_label("Processing location", exact=True)
-                expect(location).to_have_value("local")
-                location.focus()
-                expect(location).to_be_focused()
+                expect(
+                    page.get_by_label("Processing location", exact=True)
+                ).to_have_count(0)
+                expect(page.locator('input[name="external_processing"]')).to_have_count(
+                    0
+                )
+                page.get_by_role(
+                    "checkbox",
+                    name=re.compile(r"Document · .* · Extract document text"),
+                ).check()
+                start = page.get_by_role("button", name="Start analysis", exact=True)
+                start.focus()
+                expect(start).to_be_focused()
                 for width, height, label in viewports:
                     page.set_viewport_size({"width": width, "height": height})
                     self._assert_reflow(page)
                     self.capture(page, engine, f"local-analysis-form-{label}")
-                location.select_option("gateway")
-                approval = page.get_by_label(
-                    "I approve external processing of the selected evidence", exact=True
-                )
-                expect(approval).not_to_be_checked()
-                page.get_by_role("button", name="Start analysis", exact=True).click()
-                expect(page.locator(".error-summary")).to_be_visible()
-                expect(approval).not_to_be_checked()
+                start.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Processing 0%")
+                ).to_be_visible()
                 self.assertFalse(
                     self.db(AnalysisRun.objects.filter(external_processing=True).exists)
                 )

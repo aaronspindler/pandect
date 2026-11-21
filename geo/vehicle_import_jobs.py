@@ -2,7 +2,7 @@
 
 import time
 from itertools import batched
-from uuid import uuid4
+from uuid import uuid4, uuid5
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
@@ -377,8 +377,18 @@ def _publish(batch, started):
         current.completed_at = current.finished_at = timezone.now()
         current.processed_rows = current.row_count
         current.save()
+        from core.analysis.bulk import start_case_analysis
+        from core.analysis.reprocessing import analysis_scope
         from geo.trip_processing import invalidate_vehicle_trips
 
+        if current.observations.exists():
+            start_case_analysis(
+                current.requested_by,
+                case.pk,
+                submission_id=uuid5(current.pk, "vehicle-import-analysis"),
+                scope={"type": "vehicle", "id": str(current.pk)}
+                | analysis_scope(case, ["vehicle-location"]),
+            )
         invalidate_vehicle_trips(
             current.requested_by,
             case,

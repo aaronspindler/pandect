@@ -144,15 +144,15 @@ worker stopped; elapsed time is insufficient. Use the [fresh baseline](architect
 and matching web/worker revisions: old task paths are incompatible. Commands never
 reset runtime data automatically.
 
-Import performs no external lookup/AI request and verifies no tracking claims.
-Publication queues trips; configured private-geocoder preparation may separately
-queue address lookups. Observations feed [Map](maps.md) and [trip reports](analysis-locations.md#automatic-vehicle-trips).
+Publication queues saved trips and applicable analysis for newly added
+observations. Bounded background lookups use the configured private or
+case-approved external geographic service. Observations feed [Map](maps.md)
+and [trip reports](analysis-locations.md#automatic-vehicle-trips).
 CSV format alone establishes no vendor timestamp, event, duration, or identifier
 semantics; the investigator's explicit interpretation is retained.
 
 ## Checking published observations
 
-**Run local checks on imported evidence** queues bounded quality/address checks
-for retained observations, excluding skipped duplicates. The Processing batch
-separates preparation/execution; no model, external lookup, or per-row batch is
-started. Trips remain independent. See [processing](background-tasks.md#investigator-progress-and-completed-imports).
+**Processing** shows the import's analysis batch and its individual checks.
+Preparation works from published observations and excludes skipped duplicates.
+Trips remain independent. See [processing](background-tasks.md#investigator-progress-and-completed-imports).

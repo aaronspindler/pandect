@@ -64,6 +64,7 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(choices[1][0], f"document:{document.pk}")
         self.assertEqual(choices[2][0], f"document:{document.pk}:-:{run.result.pk}")
 
+    @override_settings(PANDECT_GEOCODER_LOCAL=True)
     def test_picker_reads_geocode_candidates_and_latest_reviews_once_per_result(self):
         originals = [
             LocationEvidence.objects.create(
@@ -79,7 +80,6 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "geocode_locations",
             [{"kind": "location", "id": str(item.pk)} for item in originals],
-            external_processing=True,
         )
         AnalysisRun.objects.filter(pk=run.pk).update(status="complete")
         result = AnalysisResult.objects.create(
@@ -170,7 +170,7 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(form.parameters(), {})
         self.assertNotIn("period_a_start", form.fields)
         self.assertNotIn("me", form.fields)
-        self.assertEqual(len(form.fields), 4)
+        self.assertEqual(set(form.fields), {"operation", "sources", "submission_id"})
 
     def test_polygon_is_parsed_once_and_retains_coordinate_zero(self):
         form = self.form(self.data("proximity", polygon="0, 0\n0, 1\n1, 1"))
@@ -278,20 +278,11 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
         )
 
     @override_settings(PANDECT_GEOCODER_LOCAL=False)
-    def test_geographic_lookup_requires_explicit_external_approval(self):
-        form = self.form(self.data("geocode_locations"))
-        self.assertFalse(form.is_valid())
-        self.assertIn("external_processing", form.errors)
-        review = analysis_form(case=self.case, operation="geocode_locations")
-        allowed = self.form(
-            self.data(
-                "geocode_locations",
-                external_processing=True,
-                submission_id=review["submission_id"].value(),
-                execution_confirmation=review["execution_confirmation"].value(),
-            )
-        )
-        self.assertTrue(allowed.is_valid(), allowed.errors)
+    def test_geographic_lookup_form_has_no_transfer_control(self):
+        form = self.form(self.data("geocode_locations", external_processing=True))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertNotIn("external_processing", form.cleaned_data)
+        self.assertTrue(form.processing_unavailable)
 
     def test_call_pair_requires_first_participant_and_case_scoped_choices(self):
         form = report_form(

@@ -10,7 +10,7 @@ from django.urls import reverse
 from core.analysis.catalogue import project_result
 from core.analysis.services import process_run, resolve_inputs, start_run
 from core.analysis.sources import output, source_id
-from core.analysis.testing import local_ocr_response, wav_bytes
+from core.analysis.testing import external_grant_kwargs, local_ocr_response, wav_bytes
 from core.analysis.testing import preview_image_bytes as image_bytes
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.models import AnalysisResult, AnalysisRun
@@ -43,7 +43,7 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
             operation,
             [{"kind": kind, "id": str(item.pk), **(extra or {})}],
             parameters=parameters,
-            external_processing=external,
+            **(external_grant_kwargs(self.case, operation) if external else {}),
         )
         return run
 

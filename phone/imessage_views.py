@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import DatabaseError
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.db.models.functions import TruncDate
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -26,13 +26,18 @@ from core.models import AnalysisRun, CaseAnalysisBatch
 from phone.analysis.deterministic.imessage import import_file_limit, read_import_page
 from phone.conversations import conversation_url
 from phone.imessage_forms import (
-    ANALYSIS_MODES,
     IMessageConfirmForm,
     IMessagePersonForm,
     IMessageUploadForm,
 )
 from phone.imessage_imports import confirm_import, preview_source, start_preview
 from ui.live import render_live
+
+EARLIER_ANALYSIS_MODES = {
+    "local": "Local checks",
+    "ai": "AI only",
+    "both": "Local checks and AI",
+}
 
 
 @product_login_required
@@ -53,7 +58,11 @@ def imessage_analysis_status(request, case_id, batch_id):
         operation="imessage_import",
         parameters__phase="import",
     )
-    runs = batch.runs.filter(case=case).defer("parameters", "inputs")
+    runs = (
+        batch.runs.filter(case=case)
+        .defer("parameters", "inputs")
+        .annotate(execution=F("parameters___execution"))
+    )
     counts = runs.aggregate(
         total=Count("pk"),
         pending=Count("pk", filter=Q(status__in=("queued", "running"))),
@@ -89,9 +98,7 @@ def imessage_analysis_status(request, case_id, batch_id):
             "nav_section": "processing",
             "batch": batch,
             "imported": imported,
-            "analysis_mode": dict(ANALYSIS_MODES).get(
-                batch.scope.get("mode"), "Earlier analysis settings"
-            ),
+            "analysis_mode": EARLIER_ANALYSIS_MODES.get(batch.scope.get("mode")),
             "page_obj": page,
             "finished_count": finished_count,
             "completed_count": counts["completed"],
@@ -325,7 +332,7 @@ def imessage_review(request, case_id, run_id):
     status = 200
     if ready:
         posted = request.POST if request.method == "POST" else None
-        form = IMessageConfirmForm(posted, actor=request.user, case=case, run=preview)
+        form = IMessageConfirmForm(posted)
         account = IMessagePersonForm(
             posted, case=case, preview=preview, role="account", prefix="account"
         )
@@ -348,7 +355,6 @@ def imessage_review(request, case_id, run_id):
                             "account": account.specification(),
                             "correspondent": correspondent.specification(),
                         },
-                        analysis=form.specification(),
                     )
                 except ValidationError as error:
                     form.add_error(None, error.messages)

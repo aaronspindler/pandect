@@ -390,6 +390,9 @@ PANDECT_LOCAL_AI = {
     "max_response_bytes": 2 * 1024 * 1024,
     "max_output_tokens": 4096,
 }
+PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE = os.environ.get(
+    "PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE", ""
+)
 PANDECT_LOCAL_EMBEDDING = {
     "url": os.environ.get("PANDECT_LOCAL_EMBEDDING_URL", ""),
     "model": os.environ.get("PANDECT_LOCAL_EMBEDDING_MODEL", "all-minilm:22m"),

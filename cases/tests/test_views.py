@@ -3,6 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from allauth.account.models import EmailAddress
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.db import IntegrityError, connection, transaction
@@ -11,8 +12,11 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
+from cases.admin import CaseAdmin
 from cases.models import Case, CaseInvitation, CaseMembership
+from core.analysis.execution import available_executions
 from geo.models import PersonLocationEvidence
+from geo.testing import LOCAL_GEOCODER
 from people.models import Person
 from phone.models import PhoneCallEvidence
 from text.models import TextEvidence
@@ -111,6 +115,61 @@ class CaseInterfaceTests(TestCase):
         response = self.client.get(url, {"q": "No synthetic case"})
         self.assertContains(response, 'aria-label="Search cases"')
         self.assertContains(response, "Clear filters", count=1)
+
+    @override_settings(**(LOCAL_GEOCODER | {"PANDECT_GEOCODER_LOCAL": False}))
+    def test_case_owner_approves_current_destinations_and_can_revoke(self):
+        self.login()
+        settings = self.url("case_settings")
+        action = self.url("case_external_analysis")
+        form = self.client.get(settings)
+        consent = {
+            "action": "approve",
+            "confirmation": form.context["external_analysis"]["approve_confirmation"],
+        }
+        self.assertContains(form, "geocoder.internal:8080")
+        self.assertContains(form, "Addresses or coordinates")
+        self.assertEqual(available_executions(self.case, "geocode_locations", {}), {})
+
+        for actor, status in (
+            (self.viewer, 403),
+            (self.editor, 403),
+            (self.outsider, 404),
+        ):
+            self.login(actor)
+            self.assertEqual(self.client.post(action, consent).status_code, status)
+        self.login()
+        with self.settings(PANDECT_GEOCODER_VERSION="new-dataset"):
+            self.assertContains(
+                self.client.post(action, consent, follow=True), "Settings changed"
+            )
+        self.case.refresh_from_db()
+        self.assertFalse(self.case.external_analysis_approval)
+
+        self.assertEqual(self.client.get(action).status_code, 405)
+        self.assertEqual(self.client.post(action, consent).status_code, 302)
+        self.case.refresh_from_db()
+        self.assertEqual(
+            self.case.external_analysis_approval["approved_by"], str(self.owner.pk)
+        )
+        self.assertIn(
+            "external", available_executions(self.case, "geocode_locations", {})
+        )
+        self.assertFalse(self.other_case.external_analysis_approval)
+        admin_case = Case.objects.get(pk=self.case.pk)
+        revoke = self.client.get(settings).context["external_analysis"][
+            "revoke_confirmation"
+        ]
+        self.assertEqual(
+            self.client.post(
+                action, {"action": "revoke", "confirmation": revoke}
+            ).status_code,
+            302,
+        )
+        CaseAdmin(Case, admin.site).save_model(None, admin_case, None, change=True)
+        self.client.post(action, consent)
+        self.case.refresh_from_db()
+        self.assertEqual(available_executions(self.case, "geocode_locations", {}), {})
+        self.assertFalse(self.case.external_analysis_approval.get("executions"))
 
     def test_settings_keeps_actionable_invitations_outside_history(self):
         now = timezone.now()

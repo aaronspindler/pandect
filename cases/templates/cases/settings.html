@@ -98,6 +98,33 @@
 </form>
 </div>
 </details>
+<section class="content-section" aria-labelledby="external-analysis">
+  <h2 id="external-analysis">External analysis</h2>
+  {% if external_analysis.destinations %}
+    <p>Approval allows Pandect to send the material below when it runs analysis in this case. The providers’ retention policies apply. Sent requests cannot be recalled.</p>
+    <dl class="metadata-grid">
+      {% for destination in external_analysis.destinations %}
+        <div><dt>{{ destination.material }}</dt><dd>{{ destination.name }}{% if destination.approved %} · Approved{% endif %}</dd></div>
+      {% endfor %}
+    </dl>
+  {% else %}
+    <p>The operator has not configured an external analysis service.</p>
+  {% endif %}
+  <div class="actions">
+    {% if external_analysis.can_approve %}
+      <form method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
+        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.approve_confirmation }}">
+        <button class="button button-primary" type="submit" name="action" value="approve">Approve listed destinations</button>
+      </form>
+    {% endif %}
+    {% if external_analysis.active %}
+      <form method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
+        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.revoke_confirmation }}">
+        <button class="button button-secondary" type="submit" name="action" value="revoke">Revoke external analysis approval</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
 <details class="disclosure">
 <summary>Delete this case</summary>
 <div class="disclosure-body">

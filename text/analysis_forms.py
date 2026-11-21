@@ -67,12 +67,6 @@ class TextAnalysisForm(BaseAnalysisForm):
         ),
     )
 
-    include_summary = forms.BooleanField(
-        required=False,
-        label="Include a source-cited topic summary",
-        help_text="Uses the selected processing location and requires review.",
-    )
-
     operation_fields = {
         "style_change": (
             "group_a",
@@ -92,7 +86,6 @@ class TextAnalysisForm(BaseAnalysisForm):
             "sample_channel",
             "sample_topic",
         ),
-        "text_topics": ("include_summary",),
     }
     task_fields_by_operation = {"style_change": ("group_a", "group_b")}
     field_order = [
@@ -105,12 +98,9 @@ class TextAnalysisForm(BaseAnalysisForm):
         "group_a",
         "group_b",
         "exclude_phrases",
-        "include_summary",
-        "backend",
         "operation",
         "submission_id",
         "sources",
-        "external_processing",
     ]
 
     def __init__(self, *args, **kwargs):
@@ -123,7 +113,7 @@ class TextAnalysisForm(BaseAnalysisForm):
     def parameter_values(self):
         parameters = {
             key: self.cleaned_data[key]
-            for key in ("include_summary", "exclude_phrases")
+            for key in ("exclude_phrases",)
             if self.cleaned_data.get(key) not in (None, "")
         }
         for key in ("group_a", "group_b"):

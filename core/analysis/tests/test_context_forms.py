@@ -61,18 +61,19 @@ class ContextAndOCRFormTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             list(unbound.fields["mode"].choices), [("printed", "Printed English")]
         )
-        self.assertTrue(unbound.fields["external_processing"].widget.is_hidden)
+        self.assertNotIn("external_processing", unbound.fields)
         form = self.form("ocr", mode="printed", external_processing=True)
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertFalse(form.cleaned_data["external_processing"])
+        self.assertNotIn("external_processing", form.cleaned_data)
         self.assertEqual(form.parameters(), {"mode": "printed"})
         form = self.form("ocr", external_processing=False)
         self.assertTrue(form.is_valid(), form.errors)
         for mode in ("handwriting", "mixed", "author-identification"):
             self.assertFalse(self.form("ocr", mode=mode).is_valid())
         context = self.form("geographic_context", external_processing=False)
-        self.assertFalse(context.is_valid())
-        self.assertIn("external_processing", context.errors)
+        self.assertTrue(context.is_valid(), context.errors)
+        self.assertTrue(context.processing_unavailable)
+        self.assertNotIn("external_processing", context.fields)
 
     def test_map_context_defaults_bounds_and_retained_assumptions(self):
         unbound = analysis_form(case=self.case, operation="geographic_context")

@@ -1,10 +1,10 @@
 <section id="evidence-findings" data-live-region data-live-poll="{{ analysis_pending|yesno:'true,false' }}" class="evidence-section analysis-highlights" aria-labelledby="evidence-findings-heading">
   <div class="evidence-findings-header">
     <h2 id="evidence-findings-heading" tabindex="-1">Findings</h2>
-    {% if can_edit and not local_analysis_pending and not highlights or analysis_form.errors %}
+    {% if can_edit and not analysis_pending and not highlights or analysis_form.errors %}
     <form method="post" action="{% url 'core:analysis:process_evidence' case.pk kind evidence.pk %}{{ list_suffix }}#evidence-analysis-error" class="evidence-check-form" novalidate>
       {% csrf_token %}{{ analysis_form.submission_id }}
-      <button class="button button-secondary" type="submit">{% if has_local_analysis %}Run checks again{% else %}Run checks{% endif %}</button>
+      <button class="button button-secondary" type="submit">{% if has_evidence_analysis %}Run checks again{% else %}Run checks{% endif %}</button>
     </form>
     {% endif %}
   </div>
@@ -12,8 +12,11 @@
   {% if observation_trip_url %}<p><a class="record-link" href="{{ observation_trip_url }}">View possible trip containing this observation</a></p>{% endif %}
   {% if analysis_pending %}
   <div class="evidence-check-status">
-    <p role="status">Checking…</p>
+    <p role="status">{% if evidence_analysis_batch.status == 'queued' %}Preparing checks…{% else %}Checking…{% endif %}</p>
   </div>
+  {% endif %}
+  {% if evidence_analysis_batch and analysis_pending or evidence_analysis_batch.status == 'failed' %}
+  <p>{% if evidence_analysis_batch.status == 'failed' %}Analysis preparation stopped. {% endif %}<a class="record-link" href="{% url 'core:analysis:processing' case.pk %}?batch={{ evidence_analysis_batch.pk }}#processing-history">Follow evidence analysis</a></p>
   {% endif %}
   {% if highlights %}
   <ul class="analysis-finding-rows">
@@ -38,7 +41,7 @@
   </ul>
   {% elif analysis_page_obj and not analysis_pending and not highlights_limited %}
   <p class="muted">No findings to highlight for this evidence.</p>
-  {% elif not analysis_page_obj and not analysis_pending and not observation_trip_url %}
+  {% elif not analysis_page_obj and not has_evidence_analysis and not observation_trip_url %}
   <p class="muted">No checks yet.</p>
   {% endif %}
 
@@ -52,7 +55,7 @@
       <a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}">
         <div>
           <strong>{% if run.outcome_summary %}{{ run.outcome_summary }}{% else %}{{ run.label }}{% endif %}</strong>
-          <p class="muted">{% if run.outcome_summary %}{{ run.label }} · {% endif %}{{ run.created_at|date:'d M Y, H:i T' }}</p>
+          <p class="muted">{% if run.outcome_summary %}{{ run.label }} · {% endif %}{% if run.execution %}{% include 'core/analysis/processing_destination.html' with execution=run.execution only %} · {% endif %}{{ run.created_at|date:'d M Y, H:i T' }}</p>
           {% if run.result_unavailable %}<p>A retained source is unavailable or has changed.</p>{% elif run.has_result and run.inputs|length > 1 %}<p>Result for a selection that included this evidence.</p>{% endif %}
         </div>
         <span>{% if run.result_unavailable %}Result unavailable{% else %}{{ run.get_status_display }}{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}{% endif %}</span>

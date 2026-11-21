@@ -39,8 +39,8 @@ ERROR_MESSAGES = {
         "Open retained messages to run local checks individually, or use case checks."
     ),
     "retry_approval_required": (
-        "Review the current processing destination and confirm before starting "
-        "another run."
+        "Ask the case owner to review external analysis in Case settings, "
+        "then start another run."
     ),
     "plate_image_required": "Choose one original JPEG or PNG image for plate search.",
     "plate_detector_unavailable": (
@@ -108,6 +108,11 @@ ERROR_MESSAGES = {
         "External AI processing is not configured. Ask the operator to "
         "configure its credentials and supported models."
     ),
+    "external_processing_not_approved": (
+        "The case has no current approval for this external destination. "
+        "Ask the case owner to review external analysis in Case settings, "
+        "then start another run."
+    ),
     "gateway_transcription_not_configured": (
         "External transcription is unavailable. Ask the operator to configure "
         "Workers AI for recordings."
@@ -122,7 +127,7 @@ ERROR_MESSAGES = {
     ),
     "gateway_case_limit": (
         "This run stopped at the former daily AI request limit. "
-        "Start another run with fresh external-processing approval."
+        "Start another run after the case owner has approved the destination."
     ),
     "gateway_rate_limit": (
         "The external AI service is busy. Wait before starting another run."
@@ -188,6 +193,9 @@ ERROR_MESSAGES = {
     "source_unavailable": (
         "A selected original or exact extraction version cannot be read. "
         "Review its availability before retrying."
+    ),
+    "source_archived": (
+        "A selected source was archived. Start a new analysis with active evidence."
     ),
     "access_removed": (
         "The requesting account no longer has permission to process these "

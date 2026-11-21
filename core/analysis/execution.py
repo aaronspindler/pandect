@@ -31,6 +31,15 @@ DIRECT_AI_ENDPOINTS = {
     ),
 }
 
+INFERENCE_OPERATIONS = (
+    "transcription",
+    "text_topics",
+    "content_events",
+    "session_summaries",
+    "conversation_link",
+    "question_synthesis",
+)
+
 
 def gateway_execution(purpose, operation):
     """Retain the selected provider and method, never its credentials."""
@@ -39,7 +48,7 @@ def gateway_execution(purpose, operation):
         config.get("text_provider", "workers-ai") if purpose == "text" else "workers-ai"
     )
     limits = {
-        key: config[key]
+        key: config.get(key)
         for key in ("timeout", "max_request_bytes", "max_response_bytes")
     }
     if provider in DIRECT_AI_ENDPOINTS:
@@ -66,9 +75,9 @@ def gateway_execution(purpose, operation):
         "provider": provider,
         "api": "responses" if provider == "openai" else "workers-ai",
         "adapter_version": "gateway-3",
-        "account": config["account"],
-        "gateway": config["gateway"],
-        "model": config["models"].get(purpose, ""),
+        "account": config.get("account", ""),
+        "gateway": config.get("gateway", ""),
+        "model": config.get("models", {}).get(purpose, ""),
         **limits,
     }
     if provider == "openai":
@@ -247,13 +256,70 @@ def snapshot_execution(operation, parameters):
     return None
 
 
-def retry_execution_confirmation(actor_id, run_id, submission_id, execution):
-    """Bind approval to the investigator, new submission, and reviewed route."""
-    return execution_confirmation(
-        "analysis.retry.execution",
-        [str(actor_id), str(run_id), str(submission_id)],
-        execution,
+def configured_executions(operation, parameters):
+    """Resolve configured routes without contacting an inference or map service."""
+    if requires_inference(operation, parameters):
+        routes = {}
+        for backend in ("local", "gateway"):
+            execution = snapshot_execution(operation, parameters | {"backend": backend})
+            if inference_configured(execution, operation):
+                routes[backend] = execution
+        return routes
+    if operation not in GEOGRAPHIC:
+        return {"local": None}
+
+    from geo.analysis.external.geocoding import Geocoder
+    from geo.analysis.external.geographic_context import ContextClient
+
+    client = Geocoder if operation == "geocode_locations" else ContextClient
+    try:
+        client()
+    except AnalysisError, ValueError:
+        return {}
+    execution = snapshot_execution(operation, parameters)
+    return {execution["backend"]: execution}
+
+
+def configured_external_executions():
+    """Return the full external inventory for one case owner's review."""
+    executions = {}
+    for operation in (*INFERENCE_OPERATIONS, *GEOGRAPHIC):
+        routes = configured_executions(
+            operation, {"include_summary": True, "semantic_links": True}
+        )
+        external = routes.get("gateway") or routes.get("external")
+        if external is not None:
+            executions[operation] = external
+    return executions
+
+
+def available_executions(case, operation, parameters):
+    """Include external work only when this case approved the exact route."""
+    revision = case.external_analysis_approval.get("revision")
+    return {
+        backend: execution
+        for backend, execution in configured_executions(operation, parameters).items()
+        if execution is None
+        or execution["location"] == "local"
+        or _case_execution_granted(case, operation, execution, revision)
+    }
+
+
+def _case_execution_granted(case, operation, execution, revision):
+    approval = case.external_analysis_approval
+    return (
+        bool(revision)
+        and revision == approval.get("revision")
+        and approval.get("approved_by") == str(case.owner_id)
+        and execution is not None
+        and execution["location"] == "external"
+        and approval.get("executions", {}).get(operation) == execution
     )
+
+
+def validate_case_execution_grant(case, operation, execution, revision):
+    if not _case_execution_granted(case, operation, execution, revision):
+        raise AnalysisError("external_processing_not_approved")
 
 
 def validate_execution(run):

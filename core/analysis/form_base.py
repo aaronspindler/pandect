@@ -1,4 +1,4 @@
-"""Shared analysis source selection, submission and processing approval."""
+"""Shared analysis source selection and submission."""
 
 from itertools import islice
 from uuid import uuid4
@@ -10,14 +10,9 @@ from django.db.models import Exists, OuterRef, Q
 from django.http import Http404
 from django.utils import timezone
 
-from core.analysis.approval import prepare_external_approval, validate_external_approval
-from core.analysis.errors import error_message
-from core.analysis.execution import (
-    processing_external,
-    requires_inference,
-)
+from core.analysis.manual import selected_analysis_variants
 from core.analysis.operations import OPERATIONS, get_operation
-from core.analysis.readiness import configured_backends, source_readiness
+from core.analysis.readiness import configuration_readiness, source_readiness
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.models import AnalysisResult, AnalysisReview
@@ -26,10 +21,6 @@ from ui.forms import localize_datetime_labels
 
 SOURCE_PAGE_SIZE = 25
 CALL_RECORDING_OPERATIONS = {"audio_metadata", "transcription"}
-OPTIONAL_AI_PARAMETERS = {
-    "text_topics": "include_summary",
-    "conversation_link": "semantic_links",
-}
 EXTRACTIONS_BY_KIND = {
     "document": ("native_text", "ocr"),
     "image": ("ocr", "plate_ocr"),
@@ -400,16 +391,6 @@ def selection(value):
 
 
 class BaseAnalysisForm(forms.Form):
-    backend = forms.ChoiceField(
-        required=False,
-        initial="local",
-        label="Processing location",
-        choices=(
-            ("local", "Server or private network"),
-            ("gateway", "External AI"),
-        ),
-    )
-
     operation = forms.ChoiceField(
         choices=[(key, value.label) for key, value in OPERATIONS.items()],
         widget=forms.HiddenInput,
@@ -421,15 +402,6 @@ class BaseAnalysisForm(forms.Form):
         label="Retained sources", widget=forms.CheckboxSelectMultiple
     )
 
-    external_processing = forms.BooleanField(
-        required=False,
-        label="I approve external processing of the selected evidence",
-        help_text=(
-            "Sends selected addresses or coordinates to the configured lookup "
-            "service. Provider retention policies apply."
-        ),
-    )
-
     operation_fields = {}
     task_fields_by_operation = {}
 
@@ -438,7 +410,6 @@ class BaseAnalysisForm(forms.Form):
         *args,
         case,
         operation,
-        actor=None,
         query="",
         evidence=None,
         sources_page=1,
@@ -454,78 +425,18 @@ class BaseAnalysisForm(forms.Form):
         self.assumption_names = tuple(
             name for name in self.parameter_names if name not in self.task_field_names
         )
-        self.optional_ai_parameter = OPTIONAL_AI_PARAMETERS.get(operation)
-        ai_parameters = (
-            {self.optional_ai_parameter: True} if self.optional_ai_parameter else {}
-        )
-        uses_model = requires_inference(operation, ai_parameters)
-        active_fields = {
-            "operation",
-            "submission_id",
-            "sources",
-            "external_processing",
-            *self.parameter_names,
-        }
-        if uses_model:
-            active_fields.add("backend")
+        active_fields = {"operation", "submission_id", "sources", *self.parameter_names}
         self.fields = {
             name: field for name, field in self.fields.items() if name in active_fields
         }
-        self.approved_execution = None
-        self.processing_locations = []
-        self.processing_unavailable = False
-        self.configuration_readiness = ""
-        self.single_backend = None
-        if uses_model:
-            backend_field = self.fields["backend"]
-            configured = configured_backends(operation, ai_parameters)
-            self.processing_locations = [
-                (value, label)
-                for value, label in backend_field.choices
-                if value in configured
-            ]
-            # Display current choices while accepting a bound receipt for an
-            # earlier submission. The queue validates availability for new work.
-            backend_field.widget.choices = self.processing_locations
-            if "gateway" not in configured:
-                backend_field.widget = forms.HiddenInput()
-            if configured == ("local",):
-                self.single_backend = self.processing_locations[0]
-            elif configured == ("gateway",):
-                backend_field.initial = ""
-                backend_field.widget.choices = [
-                    ("", "Choose a processing location"),
-                    *self.processing_locations,
-                ]
-            if not configured:
-                self.processing_unavailable = not self.optional_ai_parameter
-                self.configuration_readiness = (
-                    "An AI service must be configured before this analysis can run."
-                    if self.processing_unavailable
-                    else "This analysis uses local checks. "
-                    "AI suggestions require a configured service."
-                )
-                if operation == "transcription":
-                    self.configuration_readiness = error_message(
-                        "gateway_transcription_not_configured"
-                    )
-        show_external_approval = (
-            any(value == "gateway" for value, _ in self.processing_locations)
-            if uses_model
-            else processing_external(operation, {})
+        self.processing_unavailable = not any(
+            selected_analysis_variants(case, operation, {})
         )
-        if show_external_approval or (
-            uses_model
-            and self.is_bound
-            and self.data.get("backend") == "gateway"
-            and self.data.get("execution_confirmation")
-        ):
-            prepare_external_approval(self, actor=actor, case=case, operation=operation)
-        if not show_external_approval:
-            self.fields["external_processing"].widget = forms.HiddenInput()
-            self.fields["external_processing"].disabled = (
-                "execution_confirmation" not in self.fields
-            )
+        self.configuration_readiness = (
+            configuration_readiness(operation, case=case)
+            if self.processing_unavailable
+            else ""
+        )
         self.fields["operation"].initial = operation
         selected = (
             self.data.getlist("sources")
@@ -559,13 +470,7 @@ class BaseAnalysisForm(forms.Form):
 
     @property
     def assumptions(self):
-        return [
-            self[name]
-            for name in self.assumption_names
-            if name != self.optional_ai_parameter
-            or self.processing_locations
-            or self[name].value()
-        ]
+        return [self[name] for name in self.assumption_names]
 
     @property
     def task_fields(self):
@@ -575,10 +480,7 @@ class BaseAnalysisForm(forms.Form):
         return {}
 
     def parameters(self):
-        parameters = self.parameter_values()
-        if requires_inference(self.cleaned_data.get("operation"), parameters):
-            parameters["backend"] = self.cleaned_data.get("backend") or "local"
-        return parameters
+        return self.parameter_values()
 
     def clean(self):
         data = super().clean()
@@ -600,28 +502,4 @@ class BaseAnalysisForm(forms.Form):
                 + ", ".join(dict.fromkeys(blocked))
                 + ". No sources were dropped from your selection.",
             )
-        operation = data.get("operation", self.operation_name)
-        backend = data.get("backend") or "local"
-        if requires_inference(operation, data) and "backend" not in self.errors:
-            if backend == "gateway" and "execution_confirmation" not in self.fields:
-                self.add_error("backend", "That processing location is unavailable.")
-                return data
-            if (
-                not data.get("backend")
-                and self.processing_locations
-                and self.processing_locations[0][0] == "gateway"
-            ):
-                self.add_error("backend", "Review the available processing location.")
-        external = processing_external(operation, data, backend=backend)
-        if external and not data.get("external_processing"):
-            self.add_error(
-                "external_processing",
-                "Approve external processing for the selected operation.",
-            )
-        if not external:
-            data["external_processing"] = False
-        elif (
-            data.get("external_processing") and "execution_confirmation" in self.fields
-        ):
-            validate_external_approval(self, data)
         return data

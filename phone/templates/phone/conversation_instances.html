@@ -36,7 +36,7 @@
         {% else %}
           <a class="record-link" href="{% querystring instance_query page=page_obj.number instance=instance.id %}#instance-{{ instance.id }}" aria-expanded="false">Show messages</a>
         {% endif %}
-        {% if not instance.summary and can_edit %}
+        {% if instance.summary_missing and can_edit %}
           <a class="record-link" href="{% url 'phone:instance_summary' case.pk first_person.pk second_person.pk instance.id %}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">Request summary</a>
         {% endif %}
         <a class="record-link" href="{{ instance.url }}">Grouping details{% if instance.partial %} · Partial coverage{% endif %}</a>

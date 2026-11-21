@@ -1,71 +1,44 @@
 {% extends 'ui/base.html' %}
-{% load static tz %}
+{% load static %}
 {% block title %}Daily timeline · {{ case }}{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="{% static 'core/daily-chronology.css' %}">{% endblock %}
 {% block content %}
 <div class="detail-layout">
   <h1>Daily timeline</h1>
   {% include 'ui/components/form_errors.html' %}
-  <div class="day-controls">
-    <form method="get" class="day-picker" aria-label="Choose a day">
-      <input type="hidden" name="view" value="day">
-      {% if show_utc %}<input type="hidden" name="clock" value="utc">{% endif %}
-      {% include 'ui/components/form_field.html' with field=form.day only %}
-      <button class="button button-secondary" type="submit">Go to date</button>
-    </form>
-    {% if previous_day or next_day %}
-    <nav class="actions" aria-label="Days with activity">
-      {% if previous_day %}<a class="button button-secondary" href="{% querystring day=previous_day|date:'Y-m-d' page=None %}">Previous day with activity</a>{% endif %}
-      {% if next_day %}<a class="button button-secondary" href="{% querystring day=next_day|date:'Y-m-d' page=None %}">Next day with activity</a>{% endif %}
-    </nav>
-    {% endif %}
-  </div>
-  {% if day %}
-  <section aria-labelledby="timeline-day">
-    <div class="section-header day-heading">
-      <div>
-        <h2 id="timeline-day">{{ day|date:'l, j F Y' }}</h2>
+  <div data-timeline-controls>
+    <div class="day-controls">
+      <form method="get" class="day-picker" aria-label="Choose a day">
+        <input type="hidden" name="view" value="day">
+        {% if show_utc %}<input type="hidden" name="clock" value="utc">{% endif %}
+        {% include 'ui/components/form_field.html' with field=form.day only %}
+        <button class="button button-secondary" type="submit">Go to date</button>
+      </form>
+      {% if day %}
+      <div class="day-clock">
         <p class="help-text">{{ account_timezone }}{% if show_utc and account_timezone != 'UTC' %} · Times shown in UTC{% endif %}</p>
+        {% if account_timezone != 'UTC' %}
+          {% if show_utc %}<a class="record-link" data-timeline-clock href="{% querystring clock=None %}">Show local times</a>
+          {% else %}<a class="record-link" data-timeline-clock href="{% querystring clock='utc' %}">Show UTC times</a>{% endif %}
+        {% endif %}
       </div>
-      {% if account_timezone != 'UTC' %}
-        {% if show_utc %}<a class="record-link" href="{% querystring clock=None %}">Show local times</a>
-        {% else %}<a class="record-link" href="{% querystring clock='utc' %}">Show UTC times</a>{% endif %}
       {% endif %}
     </div>
-    {% if rows %}
-    <ol class="day-timeline">
-      {% for row in rows %}
-      <li>
-        <div class="day-time">
-          {% include 'core/evidence/_timeline_time.html' with stamp=row.start_at %}
-          {% if row.end_at and row.end_at != row.start_at %}<span>to {% include 'core/evidence/_timeline_time.html' with stamp=row.end_at %}</span>{% endif %}
-        </div>
-        <div class="day-entry">
-          <p class="day-kind">{{ row.label }}{% if row.archived %} · Archived{% endif %}{% if row.partial %} · Partial coverage{% endif %}{% if row.overlap %} · Multiple groupings{% endif %}</p>
-          <a class="record-link" href="{{ row.url }}">{{ row.title }}</a>
-          {% if row.detail %}<p>{{ row.detail }}</p>{% endif %}
-          {% if row.continues_before %}<p class="muted">Continued from a previous day.</p>{% endif %}
-          {% if row.continues_after %}<p class="muted">Continues into the next day.</p>{% endif %}
-          {% if row.preview %}<p class="day-preview"><strong>{{ row.preview_label }}</strong> · {{ row.preview }}</p>{% endif %}
-        </div>
-      </li>
-      {% endfor %}
-    </ol>
-    {% if previous_page or next_page %}
-    <nav class="pagination" aria-label="Daily timeline pages">
-      {% if previous_page %}<a class="button button-secondary" href="{% querystring page=previous_page %}#timeline-day">Previous entries</a>{% endif %}
-      <span>Page {{ page_number }}</span>
-      {% if next_page %}<a class="button button-secondary" href="{% querystring page=next_page %}#timeline-day">Next entries</a>{% endif %}
+    <nav class="actions day-other-views" aria-label="Chronology views">
+      <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}">Recorded chronology</a>
+      <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=references">Extracted date references</a>
     </nav>
-    {% endif %}
-    {% else %}
-    <div class="empty-state compact-empty"><p>No dated activity or collections on this day.</p><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Browse evidence</a></div>
-    {% endif %}
-  </section>
+  </div>
+  {% if day %}
+  <p class="help-text day-status" role="status" data-timeline-status></p>
+  <div data-timeline data-timezone="{{ account_timezone }}">
+    {% include 'core/evidence/_timeline_edge.html' with direction='newer' neighbor=next_day label='Newer dates' %}
+    <div data-timeline-days>
+      {% include 'core/evidence/_timeline_day.html' %}
+    </div>
+    {% include 'core/evidence/_timeline_edge.html' with direction='older' neighbor=previous_day label='Older dates' %}
+  </div>
   {% endif %}
-  <nav class="actions day-other-views" aria-label="Chronology views">
-    <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}">Recorded chronology</a>
-    <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=references">Extracted date references</a>
-  </nav>
 </div>
 {% endblock %}
+{% block extra_js %}{% if day %}<script src="{% static 'core/daily-chronology.js' %}" defer></script>{% endif %}{% endblock %}

@@ -18,6 +18,7 @@ from playwright.sync_api import expect
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.services import process_run, start_run
+from core.analysis.testing import external_grant_kwargs
 from core.models import AnalysisRun
 from geo.models import LocationEvidence
 from image.models import ImageEvidence
@@ -156,30 +157,9 @@ class ContextBrowserTests(BrowserTestCase):
         expect(summary).to_be_focused()
         summary.press("Space")
 
-    def _approve_and_finish(self, page, operation):
-        if operation != "ocr":
-            page.get_by_role("button", name="Start analysis", exact=True).click()
-            expect(page.locator("[data-error-summary]")).to_be_visible()
-            expect(
-                page.get_by_text(
-                    "Approve external processing for the selected operation.",
-                    exact=True,
-                )
-            ).to_be_visible()
-            approval = page.get_by_role(
-                "checkbox",
-                name="I approve external processing of the selected evidence",
-            )
-            approval.focus()
-            approval.press("Space")
-            expect(approval).to_be_checked()
-        else:
-            expect(
-                page.get_by_role(
-                    "checkbox",
-                    name="I approve external processing of the selected evidence",
-                )
-            ).to_have_count(0)
+    def _start_and_finish(self, page, operation):
+        expect(page.get_by_label("Processing location", exact=True)).to_have_count(0)
+        expect(page.locator('input[name="external_processing"]')).to_have_count(0)
         page.get_by_role("button", name="Start analysis", exact=True).click()
         expect(
             page.get_by_role("status").filter(has_text=re.compile(r"^Queued$"))
@@ -323,7 +303,7 @@ class ContextBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 page.get_by_label("Image · Synthetic OCR page", exact=True).check()
                 self._capture_layouts(page, engine, "local-ocr-form")
-                run_id, parameters = self._approve_and_finish(page, "ocr")
+                run_id, parameters = self._start_and_finish(page, "ocr")
                 self.assertEqual(parameters["mode"], "printed")
                 finding = page.locator("#finding-1")
                 expect(
@@ -338,16 +318,16 @@ class ContextBrowserTests(BrowserTestCase):
                 limits = page.locator("summary").filter(
                     has_text=re.compile(r"^Limitations$")
                 )
-                expect(page.locator(".analysis-result-limits[open]")).to_have_count(0)
+                disclosure = page.get_by_text(
+                    "Printed English OCR runs locally; no image is sent "
+                    "to an external service.",
+                    exact=False,
+                )
+                expect(disclosure).to_be_visible()
                 limits.press("Enter")
-                expect(
-                    page.get_by_text(
-                        "Printed English OCR runs locally; no image is sent "
-                        "to an external service.",
-                        exact=False,
-                    )
-                ).to_be_visible()
+                expect(disclosure).to_be_hidden()
                 limits.press("Enter")
+                expect(disclosure).to_be_visible()
                 preview = finding.locator("svg image")
                 expect(preview).to_have_count(1)
                 preview_url = urljoin(page.url, preview.get_attribute("href"))
@@ -411,6 +391,7 @@ class ContextBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
+                self.db(external_grant_kwargs, self.case, "geographic_context")
                 self._choose(page, "geographic_context")
                 for record in self.locations:
                     page.get_by_label(f"Location · {record.title}", exact=True).check()
@@ -427,7 +408,7 @@ class ContextBrowserTests(BrowserTestCase):
                     "Historical map snapshot (UTC, optional)", exact=True
                 ).fill("2020-01-02T12:00")
                 self._capture_layouts(page, engine, "geographic-context-form")
-                _, parameters = self._approve_and_finish(page, "geographic_context")
+                _, parameters = self._start_and_finish(page, "geographic_context")
                 self.assertEqual(
                     parameters["context_as_of"], "2020-01-02T12:00:00+00:00"
                 )

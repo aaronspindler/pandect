@@ -321,3 +321,16 @@ class ConversationAnalysisTests(SimpleTestCase):
         infer.assert_called_once()
         complete = session_summaries([usable], {}, infer=infer)
         self.assertEqual(complete["outcome"], "empty")
+
+    def test_automatic_session_summary_sends_only_chunks_with_new_sources(self):
+        earlier = self.message("Retained historical content.")
+        anchor = self.message("New evidence anchors this summary.", 200)
+        infer = Mock(return_value={"items": []})
+        result = session_summaries(
+            [earlier, anchor], {"_comparison": {"anchors": [anchor.id]}}, infer=infer
+        )
+        self.assertEqual(result["metrics"]["summary_chunks"], 1)
+        infer.assert_called_once()
+        prompt = infer.call_args.args[0]
+        self.assertIn(anchor.text, prompt)
+        self.assertNotIn(earlier.text, prompt)

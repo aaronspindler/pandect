@@ -286,7 +286,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(prepare_case_analysis_batch(str(batch.pk)), "access_removed")
         self.assertFalse(AnalysisRun.objects.exists())
 
-    def test_button_roles_post_csrf_validation_and_duplicate_click(self):
+    def test_legacy_post_link_uses_broad_analysis_with_case_authorization(self):
         self.source("text")
         for role, status in (
             ("owner", 302),
@@ -296,33 +296,28 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         ):
             self.login(role)
             index = self.client.get(self.url("processing"))
-            if role in {"owner", "editor"}:
-                self.assertContains(index, "Run local checks")
-                submission_id = str(
-                    index.context["case_analysis_form"]["submission_id"].value()
-                )
-            else:
-                self.assertNotIn(b"Run local checks", index.content)
-                submission_id = str(uuid4())
+            self.assertNotContains(
+                index, "Run local checks", status_code=index.status_code
+            )
+            submission_id = str(uuid4())
             response = self.client.post(self.url(), {"submission_id": submission_id})
             self.assertEqual(response.status_code, status)
             if status == 302:
+                batch = CaseAnalysisBatch.objects.get(pk=submission_id)
+                self.assertEqual(batch.scope["type"], "reprocess")
+                self.assertEqual(set(batch.scope["kinds"]), set(KINDS))
                 self.assertEqual(
                     self.client.post(
                         self.url(), {"submission_id": submission_id}
                     ).status_code,
                     302,
                 )
-        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
-        self.assertEqual(DBTaskResult.objects.count(), 1)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 2)
+        self.assertEqual(DBTaskResult.objects.count(), 2)
         self.login("owner")
-        response = self.client.post(
-            self.url(), {"submission_id": str(uuid4())}, follow=True
-        )
-        self.assertContains(response, "Case-wide analysis is already in progress.")
         self.assertEqual(self.client.get(self.url()).status_code, 405)
         self.client.post(self.url(), {"submission_id": "invalid"})
-        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 2)
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(

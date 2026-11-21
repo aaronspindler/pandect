@@ -22,6 +22,15 @@ def gateway_configured(purpose, operation):
     config = settings.PANDECT_AI_GATEWAY
     try:
         execution = gateway_execution(purpose, operation)
+        if any(
+            type(value) is not int or value <= 0
+            for value in (
+                execution["timeout"],
+                execution["max_request_bytes"],
+                execution["max_response_bytes"],
+            )
+        ):
+            return False
         model, provider = execution["model"], execution["provider"]
         if execution.get("url"):
             prefix = "gpt" if provider == "openai" else "claude"
@@ -194,7 +203,13 @@ class GatewayClient:
                 if usage.status == "pending":
                     usage.status = (
                         "cancelled"
-                        if error.code == "processing_cancelled"
+                        if error.code
+                        in {
+                            "processing_cancelled",
+                            "external_processing_not_approved",
+                            "execution_changed",
+                            "source_archived",
+                        }
                         else "invalid_response"
                     )
                     usage.save(update_fields=["status"])

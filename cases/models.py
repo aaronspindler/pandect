@@ -20,6 +20,9 @@ class Case(models.Model):
     name = models.CharField(max_length=255, default="")
     description = models.TextField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)
+    external_analysis_approval = models.JSONField(
+        default=dict, blank=True, editable=False
+    )
     additional_users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="CaseMembership",

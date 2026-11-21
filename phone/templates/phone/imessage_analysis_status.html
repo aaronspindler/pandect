@@ -18,7 +18,7 @@
   {% if not live_pending %}<details class="disclosure" id="message-analysis-details"{% if stopped_count or partial_count or insufficient_count or request.GET.page %} open{% endif %}><summary>Analysis details</summary>{% endif %}
   <section class="analysis-section" aria-labelledby="message-analysis-preparation">
     <h2 id="message-analysis-preparation">Preparation</h2>
-    <p>Selected analysis: {{ analysis_mode }} · Requested {{ batch.created_at|date:'j M Y, H:i T' }}</p>
+    <p>{% if analysis_mode %}{{ analysis_mode }} · {% endif %}Requested {{ batch.created_at|date:'j M Y, H:i T' }}</p>
     {% if live_pending %}<p role="status">{% if batch.status == 'queued' %}Preparing message analysis{% else %}{{ batch.get_status_display }}{% endif %}</p>{% endif %}
     <p>{{ batch.processed_sources }} message{{ batch.processed_sources|pluralize }} prepared · {{ batch.queued_runs }} check{{ batch.queued_runs|pluralize }} queued.</p>
   </section>
@@ -27,7 +27,7 @@
     {% if live_pending %}<p role="status">{{ finished_count }} of {{ page_obj.paginator.count }} checks finished.</p>{% endif %}
     {% for run in page_obj %}
     <a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}">
-      <div><strong>{{ run.label }}</strong>{% if run.status == 'running' %}<p>{{ run.progress }}%</p>{% endif %}{% if run.failure_message %}<p>{{ run.failure_message }}</p>{% endif %}</div>
+      <div><strong>{{ run.label }}</strong>{% if run.execution %}<p class="muted">{% include 'core/analysis/processing_destination.html' with execution=run.execution only %}</p>{% endif %}{% if run.status == 'running' %}<p>{{ run.progress }}%</p>{% endif %}{% if run.failure_message %}<p>{{ run.failure_message }}</p>{% endif %}</div>
       <span class="badge">{{ run.get_status_display }}</span>
     </a>
     {% empty %}<p class="muted">{% if batch.status == 'queued' %}Checks will appear as preparation continues.{% else %}No analysis checks were queued.{% endif %}</p>{% endfor %}

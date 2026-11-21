@@ -353,14 +353,14 @@ def create(request, case_id):
                             )
                             if attachment and attachment.file:
                                 originals.append(attachment.file)
-                        if kind not in CALL_KINDS or attachment:
-                            start_added_evidence_analysis(
-                                request.user,
-                                case.pk,
-                                kind,
-                                item.pk,
-                                attachment_id=attachment.pk if attachment else None,
-                            )
+                        start_added_evidence_analysis(
+                            request.user,
+                            case.pk,
+                            kind,
+                            item.pk,
+                            attachment_id=attachment.pk if attachment else None,
+                            new_call=kind in CALL_KINDS,
+                        )
                 else:
                     status = 400
         except PermissionDenied:

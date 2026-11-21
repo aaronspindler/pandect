@@ -15,8 +15,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import CharField, F, Func, OuterRef, Q, Subquery, Value
 from django.http import Http404
 from django.utils import timezone
-from django.utils.crypto import constant_time_compare
 
+from cases.models import Case
 from cases.permissions import get_case
 from core.analysis.artifacts import (
     MAX_PREVIEW_TOTAL_BYTES,
@@ -28,12 +28,13 @@ from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
     inference_configured,
     requires_inference,
-    retry_execution_confirmation,
     snapshot_execution,
+    validate_case_execution_grant,
     validate_execution,
 )
 from core.analysis.operations import get_operation
 from core.analysis.sources import Source, source_id
+from core.analysis.transcripts import follow_up_transcription, transcript_group
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import CALL_KINDS, KINDS
 from core.models import (
@@ -379,9 +380,39 @@ def _authorize_run(run, *, lock=False):
 
 def authorize_run(run, *, lock=False):
     case = _authorize_run(run, lock=lock)
-    validate_execution(run)
-    resolve_inputs(run, case)
+    _authorize_execution(run, case)
+    _processing_inputs(run, case)
     return case
+
+
+def _processing_inputs(run, case):
+    sources = resolve_inputs(run, case)
+    scope = run.batch.scope if run.batch_id else {}
+    if scope.get("analysis_version"):
+        comparison = run.parameters.get("_comparison")
+        anchors = set(comparison["anchors"]) if comparison else None
+        if any(
+            source.item.is_archived
+            and (
+                not scope.get("reprocess")
+                or (anchors is not None and source.id not in anchors)
+            )
+            for source in sources
+        ):
+            raise AnalysisError("source_archived")
+    return sources
+
+
+def _authorize_execution(run, case):
+    execution = validate_execution(run)
+    if run.external_processing:
+        validate_case_execution_grant(
+            case,
+            run.operation,
+            execution,
+            run.parameters.get("_external_approval", {}).get("revision"),
+        )
+    return execution
 
 
 def snapshot_sources(case, selections, *, allowed_kinds=None):
@@ -468,11 +499,10 @@ def start_run(
     *,
     parameters=None,
     submission_id=None,
-    external_processing=False,
     previous_run=None,
-    retry_confirmation="",
     batch=None,
     approved_execution=None,
+    external_grant_revision=None,
     require_configured_inference=False,
 ):
     case = get_case(actor, case_id, edit=True, lock=True)
@@ -500,18 +530,20 @@ def start_run(
     if not valid_parameters:
         raise ValidationError("Analysis settings exceed the supported limit.")
     # Execution settings are operator-owned, never accepted from a form or rerun.
+    retained_keys = {"_execution", "_external_approval"}
     parameters = {
-        key: value for key, value in parameters.items() if key != "_execution"
+        key: value for key, value in parameters.items() if key not in retained_keys
     }
     execution = snapshot_execution(operation, parameters)
     external = bool(execution and execution["location"] == "external")
-    if external and approved_execution is not None and approved_execution != execution:
+    if approved_execution is not None and approved_execution != execution:
         raise AnalysisError("execution_changed")
-    if external and not external_processing:
-        if previous_run:
-            raise AnalysisError("retry_approval_required")
-        raise ValidationError("Approve external processing for this operation.")
-    external_processing = external
+    if external:
+        if approved_execution is None:
+            raise AnalysisError("external_processing_not_approved")
+        validate_case_execution_grant(
+            case, operation, execution, external_grant_revision
+        )
     snapshots = snapshot_sources(case, selections, allowed_kinds=specification.kinds)
     submission_id = UUID(_uuid(submission_id or uuid4()))
     existing = AnalysisRun.objects.filter(submission_id=submission_id).first()
@@ -527,11 +559,11 @@ def start_run(
             or {
                 key: value
                 for key, value in existing.parameters.items()
-                if key != "_execution"
+                if key not in retained_keys
             }
             != parameters
             or comparable(existing.inputs) != comparable(snapshots)
-            or existing.external_processing != external_processing
+            or existing.external_processing != external
             or existing.previous_run_id != (previous_run.pk if previous_run else None)
             or existing.batch_id != (batch.pk if batch else None)
         ):
@@ -539,16 +571,6 @@ def start_run(
                 "This submission was already used for different analysis settings."
             )
         return existing, False
-    if previous_run:
-        if previous_run.case_id != case.pk:
-            raise Http404("Processing not found.")
-        if (external or retry_confirmation) and not constant_time_compare(
-            retry_confirmation,
-            retry_execution_confirmation(
-                actor.pk, previous_run.pk, submission_id, execution
-            ),
-        ):
-            raise AnalysisError("retry_approval_required")
     if (
         (require_configured_inference or (operation == "transcription" and external))
         and requires_inference(operation, parameters)
@@ -561,6 +583,11 @@ def start_run(
         raise AnalysisError("gateway_not_configured")
     if execution is not None:
         parameters = parameters | {"_execution": execution}
+    if external:
+        approval = case.external_analysis_approval
+        parameters["_external_approval"] = {
+            key: approval[key] for key in ("revision", "approved_by", "approved_at")
+        }
     if len(json.dumps(parameters, allow_nan=False).encode()) > (
         65536 if operation == "question_synthesis" else 32768
     ):
@@ -573,11 +600,11 @@ def start_run(
         parameters=parameters,
         inputs=snapshots,
         submission_id=submission_id,
-        external_processing=external_processing,
+        external_processing=external,
         previous_run=previous_run,
         batch=batch,
     )
-    resolved = resolve_inputs(run, case)
+    resolved = _processing_inputs(run, case)
     if operation == "question_synthesis":
         from text.analysis.synthesis import records_for_selection
 
@@ -721,7 +748,7 @@ def process_run(run_id):
     stage = "authorization"
     try:
         case = _authorize_run(run)
-        sources = resolve_inputs(run, case)
+        sources = _processing_inputs(run, case)
         try:
             operation = get_operation(run.operation)
         except ValidationError as error:
@@ -730,7 +757,7 @@ def process_run(run_id):
             raise AnalysisError("processing_version_unavailable")
         from core.analysis.gateway import GatewayClient
 
-        execution = validate_execution(run)
+        execution = _authorize_execution(run, case)
 
         def authorize(**kw):
             return authorize_run(run, **kw)
@@ -772,6 +799,10 @@ def process_run(run_id):
             from core.analysis.reprocessing import describe_reprocessing_selection
 
             describe_reprocessing_selection(data, run)
+        if "_comparison" in parameters:
+            from core.analysis.history import describe_anchored_comparison
+
+            describe_anchored_comparison(data, run)
         artifacts = data.pop("artifacts", [])
         if not isinstance(artifacts, list) or len(artifacts) > 500:
             raise AnalysisError("invalid_preview")
@@ -803,6 +834,11 @@ def process_run(run_id):
                     "external_processing": run.external_processing,
                     "source_inputs": run.inputs,
                     **({"execution": execution} if execution is not None else {}),
+                    **(
+                        {"external_approval": run.parameters["_external_approval"]}
+                        if run.external_processing
+                        else {}
+                    ),
                     **(
                         {"local_usage": client.usage}
                         if execution is not None
@@ -866,7 +902,9 @@ def process_run(run_id):
             from core.case_search.indexing import result_published
 
             result_published(result)
-            if run.parameters.get("automatic_followup"):
+            if not follow_up_transcription(run) and run.parameters.get(
+                "automatic_followup"
+            ):
                 from core.analysis.automatic import follow_up_extraction
 
                 follow_up_extraction(run, result)
@@ -896,9 +934,13 @@ def process_run(run_id):
     if not publication_finished:
         for storage, name in stored_files:
             delete_original(storage, name)
-    AnalysisRun.objects.filter(pk=run_id, status="running").update(
-        status="failed", error_code=code, finished_at=timezone.now()
-    )
+    with transaction.atomic():
+        if transcript_group(run):
+            Case.objects.select_for_update().filter(pk=run.case_id).first()
+        if AnalysisRun.objects.filter(pk=run_id, status="running").update(
+            status="failed", error_code=code, finished_at=timezone.now()
+        ):
+            follow_up_transcription(run)
     return code
 
 
@@ -912,6 +954,7 @@ def cancel_run(actor, case_id, run_id):
         run.status = "cancelled"
         run.finished_at = timezone.now()
         run.save(update_fields=["status", "finished_at"])
+        follow_up_transcription(run)
     return run
 
 

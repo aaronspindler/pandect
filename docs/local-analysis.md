@@ -1,16 +1,9 @@
 # Local analysis and private inference runtimes
 
-Model analysis defaults to **Local**: the Pandect host or an explicitly configured
-operator-controlled private LAN service. This includes confirmed CSV message
-imports' automatic suite. Cloudflare requires separate selection/approval; model,
-runtime or context failures never trigger cloud fallback.
-
-Printed-English OCR, native text extraction, metadata, rule-based identifiers,
-keywords, writing comparisons, timing and spatial calculations run locally through
-the [local batch](analysis.md#retained-processing). CSV message imports additionally
-queue bounded topics, claims, session summaries and semantic exchanges. Other
-LLM analysis/transcription remains deliberate. Missing inference leaves recoverable
-runs without undoing messages or independent results.
+Supported built-in analysis runs locally. New evidence also queues supported
+configured private inference and [case-approved external analysis](cases.md#external-analysis-approval).
+Configured services run independently with captured execution settings. Runtime
+failures never trigger a new external request.
 
 ## Current methods and limits
 
@@ -347,6 +340,35 @@ Basemap tiles are separate: configured tiles, including public tiles, load
 automatically. For blocked-egress qualification, leave `PANDECT_MAP_TILE_URL` empty
 or use a private provider; see [map privacy](maps.md#external-tiles-and-privacy).
 
+## Transcription qualification
+
+Automatic text follow-ups use one candidate transcript per recording. Pandect
+prefers usable private text by default. When private transcription yields no
+usable text, it can use a candidate already produced by an approved external
+run. Both results remain available with their original-timeline anchors.
+
+To compare configured transcribers, create synthetic English recordings with
+independently reviewed reference words and intervals. Include varied voices,
+phone-quality sound, background noise, overlap, names, numbers, negation,
+non-speech and speech crossing a 30-second boundary. Run both routes in an
+isolated synthetic case with approved destinations. Score the retained text
+against the same references with fixed normalization. Record paired word error
+rates, critical-word errors, invented speech during non-speech clips, timestamp
+errors and failed clips. Treat failed speech clips as omissions in the error
+rate. Keep the private preference if the result is inconclusive.
+
+If the external route reliably lowers word error rate without increasing
+critical-word errors, invented speech or failed clips, obtain the exact pair's
+fingerprint in the same environment used for the comparison:
+
+```sh
+uv run --locked --env-file .env python manage.py shell -c 'from core.analysis.execution import snapshot_execution; from core.analysis.transcripts import transcription_profile; print(transcription_profile(snapshot_execution("transcription", {"backend": "local"}), snapshot_execution("transcription", {"backend": "gateway"})))'
+```
+
+Set `PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE` to that value on both web
+and worker. A changed profile or an empty setting uses the private preference.
+Retain the benchmark and its nonsecret profile identities for later comparison.
+
 ## Qualification and recovery
 
 Routine synthetic/mocked tests neither download models nor establish quality.
@@ -368,7 +390,7 @@ PCM parsing and chunk/timeline handling. JSON records expected distinctions,
 validated output, usage and elapsed time without assigning a quality grade.
 Keep audio/output private.
 
-1. Exercise every path and required external AI/geographic choice/approval;
+1. Exercise each configured private and case-approved external path;
    control basemap egress too.
 2. Transcribe names, accents, overlap and non-speech. Compare errors, omissions
    and timeline intervals against retained transcripts; absent confidence is unknown.

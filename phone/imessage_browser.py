@@ -12,6 +12,7 @@ from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.services import process_run, start_run
+from core.analysis.testing import external_grant_kwargs
 from core.models import AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from people.models import Person
@@ -31,8 +32,12 @@ class IMessageImportBrowserTests(BrowserTestCase):
         self.owner = self.make_user("imessage-browser-owner")
         self.case = Case.objects.create(owner=self.owner, name="Synthetic direct chat")
 
-    @override_settings(PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY)
+    @override_settings(
+        PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY,
+        PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,
+    )
     def test_no_javascript_upload_review_people_and_import(self):
+        self.db(external_grant_kwargs, self.case, "content_events")
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -137,15 +142,10 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     "and the confirmed timezone",
                     exact=True,
                 ).check()
-                local = page.get_by_role("radio", name="Local checks", exact=True)
-                ai = page.get_by_role("radio", name="AI only", exact=True)
-                both = page.get_by_role("radio", name="Local checks and AI", exact=True)
-                expect(local).to_be_checked()
-                expect(ai).not_to_be_checked()
-                both.focus()
-                expect(both).to_be_focused()
-                both.press("Space")
-                expect(both).to_be_checked()
+                expect(page.locator("input[name='external_processing']")).to_have_count(
+                    0
+                )
+                expect(page.locator("input[name='mode']")).to_have_count(0)
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -168,27 +168,6 @@ class IMessageImportBrowserTests(BrowserTestCase):
                             full_page=True,
                             animations="disabled",
                         )
-                page.get_by_role("button", name="Import messages", exact=True).click()
-                expect(page.get_by_role("alert")).to_contain_text(
-                    "Approve external processing to continue."
-                )
-                expect(both).to_be_checked()
-                expect(account.get_by_label("First name", exact=True)).to_have_value(
-                    "Account sender"
-                )
-                expect(
-                    correspondent.get_by_label("First name", exact=True)
-                ).to_have_value("Incoming sender")
-                self.assertEqual(self.db(Person.objects.count), before)
-                self.capture(page, engine, "external-approval-required")
-                approval = page.get_by_label(
-                    "I approve external AI processing of the newly imported messages",
-                    exact=True,
-                )
-                approval.focus()
-                expect(approval).to_be_focused()
-                approval.press("Space")
-                expect(approval).to_be_checked()
                 account.get_by_label("First name", exact=True).fill("")
                 page.get_by_role("button", name="Import messages", exact=True).click()
                 expect(page.get_by_role("alert")).to_be_visible()
@@ -228,14 +207,8 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 final = self.db(AnalysisRun.objects.get, pk=final_id)
                 self.assertEqual(final.status, "complete", final.error_code)
-                self.assertEqual(final.parameters["analysis"]["mode"], "both")
+                self.assertNotIn("analysis", final.parameters)
                 batch = self.db(CaseAnalysisBatch.objects.get, scope__id=str(final_id))
-                self.assertEqual(batch.scope["mode"], "both")
-                expect(
-                    page.get_by_text(
-                        "Selected analysis: Local checks and AI", exact=True
-                    )
-                ).to_be_visible()
                 self.assertEqual(self.db(Person.objects.count), before + 2)
                 self.assertEqual(
                     self.db(TextMessageEvidence.objects.filter(case=self.case).count),
@@ -304,7 +277,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                             ).values_list("parameters__backend", flat=True),
                         )
                     ),
-                    {"gateway"},
+                    {"local", "gateway"},
                 )
                 page.get_by_role("link", name="Refresh status", exact=True).press(
                     "Enter"
@@ -318,68 +291,21 @@ class IMessageImportBrowserTests(BrowserTestCase):
                         "phone:imessage_review", case_id=self.case.pk, run_id=final_id
                     )
                 )
-                page.get_by_role(
-                    "link", name="Run message analysis again", exact=True
-                ).click()
-                expect(
-                    page.get_by_role(
-                        "heading", name="Analyze imported messages", exact=True
-                    )
-                ).to_be_visible()
-                expect(both).to_be_checked()
-                expect(approval).not_to_be_checked()
-                ai.focus()
-                expect(ai).to_be_focused()
-                ai.press("Space")
-                page.get_by_role(
-                    "button", name="Run message analysis", exact=True
-                ).click()
-                expect(page.get_by_role("alert")).to_contain_text(
-                    "Approve external processing to continue."
+                rerun_action = page.get_by_role(
+                    "button", name="Run import analysis again", exact=True
                 )
-                expect(ai).to_be_checked()
-                expect(approval).not_to_be_checked()
-                self.assertEqual(
-                    self.db(
-                        CaseAnalysisBatch.objects.filter(scope__id=str(final_id)).count
-                    ),
-                    1,
-                )
-                for width, height in (
-                    (1440, 900),
-                    (1440, 1024),
-                    (768, 1024),
-                    (390, 844),
-                    (320, 844),
-                ):
-                    page.set_viewport_size({"width": width, "height": height})
-                    self.assertLessEqual(
-                        page.evaluate("document.documentElement.scrollWidth"), width + 1
-                    )
-                    self.capture(page, engine, f"rerun-analysis-{width}-{height}")
-                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
-                self.capture(page, engine, "rerun-analysis-dark-reduced-motion")
-                page.emulate_media(forced_colors="active")
-                approval.focus()
-                expect(approval).to_be_focused()
-                self.capture(page, engine, "rerun-analysis-forced-colors")
-                page.emulate_media(color_scheme="light", forced_colors="none")
-                approval.press("Space")
-                expect(approval).to_be_checked()
-                page.get_by_role(
-                    "button", name="Run message analysis", exact=True
-                ).click()
+                rerun_action.focus()
+                expect(rerun_action).to_be_focused()
+                rerun_action.press("Enter")
                 expect(
                     page.get_by_role("heading", name="Message analysis", exact=True)
                 ).to_be_visible()
                 rerun = self.db(
-                    CaseAnalysisBatch.objects.get,
+                    CaseAnalysisBatch.objects.exclude(pk=batch.pk).get,
                     scope__id=str(final_id),
-                    scope__mode="ai",
                 )
-                self.assertNotEqual(rerun.pk, batch.pk)
                 self.assertEqual(rerun.requested_by_id, self.owner.pk)
-                self.assertTrue(rerun.scope["external_processing"])
+                self.assertEqual(rerun.scope["executions"], batch.scope["executions"])
                 expect(page).to_have_url(
                     self.url(
                         "phone:imessage_analysis_status",
@@ -443,15 +369,15 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     )
                 )
                 expect(
-                    page.get_by_text("Selected analysis: AI only", exact=True)
-                ).to_be_visible()
+                    page.get_by_role("link", name="Follow message analysis", exact=True)
+                ).to_have_attribute("href", re.compile(str(rerun.pk)))
                 self.capture(page, engine, "rerun-analysis-processing")
 
     @override_settings(
         PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY | {"account": ""},
         PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,
     )
-    def test_ai_uses_local_service_without_external_approval_when_not_configured(self):
+    def test_private_analysis_runs_automatically_without_external_approval(self):
         for engine in self.engines:
             account = Person.objects.create(
                 case=self.case, first_name=f"Account {engine}"
@@ -483,23 +409,10 @@ class IMessageImportBrowserTests(BrowserTestCase):
                         "phone:imessage_review", case_id=self.case.pk, run_id=preview.pk
                     )
                 )
-                expect(
-                    page.get_by_text(
-                        "AI will use the configured private service.",
-                        exact=True,
-                    )
-                ).to_be_visible()
                 expect(page.locator("input[name='external_processing']")).to_have_count(
                     0
                 )
-                expect(
-                    page.get_by_role("radio", name="Local checks", exact=True)
-                ).to_be_checked()
-                ai = page.get_by_role("radio", name="AI only", exact=True)
-                ai.focus()
-                expect(ai).to_be_focused()
-                ai.press("Space")
-                expect(ai).to_be_checked()
+                expect(page.locator("input[name='mode']")).to_have_count(0)
                 account_fields = page.get_by_role(
                     "group", name="Export account — outgoing sender", exact=True
                 )
@@ -531,9 +444,6 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 ).check()
                 for width, height in ((1440, 900), (390, 844), (320, 844)):
                     page.set_viewport_size({"width": width, "height": height})
-                    page.locator("#import-analysis-heading").evaluate(
-                        "element => element.scrollIntoView({block: 'start'})"
-                    )
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
@@ -542,31 +452,18 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 page.wait_for_url(re.compile(r"/imessage/[0-9a-f-]+/(?:#.*)?$"))
                 final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
                 final = self.db(AnalysisRun.objects.get, pk=final_id)
-                self.assertEqual(final.parameters["analysis"]["mode"], "ai")
-                self.assertFalse(final.parameters["analysis"]["external_processing"])
-                self.assertEqual(
-                    {
-                        route["backend"]
-                        for route in final.parameters["analysis"]["executions"].values()
-                    },
-                    {"local"},
-                )
+                self.assertNotIn("analysis", final.parameters)
                 self.db(process_run, final_id)
                 page.reload()
                 expect(
                     page.get_by_role("heading", name="Messages imported", exact=True)
-                ).to_be_visible()
-                expect(
-                    page.get_by_text("Selected analysis: AI only", exact=True)
                 ).to_be_visible()
                 batch = self.db(CaseAnalysisBatch.objects.get, scope__id=str(final_id))
                 self.db(prepare_case_analysis_batch, batch.pk)
                 self.db(prepare_case_analysis_batch, batch.pk)
                 batch = self.db(CaseAnalysisBatch.objects.get, pk=batch.pk)
                 self.assertEqual(batch.status, "complete", batch.error_code)
-                self.assertFalse(
-                    self.db(batch.runs.filter(operation="entities").exists)
-                )
+                self.assertTrue(self.db(batch.runs.filter(operation="entities").exists))
                 self.assertFalse(
                     self.db(batch.runs.filter(external_processing=True).exists)
                 )
@@ -574,7 +471,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     set(
                         self.db(
                             list,
-                            batch.runs.values_list("parameters__backend", flat=True),
+                            batch.runs.filter(
+                                parameters__has_key="backend"
+                            ).values_list("parameters__backend", flat=True),
                         )
                     ),
                     {"local"},

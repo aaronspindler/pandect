@@ -21,7 +21,11 @@ SEMANTIC_FINDING_KINDS = (
 def semantic_cross_channel_links(sources, parameters, *, infer=None):
     "Combine observed temporal candidates with explicitly requested model suggestions."
     rows = _ordered(sources)
-    result = cross_channel_links(rows, parameters)
+    result = (
+        output("AI suggestions about selected exchanges.", outcome="empty")
+        if parameters.get("_suggestions_only")
+        else cross_channel_links(rows, parameters)
+    )
     items, warnings, outcome = result["items"], result["warnings"], result["outcome"]
     valid_semantic = 0
     unresolved_semantic = 0
@@ -117,6 +121,13 @@ def session_summaries(sources, parameters, *, infer=None):
     chunks = summary_chunks(
         [(source, len(source.text)) for source in group["sources"]] for group in groups
     )
+    if comparison := parameters.get("_comparison"):
+        anchors = set(comparison["anchors"])
+        chunks = [
+            (session, selected)
+            for session, selected in chunks
+            if any(str(source.id) in anchors for source in selected)
+        ]
     items = []
     outcomes = []
     warnings = [

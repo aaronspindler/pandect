@@ -7,12 +7,19 @@
 .day-controls {
   justify-content: space-between;
   gap: .75rem 1.5rem;
-  padding-block: .25rem 1.25rem;
-  border-bottom: 1px solid var(--divider);
+  padding-block: .25rem .75rem;
 }
+.day-clock .help-text { margin: 0; }
+.day-other-views { gap: .25rem 1rem; }
+.day-status { margin: 0; }
+.day-edge { min-height: 1px; }
+.timeline-day {
+  border-bottom: 1px solid var(--divider);
+  padding-bottom: .75rem;
+}
+[data-timeline].is-scrollable { overflow-anchor: none; }
 .day-picker, .day-picker .field { min-width: 0; max-width: 100%; }
 .day-picker .field { margin: 0; }
-.day-other-views { border-top: 1px solid var(--divider); margin-top: 1rem; }
 .day-heading { align-items: center; padding-block: 1.25rem .75rem; }
 .day-heading h2 { margin: 0; }
 .day-timeline { list-style: none; padding: 0; margin: 0; }

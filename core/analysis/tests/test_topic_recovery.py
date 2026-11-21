@@ -9,6 +9,8 @@ from django.test import TestCase, override_settings
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.services import process_run, start_run
+from core.analysis.testing import external_grant_kwargs
+from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
@@ -46,8 +48,12 @@ class TopicRecoveryTests(EvidenceViewTestMixin, TestCase):
             "text_topics",
             [{"kind": "text", "id": str(self.note.pk)}],
             parameters={"backend": backend, "include_summary": True},
-            external_processing=backend == "gateway",
             previous_run=previous_run,
+            **(
+                external_grant_kwargs(self.case, "text_topics")
+                if backend == "gateway"
+                else {}
+            ),
         )[0]
 
     def process(self, run, *, response=None, error=None):
@@ -111,6 +117,7 @@ class TopicRecoveryTests(EvidenceViewTestMixin, TestCase):
         self.assert_keywords_only(run)
         self.assertNotIn("PRIVATE MODEL ERROR", json.dumps(run.result.data))
 
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_local_and_gateway_outages_keep_keywords_and_safe_recovery(self):
         for backend, code in (
             ("local", "local_ai_unavailable"),

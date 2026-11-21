@@ -25,13 +25,13 @@ in private cases with their own people, vehicles, evidence, and permissions.
 
 Retain documents, images, audio, text, communications, and location observations;
 search supported case text; and explore source-linked findings. Eligible evidence
-receives local checks, including native document text extraction and
+receives automatic analysis, including native document text extraction and
 printed-English image recognition. Maps, supported imports, exact identifier
 connections, and recorded chronology help examine activity. Inspect supported
 originals privately. Invite collaborators to inspect or edit.
 
 Transcription and model suggestions need configured services. External AI requires
-deliberate selection and approval, with no automatic cloud fallback. Inferred event timelines,
+case-owner approval in Case Settings. Inferred event timelines,
 graphs, and broader discovery are planned. Pandect is in active development;
 self-hosting is available and managed hosting is planned.
 

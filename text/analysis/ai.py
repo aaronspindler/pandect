@@ -444,7 +444,9 @@ def cited_model_analysis(
 
 
 def text_topics(sources, parameters, *, infer=None):
-    observed = keywords(sources, parameters)
+    observed = (
+        None if parameters.get("_suggestions_only") else keywords(sources, parameters)
+    )
     try:
         result = cited_model_analysis(
             sources,
@@ -457,7 +459,7 @@ def text_topics(sources, parameters, *, infer=None):
             ),
         )
     except ValidationError:
-        if not observed["items"]:
+        if not observed or not observed["items"]:
             raise
         result = output(
             "Keywords retained; topic suggestions were not published.",
@@ -470,7 +472,8 @@ def text_topics(sources, parameters, *, infer=None):
         )
     except AnalysisError as error:
         if (
-            not observed["items"]
+            not observed
+            or not observed["items"]
             or not error.code.startswith(("local_ai_", "gateway_"))
             or error.code == "local_ai_model_changed"
         ):
@@ -483,6 +486,8 @@ def text_topics(sources, parameters, *, infer=None):
             ],
             outcome="partial",
         )
+    if observed is None:
+        return result
     result["items"] = observed["items"] + result["items"]
     result["warnings"] = observed["warnings"] + result["warnings"]
     if observed["items"]:

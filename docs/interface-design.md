@@ -65,7 +65,7 @@ error links focus the affected control or group.
 | All cases | Searchable owned/shared cases with roles; **Create case**. |
 | Case Tools | Default case home; recent evidence and findings, supporting views, reports, and **Add evidence** for owners/editors. |
 | Evidence | Active records, search and disclosed filters; **Add evidence** for owners/editors. |
-| Processing | Pending reviews, active work, retained outcomes, and owner/editor **Run local checks**. |
+| Processing | Pending reviews, active work, retained outcomes, and owner/editor **Reprocess evidence**. |
 | Evidence reader | Original and Findings together; downloads, Info, and authorized More actions beside the title. |
 | Conversations | Reported participant pairs, a unified message history with findings, and saved sessions with summaries and expandable originals. |
 | Chronology | A daily timeline of conversations, calls, possible trips, sightings, and evidence collections, with links to supporting records. |
@@ -87,13 +87,17 @@ Display times and date/time fields in the device-detected timezone or the user's
 **Account → Timezone** choice. Label the timezone and respect local midnight
 boundaries. Source-export timezone choices remain explicit and independent.
 
-**Chronology** opens on the latest day with activity. Keep the date picker,
-timezone, and links to adjacent populated days above a single ordered timeline.
+**Chronology** opens on the latest day with activity. Use document scrolling
+with newer dates above older ones and skip days without entries. Keep the date
+picker and clock controls outside the day sections. The picker opens the exact
+date, including empty days. Provide native form submission and plain navigation
+links when scroll loading is unavailable. Date jumps and entry pagination support
+browser Back and keyboard use.
+
 Place each time or interval beside its entry and keep the real endpoints visible
 for trips that cross midnight. At narrow widths, stack the time and description
-in reading order. Date and paging links support browser Back and keyboard use.
-**Recorded chronology** opens individual timestamps and range filters.
-[Chronology](chronology.md) describes source coverage and grouping.
+in reading order. **Recorded chronology** opens individual timestamps and range
+filters. For source coverage and grouping, see [Chronology](chronology.md).
 
 ## Visual reference and density
 
@@ -225,8 +229,8 @@ the date range, message count and grouping details. **Show messages** opens
 the original members inline, with separate paging for a long session. When a
 full summary is missing, owners and editors can **Request summary** for that
 session or **Summarize missing sessions** to review up to 50 saved sessions at a
-time. The bulk review shows the eligible groups on that page and their
-processing location, then links to the batch in **Processing**. When there are no
+time. The bulk review shows the eligible groups on that page, then links to the
+batch in **Processing**. When there are no
 saved groups, editors can use **Group this conversation** to review the active
 messages for the pair.
 
@@ -318,7 +322,7 @@ a fresh page after completion.
 
 Pasted text preserves browser-submitted content without trimming or normalization;
 offer document upload for exact file bytes. Adding eligible evidence queues
-bounded local checks; follow their status in Processing and results from Case
+applicable analysis. Follow its status in Processing and results from Case
 Tools or the evidence reader. Do not imply every file has a supported extraction
 profile.
 
@@ -358,8 +362,8 @@ whole case even when history is filtered.
 Vehicle-location CSV imports retain their progress and review links. Preparation
 and vehicle-import histories use native disclosures. **Checks queued** indicates
 that preparation has queued work. Owner/editor **Analysis actions** includes
-**Choose analysis** and **Run local checks**. Local checks run against active
-evidence, preserve earlier results and show their preparation progress.
+**Choose analysis** and **Reprocess evidence**. Reprocessing uses active evidence,
+preserves earlier results and shows preparation progress.
 
 While work is active, Processing, analysis results, evidence findings/history,
 message and vehicle import reviews, and vehicle trip summaries update their
@@ -372,39 +376,27 @@ access loss stops updates and offers All cases. **Refresh status** also works
 without JavaScript. Every fragment request repeats the page's current case checks.
 
 **Reprocess evidence** opens a dedicated screen. Native checkboxes select
-multiple active evidence types with counts. State the location in a local-only
-case. Show processing-location choices when a configured external service applies.
-Explain local extraction prerequisites, separate local/external AI runs, configured lookup
-locations, retained originals/results and bounded comparison coverage. Keep
-external-transfer approval visible beside the action. Invalid submissions retain
-choices and link errors to their controls. Submit returns to the selected batch
-in Processing; viewers have no reprocessing action. Methods needing a question,
-explicit samples, area, event or import interpretation link to Choose analysis.
+multiple active evidence types with counts. Invalid submissions retain choices
+and link errors to their controls. Submit returns to the selected batch in
+Processing, where results identify their execution destination and selection.
+Viewers have no reprocessing action. Methods needing explicit samples, an area
+or import interpretation keep their required context.
 
-For a single AI method, show the configured locations and prefer the private
-route when available. State a sole private route without a selector. Require
-the user to select an external route and approve the transfer. Show the
-configured provider and model beside the approval.
+Case Settings is where an owner reviews configured destinations and approves or
+revokes external analysis for the case. Keep the data transferred and the scope
+of approval visible at that decision. Analysis forms collect the required source
+and method inputs. When approval is needed to make a method available, provide
+recovery based on the investigator's role.
 
 Message CSV setup leads with the CSV and confirmed export timezone. Alternate
 sources and **Limit by date** use disclosures. Review has one **Person** chooser
 per participant, with **Create a person** and a native disclosure for new person
 details.
 
-Message CSV review defaults to **Local checks** for newly imported messages.
-Show **AI only** and **Local checks and AI** when inference is configured.
-Each AI choice uses one model suite at the selected destination. Resolve AI to
-external AI when configured, otherwise private inference. Show the destination
-before submission and keep approval beside the choice for external processing.
-Retain the reviewed route through execution. The completed review page shows the
-selected mode and links to **Follow message analysis** on its dedicated status
-page. Submitting **Run message analysis** opens the request's status page with
-preparation, its checks, live updates and a manual refresh fallback.
-Preparation finishing means checks are queued, not that execution has finished.
-Completed or stopped preparation offers **Run message analysis again** with the
-same choice and fresh external approval. Each result discloses its bounded message
-selection. Other additional AI and external operations remain in the deliberate
-analysis flow.
+The completed CSV review links to background analysis for newly published rows.
+Show preparation, checks, live updates and a manual refresh fallback. Preparation
+finishing means checks are queued. Each result discloses the bounded selection
+used. Rerun actions use the case's current available services.
 
 **Case Tools → Additional analysis** and **Processing → Analysis actions →
 Choose analysis** show
@@ -412,7 +404,7 @@ tasks in labeled groups with an optional evidence-type filter, then open a
 source/context form. From the evidence reader, show compatible methods and
 carry the open record into the source form. Keep
 required samples, areas, and claimed events visible; disclose tuning in **Options**,
-opening after errors. Keep versions explicit and require external approval.
+opening after errors. Keep retained source versions explicit.
 Sources use 25-record pages; native POST navigation/title search preserve choices
 and options. Show preparation links for blocked sources and Remove for any
 retained selections that need it. Start analysis when at least one available
@@ -421,8 +413,8 @@ work; execution/inference limits still apply.
 
 Saved results lead with findings and citations. Retained warnings remain open
 under **Limitations**. **Details and history** holds downloads, selected sources,
-settings, and **Run again**. Retry controls keep any external approval and
-destination explanation beside the action. Findings lists lead with the useful
+settings, and **Run again**. Show the retained execution destination in run
+details. Findings lists lead with the useful
 preview, source and coverage. The closed **Filters** disclosure holds **Result
 history**, with choices for latest and all saved results. Evidence-specific
 lists put distinct findings with a useful next check first and show the reason

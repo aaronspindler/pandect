@@ -136,7 +136,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
 from allauth.account.models import EmailAddress
-from core.models import AnalysisRun
+from core.models import CaseAnalysisBatch
 from core.analysis.services import start_run
 from cases.models import Case, CaseMembership
 from audio.models import AudioEvidence
@@ -179,8 +179,10 @@ response = client.post(
     HTTP_ACCEPT="application/json", HTTP_HOST="localhost",
 )
 assert response.status_code == 201, response.content
-run = AnalysisRun.objects.get(case=case, operation="native_text")
-assert run.status == "queued" and run.inputs[0]["evidence_id"] == response.json()["id"]
+analysis = CaseAnalysisBatch.objects.get(case=case, scope__contains={
+    "type": "added", "kind": "document", "id": response.json()["id"],
+})
+assert analysis.status == "queued" and not analysis.runs.exists()
 # Real local OCR must run after restart without AI credentials.
 import io
 from PIL import Image, ImageDraw, ImageFont
@@ -338,6 +340,8 @@ PY
 compose up --no-build -d --wait --wait-timeout 180 worker
 compose exec -T web python manage.py check_task_worker --timeout 30
 compose exec -T web python manage.py shell <<'PY'
+import time
+
 from django.tasks import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 
@@ -368,7 +372,14 @@ assert "TEST 482" in " ".join(
 for crop in plate_run.result.artifacts.exclude(metadata={}):
     finding = plate_run.result.data["items"][crop.metadata["finding_index"]]
     assert crop.sha256 == finding["values"]["Recognition JPEG SHA-256"]
-run = AnalysisRun.objects.get(operation="native_text")
+deadline = time.monotonic() + 30
+run = None
+while time.monotonic() < deadline:
+    run = AnalysisRun.objects.filter(operation="native_text").first()
+    if run is not None and run.status not in {"queued", "running"}:
+        break
+    time.sleep(0.1)
+assert run is not None, "Automatic native extraction did not start."
 assert run.status == "complete", run.error_code
 assert run.result.data["items"][0]["text"] == "Source-anchored native extraction.\n"
 assert run.result.provenance["source_inputs"] == run.inputs
@@ -381,8 +392,8 @@ assert run.inputs[0]["sha256"] == run.case.document_documentevidence_items.get(
 # source across a full stack restart. No in-process import processing is used.
 import hashlib
 import json
-import time
 from django.contrib.auth import get_user_model
+from core.models import CaseAnalysisBatch
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
 from geo.vehicle_import_jobs import enqueue_completion, process_import
 
@@ -406,9 +417,19 @@ assert batch.status == "complete", (batch.status, batch.error_code)
 assert batch.completed_at is not None
 assert batch.vehicle_mapping == {"0": str(batch.selected_vehicle_id)}
 location = VehicleLocationEvidence.objects.get(import_batch=batch)
-assert not AnalysisRun.objects.filter(case_id=batch.case_id, inputs__contains=[
-    {"kind": "vehicle-location", "evidence_id": str(location.pk)},
-]).exists()
+analysis = CaseAnalysisBatch.objects.get(case_id=batch.case_id, scope__contains={
+    "type": "vehicle", "id": str(batch.pk),
+})
+deadline = time.monotonic() + 30
+quality = None
+while time.monotonic() < deadline:
+    quality = analysis.runs.filter(operation="location_quality").first()
+    if quality is not None and quality.status not in {"queued", "running"}:
+        break
+    time.sleep(0.1)
+assert quality is not None, "Automatic vehicle location analysis did not start."
+assert quality.status in {"complete", "partial"}, quality.error_code
+assert quality.inputs[0]["evidence_id"] == str(location.pk)
 assert location.vehicle_id == batch.selected_vehicle_id
 assert location.speed_kmh == 0
 assert location.raw_row["Serial Number"] == "000001"
@@ -462,7 +483,7 @@ try:
     for path, expected in (
         ("/static/ui/app.css", b".global-header"),
         ("/static/core/workspace.css", b".evidence-workspace"),
-        ("/static/core/evidence.js", b"data-evidence-upload"),
+        ("/static/core/evidence.js", b"data-bulk-upload"),
         ("/static/ui/icons/file-text.svg", b"<svg"),
         ("/accounts/login/", b'name="login"'),
     ):

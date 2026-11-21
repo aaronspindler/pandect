@@ -5,12 +5,19 @@ from datetime import timedelta
 from uuid import uuid5
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db.models import F, Q
+from django.http import Http404
 
-from core.analysis.bulk import start_case_analysis
-from core.analysis.errors import AnalysisError
+from core.analysis.bulk import retained_cursor_time, start_case_analysis
+from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import snapshot_execution
 from core.analysis.gateway import gateway_configured
+from core.analysis.history import (
+    communication_selection,
+    comparison_parameters,
+    wording_selection,
+)
 from core.analysis.import_checks import imported_sources
 from core.analysis.services import start_run
 from core.analysis.sources import source_id
@@ -41,8 +48,12 @@ def import_analysis_executions():
 
 def import_analysis_scope(run):
     """Keep publication, progress and deliberate reruns on the same settings."""
+    from core.analysis.reprocessing import analysis_scope
+
     return {"type": "messages", "id": str(run.pk), "automatic": True} | (
-        run.parameters.get("analysis") or {}
+        run.parameters["analysis"]
+        if "analysis" in run.parameters
+        else analysis_scope(run.case, ["text-message"])
     )
 
 
@@ -59,11 +70,14 @@ def _analysis_backend(scope):
 def start_import_analysis(run, data):
     """Commit the preparation task with publication; retries keep one batch."""
     if data["metrics"].get("created_rows"):
+        scope = import_analysis_scope(run)
+        if scope.get("analysis_version"):
+            scope["source_count"] = data["metrics"]["created_rows"]
         start_case_analysis(
             run.requested_by,
             run.case_id,
             submission_id=uuid5(run.pk, "imessage-analysis-v1"),
-            scope=import_analysis_scope(run),
+            scope=scope,
         )
 
 
@@ -72,18 +86,28 @@ def next_messages(batch, case):
     _, messages = imported_sources(case, batch.scope)
     messages = messages.filter(created_at__lte=batch.created_at)
     if batch.source_cursor:
-        previous = messages.get(pk=batch.source_cursor)
-        if previous.occurred_at is None:
-            messages = messages.filter(occurred_at__isnull=True, pk__gt=previous.pk)
+        if "_cursor" in batch.scope:
+            moment = retained_cursor_time(batch)
+        else:
+            moment = messages.get(pk=batch.source_cursor).occurred_at
+        if moment is None:
+            messages = messages.filter(
+                occurred_at__isnull=True, pk__gt=batch.source_cursor
+            )
         else:
             messages = messages.filter(
-                Q(occurred_at__gt=previous.occurred_at)
-                | Q(occurred_at=previous.occurred_at, pk__gt=previous.pk)
+                Q(occurred_at__gt=moment)
+                | Q(occurred_at=moment, pk__gt=batch.source_cursor)
                 | Q(occurred_at__isnull=True)
             )
+    if batch.scope.get("analysis_version"):
+        messages = messages.filter(is_archived=False)
     messages = messages.order_by(F("occurred_at").asc(nulls_last=True), "pk")
     # Leave room for same-participant call metadata in cross-channel comparisons.
-    limit = min(250, settings.PANDECT_ANALYSIS_MAX_SOURCES)
+    limit = min(
+        25 if batch.scope.get("analysis_version") else 250,
+        settings.PANDECT_ANALYSIS_MAX_SOURCES,
+    )
     selected, characters = [], 0
     for message in messages[:limit].iterator(chunk_size=10):
         length = len(message.body)
@@ -109,21 +133,63 @@ def _groups(messages, *, count, characters):
 
 def prepare_import_analysis(batch, case, messages):
     """Queue independent operations; model/provider failures cannot undo ingestion."""
-    backend = _analysis_backend(batch.scope)
+    from core.analysis.reprocessing import ANALYSIS_VERSION
+
+    versioned = batch.scope.get("analysis_version") == ANALYSIS_VERSION
+    backend = "" if versioned else _analysis_backend(batch.scope)
     if backend == "gateway" and (
         not batch.scope.get("external_processing")
         or batch.scope.get("approved_by") != str(batch.requested_by_id)
     ):
         raise AnalysisError("retry_approval_required")
     executions = batch.scope.get("executions", {})
-    _, imported = imported_sources(case, batch.scope)
-    total = imported.count()
+    total = batch.scope.get("source_count")
+    if total is None:
+        _, imported = imported_sources(case, batch.scope)
+        total = imported.count()
     limit = settings.PANDECT_ANALYSIS_MAX_SOURCES
+    compared = {}
 
     def queue(operation, selected, parameters=None, *, additions=(), matching_calls=0):
         parameters = parameters or {}
         choices = [{"kind": "text-message", "id": str(item.pk)} for item in selected]
-        choices.extend(additions)
+        if versioned and operation == "copied_text":
+            peers = wording_selection(
+                case, batch, choices, [item.body for item in selected]
+            )
+            parameters = comparison_parameters(choices, peers, parameters)
+            if len(peers) < 2:
+                return
+            choices = peers
+        if versioned and operation in {
+            "sessions",
+            "comm_patterns",
+            "session_summaries",
+            "conversation_link",
+        }:
+            exchange = operation == "conversation_link"
+            model = operation == "session_summaries" or parameters.get(
+                "semantic_links", False
+            )
+            key = (tuple(item.pk for item in selected), exchange, model)
+            if key not in compared:
+                compared[key] = communication_selection(
+                    case,
+                    batch,
+                    choices,
+                    selected,
+                    minutes=10 if exchange else 60,
+                    include_calls=exchange,
+                    count=20 if model else None,
+                    characters=16_000 if model else 1_000_000,
+                    anchor_chars=sum(len(item.body) for item in selected),
+                )
+            peers = compared[key]
+            if exchange:
+                parameters = parameters | {"time_window_minutes": 10}
+            parameters = comparison_parameters(choices, peers, parameters)
+            choices = peers
+        choices = [*choices, *additions]
         scope = {
             "import_run_id": batch.scope["id"],
             "imported_messages": total,
@@ -131,23 +197,41 @@ def prepare_import_analysis(batch, case, messages):
             "additional_calls": len(additions),
             "matching_calls": matching_calls,
         }
-        _, created = start_run(
-            batch.requested_by,
-            case.pk,
-            operation,
-            choices,
-            parameters=parameters | {"_import_analysis": scope},
-            submission_id=uuid5(
-                batch.pk,
-                f"{operation}:{selected[0].pk}:{parameters}",
-            ),
-            batch=batch,
-            external_processing=batch.scope.get("external_processing", False),
-            approved_execution=(executions or {}).get(
-                f"{operation}:{parameters.get('backend', 'local')}"
-            ),
-        )
-        batch.queued_runs += created
+        route = executions.get(f"{operation}:{parameters.get('backend', 'local')}")
+        try:
+            _, created = start_run(
+                batch.requested_by,
+                case.pk,
+                operation,
+                choices,
+                parameters=parameters | {"_import_analysis": scope},
+                submission_id=uuid5(
+                    batch.pk, f"{operation}:{selected[0].pk}:{parameters}"
+                ),
+                batch=batch,
+                approved_execution=route,
+                external_grant_revision=batch.scope.get("external_grant_revision"),
+            )
+        except (AnalysisError, ValidationError, Http404) as failure:
+            if not versioned and not (route and route["location"] == "external"):
+                raise
+            batch.unavailable_sources += 1
+            if len(batch.preparation_errors) < 100:
+                code = (
+                    failure.code
+                    if isinstance(failure, AnalysisError)
+                    else "source_unavailable"
+                )
+                batch.preparation_errors.append(
+                    {
+                        "kind": "text-message",
+                        "evidence_id": str(selected[0].pk),
+                        "operation": operation,
+                        "message": error_message(code),
+                    }
+                )
+        else:
+            batch.queued_runs += created
 
     if batch.scope.get("mode", "local") != "ai":
         queue("entities", messages)
@@ -157,7 +241,7 @@ def prepare_import_analysis(batch, case, messages):
 
         calls, matching_calls = [], 0
         timed = [message for message in messages if message.occurred_at is not None]
-        if timed:
+        if timed and not versioned:
             first = messages[0]
             pair = Q(sender_id=first.sender_id, recipient_id=first.recipient_id) | Q(
                 sender_id=first.recipient_id, recipient_id=first.sender_id
@@ -217,10 +301,23 @@ def prepare_import_analysis(batch, case, messages):
 
         for group in _groups(messages, count=min(50, limit), characters=100_000):
             queue("copied_text", group)
-    if backend:
+    if backend or versioned:
         for group in _groups(messages, count=min(20, limit), characters=16_000):
             for operation, parameters in MODEL_PARAMETERS.items():
-                queue(operation, group, parameters | {"backend": backend})
+                for route in ("local", "gateway") if versioned else (backend,):
+                    if f"{operation}:{route}" in executions:
+                        queue(
+                            operation,
+                            group,
+                            parameters
+                            | {"backend": route}
+                            | (
+                                {"_suggestions_only": True}
+                                if versioned
+                                and operation in {"text_topics", "conversation_link"}
+                                else {}
+                            ),
+                        )
 
 
 def describe_import_selection(data, run):
@@ -240,8 +337,10 @@ def describe_import_selection(data, run):
             "Writing samples group the reported sender. Comparisons split that "
             "sender's timed samples at a distinct timestamp near the middle."
         )
-    if run.operation == "conversation_link" and not run.parameters.get(
-        "semantic_links"
+    if (
+        run.operation == "conversation_link"
+        and not run.parameters.get("semantic_links")
+        and "_comparison" not in run.parameters
     ):
         data["warnings"].append(
             f"Selected {scope['additional_calls']} of {scope['matching_calls']} "

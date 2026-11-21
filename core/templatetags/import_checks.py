@@ -6,7 +6,6 @@ from core.analysis.errors import AnalysisError, error_message
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.import_checks import imported_sources
 from core.models import AnalysisRun, CaseAnalysisBatch
-from phone.imessage_forms import ANALYSIS_MODES
 
 register = template.Library()
 
@@ -26,10 +25,6 @@ def import_checks(context, import_type, import_id):
         if import_type == "messages"
         else None
     )
-    if run:
-        from phone.analysis.ingest import import_analysis_scope
-
-        scope = import_analysis_scope(run)
     try:
         _, sources = imported_sources(case, scope)
         count = sources.count()
@@ -39,23 +34,16 @@ def import_checks(context, import_type, import_id):
         return {}
     except Http404, ValidationError:
         return {}
-    batches = CaseAnalysisBatch.objects.filter(case=case)
-    if run:
-        batches = batches.filter(
-            scope__type="messages", scope__id=str(import_id), scope__automatic=True
-        )
-    else:
-        batches = batches.filter(scope=scope)
-    batch = batches.first()
-    mode = (batch.scope if batch else scope).get("mode", "local")
+    batch = CaseAnalysisBatch.objects.filter(
+        case=case, scope__type=import_type, scope__id=str(import_id)
+    ).first()
     return {
         "case": case,
         "can_edit": context.get("can_edit"),
         "import_type": import_type,
         "import_id": import_id,
         "eligible_count": count,
-        "automatic": bool(run),
-        "analysis_mode": dict(ANALYSIS_MODES).get(mode, "Earlier analysis settings"),
+        "is_imessage": bool(run and batch and batch.scope.get("automatic")),
         "form": EvidenceAnalysisForm(),
         "batch": batch,
         "csrf_token": context.get("csrf_token"),

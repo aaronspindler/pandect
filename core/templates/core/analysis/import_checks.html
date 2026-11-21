@@ -1,16 +1,12 @@
 {% if case %}
 <section class="analysis-section">
-  <h2>{% if automatic %}Message analysis{% else %}Local checks{% endif %}</h2>
+  <h2>Import analysis</h2>
   {% if unavailable_message %}<p>{{ unavailable_message }}</p>
-  {% elif automatic %}
-    <p>Selected analysis: {{ analysis_mode }}</p>
-    {% if batch %}<p>Analysis starts automatically for the {{ eligible_count }} newly imported message{{ eligible_count|pluralize }}. Follow its progress and review the results.</p>{% elif eligible_count %}<p>{{ eligible_count }} imported message{{ eligible_count|pluralize }} available for message analysis.</p>{% else %}<p>This import added no new messages to analyze. Previously retained messages keep their earlier results.</p>{% endif %}
-    {% if batch %}<p><a class="record-link" href="{% url 'phone:imessage_analysis_status' case.pk batch.pk %}">Follow message analysis</a></p>{% endif %}
-    {% if can_edit and eligible_count and batch.status != 'queued' %}<p><a class="button button-secondary" href="{% url 'core:analysis:import_checks' case.pk import_type import_id %}">{% if batch %}Run message analysis again{% else %}Run message analysis{% endif %}</a></p>{% endif %}
+  {% elif not eligible_count %}<p>This import added no new records to analyze.</p>
   {% else %}
-    <p>{{ eligible_count }} imported record{{ eligible_count|pluralize }} available for supported local checks. These checks do not use AI or external services.</p>
-    {% if can_edit and eligible_count %}<form method="post" action="{% url 'core:analysis:import_checks' case.pk import_type import_id %}">{% csrf_token %}{{ form.submission_id }}<button class="button button-secondary" type="submit">Run local checks on imported evidence</button></form>{% endif %}
-    {% if batch %}<p><a class="record-link" href="{% url 'core:analysis:processing' case.pk %}?batch={{ batch.pk }}">Follow the latest import checks</a></p>{% endif %}
+    <p>{{ eligible_count }} imported record{{ eligible_count|pluralize }} available for analysis.</p>
+    {% if batch %}<p>{% if is_imessage %}<a class="record-link" href="{% url 'phone:imessage_analysis_status' case.pk batch.pk %}">Follow message analysis</a>{% else %}<a class="record-link" href="{% url 'core:analysis:processing' case.pk %}?batch={{ batch.pk }}">Follow import analysis</a>{% endif %}</p>{% endif %}
+    {% if can_edit and batch.status != 'queued' %}<form method="post" action="{% url 'core:analysis:import_checks' case.pk import_type import_id %}">{% csrf_token %}{{ form.submission_id }}<button class="button button-secondary" type="submit">{% if batch %}Run import analysis again{% else %}Analyze imported evidence{% endif %}</button></form>{% endif %}
   {% endif %}
 </section>
 {% endif %}

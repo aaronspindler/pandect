@@ -7,19 +7,18 @@ from uuid import uuid4
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
-from django.urls import reverse
 from django.utils import timezone
 
+from core.analysis.approval import approve_case_execution
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.reprocessing import (
-    configured_reprocessing_executions,
-    start_reprocessing,
-)
+from core.analysis.execution import configured_external_executions
+from core.analysis.reprocessing import start_reprocessing
 from core.analysis.services import process_run
 from core.analysis.testing import image_bytes, wav_bytes
 from core.analysis.tests.test_direct_ai import DIRECT_AI, OPENAI_DIRECT
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
+from core.analysis.transcripts import select_transcript
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
 from geo.testing import LOCAL_GEOCODER
@@ -63,15 +62,16 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             values["vehicle"] = self.vehicle
         return KINDS[kind].objects.create(**(values | overrides))
 
-    def start(self, kinds, mode="local"):
+    def start(self, kinds, *, approved=False):
+        if approved:
+            approve_case_execution(
+                self.case, self.users["owner"], configured_external_executions()
+            )
         batch, _ = start_reprocessing(
             self.users["owner"],
             self.case.pk,
             submission_id=uuid4(),
             kinds=list(kinds),
-            mode=mode,
-            executions=configured_reprocessing_executions(),
-            external_processing=mode != "local",
         )
         return batch
 
@@ -85,34 +85,16 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
         self.fail("Reprocessing did not finish preparing its selected domains")
 
     @override_settings(PANDECT_AI_GATEWAY=OPENAI_DIRECT, PANDECT_DIRECT_AI=DIRECT_AI)
-    def test_audio_only_routes_require_transcription_in_the_selected_mode(self):
+    def test_audio_only_routes_require_a_configured_transcription(self):
         self.source("audio")
-        self.login("owner")
-        url = reverse("core:analysis:reprocess", args=[self.case.pk])
         with self.settings(PANDECT_LOCAL_AI={}):
-            review = self.client.get(url)
+            batch = self.start(("audio",), approved=True)
+            self.drain(batch)
             self.assertEqual(
-                [value for value, _ in review.context["form"].fields["mode"].choices],
-                ["local"],
+                set(batch.runs.values_list("operation", flat=True)), {"audio_metadata"}
             )
-            for mode in ("external", "both"):
-                with (
-                    self.subTest(mode=mode),
-                    self.assertRaisesMessage(
-                        ValidationError, "No external service is configured"
-                    ),
-                ):
-                    self.start(("audio",), mode=mode)
-        review = self.client.get(url)
-        self.assertEqual(
-            [value for value, _ in review.context["form"].fields["mode"].choices],
-            ["local", "both"],
-        )
-        with self.assertRaisesMessage(
-            ValidationError, "No external service is configured"
-        ):
-            self.start(("audio",), mode="external")
-        batch = self.start(("audio",), mode="both")
+            self.assertNotIn("content_events:gateway", batch.scope["executions"])
+        batch = self.start(("audio",), approved=True)
         self.drain(batch)
         self.assertEqual(
             batch.runs.get(operation="transcription").parameters["backend"], "local"
@@ -132,7 +114,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                 file=ContentFile(wav_bytes(), name="call.wav"),
                 **{parent: sources[kind]},
             )
-        batch = self.start(KINDS, mode="both")
+        batch = self.start(KINDS, approved=True)
         self.drain(batch)
         runs = list(batch.runs.all())
         self.assertEqual(
@@ -197,7 +179,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             phone_call=call,
             file=ContentFile(wav_bytes(), name="call.wav"),
         )
-        batch = self.start(("phone-call",), mode="both")
+        batch = self.start(("phone-call",), approved=True)
         self.drain(batch)
         transcription = batch.runs.get(
             operation="transcription", external_processing=True
@@ -213,6 +195,10 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             process_run(transcription.pk)
         transcription.refresh_from_db()
         self.assertEqual(transcription.status, "complete", transcription.error_code)
+        batch.runs.filter(operation="transcription", external_processing=False).update(
+            status="failed"
+        )
+        select_transcript(batch.pk, transcription.parameters["_transcript_group"])
         followups = list(
             batch.runs.filter(previous_run=transcription, operation="conversation_link")
         )
@@ -303,17 +289,16 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                 PANDECT_GEOCODER_LOCAL=geocoder_local,
                 PANDECT_MAP_CONTEXT_LOCAL=context_local,
             ):
-                for mode in ("local", "external", "both"):
-                    with self.subTest(geocoder_local=geocoder_local, mode=mode):
-                        batch = self.start(("location",), mode=mode)
+                for approved in (False, True):
+                    with self.subTest(geocoder_local=geocoder_local, approved=approved):
+                        batch = self.start(("location",), approved=approved)
                         self.drain(batch)
                         for operation, local in (
                             ("geocode_locations", geocoder_local),
                             ("geographic_context", context_local),
                         ):
                             runs = list(batch.runs.filter(operation=operation))
-                            expected = mode == "both" or local == (mode == "local")
-                            self.assertEqual(bool(runs), expected)
+                            self.assertEqual(bool(runs), local or approved)
                             for run in runs:
                                 self.assertEqual(run.external_processing, not local)
                                 self.assertEqual(

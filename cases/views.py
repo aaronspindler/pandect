@@ -17,9 +17,17 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_http_methods
+from django.utils.crypto import constant_time_compare
+from django.views.decorators.http import require_http_methods, require_POST
 
 from config.access import product_login_required
+from core.analysis.approval import (
+    approve_case_execution,
+    case_approval_confirmation,
+    case_approval_context,
+    revoke_case_execution,
+)
+from core.analysis.execution import configured_external_executions
 from core.evidence.types import KINDS
 from geo.models import PointOfInterest
 from socialmedia.models import SocialAccount
@@ -171,6 +179,32 @@ def case_settings(request, case_id):
         memberships=case.memberships.select_related("user").order_by("user__username"),
         pending_invitations=[item for item in invitations if item.is_pending],
         invitation_history=[item for item in invitations if not item.is_pending],
+        external_analysis=case_approval_context(case, request.user),
+    )
+
+
+@product_login_required
+@require_POST
+@transaction.atomic
+def case_external_analysis(request, case_id):
+    case = get_case(request.user, case_id, owner=True, lock=True)
+    action = request.POST.get("action")
+    if action not in {"approve", "revoke"}:
+        raise Http404("Case action not found.")
+    executions = configured_external_executions() if action == "approve" else {}
+    if not constant_time_compare(
+        request.POST.get("confirmation", ""),
+        case_approval_confirmation(case, request.user, action, executions),
+    ):
+        messages.error(request, "Settings changed. Review the current destinations.")
+    elif action == "revoke" and case.external_analysis_approval.get("executions"):
+        revoke_case_execution(case)
+        messages.success(request, "External analysis approval revoked for this case.")
+    elif executions and case.external_analysis_approval.get("executions") != executions:
+        approve_case_execution(case, request.user, executions)
+        messages.success(request, "External analysis approved for this case.")
+    return redirect(
+        reverse("cases:case_settings", args=(case.pk,), fragment="external-analysis")
     )
 
 

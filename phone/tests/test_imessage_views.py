@@ -2,12 +2,11 @@
 
 import csv
 import io
-from copy import copy, deepcopy
+from copy import deepcopy
 from datetime import date
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -21,7 +20,7 @@ from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.analysis.deterministic.imessage import HEADERS, iter_import_rows
-from phone.imessage_forms import IMessageConfirmForm, IMessageUploadForm
+from phone.imessage_forms import IMessageUploadForm
 from phone.imessage_imports import confirm_import, start_preview
 from phone.models import CommunicationContext, TextMessageEvidence
 
@@ -105,21 +104,6 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         run.refresh_from_db()
         return run
 
-    def analysis_selection(self, preview=None):
-        preview = preview or AnalysisRun.objects.filter(
-            operation="imessage_import", parameters__phase="preview"
-        ).latest("created_at")
-        actor = next(
-            user
-            for user in self.users.values()
-            if str(user.pk) == self.client.session["_auth_user_id"]
-        )
-        form = IMessageConfirmForm(actor=actor, case=self.case, run=preview)
-        return {
-            "mode": "local",
-            "execution_confirmation": form["execution_confirmation"].value(),
-        }
-
     def new_people(self):
         return {
             "account-person": "create",
@@ -129,7 +113,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
             "correspondent-phone_number": "17055550100",
             "direct_chat": "on",
             "confirm": "on",
-        } | self.analysis_selection()
+        }
 
     def test_upload_retains_exact_csv_and_retries_without_duplicates(self):
         self.login("owner")
@@ -275,9 +259,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(Person.objects.count(), before)
         final = AnalysisRun.objects.get(parameters__phase="import")
         self.assertEqual(final.previous_run_id, preview.pk)
-        self.assertEqual(final.parameters["analysis"]["mode"], "local")
-        self.assertEqual(final.parameters["analysis"]["executions"], {})
-        self.assertFalse(final.parameters["analysis"]["external_processing"])
+        self.assertNotIn("analysis", final.parameters)
         changed = self.client.post(
             self.review_url(preview),
             self.new_people() | {"account-first_name": "Changed"},
@@ -289,10 +271,9 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
                 self.review_url(preview),
                 self.new_people() | {"mode": "ai"},
             )
-        self.assertContains(changed_mode, "already used", status_code=409)
+        self.assertEqual(changed_mode.url, first.url)
         final.refresh_from_db()
-        self.assertEqual(final.parameters["analysis"]["mode"], "local")
-        self.assertEqual(final.parameters["analysis"]["executions"], {})
+        self.assertNotIn("analysis", final.parameters)
         self.assertEqual(
             AnalysisRun.objects.filter(parameters__phase="import").count(), 1
         )
@@ -306,14 +287,12 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
             self.client.get(self.review_url(final)), "Messages imported"
         )
 
-    def test_review_defaults_to_local_without_queueing_analysis(self):
+    def test_import_review_has_no_processing_choices_and_queues_nothing(self):
         preview = self.prepare()
         response = self.client.get(self.review_url(preview))
-        form = response.context["form"]
-        self.assertEqual(form["mode"].value(), "local")
-        self.assertTrue(form["execution_confirmation"].value())
-        self.assertContains(response, "Analysis after import")
-        self.assertContains(response, "Local checks")
+        self.assertContains(response, "Analysis starts automatically")
+        self.assertNotContains(response, 'name="mode"')
+        self.assertNotContains(response, 'name="execution_confirmation"')
         self.assertNotContains(response, 'name="external_processing"')
         self.assertFalse(CaseAnalysisBatch.objects.exists())
         self.assertFalse(
@@ -496,203 +475,36 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
             AnalysisRun.objects.filter(parameters__phase="import").exists()
         )
 
-    @override_settings(PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY)
-    def test_external_ai_and_both_require_approval_and_preserve_draft(self):
+    @override_settings(
+        PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY,
+        PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,
+    )
+    def test_forged_analysis_options_do_not_grant_authorization(self):
         preview = self.prepare()
-        before = Person.objects.count()
-        for mode in ("ai", "both"):
-            with self.subTest(mode=mode):
-                response = self.client.post(
-                    self.review_url(preview), self.new_people() | {"mode": mode}
-                )
-                self.assertEqual(response.status_code, 400)
-                form = response.context["form"]
-                self.assertIn("external_processing", form.errors)
-                self.assertEqual(form["mode"].value(), mode)
-                self.assertEqual(
-                    response.context["account_form"]["first_name"].value(),
-                    "Export account",
-                )
-                self.assertEqual(Person.objects.count(), before)
-                self.assertFalse(
-                    AnalysisRun.objects.filter(parameters__phase="import").exists()
-                )
-        approved = self.client.post(
+        response = self.client.post(
             self.review_url(preview),
-            self.new_people() | {"mode": "both", "external_processing": "on"},
-        )
-        self.assertEqual(approved.status_code, 302)
-        final = AnalysisRun.objects.get(parameters__phase="import")
-        self.assertEqual(final.parameters["analysis"]["mode"], "both")
-        self.assertTrue(final.parameters["analysis"]["external_processing"])
-        self.assertEqual(
-            {
-                route["backend"]
-                for route in final.parameters["analysis"]["executions"].values()
+            self.new_people()
+            | {
+                "mode": "both",
+                "external_processing": "on",
+                "execution_confirmation": "forged",
             },
-            {"gateway"},
         )
-        self.assertEqual(len(final.parameters["analysis"]["executions"]), 4)
+        self.assertEqual(response.status_code, 302)
+        final = AnalysisRun.objects.get(parameters__phase="import")
+        self.assertNotIn("analysis", final.parameters)
         self.assertFalse(TextMessageEvidence.objects.exists())
         process_run(final.pk)
         final.refresh_from_db()
         self.assertEqual(final.status, "complete", final.error_code)
-        response = self.client.get(self.review_url(final))
-        self.assertContains(response, "Selected analysis: Local checks and AI")
-        self.assertEqual(CaseAnalysisBatch.objects.get().scope["mode"], "both")
-
-    @override_settings(
-        PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY | {"account": ""},
-        PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,
-    )
-    def test_missing_external_configuration_uses_local_ai_without_approval(self):
-        preview = self.prepare()
-        response = self.client.get(self.review_url(preview))
-        self.assertContains(response, "AI will use the configured private service.")
-        self.assertNotContains(response, 'name="external_processing"')
-        for mode in ("ai", "both"):
-            with self.subTest(mode=mode):
-                form = IMessageConfirmForm(
-                    self.new_people() | {"mode": mode},
-                    actor=self.users["owner"],
-                    case=self.case,
-                    run=preview,
-                )
-                self.assertTrue(form.is_valid(), form.errors)
-                analysis = form.specification()
-                self.assertFalse(analysis["external_processing"])
-                self.assertEqual(len(analysis["executions"]), 4)
-                self.assertEqual(
-                    {route["backend"] for route in analysis["executions"].values()},
-                    {"local"},
-                )
-        response = self.client.post(
-            self.review_url(preview), self.new_people() | {"mode": "ai"}
-        )
-        self.assertEqual(response.status_code, 302)
-        final = AnalysisRun.objects.get(parameters__phase="import")
-        self.assertEqual(final.parameters["analysis"]["mode"], "ai")
-        self.assertFalse(final.parameters["analysis"]["external_processing"])
-        self.assertTrue(
-            all(
-                route["backend"] == "local"
-                for route in final.parameters["analysis"]["executions"].values()
-            )
-        )
-
-    @override_settings(PANDECT_LOCAL_AI={})
-    def test_unconfigured_ai_is_unavailable_and_local_checks_ignore_route_drift(self):
-        preview = self.prepare()
-        response = self.client.get(self.review_url(preview))
-        self.assertContains(response, "AI analysis is unavailable")
+        batch = CaseAnalysisBatch.objects.get()
         self.assertEqual(
-            list(response.context["form"].fields["mode"].choices),
-            [("local", "Local checks")],
+            {route["backend"] for route in batch.scope["executions"].values()},
+            {"local"},
         )
-        payload = self.new_people()
-        self.assertEqual(
-            self.client.post(
-                self.review_url(preview), payload | {"mode": "ai"}
-            ).status_code,
-            400,
-        )
-        self.assertFalse(
-            AnalysisRun.objects.filter(parameters__phase="import").exists()
-        )
-        with self.settings(PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY):
-            self.assertEqual(
-                self.client.post(self.review_url(preview), payload).status_code, 302
-            )
-        self.assertEqual(
-            AnalysisRun.objects.get(parameters__phase="import").parameters["analysis"][
-                "executions"
-            ],
-            {},
-        )
-
-    def test_invalid_or_missing_analysis_mode_cannot_queue_import(self):
-        preview = self.prepare()
-        for mode in ("unreviewed-service", "external", ""):
-            with self.subTest(mode=mode):
-                response = self.client.post(
-                    self.review_url(preview), self.new_people() | {"mode": mode}
-                )
-                self.assertEqual(response.status_code, 400)
-                self.assertIn("mode", response.context["form"].errors)
-        self.assertFalse(
-            AnalysisRun.objects.filter(parameters__phase="import").exists()
-        )
-
-    @override_settings(PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY)
-    def test_analysis_confirmation_cannot_be_tampered_or_reused_by_another_editor(self):
-        preview = self.prepare()
-        original = self.new_people() | {
-            "mode": "ai",
-            "external_processing": "on",
-        }
-        tampered = self.client.post(
-            self.review_url(preview),
-            original | {"execution_confirmation": "invalid-token"},
-        )
-        self.assertEqual(tampered.status_code, 400)
-        self.assertTrue(tampered.context["form"].non_field_errors())
-        self.assertFalse(tampered.context["form"]["external_processing"].value())
-        self.assertEqual(tampered.context["form"]["mode"].value(), "ai")
-        self.login("editor")
-        rebound = self.client.post(self.review_url(preview), original)
-        self.assertEqual(rebound.status_code, 400)
-        self.assertTrue(rebound.context["form"].non_field_errors())
-        self.assertFalse(
-            AnalysisRun.objects.filter(parameters__phase="import").exists()
-        )
-
-    def test_analysis_confirmation_is_bound_to_case_and_preview(self):
-        preview = self.prepare()
-        values = self.new_people()
-        other_preview = copy(preview)
-        other_preview.pk = uuid4()
-        for case, run in ((self.other_case, preview), (self.case, other_preview)):
-            with self.subTest(case=case.pk, run=run.pk):
-                form = IMessageConfirmForm(
-                    values, actor=self.users["owner"], case=case, run=run
-                )
-                self.assertFalse(form.is_valid())
-                self.assertTrue(form.non_field_errors())
-        self.assertFalse(
-            AnalysisRun.objects.filter(parameters__phase="import").exists()
-        )
-
-    @override_settings(PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY)
-    def test_changed_analysis_destination_requires_fresh_approval(self):
-        preview = self.prepare()
-        original = self.new_people() | {
-            "mode": "ai",
-            "external_processing": "on",
-        }
-        with self.settings(
-            PANDECT_AI_GATEWAY=settings.PANDECT_AI_GATEWAY
-            | {"gateway": "changed-synthetic-gateway"}
-        ):
-            changed = self.client.post(self.review_url(preview), original)
-            self.assertEqual(changed.status_code, 400)
-            form = changed.context["form"]
-            self.assertTrue(form.non_field_errors())
-            self.assertEqual(form["mode"].value(), "ai")
-            self.assertFalse(form["external_processing"].value())
-            self.assertNotEqual(
-                form["execution_confirmation"].value(),
-                original["execution_confirmation"],
-            )
-            self.assertFalse(
-                AnalysisRun.objects.filter(parameters__phase="import").exists()
-            )
-            refreshed = original | {
-                "execution_confirmation": form["execution_confirmation"].value()
-            }
-            approved = self.client.post(self.review_url(preview), refreshed)
-            self.assertEqual(approved.status_code, 302)
-        final = AnalysisRun.objects.get(parameters__phase="import")
-        self.assertEqual(final.parameters["analysis"]["mode"], "ai")
+        review = self.client.get(self.review_url(final))
+        self.assertContains(review, "Follow message analysis")
+        self.assertNotContains(review, "Selected analysis:")
 
     def test_existing_people_and_rejected_cross_case_references(self):
         preview = self.prepare()
@@ -706,7 +518,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
             "correspondent-person": str(foreign.pk),
             "direct_chat": "on",
             "confirm": "on",
-        } | self.analysis_selection(preview)
+        }
         invalid = self.client.post(self.review_url(preview), data)
         self.assertEqual(invalid.status_code, 400)
         self.assertFalse(
@@ -716,9 +528,7 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.login("editor")
         good = self.client.post(
             self.review_url(preview),
-            data
-            | self.analysis_selection(preview)
-            | {"correspondent-person": str(other.pk)},
+            data | {"correspondent-person": str(other.pk)},
         )
         self.assertEqual(good.status_code, 302)
         final = AnalysisRun.objects.get(parameters__phase="import")

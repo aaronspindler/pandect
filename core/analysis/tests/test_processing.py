@@ -14,7 +14,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, close_old_connections, transaction
 from django.http import Http404
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
@@ -30,6 +30,7 @@ from core.analysis.services import (
     validate_output,
 )
 from core.analysis.sources import Source, output
+from core.analysis.testing import external_grant_kwargs
 from core.models import (
     AnalysisResult,
     AnalysisReview,
@@ -41,6 +42,7 @@ from core.testing import EvidenceViewTestMixin
 from core.tests.test_tasks import drain_queue
 from document.models import DocumentEvidence
 from geo.models import LocationEvidence
+from geo.testing import LOCAL_GEOCODER
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence
 from text.analysis.deterministic import extract_entities
 from text.models import TextEvidence
@@ -577,6 +579,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
                 [source],
             )
 
+    @override_settings(**(LOCAL_GEOCODER | {"PANDECT_GEOCODER_LOCAL": False}))
     def geocode_fixture(self, *, with_reported_position=False):
         observations = [
             LocationEvidence.objects.create(
@@ -594,7 +597,7 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             self.case.pk,
             "geocode_locations",
             [{"kind": "location", "id": str(value.pk)} for value in observations],
-            external_processing=True,
+            **external_grant_kwargs(self.case, "geocode_locations"),
         )
         AnalysisRun.objects.filter(pk=run.pk).update(status="complete", progress=100)
         run.refresh_from_db()

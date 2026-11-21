@@ -17,6 +17,11 @@ urlpatterns = [
     path("processing/", processing.index, name="processing"),
     path("processing/reprocess/", reprocessing_views.reprocess, name="reprocess"),
     path(
+        "processing/<uuid:batch_id>/resume/",
+        reprocessing_views.resume,
+        name="resume_batch",
+    ),
+    path(
         "imports/<str:import_type>/<uuid:import_id>/checks/",
         import_checks.start,
         name="import_checks",

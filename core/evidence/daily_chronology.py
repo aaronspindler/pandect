@@ -1,6 +1,6 @@
 """Read one local day of retained sources and validated groupings."""
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from heapq import merge
 from itertools import islice
 from operator import itemgetter
@@ -22,10 +22,15 @@ from core.evidence.types import (
     KINDS,
     LOCATION_KINDS,
 )
-from geo.daily_chronology import attach_daily_location_details, daily_location_rows
+from geo.daily_chronology import (
+    attach_daily_location_details,
+    daily_location_rows,
+    daily_trip_covers,
+)
 from phone.daily_chronology import attach_daily_message_previews, daily_message_rows
 
 PAGE_SIZE = 25
+DAY = timedelta(days=1)
 ROW_LABELS = KIND_LABELS | {
     "conversation": "Conversation",
     "message": "Text message",
@@ -34,18 +39,18 @@ ROW_LABELS = KIND_LABELS | {
 }
 
 
+def _local_midnight(day):
+    return timezone.make_aware(datetime.combine(day, time.min))
+
+
 class DayForm(forms.Form):
     day = forms.DateField(label="Date", widget=forms.DateInput(attrs={"type": "date"}))
 
     def clean_day(self):
         day = self.cleaned_data["day"]
         try:
-            self.start = timezone.make_aware(
-                datetime.combine(day, time.min)
-            ).astimezone(UTC)
-            self.end = timezone.make_aware(
-                datetime.combine(day + timedelta(days=1), time.min)
-            ).astimezone(UTC)
+            self.start = _local_midnight(day).astimezone(UTC)
+            self.end = _local_midnight(day + DAY).astimezone(UTC)
         except OverflowError as error:
             raise forms.ValidationError(
                 "Choose a date with a valid start and end in this timezone."
@@ -61,6 +66,17 @@ def timestamp_fields(kind, category):
             yield "observed_at", "Observed"
     if category in ("all", "acquired"):
         yield "collected_at", "Collected"
+
+
+def _timeline_day(stamp):
+    day = timezone.localdate(stamp)
+    # A change near midnight can make the wall date disagree with the
+    # half-open interval used to load a timeline section.
+    if day < date.max and stamp >= _local_midnight(day + DAY):
+        return day + DAY
+    if day > date.min and stamp < _local_midnight(day):
+        return day - DAY
+    return day
 
 
 def _nearest_recorded_day(case, *, boundary=None, forward=False):
@@ -79,7 +95,23 @@ def _nearest_recorded_day(case, *, boundary=None, forward=False):
                 .order_by(order)[:1]
             )
     stamp = branches[0].union(*branches[1:], all=True).order_by(order).first()
-    return timezone.localdate(stamp) if stamp else None
+    return _timeline_day(stamp) if stamp else None
+
+
+def _adjacent_populated_day(case, day, boundary, *, forward=False):
+    recorded = _nearest_recorded_day(case, boundary=boundary, forward=forward)
+    if recorded is None:
+        return None
+    # A day between the boundary and the nearest original can have entries
+    # only if a validated trip spans the boundary into that day.
+    instant = boundary if forward else boundary - timedelta.resolution
+    adjacent = _timeline_day(instant)
+    trip_day_is_closer = (
+        day < adjacent < recorded if forward else recorded < adjacent < day
+    )
+    if trip_day_is_closer and daily_trip_covers(case, instant):
+        return adjacent
+    return recorded
 
 
 def _collected(case, start, end):
@@ -198,8 +230,8 @@ def daily_chronology(request, case):
     context.update(
         day=day,
         rows=rows,
-        previous_day=_nearest_recorded_day(case, boundary=form.start),
-        next_day=_nearest_recorded_day(case, boundary=form.end, forward=True),
+        previous_day=_adjacent_populated_day(case, day, form.start),
+        next_day=_adjacent_populated_day(case, day, form.end, forward=True),
         page_number=page,
         previous_page=page - 1 if page > 1 else None,
         next_page=page + 1 if more else None,

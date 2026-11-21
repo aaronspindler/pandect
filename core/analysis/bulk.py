@@ -1,5 +1,6 @@
 """Prepare local checks for all active evidence in bounded background steps."""
 
+from datetime import datetime
 from uuid import uuid5
 
 from allauth.account.models import EmailAddress
@@ -20,11 +21,55 @@ from phone.models import CallEvidenceAttachment
 SOURCES_PER_STEP = 25
 
 
+def save_source_cursor(batch, row, time_field, **ordering):
+    """Keep the ordering keys after a row disappears from a later page."""
+    batch.source_cursor = row.pk
+    if batch.scope.get("analysis_version"):
+        moment = getattr(row, time_field)
+        batch.scope["_cursor"] = {
+            "time": moment.isoformat() if moment else None
+        } | ordering
+
+
+def retained_cursor_time(batch):
+    value = batch.scope["_cursor"]["time"]
+    return datetime.fromisoformat(value) if value else None
+
+
+@transaction.atomic
+def resume_case_analysis(actor, case_id, batch_id):
+    """Resume a stopped preparation after its last committed page."""
+    case = get_case(actor, case_id, edit=True, lock=True)
+    batch = (
+        CaseAnalysisBatch.objects.select_for_update()
+        .filter(
+            pk=batch_id,
+            case=case,
+            requested_by=actor,
+            scope__analysis_version=2,
+        )
+        .first()
+    )
+    if batch is None:
+        raise Http404("Analysis batch unavailable.")
+    if not EmailAddress.objects.filter(user=actor, verified=True).exists():
+        raise PermissionDenied
+    if batch.status != CaseAnalysisBatch.Status.FAILED:
+        return batch, False
+    batch.status = CaseAnalysisBatch.Status.QUEUED
+    batch.error_code = ""
+    batch.save(update_fields=("status", "error_code"))
+    from core.analysis.tasks import prepare_case_analysis
+
+    prepare_case_analysis.enqueue(str(batch.pk))
+    return batch, True
+
+
 @transaction.atomic
 def start_case_analysis(actor, case_id, *, submission_id, scope=None):
     case = get_case(actor, case_id, edit=True, lock=True)
     scope = scope or {}
-    if scope and scope.get("type") not in {"reprocess", "instance_summaries"}:
+    if scope and scope.get("type") not in {"added", "reprocess", "instance_summaries"}:
         from core.analysis.import_checks import imported_sources
 
         if not imported_sources(case, scope)[1].exists():
@@ -34,7 +79,8 @@ def start_case_analysis(actor, case_id, *, submission_id, scope=None):
         if (
             existing.case_id != case.pk
             or existing.requested_by_id != actor.pk
-            or existing.scope != scope
+            or {key: value for key, value in existing.scope.items() if key != "_cursor"}
+            != scope
         ):
             raise ValidationError(
                 "This submission was already used for another analysis."
@@ -118,13 +164,13 @@ def _next_sources(batch, case):
 
 
 def _prepare_evidence_step(batch, case):
-    if batch.scope.get("automatic") is True:
+    if batch.scope.get("type") == "messages" and batch.scope.get("automatic") is True:
         from phone.analysis.ingest import next_messages, prepare_import_analysis
 
         selected = next_messages(batch, case)
         if selected:
             prepare_import_analysis(batch, case, selected)
-            batch.source_cursor = selected[-1].pk
+            save_source_cursor(batch, selected[-1], "occurred_at")
             batch.source_kind = "text-message"
             batch.processed_sources += len(selected)
         return bool(selected)
@@ -201,6 +247,14 @@ def prepare_case_analysis_batch(batch_id):
                 from core.analysis.reprocessing import prepare_reprocessing
 
                 has_more = prepare_reprocessing(batch, case)
+            elif scope_type == "added":
+                from core.analysis.reprocessing import prepare_added_evidence
+
+                has_more = prepare_added_evidence(batch, case)
+            elif scope_type == "vehicle" and batch.scope.get("analysis_version"):
+                from core.analysis.reprocessing import prepare_vehicle_import
+
+                has_more = prepare_vehicle_import(batch, case)
             else:
                 has_more = _prepare_evidence_step(batch, case)
             if has_more:

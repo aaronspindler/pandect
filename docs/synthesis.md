@@ -36,9 +36,9 @@ truncated. Output allows 100 observations of 4,000 characters, ten citations per
 observation and 20 unknowns of 2,000 characters each, within shared result/inference
 limits. Retained dependency depth is limited to eight.
 
-Operator-controlled private inference is the default. External processing
-requires explicit approval of the provider and model before sending the
-selected text and findings. Raw files are excluded. See
+Retained synthesis reruns use their processing route and the selected text and
+findings. External reruns require the case owner's current approval of the
+provider and model. Raw files are excluded. See
 [local analysis](local-analysis.md) and [external AI setup](analysis.md#external-ai-configuration).
 
 Access and contributing originals are rechecked at enqueue, execution,

@@ -9,6 +9,11 @@ urlpatterns = [
     path("new/", views.case_create, name="case_create"),
     path("<uuid:case_id>/", views.case_detail, name="case_detail"),
     path("<uuid:case_id>/settings/", views.case_settings, name="case_settings"),
+    path(
+        "<uuid:case_id>/settings/external-analysis/",
+        views.case_external_analysis,
+        name="case_external_analysis",
+    ),
     path("<uuid:case_id>/delete/", views.case_delete, name="case_delete"),
     path(
         "<uuid:case_id>/invitations/new/",

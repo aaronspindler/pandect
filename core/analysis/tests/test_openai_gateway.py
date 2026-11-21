@@ -12,11 +12,11 @@ from django_tasks_db.models import DBTaskResult
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import gateway_execution, snapshot_execution
 from core.analysis.services import authorize_run, process_run, start_run
+from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG, error, response
 from core.models import AnalysisRun, GatewayRequest
 from core.testing import EvidenceViewTestMixin
-from phone.imessage_forms import IMessageAnalysisForm
 from phone.models import TextMessageEvidence
 
 OPENAI = CONFIG | {
@@ -62,7 +62,7 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
             "content_events",
             [{"kind": "text", "id": str(self.note.pk)}],
             parameters={"backend": "gateway"},
-            external_processing=True,
+            **external_grant_kwargs(self.case, "content_events"),
         )
         self.authorize = Mock(side_effect=lambda **kw: authorize_run(self.run, **kw))
         self.gateway = GatewayClient(self.run, self.authorize)
@@ -198,29 +198,6 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
         build.assert_not_called()
         self.assertFalse(GatewayRequest.objects.exists())
 
-    @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
-    def test_import_review_discloses_both_models_and_rejects_partial_gateway(self):
-        context = {"actor": self.users["owner"], "case": self.case, "run": self.run}
-        form = IMessageAnalysisForm(**context)
-        self.assertIn("gpt-6-luna", form.ai_destination)
-        self.assertIn("gpt-6.1-terra", form.ai_destination)
-        submission = {
-            "mode": "ai",
-            "external_processing": True,
-            "execution_confirmation": form["execution_confirmation"].value(),
-        }
-        with patch.dict(
-            "core.analysis.execution.OPENAI_TEXT_MODELS", {"conversation_link": ""}
-        ):
-            changed = IMessageAnalysisForm(submission, **context)
-            self.assertIn(
-                "Processing settings changed", str(changed.non_field_errors())
-            )
-            self.assertFalse(changed.external_ai)
-            self.assertEqual(
-                {route["backend"] for route in changed.executions.values()}, {"local"}
-            )
-
     def test_old_reasoning_settings_require_a_deliberate_rerun(self):
         execution = self.run.parameters["_execution"]
         execution["adapter_version"] = "gateway-3"
@@ -264,7 +241,7 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
                     "content_events",
                     [{"kind": "text", "id": str(self.note.pk)}],
                     parameters={"backend": "gateway"},
-                    external_processing=True,
+                    **external_grant_kwargs(self.case, "content_events"),
                 )
                 build.return_value.open.side_effect = (
                     failure if isinstance(failure, Exception) else [failure]
@@ -409,7 +386,7 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
                     operation,
                     [{"kind": kind, "id": str(item.pk)} for kind, item in sources],
                     parameters=parameters | {"backend": "gateway"},
-                    external_processing=True,
+                    **external_grant_kwargs(self.case, operation),
                 )
                 value = {"items": []}
                 if operation == "question_synthesis":
@@ -479,115 +456,53 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
         self.login("owner")
         self.analysis_url = reverse("core:analysis:create", args=[self.case.pk])
 
-    def reviewed(self):
-        result = self.client.get(self.analysis_url, {"operation": "content_events"})
-        self.assertContains(result, "OpenAI via Cloudflare AI Gateway")
-        self.assertContains(result, "gpt-6.2-sol")
-        form = result.context["form"]
-        return self.analysis_url, {
-            "submission_id": str(form["submission_id"].value()),
-            "execution_confirmation": form["execution_confirmation"].value(),
-            "backend": "gateway",
-            "external_processing": True,
+    def payload(self):
+        page = self.client.get(self.analysis_url, {"operation": "content_events"})
+        self.assertNotContains(page, 'name="backend"')
+        self.assertNotContains(page, 'name="external_processing"')
+        return {
+            "submission_id": page.context["form"]["submission_id"].value(),
             "operation": "content_events",
             "sources": [f"text:{self.note.pk}"],
         }
 
-    def test_initial_analysis_rejects_destination_drift_then_allows_fresh_approval(
-        self,
-    ):
-        for updates in (
-            {"models": OPENAI["models"] | {"text": "gpt-6-astra"}},
-            {
-                "text_provider": "workers-ai",
-                "workers_token": CONFIG["workers_token"],
-                "models": OPENAI["models"] | {"text": CONFIG["models"]["text"]},
-            },
-        ):
-            with self.subTest(updates=updates):
-                url, payload = self.reviewed()
-                before = (AnalysisRun.objects.count(), DBTaskResult.objects.count())
-                with override_settings(PANDECT_AI_GATEWAY=OPENAI | updates):
-                    result = self.client.post(url, payload)
-                    self.assertEqual(result.status_code, 200)
-                    form = result.context["form"]
-                    self.assertIn("Processing settings changed", str(form.errors))
-                    self.assertFalse(form["external_processing"].value())
-                    self.assertEqual(
-                        (AnalysisRun.objects.count(), DBTaskResult.objects.count()),
-                        before,
-                    )
-                    self.assertEqual(form["sources"].value(), payload["sources"])
-                    payload |= {
-                        "submission_id": str(form["submission_id"].value()),
-                        "execution_confirmation": form[
-                            "execution_confirmation"
-                        ].value(),
-                        "external_processing": True,
-                    }
-                    self.assertEqual(self.client.post(url, payload).status_code, 302)
+    @override_settings(PANDECT_LOCAL_AI={})
+    def test_owner_approval_allows_editor_to_create_run_for_current_destination(self):
+        payload = self.payload()
+        self.login("editor")
+        denied = self.client.post(
+            self.analysis_url, payload | {"external_processing": "on"}
+        )
+        self.assertContains(denied, "No configured or approved service")
+        self.assertEqual(denied.context["form"]["sources"].value(), payload["sources"])
+        self.assertFalse(AnalysisRun.objects.exists())
+        self.assertFalse(DBTaskResult.objects.exists())
+
+        external_grant_kwargs(self.case, "content_events")
+        saved = self.client.post(self.analysis_url, payload)
+        self.assertEqual(saved.status_code, 302)
+        run = AnalysisRun.objects.get()
+        self.assertEqual(run.requested_by, self.users["editor"])
+        self.assertTrue(run.external_processing)
+        self.assertEqual(run.parameters["_execution"]["model"], "gpt-6.2-sol")
 
     @override_settings(PANDECT_LOCAL_AI=LOCAL)
-    def test_search_preserves_original_binding_and_local_submission_needs_no_token(
-        self,
-    ):
-        url, payload = self.reviewed()
-        token = payload["execution_confirmation"]
-        with override_settings(
-            PANDECT_AI_GATEWAY=OPENAI | {"openai_key_alias": "changed"}
-        ):
+    def test_changed_destination_skips_external_and_keeps_private_analysis(self):
+        external_grant_kwargs(self.case, "content_events")
+        payload = self.payload()
+        with self.settings(PANDECT_AI_GATEWAY=OPENAI | {"openai_key_alias": "changed"}):
             browsed = self.client.post(
-                url, payload | {"browse_sources": "search", "q": "Synthetic"}
+                self.analysis_url,
+                payload | {"browse_sources": "search", "q": "Synthetic"},
             )
             self.assertEqual(
-                browsed.context["form"]["execution_confirmation"].value(), token
+                browsed.context["form"]["sources"].value(), payload["sources"]
             )
-            result = self.client.post(url, payload)
-            self.assertIn(
-                "Processing settings changed", str(result.context["form"].errors)
-            )
-            payload.pop("execution_confirmation")
-            local = self.client.post(url, payload | {"backend": "local"})
-            self.assertEqual(local.status_code, 302)
-            self.assertFalse(AnalysisRun.objects.get().external_processing)
-
-    def test_analysis_rejects_another_editors_approval_then_allows_their_own(self):
-        url, payload = self.reviewed()
-        self.login("editor")
-        result = self.client.post(url, payload)
-        form = result.context["form"]
-        self.assertIn("Processing settings changed", str(form.errors))
-        self.assertFalse(form["external_processing"].value())
-        self.assertFalse(AnalysisRun.objects.exists())
-        self.assertFalse(DBTaskResult.objects.exists())
-        payload |= {
-            "submission_id": str(form["submission_id"].value()),
-            "execution_confirmation": form["execution_confirmation"].value(),
-            "external_processing": True,
-        }
-        self.assertEqual(self.client.post(url, payload).status_code, 302)
-        self.assertEqual(AnalysisRun.objects.get().requested_by, self.users["editor"])
-
-    def test_analysis_rechecks_reviewed_execution_before_dispatch(self):
-        url, payload = self.reviewed()
-
-        def changed_dispatch(*args, **kwargs):
-            with override_settings(
-                PANDECT_AI_GATEWAY=OPENAI | {"openai_key_alias": "changed"}
-            ):
-                return start_run(*args, **kwargs)
-
-        with patch("core.analysis.views.start_run", side_effect=changed_dispatch):
-            result = self.client.post(url, payload)
-        self.assertContains(result, "Processing settings changed")
-        self.assertFalse(AnalysisRun.objects.exists())
-        self.assertFalse(DBTaskResult.objects.exists())
-
-    def test_forged_confirmation_never_queues_external_work(self):
-        url, payload = self.reviewed()
-        payload["execution_confirmation"] = "forged"
-        self.client.post(url, payload)
-        self.assertFalse(AnalysisRun.objects.exists())
+            result = self.client.post(self.analysis_url, payload)
+        self.assertEqual(result.status_code, 302)
+        run = AnalysisRun.objects.get()
+        self.assertFalse(run.external_processing)
+        self.assertEqual(run.parameters["_execution"]["backend"], "local")
 
     def test_snapshots_and_disclosures_include_alias_but_no_credentials(self):
         retained = gateway_execution("text", "content_events")

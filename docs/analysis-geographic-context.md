@@ -2,7 +2,8 @@
 
 **Look up geographic context** finds road, venue, building and neighbourhood
 candidates around Location, Person location or Vehicle location observations.
-Investigators select it deliberately; automatic local checks do not queue it.
+New eligible observations queue the configured lookup. Investigators can also
+select sources and change lookup parameters under **Choose analysis**.
 It does not assign unlinked observations to people or identify drivers. The
 separate local **Group nearby observations** method needs no reference service.
 
@@ -14,7 +15,7 @@ interpretation for context lookup. Retained coordinates work directly; timestamp
 alone supply neither location nor reference geometry. No GeoJSON upload is needed.
 
 Choose **Look up geographic context**, observations or selected estimates, grouping
-distance and search radius. External lookup requires disclosed approval.
+distance and search radius. External lookup requires case-owner approval in Case Settings.
 `PANDECT_MAP_CONTEXT_LOCAL=true` explicitly designates operator control; a private
 hostname alone does not. Requests contain coordinate areas, fixed feature filters
 and reference date, excluding case/person/vehicle identifiers, original addresses

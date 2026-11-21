@@ -12,29 +12,17 @@ checks commit together; original retention, invitations and file cleanup remain
 synchronous. Other lengthy ingestion must implement authorization, idempotency
 and recovery before using the queue.
 
-**Run local checks** retains a `CaseAnalysisBatch` cursor. Preparation queues at
-most 25 active sources per task, traversing call additions within source limits,
-and commits runs, cursor and continuation atomically. Each step rechecks verified
-requester/edit access; run workers check again. Unavailable originals are counted
-and skipped, retaining up to 100 safe source errors. Preparation failures stop
-with a safe message; fresh requests preserve committed runs. Abrupt worker loss
-may leave preparation pending. Confirm the old worker stopped before restarting;
-there is no stale-task reclamation.
+Automatic analysis and **Reprocess evidence** retain `CaseAnalysisBatch`
+scopes with exact evidence or import membership, or selected evidence types for
+reprocessing. Bounded continuations prepare independent and grouped methods,
+commit the cursor and next task atomically, and schedule follow-ups from exact
+extraction results. They recheck verified edit access, execution settings, and
+case approval. Changes stop affected routes. Method failures preserve other
+results. Preparation retains up to 100 safe source/method errors.
 
-**Reprocess evidence** uses a `reprocess` batch scope retaining evidence types,
-mode and reviewed execution snapshots. Bounded continuations prepare independent
-and grouped methods plus extraction/transcription follow-ups. External-only file
-analysis may need local prerequisites. AI retains separate private and external
-identities. Geographic lookup follows configured service classification.
-Continuations recheck verified edit access and approved settings. Changes stop
-preparation, while queued runs check their own settings. Method failures preserve
-other results.
-Failed preparation attempts are counted separately from sources, with up to 100
-safe source/method errors. Grouped comparisons disclose their retained coverage.
-
-**Summarize missing instances** retains the reviewed saved group IDs and execution
-destination in an `instance_summaries` batch. Each preparation task visits up to
-ten instances and queues one run per still-current group that needs a summary.
+**Summarize missing instances** retains the reviewed saved group IDs and eligible
+execution routes in an `instance_summaries` batch. Each preparation task visits up
+to ten instances and queues missing summaries for each eligible route.
 Unavailable instances are counted in Processing, where investigators can also
 follow or retry individual runs. Preparation rechecks verified edit access and
 the execution snapshot before each step.
@@ -59,36 +47,19 @@ queues missing indexes after migrations and rechecks case permissions before
 embedding source text. After correcting a failure, an owner or editor can retry
 from Processing. Keyword search is available while passages are being indexed.
 
-Completed vehicle imports offer deliberate **Run local checks on imported
-evidence**. Scope comes from retained import relationships, never browser-supplied
-IDs. Historical message imports retain the action to run local checks using
-published message IDs/source rows or publishing runs on CSV contexts. Each step
-queues at most 500 sources or the configured lower limit; text groups also
-respect one million characters. Skipped duplicates are excluded. These independent checks run no models, transcription,
-external lookup or split context-dependent movement/conversation analysis.
-Repeated submissions recover the same batch. Continuations recheck access;
-preparation/run failures remain recoverable.
+Confirmed vehicle and message CSV publication starts analysis for newly published
+observations and messages using retained import relationships. Preview, excluded
+and reused rows start no batch. Vehicle trip preparation is independent. Bounded
+continuations retain each run's scope and distinguish preparation from execution.
+Processing groups do not limit the number of rows an import can publish within
+the existing file and row constraints.
 
-Confirmed message CSV publication instead atomically starts an automatic batch
-for new messages with the import review's selected mode. **Local checks** is
-the default and runs no models. When AI is configured, **AI only** runs one
-model suite and **Local checks and AI** runs local checks plus that suite.
-AI selects external AI when configured,
-otherwise private inference. The resolved route is
-reviewed and retained; external transfer requires explicit approval. AI is never
-duplicated across backends or redirected after a runtime failure.
-Bounded continuations walk
-reported-time order, preparing the selected
-[message/writing/model suite](analysis-communications.md#message-csv-imports).
-Reviewed execution destinations remain bound to the batch and are rechecked
-during preparation; changed settings stop preparation for fresh review. Reruns
-require renewed external approval. Model failures preserve imports/independent
-results without cloud fallback.
-Preview, excluded and reused rows start no batch. No database migration or startup
-backfill is needed. Imports stream without a row ceiling within file/message
-limits, retaining compact summaries and paginated reviews/messages. All messages
-and requested people still publish atomically; processing groups are not import
-limits.
+On upgrade, apply the case approval migration before serving with matching web
+and worker versions. Finish earlier authorized external work before cutover if
+needed. Any remaining external run without a case approval stops recoverably.
+Existing results remain available and cases receive no retrospective processing.
+Before starting older workers during rollback, stop queued grant-backed external
+work or disable external services. Older workers cannot enforce case approval.
 
 ## Instagram monitor pilot
 
@@ -239,8 +210,7 @@ byte counts and token usage without response bodies. When a completed request is
 followed by a generic `processing_failed` run, use the safe analysis log to locate
 the later validation or publication failure.
 Older failures without these diagnostics may have no recoverable
-cause. Keep quotation validation strict. External retries require renewed approval
-through the analysis workflow.
+cause. Keep quotation validation strict. External retries require current case-owner approval for the destination.
 
 No automatic retries or stale-task reclamation exist. `READY` tasks wait for
 workers; crashes can leave `RUNNING` tasks with some effects completed. Elapsed

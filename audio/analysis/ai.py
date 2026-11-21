@@ -20,7 +20,7 @@ def _number(value):
     )
 
 
-def _segments(response, duration):
+def _segments(response, duration, *, tail_rounding=0):
     text = response.get("text")
     if not isinstance(text, str) or len(text.encode()) > MAX_TEXT:
         raise AnalysisError("gateway_invalid_response")
@@ -36,7 +36,8 @@ def _segments(response, duration):
         if (
             not _number(start)
             or not _number(end)
-            or not 0 <= start < end <= duration
+            or not 0 <= start < min(end, duration)
+            or end > duration + tail_rounding
             or start < previous
             or not isinstance(words, str)
             or len(words.encode()) > MAX_TEXT
@@ -117,7 +118,15 @@ def transcription(sources, parameters, *, client):
                     "condition_on_previous_text": False,
                 },
             )
-            text, segments = _segments(response, duration)
+            # whisper.cpp can round a final timestamp to its nearest 20 ms
+            # tick. Anchor the accepted interval to the exact decoded audio.
+            text, segments = _segments(
+                response,
+                duration,
+                tail_rounding=0.01
+                if parameters.get("backend", "local") == "local"
+                else 0,
+            )
             info = response.get("transcription_info", {})
             if not isinstance(info, dict):
                 raise AnalysisError("gateway_invalid_response")
@@ -222,6 +231,11 @@ def transcription(sources, parameters, *, client):
                         ],
                         values={
                             **common,
+                            **(
+                                {"Model end (seconds)": offset + segment["end"]}
+                                if segment["end"] > duration
+                                else {}
+                            ),
                             "Model uncertainty": "Review uncertain speech"
                             if uncertain
                             else "No low-confidence flag supplied; still unverified",

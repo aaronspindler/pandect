@@ -1,0 +1,6 @@
+<div class="day-edge" data-timeline-edge="{{ direction }}"{% if not neighbor %} hidden{% endif %}>
+  <p class="help-text day-status" role="status"></p>
+  {% if neighbor %}
+  <a class="record-link" href="{% querystring day=neighbor|date:'Y-m-d' page=None %}">{{ label }}</a>
+  {% endif %}
+</div>

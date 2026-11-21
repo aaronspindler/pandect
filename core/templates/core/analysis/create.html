@@ -37,7 +37,7 @@
 {% if not operation_groups %}<p>No methods are available for this evidence. <a href="{% url 'core:analysis:create' case.pk %}">Browse all methods</a>.</p>{% endif %}
 {% else %}
 <form method="post" action="{% querystring %}" id="analysis-selection" class="analysis-section analysis-form" novalidate data-unsaved-form>
-  {% csrf_token %}{{ form.operation }}{{ form.submission_id }}{{ form.execution_confirmation }}
+  {% csrf_token %}{{ form.operation }}{{ form.submission_id }}
   <input type="hidden" name="sources_page" value="{{ form.source_page.number }}">
   <input type="hidden" name="sources_cursor" value="{{ form.sources_cursor }}">
   <input type="hidden" name="sources_reverse" value="{% if form.sources_reverse %}1{% endif %}">
@@ -120,11 +120,6 @@
 
   <div class="form-layout">
     {% if form.configuration_readiness %}<p class="help-text">{{ form.configuration_readiness }}</p>{% endif %}
-    {% if form.single_backend %}
-      <input type="hidden" name="backend" value="{{ form.single_backend.0 }}">
-      <p>Processing location · {{ form.single_backend.1 }}</p>
-    {% elif form.processing_locations %}{% include 'ui/components/form_field.html' with field=form.backend only %}{% endif %}
-    {% if form.external_processing.is_hidden %}{{ form.external_processing }}{% else %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}
     {% if has_blocked_selection %}<p>Resolve or remove blocked sources before starting.</p>{% endif %}
     <div class="form-actions">
       <button class="button button-primary" type="submit"{% if not has_compatible_source or has_blocked_selection or form.processing_unavailable %} disabled{% endif %}>Start analysis</button>

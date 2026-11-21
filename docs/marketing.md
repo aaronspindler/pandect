@@ -78,9 +78,9 @@ Visible requirements distinguish **Included**, **AI optional**, **Requires AI
 setup**, and **Geographic setup**. Details retain the complete setup descriptions,
 including private services and explicitly approved external processing. Included OCR
 and plate reading use the standard Docker image's local tools. Private models and
-geographic services need operator setup. External AI requires explicit approval
-for the configured destination, and external geographic requests have their own
-approval. Runtime failure never switches processing to a cloud service.
+geographic services need operator setup. External AI and geographic requests
+require case-owner approval for the configured destination. Runtime failure never
+switches processing to a cloud service.
 
 ## Content boundaries
 

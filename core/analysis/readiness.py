@@ -5,11 +5,9 @@ from urllib.parse import urlencode
 from django.db.models import F, Func, IntegerField, OuterRef, Q, Subquery
 from django.urls import reverse
 
-from core.analysis.errors import error_message
 from core.analysis.execution import (
-    inference_configured,
-    requires_inference,
-    snapshot_execution,
+    available_executions,
+    configured_executions,
 )
 from core.analysis.operations import get_operation
 from core.evidence.queries import scoped_evidence
@@ -56,39 +54,14 @@ UNSUPPORTED_FORMATS = {
 }
 
 
-def configured_backends(operation, parameters):
-    return tuple(
-        backend
-        for backend in ("local", "gateway")
-        if (
-            execution := snapshot_execution(
-                operation, parameters | {"backend": backend}
-            )
-        )
-        and inference_configured(execution, operation)
-    )
-
-
-def configuration_readiness(operation, parameters=None):
+def configuration_readiness(operation, parameters=None, *, case=None):
     if parameters is None:
         parameters = {"include_summary": True, "semantic_links": True}
-    purpose = requires_inference(operation, parameters)
-    if not purpose:
-        return ""
-    available = configured_backends(operation, parameters)
-    external_note = ""
-    if purpose == "transcription" and "gateway" not in available:
-        external_note = " " + error_message("gateway_transcription_not_configured")
-    if "local" not in available:
-        return "Private inference is not configured." + (
-            external_note
-            or " Ask the operator to configure it, or explicitly select and approve "
-            "a configured external service."
-        )
-    return (
-        "Private inference is configured. Connection and model identity are "
-        "checked when processing starts."
-    ) + external_note
+    if not configured_executions(operation, parameters):
+        return "A service for this analysis is not configured."
+    if case is not None and not available_executions(case, operation, parameters):
+        return "This analysis needs a destination approved in Case settings."
+    return ""
 
 
 def _inspections(case, operation, selected, records, attachments):

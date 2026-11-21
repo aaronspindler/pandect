@@ -6,7 +6,7 @@ from .settings import PANDECT_AI_GATEWAY, STORAGES
 # Deliberately fast for synthetic test users; production settings are unchanged.
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
-# Routine tests never inherit live external AI destinations or credentials.
+# Routine tests never inherit live analysis destinations or credentials.
 # Provider tests opt in with synthetic configuration and mocked HTTP transport.
 PANDECT_DIRECT_AI = {}
 PANDECT_AI_GATEWAY = PANDECT_AI_GATEWAY | {
@@ -27,8 +27,14 @@ STORAGES = {
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
-# Semantic tests opt in with synthetic settings and a mocked local model.
+PANDECT_LOCAL_AI = {}
 PANDECT_LOCAL_EMBEDDING = {}
+PANDECT_GEOCODER_URL = ""
+PANDECT_GEOCODER_LOCAL = False
+PANDECT_MAP_CONTEXT_URL = ""
+PANDECT_MAP_CONTEXT_LOCAL = False
+PANDECT_MAP_TILE_URL = ""
+PANDECT_MAP_TILE_ORIGIN = ""
 
 PANDECT_INSTAGRAM_PILOT_URL = ""
 PANDECT_INSTAGRAM_PILOT_KEY = ""

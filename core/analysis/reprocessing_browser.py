@@ -60,7 +60,7 @@ class ReprocessingBrowserTests(BrowserTestCase):
         page.emulate_media(forced_colors="none", reduced_motion="no-preference")
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
-    def test_multiselect_external_approval_and_batch_progress_without_javascript(self):
+    def test_multiselect_and_batch_progress_without_javascript(self):
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -101,36 +101,14 @@ class ReprocessingBrowserTests(BrowserTestCase):
                     )
                 self.capture_layouts(page, engine)
 
-                page.get_by_role(
-                    "radio", name="Local, private and external services", exact=True
-                ).check()
+                expect(page.get_by_role("radio")).to_have_count(0)
+                expect(page.locator('input[name="external_processing"]')).to_have_count(
+                    0
+                )
                 submit = page.get_by_role(
                     "button", name="Start reprocessing", exact=True
                 )
                 submit.focus()
-                submit.press("Enter")
-                expect(
-                    page.get_by_role("heading", name="Review your selection")
-                ).to_be_visible()
-                expect(page.get_by_role("alert")).to_contain_text(
-                    "Approve external processing to continue."
-                )
-                expect(text).to_be_checked()
-                expect(location).to_be_checked()
-                expect(
-                    page.get_by_role(
-                        "radio", name="Local, private and external services", exact=True
-                    )
-                ).to_be_checked()
-                self.capture(page, engine, "reprocess-approval-required")
-                approval = page.get_by_role(
-                    "checkbox",
-                    name="I approve external processing of the selected evidence types",
-                    exact=True,
-                )
-                approval.focus()
-                approval.press("Space")
-                expect(approval).to_be_checked()
                 submission_id = page.locator(
                     "input[name='submission_id']"
                 ).input_value()
@@ -144,7 +122,7 @@ class ReprocessingBrowserTests(BrowserTestCase):
                 )
                 batch = self.db(CaseAnalysisBatch.objects.get, pk=submission_id)
                 self.assertEqual(set(batch.scope["kinds"]), {"location", "text"})
-                self.assertEqual(batch.scope["mode"], "both")
+                self.assertNotIn("mode", batch.scope)
                 self.assertEqual(
                     self.db(AnalysisRun.objects.filter(batch=batch).count), 0
                 )

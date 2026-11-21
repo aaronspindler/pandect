@@ -1,7 +1,7 @@
 <a class="record-row analysis-history-row" href="{% url 'core:analysis:detail' case.pk run.pk %}{{ history_suffix }}">
   <div>
     <strong>{{ run.source_title }}</strong>
-    <p class="muted">{{ run.label }} · {{ run.created_at|date:'j M Y, H:i T' }}{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}</p>
+    <p class="muted">{{ run.label }}{% if run.execution %} · {% include 'core/analysis/processing_destination.html' with execution=run.execution only %}{% endif %} · {{ run.created_at|date:'j M Y, H:i T' }}{% if run.status == 'running' %} · {{ run.progress }}%{% endif %}</p>
     {% if run.failure_message %}<p>{{ run.failure_message }}</p>{% endif %}
   </div>
   <span class="badge">{% if run.status == 'complete' %}{% if run.has_saved_result %}Saved result{% else %}No saved result{% endif %}{% else %}{{ run.get_status_display }}{% endif %}</span>

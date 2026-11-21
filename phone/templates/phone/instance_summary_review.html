@@ -34,20 +34,14 @@
   {% if limit_message %}<p role="status">{{ limit_message }} A summary cannot be requested for this entire session.</p>
   {% endif %}
   {% endif %}
-  {% if form and not limit_message %}
+  {% if readiness %}<p role="status">{{ readiness }}</p>{% endif %}
+  {% if form and not limit_message and available %}
   <form method="post" class="form-layout" novalidate data-unsaved-form>
-    {% csrf_token %}{{ form.submission_id }}{{ form.execution_confirmation }}
+    {% csrf_token %}{{ form.submission_id }}
     {% if bulk %}<input type="hidden" name="reviewed_scope" value="{{ reviewed_scope }}">{% endif %}
     {% include 'ui/components/form_errors.html' %}
-    {% if form.available_backends %}
-    {% include 'ui/components/form_field.html' with field=form.backend only %}
-    <p class="help-text">{{ readiness }}</p>
-    {% if form.show_external_approval %}{% include 'ui/components/form_field.html' with field=form.external_processing only %}{% endif %}
-    {% else %}
-    <p role="status">Ask the operator to configure an AI service before requesting a summary.</p>
-    {% endif %}
     <div class="form-actions">
-      {% if form.available_backends %}<button class="button button-primary" type="submit">{% if bulk %}Request summaries{% else %}Request summary{% endif %}</button>{% endif %}
+      <button class="button button-primary" type="submit">{% if bulk %}Request summaries{% else %}Request summary{% endif %}</button>
       <a class="button button-secondary" href="{{ back_url }}">Cancel</a>
     </div>
   </form>

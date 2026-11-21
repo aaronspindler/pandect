@@ -114,8 +114,9 @@ does not offer that service as a generic backend.
 Requests have a fixed ten-second timeout. Service identification defaults to
 `Pandect/0.1`; override it when the operator requires different contact details.
 
-Current edit access and explicit external approval are required unless designated
-local. Processing rechecks access immediately before requests and publication.
+Processing requires current edit access. A service designated external also
+requires case-owner approval in Case Settings. Processing rechecks access and
+approval immediately before requests and publication.
 Only selected addresses/coordinate queries are sent, without case/person/vehicle
 identifiers or evidence records. Sent requests cannot be recalled.
 

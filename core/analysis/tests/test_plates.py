@@ -202,7 +202,7 @@ class PlateIntegrationTests(EvidenceViewTestMixin, TestCase):
             operation="plate_ocr",
         )
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertFalse(form.cleaned_data["external_processing"])
+        self.assertNotIn("external_processing", form.cleaned_data)
         self.assertNotIn("backend", form.fields)
         self.assertEqual(form.parameters(), {})
         for role in ("viewer", "outsider"):

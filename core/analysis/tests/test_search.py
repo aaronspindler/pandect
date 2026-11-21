@@ -157,7 +157,6 @@ class ExtractedSearchTests(EvidenceViewTestMixin, TestCase):
                     "attachment_id": str(attachment.pk),
                 }
             ],
-            external_processing=True,
         )
         run.status = "complete"
         run.save(update_fields=["status"])
