@@ -15,6 +15,11 @@ from django.utils import timezone
 
 from cases.permissions import case_context
 from core.evidence.queries import scoped_evidence
+from core.evidence.source_clocks import (
+    attach_daily_message_clocks,
+    date_only_messages,
+    set_call_interval,
+)
 from core.evidence.types import (
     CALL_KINDS,
     COMMUNICATION_KINDS,
@@ -33,7 +38,13 @@ PAGE_SIZE = 25
 DAY = timedelta(days=1)
 ROW_LABELS = KIND_LABELS | {
     "conversation": "Conversation",
-    "message": "Text message",
+    "message": "Reported text message",
+    "phone-call": "Reported phone call",
+    "facetime": "Reported FaceTime call",
+    **{
+        kind: f"Reported {KIND_LABELS[kind].lower()} observation"
+        for kind in LOCATION_KINDS
+    },
     "trip": "Possible trip",
     "collected": "Collected",
 }
@@ -87,6 +98,8 @@ def _nearest_recorded_day(case, *, boundary=None, forward=False):
     for kind in KINDS:
         for field, _ in timestamp_fields(kind, "all"):
             query = scoped_evidence(case, kind).filter(**{field + "__isnull": False})
+            if field == "occurred_at" and kind == "text-message":
+                query = query.exclude(pk__in=date_only_messages(case))
             if boundary is not None:
                 query = query.filter(**{field + lookup: boundary})
             branches.append(
@@ -174,8 +187,10 @@ def _day_page(case, start, end, number):
     rows = rows[:PAGE_SIZE]
     attach_daily_location_details(case, rows)
     attach_daily_message_previews(case, rows)
+    attach_daily_message_clocks(case, rows)
     for row in rows:
         if call := row.pop("call", None):
+            set_call_interval(row, call.occurred_at, call.duration)
             row["title"] = f"{call.sender} to {call.recipient}"
             row["detail"] = (
                 f"Duration {call.duration}" if call.duration is not None else ""

@@ -317,6 +317,70 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 self.capture_layouts(page, engine, "processing-owner")
         self.assertEqual(self.db(AnalysisRun.objects.filter(case=self.case).count), 3)
 
+    def test_unplaced_original_and_relative_claim_without_javascript(self):
+        note = TextEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Unscheduled pickup",
+            body="The pickup was moved to tomorrow.",
+        )
+        run, _ = start_run(
+            self.owner, self.case.pk, "entities", [{"kind": "text", "id": str(note.pk)}]
+        )
+        process_run(run.pk)
+        before = AnalysisRun.objects.filter(case=self.case).count()
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(
+                    self.url("core:evidence:chronology", case_id=self.case.pk)
+                    + "?view=day"
+                )
+                link = page.get_by_role(
+                    "link", name="Unplaced evidence and time claims"
+                )
+                link.focus()
+                expect(link).to_be_focused()
+                link.press("Enter")
+                expect(
+                    page.get_by_role(
+                        "heading", name="Unplaced evidence and time claims"
+                    )
+                ).to_be_visible()
+                claim = page.get_by_role("link", name="Relative date", exact=True)
+                expect(page.get_by_text("tomorrow", exact=True)).to_be_visible()
+                self.capture_layouts(page, engine, "unplaced")
+                page.set_viewport_size({"width": 390, "height": 844})
+                jump = page.get_by_role("navigation", name="Jump to section")
+                jump.get_by_role("link", name=re.compile("Time claims")).press("Enter")
+                expect(page.locator("#unplaced-dates")).to_be_focused()
+                self.capture(page, engine, "unplaced-mobile-claims")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "unplaced-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "unplaced-forced-colors")
+                page.emulate_media(forced_colors="none")
+                claim.focus()
+                expect(claim).to_be_focused()
+                claim.press("Enter")
+                expect(page.get_by_text("tomorrow", exact=True).first).to_be_visible()
+                page.go_back()
+                page.locator("section[aria-labelledby='undated-heading']").get_by_role(
+                    "link", name=note.title
+                ).press("Enter")
+                expect(
+                    page.get_by_role("heading", name=note.title, exact=True)
+                ).to_be_visible()
+                page.go_back()
+                expect(claim).to_be_visible()
+        self.assertEqual(
+            self.db(AnalysisRun.objects.filter(case=self.case).count), before
+        )
+
     def test_daily_timeline_navigation_and_source_without_javascript(self):
         colleague = Person.objects.create(case=self.case, first_name="Robin")
         alex = Person.objects.create(case=self.case, first_name="Alex")

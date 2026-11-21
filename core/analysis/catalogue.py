@@ -304,8 +304,8 @@ def finding_queryset(case, filters, *, person=None, labels=None):
     )
 
 
-def finding_rows(case, findings, *, show_weak=False, navigation=None):
-    """Resolve only the page, without fetching canonical result payloads."""
+def resolved_findings(case, findings, *, with_content=False):
+    """Resolve one page of citations; request content only for exact passage readers."""
     from core.analysis.services import (
         SourceResolutionCache,
         require_current_geocode_reviews,
@@ -328,12 +328,12 @@ def finding_rows(case, findings, *, show_weak=False, navigation=None):
             "created_at",
         )
     }
-    cache = SourceResolutionCache(case, with_content=False)
+    cache = SourceResolutionCache(case, with_content=with_content)
     try:
         cache.prepare([source for run in runs.values() for source in run.inputs])
     except Http404, ValueError, TypeError, KeyError, forms.ValidationError:
         # A corrupt historical reference must not prevent valid neighbouring rows.
-        cache = SourceResolutionCache(case, with_content=False)
+        cache = SourceResolutionCache(case, with_content=with_content)
     references = {}
     for reference in AnalysisFindingSource.objects.filter(
         case=case, finding__in=findings
@@ -342,7 +342,6 @@ def finding_rows(case, findings, *, show_weak=False, navigation=None):
             reference
         )
     checked = {}
-    rows = []
     for finding in findings:
         run = runs[finding.run_id]
         if run.pk not in checked:
@@ -361,21 +360,40 @@ def finding_rows(case, findings, *, show_weak=False, navigation=None):
                     {str(source.id): source for source in sources},
                     warning,
                 )
-            except AnalysisError, Http404:
+            except AnalysisError, Http404, TypeError, KeyError, ValueError:
                 checked[run.pk] = (None, "")
         sources, warning = checked[run.pk]
         cited = references.get(finding.pk, {})
         unavailable = sources is None or not cited or not cited.keys() <= sources.keys()
         if not unavailable:
             unavailable = any(
-                (reference.kind, reference.evidence_id, reference.attachment_id)
+                (
+                    reference.kind,
+                    reference.evidence_id,
+                    reference.attachment_id,
+                    reference.source_sha256,
+                )
                 != (
                     sources[key].kind,
                     sources[key].item.pk,
                     sources[key].attachment.pk if sources[key].attachment else None,
+                    (sources[key].attachment or sources[key].item).sha256,
                 )
                 for key, reference in cited.items()
             )
+        cited_sources = (
+            []
+            if unavailable
+            else [source for key, source in sources.items() if key in cited]
+        )
+        yield finding, run, cited_sources, warning
+
+
+def finding_rows(case, findings, *, show_weak=False, navigation=None):
+    """Resolve only the page, without fetching canonical result payloads."""
+    rows = []
+    for finding, run, cited_sources, warning in resolved_findings(case, findings):
+        unavailable = not cited_sources
         row = {
             "id": finding.pk,
             "result_id": finding.result_id,
@@ -412,7 +430,6 @@ def finding_rows(case, findings, *, show_weak=False, navigation=None):
             "sources": [],
         }
         if not unavailable:
-            cited_sources = [source for key, source in sources.items() if key in cited]
             row["participant_names"] = (
                 participant_names(cited_sources) if row["uses_ai"] else {}
             )

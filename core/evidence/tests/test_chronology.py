@@ -180,6 +180,59 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
             self.chronology_url(),
             {"view": "references", "start": "2027-01-01", "person": self.person.pk},
         )
-        self.assertEqual(response.context["unplaced"]["page_obj"].paginator.count, 1)
+        self.assertEqual(response.context["claims"].paginator.count, 1)
         self.assertContains(response, "11/12/2026")
         self.assertNotContains(response, 'name="start"')
+
+    def test_unplaced_originals_are_scoped_and_paginate_independently(self):
+        self.login("viewer")
+        collected = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        for i in range(26):
+            self.message(title=f"Undated {i:02}", collected_at=collected)
+        archived = self.message(title="Z archived", body="The appointment is tomorrow.")
+        TextMessageEvidence.objects.filter(pk=archived.pk).update(
+            is_archived=True,
+            archive_changed_at=collected,
+            archive_changed_by=self.users["owner"],
+        )
+        self.message(title="Dated communication", occurred_at=collected)
+        self.location(title="Unconnected observation")
+        invalid = self.message(title="Inconsistent communication")
+        foreign = Person.objects.create(case=self.other_case, first_name="Foreign")
+        TextMessageEvidence.objects.filter(pk=invalid.pk).update(recipient=foreign)
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "entities",
+            [{"kind": "text-message", "id": str(archived.pk)}],
+        )
+        process_run(run.pk)
+        query = {
+            "view": "unplaced",
+            "person": self.person.pk,
+            "originals_page": 2,
+            "start": "2099-01-01",
+        }
+        response = self.client.get(self.chronology_url(), query)
+        self.assertEqual(response.context["originals"].paginator.count, 27)
+        self.assertEqual(response.context["claims"].number, 1)
+        self.assertContains(response, "Undated 25")
+        self.assertContains(response, "Z archived")
+        self.assertContains(response, "Archived")
+        self.assertContains(response, "tomorrow")
+        self.assertNotContains(response, "Dated communication")
+        self.assertNotContains(response, "Unconnected observation")
+        self.assertNotContains(response, "Inconsistent communication")
+        self.assertNotContains(response, 'name="start"')
+        self.assertEqual(
+            self.client.get(
+                self.chronology_url(), query | {"person": foreign.pk}
+            ).status_code,
+            400,
+        )
+        CaseMembership.objects.filter(
+            case=self.case, user=self.users["viewer"]
+        ).delete()
+        self.assertEqual(self.client.get(self.chronology_url(), query).status_code, 404)
+        self.login("outsider")
+        self.assertEqual(self.client.get(self.chronology_url(), query).status_code, 404)

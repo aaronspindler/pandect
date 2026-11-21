@@ -255,7 +255,7 @@ blocked stay visible with a removal action, and must be resolved before analysis
 **Not yet inspected** makes no format-support claim. Readiness checks local
 configuration; execution checks live connectivity and identity.
 [Retained synthesis results](synthesis.md) distinguish text/finding citations;
-[chronology](chronology.md) separates observed/acquired times;
+[chronology](chronology.md) shows reported times, acquisitions and separately cited unplaced claims;
 [previews](original-previews.md) provide private PDF/text reading and WAV/M4A playback.
 
 **Additional analysis** selects task, exact retained sources and context for

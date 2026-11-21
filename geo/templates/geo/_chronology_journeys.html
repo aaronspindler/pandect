@@ -1,0 +1,20 @@
+{% load chronology_times %}
+{% if row.journeys %}
+<details class="disclosure">
+  <summary>Saved journey interpretations</summary>
+  <div class="disclosure-body">
+    <p class="help-text">Bounds use the first and last cited observations. Travel between samples is uncertain.</p>
+    <ul>
+      {% for journey in row.journeys %}
+      <li>
+        <a class="record-link" href="{{ journey.url }}">Candidate journey</a>
+        <p>{% timeline_time journey.start_at display_timezone %} to {% timeline_time journey.end_at display_timezone %}</p>
+        <p>{{ journey.samples }} observations · Longest sampling gap {{ journey.largest_gap }} · Method {{ journey.version }}{% if journey.partial %} · Partial coverage{% endif %}{% if journey.archived %} · Includes archived evidence{% endif %}</p>
+        {% if journey.warning %}<p>{{ journey.warning }}</p>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <a class="record-link" href="{% url 'core:analysis:browse' case.pk %}?method=candidate_trips&amp;kind={{ row.kind }}&amp;evidence={{ row.id }}">Browse all journey findings for this observation</a>
+  </div>
+</details>
+{% endif %}
