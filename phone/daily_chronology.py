@@ -8,6 +8,7 @@ from django.http import Http404
 from django.utils.text import Truncator
 
 from core.evidence.queries import scoped_evidence
+from core.evidence.source_clocks import date_only_messages
 from phone.conversation_instances import (
     MESSAGES_PER_PAGE,
     attach_instance_summaries,
@@ -63,6 +64,7 @@ def daily_message_rows(case, start, end):
     messages = (
         scoped_evidence(case, "text-message")
         .filter(occurred_at__gte=start, occurred_at__lt=end)
+        .exclude(pk__in=date_only_messages(case))
         .only("occurred_at", "is_archived")
         .order_by("occurred_at", "pk")
     )

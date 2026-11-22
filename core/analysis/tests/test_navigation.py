@@ -139,7 +139,16 @@ class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
         extraction = self.start("ocr", image, "image")
         reply = local_ocr_response(status="partial")
         reply["regions"] = [
-            {"text": text, "bbox": box, "order": index, "confidence": score}
+            {
+                "text": text,
+                "bbox": box,
+                "order": index,
+                "confidence": score,
+                "paragraph": [1, 1, index + 1],
+                "words": [
+                    {"start": 0, "end": len(text), "region": box, "confidence": score}
+                ],
+            }
             for index, (text, box, score) in enumerate(
                 [
                     ("first@example.test", [0.1, 0.1, 0.7, 0.3], 95),

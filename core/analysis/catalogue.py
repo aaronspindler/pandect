@@ -304,8 +304,8 @@ def finding_queryset(case, filters, *, person=None, labels=None):
     )
 
 
-def resolved_findings(case, findings):
-    """Resolve citations on one page, sharing source checks across its runs."""
+def resolved_findings(case, findings, *, with_content=False):
+    """Resolve one page of citations; request content only for exact passage readers."""
     from core.analysis.services import (
         SourceResolutionCache,
         require_current_geocode_reviews,
@@ -328,12 +328,12 @@ def resolved_findings(case, findings):
             "created_at",
         )
     }
-    cache = SourceResolutionCache(case, with_content=False)
+    cache = SourceResolutionCache(case, with_content=with_content)
     try:
         cache.prepare([source for run in runs.values() for source in run.inputs])
     except Http404, ValueError, TypeError, KeyError, forms.ValidationError:
         # A corrupt historical reference must not prevent valid neighbouring rows.
-        cache = SourceResolutionCache(case, with_content=False)
+        cache = SourceResolutionCache(case, with_content=with_content)
     references = {}
     for reference in AnalysisFindingSource.objects.filter(
         case=case, finding__in=findings
@@ -360,18 +360,24 @@ def resolved_findings(case, findings):
                     {str(source.id): source for source in sources},
                     warning,
                 )
-            except AnalysisError, Http404:
+            except AnalysisError, Http404, TypeError, KeyError, ValueError:
                 checked[run.pk] = (None, "")
         sources, warning = checked[run.pk]
         cited = references.get(finding.pk, {})
         unavailable = sources is None or not cited or not cited.keys() <= sources.keys()
         if not unavailable:
             unavailable = any(
-                (reference.kind, reference.evidence_id, reference.attachment_id)
+                (
+                    reference.kind,
+                    reference.evidence_id,
+                    reference.attachment_id,
+                    reference.source_sha256,
+                )
                 != (
                     sources[key].kind,
                     sources[key].item.pk,
                     sources[key].attachment.pk if sources[key].attachment else None,
+                    (sources[key].attachment or sources[key].item).sha256,
                 )
                 for key, reference in cited.items()
             )

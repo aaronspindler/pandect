@@ -15,6 +15,7 @@ from core.analysis.navigation import finding_url
 from core.analysis.presentation import participant_names, participant_text
 from core.analysis.services import SourceResolutionCache, resolve_inputs
 from core.evidence.queries import scoped_evidence
+from core.evidence.source_clocks import date_only_messages
 from core.models import AnalysisFindingSource, AnalysisRun
 from phone.conversation_sessions import ordered_members, session_findings
 from phone.conversations import imported_contexts, pair_messages
@@ -107,7 +108,9 @@ def _validated_instances(case, candidates):
 
 def instances_touching_messages(case, message_ids):
     """Valid pair instances ordered by their first time among the given originals."""
-    messages = scoped_evidence(case, "text-message")
+    messages = scoped_evidence(case, "text-message").exclude(
+        pk__in=date_only_messages(case)
+    )
     candidates = _candidates(case, messages, touching=message_ids)
     instances = _validated_instances(case, candidates)
     for batch in batched(instances, INSTANCES_PER_PAGE, strict=False):

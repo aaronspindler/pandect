@@ -233,6 +233,17 @@ def resolve_snapshots(
                 != checksum
             ):
                 raise AnalysisError("source_changed")
+            if cache.with_content and (
+                attachment or selected["kind"] == "text-message"
+            ):
+                # Quoting a passage requires the same captured message or transcript.
+                # original_bytes() serializes the retained record, including its file
+                # manifest when present; it does not read a recording.
+                if (
+                    hashlib.sha256((attachment or item).original_bytes()).hexdigest()
+                    != checksum
+                ):
+                    raise AnalysisError("source_changed")
             validated_originals.add(identity)
         text = None
         coordinates = None

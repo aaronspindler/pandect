@@ -15,7 +15,8 @@ from quotation agreement. Implementation and mocked tests do not establish quali
 
 Case-wide search now retrieves source-linked passages with a configured private
 embedding model. Continue evaluating paraphrases, negation, uncertain references
-and irrelevant hits on representative sanitized cases. Inferred timelines,
+and irrelevant hits on representative sanitized cases. [Chronology](chronology.md)
+exposes reported clocks and cited time claims. Broader event-date inference,
 entity resolution and graph exploration remain future work.
 
 **Complete when:** investigators can inspect sources for every candidate link or

@@ -1,35 +1,40 @@
 {% extends 'ui/base.html' %}
-{% load static tz %}
-{% block extra_head %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endblock %}
+{% load tz %}
 {% block title %}Chronology · {{ case }}{% endblock %}
 {% block content %}
 <div class="detail-layout">
-  <div class="page-header"><div><h1>{% if references %}Extracted date references{% else %}Chronology{% endif %}</h1><p class="help-text">{% if references %}Date strings extracted from retained text. They have no confirmed date, timezone or place on the chronology.{% else %}Explicit timestamps from retained evidence. Displayed in {{ display_timezone }}.{% endif %}</p></div>
-  <div class="actions"><a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}?view=day">Daily timeline</a>{% if references %}<a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}{% querystring view=None page=None %}">Back to chronology</a>{% else %}<a class="button button-secondary" href="{% querystring view='references' page=None category=None vehicle=None start=None end=None %}">Extracted date references</a>{% endif %}</div></div>
-  <details class="disclosure"{% if form.errors %} open{% endif %}><summary>{% if references %}Filter date references{% else %}Filter chronology{% endif %}{% if filters_applied %} · Applied{% endif %}</summary><div class="disclosure-body">
-  <form method="get" class="filter-form" aria-label="{% if references %}Filter date references{% else %}Filter chronology{% endif %}">
-    {% if references %}<input type="hidden" name="view" value="references">{% else %}<p class="help-text">Date ranges apply to recorded timestamps in {{ account_timezone }}.</p>{% if show_utc %}<input type="hidden" name="clock" value="utc">{% endif %}{% endif %}
-    {% include 'ui/components/form_fields.html' %}
-    <div class="actions"><button class="button button-primary" type="submit">Apply filters</button>{% if filters_applied or form.errors %}<a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}{% if references %}?view=references{% elif show_utc %}?clock=utc{% endif %}">Clear filters</a>{% endif %}</div>
-  </form></div></details>
-  {% if references %}
-  {% if unplaced %}<section class="content-section" aria-labelledby="unplaced-dates"><h2 id="unplaced-dates">Date candidates</h2>{% include 'core/analysis/_catalogue_rows.html' with rows=unplaced.rows %}
-    {% with page=unplaced.page_obj %}{% if page.has_other_pages %}<nav class="pagination" aria-label="Extracted date reference pages">{% if page.has_previous %}<a class="button button-secondary" href="{% querystring page=page.previous_page_number %}#unplaced-dates">Previous references</a>{% endif %}<span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="button button-secondary" href="{% querystring page=page.next_page_number %}#unplaced-dates">Next references</a>{% endif %}</nav>{% endif %}{% endwith %}
-  </section>{% endif %}
-  {% else %}
+  <div class="page-header">
+    <div><h1>Chronology</h1><p class="help-text">Explicit timestamps from retained evidence. Displayed in {{ display_timezone }}.</p></div>
+    <nav class="actions" aria-label="Chronology views">
+      <a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}?view=day">Daily timeline</a>
+      <a class="button button-secondary" href="{% querystring view='unplaced' page=None category=None vehicle=None start=None end=None clock=None %}">Unplaced evidence and time claims</a>
+      <a class="button button-secondary" href="{% querystring view='references' page=None category=None vehicle=None start=None end=None clock=None %}">Extracted date references</a>
+    </nav>
+  </div>
+  <details class="disclosure"{% if form.errors %} open{% endif %}><summary>Filter chronology{% if filters_applied %} · Applied{% endif %}</summary><div class="disclosure-body">
+    <form method="get" class="filter-form" aria-label="Filter chronology">
+      <p class="help-text">Date ranges apply to recorded timestamps in {{ account_timezone }}.</p>
+      {% if show_utc %}<input type="hidden" name="clock" value="utc">{% endif %}
+      {% include 'ui/components/form_fields.html' %}
+      <div class="actions"><button class="button button-primary" type="submit">Apply filters</button>{% if filters_applied or form.errors %}<a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}{% if show_utc %}?clock=utc{% endif %}">Clear filters</a>{% endif %}</div>
+    </form>
+  </div></details>
   <section class="content-section" aria-labelledby="chronology-events">
     <div class="section-header">
       <h2 id="chronology-events">{% if form.cleaned_data.category == 'acquired' %}Acquisition times{% else %}Recorded chronology{% endif %}</h2>
       {% if account_timezone != 'UTC' %}
-      {% if show_utc %}<a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}{% querystring clock=None %}">Show local times</a>{% else %}<a class="record-link" href="{% querystring clock='utc' %}">Show UTC times</a>{% endif %}
+      {% if show_utc %}<a class="record-link" href="{% querystring clock=None %}">Show local times</a>{% else %}<a class="record-link" href="{% querystring clock='utc' %}">Show UTC times</a>{% endif %}
       {% endif %}
     </div>
-    <p class="help-text">Reported times do not verify events. Open a record to check its source.</p>
-    <ul class="record-list">
-      {% for row in rows %}{% with event_at=row.event_at|timezone:display_timezone %}<li class="record-row"><div><a class="record-link" href="{{ row.url }}">{{ row.title }}</a><p>{{ row.event_label }} <time datetime="{{ event_at|date:'c' }}">{{ event_at|date:'d M Y H:i:s T' }}</time> · {{ row.label }}{% if row.is_archived %} · Archived{% endif %}</p></div></li>{% endwith %}{% empty %}<li class="empty-state"><p>No retained timestamps match these filters. Undated evidence remains available in Evidence.</p><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Browse evidence</a></li>{% endfor %}
-    </ul>
+    <p class="help-text">Ordered by recorded time. Equal timestamps and overlapping intervals leave the order of events uncertain.</p>
+    <ol class="record-list">
+      {% for row in rows %}<li class="record-row"><div>
+        <a class="record-link" href="{{ row.url }}">{{ row.title }}</a>
+        {% include 'core/evidence/_recorded_clock.html' %}
+        {% include 'geo/_chronology_journeys.html' %}
+      </div></li>{% empty %}<li class="empty-state">No retained timestamps match these filters.</li>{% endfor %}
+    </ol>
     {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Chronology pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#chronology-events">Previous events</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#chronology-events">Next events</a>{% endif %}</nav>{% endif %}
   </section>
-  {% endif %}
 </div>
 {% endblock %}

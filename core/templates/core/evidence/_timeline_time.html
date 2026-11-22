@@ -1,1 +1,0 @@
-{% load tz %}{% with instant=stamp|timezone:display_timezone %}<time datetime="{{ instant|date:'c' }}">{% if instant.date != day %}{{ instant|date:'j M Y' }} {% endif %}{{ instant|date:'H:i:s T' }}</time>{% endwith %}

@@ -10,7 +10,9 @@ never changes source-native relationships.
 currency-marked amount, patterned identifier and coordinate strings with original
 spans. Phone country, ambiguous dates/currency symbols, ownership, names and free
 addresses remain unresolved. Host/email-domain normalization preserves URL paths
-and email local parts. No AI credentials are needed.
+and email local parts. Version 2 also identifies the literal relative dates
+“today”, “yesterday” and “tomorrow” with exact offsets. Their reference date
+remains unresolved in [Chronology](chronology.md). No AI credentials are needed.
 
 Bare domains allow ASCII labels up to 63 characters, 253 overall, and the
 [conservative suffix allowlist](../text/analysis/deterministic.py), excluding file

@@ -123,7 +123,9 @@ OPERATIONS = {
         additional_on_evidence=True,
         version="2",
     ),
-    "entities": Operation("Extract identifiers and dates", text.extract_entities, TEXT),
+    "entities": Operation(
+        "Extract identifiers and dates", text.extract_entities, TEXT, version="2"
+    ),
     "style_profiles": Operation(
         "Describe writing style",
         text.style_profile,

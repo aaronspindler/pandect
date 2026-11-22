@@ -97,7 +97,10 @@ browser Back and keyboard use.
 Place each time or interval beside its entry and keep the real endpoints visible
 for trips that cross midnight. At narrow widths, stack the time and description
 in reading order. **Recorded chronology** opens individual timestamps and range
-filters. For source coverage and grouping, see [Chronology](chronology.md).
+filters. Both views link to **Unplaced evidence and time claims**, including on
+empty days. Separate undated originals from quoted temporal interpretations,
+with independent pagination and links back to their sources. For clock roles,
+source precision and grouping, see [Chronology](chronology.md).
 
 ## Visual reference and density
 

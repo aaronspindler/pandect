@@ -26,6 +26,7 @@
     </div>
     <nav class="actions day-other-views" aria-label="Chronology views">
       <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}">Recorded chronology</a>
+      <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=unplaced">Unplaced evidence and time claims</a>
       <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=references">Extracted date references</a>
     </nav>
   </div>

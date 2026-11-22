@@ -1,0 +1,78 @@
+{% extends 'ui/base.html' %}
+{% block title %}{% if references %}Extracted date references{% else %}Unplaced evidence and time claims{% endif %} · {{ case }}{% endblock %}
+{% block content %}
+<div class="detail-layout">
+  <div class="page-header">
+    <div>
+      <h1>{% if references %}Extracted date references{% else %}Unplaced evidence and time claims{% endif %}</h1>
+      <p class="help-text">{% if references %}Dates quoted in retained sources may describe different events or depend on missing context.{% else %}These sources and interpretations have no established place in event order.{% endif %}</p>
+    </div>
+    <nav class="actions" aria-label="Chronology views">
+      <a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}?view=day">Daily timeline</a>
+      <a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}{% querystring view=None page=None originals_page=None start=None end=None %}">Back to chronology</a>
+    </nav>
+  </div>
+  <details class="disclosure"{% if form.errors %} open{% endif %}><summary>Filter {% if references %}date references{% else %}sources{% endif %}{% if form.type.value or form.person.value %} · Applied{% endif %}</summary><div class="disclosure-body">
+    <form method="get" class="filter-form" aria-label="Filter sources">
+      <input type="hidden" name="view" value="{{ view_name }}">
+      {% include 'ui/components/form_fields.html' %}
+      <div class="actions"><button class="button button-primary" type="submit">Apply filters</button>
+      {% if form.type.value or form.person.value or form.errors %}<a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}?view={{ view_name }}">Clear filters</a>{% endif %}</div>
+    </form>
+  </div></details>
+  {% if not form.errors %}
+  {% if not references %}
+  {% if claims.paginator.count and originals.paginator.count %}
+  <nav class="actions" aria-label="Jump to section">
+    <a class="record-link" href="#undated-heading">Undated originals ({{ originals.paginator.count }})</a>
+    <a class="record-link" href="#unplaced-dates">Time claims ({{ claims.paginator.count }})</a>
+  </nav>
+  {% endif %}
+  <section class="content-section" aria-labelledby="undated-heading">
+    <h2 id="undated-heading" tabindex="-1">Originals without a known time of day ({{ originals.paginator.count }})</h2>
+    <p class="help-text">Listed by title. A source may record a calendar date or a collection time while its occurrence time is unknown.</p>
+    <ul class="record-list">
+      {% for row in originals %}<li class="record-row"><div><a class="record-link" href="{{ row.url }}">{{ row.title }}</a><p>{{ row.label }}{% if row.is_archived %} · Archived{% endif %}</p>
+        {% if row.source_date %}
+          <p>Calendar date only · <time datetime="{{ row.source_date|date:'Y-m-d' }}">{{ row.source_date|date:'d M Y' }}</time> · {{ row.source_zone }}</p>
+          <details class="disclosure"><summary>Source clock details</summary>
+            <dl class="metadata-grid">{% for label,value in row.clock_fields %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl>
+            <a class="record-link" href="{{ row.export_url }}">Retained export · Row {{ row.source_row }}</a>
+          </details>
+        {% endif %}
+      </div></li>
+      {% empty %}<li class="empty-state">No undated originals match these filters.</li>{% endfor %}
+    </ul>
+    {% if originals.has_other_pages %}<nav class="pagination" aria-label="Undated original pages">
+      {% if originals.has_previous %}<a class="button button-secondary" href="{% querystring originals_page=originals.previous_page_number %}#undated-heading">Previous originals</a>{% endif %}
+      <span>Page {{ originals.number }} of {{ originals.paginator.num_pages }}</span>
+      {% if originals.has_next %}<a class="button button-secondary" href="{% querystring originals_page=originals.next_page_number %}#undated-heading">Next originals</a>{% endif %}
+    </nav>{% endif %}
+  </section>
+  {% endif %}
+  <section class="content-section" aria-labelledby="unplaced-dates">
+    <h2 id="unplaced-dates" tabindex="-1">{% if references %}Date candidates{% else %}Time claims{% endif %} ({{ claims.paginator.count }})</h2>
+    <ul class="record-list">
+      {% for claim in claims %}<li class="record-row"><div>
+        {% if claim.unavailable %}<p>Source unavailable</p>{% else %}
+        <a class="record-link" href="{{ claim.url }}">{{ claim.label }}</a>
+        {% if claim.uses_ai %}<p>AI suggestion · {{ claim.status }}</p>{% elif claim.label == "Relative date" %}<p>Reference date unknown</p>{% endif %}
+        {% if claim.uses_ai and claim.text %}<p>{{ claim.text }}</p>{% endif %}
+        {% for citation in claim.citations %}
+          <blockquote>{{ citation.quote }}</blockquote>
+          <a class="record-link" href="{{ citation.url }}">{{ citation.title }}</a>{% if citation.archived %} · Archived{% endif %}
+        {% endfor %}
+        <p class="muted">{{ claim.method }} · Version {{ claim.method_version }}{% if claim.partial %} · Partial coverage{% endif %}</p>
+        {% endif %}
+      </div></li>
+      {% empty %}<li class="empty-state">No retained time claims match these filters.</li>{% endfor %}
+    </ul>
+    {% if claims.has_other_pages %}<nav class="pagination" aria-label="Time claim pages">
+      {% if claims.has_previous %}<a class="button button-secondary" href="{% querystring page=claims.previous_page_number %}#unplaced-dates">Previous claims</a>{% endif %}
+      <span>Page {{ claims.number }} of {{ claims.paginator.num_pages }}</span>
+      {% if claims.has_next %}<a class="button button-secondary" href="{% querystring page=claims.next_page_number %}#unplaced-dates">Next claims</a>{% endif %}
+    </nav>{% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

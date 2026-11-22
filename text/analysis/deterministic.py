@@ -13,6 +13,8 @@ from core.analysis.sources import output
 from text.analysis.shared import FUNCTION_WORDS, STOPWORDS, WORD, bounded_sources
 
 VERSION = "text-rules-v1"
+ENTITY_VERSION = "entity-rules-v2"
+RELATIVE_DATES = ("today", "tomorrow", "yesterday")
 ABBREVIATIONS = set(
     "lol lmao brb btw idk imo imho rn tbh ttyl asap fyi omg thx pls u ur bc".split()
 )
@@ -70,7 +72,11 @@ def extract_entities(sources, parameters):
         (
             "Date candidate",
             re.compile(
-                r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?)\b",
+                rf"\b(?:{'|'.join(RELATIVE_DATES)}|"
+                r"\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|"
+                r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+                r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
+                r"Dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?)\b",
                 re.I,
             ),
         ),
@@ -100,7 +106,11 @@ def extract_entities(sources, parameters):
             for match in pattern.finditer(source.text):
                 raw = match.group()
                 start, end = match.span()
-                values = {"raw": raw, "normalization": "unresolved", "method": VERSION}
+                values = {
+                    "raw": raw,
+                    "normalization": "unresolved",
+                    "method": ENTITY_VERSION,
+                }
                 if label == "URL":
                     raw = raw.rstrip(".,;!?)")
                     end = start + len(raw)
@@ -146,8 +156,12 @@ def extract_entities(sources, parameters):
                         continue
                     values["digits_candidate"] = digits
                 elif label == "Date candidate":
+                    if raw.casefold() in RELATIVE_DATES:
+                        values["relative"] = True
                     values["interpretation"] = (
-                        "Source date string; order, timezone, and relative "
+                        "Relative date with no established reference date."
+                        if values.get("relative")
+                        else "Source date string; order, timezone, and relative "
                         "context are not inferred."
                     )
                 elif label == "Amount candidate":
@@ -182,7 +196,11 @@ def extract_entities(sources, parameters):
     return output(
         f"Found {len(items)} explicit-string candidates.",
         items=items,
-        metrics={"sources": len(sources), "occurrences": len(items), "method": VERSION},
+        metrics={
+            "sources": len(sources),
+            "occurrences": len(items),
+            "method": ENTITY_VERSION,
+        },
         warnings=[
             (
                 "Names, organizations, and free-form addresses are not "

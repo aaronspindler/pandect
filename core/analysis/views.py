@@ -81,6 +81,7 @@ from core.analysis.services import (
 from core.evidence.collection import collection_context
 from core.evidence.navigation import list_params
 from core.evidence.queries import get_evidence
+from core.evidence.time_claims import unavailable_time_claim
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.evidence.views import render_detail
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
@@ -945,6 +946,15 @@ def detail(request, case_id, run_id):
                         reverse("core:analysis:detail", args=[case.pk, estimates[pk]]),
                     )
             source_map = {str(source.id): source for source in sources}
+            entries = [
+                (
+                    index,
+                    {"label": "Source unavailable"}
+                    if unavailable_time_claim(run.operation, finding, source_map)
+                    else finding,
+                )
+                for index, finding in entries
+            ]
             formatter = measurement_formatter(
                 [finding.get("values", {}) for _, finding in entries],
                 case=case,
@@ -1211,10 +1221,16 @@ def download(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
     try:
-        resolve_inputs(run, case, require_current_review=False)
+        sources = resolve_inputs(run, case, require_current_review=False)
         result = AnalysisResult.objects.get(case=case, run=run)
     except AnalysisError, AnalysisResult.DoesNotExist:
         raise Http404("Result not found.") from None
+    source_map = {source.id: source for source in sources}
+    if any(
+        unavailable_time_claim(run.operation, item, source_map)
+        for item in result.data.get("items", [])
+    ):
+        raise Http404("A cited passage is unavailable.")
     data = {
         "case_id": str(case.pk),
         "run_id": str(run.pk),
