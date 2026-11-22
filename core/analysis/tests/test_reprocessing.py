@@ -11,7 +11,7 @@ from django.http import Http404
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from cases.models import CaseMembership
+from cases.models import Case, CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.execution import requires_inference
 from core.analysis.operations import OPERATIONS
@@ -82,22 +82,31 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(models)
         self.assertTrue(all(run.parameters["backend"] == "local" for run in models))
 
-    def test_owner_approval_enables_both_models_and_one_deterministic_lane(self):
+    def test_reprocessing_retains_the_backend_selected_when_queued(self):
         self.text()
+        self.case.ai_backend = Case.AIBackend.GATEWAY
+        self.case.save(update_fields=("ai_backend",))
         batch, _ = self.start(approved=True)
+        self.case.ai_backend = Case.AIBackend.LOCAL
+        self.case.save(update_fields=("ai_backend",))
+
         self.drain(batch)
-        runs = list(batch.runs.all())
-        models = [
-            run for run in runs if requires_inference(run.operation, run.parameters)
-        ]
-        self.assertEqual(
-            {run.parameters["backend"] for run in models}, {"local", "gateway"}
+        self.assertCountEqual(
+            batch.runs.filter(parameters__has_key="_execution").values_list(
+                "operation", "parameters__backend", "external_processing"
+            ),
+            [("text_topics", "gateway", True), ("content_events", "gateway", True)],
         )
-        for run in models:
-            self.assertEqual(
-                run.external_processing, run.parameters["backend"] == "gateway"
-            )
         self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
+
+        later, _ = self.start()
+        self.drain(later)
+        self.assertCountEqual(
+            later.runs.filter(parameters__has_key="_execution").values_list(
+                "operation", "parameters__backend", "external_processing"
+            ),
+            [("text_topics", "local", False), ("content_events", "local", False)],
+        )
 
     def test_selected_active_sources_only_and_original_results_remain(self):
         active = self.text()
@@ -229,6 +238,8 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
             title="Synthetic text document",
             file=ContentFile(b"Contact synthetic@example.test", name="source.txt"),
         )
+        self.case.ai_backend = Case.AIBackend.GATEWAY
+        self.case.save(update_fields=("ai_backend",))
         batch, _ = self.start(kinds=("document",), approved=True)
         self.drain(batch)
         extraction = batch.runs.get(operation="native_text")
@@ -248,8 +259,9 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
             for run in followups
             if requires_inference(run.operation, run.parameters)
         ]
-        self.assertEqual(
-            {run.parameters["backend"] for run in models}, {"local", "gateway"}
+        self.assertCountEqual(
+            [(run.operation, run.parameters["backend"]) for run in models],
+            [("text_topics", "gateway"), ("content_events", "gateway")],
         )
 
     def test_one_method_preparation_failure_preserves_other_methods(self):
@@ -269,9 +281,7 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(batch.runs.filter(operation="content_events").exists())
         self.assertGreater(batch.unavailable_sources, 0)
 
-    def test_settings_drift_during_extraction_preserves_independent_routes(
-        self,
-    ):
+    def test_settings_drift_during_extraction_does_not_switch_to_external_ai(self):
         DocumentEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
@@ -293,14 +303,5 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(extraction.result.passages.exists())
         followups = batch.runs.filter(previous_run=extraction)
         self.assertTrue(followups.filter(operation="entities").exists())
-        self.assertTrue(
-            followups.filter(
-                operation="content_events", external_processing=True
-            ).exists()
-        )
-        self.assertFalse(
-            followups.filter(
-                operation="content_events", external_processing=False
-            ).exists()
-        )
+        self.assertFalse(followups.filter(parameters__has_key="_execution").exists())
         self.assertGreater(batch.unavailable_sources, 0)

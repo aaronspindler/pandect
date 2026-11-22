@@ -19,11 +19,8 @@ class IMessageUploadForm(forms.Form):
     submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
     file = forms.FileField(
         required=False,
-        label="iMessage CSV",
-        help_text=(
-            "Use the supported 18-column export, from Chat Session "
-            "through Attachment type."
-        ),
+        label="Message CSV",
+        help_text="Use a supported iMessage or WhatsApp CSV export.",
         error_messages={"required": "Choose a CSV."},
         widget=forms.ClearableFileInput(attrs={"accept": ".csv,text/csv"}),
     )

@@ -156,7 +156,7 @@ CACHES = {
 TASKS = {
     "default": {
         "BACKEND": "django_tasks_db.DatabaseBackend",
-        "QUEUES": ["default"],
+        "QUEUES": ["default", "instagram"],
     }
 }
 AUTH_USER_MODEL = "accounts.User"

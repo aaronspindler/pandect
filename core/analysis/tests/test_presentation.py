@@ -197,9 +197,15 @@ class AnalysisPresentationTests(EvidenceViewTestMixin, TestCase):
             f"An observed identifier {self.person.pk} "
             f"and reported recipient {self.person.pk}."
         )
-        self.assertEqual(participant_text(literal, names), literal)
         self.assertEqual(
-            participant_text(f"Reported sender *{self.person.pk}*.", names),
+            participant_text(literal, names, operation="content_events"), literal
+        )
+        self.assertEqual(
+            participant_text(
+                f"Reported sender *{self.person.pk}*.",
+                names,
+                operation="conversation_link",
+            ),
             f"Reported sender {self.person}.",
         )
 

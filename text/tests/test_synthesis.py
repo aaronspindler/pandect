@@ -99,6 +99,18 @@ class SynthesisTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertContains(response, "Not established by this selection")
         self.assertContains(response, "reports cancellation")
+        self.assertContains(
+            response,
+            '<h1 id="finding-heading-1">AI suggestion · Contrary evidence</h1>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<blockquote class="analysis-source-excerpt">'
+            "The meeting is cancelled.</blockquote>",
+            html=True,
+            count=1,
+        )
 
     def test_finding_quote_has_its_own_offsets_and_read_dependency(self):
         prior, _ = start_run(

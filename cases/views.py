@@ -7,7 +7,7 @@ from datetime import timedelta
 from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib import messages
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.mail import EmailMessage
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -30,9 +30,11 @@ from core.analysis.approval import (
 from core.analysis.execution import configured_external_executions
 from core.evidence.types import KINDS
 from geo.models import PointOfInterest
+from socialmedia import instagram_connector, monitor_jobs
 from socialmedia.models import SocialAccount
 
 from .forms import (
+    CaseAIBackendForm,
     CaseForm,
     ConfirmForm,
     InvitationForm,
@@ -168,19 +170,55 @@ def case_settings(request, case_id):
     else:
         case = get_case(request.user, case_id, owner=True)
         form = CaseForm(instance=case)
+    return _render_case_settings(
+        request, case, status=status, form=form, latest_details=latest_details
+    )
+
+
+def _render_case_settings(
+    request, case, *, status=200, form=None, latest_details=None, ai_backend_form=None
+):
     invitations = list(case.invitations.all())
     return _render_case(
         request,
         "cases/settings.html",
         case,
         status=status,
-        form=form,
+        form=form if form is not None else CaseForm(instance=case),
+        ai_backend_form=(
+            ai_backend_form
+            if ai_backend_form is not None
+            else CaseAIBackendForm(case=case)
+        ),
         latest_details=latest_details,
         memberships=case.memberships.select_related("user").order_by("user__username"),
         pending_invitations=[item for item in invitations if item.is_pending],
         invitation_history=[item for item in invitations if not item.is_pending],
         external_analysis=case_approval_context(case, request.user),
+        instagram_scheduling_available=instagram_connector.scheduling_available(),
+        instagram_target_approved=monitor_jobs.target_approved(case.pk),
+        instagram_target=instagram_connector.PILOT_TARGET,
     )
+
+
+@product_login_required
+@require_POST
+def case_ai_backend(request, case_id):
+    with transaction.atomic():
+        case = get_case(request.user, case_id, owner=True, lock=True)
+        form = CaseAIBackendForm(request.POST, case=case)
+        if form.is_valid():
+            backend = form.cleaned_data["ai_backend"]
+            if case.ai_backend != backend:
+                case.ai_backend = backend
+                case.save(update_fields=("ai_backend",))
+            messages.success(request, "AI backend saved.")
+            return redirect(
+                reverse(
+                    "cases:case_settings", args=(case.pk,), fragment="ai-processing"
+                )
+            )
+    return _render_case_settings(request, case, ai_backend_form=form)
 
 
 @product_login_required
@@ -205,6 +243,30 @@ def case_external_analysis(request, case_id):
         messages.success(request, "External analysis approved for this case.")
     return redirect(
         reverse("cases:case_settings", args=(case.pk,), fragment="external-analysis")
+    )
+
+
+@product_login_required
+@require_POST
+def case_instagram_monitoring(request, case_id):
+    action = request.POST.get("action")
+    if action not in {"approve", "revoke"}:
+        raise Http404("Case action not found.")
+    try:
+        monitor_jobs.set_target_approval(
+            request.user, case_id, approved=action == "approve"
+        )
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        message = (
+            "Synthetic Instagram monitoring approved for this case."
+            if action == "approve"
+            else "Approval revoked. Scheduled checks have paused."
+        )
+        messages.success(request, message)
+    return redirect(
+        reverse("cases:case_settings", args=(case_id,), fragment="instagram-monitoring")
     )
 
 

@@ -479,6 +479,8 @@ class OpenAIApprovalTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(DBTaskResult.objects.exists())
 
         external_grant_kwargs(self.case, "content_events")
+        self.case.ai_backend = "gateway"
+        self.case.save(update_fields=["ai_backend"])
         saved = self.client.post(self.analysis_url, payload)
         self.assertEqual(saved.status_code, 302)
         run = AnalysisRun.objects.get()

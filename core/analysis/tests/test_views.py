@@ -961,6 +961,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(url, payload).status_code, 403)
         external_grant_kwargs(self.case, "content_events")
+        self.case.ai_backend = "gateway"
+        self.case.save(update_fields=["ai_backend"])
         self.assertEqual(self.client.post(url, payload).status_code, 302)
         self.assertTrue(AnalysisRun.objects.get().external_processing)
 
@@ -1074,10 +1076,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(run.status, "complete", run.error_code)
         response = self.client.get(self.analysis_url("detail", run=run))
         self.assertContains(response, "source@example.test")
-        self.assertContains(response, '<details class="analysis-result-limits" open>')
-        self.assertContains(
-            response, '<summary id="result-limitations">Limitations</summary>'
-        )
+        self.assertContains(response, "Analysis run details")
+        self.assertContains(response, "Limitations")
         self.assertContains(response, "Selected &lt;script&gt;source&lt;/script&gt;")
         self.assertNotContains(response, "<script>source</script>")
         self.assertContains(response, "Characters")

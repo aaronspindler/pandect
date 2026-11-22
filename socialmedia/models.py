@@ -42,6 +42,35 @@ class InstagramSource(models.TextChoices):
     INSTAGRAM = "instagram", "Instagram"
 
 
+class InstagramTargetApproval(models.Model):
+    """A case owner authorized collection for one account at a specific source."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey(
+        "cases.Case",
+        on_delete=models.CASCADE,
+        related_name="instagram_target_approvals",
+    )
+    source = models.CharField(max_length=9, choices=InstagramSource)
+    target_id = models.CharField(max_length=128)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(source__in=InstagramSource.values)
+                & ~models.Q(target_id=""),
+                name="social_target_approval_scope",
+            ),
+            models.UniqueConstraint(
+                fields=("case", "source", "target_id"),
+                name="social_target_approval_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_source_display()} · {self.target_id}"
+
+
 class InstagramConnection(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     user = models.OneToOneField(
@@ -97,6 +126,7 @@ class InstagramMonitor(models.Model):
         editable=False,
     )
     target = models.CharField(max_length=30)
+    target_id = models.CharField(max_length=128, blank=True, editable=False)
     interval_hours = models.PositiveSmallIntegerField(choices=INTERVALS, default=24)
     status = models.CharField(max_length=7, choices=Status, default=Status.ACTIVE)
     generation = models.UUIDField(default=uuid4, editable=False)

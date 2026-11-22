@@ -3,7 +3,7 @@
   {% for source in sources %}
   <li>
     <div class="analysis-source-links">
-      <a href="{{ source.url }}">{{ source.label }}</a>
+      <a href="{{ source.url }}">{% if focused_finding and source.import_row %}Imported message · Export row {{ source.import_row }}{% else %}{{ source.label }}{% endif %}</a>
       {% if source.attachment_label %}<span class="muted">{{ source.attachment_label }}</span>{% endif %}
       {% if source.derived %}<span class="muted">{{ source.derived_label }}</span><a href="{{ source.original_url }}">Open original</a>{% endif %}
     </div>
@@ -13,8 +13,12 @@
     {% if source.reviewed_coordinates %}
     <p class="muted">Address estimate · {{ source.reviewed_coordinates.0 }}, {{ source.reviewed_coordinates.1 }}</p>
     {% endif %}
-    {% if source.anchors %}<div class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=source.anchors %}</div>{% endif %}
-    {% if source.excerpt and source.excerpt != item.text %}<blockquote class="analysis-source-excerpt">{{ source.excerpt }}</blockquote>{% endif %}
+    {% if source.anchors %}<div class="analysis-source-anchors muted">{% include 'core/analysis/anchors.html' with anchors=source.anchors locators_only=focused_finding import_row=source.import_row %}</div>{% endif %}
+    {% if focused_finding and run.operation == 'claim_comparison' and item.text %}
+      <blockquote class="analysis-source-excerpt">{{ item.text }}</blockquote>
+    {% elif source.excerpt and source.excerpt != item.text %}
+      <blockquote class="analysis-source-excerpt">{{ source.excerpt }}</blockquote>
+    {% endif %}
   </li>
   {% endfor %}
 </ul>

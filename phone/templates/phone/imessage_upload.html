@@ -1,9 +1,9 @@
 {% extends 'ui/base.html' %}
-{% block title %}Import iMessage CSV · {{ case.name }}{% endblock %}
+{% block title %}Import message CSV · {{ case.name }}{% endblock %}
 {% block content %}
 <div class="page-content">
   <a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>
-  <header class="page-header"><div><h1>Import iMessage CSV</h1><p>Review one direct conversation and match its two participants.</p></div></header>
+  <header class="page-header"><div><h1>Import message CSV</h1><p>Review one direct conversation and match its two participants.</p></div></header>
   <p>Up to {{ max_bytes|filesizeformat }} · No message-row limit</p>
   <form method="post" enctype="multipart/form-data" class="form-layout" data-unsaved-form>
     {% csrf_token %}{{ form.submission_id }}

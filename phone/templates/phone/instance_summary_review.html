@@ -8,8 +8,8 @@
   </div>
 </header>
 <section class="analysis-section">
+  {% if scope_changed %}<p class="notice" role="alert">The sessions or AI service changed. Review the updated selection.</p>{% endif %}
   {% if bulk %}
-    {% if scope_changed %}<p class="notice" role="alert">The sessions available for summarizing changed. Review the updated selection.</p>{% endif %}
     {% if review_page.has_other_pages %}
       <p>Review up to {{ sessions_per_review }} saved sessions at a time. Requests cover eligible sessions on this page.</p>
       <nav class="pagination" aria-label="Session review pages">{% if review_page.has_previous %}<a class="button button-secondary" href="{% querystring review_page=review_page.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ review_page.number }} of {{ review_page.paginator.num_pages }}</span>{% if review_page.has_next %}<a class="button button-secondary" href="{% querystring review_page=review_page.next_page_number %}">Next</a>{% endif %}</nav>
@@ -21,7 +21,7 @@
         <ol>{% for instance in instances %}<li><a href="{{ instance.url }}">{% if instance.first_at %}<time datetime="{{ instance.first_at|date:'c' }}">{{ instance.first_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %} · {{ instance.count }} message{{ instance.count|pluralize }}</a></li>{% endfor %}</ol>
       </details>
       <p class="muted">{{ message_count }} message{{ message_count|pluralize }} across {{ eligible_count }} session{{ eligible_count|pluralize }}. Overlapping sessions can include the same message.</p>
-    {% else %}
+    {% elif available %}
       <p role="status">No available sessions need a summary{% if review_page.has_other_pages %} on this page{% endif %}.</p>
     {% endif %}
     {% if oversized %}<p>{{ oversized }} session{{ oversized|pluralize }} exceed{{ oversized|pluralize:'s,' }} the message or text limit for a summary.</p>{% endif %}
@@ -34,11 +34,12 @@
   {% if limit_message %}<p role="status">{{ limit_message }} A summary cannot be requested for this entire session.</p>
   {% endif %}
   {% endif %}
-  {% if readiness %}<p role="status">{{ readiness }}</p>{% endif %}
+  {% if readiness %}<p role="status">{{ readiness }}{% if is_owner %} <a class="record-link" href="{% url 'cases:case_settings' case.pk %}">Open Case settings</a>.{% endif %}</p>{% endif %}
   {% if form and not limit_message and available %}
+  <p>{% include 'core/analysis/processing_destination.html' with execution=execution only %}</p>
   <form method="post" class="form-layout" novalidate data-unsaved-form>
     {% csrf_token %}{{ form.submission_id }}
-    {% if bulk %}<input type="hidden" name="reviewed_scope" value="{{ reviewed_scope }}">{% endif %}
+    <input type="hidden" name="reviewed_scope" value="{{ reviewed_scope }}">
     {% include 'ui/components/form_errors.html' %}
     <div class="form-actions">
       <button class="button button-primary" type="submit">{% if bulk %}Request summaries{% else %}Request summary{% endif %}</button>

@@ -2,6 +2,7 @@
 
 import json
 import re
+from datetime import UTC, datetime
 from secrets import token_urlsafe
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -14,9 +15,11 @@ from core.analysis.http import NoRedirect
 from socialmedia.instagram_rosters import LIVE_VERSION
 
 PILOT_TARGET = "demo.account"
+PILOT_TARGET_ID = "synthetic:demo.account"
 VERSION = "synthetic-browser-v1"
 LIVE_COLLECTION_SECONDS = 600
 MAX_RESPONSE = 4 * 1024 * 1024
+SYNTHETIC_SESSION_SECONDS = 30 * 86400
 
 
 class ConnectorError(Exception):
@@ -63,6 +66,11 @@ def available():
     )
 
 
+def scheduling_available():
+    # The signed-in website experiment has no qualified scheduled source.
+    return current_source() == "synthetic" and available()
+
+
 def _signer(purpose):
     if not available():
         raise ConnectorError("not_configured")
@@ -71,6 +79,20 @@ def _signer(purpose):
         salt="instagram-synthetic-" + purpose,
         fallback_keys=[],
     )
+
+
+def connection_expires_at(session):
+    if not session or not scheduling_available():
+        return None
+    signer = _signer("observer")
+    try:
+        signer.unsign_object(session, max_age=SYNTHETIC_SESSION_SECONDS)
+        timestamp = session.rsplit(signer.sep, 2)[1]
+        return datetime.fromtimestamp(
+            signing.b62_decode(timestamp) + SYNTHETIC_SESSION_SECONDS, tz=UTC
+        )
+    except signing.BadSignature, ValueError, TypeError, OverflowError, OSError:
+        return None
 
 
 def start_pairing(user_id):
@@ -138,7 +160,9 @@ def collect(session, target):
     if target != PILOT_TARGET:
         raise ConnectorError("access_lost")
     try:
-        observer, _ = _signer("observer").unsign_object(session, max_age=30 * 86400)
+        observer, _ = _signer("observer").unsign_object(
+            session, max_age=SYNTHETIC_SESSION_SECONDS
+        )
     except signing.BadSignature, ValueError, TypeError:
         raise ConnectorError("challenge") from None
     if not re.fullmatch(r"pilot\.[0-9a-f]{20}", observer):
@@ -177,7 +201,12 @@ def collect(session, target):
         raise ConnectorError("unavailable") from None
     except ValueError, RecursionError:
         raise ConnectorError("invalid_response") from None
-    return {**data, "observer": observer, "observer_id": observer}
+    return {
+        **data,
+        "observer": observer,
+        "observer_id": observer,
+        "target_id": PILOT_TARGET_ID,
+    }
 
 
 def _live_signer(purpose):

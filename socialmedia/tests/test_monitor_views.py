@@ -8,7 +8,11 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.testing import EvidenceViewTestMixin
 from socialmedia import monitor_jobs
-from socialmedia.instagram_connector import LIVE_VERSION, ConnectorError
+from socialmedia.instagram_connector import (
+    LIVE_VERSION,
+    PILOT_TARGET_ID,
+    ConnectorError,
+)
 from socialmedia.models import InstagramCheck, InstagramConnection, InstagramMonitor
 from socialmedia.monitor_evidence import publish_captures
 
@@ -25,10 +29,13 @@ class InstagramMonitorViewTests(EvidenceViewTestMixin, TestCase):
         url = reverse("account_instagram") + f"?case={self.case.pk}"
         self.client.post(url, {"action": "start"})
         response = self.client.post(url, {"action": "finish"}, follow=True)
-        self.assertContains(response, "Manage connection")
+        self.assertRedirects(response, self.case_url("list"))
         return url
 
     def create(self):
+        monitor_jobs.set_target_approval(
+            self.users["owner"], self.case.pk, approved=True
+        )
         self.login("editor")
         self.connect()
         response = self.client.post(
@@ -71,31 +78,70 @@ class InstagramMonitorViewTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(conn.session)
         self.assertNotEqual(monitor.status, "active")
 
-    def test_live_setup_scope_and_synthetic_attribution(self):
+    def test_live_pilot_cannot_pair_or_schedule_and_retained_history_is_visible(self):
         synthetic = self.create()
         InstagramCheck.objects.create(
             monitor=synthetic, status="complete", finished_at=timezone.now()
         )
-        settings = {
+        connection = InstagramConnection.objects.create(
+            user=self.users["owner"],
+            observer="test.observer",
+            observer_id_string="987",
+            session="private-test-session",
+            source="instagram",
+        )
+        legacy = InstagramMonitor.objects.create(
+            case=self.case,
+            connection=connection,
+            created_by=self.users["owner"],
+            source="instagram",
+            target="test.target",
+            status="paused",
+        )
+        live_config = {
             "url": "http://fixture.invalid",
             "token": "test-token",
-            "user_id": str(self.users["editor"].pk),
+            "user_id": str(self.users["owner"].pk),
             "case_id": str(self.case.pk),
-            "observer": "test.observer",
-            "targets": ("test.target", "unrelated.target"),
+            "observer": connection.observer,
+            "targets": (legacy.target, "unrelated.target"),
             "min_hours": 6,
         }
+        self.login("owner")
         with self.settings(
-            PANDECT_INSTAGRAM_LIVE=settings, PANDECT_INSTAGRAM_PILOT_URL=""
+            PANDECT_INSTAGRAM_LIVE=live_config, PANDECT_INSTAGRAM_PILOT_URL=""
         ):
             account_url = reverse("account_instagram")
             response = self.client.get(account_url)
-            self.assertContains(response, "Synthetic observer")
-            self.assertContains(response, "private Chromium window on the pilot Mac")
+            self.assertContains(response, "Previous Instagram observer")
+            self.assertContains(response, "Instagram collection is disabled")
+            self.assertNotContains(response, connection.session)
+            self.assertNotContains(response, "Connect Instagram account")
             self.assertNotContains(response, "unrelated.target")
             self.assertNotContains(response, 'type="password"')
-            response = self.client.get(self.case_url("list"))
-            self.assertNotContains(response, "Create monitor")
+
+            with patch("socialmedia.instagram_connector.start_pairing") as pairing:
+                response = self.client.post(
+                    account_url, {"action": "start"}, follow=True
+                )
+                pairing.assert_not_called()
+            self.assertNotContains(response, "Confirm Instagram connection")
+            self.assertIsNone(self.client.session.get("instagram_pilot_pair"))
+            response = self.client.post(
+                self.case_url("create"),
+                {"target": legacy.target, "interval_hours": "24"},
+            )
+            self.assertContains(
+                response, "Instagram collection is disabled", status_code=400
+            )
+            self.assertEqual(InstagramMonitor.objects.filter(case=self.case).count(), 2)
+            response = self.client.post(
+                self.case_url("action", legacy.pk, "resume"), follow=True
+            )
+            self.assertNotContains(response, "Resume monitor")
+            legacy.refresh_from_db()
+            self.assertEqual(legacy.status, "paused")
+            self.assertContains(self.client.get(self.case_url("list")), "@test.target")
             self.assertContains(
                 self.client.get(self.case_url("detail", synthetic.pk)),
                 "Synthetic Instagram monitor",
@@ -106,72 +152,80 @@ class InstagramMonitorViewTests(EvidenceViewTestMixin, TestCase):
                 ),
                 "Synthetic check",
             )
-            pair = {"source": "instagram", "token": "private-test-pair"}
-            with patch(
-                "socialmedia.monitor_jobs.start_pairing",
-                return_value={"id": pair, "url": ""},
-            ):
-                response = self.client.post(
-                    account_url, {"action": "start"}, follow=True
-                )
-            self.assertContains(response, "Confirm Instagram connection")
-            self.assertNotContains(response, "private-test-pair")
-            self.assertContains(response, "confirm within 10 minutes")
-            with patch("socialmedia.monitor_jobs.cancel_pairing") as cancel:
-                self.client.post(
-                    account_url, {"action": "cancel", "pair_id": "untrusted"}
-                )
-                cancel.assert_called_once_with(self.users["editor"], pair)
-            with patch(
-                "socialmedia.monitor_jobs.start_pairing",
-                return_value={"id": pair, "url": ""},
-            ):
-                self.client.post(account_url, {"action": "start"})
-            with patch("socialmedia.monitor_jobs.finish_pairing") as finish:
-                self.client.post(
-                    account_url, {"action": "finish", "pair_id": "untrusted"}
-                )
-                finish.assert_called_once_with(self.users["editor"], pair)
-            InstagramConnection.objects.filter(user=self.users["editor"]).update(
-                source="instagram",
-                observer="test.observer",
-                session="private-test-session",
+
+    def test_case_owner_can_approve_and_revoke_from_settings(self):
+        settings_url = reverse("cases:case_settings", args=[self.case.pk])
+        approval_url = reverse("cases:case_instagram_monitoring", args=[self.case.pk])
+        self.login("editor")
+        self.connect()
+        response = self.client.get(self.case_url("list"))
+        self.assertContains(response, "The case owner must approve")
+        self.assertNotContains(response, "Create monitor")
+        self.assertNotContains(response, "Review monitoring approval")
+        self.assertEqual(
+            self.client.post(
+                self.case_url("create"),
+                {"target": "@demo.account", "interval_hours": "6"},
+            ).status_code,
+            400,
+        )
+        self.assertFalse(InstagramMonitor.objects.filter(case=self.case).exists())
+        self.assertEqual(
+            self.client.post(approval_url, {"action": "approve"}).status_code, 403
+        )
+        self.login("viewer")
+        self.assertEqual(
+            self.client.post(approval_url, {"action": "approve"}).status_code, 403
+        )
+        self.login("outsider")
+        self.assertEqual(
+            self.client.post(approval_url, {"action": "approve"}).status_code, 404
+        )
+
+        self.login("owner")
+        self.assertContains(
+            self.client.get(self.case_url("list")),
+            settings_url + "#instagram-monitoring",
+        )
+        response = self.client.get(settings_url)
+        self.assertContains(response, "Approve synthetic Instagram monitoring")
+        self.assertContains(
+            response, "Case members can read the saved lists and comparisons"
+        )
+        self.assertEqual(self.client.get(approval_url).status_code, 405)
+        response = self.client.post(approval_url, {"action": "approve"}, follow=True)
+        self.assertContains(response, "Revoke Instagram monitoring approval")
+        self.assertTrue(monitor_jobs.target_approved(self.case.pk))
+        self.assertFalse(monitor_jobs.target_approved(self.other_case.pk))
+
+        monitor = self.create()
+        self.login("owner")
+        response = self.client.post(approval_url, {"action": "revoke"}, follow=True)
+        self.assertContains(response, "Approve synthetic Instagram monitoring")
+        self.assertFalse(monitor_jobs.target_approved(self.case.pk))
+        monitor.refresh_from_db()
+        self.assertEqual(monitor.status, "paused")
+        self.login("editor")
+        response = self.client.get(self.case_url("detail", monitor.pk))
+        self.assertContains(response, "The case owner must approve")
+        self.assertNotContains(response, "Resume monitor")
+
+    def test_expired_connection_offers_reconnect_without_exposing_binding(self):
+        monitor = self.create()
+        conn = monitor.connection
+        with patch(
+            "socialmedia.instagram_connector.connection_expires_at", return_value=None
+        ):
+            response = self.client.get(self.case_url("detail", monitor.pk))
+            self.assertContains(
+                response, "This monitor needs an active synthetic connection"
             )
-            form = self.client.get(self.case_url("create"))
-            self.assertContains(form, "@test.observer")
-            self.assertNotContains(form, "demo.account")
-            self.assertNotContains(form, "unrelated.target")
-            self.assertNotContains(form, "private-test-session")
-            self.assertNotIn(
-                1, dict(form.context["form"].fields["interval_hours"].choices)
-            )
-            self.assertEqual(
-                self.client.post(
-                    self.case_url("create"),
-                    {"target": "test.target", "interval_hours": "1"},
-                ).status_code,
-                400,
-            )
-            self.assertEqual(
-                self.client.post(
-                    self.case_url("create"),
-                    {"target": "test.target", "interval_hours": "6"},
-                ).status_code,
-                302,
-            )
-            live_monitor = InstagramMonitor.objects.get(
-                case=self.case, source="instagram"
-            )
-            self.assertNotContains(
-                self.client.get(self.case_url("detail", live_monitor.pk)), "Synthetic"
-            )
-            self.login("owner")
-            unauthorized = self.client.get(account_url)
-            self.assertNotContains(unauthorized, "Connect Instagram account")
-            self.assertNotContains(unauthorized, "test.observer")
-            self.assertNotContains(
-                self.client.get(self.case_url("create")), "test.target"
-            )
+            self.assertContains(response, "Manage your connection")
+            self.assertNotContains(response, "Change check interval")
+            response = self.client.get(reverse("account_instagram"))
+            self.assertContains(response, "is inactive")
+            self.assertContains(response, "Reconnect synthetic account")
+            self.assertNotContains(response, conn.session)
 
     def test_pending_live_connection_cannot_finish_after_switch_to_synthetic(self):
         self.login("editor")
@@ -303,7 +357,7 @@ class InstagramMonitorViewTests(EvidenceViewTestMixin, TestCase):
                 "observer": connection.observer,
                 "observer_id": connection.observer_id_string,
                 "target": monitor.target,
-                "target_id": "fixture-target",
+                "target_id": PILOT_TARGET_ID,
                 "collector_version": "synthetic-browser-v1",
                 "followers": {
                     "members": [
@@ -370,7 +424,7 @@ class InstagramMonitorViewTests(EvidenceViewTestMixin, TestCase):
                     "observer": connection.observer,
                     "observer_id": connection.observer_id_string,
                     "target": monitor.target,
-                    "target_id": "fixture-target",
+                    "target_id": PILOT_TARGET_ID,
                     "collector_version": "synthetic-browser-v1",
                     "followers": {"members": handles, "complete": True, "reason": ""},
                     "following": {

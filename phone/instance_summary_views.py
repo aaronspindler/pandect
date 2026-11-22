@@ -15,7 +15,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.execution import available_executions
+from core.analysis.execution import execution_confirmation, selected_ai_executions
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.readiness import configuration_readiness
 from core.models import AnalysisRun, CaseAnalysisBatch
@@ -41,6 +41,17 @@ def _batch_url(batch):
     )
 
 
+def _review_confirmation(case, ids, executions):
+    grant = (
+        case.external_analysis_approval.get("revision")
+        if "gateway" in executions
+        else None
+    )
+    return execution_confirmation(
+        "phone.instance_summary", [str(case.pk), ids, grant], executions
+    )
+
+
 def _request_summaries(
     request, case, people, ids, executions, submission_id, *, single=False
 ):
@@ -54,24 +65,28 @@ def _request_summaries(
             "instances": ids,
             "single": single,
             "executions": executions,
+            "reviewed_scope": _review_confirmation(case, ids, executions),
             "external_grant_revision": case.external_analysis_approval.get("revision"),
         },
     )
 
 
 def _active_batch_redirect(request, case, people, executions, instance_id=None):
+    if not executions:
+        return None
+    backend, execution = next(iter(executions.items()))
     batches = CaseAnalysisBatch.objects.filter(
         case=case, scope__type="instance_summaries", scope__people=people
     )
-    matching = Q(scope__executions=executions)
-    if "gateway" in executions:
+    matching = Q(**{f"scope__executions__{backend}": execution})
+    if backend == "gateway":
         matching &= Q(
             scope__external_grant_revision=case.external_analysis_approval.get(
                 "revision"
             )
         )
-    elif executions.keys() == {"local"}:
-        matching |= Q(scope__backend="local", scope__execution=executions["local"])
+    else:
+        matching |= Q(scope__backend="local", scope__execution=execution)
     batches = batches.filter(matching)
     if instance_id is None:
         batches = batches.filter(
@@ -79,7 +94,11 @@ def _active_batch_redirect(request, case, people, executions, instance_id=None):
         ).filter(
             Q(status=CaseAnalysisBatch.Status.QUEUED)
             | Q(
-                runs__status__in=(AnalysisRun.Status.QUEUED, AnalysisRun.Status.RUNNING)
+                runs__parameters___execution=execution,
+                runs__status__in=(
+                    AnalysisRun.Status.QUEUED,
+                    AnalysisRun.Status.RUNNING,
+                ),
             )
         )
     else:
@@ -109,11 +128,14 @@ def _submitted_batch(request, case, people, instance_id):
         batch = batches.filter(
             Q(scope__single=False) | ~Q(scope__has_key="single")
         ).first()
-        if (
-            batch
-            and request.POST.get("reviewed_scope")
-            == sha256("|".join(batch.scope["instances"]).encode()).hexdigest()
-        ):
+        if batch is None:
+            return None
+        reviewed_scope = batch.scope.get("reviewed_scope")
+        if reviewed_scope is None:
+            reviewed_scope = sha256(
+                "|".join(batch.scope["instances"]).encode()
+            ).hexdigest()
+        if request.POST.get("reviewed_scope") == reviewed_scope:
             return batch
         return None
     return batches.filter(
@@ -153,7 +175,7 @@ def _conversation_review(request, case, pair, people, context, executions):
             eligible.append(instance)
 
     ids = [str(instance["id"]) for instance in eligible]
-    revision = sha256("|".join(ids).encode()).hexdigest()
+    revision = _review_confirmation(case, ids, executions)
     submitting = request.method == "POST"
     scope_changed = submitting and request.POST.get("reviewed_scope") != revision
     form = (
@@ -222,7 +244,7 @@ def instance_summary(
     list_page = conversation_list_page(request.GET.get("list_page"))
     if list_page > 1:
         query["list_page"] = list_page
-    executions = available_executions(case, OPERATION, {})
+    executions = selected_ai_executions(case, OPERATION, {})
     context = case_context(case, request.user) | {
         "nav_section": "analysis",
         "first": first,
@@ -232,7 +254,10 @@ def instance_summary(
             args=(case.pk, *sorted((first.pk, second.pk))),
             query=query,
         ),
-        "readiness": configuration_readiness(OPERATION, case=case),
+        "execution": next(iter(executions.values()), None),
+        "readiness": ""
+        if executions
+        else configuration_readiness(OPERATION, case=case),
         "available": bool(executions),
     }
     if instance_id is None:
@@ -241,7 +266,7 @@ def instance_summary(
     instance = get_session_instance(
         case, pair, instance_id, include_statements=False, executions=executions
     )
-    if not instance["summary_missing"]:
+    if executions and not instance["summary_missing"]:
         messages.info(
             request, "This conversation instance already has a saved summary."
         )
@@ -251,30 +276,36 @@ def instance_summary(
     ):
         return response
     pending = pending_summaries(case, [instance], executions).get(instance["id"], {})
-    if pending and not (
-        executions.keys() - instance["summary_routes"] - pending.keys()
-    ):
-        messages.info(request, "The remaining summaries are already in progress.")
-        if len(pending) == 1:
-            return redirect(
-                "core:analysis:detail",
-                case_id=case.pk,
-                run_id=next(iter(pending.values())).pk,
-            )
-        return redirect("core:analysis:processing", case_id=case.pk)
+    if pending:
+        messages.info(request, "This session summary is already in progress.")
+        return redirect(
+            "core:analysis:detail",
+            case_id=case.pk,
+            run_id=next(iter(pending.values())).pk,
+        )
 
     member_ids = instance["member_ids"]
     originals = summary_originals(pair, member_ids)
     limit_message = summary_limit(member_ids, originals)
 
-    form = EvidenceAnalysisForm(request.POST if submitting else None)
-    if submitting and executions and not limit_message and form.is_valid():
+    ids = [str(instance["id"])]
+    revision = _review_confirmation(case, ids, executions)
+    can_queue = bool(executions) and not limit_message
+    scope_changed = (
+        submitting
+        and not limit_message
+        and request.POST.get("reviewed_scope") != revision
+    )
+    form = EvidenceAnalysisForm(
+        request.POST if submitting and not scope_changed else None
+    )
+    if submitting and can_queue and not scope_changed and form.is_valid():
         try:
             batch, created = _request_summaries(
                 request,
                 case,
                 people,
-                [str(instance_id)],
+                ids,
                 executions,
                 form.cleaned_data["submission_id"],
                 single=True,
@@ -299,6 +330,8 @@ def instance_summary(
             "form": form,
             "originals": [originals[pk] for pk in member_ids],
             "limit_message": limit_message,
+            "reviewed_scope": revision,
+            "scope_changed": scope_changed,
         },
-        status=400 if submitting else 200,
+        status=409 if scope_changed else 400 if submitting else 200,
     )

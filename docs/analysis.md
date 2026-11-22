@@ -256,13 +256,13 @@ actions → Reprocess evidence** uses the same methods for selected active evide
 types, with all types selected initially. Originals and earlier results remain
 available. See [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
 
-Deterministic methods run once. Configured private inference and case-approved
-external inference run independently. Geographic lookups use the configured
-service for each method. Local extraction and transcription prepare exact
-retained results for text follow-ups. One candidate transcript supplies automatic
-text analysis even when multiple transcribers were run. Service configuration and
-external approval are checked during preparation, execution and follow-ups.
-Unsupported inputs and provider failures leave independent results available.
+Deterministic methods run once. Each model check uses the
+[case's selected AI backend](cases.md#ai-backend) when configured and approved
+for that method. Geographic lookups use the configured service for each method.
+Local extraction and the selected transcriber prepare exact retained results
+for text follow-ups. Preparation, execution and follow-ups recheck service
+configuration and external approval. Unsupported inputs and provider failures
+leave independent results available.
 
 Methods cover inspection and extraction, OCR, plates, transcription, identifiers,
 writing and repeated wording, topics and claims, sessions and exchanges, location
@@ -300,7 +300,14 @@ message sessions** accept Text messages only. Call transcripts use **Inspect
 keywords and topics** or **Suggest claims and commitments**. **Compare exchanges
 across channels** also accepts calls/FaceTime. Earlier runs keep their selections.
 
-On-demand analysis uses the same available services for the selected method.
+**Compare a claim** checks one quoted message or call transcript passage against
+selected case evidence through the configured private text service. It preserves
+exact citations, unresolved material and matching source checksums. See
+[claim comparison](analysis-communications.md#compare-a-claim) for supported
+inputs, bounds and interpretation.
+
+On-demand AI analysis uses the case's selected backend. Dedicated flows such
+as claim comparison use their specified private service.
 External AI and geographic services require the case owner's approval in
 [Case Settings](cases.md#external-analysis-approval). A private service failure
 cannot enqueue a new external request. [Map address lookup](maps.md#local-address-lookup)
@@ -316,33 +323,44 @@ Structured lists/mappings paginate independently at 200 values, retaining findin
 report and collection filters; complete downloads remain available. Parser,
 inference and result limits still apply.
 
-Results lead with the finding and its citations. Retained warnings stay visible
+Run overviews lead with findings and citations. Retained warnings stay visible
 under **Limitations**, including for completed runs. **Details and history**
-holds retained downloads, selected inputs, settings, earlier runs and authorized
-rerun controls. Run details show the retained execution destination.
+holds downloads, selected inputs, settings, earlier runs and authorized rerun
+controls. Run details show the retained execution destination.
 
-Findings lead with their result, key measurements and supporting evidence.
-Secondary measurements and native references live under **Details**. Critical
-status, coverage, reasons and interpretation remain visible; metadata inspections
-retain their dedicated tables. Findings without a narrative or recognized
-primary measurements keep a readable structured fallback.
+Individual findings, including single-finding runs, lead with the saved result
+and key measurements. **Cited evidence** puts quotations and other cited
+material beside their source links. Imported messages show their recorded export
+row when available. Supplied transcripts, saved extractions, geographic
+estimates and quotations from prior findings carry their own attribution.
+
+Keep consequential status, coverage and uncertainty in view. When a saved AI
+suggestion cites wording that matches the retained material, the finding shows
+that match and identifies the interpretation for review. **Finding details**
+holds secondary measurements, technical anchors and retained status fields.
+**Analysis run details** holds full retained warnings and the run's inputs,
+settings, downloads, history and authorized rerun controls. Metadata inspections
+keep their dedicated tables, and findings without a narrative or primary
+measurements keep readable structured values.
 
 Communication pairs show each message once, with reported participants, a
 timezone-labelled timestamp and source link. Their heading states the elapsed
-interval; nonempty shared wording and a concise limitation remain visible.
-Duplicate Before/After payloads and repeated source quotations are omitted from
-the reading view; exact anchors and native IDs remain inspectable in **Details**.
+interval. Shared wording and a concise limitation remain visible when
+applicable. **Finding details** retains exact anchors and native IDs.
 
 Model findings show **AI suggestion** in the evidence reader, Case Tools,
 and individual findings. The findings browser marks
 **AI-assisted run** because a
 single run can combine observed keywords or timing with model suggestions.
+Claim findings and session summaries display the reported sender's name when
+the cited source identifies that participant. Saved wording, quotations and
+citations are retained.
 
 - Image metadata distinguishes embedded/supplied claims. Image and document-page
   OCR results link [visible structure](analysis-extraction.md#visible-structure-in-images)
   to the words supporting each field. Plate results retain regions/crops,
-  separate plate/OCR scores and low-score notices. Identifier
-  normalization appears in **Details**.
+  separate plate/OCR scores and low-score notices. Identifier normalization
+  appears in **Finding details** on individual findings.
 - Document text retains native page/line anchors; recording intervals link to
   selected recording/transcript playback.
 - Writing/style comparisons show both samples; model claims cite passages.
@@ -385,7 +403,7 @@ results.
 - [Extraction](analysis-extraction.md): formats, parser isolation, anchors, partial
   coverage and synthetic evaluation for documents/images/audio/OCR/transcription.
 - [Communications](analysis-communications.md): text spans, sample adequacy,
-  native/inferred sessions, participant review and supported iMessage CSV imports.
+  native/inferred sessions, participant review, and CSV imports for iMessage and WhatsApp.
 - [Locations](analysis-locations.md): gaps, grouping, dwell, proximity, co-location,
   geographic estimates and source limits.
 - [Geographic context](analysis-geographic-context.md): feature candidates,
@@ -441,8 +459,8 @@ restart both processes with `uv run --locked --env-file .env`. For a hosted
 installation, apply the same settings to both services.
 
 The case owner reviews and approves configured destinations under
-[Case Settings](cases.md#external-analysis-approval). New eligible ingest and
-analysis requests then include the approved route.
+[Case Settings](cases.md#external-analysis-approval) and selects
+[External AI](cases.md#ai-backend) for new eligible AI checks.
 
 ### OpenAI with a key stored in Cloudflare
 

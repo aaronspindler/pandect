@@ -183,17 +183,20 @@ uv run --locked --env-file .env python manage.py test --settings=config.test_set
 uv run --locked --env-file .env python manage.py test --settings=config.test_settings config.tests.browser.CoreInterfaceBrowserTests.test_image_evidence_preview_and_download --noinput
 ```
 
-For the offline Instagram pilot, exercise the real PostgreSQL worker and a
-loopback-only Chromium service with two consecutive checks against generated
+For the offline Instagram pilot, exercise PostgreSQL, fresh worker processes, and
+a loopback-only Chromium service with three scheduled checks against generated
 lists. Run from the checkout with the locked development browser installed:
 
 ```sh
 uv run --locked --env-file .env env POSTGRES_HOST=127.0.0.1 POSTGRES_DB=pandect_instagram_qualification python manage.py test socialmedia.pilot_integration --settings=config.test_settings --noinput
 ```
 
-The test creates a disposable test database and temporary private media. It
-checks detection at unchanged counts, both original checksums, scheduled
-continuation, disconnect, and case deletion.
+The test uses a disposable database and private media. It checks case approval,
+queue isolation, a saved delivery consumed after a worker restart, additions at
+unchanged counts, a quiet check, original checksums, revocation, disconnect, and
+case deletion. It advances due times in the test database. The
+[live release gate](instagram-monitors.md#live-release-gate) requires three
+actual daily checks on a qualified source.
 
 The Chromium browser suite verifies signed-in observer identity, profile
 discovery, and endpoint pagination against locally fulfilled pages in

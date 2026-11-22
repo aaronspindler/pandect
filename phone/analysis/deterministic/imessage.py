@@ -20,11 +20,13 @@ from core.evidence.queries import scoped_evidence
 from core.models import AnalysisRun
 from core.storage import canonical_bytes
 from people.models import Person
+from phone.message_csv import IMESSAGE_PARSER_VERSION, WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext, TextMessageEvidence
 
-PARSER_VERSION = "imessage-csv-v1"
+PARSER_VERSION = IMESSAGE_PARSER_VERSION
 DATE_BOUND_FIELDS = ("start_date", "end_date")
 OUTSIDE_DATE_RANGE = "Message Date falls outside the selected date range."
+SYSTEM_NOTIFICATION = "System notification with no participant attribution."
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FIELD_CHARS = 131072
 BATCH_SIZE = 500
@@ -50,8 +52,31 @@ HEADERS = (
     "Attachment",
     "Attachment type",
 )
+WHATSAPP_HEADERS = (
+    "Chat Session",
+    "Message ID",
+    "Message Date",
+    "Sent Date",
+    "Type",
+    "Sender ID",
+    "Sender Name",
+    "Status",
+    "Forwarded",
+    "Replying to",
+    "Text",
+    "Reactions",
+    "Attachment",
+    "Attachment type",
+    "Attachment info",
+)
+PARSER_BY_HEADERS = {
+    frozenset(HEADERS): PARSER_VERSION,
+    frozenset(WHATSAPP_HEADERS): WHATSAPP_PARSER_VERSION,
+}
 # A valid CSV record can double each field character through quote escaping.
-MAX_RECORD_CHARS = len(HEADERS) * (2 * MAX_FIELD_CHARS + 3) + 2
+MAX_RECORD_CHARS = (
+    max(len(headers) for headers in PARSER_BY_HEADERS) * (2 * MAX_FIELD_CHARS + 3) + 2
+)
 ROLES = ("account", "correspondent")
 PERSON_FIELDS = {"first_name", "last_name", "phone_number", "email"}
 CONTEXT_FIELDS = (
@@ -74,6 +99,7 @@ CONTEXT_FIELDS = (
 )
 # Only authored review reasons may enter retained results or downloads.
 ROW_REVIEW_REASONS = {
+    SYSTEM_NOTIFICATION,
     "Unsupported message Type; choose Incoming or Outgoing.",
     "No message text; attachment references remain in the export.",
     "Message text exceeds the supported byte limit.",
@@ -212,7 +238,7 @@ class _CSVLines:
 
 
 def _raw_rows(source):
-    """Yield logical records; consuming the iterator verifies file integrity."""
+    """Yield logical records with their profile and verify file integrity at EOF."""
     if source.item.byte_size > import_file_limit():
         raise AnalysisError("imessage_import_limit")
     try:
@@ -224,7 +250,9 @@ def _raw_rows(source):
                 lines = _CSVLines(text)
                 reader = csv.reader(lines, strict=True)
                 header = next(reader, [])
-                if len(header) != len(HEADERS) or set(header) != set(HEADERS):
+                header_names = frozenset(header)
+                parser_version = PARSER_BY_HEADERS.get(header_names)
+                if parser_version is None or len(header) != len(header_names):
                     raise AnalysisError("imessage_invalid_format")
                 number = 1
                 while True:
@@ -247,6 +275,7 @@ def _raw_rows(source):
                         start,
                         lines.offset,
                         dict(zip(header, cells, strict=True)),
+                        parser_version,
                     )
                 if number == 1:
                     raise AnalysisError("imessage_invalid_format")
@@ -268,22 +297,47 @@ def _raw_rows(source):
         raise AnalysisError("source_unavailable") from error
 
 
-def _row(source, number, start, end, raw, zone, text_limit, people, date_bounds):
+def _row(
+    source,
+    number,
+    start,
+    end,
+    raw,
+    parser_version,
+    zone,
+    text_limit,
+    people,
+    date_bounds,
+):
     direction = raw["Type"]
     sender_role = "account" if direction == "Outgoing" else "correspondent"
     recipient_role = "correspondent" if direction == "Outgoing" else "account"
+    system_notification = (
+        parser_version == WHATSAPP_PARSER_VERSION and direction == "Notification"
+    )
+    raw_sender = raw["Sender ID"] or direction
+    if system_notification:
+        sender_role = recipient_role = ""
+        raw_sender = raw["Sender ID"]
+    attachment = {
+        "href": raw["Attachment"],
+        "type": raw["Attachment type"],
+        "availability": "not ingested; source reference only",
+    }
+    if attachment_info := raw.get("Attachment info"):
+        attachment["info"] = attachment_info
     values = {
         "source_document_id": str(source.item.pk),
         "source_sha256": source.item.sha256,
         "source_row": number,
         "source_start": start,
         "source_end": end,
-        "parser_version": PARSER_VERSION,
+        "parser_version": parser_version,
         "timezone": zone.key,
         "direction": direction,
         "sender_role": sender_role,
         "recipient_role": recipient_role,
-        "raw_sender": raw["Sender ID"] or direction,
+        "raw_sender": raw_sender,
         "raw_recipient": "",
         "raw_timestamp": raw["Message Date"],
         "native_message_id": raw["Message ID"],
@@ -291,27 +345,23 @@ def _row(source, number, start, end, raw, zone, text_limit, people, date_bounds)
         "reply_to_id": raw["Replying to"],
         "participants": [],
         "account_identifiers": {
-            "service": raw["Service"],
+            "service": raw.get("Service", "WhatsApp"),
             "sender_id": raw["Sender ID"],
             "sender_name": raw["Sender Name"],
         },
-        "attachments": [
-            {
-                "href": raw["Attachment"],
-                "type": raw["Attachment type"],
-                "availability": "not ingested; source reference only",
-            }
-        ]
-        if raw["Attachment"] or raw["Attachment type"]
+        "attachments": [attachment]
+        if attachment["href"] or attachment["type"] or attachment_info
         else [],
         "source_context": {
-            "format": PARSER_VERSION,
+            "format": parser_version,
             "raw_fields": {
                 name: value for name, value in raw.items() if name != "Text"
             },
         },
     }
     try:
+        if system_notification:
+            raise ValueError(SYSTEM_NOTIFICATION)
         if direction not in {"Incoming", "Outgoing"}:
             raise ValueError("Unsupported message Type; choose Incoming or Outgoing.")
         if not raw["Text"]:
@@ -430,7 +480,6 @@ def _stream_rows(source, parameters, state):
         "source_document_id": str(source.item.pk),
         "source_sha256": source.item.sha256,
         "source_byte_size": source.item.byte_size,
-        "parser_version": PARSER_VERSION,
         "timezone": zone.key,
         "text_limit_bytes": limit,
         "incoming_rows": 0,
@@ -440,19 +489,21 @@ def _stream_rows(source, parameters, state):
     if date_parameters:
         metrics["date_excluded_rows"] = 0
     digest = hashlib.sha256()
-    digest.update(
-        canonical_bytes(
-            {
-                "parser_version": PARSER_VERSION,
-                "timezone": zone.key,
-                "text_limit_bytes": limit,
-                **date_parameters,
-            }
-        )
-    )
     session_label = sender_identifier = ""
     sender_name_digests = []
-    for number, start, end, raw in _raw_rows(source):
+    for number, start, end, raw, parser_version in _raw_rows(source):
+        if metrics["source_rows"] == 0:
+            summary["parser_version"] = parser_version
+            digest.update(
+                canonical_bytes(
+                    {
+                        "parser_version": parser_version,
+                        "timezone": zone.key,
+                        "text_limit_bytes": limit,
+                        **date_parameters,
+                    }
+                )
+            )
         session = raw["Chat Session"]
         if session:
             if session_label and session_label != session:
@@ -480,7 +531,18 @@ def _stream_rows(source, parameters, state):
                     summary["sender_names_omitted"] = True
         elif raw["Type"] == "Outgoing":
             summary["outgoing_rows"] += 1
-        item = _row(source, number, start, end, raw, zone, limit, people, date_bounds)
+        item = _row(
+            source,
+            number,
+            start,
+            end,
+            raw,
+            parser_version,
+            zone,
+            limit,
+            people,
+            date_bounds,
+        )
         metrics["source_rows"] += 1
         reason = item["values"].get("unresolved_reason")
         if reason == OUTSIDE_DATE_RANGE:
@@ -696,6 +758,10 @@ def apply_import(run, data, sources):
     parameters = run.parameters | {
         "_imessage_interpretation_sha256": expected["imessage"]["interpretation_sha256"]
     }
+    parser_version = expected["imessage"]["parser_version"]
+    submission_prefix = (
+        "whatsapp" if parser_version == WHATSAPP_PARSER_VERSION else "imessage"
+    )
     created = reused = 0
     for batch in _publication_batches(iter_import_rows(source, parameters)):
         existing_rows = {
@@ -740,9 +806,11 @@ def apply_import(run, data, sources):
                 source=source.item.source,
                 source_description=(
                     f"Retained message CSV export {source.item.pk}, "
-                    f"row {values['source_row']}; {PARSER_VERSION}"
+                    f"row {values['source_row']}; {parser_version}"
                 ),
-                submission_id=uuid5(source.item.pk, f"imessage:{values['source_row']}"),
+                submission_id=uuid5(
+                    source.item.pk, f"{submission_prefix}:{values['source_row']}"
+                ),
             )
             message.full_clean()
             message.save()

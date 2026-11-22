@@ -17,6 +17,7 @@ from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.models import AnalysisResult, AnalysisReview
 from phone.models import CallEvidenceAttachment
+from text.analysis.claim_comparison import EXTRACTIONS as CLAIM_EXTRACTIONS
 from ui.forms import localize_datetime_labels
 
 SOURCE_PAGE_SIZE = 25
@@ -464,6 +465,9 @@ class BaseAnalysisForm(forms.Form):
             cursor=sources_cursor,
             reverse=sources_reverse,
             selected=selected[: settings.PANDECT_ANALYSIS_MAX_SOURCES],
+            extractions_by_kind=CLAIM_EXTRACTIONS
+            if operation == "claim_comparison"
+            else EXTRACTIONS_BY_KIND,
         )
         current = dict(self.source_page)
         self.retained_sources = [

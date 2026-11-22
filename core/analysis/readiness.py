@@ -8,6 +8,7 @@ from django.urls import reverse
 from core.analysis.execution import (
     available_executions,
     configured_executions,
+    requires_inference,
 )
 from core.analysis.operations import get_operation
 from core.evidence.queries import scoped_evidence
@@ -16,6 +17,7 @@ from core.models import AnalysisRun, ExtractedPassage
 from phone.models import CallEvidenceAttachment
 
 TEXT_OPERATIONS = {
+    "claim_comparison",
     "entities",
     "copied_text",
     "text_topics",
@@ -57,11 +59,23 @@ UNSUPPORTED_FORMATS = {
 def configuration_readiness(operation, parameters=None, *, case=None):
     if parameters is None:
         parameters = {"include_summary": True, "semantic_links": True}
-    if not configured_executions(operation, parameters):
+    configured = configured_executions(operation, parameters)
+    if not configured:
+        if operation == "claim_comparison":
+            return "Configure private text analysis to compare claims."
         return "A service for this analysis is not configured."
-    if case is not None and not available_executions(case, operation, parameters):
-        return "This analysis needs a destination approved in Case settings."
-    return ""
+    if case is None:
+        return ""
+    available = available_executions(case, operation, parameters)
+    if operation != "claim_comparison" and requires_inference(operation, parameters):
+        if case.ai_backend not in configured:
+            return "The case's selected AI backend is unavailable for this method."
+        ready = case.ai_backend in available
+    else:
+        ready = bool(available)
+    if ready:
+        return ""
+    return "This analysis needs a destination approved in Case settings."
 
 
 def _inspections(case, operation, selected, records, attachments):
@@ -140,6 +154,8 @@ def source_readiness(case, operation, choices):
     records = {}
     for kind in {x["kind"] for x in selected.values()}:
         fields = ["pk", "sha256"]
+        if operation == "claim_comparison":
+            fields.append("is_archived")
         queryset = scoped_evidence(case, kind)
         if kind in {"text", "text-message"}:
             queryset = queryset.annotate(has_text=Q(body__regex=r"\S"))
@@ -244,6 +260,8 @@ def source_readiness(case, operation, choices):
         state, url, action_label, blocking = "Ready", "", "Prepare source", False
         if item is None or not valid_attachment:
             state, blocking = "Source unavailable", True
+        elif operation == "claim_comparison" and item.is_archived:
+            state, blocking = "Archived source", True
         elif operation in TEXT_OPERATIONS:
             identity = (kind, entry["id"], entry.get("attachment_id"))
             has_text = (

@@ -64,6 +64,8 @@ def classify_review_signal_v1(operation, item):
             and isinstance(after.get("reply_to_id"), str)
             and after["reply_to_id"].strip()
             and after["reply_to_id"] == before.get("native_message_id")
+            # Historical exchange results omit export scope on both sides.
+            and before.get("source_document_id") == after.get("source_document_id")
         ):
             return "native_reply"
     if operation == "location_conflicts" and label == "Selected observation comparison":

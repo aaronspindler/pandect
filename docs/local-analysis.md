@@ -1,9 +1,8 @@
 # Local analysis and private inference runtimes
 
 Supported built-in analysis runs locally. New evidence also queues supported
-configured private inference and [case-approved external analysis](cases.md#external-analysis-approval).
-Configured services run independently with captured execution settings. Runtime
-failures never trigger a new external request.
+inference using the [case's selected AI backend](cases.md#ai-backend), with
+captured execution settings. Runtime failures stay with the selected backend.
 
 ## Current methods and limits
 
@@ -13,6 +12,7 @@ failures never trigger a new external request.
 | Topics and short summaries | Ollama/Qwen3.5 with exact quotation validation. Keyword-only analysis remains independent. | Topic relevance, omitted qualifications and unsupported interpretation. |
 | Conversation summaries | The existing message-aware session chunks through the same local text runtime. | Coverage, conflicting messages and missing context. Current session grouping selects text messages. |
 | Claims, plans and commitments | Structured candidate statements with exact source quotations. | Attribution, negation, hearsay, tense and cancellation. |
+| Claim comparison | Selected message or call transcript wording and retained text evidence through the private text runtime, with checked source quotations. | Supporting and conflicting material, ambiguous references, and useful abstention. |
 | Semantic conversation links | Two-sided quotation citations through the local text runtime. | False links and ambiguous references; candidates are suggestions. |
 | Retained question-driven synthesis | Existing runs retain distinct original and prior-finding citations; the new-question form has been removed. See [synthesis](synthesis.md) for processing and output bounds. | Supporting/contrary evidence, negation, ambiguity, unknowns and abstention. Valid quotations do not establish interpretation quality. |
 | Geocoding | Operator-controlled Nominatim-compatible service. | Loaded area, dataset freshness, ambiguous/no matches and candidate review. |
@@ -35,8 +35,9 @@ unchanged. See [recording previews](original-previews.md#recordings).
 ## Use Ollama for local text analysis
 
 Ollama is the **Local** text backend for Qwen3.5, including `qwen3.5:9b`.
-It supplies topics, claims, session summaries, semantic links and processing for
-retained question-synthesis runs. Transcription uses the separate Whisper runtime,
+It supplies topics, claims, claim comparisons, session summaries, semantic links
+and processing for retained question-synthesis runs. Transcription uses the
+separate Whisper runtime,
 and printed-English OCR remains in the bounded Tesseract parser. **External AI**
 uses the [configured external provider](analysis.md#external-ai-configuration).
 
@@ -342,32 +343,23 @@ or use a private provider; see [map privacy](maps.md#external-tiles-and-privacy)
 
 ## Transcription qualification
 
-Automatic text follow-ups use one candidate transcript per recording. Pandect
-prefers usable private text by default. When private transcription yields no
-usable text, it can use a candidate already produced by an approved external
-run. Both results remain available with their original-timeline anchors.
+New automatic transcription uses the case's selected AI backend. Text follow-ups
+use its usable transcript. Earlier batches with two queued transcribers keep
+their recorded execution routes and use one candidate for text follow-ups.
 
 To compare configured transcribers, create synthetic English recordings with
 independently reviewed reference words and intervals. Include varied voices,
 phone-quality sound, background noise, overlap, names, numbers, negation,
-non-speech and speech crossing a 30-second boundary. Run both routes in an
-isolated synthetic case with approved destinations. Score the retained text
-against the same references with fixed normalization. Record paired word error
-rates, critical-word errors, invented speech during non-speech clips, timestamp
-errors and failed clips. Treat failed speech clips as omissions in the error
+non-speech and speech crossing a 30-second boundary. Run each route in an
+isolated synthetic case with the corresponding selection and approval. Score the
+retained text against the same references with fixed normalization. Record paired
+word error rates, critical-word errors, invented speech during non-speech clips,
+timestamp errors and failed clips. Treat failed speech clips as omissions in the error
 rate. Keep the private preference if the result is inconclusive.
 
-If the external route reliably lowers word error rate without increasing
-critical-word errors, invented speech or failed clips, obtain the exact pair's
-fingerprint in the same environment used for the comparison:
-
-```sh
-uv run --locked --env-file .env python manage.py shell -c 'from core.analysis.execution import snapshot_execution; from core.analysis.transcripts import transcription_profile; print(transcription_profile(snapshot_execution("transcription", {"backend": "local"}), snapshot_execution("transcription", {"backend": "gateway"})))'
-```
-
-Set `PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE` to that value on both web
-and worker. A changed profile or an empty setting uses the private preference.
 Retain the benchmark and its nonsecret profile identities for later comparison.
+`PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE` applies only to earlier queued
+batches with a pair of transcription routes.
 
 ## Qualification and recovery
 

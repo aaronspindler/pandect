@@ -317,19 +317,18 @@ class ContextBrowserTests(BrowserTestCase):
                         exact=True,
                     )
                 ).to_be_visible()
-                limits = page.locator("summary").filter(
-                    has_text=re.compile(r"^Limitations$")
-                )
-                disclosure = page.get_by_text(
+                warning_text = (
                     "Printed English OCR runs locally; no image is sent "
-                    "to an external service.",
-                    exact=False,
+                    "to an external service."
                 )
-                expect(disclosure).to_be_visible()
-                limits.press("Enter")
-                expect(disclosure).to_be_hidden()
-                limits.press("Enter")
-                expect(disclosure).to_be_visible()
+                expect(finding.get_by_text(warning_text, exact=False)).to_be_visible()
+                run_details = page.locator(".analysis-run-details")
+                retained_warning = run_details.get_by_text(warning_text, exact=False)
+                summary = run_details.get_by_text("Analysis run details", exact=True)
+                expect(retained_warning).to_be_hidden()
+                summary.press("Enter")
+                expect(retained_warning).to_be_visible()
+                summary.press("Enter")
                 preview = finding.locator("svg image")
                 expect(preview).to_have_count(1)
                 preview_url = urljoin(page.url, preview.get_attribute("href"))

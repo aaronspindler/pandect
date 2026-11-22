@@ -62,7 +62,7 @@ def participant_names(sources):
     return names
 
 
-def participant_text(text, names, *, include_sender_role=True):
+def participant_text(text, names, *, operation):
     """Display explicit reported-participant references without rewriting results."""
 
     def display(match):
@@ -70,7 +70,7 @@ def participant_text(text, names, *, include_sender_role=True):
         name = names.get((role, match["id"].lower()))
         if name is None:
             return match[0]
-        if role == "sender" and not include_sender_role:
+        if role == "sender" and operation in {"content_events", "session_summaries"}:
             return name
         return (match["article"] or "") + match["prefix"] + name
 

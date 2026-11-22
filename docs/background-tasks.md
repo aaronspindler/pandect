@@ -1,7 +1,7 @@
 # Background-worker foundation
 
-Django's Tasks API and `django-tasks-db` use Pandect's PostgreSQL database and one
-`default` queue shared by web/workers, asynchronously even with `DEBUG=true`.
+Django's Tasks API and `django-tasks-db` use Pandect's PostgreSQL database
+asynchronously even with `DEBUG=true`. Ordinary work uses the `default` queue.
 There is no Redis, scheduler or external queue. `core` owns diagnostics/AI
 integration; its `core.analysis` subpackage owns case analysis.
 
@@ -14,15 +14,16 @@ and recovery before using the queue.
 
 Automatic analysis and **Reprocess evidence** retain `CaseAnalysisBatch`
 scopes with exact evidence or import membership, or selected evidence types for
-reprocessing. Bounded continuations prepare independent and grouped methods,
+reprocessing. The scope captures the case's selected, eligible AI routes.
+Bounded continuations prepare independent and grouped methods,
 commit the cursor and next task atomically, and schedule follow-ups from exact
 extraction results. They recheck verified edit access, execution settings, and
 case approval. Changes stop affected routes. Method failures preserve other
 results. Preparation retains up to 100 safe source/method errors.
 
-**Summarize missing instances** retains the reviewed saved group IDs and eligible
-execution routes in an `instance_summaries` batch. Each preparation task visits up
-to ten instances and queues missing summaries for each eligible route.
+**Summarize missing instances** retains the reviewed saved group IDs and selected
+execution route in an `instance_summaries` batch. Each preparation task visits up
+to ten instances and queues one summary per eligible instance.
 Unavailable instances are counted in Processing, where investigators can also
 follow or retry individual runs. Preparation rechecks verified edit access and
 the execution snapshot before each step.
@@ -61,12 +62,16 @@ Existing results remain available and cases receive no retrospective processing.
 Before starting older workers during rollback, stop queued grant-backed external
 work or disable external services. Older workers cannot enforce case approval.
 
-## Instagram monitor pilot
+## Instagram monitor queue
 
-The optional [Instagram monitor](instagram-monitors.md) uses deferred PostgreSQL
-tasks. Each completed check schedules its successor in the publication transaction.
-Checks share one collection slot per personal connection and recheck current
-access before collection and publication. Processing shows case-scoped recovery.
+The optional [offline pilot](instagram-monitors.md) runs on the `instagram`
+queue in the same PostgreSQL database. Compose starts one dedicated
+`instagram-worker` with the `instagram-pilot` profile. Ordinary workers
+consume `default` so roster collection leaves capacity for evidence jobs.
+Each check shares one collection slot per personal connection and rechecks
+case access and target approval before capture and publication. A completed
+check schedules its successor in the same transaction. Processing shows
+case-scoped recovery. Live scheduling requires a qualified roster source.
 
 ## Saved vehicle trips
 
@@ -145,7 +150,7 @@ worker a different queue task; analysis claims and publication retain their own
 authorization, run locks and atomic transactions. No queue or execution-route
 changes are needed, and previously approved external jobs retain their destinations.
 
-All workers consume the same queue, including local checks, indexing and imports.
+Ordinary workers consume the same queue, including local checks, indexing and imports.
 Review pending operations and private inference capacity first: the private
 transcription service accepts only one request at a time, and overlapping requests
 fail recoverably as `local_ai_busy`. More workers also increase simultaneous

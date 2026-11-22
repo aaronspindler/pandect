@@ -23,21 +23,31 @@ from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
 from core.analysis.approval import revoke_case_execution
 from core.analysis.bulk import prepare_case_analysis_batch
-from core.analysis.services import cancel_run, process_run, start_run
+from core.analysis.catalogue import project_result
+from core.analysis.navigation import finding_url
+from core.analysis.services import (
+    cancel_run,
+    process_run,
+    resolve_inputs,
+    snapshot_sources,
+    start_run,
+)
 from core.analysis.testing import external_grant_kwargs, wav_bytes
 from core.analysis.tests.test_openai_gateway import OPENAI
 from core.analysis.tests.test_topic_recovery import LOCAL
-from core.models import AnalysisRun, CaseAnalysisBatch
+from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from image.models import ImageEvidence
 from people.models import Person
+from phone.analysis.ingest import describe_import_selection
 from phone.models import (
     CallEvidenceAttachment,
     CommunicationContext,
     PhoneCallEvidence,
     TextMessageEvidence,
 )
+from text.analysis.ai import content_events
 from text.models import TextEvidence
 from vehicle.models import Vehicle
 
@@ -73,8 +83,10 @@ class AnalysisBrowserTests(BrowserTestCase):
                 approval = page.get_by_role(
                     "button", name="Approve listed destinations"
                 )
-                approval.focus()
-                expect(approval).to_be_focused()
+                backend = page.get_by_label("AI backend", exact=True)
+                expect(backend).to_have_value(Case.AIBackend.LOCAL)
+                backend.focus()
+                expect(backend).to_be_focused()
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -83,7 +95,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     (320, 844),
                 ):
                     page.set_viewport_size({"width": width, "height": height})
-                    approval.scroll_into_view_if_needed()
+                    backend.scroll_into_view_if_needed()
                     self._assert_reflow(page)
                     self.capture(page, engine, f"direct-ai-{width}-{height}")
                 page.emulate_media(color_scheme="dark")
@@ -94,6 +106,11 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_text("External analysis approved for this case.")
                 ).to_be_visible()
+                backend.select_option(Case.AIBackend.GATEWAY)
+                save_backend = page.get_by_role("button", name="Save AI backend")
+                save_backend.press("Enter")
+                expect(page.get_by_text("AI backend saved.")).to_be_visible()
+                expect(backend).to_have_value(Case.AIBackend.GATEWAY)
                 page.goto(analysis_url)
                 expect(
                     page.get_by_label("Processing location", exact=True)
@@ -108,20 +125,22 @@ class AnalysisBrowserTests(BrowserTestCase):
                     "Enter"
                 )
                 expect(
-                    page.get_by_role("heading", name="Processing", exact=True)
+                    page.get_by_role(
+                        "heading", name="Suggest claims and commitments", exact=True
+                    )
                 ).to_be_visible()
                 batch = self.db(
                     lambda: CaseAnalysisBatch.objects.filter(case=self.case).latest(
                         "created_at"
                     )
                 )
-                self.assertCountEqual(
+                self.assertEqual(
                     self.db(
                         lambda batch=batch: list(
                             batch.runs.values_list("parameters__backend", flat=True)
                         )
                     ),
-                    ["local", "gateway"],
+                    [Case.AIBackend.GATEWAY],
                 )
                 self.assertTrue(
                     self.db(
@@ -136,6 +155,14 @@ class AnalysisBrowserTests(BrowserTestCase):
                     "button", name="Revoke external analysis approval"
                 ).click()
                 expect(approval).to_be_visible()
+                expect(
+                    page.get_by_text("External AI needs current approval.", exact=False)
+                ).to_be_visible()
+                expect(backend).to_have_value(Case.AIBackend.GATEWAY)
+                backend.select_option(Case.AIBackend.LOCAL)
+                save_backend.press("Enter")
+                expect(page.get_by_text("AI backend saved.")).to_be_visible()
+                expect(backend).to_have_value(Case.AIBackend.LOCAL)
 
     @override_settings(PANDECT_AI_GATEWAY=OPENAI, PANDECT_LOCAL_AI=LOCAL)
     def test_openai_destination_and_stale_approval_without_javascript(self):
@@ -243,6 +270,173 @@ class AnalysisBrowserTests(BrowserTestCase):
             page.evaluate("document.documentElement.scrollWidth"),
             page.evaluate("document.documentElement.clientWidth") + 1,
         )
+
+    def test_focused_imported_correction_separates_suggestion_and_quotation(self):
+        participant = Person.objects.get(case=self.case)
+        quote = "I was wrong. The delivery is Friday, not Thursday."
+        prefix = "About the delivery: "
+        suggestion = "The sender corrected the delivery date to Friday."
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Delivery correspondence",
+            sender=participant,
+            recipient=participant,
+            body=prefix + quote + " Thank you.",
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=message,
+            source_document=self.document,
+            source_sha256=self.document.sha256,
+            source_row=7,
+            source_start=0,
+            source_end=1,
+            parser_version="synthetic.v1",
+            timezone="UTC",
+            raw_sender="Synthetic correspondent",
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="content_events",
+            method_version="test",
+            inputs=snapshot_sources(
+                self.case, [{"kind": "text-message", "id": message.pk}]
+            ),
+            parameters={
+                "_import_analysis": {
+                    "selected_messages": 1,
+                    "imported_messages": 1,
+                    "additional_calls": 0,
+                    "matching_calls": 0,
+                }
+            },
+            status=AnalysisRun.Status.COMPLETE,
+        )
+        sources = resolve_inputs(run, self.case)
+        data = content_events(
+            sources,
+            {},
+            infer=lambda *_: {
+                "items": [
+                    {
+                        "kind": "correction",
+                        "text": suggestion,
+                        "status": "supported",
+                        "citations": [{"source_id": sources[0].id, "quote": quote}],
+                    }
+                ]
+            },
+        )
+        describe_import_selection(data, run)
+        result = AnalysisResult.objects.create(case=self.case, run=run, data=data)
+        project_result(result)
+        basis = data["items"][0]["values"]["basis"]
+        legacy_warning = "This earlier import lacks delivery confirmation."
+        legacy_status = "requires manual reconciliation"
+        legacy_run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation=run.operation,
+            method_version="retained-test",
+            inputs=run.inputs,
+            status=AnalysisRun.Status.COMPLETE,
+        )
+        AnalysisResult.objects.create(
+            case=self.case,
+            run=legacy_run,
+            data={
+                "items": [data["items"][0] | {"values": {"status": legacy_status}}],
+                "warnings": [legacy_warning],
+            },
+        )
+        detail = self.live_server_url + finding_url(
+            self.case.pk, run.pk, 0, history={"return_findings": ""}
+        )
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(detail)
+                finding = page.locator("#finding-1")
+                expect(
+                    page.get_by_role("link", name="Back to findings")
+                ).to_be_visible()
+                expect(
+                    finding.get_by_role("heading", name="AI suggestion · Correction")
+                ).to_be_visible()
+                expect(
+                    finding.get_by_role("heading", name="Cited evidence")
+                ).to_be_visible()
+                qualification = finding.get_by_text(
+                    "The cited wording matches the retained source.", exact=False
+                )
+                expect(qualification).to_be_visible()
+                excerpt = finding.locator("blockquote.analysis-source-excerpt")
+                expect(excerpt).to_have_count(1)
+                self.assertEqual(excerpt.text_content().strip(), quote)
+                content = finding.inner_text()
+                self.assertLess(content.index(suggestion), content.index(quote))
+                self.assertEqual(content.count(quote), 1)
+                expect(
+                    finding.get_by_role(
+                        "link", name="Imported message · Export row 7", exact=True
+                    )
+                ).to_have_attribute("href", sources[0].original_url)
+                expect(
+                    finding.get_by_text(
+                        "Selected 1 of 1 newly imported messages", exact=False
+                    )
+                ).to_be_visible()
+                details = finding.locator(".analysis-finding-details")
+                details_summary = details.get_by_text("Finding details", exact=True)
+                saved_status = details.get_by_text("supported", exact=True)
+                exact_offset = details.get_by_text(
+                    f"Characters {len(prefix)}–{len(prefix + quote)}", exact=True
+                )
+                expect(details).not_to_have_attribute("open", "")
+                expect(finding.get_by_text("supported", exact=True)).to_be_hidden()
+                expect(exact_offset).to_be_hidden()
+                details_summary.press("Enter")
+                expect(saved_status).to_be_visible()
+                expect(details.get_by_text(basis, exact=True)).to_be_visible()
+                expect(exact_offset).to_be_visible()
+                details_summary.press("Enter")
+
+                run_details = page.locator(".analysis-run-details")
+                expect(run_details).not_to_have_attribute("open", "")
+                original_warning = run_details.get_by_text(
+                    data["warnings"][-1], exact=True
+                )
+                expect(original_warning).to_be_hidden()
+                run_summary = run_details.get_by_text(
+                    "Analysis run details", exact=True
+                )
+                run_summary.press("Enter")
+                expect(original_warning).to_be_visible()
+                run_summary.press("Enter")
+
+                for width, height in ((1440, 900), (390, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.evaluate("document.activeElement.blur()")
+                    page.evaluate("window.scrollTo(0, 0)")
+                    self._assert_reflow(page)
+                    self.capture(page, engine, f"imported-correction-{width}")
+
+                page.goto(
+                    self.url(
+                        "core:analysis:detail",
+                        case_id=self.case.pk,
+                        run_id=legacy_run.pk,
+                    )
+                )
+                expect(finding.get_by_text(legacy_status, exact=True)).to_be_visible()
+                expect(finding.get_by_text(legacy_warning, exact=True)).to_be_visible()
+                expect(qualification).to_have_count(0)
+                expect(excerpt).to_be_visible()
 
     def test_streamlined_timing_finding_reveal_and_source_details(self):
         self.owner.timezone = "America/Toronto"
@@ -1416,7 +1610,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                         "link", name="Synthetic retained report", exact=True
                     )
                 ).to_have_attribute("href", re.compile(r"/evidence/document/"))
-                page.get_by_text("Details and history", exact=True).press("Enter")
+                page.get_by_text("Analysis run details", exact=True).press("Enter")
                 processing_summary = page.locator("summary").filter(
                     has_text=re.compile(r"^Processing summary$")
                 )

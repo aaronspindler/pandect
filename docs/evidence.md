@@ -37,11 +37,12 @@ Owners/editors open **Add evidence** to jump directly to uploads, manual records
 or CSV imports. **Upload files** accepts documents, images, and audio together.
 **Add a record** offers Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime. **Import records** offers vehicle
-locations and iMessage CSV. Message import retains its CSV, prepares background
-review, and requires confirmed people/timezone before publishing valid messages.
-New evidence queues eligible checks, configured private inference and
-[case-approved external analysis](cases.md#external-analysis-approval) after
-publication. Follow progress in **Processing**. See
+locations and message CSVs from iMessage and WhatsApp. Message import retains
+its CSV, prepares background review, and requires confirmed people and timezone
+before publishing valid messages.
+New evidence queues built-in checks and eligible checks using the
+[case's selected AI backend](cases.md#ai-backend) after publication. Follow
+progress in **Processing**. See
 [message imports](analysis-communications.md#message-csv-imports).
 
 Categories describe submitted material; parsers do not verify them. Text captures
@@ -189,10 +190,10 @@ reader page.
 **Messages** combines all exports and individually retained messages. Matching
 copies share one timeline row when distinct exports supply an unambiguous
 matching native message ID and the same original wording, reported sender,
-recipient, and known time. Conflicting service identifiers and ambiguous repeats
-remain separate. Expand **Retained copies** to inspect each original's export,
-row, archive state and findings. Mixed-source transcripts include a short source
-reference per message.
+recipient, and known time. Conflicting service identifiers, matching IDs across
+WhatsApp and other export formats, and ambiguous repeats remain separate.
+Expand **Retained copies** to inspect each original's export, row, archive state,
+and findings. Mixed-source transcripts include a short source reference per message.
 The reported participants alone do not establish native thread identity or a
 complete exchange.
 

@@ -6,24 +6,32 @@
   <div><h1>@{{ monitor.target }}</h1><p>{{ monitor.get_status_display }} · {% if monitor.source == 'synthetic' %}Synthetic Instagram monitor{% else %}Instagram monitor{% endif %}</p></div>
 </header>
 
-<section class="content-section" aria-labelledby="monitor-results-heading">
-  <h2 id="monitor-results-heading">Latest changes</h2>
+<dl class="metadata-grid">
+  <div><dt>Last successful check</dt><dd>{% if last_success.finished_at %}<time datetime="{{ last_success.finished_at|date:'c' }}">{{ last_success.finished_at|date:'j M Y, H:i T' }}</time>{% elif last_success %}<time datetime="{{ last_success.started_at|date:'c' }}">{{ last_success.started_at|date:'j M Y, H:i T' }}</time>{% else %}None yet{% endif %}</dd></div>
+  <div><dt>Next check</dt><dd>{% if running %}In progress{% elif available and target_approved and monitor.next_check_at %}<time datetime="{{ monitor.next_check_at|date:'c' }}">{{ monitor.next_check_at|date:'j M Y, H:i T' }}</time>{% else %}Unscheduled{% endif %}</dd></div>
+</dl>
+
   {% if latest_failed_check or latest_issue %}<div class="notice">
     <p>{% if latest_failed_check %}<strong>Latest check failed.</strong> {{ latest_failed_check.started_at|date:'j M Y, H:i T' }}. {% endif %}{{ latest_issue }}</p>
-    {% if creator and can_edit and monitor.status == 'paused' %}<a class="record-link" href="{% url 'account_instagram' %}?case={{ case.pk }}">Manage your connection</a>{% endif %}
   </div>{% endif %}
   {% if not available %}<p class="notice">Collection is currently unavailable for this monitor.</p>{% endif %}
+  {% if available and can_edit and monitor.status != 'stopped' %}
+    {% if not target_approved %}<p class="notice">The case owner must approve synthetic Instagram monitoring before anyone can schedule checks. {% if is_owner %}<a class="record-link" href="{% url 'cases:case_settings' case.pk %}#instagram-monitoring">Review monitoring approval</a>{% endif %}</p>
+    {% elif creator and not connection.ready %}<p class="notice">This monitor needs an active synthetic connection. <a class="record-link" href="{% url 'account_instagram' %}?case={{ case.pk }}">Manage your connection</a></p>{% endif %}
+  {% endif %}
   {% if recoverable %}<p class="notice">This check is overdue. Ask the operator to verify the worker has stopped before requesting recovery.</p>{% elif running %}<p role="status">A check is running.</p>{% endif %}
-  {% if creator and can_edit and available and monitor.status == 'paused' %}
+  {% if can_schedule and monitor.status == 'paused' %}
     <form method="post" action="{% url 'instagram:action' case.pk monitor.pk 'resume' %}">{% csrf_token %}<button class="button button-primary">Resume monitor</button></form>
   {% endif %}
-  {% if creator and can_edit and available and recoverable %}
+  {% if can_schedule and recoverable %}
     <details class="disclosure"><summary>Recover an interrupted check</summary>
       <form method="post" class="form-layout" action="{% url 'instagram:action' case.pk monitor.pk 'recover' %}">{% csrf_token %}
         <label class="checkbox-label"><input type="checkbox" name="worker_stopped" value="1" required> The operator confirmed the previous worker stopped.</label><button class="button button-secondary">Recover check</button>
       </form>
     </details>
   {% endif %}
+<section class="content-section" aria-labelledby="monitor-results-heading">
+  <h2 id="monitor-results-heading">Latest changes</h2>
   {% if last_success %}{% for change in changes %}
   <section aria-labelledby="{{ change.direction }}-latest">
     <h3 id="{{ change.direction }}-latest">{{ change.title }}</h3>
@@ -58,13 +66,12 @@
   <summary>Schedule</summary>
   <dl class="metadata-grid">
     <div><dt>Check interval</dt><dd>Every {{ monitor.interval_hours }} hour{{ monitor.interval_hours|pluralize }}</dd></div>
-    {% if monitor.next_check_at %}<div><dt>Next check</dt><dd>{{ monitor.next_check_at|date:'j M Y, H:i T' }}</dd></div>{% endif %}
   </dl>
   {% if can_edit and monitor.status != 'stopped' %}{% if creator or is_owner %}
     {% if creator and monitor.status == 'active' %}<form method="post" action="{% url 'instagram:action' case.pk monitor.pk 'pause' %}">{% csrf_token %}<button class="button button-secondary">Pause monitor</button></form>{% endif %}
     {% if creator and intervals %}<details class="disclosure"><summary>Change check interval</summary>
       <form method="post" class="form-layout" action="{% url 'instagram:action' case.pk monitor.pk 'interval' %}">{% csrf_token %}
-        <div class="field"><label for="monitor-interval">Check interval</label><select id="monitor-interval" name="interval_hours" aria-describedby="monitor-interval-help">{% for hours,label in intervals %}<option value="{{ hours }}"{% if hours == monitor.interval_hours %} selected{% endif %}>{{ label }}</option>{% endfor %}</select><p class="help-text" id="monitor-interval-help">{% if available %}An already scheduled check keeps its time.{% else %}A check scheduled too early will be deferred.{% endif %} Your check history stays with this monitor.</p></div>
+        <div class="field"><label for="monitor-interval">Check interval</label><select id="monitor-interval" name="interval_hours" aria-describedby="monitor-interval-help">{% for hours,label in intervals %}<option value="{{ hours }}"{% if hours == monitor.interval_hours %} selected{% endif %}>{{ label }}</option>{% endfor %}</select><p class="help-text" id="monitor-interval-help">An already scheduled check keeps its time. Your check history stays with this monitor.</p></div>
         <button class="button button-secondary">Save interval</button>
       </form>
     </details>{% endif %}

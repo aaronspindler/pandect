@@ -1,5 +1,7 @@
 from django.urls import path
 
+from text.claim_comparison_views import confirm as confirm_claim
+
 from . import (
     catalogue_views,
     connections,
@@ -36,6 +38,7 @@ urlpatterns = [
         name="import_checks",
     ),
     path("new/", views.create, name="create"),
+    path("claims/compare/", confirm_claim, name="claim_confirm"),
     path("rerun-all/", views.rerun_all, name="rerun_all"),
     path(
         "evidence/<str:kind>/<uuid:evidence_id>/",

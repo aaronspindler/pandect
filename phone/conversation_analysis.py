@@ -228,7 +228,7 @@ def conversation_analysis_context(
             text = participant_text(
                 text,
                 row.get("participant_names", {}),
-                include_sender_role=finding.operation != "session_summaries",
+                operation=finding.operation,
             )
         row["text"] = text[:1000] or row["preview"]
         row["text_truncated"] = len(text) > 1000

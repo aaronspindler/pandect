@@ -10,7 +10,6 @@ from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
-from django.db.models import Max
 from django.http import Http404
 from django.utils import timezone
 
@@ -19,7 +18,13 @@ from cases.permissions import get_case
 from core.storage import retain_uploaded_originals
 from socialmedia import instagram_connector as connector
 from socialmedia.instagram_rosters import HANDLE
-from socialmedia.models import InstagramCheck, InstagramConnection, InstagramMonitor
+from socialmedia.models import (
+    InstagramCheck,
+    InstagramConnection,
+    InstagramMonitor,
+    InstagramSource,
+    InstagramTargetApproval,
+)
 from socialmedia.monitor_evidence import publish_captures
 from socialmedia.tasks import check_instagram_monitor
 
@@ -35,12 +40,13 @@ MESSAGES = {
     "disconnected": "Reconnect the observing account before resuming.",
     "interrupted": "The previous check was interrupted. A replacement was queued.",
     "invalid_response": "The collection source returned an unusable observation.",
-    "not_configured": "The browser pilot is disabled on this installation.",
+    "not_configured": "Scheduled Instagram checks are unavailable on this install.",
     "pairing_expired": "Start a new connection attempt.",
     "pairing_pending": "Finish signing in on the host browser, then confirm again.",
     "source_changed": "The collection source has changed. Review the connection.",
     "pilot_scope": "This pilot is unavailable for this investigator or case.",
     "target_unavailable": "The pilot does not permit this target and check interval.",
+    "target_not_approved": "The case owner can approve this target in Case Settings.",
     "paused": "Collection was paused before the result was saved.",
     "stopped": "Collection was stopped before the result was saved.",
     "unavailable": "The collection service is unavailable. Resume after it is ready.",
@@ -65,12 +71,10 @@ def _verified(user):
         raise PermissionDenied("A verified active account is required.")
 
 
-def _pairing_source(user):
-    if not connector.available():
+def _pairing_source():
+    if not connector.scheduling_available():
         raise _validation_error("not_configured")
-    if not connector.permits(user.pk):
-        raise _validation_error("pilot_scope")
-    return connector.current_source()
+    return InstagramSource.SYNTHETIC
 
 
 @contextmanager
@@ -91,35 +95,12 @@ def _connection_change(user_id):
 def start_pairing(user):
     with _connection_change(user.pk):
         _verified(user)
-        source = _pairing_source(user)
-        if source == "instagram":
-            # Opening the host sign-in window replaces its existing browser.
-            _disconnect(user, only_live=True)
+        source = _pairing_source()
         try:
             pair = connector.start_pairing(str(user.pk))
         except connector.ConnectorError as error:
             raise _validation_error(error.code) from None
         return {**pair, "id": {"source": source, "token": pair["id"]}}
-
-
-def cancel_pairing(user, pending):
-    if not isinstance(pending, dict) or pending.get("source") != "instagram":
-        return
-    token = pending.get("token")
-    if (
-        not isinstance(token, str)
-        or not connector.available()
-        or connector.current_source() != "instagram"
-        or not connector.permits(user.pk)
-    ):
-        return
-    _verified(user)
-    try:
-        connector.cancel_pairing(str(user.pk), token)
-    except connector.ConnectorError as error:
-        if error.code == "pairing_expired":
-            return
-        raise _validation_error(error.code) from None
 
 
 def _retire(monitors, status, reason):
@@ -128,6 +109,37 @@ def _retire(monitors, status, reason):
         status="cancelled", error=reason, finished_at=timezone.now()
     )
     monitors.update(status=status, next_check_at=None, generation=uuid4())
+
+
+def _target_scope(case_id):
+    return {
+        "case_id": case_id,
+        "source": InstagramSource.SYNTHETIC,
+        "target_id": connector.PILOT_TARGET_ID,
+    }
+
+
+def target_approved(case_id):
+    return InstagramTargetApproval.objects.filter(**_target_scope(case_id)).exists()
+
+
+@transaction.atomic
+def set_target_approval(user, case_id, *, approved):
+    _verified(user)
+    case = get_case(user, case_id, owner=True, lock=True)
+    scope = _target_scope(case.pk)
+    if approved:
+        if not connector.scheduling_available():
+            raise _validation_error("not_configured")
+        InstagramTargetApproval.objects.get_or_create(**scope)
+        return
+
+    InstagramTargetApproval.objects.filter(**scope).delete()
+    _retire(
+        InstagramMonitor.objects.filter(**scope, status="active"),
+        "paused",
+        "target_not_approved",
+    )
 
 
 def _revoke_live(session):
@@ -164,7 +176,7 @@ def _replace_connection(conn, observer, session, observer_id="", *, source=None)
 def finish_pairing(user, pair_id):
     with _connection_change(user.pk):
         _verified(user)
-        source = _pairing_source(user)
+        source = _pairing_source()
         # Previously stored pending IDs belong to the synthetic-only pilot.
         pending = (
             pair_id
@@ -182,7 +194,7 @@ def finish_pairing(user, pair_id):
             _verified(user)
             if (
                 result.get("source", "synthetic") != source
-                or _pairing_source(user) != source
+                or _pairing_source() != source
             ):
                 raise _validation_error("source_changed")
             conn, _ = InstagramConnection.objects.select_for_update().get_or_create(
@@ -198,19 +210,11 @@ def finish_pairing(user, pair_id):
             return conn
 
 
-@transaction.atomic
-def _disconnect(user, *, only_live=False):
-    rows = InstagramConnection.objects.select_for_update().filter(user=user)
-    if only_live:
-        rows = rows.filter(source="instagram")
-    conn = rows.first()
-    if conn and conn.session:
-        _replace_connection(conn, "", "")
-
-
 def disconnect(user):
-    with _connection_change(user.pk):
-        _disconnect(user)
+    with _connection_change(user.pk), transaction.atomic():
+        conn = InstagramConnection.objects.select_for_update().filter(user=user).first()
+        if conn and conn.session:
+            _replace_connection(conn, "", "")
 
 
 def _schedule(monitor, due):
@@ -218,22 +222,31 @@ def _schedule(monitor, due):
     monitor.status = "active"
     monitor.next_check_at = due
     monitor.save(update_fields=["generation", "status", "next_check_at"])
-    check_instagram_monitor.using(run_after=due).enqueue(
+    check_instagram_monitor.using(queue_name="instagram", run_after=due).enqueue(
         str(monitor.pk), str(monitor.generation)
     )
 
 
-def _collection_error(conn, user_id, case_id, source, target, interval_hours):
-    if not connector.available():
+def _collection_error(
+    conn, user_id, case_id, source, target, target_id, interval_hours
+):
+    if not connector.scheduling_available():
         return "not_configured"
     if not conn or conn.user_id != user_id or not conn.session:
         return "disconnected"
     if conn.source != source or source != connector.current_source():
         return "source_changed"
-    if not connector.permits(user_id, case_id):
-        return "pilot_scope"
-    if not connector.allowed_target(source, target, interval_hours):
+    if (
+        not conn.observer_id_string
+        or connector.connection_expires_at(conn.session) is None
+    ):
+        return "disconnected"
+    if target_id != connector.PILOT_TARGET_ID or not connector.allowed_target(
+        source, target, interval_hours
+    ):
         return "target_unavailable"
+    if not target_approved(case_id):
+        return "target_not_approved"
     return ""
 
 
@@ -244,6 +257,7 @@ def _monitor_error(monitor):
         monitor.case_id,
         monitor.source,
         monitor.target,
+        monitor.target_id,
         monitor.interval_hours,
     )
 
@@ -263,11 +277,17 @@ def create_monitor(user, case_id, target, interval_hours):
         raise ValidationError("Choose one of the available check intervals.")
     source = conn.source if conn else ""
     if error := _collection_error(
-        conn, user.pk, case.pk, source, target, interval_hours
+        conn,
+        user.pk,
+        case.pk,
+        source,
+        target,
+        connector.PILOT_TARGET_ID,
+        interval_hours,
     ):
         raise _validation_error(error)
     monitors = InstagramMonitor.objects.filter(
-        case=case, connection=conn, source=source, target=target
+        case=case, connection=conn, source=source, target_id=connector.PILOT_TARGET_ID
     )
     existing = monitors.exclude(status="stopped").first()
     if existing:
@@ -281,6 +301,7 @@ def create_monitor(user, case_id, target, interval_hours):
         connection=conn,
         source=source,
         target=target,
+        target_id=connector.PILOT_TARGET_ID,
         created_by=user,
         interval_hours=interval_hours,
     )
@@ -353,26 +374,13 @@ def _manage(user, case_id, monitor_id, action, *, interval_hours=None):
                 case.pk,
                 monitor.source,
                 monitor.target,
+                monitor.target_id,
                 interval_hours,
             )
             if error:
                 raise _validation_error(error)
-            replace_early_delivery = monitor.next_check_at is not None and not (
-                connector.allowed_target(
-                    monitor.source, monitor.target, monitor.interval_hours
-                )
-            )
             monitor.interval_hours = interval_hours
             monitor.save(update_fields=["interval_hours"])
-            # Keep an existing delivery unless the operator raised the minimum.
-            if replace_early_delivery:
-                last_finish = monitor.checks.aggregate(latest=Max("finished_at"))[
-                    "latest"
-                ]
-                if last_finish is not None:
-                    due = last_finish + timedelta(hours=interval_hours)
-                    if due > monitor.next_check_at:
-                        _schedule(monitor, due)
         else:
             _verified(user)
             if error := _monitor_error(monitor):

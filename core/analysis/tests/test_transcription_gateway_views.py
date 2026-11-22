@@ -66,6 +66,8 @@ class TranscriptionGatewayViewTests(EvidenceViewTestMixin, TestCase):
     def test_retry_is_blocked_until_workers_configuration_is_restored(self):
         with self.settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_GATEWAY):
             external_grant_kwargs(self.case, "transcription")
+            self.case.ai_backend = "gateway"
+            self.case.save(update_fields=["ai_backend"])
             _, payload = self.reviewed_create()
             queued = self.client.post(self.create_url, payload)
         original = AnalysisRun.objects.get()

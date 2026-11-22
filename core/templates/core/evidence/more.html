@@ -2,7 +2,7 @@
   <summary class="button button-secondary" aria-label="More" data-tooltip="More" title="More">{% include 'ui/components/icon.html' with name='dots' %}<span class="evidence-toolbar-label">More</span></summary>
   <div class="evidence-more-panel">
     {% if can_edit %}
-    {% if kind == 'document' %}<a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}?document={{ item.pk }}">Import iMessage · CSV</a>{% endif %}
+    {% if kind == 'document' %}<a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}?document={{ item.pk }}">Import message CSV</a>{% endif %}
     {% partialdef checks inline %}
     <div id="evidence-rerun" data-live-region data-live-poll="false">
     {% if can_edit and findings_page and not analysis_pending and not analysis_form.errors %}<form method="post" action="{% url 'core:analysis:process_evidence' case.pk kind item.pk %}{{ list_suffix }}#evidence-analysis-error">{% csrf_token %}{{ analysis_form.submission_id }}<button type="submit">{% if has_evidence_analysis %}Run checks again{% else %}Run checks{% endif %}</button></form>{% endif %}

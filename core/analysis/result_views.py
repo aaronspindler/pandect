@@ -2,11 +2,14 @@
 
 from audio.analysis import presentation as audio
 from core.analysis.presentation import prioritize_measurements
+from core.analysis.review_signals import REVIEW_SIGNALS
 from document.analysis import presentation as document
 from geo.analysis import presentation as geo
 from image.analysis import presentation as image
 from phone.analysis import presentation as phone
+from phone.analysis.ingest import import_selection_warning
 from text.analysis import presentation as text
+from text.analysis.ai import CITED_SUGGESTION_BASIS, CITED_SUGGESTION_WARNING
 
 GROUPED_RESULTS = "core/analysis/result_groups.html"
 RESULT_VIEWS = {
@@ -27,6 +30,7 @@ RESULT_VIEWS = {
             "copied_text",
             "text_topics",
             "content_events",
+            "claim_comparison",
             "question_synthesis",
         ),
         (text.present, GROUPED_RESULTS),
@@ -77,3 +81,69 @@ def result_view(operation, items, formatter, *, query=None):
             for message in item.get("message_details", [])
         )
     return groups, template
+
+
+def focused_finding_context(operation, item, data):
+    """Disclose technical locators and shorten only recognized retained wording."""
+    if operation == "question_synthesis" and item["ai_suggestion"]:
+        item["label"] = item["label"].removesuffix(" · AI suggestion")
+    message_ids = {
+        message["source"]["id"] for message in item.get("message_details", [])
+    }
+    item["source_details"] = [
+        source
+        for source in item["display_sources"]
+        if source["id"] not in message_ids
+        and any(
+            anchor.get("region")
+            or any(
+                anchor.get(key) is not None for key in ("end", "html_end", "csv_end")
+            )
+            for anchor in source.get("anchors", [])
+        )
+    ]
+    values = item.get("values", {})
+    if (
+        operation == "content_events"
+        and item["ai_suggestion"]
+        and values.get("status") == "supported"
+        and values.get("basis") == CITED_SUGGESTION_BASIS
+        and any(source.get("excerpt") for source in item["display_sources"])
+    ):
+        item["citation_checked"] = True
+        primary = item.get("primary_measurements", [])
+        item["measurements"] = [
+            row for row in primary if row["label"] in {"Status", "Basis"}
+        ] + item["measurements"]
+        item["primary_measurements"] = [
+            row for row in primary if row["label"] not in {"Status", "Basis"}
+        ]
+        if item.get("review_reason") == REVIEW_SIGNALS["quoted_claim"]:
+            item["review_reason"] = ""
+
+    warnings = list(data.get("warnings") or ())
+    selection = data.get("metrics", {}).get("import_selection")
+    coverage = ""
+    if isinstance(selection, dict):
+        selected = selection.get("selected_messages")
+        imported = selection.get("imported_messages")
+        if (
+            type(selected) is int
+            and type(imported) is int
+            and 0 <= selected <= imported
+        ):
+            retained = import_selection_warning(selected, imported)
+            if retained in warnings:
+                warnings.remove(retained)
+                coverage = (
+                    f"Selected {selected} of {imported} newly imported messages. "
+                    "Results cover the saved selection."
+                )
+    if operation == "content_events" and item["ai_suggestion"]:
+        warnings = [
+            "AI can misread tone, quotations, dates, or missing context."
+            if warning == CITED_SUGGESTION_WARNING
+            else warning
+            for warning in warnings
+        ]
+    return {"finding_warnings": warnings, "finding_coverage": coverage}

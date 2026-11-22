@@ -205,7 +205,7 @@ def _report_sessions(
                 or (not expanded and characters > INLINE_SUMMARY_CHARACTERS)
             ):
                 break
-            formatted = participant_text(text, names, include_sender_role=False)
+            formatted = participant_text(text, names, operation=run.operation)
             displayed.append((index, formatted))
             characters += len(formatted)
         summary = {

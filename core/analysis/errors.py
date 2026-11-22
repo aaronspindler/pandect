@@ -9,8 +9,8 @@ class AnalysisError(Exception):
 
 ERROR_MESSAGES = {
     "imessage_invalid_format": (
-        "This file does not match the supported 18-column message CSV export. "
-        "Export messages as UTF-8 CSV and prepare a new review."
+        "This file does not match a supported message CSV profile. "
+        "Use an 18-column iMessage or 15-column WhatsApp UTF-8 CSV."
     ),
     "imessage_multiple_chats": (
         "This export contains multiple conversations or incoming sender identifiers. "

@@ -39,6 +39,8 @@ def is_ai_suggestion(operation, finding):
     values = finding.get("values", {})
     if operation == "question_synthesis":
         return "section" in values
+    if operation == "claim_comparison":
+        return values.get("Interpretation") == "AI suggestion"
     if operation in {
         "content_events",
         "session_summaries",

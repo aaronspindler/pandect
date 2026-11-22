@@ -216,6 +216,60 @@
   margin-block: .75rem;
 }
 
+.analysis-focused-result {
+  max-width: 54rem;
+  overflow-wrap: anywhere;
+}
+
+.analysis-finding-focused {
+  border-top: 0;
+  padding-block: .5rem;
+}
+
+.analysis-finding-focused > .analysis-finding-heading {
+  display: block;
+  margin-bottom: .75rem;
+}
+
+.analysis-finding-focused .analysis-finding-lead {
+  max-width: 66ch;
+  padding: 0;
+  font-size: 1.25rem;
+  white-space: pre-wrap;
+}
+
+.analysis-cited-evidence,
+.analysis-finding-limitations {
+  border-top: 1px solid var(--divider);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.analysis-finding-focused :is(.analysis-cited-evidence, .analysis-finding-limitations) h2 {
+  font-size: 1.25rem;
+  margin-bottom: .5rem;
+}
+
+.analysis-cited-evidence .analysis-source-excerpt {
+  max-width: 70ch;
+}
+
+.analysis-cited-evidence .analysis-finding-sources > li {
+  padding-inline: 0;
+}
+
+.analysis-cited-evidence .analysis-finding-sources > li:last-child {
+  border-bottom: 0;
+}
+
+.analysis-finding-limitations p {
+  margin-bottom: .5rem;
+}
+
+.analysis-focused-result .analysis-run-details {
+  padding-block: .25rem;
+}
+
 .analysis-finding-link {
   display: inline-flex;
   align-items: center;

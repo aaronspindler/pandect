@@ -4,8 +4,8 @@
 <a class="back-link" href="{{ back_to_analysis }}">{{ back_label }}</a>
 {% if run.status == 'queued' or run.status == 'running' %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef live inline %}
-<div id="analysis-result" data-live-region data-live-poll="{% if run.status == 'queued' or run.status == 'running' %}true{% else %}false{% endif %}">
-{% if not focused_finding or show_result_overview %}
+<div id="analysis-result"{% if focused_finding %} class="analysis-focused-result"{% endif %} data-live-region data-live-poll="{% if run.status == 'queued' or run.status == 'running' %}true{% else %}false{% endif %}">
+{% if not focused_finding %}
 <header class="page-header analysis-result-header">
   <div><h1>{{ operation_label }}</h1></div>
   {% if source_unavailable or run.status != 'complete' %}<span class="badge" role="status">{% if source_unavailable %}Result withheld{% else %}{{ run.get_status_display }}{% endif %}</span>{% endif %}
@@ -22,14 +22,20 @@
 </section>
 {% endif %}
 {% if run.status == 'failed' %}<p class="notice">Processing could not finish. {{ error_message }} {% if can_edit and can_retry %}<a href="#run-again">Run again</a> with the same inputs.{% endif %} Earlier evidence is retained.</p>{% endif %}
-{% if retry_blocked and run.status != 'complete' %}<p>{{ retry_blocked }}{% if run.external_processing and is_owner %} <a href="{% url 'cases:case_settings' case.pk %}">Case settings</a>{% endif %}</p>{% endif %}
-{% if source_review_changed %}<p class="notice">An address estimate used by this run is no longer selected. This result retains the estimate used at the time.</p>{% endif %}
+{% if retry_blocked and run.status != 'complete' and not focused_finding %}<p>{{ retry_blocked }}{% if run.external_processing and is_owner %} <a href="{% url 'cases:case_settings' case.pk %}">Case settings</a>{% endif %}</p>{% endif %}
+{% if source_review_changed and not focused_finding %}<p class="notice">An address estimate used by this run is no longer selected. This result retains the estimate used at the time.</p>{% endif %}
 {% if source_unavailable %}<p class="notice">A selected source is unavailable or changed. The result is withheld until its exact retained inputs can be verified.</p>{% endif %}
 {% if run.status == 'complete' and not result and not source_unavailable %}<p class="notice">No result was saved for this run.</p>{% endif %}
 
-{% if run.operation == 'imessage_import' %}<p><a class="record-link" href="{% url 'phone:imessage_review' case.pk run.pk %}">Review message import</a></p>{% endif %}
-{% if result and run.operation == 'conversation_import' %}{% load import_checks %}{% import_checks 'messages' run.pk %}{% endif %}
-{% if result and show_result_overview %}
+{% if focused_finding %}
+  {% include 'core/analysis/finding.html' with item=items.0 %}
+  {% if finding_page.paginator.count > 1 %}<a class="record-link" href="{% querystring run_query page=finding_page.number %}#finding-link-{{ items.0.number }}">All findings in this result</a>{% endif %}
+  {% partial related_links %}
+  {% partial finding_filters %}
+  {% partial import_controls %}
+{% else %}
+  {% partial import_controls %}
+{% if result %}
 <section class="analysis-result-overview" aria-labelledby="analysis-result-summary">
   <h2 id="analysis-result-summary">{% if run.operation == 'question_synthesis' %}AI suggestions{% else %}{{ data.summary }}{% endif %}</h2>
   {% if data.warnings %}<a class="record-link" href="#result-limitations">See limitations</a>{% endif %}
@@ -43,45 +49,24 @@
   {% endif %}
   {% if layout.first_source %}<a class="record-link" href="{% querystring run_query layout=layout.first_source %}#visible-structure">Visible structure</a>
   {% elif layout.source %}{% include 'image/analysis/visible_structure.html' %}{% endif %}
-  {% if timing_only_count %}
-  <p class="muted">{% if show_timing_only %}Showing {{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }}. <a class="record-link" href="{% querystring run_query weak=None page=None finding=None %}">Hide timing-only findings</a>{% else %}{{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }} hidden. <a class="record-link" href="{% querystring run_query weak=1 page=None finding=None %}">Show all findings</a>{% endif %}</p>
-  {% if not items %}<p>Only timing-only findings were saved. Show all findings to inspect them.</p>{% endif %}
-  {% endif %}
-  {% if weak_region_count %}
-  <p class="muted">{% if show_weak_regions %}Showing {{ weak_region_count }} weak region{{ weak_region_count|pluralize }}. <a href="{% querystring run_query weak=None %}">Hide weak regions</a>{% else %}{{ weak_region_count }} weak region{{ weak_region_count|pluralize }} hidden by the plate-likeness filter. <a href="{% querystring run_query weak=1 %}">Show weak regions</a>{% endif %}</p>
-  {% if not items %}<p>No regions met the plate filter. Inspect the original or show weak regions.</p>{% endif %}
-  {% endif %}
-
-{% if items %}
-<section class="analysis-findings" aria-labelledby="{% if focused_finding %}finding-heading-{{ items.0.number }}{% else %}analysis-findings-heading{% endif %}">
-  {% if not focused_finding %}<div class="analysis-findings-header">
-    <h2 id="analysis-findings-heading" tabindex="-1">Findings</h2>
-    <p class="muted">{{ finding_page.paginator.count }} finding{{ finding_page.paginator.count|pluralize }}</p>
-  </div>{% endif %}
-  {% if not focused_finding and finding_page.has_other_pages %}
-  {% include 'core/analysis/finding_pages.html' with label='Finding pages' %}
-  {% endif %}
-  {% if map_points and not focused_finding %}{% include 'geo/analysis/positions.html' %}{% endif %}
-  {% if focused_finding %}
-    {% include 'core/analysis/finding.html' with item=items.0 %}
+  {% partial finding_filters %}
+  {% if items %}
+  <section class="analysis-findings" aria-labelledby="analysis-findings-heading">
+    <div class="analysis-findings-header">
+      <h2 id="analysis-findings-heading" tabindex="-1">Findings</h2>
+      <p class="muted">{{ finding_page.paginator.count }} finding{{ finding_page.paginator.count|pluralize }}</p>
+    </div>
+    {% if finding_page.has_other_pages %}
+      {% include 'core/analysis/finding_pages.html' with label='Finding pages' %}
+    {% endif %}
     {% if map_points %}{% include 'geo/analysis/positions.html' %}{% endif %}
-    {% if finding_page.paginator.count > 1 %}<a class="record-link" href="{% querystring run_query page=finding_page.number %}#finding-link-{{ items.0.number }}">All findings in this result</a>{% endif %}
-  {% else %}
     {% include result_template %}
+    {% if finding_page.has_other_pages %}
+      {% include 'core/analysis/finding_pages.html' with label='Finding pages at end of results' %}
+    {% endif %}
+  </section>
   {% endif %}
-  {% if not focused_finding and finding_page.has_other_pages %}
-  {% include 'core/analysis/finding_pages.html' with label='Finding pages at end of results' %}
-  {% endif %}
-</section>
-{% endif %}
-
-{% if evidence_analysis_url or instance_url %}
-<div class="actions">
-  {% if instance_url %}<a class="record-link" href="{{ instance_url }}">View conversation session</a>{% endif %}
-  {% if evidence_analysis_url %}<a class="record-link" href="{{ evidence_analysis_url }}">All findings for this evidence</a>{% endif %}
-</div>
-{% endif %}
-
+  {% partial related_links %}
 {% if data.warnings or run.operation == 'question_synthesis' and result %}
 <details class="analysis-result-limits"{% if data.warnings %} open{% endif %}>
   <summary id="result-limitations">Limitations</summary>
@@ -94,33 +79,20 @@
 </details>
 {% endif %}
 
-{% if reference_snapshots %}
-<details class="analysis-section disclosure">
-  <summary>Retained map references</summary>
-  <p>These reference snapshots describe the map source, not verified conditions at the observation time. Each download preserves the exact service response.</p>
-  {% for snapshot in reference_snapshots %}
-  <article class="analysis-reference">
-    <h3>{{ snapshot.metadata.source_name }} · {{ snapshot.metadata.reference_key }}</h3>
-    <dl class="metadata-grid">
-      <div><dt>Reference version</dt><dd>{{ snapshot.metadata.reference_version }}</dd></div>
-      <div><dt>Requested map snapshot</dt><dd>{{ snapshot.metadata.requested_as_of|default:'Current data at lookup' }}</dd></div>
-      <div><dt>Dataset timestamp</dt><dd>{{ snapshot.metadata.dataset_timestamp|default:'Unknown' }}</dd></div>
-      <div><dt>Retrieved</dt><dd>{{ snapshot.metadata.retrieved_at }}</dd></div>
-      <div><dt>Attribution</dt><dd>{{ snapshot.metadata.attribution }}</dd></div>
-    </dl>
-    <a class="button button-secondary" href="{% url 'core:analysis:artifact' case.pk run.pk snapshot.pk %}">Download reference JSON</a>
-    <details class="integrity-details"><summary>Reference integrity and query</summary><p>SHA-256: <code>{{ snapshot.sha256 }}</code></p><pre class="original-text">{{ snapshot.metadata.query }}</pre></details>
-  </article>
-  {% endfor %}
-</details>
+  {% partial references %}
 {% endif %}
 
 <details class="analysis-section analysis-run-details"{% if run.status == 'failed' %} open{% endif %}>
-  <summary id="run-details">Details and history</summary>
+  <summary id="run-details">{% if focused_finding %}Analysis run details{% else %}Details and history{% endif %}</summary>
   <p class="muted">{{ run.get_status_display }} · {{ run.created_at|date:'d M Y, H:i T' }} · {{ operation_label }}</p>
   {% if run.previous_run %}<p><a href="{% url 'core:analysis:detail' case.pk run.previous_run_id %}{{ history_suffix }}">Earlier run · {{ run.previous_run.created_at|date:'d M Y, H:i:s T' }}</a></p>{% endif %}
-  {% if result and not show_result_overview %}<p>{{ data.summary }}</p>{% endif %}
+  {% if result and focused_finding and run.status == "complete" %}<p>{{ data.summary }}</p>{% endif %}
   {% if result %}<a class="record-link" href="{% url 'core:analysis:download' case.pk run.pk %}">Download results</a>{% endif %}
+  {% if focused_finding and data.warnings %}
+  <h3>Run limitations</h3>
+  <ul class="analysis-notes">{% for warning in data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if focused_finding %}{% partial references %}{% endif %}
 {% if sources %}
 <details class="analysis-run-sources disclosure">
   <summary>Selected sources · {{ sources.0.item.title }}{% if sources|length > 1 %} and {{ sources|length|add:"-1" }} more{% endif %}</summary>
@@ -147,7 +119,7 @@
     <p class="muted">Requested by {{ run.requested_by }} · {{ run.created_at|date:'d M Y, H:i:s T' }}</p>
     <h3>Method and assumptions</h3><p>Method version: {{ run.method_version }}. {{ processing.label }}.{% if processing.legacy %} This run predates execution pinning; its original approval is retained.{% endif %}</p>{% if processing.destination %}<p>{{ processing.destination }}</p>{% elif processing.model %}<p>Model: {{ processing.model }}{% if processing.runtime %} · Runtime: {{ processing.runtime }}{% endif %}</p>{% endif %}{% include 'core/analysis/measurements.html' with measurements=assumptions only %}
   </details>
-{% if retry_blocked and run.status == 'complete' %}<p>{{ retry_blocked }}{% if run.external_processing and is_owner %} <a href="{% url 'cases:case_settings' case.pk %}">Case settings</a>{% endif %}</p>{% endif %}
+{% if retry_blocked and run.status == 'complete' or retry_blocked and focused_finding %}<p>{{ retry_blocked }}{% if run.external_processing and is_owner %} <a href="{% url 'cases:case_settings' case.pk %}">Case settings</a>{% endif %}</p>{% endif %}
 {% if can_edit and can_retry %}
 <section class="analysis-section" id="run-again" aria-labelledby="run-again-heading">
 <h2 id="run-again-heading">Run again</h2>
@@ -159,5 +131,56 @@
 {% endif %}
 </details>
 </div>
+{% endpartialdef %}
+
+{% partialdef import_controls %}
+{% if run.operation == 'imessage_import' %}<p><a class="record-link" href="{% url 'phone:imessage_review' case.pk run.pk %}">Review message import</a></p>{% endif %}
+{% if result and run.operation == 'conversation_import' %}{% load import_checks %}{% import_checks 'messages' run.pk %}{% endif %}
+{% endpartialdef %}
+
+{% partialdef related_links %}
+{% if evidence_analysis_url or instance_url %}
+<div class="actions">
+  {% if instance_url %}<a class="record-link" href="{{ instance_url }}">View conversation session</a>{% endif %}
+  {% if evidence_analysis_url %}<a class="record-link" href="{{ evidence_analysis_url }}">All findings for this evidence</a>{% endif %}
+</div>
+{% endif %}
+
+{% endpartialdef %}
+
+{% partialdef finding_filters %}
+  {% if timing_only_count %}
+  <p class="muted">{% if show_timing_only %}Showing {{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }}. <a class="record-link" href="{% querystring run_query weak=None page=None finding=None %}">Hide timing-only findings</a>{% else %}{{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }} hidden. <a class="record-link" href="{% querystring run_query weak=1 page=None finding=None %}">Show all findings</a>{% endif %}</p>
+  {% if not items %}<p>Only timing-only findings were saved. Show all findings to inspect them.</p>{% endif %}
+  {% endif %}
+  {% if weak_region_count %}
+  <p class="muted">{% if show_weak_regions %}Showing {{ weak_region_count }} weak region{{ weak_region_count|pluralize }}. <a href="{% querystring run_query weak=None %}">Hide weak regions</a>{% else %}{{ weak_region_count }} weak region{{ weak_region_count|pluralize }} hidden by the plate-likeness filter. <a href="{% querystring run_query weak=1 %}">Show weak regions</a>{% endif %}</p>
+  {% if not items %}<p>No regions met the plate filter. Inspect the original or show weak regions.</p>{% endif %}
+  {% endif %}
+
+{% endpartialdef %}
+
+{% partialdef references %}
+{% if reference_snapshots %}
+<details class="analysis-section disclosure">
+  <summary>Retained map references</summary>
+  <p>These reference snapshots describe the map source, not verified conditions at the observation time. Each download preserves the exact service response.</p>
+  {% for snapshot in reference_snapshots %}
+  <article class="analysis-reference">
+    <h3>{{ snapshot.metadata.source_name }} · {{ snapshot.metadata.reference_key }}</h3>
+    <dl class="metadata-grid">
+      <div><dt>Reference version</dt><dd>{{ snapshot.metadata.reference_version }}</dd></div>
+      <div><dt>Requested map snapshot</dt><dd>{{ snapshot.metadata.requested_as_of|default:'Current data at lookup' }}</dd></div>
+      <div><dt>Dataset timestamp</dt><dd>{{ snapshot.metadata.dataset_timestamp|default:'Unknown' }}</dd></div>
+      <div><dt>Retrieved</dt><dd>{{ snapshot.metadata.retrieved_at }}</dd></div>
+      <div><dt>Attribution</dt><dd>{{ snapshot.metadata.attribution }}</dd></div>
+    </dl>
+    <a class="button button-secondary" href="{% url 'core:analysis:artifact' case.pk run.pk snapshot.pk %}">Download reference JSON</a>
+    <details class="integrity-details"><summary>Reference integrity and query</summary><p>SHA-256: <code>{{ snapshot.sha256 }}</code></p><pre class="original-text">{{ snapshot.metadata.query }}</pre></details>
+  </article>
+  {% endfor %}
+</details>
+{% endif %}
+
 {% endpartialdef %}
 {% endblock %}

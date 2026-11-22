@@ -21,6 +21,7 @@ from phone.tests.test_imessage_views import (
     SYNTHETIC_MESSAGE_GATEWAY,
     SYNTHETIC_MESSAGE_LOCAL,
     message_csv,
+    whatsapp_csv,
 )
 
 
@@ -38,6 +39,8 @@ class IMessageImportBrowserTests(BrowserTestCase):
     )
     def test_no_javascript_upload_review_people_and_import(self):
         self.db(external_grant_kwargs, self.case, "content_events")
+        self.case.ai_backend = Case.AIBackend.GATEWAY
+        self.db(self.case.save, update_fields=("ai_backend",))
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
@@ -45,7 +48,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
             ):
                 self.sign_in(page)
                 page.goto(self.url("phone:imessage_upload", case_id=self.case.pk))
-                page.get_by_label("iMessage CSV", exact=True).set_input_files(
+                page.get_by_label("Message CSV", exact=True).set_input_files(
                     {
                         "name": "synthetic-messages.csv",
                         "mimeType": "text/csv",
@@ -277,7 +280,7 @@ class IMessageImportBrowserTests(BrowserTestCase):
                             ).values_list("parameters__backend", flat=True),
                         )
                     ),
-                    {"local", "gateway"},
+                    {"gateway"},
                 )
                 page.get_by_role("link", name="Refresh status", exact=True).press(
                     "Enter"
@@ -372,6 +375,103 @@ class IMessageImportBrowserTests(BrowserTestCase):
                     page.get_by_role("link", name="Follow message analysis", exact=True)
                 ).to_have_attribute("href", re.compile(str(rerun.pk)))
                 self.capture(page, engine, "rerun-analysis-processing")
+
+    def test_no_javascript_whatsapp_import_opens_conversations_with_source(self):
+        for engine in self.engines:
+            account = Person.objects.create(
+                case=self.case, first_name=f"Avery {engine}"
+            )
+            correspondent = Person.objects.create(
+                case=self.case, first_name=f"Blair {engine}"
+            )
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("core:evidence:bulk_create", case_id=self.case.pk))
+                page.get_by_role("link", name="Import message CSV", exact=True).click()
+                page.get_by_label("Message CSV", exact=True).set_input_files(
+                    {
+                        "name": "synthetic-whatsapp.csv",
+                        "mimeType": "text/csv",
+                        "buffer": whatsapp_csv(),
+                    }
+                )
+                page.get_by_label("Export timezone", exact=True).fill("America/Toronto")
+                page.get_by_label("I confirm this is the export's timezone").check()
+                page.get_by_role("button", name="Prepare message review").click()
+                preview_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
+                self.db(process_run, preview_id)
+                page.reload()
+                expect(
+                    page.get_by_role("heading", name="Review message CSV")
+                ).to_be_visible()
+                expect(page.get_by_text("WhatsApp CSV", exact=True)).to_be_visible()
+                self.capture(page, engine, "whatsapp-review-1440-900")
+                page.set_viewport_size({"width": 390, "height": 844})
+                expect(page.get_by_text("WhatsApp CSV", exact=True)).to_be_visible()
+                self.capture(page, engine, "whatsapp-review-390-844")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.get_by_role(
+                    "group", name="Export account — outgoing sender", exact=True
+                ).get_by_label("Person", exact=True).select_option(str(account.pk))
+                page.get_by_role(
+                    "group", name="Correspondent — incoming sender", exact=True
+                ).get_by_label("Person", exact=True).select_option(
+                    str(correspondent.pk)
+                )
+                page.get_by_label(
+                    "I confirm this export is a direct conversation "
+                    "between these two people",
+                    exact=True,
+                ).check()
+                page.get_by_label(
+                    "Import the ready messages with these people "
+                    "and the confirmed timezone",
+                    exact=True,
+                ).check()
+                page.get_by_role("button", name="Import messages", exact=True).click()
+                final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
+                self.db(process_run, final_id)
+                page.reload()
+                expect(
+                    page.get_by_role("heading", name="Messages imported")
+                ).to_be_visible()
+                page.get_by_role("link", name="View conversation", exact=True).click()
+                messages = page.get_by_role("region", name="Messages", exact=True)
+                expect(
+                    messages.get_by_text("Original WhatsApp message, café", exact=False)
+                ).to_be_visible()
+                expect(
+                    messages.get_by_text("WhatsApp reply", exact=True)
+                ).to_be_visible()
+                expect(
+                    messages.get_by_text("Messages: synthetic-whatsapp.csv · Row 2")
+                ).to_be_visible()
+                for width, height in ((1440, 900), (390, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(
+                        page, engine, f"whatsapp-conversation-{width}-{height}"
+                    )
+                messages.locator("[data-message-select]").first.click()
+                page.get_by_text("Message source", exact=True).click()
+                page.get_by_role("link", name="View source metadata").click()
+                info = self.open_evidence_panel(page, "info")
+                expect(
+                    info.get_by_role("heading", name="Imported source context")
+                ).to_be_visible()
+                info.get_by_role(
+                    "link", name="Retained export: Messages: synthetic-whatsapp.csv"
+                ).click()
+                expect(
+                    page.get_by_role(
+                        "heading", name="Messages: synthetic-whatsapp.csv", exact=True
+                    )
+                ).to_be_visible()
 
     @override_settings(
         PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY | {"account": ""},

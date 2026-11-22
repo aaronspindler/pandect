@@ -128,10 +128,10 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
             follow_up.assert_not_called()
 
     @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
-    def test_recording_analysis_schedules_text_once_from_the_exact_selected_result(
+    def test_retained_paired_transcription_batch_uses_one_exact_result(
         self,
     ):
-        external_grant_kwargs(self.case, "transcription")
+        grant = external_grant_kwargs(self.case, "transcription")
         audio = AudioEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["editor"],
@@ -141,6 +141,8 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
         batch, _ = start_added_evidence_analysis(
             self.users["editor"], self.case.pk, "audio", audio.pk
         )
+        batch.scope["executions"]["transcription:gateway"] = grant["approved_execution"]
+        batch.save(update_fields=("scope",))
         for _ in range(4):
             if prepare_case_analysis_batch(batch.pk) == "complete":
                 break

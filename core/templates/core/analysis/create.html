@@ -59,6 +59,7 @@
   </div>
   {% endif %}
   <h2>{% if choose_call_recording %}Choose a recording from this call{% else %}Choose evidence{% endif %}</h2>
+  {% if operation == 'claim_comparison' %}<p>Choose the message or call transcript with the claim and up to five sources to compare with it.</p>{% endif %}
   {% if choose_retained_material %}<p class="muted">Showing material for this record. <a href="{% url 'core:analysis:create' case.pk %}?operation={{ operation }}">Choose from all case evidence</a>.</p>{% endif %}
   {% if input_guidance %}<details class="disclosure"{% if not source_options %} open{% endif %}><summary>Supported sources</summary><p>{{ input_guidance }}</p></details>{% endif %}
 
@@ -122,7 +123,7 @@
     {% if form.configuration_readiness %}<p class="help-text">{{ form.configuration_readiness }}</p>{% endif %}
     {% if has_blocked_selection %}<p>Resolve or remove blocked sources before starting.</p>{% endif %}
     <div class="form-actions">
-      <button class="button button-primary" type="submit"{% if not has_compatible_source or has_blocked_selection or form.processing_unavailable %} disabled{% endif %}>Start analysis</button>
+      <button class="button button-primary" type="submit"{% if not has_compatible_source or has_blocked_selection or form.processing_unavailable %} disabled{% endif %}>{% if operation == 'claim_comparison' %}Choose claim{% else %}Start analysis{% endif %}</button>
       <a class="button button-secondary" href="{% if evidence %}{{ evidence_url }}{% else %}{% url 'core:analysis:index' case.pk %}{% endif %}">Cancel</a>
     </div>
   </div>

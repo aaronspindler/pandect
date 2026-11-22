@@ -175,6 +175,10 @@ def resolve_inputs(
         require_current_review=require_current_review,
         cache=cache,
     )
+    if run.operation == "claim_comparison" and any(
+        source.item.is_archived for source in sources
+    ):
+        raise AnalysisError("source_archived")
     if run.operation in {"question_synthesis", "sighting_group"}:
         validate_references(run, sources, case, cache=cache, depth=finding_depth)
     elif run.operation == "journey_claims":
@@ -628,10 +632,17 @@ def start_run(
         from geo.journey_claim_checks import check_material_size
 
         check_material_size(case, selections)
+    elif operation == "claim_comparison":
+        from text.analysis.claim_comparison import MAX_SOURCES, validate_selection
+
+        if not 2 <= len(selections) <= MAX_SOURCES:
+            raise ValidationError(
+                "Select one claim source and one to five other sources."
+            )
     snapshots = snapshot_sources(case, selections, allowed_kinds=specification.kinds)
     if (
         previous_run
-        and operation in {"journey_claims", "sighting_group"}
+        and operation in {"claim_comparison", "journey_claims", "sighting_group"}
         and (previous_run.operation != operation or previous_run.inputs != snapshots)
     ):
         raise AnalysisError("source_changed")
@@ -695,7 +706,9 @@ def start_run(
         batch=batch,
     )
     resolved = _processing_inputs(run, case)
-    if operation == "question_synthesis":
+    if operation == "claim_comparison":
+        validate_selection(resolved, run.parameters)
+    elif operation == "question_synthesis":
         from text.analysis.synthesis import records_for_selection
 
         records_for_selection(resolved, run.parameters)

@@ -15,6 +15,7 @@ from django.utils import timezone
 from cases.admin import CaseAdmin
 from cases.models import Case, CaseInvitation, CaseMembership
 from core.analysis.execution import available_executions
+from core.analysis.tests.test_openai_gateway import OPENAI
 from geo.models import PersonLocationEvidence
 from geo.testing import LOCAL_GEOCODER
 from people.models import Person
@@ -170,6 +171,104 @@ class CaseInterfaceTests(TestCase):
         self.case.refresh_from_db()
         self.assertEqual(available_executions(self.case, "geocode_locations", {}), {})
         self.assertFalse(self.case.external_analysis_approval.get("executions"))
+
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
+    def test_case_owner_selects_ai_backend_with_current_approval(self):
+        settings = self.url("case_settings")
+        backend_action = self.url("case_ai_backend")
+        approval_action = self.url("case_external_analysis")
+        external = {"ai_backend": Case.AIBackend.GATEWAY}
+        for actor, status in (
+            (self.viewer, 403),
+            (self.editor, 403),
+            (self.outsider, 404),
+        ):
+            with self.subTest(actor=actor):
+                self.login(actor)
+                self.assertEqual(
+                    self.client.post(backend_action, external).status_code, status
+                )
+
+        self.login()
+        self.assertEqual(self.client.get(backend_action).status_code, 405)
+        self.assertContains(
+            self.client.post(backend_action, external),
+            "Approve an external AI destination",
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
+
+        approval = self.client.get(settings).context["external_analysis"]
+        self.assertEqual(
+            self.client.post(
+                approval_action,
+                {"action": "approve", "confirmation": approval["approve_confirmation"]},
+            ).status_code,
+            302,
+        )
+        changed_gateway = OPENAI | {
+            "models": OPENAI["models"] | {"text": "gpt-6-astra"}
+        }
+        with self.settings(PANDECT_AI_GATEWAY=changed_gateway):
+            self.assertContains(
+                self.client.post(backend_action, external),
+                "Approve an external AI destination",
+            )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
+
+        self.assertRedirects(
+            self.client.post(backend_action, external), f"{settings}#ai-processing"
+        )
+        self.case.refresh_from_db()
+        self.other_case.refresh_from_db()
+        self.assertEqual(self.case.ai_backend, Case.AIBackend.GATEWAY)
+        self.assertEqual(self.other_case.ai_backend, Case.AIBackend.LOCAL)
+
+        approval = self.client.get(settings).context["external_analysis"]
+        self.assertContains(
+            self.client.post(
+                approval_action,
+                {"action": "revoke", "confirmation": approval["revoke_confirmation"]},
+                follow=True,
+            ),
+            "External AI needs current approval.",
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.ai_backend, Case.AIBackend.GATEWAY)
+        self.assertRedirects(
+            self.client.post(backend_action, {"ai_backend": Case.AIBackend.LOCAL}),
+            f"{settings}#ai-processing",
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
+
+    @override_settings(
+        PANDECT_AI_GATEWAY={}, **(LOCAL_GEOCODER | {"PANDECT_GEOCODER_LOCAL": False})
+    )
+    def test_geographic_approval_does_not_enable_external_ai_backend(self):
+        self.login()
+        settings = self.client.get(self.url("case_settings"))
+        self.assertEqual(
+            self.client.post(
+                self.url("case_external_analysis"),
+                {
+                    "action": "approve",
+                    "confirmation": settings.context["external_analysis"][
+                        "approve_confirmation"
+                    ],
+                },
+            ).status_code,
+            302,
+        )
+        self.assertContains(
+            self.client.post(
+                self.url("case_ai_backend"), {"ai_backend": Case.AIBackend.GATEWAY}
+            ),
+            "Approve an external AI destination",
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
 
     def test_settings_keeps_actionable_invitations_outside_history(self):
         now = timezone.now()

@@ -818,6 +818,9 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Request session summary")
                 ).to_be_visible()
+                expect(
+                    page.get_by_text("Private inference", exact=False)
+                ).to_be_visible()
                 page.get_by_text(
                     "Messages included in this summary", exact=False
                 ).press("Enter")
@@ -870,6 +873,9 @@ class ConversationBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 expect(
                     page.get_by_text("Sessions included · 2", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("Private inference", exact=False)
                 ).to_be_visible()
                 self.assert_reflow(page, 320)
                 self.capture(page, engine, "instances-bulk-review-mobile")
@@ -1240,7 +1246,8 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(findings.first).not_to_contain_text(full_text_end)
                 expect(inline).not_to_contain_text("Suggest claims and commitments")
                 expect(findings.nth(1)).to_contain_text("AI suggestion")
-                expect(findings.nth(1)).to_contain_text("Reported sender Alex")
+                expect(findings.nth(1)).to_contain_text("Alex suggests")
+                expect(findings.nth(1)).not_to_contain_text("Reported sender Alex")
                 expect(findings.nth(1)).to_contain_text("reported recipient Blair")
                 expect(findings.nth(1)).not_to_contain_text(str(first.sender_id))
                 expect(findings.nth(1)).not_to_contain_text("Rejected")
@@ -1287,7 +1294,7 @@ class ConversationBrowserTests(BrowserTestCase):
                 )
                 expect(shared.locator(".conversation-finding")).to_have_count(25)
                 shared.get_by_role("link", name="Next findings", exact=True).click()
-                expect(inline).to_contain_text("Reported sender Alex")
+                expect(inline).to_contain_text("Alex suggests")
                 expect(inline).not_to_contain_text(str(first.sender_id))
                 expect(shared.locator(".conversation-finding")).to_have_count(2)
                 expect(findings).to_have_count(25)
@@ -1309,21 +1316,19 @@ class ConversationBrowserTests(BrowserTestCase):
                     + "?method=content_events"
                 )
                 suggestion = page.locator(".analysis-finding-rows > li").filter(
-                    has_text="Reported sender Alex"
+                    has_text="Alex suggests"
                 )
-                expect(suggestion).to_contain_text("Reported sender Alex")
+                expect(suggestion).not_to_contain_text("Reported sender Alex")
                 expect(suggestion).not_to_contain_text(str(first.sender_id))
                 self.capture(page, engine, "participant-names-catalogue")
-                suggestion.get_by_role(
-                    "link", name=re.compile(r"^Reported sender Alex\b")
-                ).click()
+                suggestion.get_by_role("link", name=re.compile(r"^Alex\b")).click()
                 expect(
                     page.locator(".analysis-finding").get_by_role(
-                        "heading", name=re.compile(r"^Reported sender Alex\b")
+                        "heading", name="AI suggestion · Alex", exact=True
                     )
                 ).to_be_visible()
                 text = page.locator(".analysis-finding-text")
-                expect(text).to_contain_text("Reported sender Alex")
+                expect(text).to_contain_text("Alex suggests")
                 expect(text).to_contain_text("reported recipient Blair")
                 expect(text).not_to_contain_text(str(first.sender_id))
                 self.capture(page, engine, "participant-names-detail")
@@ -1340,9 +1345,9 @@ class ConversationBrowserTests(BrowserTestCase):
                     "Synthetic message export · Thread synthetic-thread", exact=True
                 )
                 if not thread.is_visible():
-                    page.locator("#finding-1").get_by_text("Details", exact=True).press(
-                        "Enter"
-                    )
+                    page.locator("#finding-1").get_by_text(
+                        "Finding details", exact=True
+                    ).press("Enter")
                 expect(thread).to_be_visible()
                 assumptions = page.locator(".analysis-run-details")
                 expect(assumptions).not_to_contain_text(str(first.pk))

@@ -51,11 +51,13 @@ mounts at `/var/lib/postgresql`. Compose and CI pin the same multi-architecture
 pgvector image. Case search uses PostgreSQL full-text search, trigrams and
 384-dimensional passage embeddings in the existing case database.
 
-Django's Tasks API uses the beta `django-tasks-db` dependency, PostgreSQL, and one
-`default` queue, without a separate broker. Compose starts its worker after web
-readiness confirms migrations. Integration/restart behavior is covered locally
-and in CI. The queue supplies transport and operational records;
-[case analysis](analysis.md) adds authorization, immutable results, progress, and
+Django's Tasks API uses the beta `django-tasks-db` dependency and PostgreSQL
+without a separate broker. Ordinary workers use the `default` queue. The optional
+[offline Instagram pilot](instagram-monitors.md) has its own worker and
+`instagram` queue in the same database. Compose starts workers after web readiness
+confirms migrations. Integration and restart behavior are covered by local and
+CI checks. The queue supplies transport and operational records.
+[Case analysis](analysis.md) adds authorization, immutable results, progress, and
 recovery. See [background tasks](background-tasks.md) for diagnostics.
 
 ## Modules and identity

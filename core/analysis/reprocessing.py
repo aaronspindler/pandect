@@ -18,6 +18,7 @@ from core.analysis.execution import (
     GEOGRAPHIC,
     available_executions,
     requires_inference,
+    selected_ai_executions,
     snapshot_execution,
 )
 from core.analysis.history import (
@@ -34,6 +35,7 @@ from core.models import CaseAnalysisBatch
 from phone.models import CallEvidenceAttachment
 
 CONTEXT_REQUIRED_OPERATIONS = (
+    "claim_comparison",
     "question_synthesis",
     "sighting_group",
     "style_change",
@@ -99,10 +101,10 @@ def reprocessing_executions():
 
 
 def analysis_scope(case, kinds):
-    """Freeze configured routes eligible under the current case policy."""
+    """Freeze the case's selected AI routes and eligible geographic services."""
     kinds = set(kinds)
     audio_routes = (
-        available_executions(case, "transcription", {})
+        selected_ai_executions(case, "transcription", {})
         if kinds.intersection((*CALL_KINDS, "audio"))
         else {}
     )
@@ -119,11 +121,14 @@ def analysis_scope(case, kinds):
         f"transcription:{backend}": route for backend, route in audio_routes.items()
     }
     for operation in operations:
-        for backend, route in available_executions(
-            case, operation, MODEL_PARAMETERS.get(operation, {})
-        ).items():
-            key = operation if operation in GEOGRAPHIC else f"{operation}:{backend}"
-            executions[key] = route
+        if operation in GEOGRAPHIC:
+            for route in available_executions(case, operation, {}).values():
+                executions[operation] = route
+        else:
+            for backend, route in selected_ai_executions(
+                case, operation, MODEL_PARAMETERS[operation]
+            ).items():
+                executions[f"{operation}:{backend}"] = route
     return {
         "analysis_version": ANALYSIS_VERSION,
         "executions": executions,

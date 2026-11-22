@@ -9,6 +9,7 @@ from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from cases.models import Case
 from core.analysis.approval import approve_case_execution
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.execution import configured_external_executions
@@ -18,7 +19,6 @@ from core.analysis.testing import image_bytes, wav_bytes
 from core.analysis.tests.test_direct_ai import DIRECT_AI, OPENAI_DIRECT
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
-from core.analysis.transcripts import select_transcript
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
 from geo.testing import LOCAL_GEOCODER
@@ -85,21 +85,26 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
         self.fail("Reprocessing did not finish preparing its selected domains")
 
     @override_settings(PANDECT_AI_GATEWAY=OPENAI_DIRECT, PANDECT_DIRECT_AI=DIRECT_AI)
-    def test_audio_only_routes_require_a_configured_transcription(self):
+    def test_audio_only_routes_require_transcription_on_the_selected_backend(self):
         self.source("audio")
-        with self.settings(PANDECT_LOCAL_AI={}):
-            batch = self.start(("audio",), approved=True)
-            self.drain(batch)
-            self.assertEqual(
-                set(batch.runs.values_list("operation", flat=True)), {"audio_metadata"}
-            )
-            self.assertNotIn("content_events:gateway", batch.scope["executions"])
+        self.case.ai_backend = Case.AIBackend.GATEWAY
+        self.case.save(update_fields=("ai_backend",))
+        batch = self.start(("audio",), approved=True)
+        self.drain(batch)
+        self.assertEqual(
+            set(batch.runs.values_list("operation", flat=True)), {"audio_metadata"}
+        )
+        self.assertNotIn("content_events:gateway", batch.scope["executions"])
+
+        self.case.ai_backend = Case.AIBackend.LOCAL
+        self.case.save(update_fields=("ai_backend",))
         batch = self.start(("audio",), approved=True)
         self.drain(batch)
         self.assertEqual(
             batch.runs.get(operation="transcription").parameters["backend"], "local"
         )
-        self.assertIn("content_events:gateway", batch.scope["executions"])
+        self.assertIn("content_events:local", batch.scope["executions"])
+        self.assertNotIn("content_events:gateway", batch.scope["executions"])
 
     @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
     def test_all_domains_include_files_messages_and_every_call_recording(self):
@@ -146,8 +151,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
                     and run.inputs[0]["attachment_id"] == str(addition.pk)
                 ]
                 self.assertEqual(
-                    {run.parameters["backend"] for run in transcriptions},
-                    {"local", "gateway"},
+                    [run.parameters["backend"] for run in transcriptions], ["local"]
                 )
                 self.assertTrue(
                     any(
@@ -179,11 +183,12 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             phone_call=call,
             file=ContentFile(wav_bytes(), name="call.wav"),
         )
+        self.case.ai_backend = Case.AIBackend.GATEWAY
+        self.case.save(update_fields=("ai_backend",))
         batch = self.start(("phone-call",), approved=True)
         self.drain(batch)
-        transcription = batch.runs.get(
-            operation="transcription", external_processing=True
-        )
+        transcription = batch.runs.get(operation="transcription")
+        self.assertTrue(transcription.external_processing)
         words = "Synthetic spoken claim."
         with patch(
             "core.analysis.gateway.GatewayClient.request",
@@ -195,14 +200,12 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             process_run(transcription.pk)
         transcription.refresh_from_db()
         self.assertEqual(transcription.status, "complete", transcription.error_code)
-        batch.runs.filter(operation="transcription", external_processing=False).update(
-            status="failed"
-        )
-        select_transcript(batch.pk, transcription.parameters["_transcript_group"])
         followups = list(
             batch.runs.filter(previous_run=transcription, operation="conversation_link")
         )
-        self.assertEqual(len(followups), 3)
+        self.assertCountEqual(
+            [run.external_processing for run in followups], [False, True]
+        )
         for run in followups:
             self.assertEqual(run.inputs[0]["attachment_id"], str(addition.pk))
             self.assertEqual(run.inputs[0]["result_id"], str(transcription.result.pk))

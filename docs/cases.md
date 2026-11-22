@@ -37,6 +37,20 @@ records, including archived evidence. There is no in-app undo; user accounts
 remain. See [operations](operations.md) and [evidence](evidence.md) for storage
 and backup limits.
 
+## AI backend
+
+The case owner chooses **Local AI** (the default) or **External AI** under
+**Case settings → AI processing**. The selection applies to new automatic checks,
+evidence reprocessing, and on-demand AI checks without a dedicated service.
+Each check uses the selected backend when available. For External AI, approve
+the destination before selecting it. A missing service or approval leaves the
+AI check unavailable. Built-in checks and geographic services have their own
+requirements.
+
+Changing the selection applies to new requests. Queued requests and saved
+results keep their original service. Revoke external approval to stop subsequent
+requests to approved external destinations, including requests from queued work.
+
 ## External analysis approval
 
 The case owner can approve or revoke the configured external services under
@@ -47,9 +61,8 @@ destinations. Changes to a destination require approval in Case Settings before
 Pandect sends evidence there. Revocation stops subsequent requests. Provider
 retention still applies to requests already sent.
 
-Private and built-in checks run independently. New and existing cases start
-without external approval. Approving a case enables future eligible requests.
-Owners and editors can start **Reprocess evidence** for retained material.
+New cases start without external approval. Owners and editors can start
+**Reprocess evidence** for retained material.
 
 ## Account settings
 

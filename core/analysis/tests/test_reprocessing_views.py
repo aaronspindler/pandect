@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from cases.models import CaseMembership
+from cases.models import Case, CaseMembership
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_gateway import CONFIG
 from core.models import AnalysisRun, CaseAnalysisBatch
@@ -100,7 +100,7 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(AnalysisRun.objects.exists())
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
-    def test_external_routing_uses_only_case_owner_approval(self):
+    def test_external_routing_requires_case_selection_and_owner_approval(self):
         payload = self.selection(evidence_types=["text"])
         response = self.client.get(self.reprocess_url())
         self.assertNotContains(response, "Choose processing location")
@@ -117,7 +117,16 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         next_payload = self.selection("editor", evidence_types=["text"])
         second = self.client.post(self.reprocess_url(), next_payload)
         self.assertEqual(second.status_code, 302)
-        batch = CaseAnalysisBatch.objects.get(pk=next_payload["submission_id"])
+        second_batch = CaseAnalysisBatch.objects.get(pk=next_payload["submission_id"])
+        self.assertNotIn("content_events:gateway", second_batch.scope["executions"])
+
+        self.case.ai_backend = Case.AIBackend.GATEWAY
+        self.case.save(update_fields=("ai_backend",))
+        external_payload = self.selection("editor", evidence_types=["text"])
+        self.assertEqual(
+            self.client.post(self.reprocess_url(), external_payload).status_code, 302
+        )
+        batch = CaseAnalysisBatch.objects.get(pk=external_payload["submission_id"])
         self.assertEqual(
             batch.scope["executions"]["content_events:gateway"],
             approval["approved_execution"],

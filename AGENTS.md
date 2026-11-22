@@ -123,8 +123,8 @@ Follow [analysis](docs/analysis.md), [local inference](docs/local-analysis.md), 
   evidence or present partial results as complete. The PostgreSQL queue supplies
   neither case authorization, automatic retries, nor stale-task recovery.
 - Queue applicable analysis for newly retained evidence, call additions and
-  newly published CSV rows. Run deterministic checks once and add configured
-  private and case-approved external methods independently. Compare with
+  newly published CSV rows. Run deterministic checks once and use only the
+  case's selected, eligible AI backend for each model check. Compare with
   bounded relevant active case history and retain exact coverage and provenance.
   Keep methods requiring investigator-defined context and import interpretation
   deliberate. Vehicle imports require explicit timezone/vehicle interpretation

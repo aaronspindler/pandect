@@ -163,6 +163,20 @@ class MonitorEvidenceTests(EvidenceTestMixin, TestCase):
         d = self.record(roster(), roster())
         self.assertFalse(hasattr(d["following"], "comparison"))
 
+    def test_bound_target_starts_fresh_baseline_after_handle_only_history(self):
+        old = self.record(roster("legacy.only"), roster(), target_id="")["followers"]
+        self.monitor.target_id = "target1"
+        self.monitor.save(update_fields=["target_id"])
+
+        baseline = self.record(roster("current"), roster())["followers"]
+        self.assertFalse(hasattr(baseline, "comparison"))
+        next_ = self.record(roster("current", "next"), roster())["followers"]
+        self.assertEqual(next_.comparison.previous, baseline)
+        with old.evidence.file.open("rb") as original:
+            self.assertEqual(
+                hashlib.sha256(original.read()).hexdigest(), old.evidence.sha256
+            )
+
     def test_endpoint_baseline_retains_prior_version_and_partial_page_counts(self):
         self.connection.source = self.monitor.source = "instagram"
         self.connection.save(update_fields=["source"])

@@ -42,13 +42,13 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             title="Reported correspondence",
             sender=self.person,
             recipient=recipient,
-            body=f"Literal source identifier {self.person.pk}.",
+            body=f"Reported sender {self.person.pk} appears in the original.",
         )
         inputs = snapshot_sources(
             self.case, [{"kind": "text-message", "id": message.pk}]
         )
         narrative = (
-            f"Reported sender **{str(self.person.pk).upper()}** contacted "
+            f"The reported sender **{str(self.person.pk).upper()}** contacted "
             f"reported recipient {recipient.pk}. "
             f"Reported sender {hidden.pk} and "
             f"reported sender {uncited.pk} are unresolved."
@@ -79,13 +79,11 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             reverse("core:analysis:browse", args=[self.case.pk])
         )
         preview = catalogue.context["rows"][0]["preview"]
-        self.assertEqual(
-            catalogue.context["rows"][0]["label"], "Reported sender Alex <script>"
-        )
-        self.assertIn(
-            "Reported sender Alex <script> contacted "
-            "reported recipient recipient@example.test",
-            preview,
+        self.assertEqual(catalogue.context["rows"][0]["label"], "Alex <script>")
+        self.assertTrue(
+            preview.startswith(
+                "Alex <script> contacted reported recipient recipient@example.test"
+            )
         )
         self.assertNotIn(str(self.person.pk).upper(), preview)
         self.assertIn(str(hidden.pk), preview)
@@ -100,15 +98,16 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
             case_home.context["highlights"],
             evidence.context["findings_page"],
         ):
-            self.assertIn("Reported sender Alex <script>", rows[0]["summary_text"])
+            self.assertTrue(
+                rows[0]["summary_text"].startswith("Alex <script> contacted")
+            )
+            self.assertTrue(rows[0]["ai_suggestion"])
         detail = self.client.get(
             reverse("core:analysis:detail", args=[self.case.pk, run.pk])
         )
-        self.assertEqual(
-            detail.context["items"][0]["label"], "Reported sender Alex <script>"
-        )
-        self.assertIn(
-            "Reported sender Alex <script>", detail.context["items"][0]["text"]
+        self.assertEqual(detail.context["items"][0]["label"], "Alex <script>")
+        self.assertTrue(
+            detail.context["items"][0]["text"].startswith("Alex <script> contacted")
         )
         self.assertContains(detail, message.body)
         result.refresh_from_db()

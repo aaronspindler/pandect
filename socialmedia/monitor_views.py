@@ -1,7 +1,6 @@
 from uuid import UUID
 
 from django import forms
-from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
@@ -30,6 +29,8 @@ class MonitorForm(forms.Form):
     target = forms.CharField(
         label="Target handle",
         max_length=31,
+        initial=instagram_connector.PILOT_TARGET,
+        help_text="The synthetic collector supports @demo.account.",
     )
     interval_hours = forms.TypedChoiceField(
         label="Check interval",
@@ -38,30 +39,33 @@ class MonitorForm(forms.Form):
         initial=24,
     )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        source = instagram_connector.current_source()
-        target_field = self.fields["target"]
-        if source == "synthetic":
-            target_field.initial = instagram_connector.PILOT_TARGET
-            target_field.help_text = "The synthetic browser supports @demo.account."
-        else:
-            target_field.help_text = "Enter a handle approved for this installation."
-            minimum = settings.PANDECT_INSTAGRAM_LIVE["min_hours"]
-            self.fields["interval_hours"].choices = [
-                (hours, label)
-                for hours, label in InstagramMonitor.INTERVALS
-                if hours >= minimum
-            ]
-
 
 def _connection(user):
-    return (
+    retained = (
         InstagramConnection.objects.filter(user=user)
         .exclude(session="")
-        .values("source", "observer")
+        .values("source", "observer", "observer_id_string", "session")
         .first()
     )
+    if not retained:
+        return None
+    binding = retained.pop("session")
+    observer_id = retained.pop("observer_id_string")
+    expires_at = (
+        instagram_connector.connection_expires_at(binding)
+        if retained["source"] == "synthetic" and observer_id
+        else None
+    )
+    return retained | {"expires_at": expires_at, "ready": bool(expires_at)}
+
+
+def _monitor_setup(case, user, *, can_edit):
+    available = instagram_connector.scheduling_available()
+    return {
+        "available": available,
+        "target_approved": available and monitor_jobs.target_approved(case.pk),
+        "connection": _connection(user) if can_edit else None,
+    }
 
 
 @product_login_required
@@ -73,11 +77,11 @@ def connection_settings(request):
             case = accessible_cases(request.user).filter(pk=UUID(case_id)).first()
         except ValueError:
             pass
-    source = instagram_connector.current_source()
+    available = instagram_connector.scheduling_available()
     pending_key = "instagram_pilot_pair"
     pending = request.session.get(pending_key)
     pending_source = pending.get("source") if isinstance(pending, dict) else "synthetic"
-    if pending_source != source:
+    if pending_source != "synthetic" or not available:
         pending = None
     if request.method == "POST":
         action = request.POST.get("action")
@@ -96,16 +100,12 @@ def connection_settings(request):
                     return redirect("instagram:list", case.pk)
             elif action == "cancel":
                 request.session.pop(pending_key, None)
-                if pending:
-                    monitor_jobs.cancel_pairing(request.user, pending)
             elif action == "disconnect":
                 monitor_jobs.disconnect(request.user)
                 request.session.pop(pending_key, None)
                 messages.success(
                     request, "Instagram disconnected. Monitoring has stopped."
                 )
-                if pending:
-                    monitor_jobs.cancel_pairing(request.user, pending)
             else:
                 raise Http404
         except ValidationError as exc:
@@ -118,9 +118,7 @@ def connection_settings(request):
         "socialmedia/monitor_connection.html",
         {
             "return_case": case,
-            "available": instagram_connector.available(),
-            "permitted": instagram_connector.permits(request.user.pk),
-            "source": source,
+            "available": available,
             "pending": bool(pending),
             "connection": _connection(request.user),
         },
@@ -137,13 +135,8 @@ def monitor_list(request, case_id):
         request,
         "socialmedia/monitor_list.html",
         context
-        | {
-            "page_obj": Paginator(monitors, 25).get_page(request.GET.get("page")),
-            "available": instagram_connector.available(),
-            "permitted": instagram_connector.permits(request.user.pk, case.pk),
-            "source": instagram_connector.current_source(),
-            "connection": _connection(request.user) if context["can_edit"] else None,
-        },
+        | _monitor_setup(case, request.user, can_edit=context["can_edit"])
+        | {"page_obj": Paginator(monitors, 25).get_page(request.GET.get("page"))},
     )
 
 
@@ -166,13 +159,8 @@ def monitor_create(request, case_id):
         request,
         "socialmedia/monitor_create.html",
         case_context(case, request.user)
-        | {
-            "connection": _connection(request.user),
-            "source": instagram_connector.current_source(),
-            "available": instagram_connector.available(),
-            "permitted": instagram_connector.permits(request.user.pk, case.pk),
-            "form": form,
-        },
+        | _monitor_setup(case, request.user, can_edit=True)
+        | {"form": form},
         status=400 if request.method == "POST" else 200,
     )
 
@@ -246,23 +234,24 @@ def monitor_detail(request, case_id, monitor_id):
     recoverable = monitor_jobs.check_needs_recovery(
         monitor, running, now=timezone.now()
     )
-    intervals = (
-        [
-            (hours, label)
-            for hours, label in InstagramMonitor.INTERVALS
-            if instagram_connector.allowed_target(monitor.source, monitor.target, hours)
-        ]
-        if instagram_connector.available()
-        and instagram_connector.permits(monitor.created_by_id, case.pk)
-        else []
+    context = case_context(case, request.user)
+    creator = request.user.pk == monitor.created_by_id
+    setup = _monitor_setup(case, request.user, can_edit=creator and context["can_edit"])
+    available = setup["available"] and monitor.source == "synthetic"
+    can_schedule = (
+        available
+        and setup["target_approved"]
+        and setup["connection"]
+        and setup["connection"]["ready"]
     )
     return render(
         request,
         "socialmedia/monitor_detail.html",
-        case_context(case, request.user)
+        context
+        | setup
         | {
             "monitor": monitor,
-            "creator": request.user.pk == monitor.created_by_id,
+            "creator": creator,
             "last_success": last_success,
             "latest_failed_check": latest
             if latest and latest.status == "failed"
@@ -276,8 +265,9 @@ def monitor_detail(request, case_id, monitor_id):
             "changes": changes,
             "running": bool(running),
             "recoverable": recoverable,
-            "intervals": intervals,
-            "available": monitor.interval_hours in dict(intervals),
+            "intervals": InstagramMonitor.INTERVALS if can_schedule else (),
+            "available": available,
+            "can_schedule": can_schedule,
         },
     )
 

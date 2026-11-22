@@ -46,6 +46,30 @@ also apply without truncation. Missing text is insufficient; unavailable inferen
 fails recoverably. Private inference is the default. Review and approve the
 configured destination to use [external AI](analysis.md#external-ai-configuration).
 
+## Compare a claim
+
+Open **Case Tools → More case tools → Additional analysis → Compare a claim**.
+Choose the message or call transcript with the statement and one to five other
+active text sources. Comparison evidence can include retained text, messages,
+supplied call transcripts, or exact versions of saved text extractions and
+transcripts. Select the claim source and copy its exact wording. Include enough
+context to identify one occurrence if the wording repeats. The comparison
+accepts up to 12,000 characters across the selection and up to 1,000 characters
+for the claim. Runtime limits can require a smaller selection.
+
+The queued comparison uses the configured [private text service](local-analysis.md).
+The result retains the original claim, source-linked quotations, and potentially
+supporting, potentially conflicting, or unresolved suggestions. Matching
+checksums flag exact copies. Every selected source remains available for review.
+Check attribution, dates, negation, cancellation, and contradictory or missing
+context in the originals. A matching checksum establishes common bytes. A
+different checksum leaves source independence unresolved.
+
+Owners and editors queue comparisons. Current case viewers can read saved results
+and their available sources. Archived or unavailable inputs stop processing and
+withhold the result until the exact selection is available again. Processing
+keeps the selected input versions, execution settings, retry, and download.
+
 ## Descriptive writing profiles
 
 `style_profiles` uses original Text/messages, excluding derived OCR/transcription/
@@ -122,7 +146,8 @@ sessions on that review page. Saved summaries are kept, pending summaries for
 the same messages and grouping settings are skipped. Different overlapping
 groupings can each have a summary. Sessions over the per-run source or chunk
 limit are skipped.
-Requests queue summaries for available services and show progress in **Processing**.
+Review shows the [case's selected AI backend](cases.md#ai-backend). Requests
+queue one summary per included session and show progress in **Processing**.
 Instance summary statements show sender names and keep their AI suggestion labels
 and source citations. Open the cited summary directly from the instance or follow
 individual statements to their findings. A focused grouping or summary result
@@ -181,31 +206,37 @@ without two-person reduction or inference-boundary bypass.
 
 ## Message CSV imports
 
-iMessage imports support only the CSV profile below. HTML message imports are
-unavailable. Previously retained source documents, messages, and imported context
-remain readable; historical HTML import runs cannot be rerun. No data migration
-or evidence deletion is required.
+Pandect imports direct conversations from the iMessage and WhatsApp CSV
+profiles below. Previously retained HTML source documents, messages, and
+imported context remain readable. Use CSV to prepare a new import.
 
-CSV uses `imessage_import`, parser `imessage-csv-v1` and result key `imessage`,
-within the fresh pre-release database/queue baseline. Earlier identifiers have no
-aliases; prior serialized CSV runs/contexts are unsupported and runtime imports
-are not migrated. Source files/historical provenance remain unchanged.
+Both profiles use `imessage_import` and result key `imessage`, with parser
+versions `imessage-csv-v1` and `whatsapp-csv-v1`. The fresh pre-release
+database/queue baseline applies. Earlier serialized formats require a new review
+from the retained source. Source files preserve their bytes and historical
+provenance.
 
-Choose **Add evidence → Import records → Import iMessage · CSV** or a retained
-Document's **More** action. Upload/select one CSV and confirm its export timezone.
+Choose **Add evidence → Import records → Import message CSV** or a retained
+Document's **More** action. Upload or select one CSV and confirm its export timezone.
 When starting from a retained document, the form shows that CSV first. Open
 **Limit by date** to enter a **Start date**, an **End date**, or both. Both
 dates include the entire calendar day in the confirmed export timezone, including
 when a source timestamp carries its own offset. Leaving both fields blank reviews
-all dates. These 18 headers are required in any order:
+all dates. Pandect detects the profile from the exact header set and shows it
+in review. Each profile accepts its headers in any order.
 
-`Chat Session`, `Message ID`, `Message Date`, `Delivered Date`, `Read Date`,
-`Edited Date`, `Deleted Date`, `Service`, `Type`, `Sender ID`, `Sender Name`,
-`Status`, `Replying to`, `Subject`, `Text`, `Reactions`, `Attachment`, and
-`Attachment type`.
+**iMessage (18 columns)** uses `Chat Session`, `Message ID`, `Message Date`,
+`Delivered Date`, `Read Date`, `Edited Date`, `Deleted Date`, `Service`, `Type`,
+`Sender ID`, `Sender Name`, `Status`, `Replying to`, `Subject`, `Text`, `Reactions`,
+`Attachment`, and `Attachment type`.
 
-UTF-8/optional BOM, quoted commas and multiline text are supported; other layouts
-are not. No message-row ceiling applies. Message CSV files allow 100 MiB, separately
+**WhatsApp (15 columns)** uses `Chat Session`, `Message ID`, `Message Date`,
+`Sent Date`, `Type`, `Sender ID`, `Sender Name`, `Status`, `Forwarded`,
+`Replying to`, `Text`, `Reactions`, `Attachment`, `Attachment type`, and
+`Attachment info`.
+
+Both support UTF-8 with an optional BOM, quoted commas, and multiline text.
+No message-row ceiling applies. Message CSV files allow 100 MiB, separately
 from ordinary uploads. Fields allow 131,072 characters and each message allows
 at most 1 MiB UTF-8. Preparation,
 review and publication stream rows rather than accumulating conversations in results.
@@ -223,14 +254,14 @@ Outgoing uses account→other; incoming reverses them. Changing the timezone or
 dates requires a fresh review, which can use the same retained CSV. Missing times
 stay unknown in unrestricted imports. A date-limited import excludes messages
 without a usable date and counts messages outside the range separately.
-Malformed/ambiguous/nonexistent local times, attachment-only rows and unsupported
-directions are excluded. The full CSV remains available for source review.
+Malformed, ambiguous, or nonexistent local times, attachment-only rows,
+WhatsApp system notifications, and unsupported directions are excluded.
+The full CSV remains available for source review.
 Confirmation publishes only ready messages from the reviewed selection.
 
-Publication queues built-in methods, configured private inference and
-[case-approved external analysis](cases.md#external-analysis-approval) for
-the newly added messages. Eligible routes are captured when publication queues
-analysis.
+Publication queues built-in methods and eligible checks on the
+[case's selected AI backend](cases.md#ai-backend) for newly added messages.
+Publication captures those execution settings when it queues analysis.
 
 Confirmation queues method 2, separate from the immutable preview run. Publication
 rechecks edit access/integrity and atomically creates requested people, messages,
@@ -257,7 +288,8 @@ messages were added, reused or excluded. **View conversation** opens the message
 stream at the first newly published message in the export, or at a retained
 message from the same source and conversation when all rows were reused. The
 retained CSV, row review, and linked new messages remain available in disclosures
-with separate pagination.
+with separate pagination. Messages from both services appear together when
+the investigator maps their exports to the same case-person pair.
 
 Nullable `CommunicationContext.import_run` retains publishing runs; apply its
 additive migration before updated web/workers. Existing messages/contexts stay
@@ -268,9 +300,11 @@ needs a method-2 run.
 Decoded **Text** is preserved untrimmed with source row/exact character range;
 CSV bytes stay exact. **Message ID**/**Replying to** retain native references;
 **Chat Session** stays a label, not a native thread ID. **Info → Imported source
-context** shows service/direction, contact claims, subject/status, delivery/read/
-edit/delete dates, reactions and attachment references. Reactions create no
-messages, markers recover no history and attachments are never opened/fetched.
+context** shows service, direction, contact claims, reactions, attachment
+references, and other supplied fields. WhatsApp's `Sent Date`, `Forwarded`,
+and `Attachment info` stay in this metadata. `Message Date` determines the
+message time. Reactions create no messages, markers recover no history, and
+attachments are never opened or fetched.
 
 Publication atomically queues analysis only for newly created messages. Previews,
 excluded/reused rows start no batch. **Follow message analysis** shows progress,

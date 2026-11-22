@@ -3,7 +3,7 @@
 import csv
 import io
 from copy import deepcopy
-from datetime import date
+from datetime import UTC, date, datetime
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -19,9 +19,14 @@ from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
-from phone.analysis.deterministic.imessage import HEADERS, iter_import_rows
+from phone.analysis.deterministic.imessage import (
+    HEADERS,
+    WHATSAPP_HEADERS,
+    iter_import_rows,
+)
 from phone.imessage_forms import IMessageUploadForm
 from phone.imessage_imports import confirm_import, start_preview
+from phone.message_csv import WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext, TextMessageEvidence
 
 SYNTHETIC_MESSAGE_GATEWAY = {
@@ -72,6 +77,40 @@ def message_csv(*rows):
             | values
         )
     return stream.getvalue().encode("utf-8")
+
+
+def whatsapp_csv(*rows, headers=WHATSAPP_HEADERS):
+    stream = io.StringIO(newline="")
+    writer = csv.DictWriter(stream, fieldnames=headers)
+    writer.writeheader()
+    for index, values in enumerate(
+        rows
+        or (
+            {},
+            {
+                "Type": "Outgoing",
+                "Sender ID": "",
+                "Sender Name": "",
+                "Text": "WhatsApp reply",
+                "Replying to": "wa-0",
+                "Message Date": "2026-07-29 21:24:10",
+            },
+        )
+    ):
+        writer.writerow(
+            dict.fromkeys(WHATSAPP_HEADERS, "")
+            | {
+                "Chat Session": "Synthetic correspondent",
+                "Message ID": f"wa-{index}",
+                "Message Date": "2026-07-29 21:23:10",
+                "Type": "Incoming",
+                "Sender ID": "17055550100",
+                "Sender Name": "Synthetic correspondent",
+                "Text": "  Original WhatsApp message, café\r\ncontinued.  ",
+            }
+            | values
+        )
+    return stream.getvalue().encode("utf-8-sig")
 
 
 class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
@@ -298,6 +337,153 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(
             AnalysisRun.objects.filter(parameters__phase="import").exists()
         )
+
+    def test_whatsapp_review_publishes_original_messages_and_source_context(self):
+        headers = WHATSAPP_HEADERS[::-1]
+        raw = whatsapp_csv(
+            {
+                "Sent Date": "2026-07-29 22:23:10",
+                "Forwarded": "Yes",
+                "Attachment": "image.jpg",
+                "Attachment type": "image/jpeg",
+                "Attachment info": "Synthetic caption metadata",
+            },
+            {
+                "Type": "Outgoing",
+                "Sender ID": "",
+                "Sender Name": "",
+                "Message Date": "2026-07-29 21:24:10",
+                "Replying to": "wa-0",
+                "Text": "WhatsApp reply",
+            },
+            {
+                "Type": "Notification",
+                "Sender ID": "",
+                "Sender Name": "",
+                "Text": "Synthetic system notice",
+            },
+            {"Text": "", "Attachment": "unfetched.jpg"},
+            {"Text": "Outside the selected date", "Message Date": "2026-07-30 00:00"},
+            headers=headers,
+        )
+        preview = self.prepare(raw, start_date="2026-07-29", end_date="2026-07-29")
+        self.assertEqual(preview.status, "partial", preview.error_code)
+        self.assertEqual(
+            preview.result.data["metrics"],
+            {
+                "source_rows": 5,
+                "ready_rows": 2,
+                "unresolved_rows": 2,
+                "date_excluded_rows": 1,
+            },
+        )
+        self.assertFalse(TextMessageEvidence.objects.exists())
+        self.assertFalse(CaseAnalysisBatch.objects.exists())
+        self.assertContains(self.client.get(self.review_url(preview)), "WhatsApp CSV")
+        excluded = self.client.get(self.review_url(preview), {"rows": "excluded"})
+        self.assertContains(excluded, "System notification")
+        self.assertContains(excluded, "No message text")
+        self.assertContains(excluded, "Outside the selected date")
+
+        confirmed = self.client.post(self.review_url(preview), self.new_people())
+        replay = self.client.post(self.review_url(preview), self.new_people())
+        self.assertEqual(confirmed.status_code, 302)
+        self.assertEqual(replay.url, confirmed.url)
+        final = AnalysisRun.objects.get(parameters__phase="import")
+        process_run(final.pk)
+        final.refresh_from_db()
+        self.assertEqual(final.status, "partial", final.error_code)
+        batch = CaseAnalysisBatch.objects.get(scope__id=str(final.pk))
+        _, messages = imported_sources(self.case, batch.scope)
+        self.assertEqual(messages.count(), 2)
+        incoming, outgoing = messages.select_related("communication_context").order_by(
+            "occurred_at"
+        )
+        self.assertEqual(
+            incoming.body, "  Original WhatsApp message, café\r\ncontinued.  "
+        )
+        self.assertEqual(
+            incoming.occurred_at, datetime(2026, 7, 30, 1, 23, 10, tzinfo=UTC)
+        )
+        self.assertEqual(incoming.sender_id, outgoing.recipient_id)
+        self.assertEqual(incoming.recipient_id, outgoing.sender_id)
+        context = incoming.communication_context
+        self.assertEqual(context.source_row, 2)
+        record = raw.decode("utf-8-sig")[context.source_start : context.source_end]
+        self.assertEqual(
+            next(csv.reader(io.StringIO(record)))[headers.index("Text")],
+            incoming.body,
+        )
+        self.assertEqual(context.parser_version, WHATSAPP_PARSER_VERSION)
+        self.assertEqual(context.native_message_id, "wa-0")
+        self.assertEqual(context.native_thread_id, "")
+        self.assertEqual(context.account_identifiers["service"], "WhatsApp")
+        self.assertEqual(context.source_context["raw_fields"]["Forwarded"], "Yes")
+        self.assertEqual(
+            context.source_context["raw_fields"]["Sent Date"], "2026-07-29 22:23:10"
+        )
+        self.assertEqual(context.attachments[0]["info"], "Synthetic caption metadata")
+        self.assertEqual(outgoing.communication_context.reply_to_id, "wa-0")
+        with context.source_document.file.open("rb") as original:
+            self.assertEqual(original.read(), raw)
+
+        complete = self.client.get(confirmed.url)
+        conversation_url = complete.context["conversation_url"]
+        self.assertContains(complete, "View conversation")
+
+        repeated, _ = start_preview(
+            self.users["owner"],
+            self.case.pk,
+            {
+                "submission_id": uuid4(),
+                "document": context.source_document,
+                "timezone": "America/Toronto",
+                "start_date": date(2026, 7, 29),
+                "end_date": date(2026, 7, 29),
+            },
+        )
+        process_run(repeated.pk)
+        repeated_import, _ = confirm_import(
+            self.users["owner"],
+            self.case.pk,
+            repeated.pk,
+            {
+                "account": {"id": str(outgoing.sender_id), "create": None},
+                "correspondent": {"id": str(incoming.sender_id), "create": None},
+            },
+        )
+        process_run(repeated_import.pk)
+        repeated_import.refresh_from_db()
+        repeat_metrics = repeated_import.result.data["metrics"]
+        self.assertEqual(repeat_metrics["reused_rows"], 2)
+        self.assertEqual(repeat_metrics["created_rows"], 0)
+        self.assertEqual(TextMessageEvidence.objects.count(), 2)
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
+
+        self.login("viewer")
+        conversation = self.client.get(conversation_url)
+        self.assertContains(conversation, "Original WhatsApp message, café")
+        self.assertContains(conversation, "WhatsApp reply")
+        self.assertContains(conversation, "· Row 2")
+        self.login("outsider")
+        self.assertEqual(self.client.get(conversation_url).status_code, 404)
+
+    def test_whatsapp_rejects_multiple_incoming_identifiers(self):
+        preview = self.prepare(whatsapp_csv({}, {"Sender ID": "17055550101"}))
+        self.assertEqual(preview.status, "failed")
+        self.assertEqual(preview.error_code, "imessage_multiple_chats")
+        self.assertFalse(TextMessageEvidence.objects.exists())
+
+    def test_whatsapp_rejects_duplicate_headers(self):
+        raw = whatsapp_csv().replace(
+            b",Attachment type,Attachment info\r\n",
+            b",Attachment type,Attachment type\r\n",
+            1,
+        )
+        preview = self.prepare(raw)
+        self.assertEqual(preview.status, "failed")
+        self.assertEqual(preview.error_code, "imessage_invalid_format")
+        self.assertFalse(TextMessageEvidence.objects.exists())
 
     def test_date_limited_review_only_publishes_and_analyzes_selected_messages(self):
         bounds = {"start_date": "2026-07-29", "end_date": "2026-07-29"}

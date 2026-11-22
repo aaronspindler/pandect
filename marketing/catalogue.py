@@ -97,10 +97,10 @@ EVIDENCE_TYPES = (
         "description": (
             "Retain message text, reported participants and an optional message time."
         ),
-        "intake": "Add one message or import a supported iMessage CSV export.",
+        "intake": "Add one message or import a supported iMessage or WhatsApp CSV.",
         "formats": (
-            "Individual messages and the documented iMessage CSV export profile; "
-            "imported attachment references do not fetch attachment files."
+            "Individual messages and the documented iMessage and WhatsApp CSV "
+            "profiles. Imported attachment references stay linked to the source."
         ),
         "prerequisites": (
             "Individual records link to people in the same case. Session and timing "
@@ -317,6 +317,18 @@ ANALYSES = {
             "questions with source quotations."
         ),
         "detail": TEXT_MODEL + " Model interpretations are labelled as AI suggestions.",
+    },
+    "claim_comparison": {
+        "label": "Compare a claim",
+        "description": (
+            "Review supporting, conflicting and unresolved evidence for one "
+            "quoted claim, with links to the retained sources."
+        ),
+        "detail": (
+            "Select a quoted message or call transcript and up to five other "
+            "retained text sources. Requires a configured private text model. "
+            "Exact copies are flagged and comparisons are labelled as AI suggestions."
+        ),
     },
     "sessions": {
         "label": "Read inferred message sessions",
@@ -556,7 +568,7 @@ REPORTS = {
 
 IMPORTS = {
     "imessage_import": {
-        "label": "Import iMessage CSV",
+        "label": "Import message CSV",
         "description": (
             "Review one direct conversation and publish messages with their "
             "retained source context."
@@ -564,10 +576,9 @@ IMPORTS = {
         "kinds": (*OPERATIONS["imessage_import"].kinds, "text-message"),
         "requirement": INCLUDED,
         "detail": (
-            "The documented 18-column UTF-8 profile, up to 100 MiB. Confirm "
-            "timezone and participants. New messages receive applicable analysis "
-            "using configured private and case-approved external services. "
-            "Attachment references are not fetched."
+            "Use the documented iMessage or WhatsApp UTF-8 CSV profile, up to "
+            "100 MiB. Confirm the timezone and participants. New messages receive "
+            "applicable checks using the case's configured settings."
         ),
     },
     "vehicle_locations": {
@@ -637,7 +648,7 @@ EVIDENCE_FAMILIES = (
         "description": "Read conversations, inspect timing and compare what was said.",
         "intake": (
             "Add individual messages, phone calls or FaceTime records. "
-            "Import a supported iMessage CSV export."
+            "Import a supported iMessage or WhatsApp CSV."
         ),
         "kinds": COMMUNICATION_KINDS,
     },

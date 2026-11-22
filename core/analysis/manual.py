@@ -6,7 +6,11 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
 from cases.permissions import get_case
-from core.analysis.execution import available_executions, requires_inference
+from core.analysis.execution import (
+    available_executions,
+    requires_inference,
+    selected_ai_executions,
+)
 from core.analysis.services import start_run
 from core.models import CaseAnalysisBatch
 
@@ -22,13 +26,15 @@ def selected_analysis_variants(case, operation, parameters):
     if optional:
         yield parameters | {optional: False}, None
         parameters = parameters | {optional: True, "_suggestions_only": True}
-    for backend, execution in available_executions(case, operation, parameters).items():
+    ai = requires_inference(operation, parameters)
+    executions = (
+        selected_ai_executions(case, operation, parameters)
+        if ai and operation != "claim_comparison"
+        else available_executions(case, operation, parameters)
+    )
+    for backend, execution in executions.items():
         yield (
-            (
-                parameters | {"backend": backend}
-                if requires_inference(operation, parameters)
-                else parameters
-            ),
+            parameters | {"backend": backend} if ai else parameters,
             execution,
         )
 

@@ -87,7 +87,10 @@ class CSVOnlyMessageImportTests(EvidenceViewTestMixin, TestCase):
                 self.assertEqual(process_run(run.pk), "imessage_invalid_format")
                 run.refresh_from_db()
                 self.assertEqual(run.status, "failed")
-                self.assertContains(self.client.get(response.url), "18-column")
+                self.assertContains(
+                    self.client.get(response.url),
+                    "18-column iMessage or 15-column WhatsApp",
+                )
                 self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
         self.assertEqual(Person.objects.count(), people_before)
         self.assertFalse(TextMessageEvidence.objects.exists())

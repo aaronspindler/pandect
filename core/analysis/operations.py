@@ -23,6 +23,7 @@ from phone.analysis.deterministic import conversations, imessage
 from text.analysis import ai as text_ai
 from text.analysis import deterministic as text
 from text.analysis import workflows as text_workflows
+from text.analysis.claim_comparison import COMPARISON_KINDS, compare_claim
 from text.analysis.synthesis import synthesize
 
 
@@ -87,6 +88,11 @@ INPUT_GUIDANCE = {
         "call transcripts, choose Inspect keywords and topics with a "
         "source-cited topic summary."
     ),
+    "claim_comparison": (
+        "Choose a message or call transcript containing the claim and one to "
+        "five other text sources. Scans, documents and recordings need retained "
+        "text extraction or a transcript."
+    ),
 }
 
 OPERATIONS = {
@@ -94,6 +100,7 @@ OPERATIONS = {
     "question_synthesis": Operation(
         "Answer a question from selected material", synthesize, (*TEXT, *LOCATIONS)
     ),
+    "claim_comparison": Operation("Compare a claim", compare_claim, COMPARISON_KINDS),
     "native_text": Operation(
         "Extract document text", documents.native_text, ("document",)
     ),
@@ -173,7 +180,7 @@ OPERATIONS = {
         COMMUNICATIONS,
     ),
     "imessage_import": Operation(
-        "Import iMessage CSV", imessage.prepare_import, ("document",), version="2"
+        "Import message CSV", imessage.prepare_import, ("document",), version="2"
     ),
     "normalize_addresses": Operation(
         "Compare recorded addresses",
@@ -259,6 +266,10 @@ OPERATION_GROUPS = {
         ),
     },
     "Read and compare text": {
+        "claim_comparison": (
+            "Compare one quoted claim with selected case evidence and review "
+            "supporting, conflicting and unresolved passages."
+        ),
         "question_synthesis": (
             "Ask a question using a shared selection of text and findings."
         ),

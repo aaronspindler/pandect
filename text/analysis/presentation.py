@@ -24,6 +24,15 @@ def present(operation, items, formatter):
             )
         elif operation in {"content_events", "text_topics"}:
             prioritize_measurements(item, "Status", "Basis", "Occurrences")
+        elif operation == "claim_comparison":
+            prioritize_measurements(
+                item,
+                "Reason",
+                "Source independence",
+                "Text basis",
+                "Reported sender",
+                "Reported record time",
+            )
         elif operation == "entities" and values.get("candidate") != item.get(
             "text", ""
         ):

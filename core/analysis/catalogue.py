@@ -437,7 +437,7 @@ def finding_rows(case, findings, *, show_weak=False, navigation=None):
                 row[field] = participant_text(
                     row[field],
                     row["participant_names"],
-                    include_sender_role=run.operation != "session_summaries",
+                    operation=run.operation,
                 )
             row["sources"] = [
                 {

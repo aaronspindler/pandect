@@ -42,9 +42,9 @@ or scripts. No text is partial/unresolved, never proof of blankness. Check again
 originals. Ordinary OCR can miss angled/small text, including plates; the separate
 plate profile is below. Synthetic printed images test real recognition; engine
 fixtures cover failures/publication, without establishing real-evidence accuracy.
-Automatic transcription uses configured private whisper.cpp and case-approved
-Cloudflare Workers AI when available. Both candidates stay available. One supplies
-automatic text analysis. Routine inference is mocked. See
+Automatic transcription uses the [case's selected AI backend](cases.md#ai-backend)
+when available: private whisper.cpp or case-approved Cloudflare Workers AI. The
+saved transcript supplies automatic text analysis. Routine inference is mocked. See
 [transcription qualification](local-analysis.md#transcription-qualification).
 Private Whisper timestamps may round the final boundary by up to 10 milliseconds.
 Saved playback anchors use the exact recording boundary and retain the reported

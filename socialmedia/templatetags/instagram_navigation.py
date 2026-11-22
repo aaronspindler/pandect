@@ -8,6 +8,6 @@ register = template.Library()
 
 @register.simple_tag
 def show_instagram_connection(user):
-    if instagram_connector.available() and instagram_connector.permits(user.pk):
+    if instagram_connector.scheduling_available():
         return True
     return InstagramConnection.objects.filter(user=user).exists()

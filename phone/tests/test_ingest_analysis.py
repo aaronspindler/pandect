@@ -11,7 +11,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from cases.models import CaseMembership
+from cases.models import Case, CaseMembership
 from core.analysis.approval import revoke_case_execution
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
@@ -30,6 +30,12 @@ from phone.tests.test_imessage_views import message_csv
 
 @override_settings(PANDECT_LOCAL_AI={})
 class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
+    def select_external_ai(self):
+        grant = external_grant_kwargs(self.case, "content_events")
+        self.case.ai_backend = Case.AIBackend.GATEWAY
+        self.case.save(update_fields=("ai_backend",))
+        return grant
+
     def publish(self, *rows):
         start = datetime(2026, 11, 1, 12, tzinfo=UTC)
         rows = rows or tuple(
@@ -79,8 +85,8 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.fail("Import analysis preparation did not finish")
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
-    def test_approved_import_runs_rules_once_and_both_model_routes(self):
-        external_grant_kwargs(self.case, "content_events")
+    def test_import_runs_rules_and_one_ai_check_on_the_selected_external_backend(self):
+        self.select_external_ai()
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
@@ -92,58 +98,66 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             "session_summaries",
             "conversation_link",
         ):
-            runs = batch.runs.filter(
-                operation=operation, parameters__has_key="_execution"
-            )
-            self.assertCountEqual(
-                runs.values_list("parameters__backend", flat=True), ["local", "gateway"]
-            )
-            external = runs.get(external_processing=True)
+            run = batch.runs.get(operation=operation, parameters__has_key="_execution")
+            self.assertTrue(run.external_processing)
             self.assertEqual(
-                external.parameters["_execution"],
+                run.parameters["_execution"],
                 batch.scope["executions"][f"{operation}:gateway"],
             )
+        self.assertEqual(batch.unavailable_sources, 0)
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
-    def test_provider_configuration_without_approval_queues_private_work(self):
+    def test_private_ai_keeps_built_in_keyword_and_exchange_checks(self):
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
         self.assertTrue(batch.runs.filter(operation="entities").exists())
-        self.assertEqual(
-            set(
-                batch.runs.filter(parameters__has_key="_execution").values_list(
-                    "parameters__backend", flat=True
-                )
+        self.assertCountEqual(
+            batch.runs.filter(parameters__has_key="_execution").values_list(
+                "operation", "parameters__backend"
             ),
-            {"local"},
+            [
+                ("content_events", "local"),
+                ("conversation_link", "local"),
+                ("session_summaries", "local"),
+                ("text_topics", "local"),
+            ],
         )
+        rules = batch.runs.exclude(parameters__has_key="_execution")
+        self.assertEqual(
+            rules.filter(
+                operation="text_topics", parameters__include_summary=False
+            ).count(),
+            1,
+        )
+        self.assertEqual(rules.filter(operation="conversation_link").count(), 1)
         self.assertFalse(batch.runs.filter(external_processing=True).exists())
+        self.assertEqual(batch.unavailable_sources, 0)
 
-    def test_new_approval_does_not_expand_queued_import(self):
+    def test_new_external_selection_does_not_expand_queued_import(self):
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         with self.settings(PANDECT_AI_GATEWAY=CONFIG):
-            external_grant_kwargs(self.case, "content_events")
+            self.select_external_ai()
             self.drain(batch)
         self.assertTrue(batch.runs.filter(operation="entities").exists())
         self.assertFalse(batch.runs.filter(parameters__has_key="_execution").exists())
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
-    def test_destination_drift_does_not_block_messages_or_private_preparation(self):
-        external_grant_kwargs(self.case, "content_events")
+    def test_destination_drift_does_not_switch_to_private_ai(self):
+        self.select_external_ai()
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         with self.settings(PANDECT_AI_GATEWAY=CONFIG | {"models": {"text": "changed"}}):
             self.drain(batch)
-        self.assertFalse(batch.runs.filter(external_processing=True).exists())
-        self.assertTrue(batch.runs.filter(parameters__backend="local").exists())
+        self.assertFalse(batch.runs.filter(parameters__has_key="_execution").exists())
+        self.assertTrue(batch.runs.filter(operation="entities").exists())
         self.assertTrue(batch.preparation_errors)
         self.assertEqual(TextMessageEvidence.objects.count(), 6)
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_gateway_failure_preserves_import_and_allows_approved_retry(self):
-        grant = external_grant_kwargs(self.case, "content_events")
+        grant = self.select_external_ai()
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
@@ -425,7 +439,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_archiving_an_input_stops_queued_external_analysis_before_transfer(self):
-        external_grant_kwargs(self.case, "content_events")
+        self.select_external_ai()
         self.publish()
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
@@ -641,14 +655,18 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.client.get(url, headers={"X-Pandect-Live": "1"}).status_code, 404
         )
 
-    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
-    def test_import_rerun_uses_current_case_approval(self):
-        external_grant_kwargs(self.case, "content_events")
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
+    def test_approval_revocation_stops_import_ai_without_fallback(self):
+        self.select_external_ai()
         final = self.publish()
         initial_batch = CaseAnalysisBatch.objects.get()
         self.drain(initial_batch)
-        self.assertTrue(initial_batch.runs.filter(external_processing=True).exists())
+        run = initial_batch.runs.get(operation="content_events")
+        self.assertTrue(run.external_processing)
         revoke_case_execution(self.case)
+        with patch("core.analysis.gateway.GatewayClient.infer") as send:
+            self.assertEqual(process_run(run.pk), "external_processing_not_approved")
+        send.assert_not_called()
         self.login("owner")
         endpoint = reverse(
             "core:analysis:import_checks", args=[self.case.pk, "messages", final.pk]
@@ -660,14 +678,14 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertRedirects(response, status_url)
         self.drain(latest)
-        self.assertFalse(latest.runs.filter(external_processing=True).exists())
+        self.assertFalse(latest.runs.filter(parameters__has_key="_execution").exists())
         self.assertTrue(latest.runs.filter(operation="entities").exists())
         review = reverse("phone:imessage_review", args=[self.case.pk, final.pk])
         self.assertContains(self.client.get(review), status_url)
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
     def test_publication_retry_by_current_editor_uses_case_approval(self):
-        external_grant_kwargs(self.case, "content_events")
+        self.select_external_ai()
         with patch(
             "core.analysis.tasks.prepare_case_analysis",
             **{"enqueue.side_effect": OperationalError},

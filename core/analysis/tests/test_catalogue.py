@@ -178,7 +178,7 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
             detail.context["back_to_analysis"], f"{self.url}?{urlencode(selection)}"
         )
         self.assertNotContains(detail, "Refresh status")
-        self.assertContains(detail, "Details and history")
+        self.assertContains(detail, "Analysis run details")
         run = AnalysisResult.objects.get(pk=row["result_id"]).run
         tampered = self.client.get(
             reverse("core:analysis:detail", args=[self.case.pk, run.pk]),

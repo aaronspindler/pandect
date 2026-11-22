@@ -6,6 +6,7 @@ from uuid import uuid4
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
+from core.analysis.review_signals import classify_review_signal_v1
 from core.analysis.sources import Source
 from phone.analysis.ai import session_summaries
 from phone.analysis.deterministic.conversations import (
@@ -13,6 +14,7 @@ from phone.analysis.deterministic.conversations import (
     interaction_patterns,
 )
 from phone.analysis.workflows import cross_channel_links
+from phone.message_csv import IMESSAGE_PARSER_VERSION, WHATSAPP_PARSER_VERSION
 
 
 class ConversationAnalysisTests(SimpleTestCase):
@@ -199,6 +201,37 @@ class ConversationAnalysisTests(SimpleTestCase):
             ],
             3,
         )
+
+    def test_whatsapp_reply_signal_is_scoped_to_its_retained_export(self):
+        original = self.message("First")
+        reply = self.message("Second", 1, sender=self.person_b, recipient=self.person_a)
+        export, other_export = uuid4(), uuid4()
+        for left_version, right_version, reply_export, expected in (
+            (WHATSAPP_PARSER_VERSION, WHATSAPP_PARSER_VERSION, export, "native_reply"),
+            (WHATSAPP_PARSER_VERSION, WHATSAPP_PARSER_VERSION, other_export, ""),
+            (WHATSAPP_PARSER_VERSION, IMESSAGE_PARSER_VERSION, other_export, ""),
+            (IMESSAGE_PARSER_VERSION, WHATSAPP_PARSER_VERSION, other_export, ""),
+        ):
+            with self.subTest(
+                before=left_version, after=right_version, reply_export=reply_export
+            ):
+                original.item.communication_context = SimpleNamespace(
+                    parser_version=left_version,
+                    source_document_id=export,
+                    native_message_id="message-1",
+                )
+                reply.item.communication_context = SimpleNamespace(
+                    parser_version=right_version,
+                    source_document_id=reply_export,
+                    reply_to_id="message-1",
+                )
+                (candidate,) = cross_channel_links([original, reply], {})["items"]
+                self.assertEqual(
+                    candidate["values"]["after"]["reply_to_id"], "message-1"
+                )
+                self.assertEqual(
+                    classify_review_signal_v1("conversation_link", candidate), expected
+                )
 
     def test_observed_crosschannel_links_do_not_request_inference(self):
         a = self.message("The harbour proposal.")

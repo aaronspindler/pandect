@@ -1,6 +1,6 @@
 {% extends 'ui/base.html' %}
 {% load import_checks static %}
-{% block title %}Review iMessage CSV · {{ case.name }}{% endblock %}
+{% block title %}Review message CSV · {{ case.name }}{% endblock %}
 {% block extra_head %}<script src="{% static 'phone/imessage_review.js' %}" defer></script>{% endblock %}
 {% block content %}
 {% if run.status == 'queued' or run.status == 'running' %}{% include 'ui/components/live_updates.html' %}{% endif %}
@@ -10,7 +10,7 @@
   {% else %}<a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>{% endif %}
   <header class="page-header">
     <div>
-      <h1>{% if published %}Messages imported{% else %}Review iMessage CSV{% endif %}</h1>
+      <h1>{% if published %}Messages imported{% else %}Review message CSV{% endif %}</h1>
       {% if published and not source_error %}
         {% if publication_version == 2 %}<p role="status">{{ publication_metrics.created_rows }} new message{{ publication_metrics.created_rows|pluralize }} added{% if publication_metrics.reused_rows %} · {{ publication_metrics.reused_rows }} already retained{% endif %}{% if publication_metrics.unresolved_rows %} · {{ publication_metrics.unresolved_rows }} excluded{% if publication_metrics.date_excluded_rows %} for other reasons{% endif %}{% endif %}{% if publication_metrics.date_excluded_rows %} · {{ publication_metrics.date_excluded_rows }} outside date range{% endif %}</p>{% else %}<p role="status">{{ imported.paginator.count }} message{{ imported.paginator.count|pluralize }} retained for this import.</p>{% endif %}
       {% elif not final %}<p>Review the source and match its participants.</p>{% endif %}
@@ -29,6 +29,7 @@
   {% if document %}
     <dl class="metadata-grid">
       <div><dt>Retained CSV</dt><dd><a href="{% url 'core:evidence:detail' case.pk 'document' document.pk %}">{{ document.title }}</a></dd></div>
+      {% if format_label %}<div><dt>Detected format</dt><dd>{{ format_label }} CSV</dd></div>{% endif %}
       <div><dt>Confirmed export timezone</dt><dd>{{ preview.parameters.timezone }}</dd></div>
       {% if preview.parameters.start_date or preview.parameters.end_date %}
         <div><dt>Message date range</dt><dd>{% if preview.parameters.start_date and preview.parameters.end_date %}{{ preview.parameters.start_date }} to {{ preview.parameters.end_date }}{% elif preview.parameters.start_date %}From {{ preview.parameters.start_date }}{% else %}Through {{ preview.parameters.end_date }}{% endif %}</dd></div>

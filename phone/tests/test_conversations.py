@@ -19,6 +19,7 @@ from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
 from phone.conversations import conversation_url
+from phone.message_csv import IMESSAGE_PARSER_VERSION, WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext, TextMessageEvidence
 
 
@@ -501,6 +502,40 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         page = self.client.get(self.reader_url()).context["page_obj"]
         self.assertEqual(len(page), len(records) + 2)
         self.assertTrue(all(row.copy_count == 1 for row in page))
+
+    def test_whatsapp_native_ids_are_distinct_from_legacy_imessage_ids(self):
+        instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        legacy = self.message(id=UUID(int=1), occurred_at=instant)
+        self.context(
+            legacy,
+            self.document(title="iMessage export"),
+            native_message_id="shared-id",
+            parser_version=IMESSAGE_PARSER_VERSION,
+        )
+        first_export = self.document(title="First WhatsApp export")
+        second_export = self.document(title="Second WhatsApp export")
+        for number, export, native_id, source_row in (
+            (2, first_export, "shared-id", 1),
+            (3, first_export, "wa-id", 2),
+            (4, second_export, "wa-id", 1),
+        ):
+            self.context(
+                self.message(id=UUID(int=number), occurred_at=instant),
+                export,
+                row=source_row,
+                native_message_id=native_id,
+                parser_version=WHATSAPP_PARSER_VERSION,
+                account_identifiers={"service": "WhatsApp"},
+            )
+
+        self.login("viewer")
+        page = self.client.get(self.reader_url()).context["page_obj"]
+        self.assertEqual(
+            [(row.pk.int, row.copy_count) for row in page], [(1, 1), (2, 1), (3, 2)]
+        )
+        selected = self.client.get(self.reader_url(), {"message": UUID(int=2)})
+        self.assertEqual(selected.context["selected_message"].timeline_id.int, 2)
+        self.assertContains(selected, "First WhatsApp export")
 
     def test_message_evidence_roundtrip_preserves_list_and_exact_target(self):
         export = self.document()

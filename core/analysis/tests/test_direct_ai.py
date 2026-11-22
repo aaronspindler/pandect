@@ -233,6 +233,10 @@ class DirectAITests(EvidenceViewTestMixin, TestCase):
             ).status_code,
             302,
         )
+        backend_url = reverse("cases:case_ai_backend", args=[self.case.pk])
+        self.assertEqual(
+            self.client.post(backend_url, {"ai_backend": "gateway"}).status_code, 302
+        )
         form = self.client.get(url, {"operation": "content_events"}).context["form"]
         self.assertNotIn("backend", form.fields)
         data = {

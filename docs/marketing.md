@@ -95,7 +95,7 @@ consistently. Verify claims against [cases](cases.md), [evidence](evidence.md),
 [analysis](analysis.md), and [maps](maps.md). Search is within a case. State the
 bounded native PDF, printed-English JPEG/PNG, WAV, and import profiles rather
 than implying every upload format is supported. Message imports support the
-documented iMessage CSV profile only; HTML message imports are unavailable.
+documented direct-chat CSV profiles for iMessage and WhatsApp.
 
 The public roadmap summarizes [proposed priorities](evidence-analysis-roadmap.md);
 [analysis](analysis.md) owns implemented methods. Review public pages and the

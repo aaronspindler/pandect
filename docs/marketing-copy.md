@@ -65,7 +65,7 @@ verify capability-specific copy against its domain guide.
   and collaborating. Use **Findings** for the case destination.
 - Keep self-hosting as a supporting setup detail rather than a headline or
   primary call to action.
-- Name supported import profiles: iMessage uses the documented CSV export only.
+- Name the documented iMessage and WhatsApp direct-chat CSV import profiles.
   Social accounts are manually recorded; live account collection and vendor API
   integrations are unavailable.
 - State configuration requirements for transcription, model assistance,

@@ -70,7 +70,7 @@ from core.analysis.readiness import (
 )
 from core.analysis.reports import REPORT_NAMES, report
 from core.analysis.reprocessing import start_reprocessing
-from core.analysis.result_views import result_view
+from core.analysis.result_views import focused_finding_context, result_view
 from core.analysis.services import (
     address_estimate,
     cancel_run,
@@ -92,6 +92,7 @@ from image.analysis.presentation import (
     visible_structure,
 )
 from phone.analysis import presentation as phone_presentation
+from phone.models import CommunicationContext
 from socialmedia import instagram_connector
 from socialmedia.models import InstagramMonitor
 from ui.live import render_live
@@ -162,10 +163,7 @@ def index(request, case_id):
                 :3
             ],
             "recent_evidence": evidence["rows"][:3],
-            "show_instagram_monitors": (
-                instagram_connector.available()
-                and instagram_connector.permits(request.user.pk, case.pk)
-            )
+            "show_instagram_monitors": instagram_connector.scheduling_available()
             or InstagramMonitor.objects.filter(case=case).exists(),
             "evidence_count": evidence["page_obj"].paginator.count,
             "reports": (
@@ -544,11 +542,21 @@ def create(request, case_id, kind=None, evidence_id=None):
         form.initial["sources"] = [exact_source]
     if request.method == "POST" and not browse and form.is_valid():
         try:
+            selected = form.cleaned_data["sources"]
+            if operation == "claim_comparison":
+                from text.claim_comparison_views import prepare
+
+                return prepare(
+                    request,
+                    case,
+                    selected,
+                    submission_id=form.cleaned_data["submission_id"],
+                )
             batch, runs, created = start_selected_analysis(
                 request.user,
                 case.pk,
                 form.cleaned_data["operation"],
-                [selection(x) for x in form.cleaned_data["sources"]],
+                [selection(value) for value in selected],
                 form.parameters(),
                 submission_id=form.cleaned_data["submission_id"],
             )
@@ -618,7 +626,17 @@ def create(request, case_id, kind=None, evidence_id=None):
 
 
 def _finding_detail(
-    finding, row, source_map, case, run, formatter, previews, references, prior_runs
+    finding,
+    row,
+    source_map,
+    case,
+    run,
+    formatter,
+    previews,
+    references,
+    prior_runs,
+    *,
+    focused,
 ):
     item = finding | row
     item["prior_finding_links"] = [
@@ -635,6 +653,14 @@ def _finding_detail(
     item["measurements"] = formatter(values, duplicate_text=item.get("text", ""))
     item["plate_candidate"] = run.operation == "plate_ocr"
     item.update(finding_images(finding, row["index"], previews))
+    show_excerpt = run.operation in {
+        "entities",
+        "copied_text",
+        "text_topics",
+        "content_events",
+        "session_summaries",
+        "conversation_link",
+    } or (focused and run.operation == "question_synthesis")
     links = []
     for source_id in item.get("source_ids", []):
         source = source_map.get(source_id)
@@ -664,17 +690,7 @@ def _finding_detail(
                     ),
                     "url": url,
                     "anchors": display_anchors,
-                    "excerpt": _source_excerpt(source, anchors)
-                    if run.operation
-                    in {
-                        "entities",
-                        "copied_text",
-                        "text_topics",
-                        "content_events",
-                        "session_summaries",
-                        "conversation_link",
-                    }
-                    else "",
+                    "excerpt": _source_excerpt(source, anchors) if show_excerpt else "",
                     "reviewed_coordinates": source.derived_coordinates
                     if getattr(source.item, "latitude", None) is not None
                     else None,
@@ -741,6 +757,24 @@ def _source_excerpt(source, anchors):
                 "…" if end - start > 320 else ""
             )
     return ""
+
+
+def _add_import_rows(case, item, source_map):
+    message_ids = {
+        source["id"]: source_map[source["id"]].item.pk
+        for source in item["sources"]
+        if source_map[source["id"]].kind == "text-message"
+    }
+    if message_ids:
+        rows = dict(
+            CommunicationContext.objects.filter(
+                case=case,
+                source_document__case=case,
+                message_id__in=message_ids.values(),
+            ).values_list("message_id", "source_row")
+        )
+        for source in item["sources"]:
+            source["import_row"] = rows.get(message_ids.get(source["id"]))
 
 
 def _retry_parameters(run):
@@ -1014,6 +1048,7 @@ def detail(request, case_id, run_id):
                     previews,
                     references,
                     prior_runs,
+                    focused=focused,
                 )
                 for index, finding in entries
             ]
@@ -1037,6 +1072,11 @@ def detail(request, case_id, run_id):
             groups, template = result_view(
                 run.operation, items, formatter, query=request.GET
             )
+            if focused:
+                _add_import_rows(case, items[0], source_map)
+                context.update(
+                    focused_finding_context(run.operation, items[0], result.data)
+                )
             run_query = history | ({"weak": 1} if show_weak else {})
             context |= {
                 "result": result,
@@ -1056,7 +1096,6 @@ def detail(request, case_id, run_id):
                 )(result.data.get("metrics", {})),
                 "items": items,
                 "focused_finding": focused,
-                "show_result_overview": not focused or run.status != "complete",
                 "metadata_result": run.operation
                 in {"image_metadata", "audio_metadata"},
                 "finding_page": finding_page,

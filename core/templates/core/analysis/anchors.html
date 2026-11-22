@@ -1,10 +1,12 @@
 {% for anchor in anchors %}
   {% if anchor.line_start %}<span>Lines {{ anchor.line_start }}–{{ anchor.line_end }}</span>{% endif %}
   {% if anchor.page %}<span>Page {{ anchor.page }}</span>{% endif %}
-  {% if anchor.source_row %}<span>Source row {{ anchor.source_row }}</span>{% endif %}
-  {% if anchor.region and not compact %}<details class="analysis-region"><summary>Image region coordinates</summary><p>{{ anchor.region }}</p></details>{% endif %}
+  {% if anchor.source_row and anchor.source_row != import_row %}<span>Source row {{ anchor.source_row }}</span>{% endif %}
+  {% if anchor.region and not compact and not locators_only %}<details class="analysis-region"><summary>Image region coordinates</summary><p>{{ anchor.region }}</p></details>{% endif %}
   {% if anchor.end_seconds != None %}<span>{{ anchor.start_seconds }}–{{ anchor.end_seconds }} seconds</span>{% endif %}
-  {% if anchor.end != None %}<span>Characters {{ anchor.start }}–{{ anchor.end }}</span>{% endif %}
-  {% if anchor.html_end != None %}<span>HTML characters {{ anchor.html_start }}–{{ anchor.html_end }}</span>{% endif %}
-  {% if anchor.csv_end != None %}<span>CSV characters {{ anchor.csv_start }}–{{ anchor.csv_end }}</span>{% endif %}
+  {% if not locators_only %}
+    {% if anchor.end != None %}<span>Characters {{ anchor.start }}–{{ anchor.end }}</span>{% endif %}
+    {% if anchor.html_end != None %}<span>HTML characters {{ anchor.html_start }}–{{ anchor.html_end }}</span>{% endif %}
+    {% if anchor.csv_end != None %}<span>CSV characters {{ anchor.csv_start }}–{{ anchor.csv_end }}</span>{% endif %}
+  {% endif %}
 {% endfor %}

@@ -8,6 +8,7 @@ from django.db.models.functions import Cast, Collate, NullIf, Trim
 from django.urls import reverse
 
 from core.evidence.queries import scoped_evidence
+from phone.message_csv import WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext
 
 
@@ -41,12 +42,17 @@ def matching_copy_groups(contexts):
                 NullIf(Trim(KT("account_identifiers__service")), Value("")),
                 distinct=True,
             ),
+            whatsapp_count=Count(
+                "pk", filter=Q(parser_version=WHATSAPP_PARSER_VERSION)
+            ),
             # PostgreSQL has no min(uuid). C ordering matches the UUID tie-break.
             representative=Cast(
                 Min(Collate(Cast("message_id", CharField()), "C")), UUIDField()
             ),
         )
         .filter(
+            # A blank legacy service cannot make a WhatsApp ID comparable.
+            Q(whatsapp_count=0) | Q(whatsapp_count=F("copy_count")),
             copy_count__gt=1,
             export_count=F("copy_count"),
             original_count=1,

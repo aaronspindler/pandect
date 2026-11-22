@@ -41,6 +41,8 @@ def publish_captures(check, observations, *, originals):
         or connection.observer_id_string
         and observer_id != connection.observer_id_string
         or target.lower() != monitor.target.lower()
+        or monitor.target_id
+        and target_id != monitor.target_id
         or monitor.source not in COLLECTOR_VERSIONS
         or version != COLLECTOR_VERSIONS[monitor.source]
     ):

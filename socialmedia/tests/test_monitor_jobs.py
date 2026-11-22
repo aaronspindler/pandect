@@ -6,8 +6,8 @@ from unittest.mock import patch
 from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection
+from django.http import Http404
 from django.test import TestCase, override_settings
-from django.urls import reverse
 from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
@@ -15,7 +15,7 @@ from cases.models import Case, CaseMembership
 from core.testing import EvidenceViewTestMixin
 from socialmedia import instagram_connector as connector
 from socialmedia import monitor_jobs as jobs
-from socialmedia.models import InstagramCapture, InstagramCheck, InstagramConnection
+from socialmedia.models import InstagramCapture, InstagramCheck
 
 
 @override_settings(
@@ -26,23 +26,26 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.editor = self.users["editor"]
-        self.conn = InstagramConnection.objects.create(
-            user=self.editor,
-            observer="observer.test",
-            session="synthetic-observer-ticket",
+        self.conn = jobs.finish_pairing(
+            self.editor, jobs.start_pairing(self.editor)["id"]
         )
+        self.approve(self.case, self.users["owner"])
         self.monitor = jobs.create_monitor(
             self.editor, self.case.pk, "@demo.account", 6
         )
         self.collect = self.enterContext(patch.object(connector, "collect"))
         self.collect.return_value = {
             "observer": self.conn.observer,
+            "observer_id": self.conn.observer_id_string,
             "collector_version": connector.VERSION,
             "target": connector.PILOT_TARGET,
-            "target_id": "target-007",
+            "target_id": connector.PILOT_TARGET_ID,
             "followers": {"members": [], "complete": True, "reason": ""},
             "following": {"members": [], "complete": True, "reason": ""},
         }
+
+    def approve(self, case, owner):
+        jobs.set_target_approval(owner, case.pk, approved=True)
 
     def run_current(self):
         return jobs.run_check(str(self.monitor.pk), str(self.monitor.generation))
@@ -50,6 +53,7 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
     def test_initial_check_is_idempotent_and_successor_is_deferred(self):
         original = self.monitor.generation
         row = DBTaskResult.objects.get()
+        self.assertEqual(row.queue_name, "instagram")
         self.assertEqual(
             row.args_kwargs,
             {"args": [str(self.monitor.pk), str(original)], "kwargs": {}},
@@ -90,103 +94,73 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
         self.assertGreaterEqual(successor.run_after, before + timedelta(hours=12))
         self.assertLessEqual(successor.run_after, timezone.now() + timedelta(hours=12))
 
-    def test_higher_minimum_defers_previously_scheduled_live_delivery(self):
-        self.conn.source = "instagram"
-        self.conn.save(update_fields=["source"])
-        live = {
+    def test_approval_only_allows_owner_for_their_case_and_stable_target(self):
+        other = Case.objects.create(owner=self.editor)
+        self.assertFalse(jobs.target_approved(other.pk))
+        with self.assertRaisesMessage(
+            ValidationError, jobs.check_message("target_not_approved")
+        ):
+            jobs.create_monitor(self.editor, other.pk, "demo.account", 24)
+        for role in ("editor", "viewer"):
+            with self.subTest(role=role), self.assertRaises(PermissionDenied):
+                jobs.set_target_approval(self.users[role], self.case.pk, approved=False)
+        with self.assertRaises(Http404):
+            jobs.set_target_approval(self.users["owner"], other.pk, approved=True)
+        self.approve(other, self.editor)
+        monitor = jobs.create_monitor(self.editor, other.pk, " @Demo.Account ", 24)
+        self.assertEqual(
+            (monitor.target, monitor.target_id),
+            ("demo.account", connector.PILOT_TARGET_ID),
+        )
+        self.assertTrue(jobs.target_approved(self.case.pk))
+        with self.assertRaisesMessage(
+            ValidationError, jobs.check_message("target_unavailable")
+        ):
+            jobs.create_monitor(self.editor, other.pk, "different.account", 24)
+
+    def test_wrong_stable_target_cannot_publish(self):
+        self.collect.return_value["target_id"] = "recycled-handle"
+        self.assertEqual(self.run_current(), "failed")
+        self.assertEqual(self.monitor.checks.get().error, "invalid_response")
+        self.assertFalse(InstagramCapture.objects.exists())
+        self.assertEqual(DBTaskResult.objects.count(), 1)
+
+    def test_configured_live_pilot_cannot_pair_schedule_or_collect_in_product(self):
+        live_config = {
             "user_id": str(self.editor.pk),
             "case_id": str(self.case.pk),
-            "targets": ("demo.account",),
+            "targets": (self.monitor.target,),
+            "observer": self.conn.observer,
             "min_hours": 1,
+            "url": "http://127.0.0.1:1",
+            "token": "test-only",
         }
-        self.collect.side_effect = connector.ConnectorError("cooldown", retry_after=60)
-        with self.settings(PANDECT_INSTAGRAM_LIVE=live):
-            monitor = jobs.create_monitor(self.editor, self.case.pk, "demo.account", 1)
-            self.assertEqual(jobs.run_check(monitor.pk, monitor.generation), "cooldown")
-        monitor.refresh_from_db()
-        last_finish = monitor.checks.get().finished_at
-        old_generation = monitor.generation
-        old_due = monitor.next_check_at
-
-        with self.settings(PANDECT_INSTAGRAM_LIVE=live | {"min_hours": 24}):
-            updated = jobs.change_interval(self.editor, self.case.pk, monitor.pk, 24)
-            self.assertEqual(jobs.run_check(monitor.pk, old_generation), "cancelled")
-        self.assertLess(old_due, updated.next_check_at)
-        self.assertEqual(updated.next_check_at, last_finish + timedelta(hours=24))
-        self.assertEqual(updated.interval_hours, 24)
-        self.collect.assert_called_once()
-
-    def test_binding_retains_normalized_approved_live_target_and_source(self):
-        self.conn.source = "instagram"
+        self.monitor.source = self.conn.source = "instagram"
+        self.monitor.save(update_fields=["source"])
         self.conn.save(update_fields=["source"])
         with (
-            patch.object(connector, "available", return_value=True),
-            patch.object(connector, "current_source", return_value="instagram"),
-            patch.object(
-                connector,
-                "permits",
-                side_effect=lambda user, case=None: (
-                    user == self.editor.pk and case == self.case.pk
-                ),
-            ),
-            patch.object(
-                connector,
-                "allowed_target",
-                side_effect=lambda source, target, interval: (
-                    (source, target, interval)
-                    == ("instagram", "controlled.account", 24)
-                ),
-            ),
+            self.settings(PANDECT_INSTAGRAM_LIVE=live_config),
+            patch.object(connector, "start_pairing") as start,
         ):
-            monitor = jobs.create_monitor(
-                self.editor, self.case.pk, " @Controlled.Account ", 24
-            )
-            self.assertEqual(
-                (monitor.target, monitor.source), ("controlled.account", "instagram")
-            )
-            for target, interval in (
-                ("blocked", 24),
-                ("controlled.account", 1),
-                ("name/path", 24),
+            for operation in (
+                lambda: jobs.start_pairing(self.editor),
+                lambda: jobs.create_monitor(
+                    self.editor, self.case.pk, "demo.account", 6
+                ),
+                lambda: self.approve(self.case, self.users["owner"]),
             ):
-                with (
-                    self.subTest(target=target, interval=interval),
-                    self.assertRaises(ValidationError),
+                with self.assertRaisesMessage(
+                    ValidationError, jobs.check_message("not_configured")
                 ):
-                    jobs.create_monitor(self.editor, self.case.pk, target, interval)
-            with self.assertRaisesMessage(
-                ValidationError, jobs.check_message("pilot_scope")
-            ):
-                jobs.create_monitor(
-                    self.editor,
-                    Case.objects.create(owner=self.editor).pk,
-                    "controlled.account",
-                    24,
-                )
-        self.collect.assert_not_called()
-
-    def test_changed_source_cannot_collect_resume_or_reuse_connection(self):
-        with (
-            patch.object(connector, "available", return_value=True),
-            patch.object(connector, "current_source", return_value="instagram"),
-        ):
-            with self.assertRaisesMessage(
-                ValidationError, jobs.check_message("source_changed")
-            ):
-                jobs.create_monitor(self.editor, self.case.pk, "demo.account", 6)
+                    operation()
             self.assertEqual(self.run_current(), "unavailable")
-            self.assertEqual(self.monitor.checks.get().error, "source_changed")
-            self.conn.source = "instagram"
-            self.conn.save(update_fields=["source"])
+            self.assertEqual(self.monitor.checks.get().error, "not_configured")
             with self.assertRaisesMessage(
-                ValidationError, jobs.check_message("source_changed")
+                ValidationError, jobs.check_message("not_configured")
             ):
                 jobs.resume_monitor(self.editor, self.case.pk, self.monitor.pk)
-            jobs.disconnect(self.editor)
-            jobs.disconnect(self.editor)
+        start.assert_not_called()
         self.collect.assert_not_called()
-        self.conn.refresh_from_db()
-        self.assertFalse(self.conn.session)
 
     def test_replacement_and_disconnect_revoke_only_the_replaced_live_binding(self):
         self.conn.source = "instagram"
@@ -206,53 +180,11 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
             jobs.disconnect(self.editor)
             jobs.disconnect(self.editor)
             revoke.assert_not_called()
-        revoke.assert_called_once_with("synthetic-observer-ticket")
+        revoke.assert_called_once_with(self.conn.session)
         self.assertNotIn("sensitive upstream detail", str(logs.output))
-        self.assertNotIn("synthetic-observer-ticket", str(logs.output))
+        self.assertNotIn(self.conn.session, str(logs.output))
         self.conn.refresh_from_db()
         self.assertFalse(self.conn.session)
-
-    def test_starting_a_live_replacement_retires_previous_work_even_when_cancelled(
-        self,
-    ):
-        self.monitor.source = self.conn.source = "instagram"
-        self.monitor.save(update_fields=["source"])
-        self.conn.save(update_fields=["source"])
-        live_config = {
-            "user_id": str(self.editor.pk),
-            "case_id": str(self.case.pk),
-            "targets": (self.monitor.target,),
-            "observer": self.conn.observer,
-            "min_hours": 1,
-            "url": "http://127.0.0.1:1",
-            "token": "test-only",
-        }
-
-        def open_sign_in(user_id):
-            # The host can close the browser as soon as this call starts.
-            self.assertFalse(InstagramConnection.objects.get(pk=self.conn.pk).session)
-            self.assertEqual(self.run_current(), "cancelled")
-            return {"id": "new-pending-binding", "url": ""}
-
-        self.login("editor")
-        url = reverse("account_instagram")
-        with (
-            self.settings(PANDECT_INSTAGRAM_LIVE=live_config),
-            patch.object(connector, "start_pairing", side_effect=open_sign_in),
-            patch.object(connector, "cancel_pairing") as cancel,
-            patch.object(connector, "revoke_live") as revoke,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            self.assertContains(self.client.get(url), "even if you cancel sign-in")
-            self.client.post(url, {"action": "start"})
-            self.client.post(url, {"action": "cancel"})
-        cancel.assert_called_once_with(str(self.editor.pk), "new-pending-binding")
-        revoke.assert_called_once_with(self.conn.session)
-        self.monitor.refresh_from_db()
-        self.assertEqual(self.monitor.status, "paused")
-        self.assertIsNone(self.monitor.next_check_at)
-        self.assertFalse(InstagramConnection.objects.get(pk=self.conn.pk).session)
-        self.collect.assert_not_called()
 
     def test_live_disconnect_retires_work_and_revokes_the_binding_once_after_commit(
         self,
@@ -281,12 +213,39 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
                 jobs.resume_monitor(self.editor, self.case.pk, self.monitor.pk)
         self.collect.assert_not_called()
 
-    def test_revoked_pilot_scope_discards_collected_observation(self):
-        with patch.object(connector, "permits", side_effect=[True, False]):
-            self.assertEqual(self.run_current(), "failed")
-        self.collect.assert_called_once()
-        self.assertEqual(self.monitor.checks.get().error, "pilot_scope")
-        self.assertFalse(InstagramCapture.objects.exists())
+    def test_revoke_during_collection_preserves_history_and_cancels_old_delivery(self):
+        self.assertEqual(self.run_current(), "complete")
+        self.monitor.refresh_from_db()
+        self.monitor.next_check_at = timezone.now()
+        self.monitor.save(update_fields=["next_check_at"])
+        owner = self.users["owner"]
+
+        def revoke(*args):
+            jobs.set_target_approval(owner, self.case.pk, approved=False)
+            self.assertFalse(jobs.target_approved(self.case.pk))
+            self.approve(self.case, owner)
+            return self.collect.return_value
+
+        self.collect.side_effect = revoke
+        self.assertEqual(self.run_current(), "cancelled")
+        self.assertEqual(self.run_current(), "cancelled")
+        self.assertEqual(self.monitor.checks.filter(status="complete").count(), 1)
+        cancelled = self.monitor.checks.get(status="cancelled")
+        self.assertEqual(cancelled.error, "target_not_approved")
+        self.assertEqual(InstagramCapture.objects.count(), 2)
+        self.assertEqual(DBTaskResult.objects.count(), 2)
+        self.monitor.refresh_from_db()
+        self.assertEqual(self.monitor.status, "paused")
+        self.assertIsNone(self.monitor.next_check_at)
+
+    def test_revoked_approval_prevents_pending_delivery_and_resume(self):
+        jobs.set_target_approval(self.users["owner"], self.case.pk, approved=False)
+        self.assertEqual(self.run_current(), "cancelled")
+        with self.assertRaisesMessage(
+            ValidationError, jobs.check_message("target_not_approved")
+        ):
+            jobs.resume_monitor(self.editor, self.case.pk, self.monitor.pk)
+        self.collect.assert_not_called()
 
     def test_pending_pairing_cannot_cross_sources_or_replace_connection_after_drift(
         self,
@@ -295,12 +254,11 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
         with (
             patch.object(connector, "available", return_value=True),
             patch.object(connector, "current_source", return_value="instagram"),
-            patch.object(connector, "permits", return_value=True),
             patch.object(connector, "finish_pairing") as finish,
         ):
             for old in (pending, pending["token"]):
                 with self.assertRaisesMessage(
-                    ValidationError, jobs.check_message("pairing_expired")
+                    ValidationError, jobs.check_message("not_configured")
                 ):
                     jobs.finish_pairing(self.editor, old)
             finish.assert_not_called()
@@ -311,36 +269,9 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
                 ValidationError, jobs.check_message("source_changed")
             ):
                 jobs.finish_pairing(self.editor, pending)
-        with (
-            patch.object(connector, "permits", return_value=False),
-            patch.object(connector, "start_pairing") as start,
-            self.assertRaisesMessage(
-                ValidationError, jobs.check_message("pilot_scope")
-            ),
-        ):
-            jobs.start_pairing(self.editor)
-        start.assert_not_called()
+        original_session = self.conn.session
         self.conn.refresh_from_db()
-        self.assertEqual(self.conn.session, "synthetic-observer-ticket")
-
-    def test_cancelling_pending_sign_in_contacts_only_its_configured_live_source(self):
-        pending = {"source": "instagram", "token": "private-token"}
-        with patch.object(connector, "cancel_pairing") as cancel:
-            jobs.cancel_pairing(self.editor, pending)
-            cancel.assert_not_called()
-            with (
-                patch.object(connector, "available", return_value=True),
-                patch.object(connector, "current_source", return_value="instagram"),
-                patch.object(connector, "permits", return_value=True),
-            ):
-                cancel.side_effect = connector.ConnectorError("pairing_expired")
-                jobs.cancel_pairing(self.editor, pending)
-                cancel.assert_called_once_with(str(self.editor.pk), "private-token")
-                cancel.side_effect = connector.ConnectorError("unavailable")
-                with self.assertRaisesMessage(
-                    ValidationError, jobs.check_message("unavailable")
-                ):
-                    jobs.cancel_pairing(self.editor, pending)
+        self.assertEqual(self.conn.session, original_session)
 
     def test_pause_resume_and_owner_stop_retire_existing_deliveries(self):
         owner = self.users["owner"]
@@ -373,6 +304,19 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
         self.collect.assert_not_called()
         self.monitor.refresh_from_db()
         self.assertEqual(self.monitor.status, "paused")
+
+    def test_expiry_requires_reconnection_before_another_check(self):
+        with patch.object(connector, "connection_expires_at", return_value=None):
+            self.assertEqual(self.run_current(), "unavailable")
+            self.assertEqual(self.monitor.checks.get().error, "disconnected")
+            with self.assertRaisesMessage(
+                ValidationError, jobs.check_message("disconnected")
+            ):
+                jobs.resume_monitor(self.editor, self.case.pk, self.monitor.pk)
+        self.collect.assert_not_called()
+        jobs.finish_pairing(self.editor, jobs.start_pairing(self.editor)["id"])
+        resumed = jobs.resume_monitor(self.editor, self.case.pk, self.monitor.pk)
+        self.assertEqual(jobs.run_check(resumed.pk, resumed.generation), "complete")
 
     def test_disconnect_while_collecting_invalidates_publication(self):
         def disconnect(*args):
@@ -418,6 +362,7 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
 
     def test_platform_cooldown_applies_to_entire_connection_across_cases(self):
         other_case = Case.objects.create(owner=self.editor)
+        self.approve(other_case, self.editor)
         other = jobs.create_monitor(self.editor, other_case.pk, "demo.account", 1)
         self.collect.side_effect = connector.ConnectorError(
             "cooldown", retry_after=9 * 3600
@@ -431,9 +376,9 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
         self.assertGreater(other.next_check_at, timezone.now() + timedelta(hours=8))
 
     def test_challenge_pauses_every_monitor_using_expired_session(self):
-        other = jobs.create_monitor(
-            self.editor, Case.objects.create(owner=self.editor).pk, "demo.account", 1
-        )
+        other_case = Case.objects.create(owner=self.editor)
+        self.approve(other_case, self.editor)
+        other = jobs.create_monitor(self.editor, other_case.pk, "demo.account", 1)
         self.collect.side_effect = connector.ConnectorError("challenge")
         self.assertEqual(self.run_current(), "failed")
         other.refresh_from_db()

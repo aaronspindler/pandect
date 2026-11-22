@@ -159,7 +159,13 @@ def requires_inference(operation, parameters):
     if operation == "transcription":
         return "transcription"
     if (
-        operation in {"content_events", "session_summaries", "question_synthesis"}
+        operation
+        in {
+            "claim_comparison",
+            "content_events",
+            "session_summaries",
+            "question_synthesis",
+        }
         or (operation == "text_topics" and parameters.get("include_summary", True))
         or (
             operation == "conversation_link" and parameters.get("semantic_links", False)
@@ -173,6 +179,8 @@ def processing_external(operation, parameters, backend="local"):
     if requires_inference(operation, parameters):
         if backend not in {"local", "gateway"}:
             raise ValidationError("Choose local or external AI processing.")
+        if operation == "claim_comparison" and backend != "local":
+            raise ValidationError("Claim comparison uses private processing.")
         return backend == "gateway"
     if operation in GEOGRAPHIC:
         prefix, _ = GEOGRAPHIC[operation]
@@ -260,7 +268,10 @@ def configured_executions(operation, parameters):
     """Resolve configured routes without contacting an inference or map service."""
     if requires_inference(operation, parameters):
         routes = {}
-        for backend in ("local", "gateway"):
+        backends = (
+            ("local",) if operation == "claim_comparison" else ("local", "gateway")
+        )
+        for backend in backends:
             execution = snapshot_execution(operation, parameters | {"backend": backend})
             if inference_configured(execution, operation):
                 routes[backend] = execution
@@ -303,6 +314,13 @@ def available_executions(case, operation, parameters):
         or execution["location"] == "local"
         or _case_execution_granted(case, operation, execution, revision)
     }
+
+
+def selected_ai_executions(case, operation, parameters):
+    """Use the case's selected AI backend only if it can run this method."""
+    available = available_executions(case, operation, parameters)
+    backend = case.ai_backend
+    return {backend: available[backend]} if backend in available else {}
 
 
 def _case_execution_granted(case, operation, execution, revision):

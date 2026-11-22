@@ -3,14 +3,14 @@
 {% block content %}
 <header class="page-header">
   <div><h1>Instagram monitors</h1></div>
-  {% if can_edit %}<div class="actions">
+  {% if can_edit %}{% if available and target_approved or connection %}<div class="actions">
     <a class="button button-secondary" href="{% url 'account_instagram' %}?case={{ case.pk }}">{% if connection %}Manage connection{% else %}Instagram connection{% endif %}</a>
-    {% if available and permitted and connection.source == source %}<a class="button button-primary" href="{% url 'instagram:create' case.pk %}">Create monitor</a>{% endif %}
-  </div>{% endif %}
+    {% if available and target_approved and connection.ready %}<a class="button button-primary" href="{% url 'instagram:create' case.pk %}">Create monitor</a>{% endif %}
+  </div>{% endif %}{% endif %}
 </header>
 {% if not available %}<p class="notice">Instagram collection is disabled on this installation.</p>
-{% elif can_edit and not permitted %}<p>Collection is unavailable for your account in this case.</p>
-{% elif can_edit and connection.source != source %}<p>Connect your {% if source == 'synthetic' %}synthetic {% endif %}Instagram account to schedule checks.</p>{% endif %}
+{% elif can_edit and not target_approved %}<p class="notice">The case owner must approve synthetic Instagram monitoring before anyone can schedule checks. {% if is_owner %}<a class="record-link" href="{% url 'cases:case_settings' case.pk %}#instagram-monitoring">Review monitoring approval</a>{% endif %}</p>
+{% elif can_edit and not connection.ready %}<p>{% if connection.source == 'synthetic' %}Reconnect{% else %}Connect{% endif %} your synthetic Instagram account to schedule checks.</p>{% endif %}
 {% if page_obj %}
   <div class="record-list" aria-label="Case monitors">
     {% for monitor in page_obj %}

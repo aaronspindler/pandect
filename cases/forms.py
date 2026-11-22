@@ -3,6 +3,9 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
+from django.utils.functional import cached_property
+
+from core.analysis.execution import INFERENCE_OPERATIONS, available_executions
 
 from .models import Case, CaseInvitation, CaseMembership
 
@@ -24,6 +27,40 @@ class CaseForm(forms.ModelForm):
 
 class ConfirmForm(forms.Form):
     confirm = forms.BooleanField(label="I understand and want to continue.")
+
+
+class CaseAIBackendForm(forms.Form):
+    ai_backend = forms.ChoiceField(
+        choices=Case.AIBackend.choices,
+        label="AI backend",
+        help_text=(
+            "New checks use this backend when the method supports it. "
+            'Review and approve <a href="#external-analysis">external destinations</a> '
+            "before choosing External AI."
+        ),
+    )
+
+    def __init__(self, *args, case, **kwargs):
+        self.case = case
+        super().__init__(*args, initial={"ai_backend": case.ai_backend}, **kwargs)
+
+    @cached_property
+    def external_ai_available(self):
+        return any(
+            Case.AIBackend.GATEWAY
+            in available_executions(
+                self.case, operation, {"include_summary": True, "semantic_links": True}
+            )
+            for operation in INFERENCE_OPERATIONS
+        )
+
+    def clean_ai_backend(self):
+        backend = self.cleaned_data["ai_backend"]
+        if backend == Case.AIBackend.GATEWAY and not self.external_ai_available:
+            raise forms.ValidationError(
+                "Approve an external AI destination before choosing External AI."
+            )
+        return backend
 
 
 class MembershipRoleForm(forms.ModelForm):

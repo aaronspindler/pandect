@@ -1,0 +1,36 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Choose the claim · {{ case.name }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>Choose the claim</h1>{% if form %}<p>Compare one statement with the other selected sources using your configured private AI service.</p>{% endif %}</div>
+</header>
+{% if error %}
+<div class="error-summary" role="alert" tabindex="-1" data-error-summary><p>{{ error }}</p></div>
+{% endif %}
+{% if form %}
+<details class="disclosure">
+  <summary>Selected evidence · {{ rows|length }}</summary>
+  <ul>{% for row in rows %}<li><a class="record-link" href="{{ row.source.url }}">{{ row.label }}</a></li>{% endfor %}</ul>
+</details>
+<form method="post" action="{% url 'core:analysis:claim_confirm' case.pk %}" class="analysis-section form-layout" novalidate data-unsaved-form>
+  {% csrf_token %}<input type="hidden" name="draft" value="{{ draft }}">
+  {% include 'ui/components/form_errors.html' with form=form %}
+  {% include 'ui/components/form_field.html' with field=form.source_id only %}
+  {% for row in claim_sources %}
+  <details class="disclosure"{% if claim_sources|length == 1 or row.source.id == form.source_id.value %} open{% endif %}>
+    <summary>{{ row.label }}</summary>
+    <div class="original-text">{{ row.source.text }}</div>
+  </details>
+  {% endfor %}
+  {% include 'ui/components/form_field.html' with field=form.quote only %}
+  <div class="form-actions"><button type="submit" class="button button-primary">Compare claim</button></div>
+</form>
+{% endif %}
+<form method="post" action="{% url 'core:analysis:create' case.pk %}?operation=claim_comparison">
+  {% csrf_token %}
+  <input type="hidden" name="operation" value="claim_comparison">
+  <input type="hidden" name="submission_id" value="{{ submission_id }}">
+  {% for value in tokens %}<input type="hidden" name="sources" value="{{ value }}">{% endfor %}
+  <button type="submit" class="button button-secondary" name="browse_sources" value="review">Back to evidence selection</button>
+</form>
+{% endblock %}

@@ -98,6 +98,16 @@
 </form>
 </div>
 </details>
+<section class="content-section" id="ai-processing" aria-labelledby="ai-processing-heading">
+  <h2 id="ai-processing-heading">AI processing</h2>
+  {% if case.ai_backend == 'gateway' and not ai_backend_form.external_ai_available %}
+    <p class="notice">External AI needs current approval. Review the destinations under <a href="#external-analysis">External analysis</a> or choose Local AI.</p>
+  {% endif %}
+  <form class="form-panel" method="post" action="{% url 'cases:case_ai_backend' case.pk %}">
+    {% csrf_token %}{% include 'ui/components/form_fields.html' with form=ai_backend_form %}
+    <div class="form-actions"><button class="button button-secondary" type="submit">Save AI backend</button></div>
+  </form>
+</section>
 <details class="disclosure" id="external-analysis"{% if external_analysis.destinations or external_analysis.active %} open{% endif %}>
   <summary>External analysis</summary>
   {% if external_analysis.destinations %}
@@ -125,6 +135,24 @@
     {% endif %}
   </div>
 </details>
+{% if instagram_scheduling_available or instagram_target_approved %}
+<details class="disclosure" id="instagram-monitoring" open>
+  <summary>Instagram monitoring</summary>
+  <p>The local synthetic collector generates follower and following lists for <strong>@{{ instagram_target }}</strong>. Case members can read the saved lists and comparisons. Owners and editors use their own synthetic connections to schedule checks.</p>
+  {% if instagram_target_approved %}
+    <p><strong>Approved for this case.</strong> Revoking approval pauses scheduled checks and preserves the evidence already in this case.</p>
+    <form method="post" action="{% url 'cases:case_instagram_monitoring' case.pk %}">
+      {% csrf_token %}
+      <button class="button button-secondary" name="action" value="revoke">Revoke Instagram monitoring approval</button>
+    </form>
+  {% else %}
+    <form method="post" action="{% url 'cases:case_instagram_monitoring' case.pk %}">
+      {% csrf_token %}
+      <button class="button button-primary" name="action" value="approve">Approve synthetic Instagram monitoring</button>
+    </form>
+  {% endif %}
+</details>
+{% endif %}
 <details class="disclosure">
 <summary>Delete this case</summary>
 <div class="disclosure-body">

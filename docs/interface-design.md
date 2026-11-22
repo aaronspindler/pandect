@@ -333,9 +333,12 @@ CSV and attribution remain accessible. See [imports](vehicle-location-imports.md
 
 ## Instagram monitors
 
-The optional [Instagram monitor pilot](instagram-monitors.md) shows each direction's
-changes, two linked captures, coverage, and scheduled checks in a case. Personal
-connection settings belong to the signed-in investigator.
+The optional [Instagram monitor workflow](instagram-monitors.md) shows each
+direction's changes, two linked captures, coverage, and scheduled checks in a
+case. Case owners approve the synthetic target in Case Settings. The connecting
+investigator sees connection recovery, the last successful check, and the next
+scheduled check in the monitor workflow. Retained live observations remain
+visible to case members while live scheduling awaits an authorized source.
 
 ## Case Tools, Processing, and additional analysis
 
@@ -351,6 +354,12 @@ and contrary records stay in a disclosure. The group shows each pair with its
 basis and links to the original evidence. Overlapping proposals and previous
 reviews remain accessible from the detail. Owner/editor review uses ordinary
 forms. Read-only historical states explain how to work from current evidence.
+
+**Compare a claim** starts in **Additional analysis** with the retained-evidence
+picker. The second step shows the eligible statement sources and accepts an
+exact quotation. Results show the quoted claim, assessment labels and citations
+in the ordinary analysis reader. Exact copies remain visible beside the other
+selected sources. Processing owns progress and recovery.
 
 Processing links directly to **Browse findings** and groups reviews and recovery
 under **Needs attention**, with queued and running work under **In progress**.
@@ -422,7 +431,7 @@ retained selections that need it. Start analysis when at least one available
 source can be selected and no selected source is blocked. Browsing never queues
 work; execution/inference limits still apply.
 
-Saved results lead with findings and citations. Retained warnings remain open
+Run overviews lead with findings and citations. Retained warnings remain open
 under **Limitations**. **Details and history** holds downloads, selected sources,
 settings, and **Run again**. Show the retained execution destination in run
 details. Findings lists lead with the useful
@@ -431,13 +440,24 @@ history**, with choices for latest and all saved results. Evidence-specific
 lists put distinct findings with a useful next check first and show the reason
 beside the finding. Distinct search matches remain under **Matching search details**.
 
-Findings show the result and supporting content once. Use a closed **Details**
-disclosure for secondary measurements, native references and exact message
-anchors. Keep status, partial coverage, failure reasons, meaningful interpretation
-and low-confidence warnings visible. Metadata inspections retain their useful
-property tables, and findings without primary content retain structured values.
-Communication pairs lead with a factual interval heading and compact messages:
-reported participants, localized time with timezone, source link and body.
+Individual findings use a single reading column for the saved result and
+**Cited evidence**, with the contextual back link above and any link to the
+result list below. Put the **AI suggestion** label beside model output. Reserve
+quotation styling for cited wording. Show each quotation or preview once, beside
+its source link and provenance. Use recorded export rows for imported messages,
+and identify supplied transcripts, saved extractions, estimates and quotations
+from prior findings.
+
+Keep decision-critical status, coverage, failure reasons and low-confidence
+warnings visible. Summarize bounded import coverage when available. Distinguish
+an exact citation match from the interpretation it accompanies. Use a closed
+**Finding details** disclosure for secondary measurements, character offsets and
+native IDs. Keep full retained warnings, selected inputs, settings, downloads,
+history and **Run again** in **Analysis run details**. Metadata inspections
+retain their property tables, and findings without primary content retain
+structured values. Communication pairs lead with a factual interval heading
+and compact messages with reported participants, localized time with timezone,
+source link and body.
 
 Hide timing-only message pairs by default across run results,
 catalogue/person findings, conversations and case highlights. The individual
@@ -452,7 +472,7 @@ Progress uses a native indicator; failures expose retry/recovery controls. Resul
 lead with output and sources before processing metadata. Use retained image
 regions/crops, recording intervals, paired passages, message sequences, and
 observation maps when supplied by the operation. Identifier normalization lives
-in **Details**.
+in **Finding details** on individual findings.
 
 Reports lead with a summary, visible coverage warnings, and key results before
 individual records. Call patterns shows participant pairs with their call counts.

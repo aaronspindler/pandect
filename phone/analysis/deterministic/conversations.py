@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_datetime
 
 from core.analysis.sources import output
 from core.evidence.types import COMMUNICATION_KINDS
+from phone.message_csv import WHATSAPP_PARSER_VERSION
 from text.analysis.shared import STOPWORDS, WORD, bounded_sources
 
 VERSION = "conversation-rules-v1"
@@ -75,7 +76,7 @@ def _ordered(sources, *, messages_only=False):
 
 def _source_row(source):
     context = _context(source)
-    return {
+    row = {
         "source_id": str(source.id),
         "channel": source.kind,
         "occurred_at": _time(source).isoformat() if _time(source) else None,
@@ -87,6 +88,9 @@ def _source_row(source):
         "native_thread_id": getattr(context, "native_thread_id", ""),
         "reply_to_id": getattr(context, "reply_to_id", ""),
     }
+    if getattr(context, "parser_version", "") == WHATSAPP_PARSER_VERSION:
+        row["source_document_id"] = str(context.source_document_id)
+    return row
 
 
 def _session_groups(sources, parameters):

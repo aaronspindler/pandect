@@ -14,7 +14,7 @@
   </section>
   {% endif %}
   {% if batch.status == 'failed' %}<p class="notice">{{ preparation_error }} Earlier results are retained. Open the message import to request analysis again.</p>{% endif %}
-  {% if batch.unavailable_sources %}<p class="notice">{{ batch.unavailable_sources }} message{{ batch.unavailable_sources|pluralize }} could not be prepared.</p>{% endif %}
+  {% if batch.unavailable_sources %}<p class="notice">{{ batch.unavailable_sources }} check{{ batch.unavailable_sources|pluralize }} could not be queued.</p>{% endif %}
   {% if not live_pending %}<details class="disclosure" id="message-analysis-details"{% if stopped_count or partial_count or insufficient_count or request.GET.page %} open{% endif %}><summary>Analysis details</summary>{% endif %}
   <section class="analysis-section" aria-labelledby="message-analysis-preparation">
     <h2 id="message-analysis-preparation">Preparation</h2>

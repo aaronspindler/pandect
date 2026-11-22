@@ -79,12 +79,15 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         )
 
     def summary_payload(self, review):
-        return {"submission_id": review.context["form"]["submission_id"].value()}
-
-    def bulk_payload(self, review):
-        return self.summary_payload(review) | {
-            "reviewed_scope": review.context["reviewed_scope"]
+        return {
+            "submission_id": review.context["form"]["submission_id"].value(),
+            "reviewed_scope": review.context["reviewed_scope"],
         }
+
+    def select_external_ai(self):
+        external_grant_kwargs(self.case, "session_summaries")
+        self.case.ai_backend = "gateway"
+        self.case.save(update_fields=["ai_backend"])
 
     def test_review_locks_members_and_adjustments_and_submit_replays_once(self):
         a, b, c = [self.message(n) for n in (1, 120, 360)]
@@ -108,9 +111,8 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertIn("list_page=2", review.context["back_url"])
         summaries = AnalysisRun.objects.filter(operation="session_summaries")
         self.assertFalse(summaries.exists())
-        payload = {
-            "backend": "local",
-            "submission_id": review.context["form"]["submission_id"].value(),
+        payload = self.summary_payload(review) | {
+            "backend": "gateway",
             "sources": [f"text-message:{c.pk}"],
             "gap_minutes": 100,
             "external_processing": "on",
@@ -127,14 +129,17 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertNotIn("break_before", run.parameters)
         self.assertFalse(run.external_processing)
 
-    def test_instance_summary_queues_only_the_missing_approved_route(self):
+    def test_instance_summary_queues_only_the_selected_approved_route(self):
         original = self.message(1)
         url = self.session(original)
         self.save_summary(original)
         external_grant_kwargs(self.case, "session_summaries")
         self.login("editor")
+        self.assertEqual(self.client.get(url).status_code, 302)
+        self.select_external_ai()
         review = self.client.get(url)
         self.assertContains(review, "Request session summary")
+        self.assertContains(review, "External AI")
         self.assertNotContains(review, 'name="backend"')
         self.assertNotContains(review, 'name="external_processing"')
         self.assertEqual(
@@ -149,14 +154,14 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             AnalysisRun.objects.filter(operation="session_summaries").count(), 2
         )
 
-    def test_queued_private_summary_does_not_block_newly_approved_route(self):
+    def test_queued_private_summary_retains_its_route_after_case_changes(self):
         url = self.session(self.message(1))
         self.login("editor")
         private = self.summary_payload(self.client.get(url))
         self.assertEqual(self.client.post(url, private).status_code, 302)
         private_batch = CaseAnalysisBatch.objects.get()
 
-        external_grant_kwargs(self.case, "session_summaries")
+        self.select_external_ai()
         review = self.client.get(url)
         new_request = self.client.post(url, self.summary_payload(review))
         self.assertEqual(new_request.status_code, 302)
@@ -166,6 +171,62 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(prepare_case_analysis_batch(approved_batch.pk), "complete")
         self.assertFalse(private_batch.runs.get().external_processing)
         self.assertTrue(approved_batch.runs.get().external_processing)
+
+    def test_backend_change_requires_new_single_and_bulk_review(self):
+        single = self.session(self.message(1))
+        self.session(self.message(2))
+        self.login("editor")
+        payloads = {}
+        for url in (single, self.bulk_url):
+            review = self.client.get(url)
+            self.assertContains(review, "Private inference")
+            payloads[url] = self.summary_payload(review)
+
+        self.select_external_ai()
+        for url, payload in payloads.items():
+            with self.subTest(url=url):
+                updated = self.client.post(url, payload)
+                self.assertContains(
+                    updated, "Review the updated selection", status_code=409
+                )
+                self.assertContains(updated, "External AI", status_code=409)
+        self.assertFalse(CaseAnalysisBatch.objects.exists())
+
+        review = self.client.get(self.bulk_url)
+        submitted = self.client.post(self.bulk_url, self.summary_payload(review))
+        self.assertEqual(submitted.status_code, 302)
+        batch = CaseAnalysisBatch.objects.get()
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        self.assertCountEqual(
+            batch.runs.values_list("parameters__backend", flat=True),
+            ["gateway", "gateway"],
+        )
+
+    def test_unapproved_selected_backend_has_no_private_fallback(self):
+        original = self.message(1)
+        single = self.session(original)
+        self.save_summary(original)
+        self.case.ai_backend = "gateway"
+        self.case.save(update_fields=["ai_backend"])
+        self.login("editor")
+        for url in (single, self.bulk_url):
+            with self.subTest(url=url):
+                review = self.client.get(url)
+                self.assertContains(
+                    review,
+                    "This analysis needs a destination approved in Case settings.",
+                )
+                self.assertNotContains(review, "No available sessions need a summary")
+                self.assertNotContains(review, 'name="submission_id"')
+                response = self.client.post(
+                    url,
+                    {
+                        "submission_id": uuid4(),
+                        "reviewed_scope": review.context["reviewed_scope"],
+                    },
+                )
+                self.assertEqual(response.status_code, 400)
+        self.assertFalse(CaseAnalysisBatch.objects.exists())
 
     def test_oversized_or_unavailable_scope_cannot_be_queued(self):
         a = self.message(0, "A" * 16001)
@@ -188,13 +249,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.login("owner")
         review = self.client.get(url)
         self.save_summary(original)
-        response = self.client.post(
-            url,
-            {
-                "backend": "local",
-                "submission_id": review.context["form"]["submission_id"].value(),
-            },
-        )
+        response = self.client.post(url, self.summary_payload(review))
         self.assertRedirects(
             response, review.context["back_url"], fetch_redirect_response=False
         )
@@ -255,7 +310,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertIn("list_page=3", review.context["back_url"])
         self.assertFalse(CaseAnalysisBatch.objects.exists())
 
-        payload = self.bulk_payload(review) | {"sources": [str(originals[0].pk)]}
+        payload = self.summary_payload(review) | {"sources": [str(originals[0].pk)]}
         submitted = self.client.post(self.bulk_url, payload)
         self.assertEqual(submitted.status_code, 302)
         self.assertContains(
@@ -293,11 +348,11 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(first, "Sessions included · 50")
         self.assertContains(second, "Sessions included · 1")
         self.assertContains(second, "Page 2 of 2")
-        mismatched = self.client.post(second_url, self.bulk_payload(first))
+        mismatched = self.client.post(second_url, self.summary_payload(first))
         self.assertContains(mismatched, "Review the updated selection", status_code=409)
         self.assertFalse(CaseAnalysisBatch.objects.exists())
         self.assertEqual(
-            self.client.post(second_url, self.bulk_payload(second)).status_code, 302
+            self.client.post(second_url, self.summary_payload(second)).status_code, 302
         )
         batch = CaseAnalysisBatch.objects.get()
         self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
@@ -324,7 +379,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         bulk = self.client.get(self.bulk_url)
         self.assertContains(bulk, "1 summary already in progress")
         self.assertContains(bulk, "Sessions included · 1")
-        bulk_request = self.client.post(self.bulk_url, self.bulk_payload(bulk))
+        bulk_request = self.client.post(self.bulk_url, self.summary_payload(bulk))
         self.assertEqual(bulk_request.status_code, 302)
         # Even a single summary reviewed before the bulk request joins the batch.
         self.assertRedirects(
@@ -347,7 +402,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         original = self.message(1)
         self.session(original)
         self.login("owner")
-        payload = self.bulk_payload(self.client.get(self.bulk_url))
+        payload = self.summary_payload(self.client.get(self.bulk_url))
         self.assertEqual(self.client.post(self.bulk_url, payload).status_code, 302)
         start_run(
             self.case.owner,
@@ -406,9 +461,10 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
                 self.assertContains(
                     review, "A service for this analysis is not configured."
                 )
-                payload = {"submission_id": uuid4()}
-                if url == self.bulk_url:
-                    payload["reviewed_scope"] = review.context["reviewed_scope"]
+                payload = {
+                    "submission_id": uuid4(),
+                    "reviewed_scope": review.context["reviewed_scope"],
+                }
                 rejected = self.client.post(url, payload)
                 self.assertContains(
                     rejected,
@@ -420,24 +476,37 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
             AnalysisRun.objects.filter(operation="session_summaries").exists()
         )
 
-    def test_bulk_rechecks_membership_and_keeps_unchanged_routes(self):
+    def test_bulk_rechecks_membership_and_keeps_unchanged_legacy_routes(self):
         self.session(self.message(1))
         external_grant_kwargs(self.case, "session_summaries")
         self.login("owner")
         review = self.client.get(self.bulk_url)
-        payload = self.bulk_payload(review)
+        payload = self.summary_payload(review)
         self.session(self.message(2))
         changed = self.client.post(self.bulk_url, payload)
         self.assertContains(changed, "Review the updated selection", status_code=409)
         self.assertFalse(CaseAnalysisBatch.objects.exists())
-        payload = self.bulk_payload(changed)
-        self.assertEqual(self.client.post(self.bulk_url, payload).status_code, 302)
+        payload = self.summary_payload(changed)
+        submitted = self.client.post(self.bulk_url, payload)
+        self.assertEqual(submitted.status_code, 302)
         batch = CaseAnalysisBatch.objects.get()
+        self.assertEqual(set(batch.scope["executions"]), {"local"})
+        batch.scope.pop("reviewed_scope")
+        batch.scope["executions"]["gateway"] = snapshot_execution(
+            "session_summaries", {"backend": "gateway"}
+        )
+        batch.save(update_fields=["scope"])
+        self.assertRedirects(self.client.get(self.bulk_url), submitted.url)
         gateway = settings.PANDECT_AI_GATEWAY | {"gateway": "changed-synthetic-route"}
         with self.settings(PANDECT_AI_GATEWAY=gateway):
             self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
         self.assertEqual(batch.runs.count(), 2)
         self.assertFalse(batch.runs.filter(external_processing=True).exists())
+        batch.refresh_from_db()
+        self.assertEqual(batch.unavailable_sources, 2)
+        self.case.ai_backend = "gateway"
+        self.case.save(update_fields=["ai_backend"])
+        self.assertContains(self.client.get(self.bulk_url), "Sessions included · 2")
 
     def test_bulk_preserves_other_runs_when_a_reviewed_instance_becomes_unavailable(
         self,
@@ -447,7 +516,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         other = self.message(2)
         self.session(other)
         self.login("editor")
-        payload = self.bulk_payload(self.client.get(self.bulk_url))
+        payload = self.summary_payload(self.client.get(self.bulk_url))
         self.assertEqual(self.client.post(self.bulk_url, payload).status_code, 302)
         batch = CaseAnalysisBatch.objects.get()
         TextMessageEvidence.objects.filter(pk=original.pk).update(sha256="0" * 64)
@@ -459,7 +528,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
     def test_bulk_worker_stops_when_the_requester_loses_access(self):
         self.session(self.message(1))
         self.login("editor")
-        payload = self.bulk_payload(self.client.get(self.bulk_url))
+        payload = self.summary_payload(self.client.get(self.bulk_url))
         self.assertEqual(self.client.post(self.bulk_url, payload).status_code, 302)
         batch = CaseAnalysisBatch.objects.get()
         CaseMembership.objects.filter(
@@ -473,7 +542,7 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.session(first)
         self.session(second)
         self.login("editor")
-        payload = self.bulk_payload(self.client.get(self.bulk_url))
+        payload = self.summary_payload(self.client.get(self.bulk_url))
         self.assertEqual(self.client.post(self.bulk_url, payload).status_code, 302)
         batch = CaseAnalysisBatch.objects.get()
         self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")

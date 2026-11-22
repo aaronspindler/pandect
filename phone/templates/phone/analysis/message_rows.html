@@ -1,7 +1,7 @@
 <ol class="analysis-message-rows">
   {% for message in item.messages %}
   <li>
-    <p class="muted analysis-message-meta"><a href="{{ message.source.url }}">{{ message.source.label }}</a> · {% include 'core/analysis/measurement_value.html' with row=message.time_value only %} · {{ message.channel }}</p>
+    <p class="muted analysis-message-meta"><a href="{{ message.source.url }}">{% if focused_finding and message.source.import_row %}Imported message · Export row {{ message.source.import_row }}{% else %}{{ message.source.label }}{% endif %}</a> · {% include 'core/analysis/measurement_value.html' with row=message.time_value only %} · {{ message.channel }}</p>
     <dl class="analysis-message-participants">{% for row in message.participants %}<div><dt>{{ row.label }}</dt><dd>{% include 'core/analysis/measurement_value.html' with row=row only %}</dd></div>{% endfor %}</dl>
     {% if message.source.attachment_label or message.source.derived %}<p class="muted">{{ message.source.attachment_label }}{% if message.source.derived %}{% if message.source.attachment_label %} · {% endif %}{{ message.source.derived_label }} · <a href="{{ message.source.original_url }}">Open original</a>{% endif %}</p>{% endif %}
     {% if message.text %}<div class="original-text analysis-finding-text">{{ message.text }}</div>{% endif %}

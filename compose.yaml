@@ -90,7 +90,7 @@ services:
       - "127.0.0.1:${PANDECT_WEB_PORT:-8000}:8000"
     volumes:
       - app_data:/app/data
-    networks: [default, inference, instagram]
+    networks: [default, inference]
     depends_on:
       db:
         condition: service_healthy
@@ -112,7 +112,7 @@ services:
     stop_grace_period: 30s
     volumes:
       - app_data:/app/data
-    networks: [default, inference, instagram]
+    networks: [default, inference]
     depends_on:
       web:
         condition: service_healthy
@@ -135,6 +135,22 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+
+  instagram-worker:
+    profiles: [instagram-pilot]
+    image: ${COMPOSE_PROJECT_NAME:-pandect}-app
+    environment: *app_environment
+    command: ["python", "manage.py", "db_worker", "--no-reload", "--queue-name", "instagram"]
+    restart: unless-stopped
+    stop_grace_period: 60s
+    volumes:
+      - app_data:/app/data
+    networks: [default, instagram]
+    depends_on:
+      web:
+        condition: service_healthy
+      instagram-pilot:
+        condition: service_healthy
 
   local-transcription:
     profiles: [local-ai]

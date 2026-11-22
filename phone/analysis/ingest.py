@@ -11,7 +11,7 @@ from django.http import Http404
 
 from core.analysis.bulk import retained_cursor_time, start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.execution import snapshot_execution
+from core.analysis.execution import requires_inference, snapshot_execution
 from core.analysis.gateway import gateway_configured
 from core.analysis.history import (
     communication_selection,
@@ -197,7 +197,11 @@ def prepare_import_analysis(batch, case, messages):
             "additional_calls": len(additions),
             "matching_calls": matching_calls,
         }
-        route = executions.get(f"{operation}:{parameters.get('backend', 'local')}")
+        route = (
+            executions.get(f"{operation}:{parameters.get('backend', 'local')}")
+            if requires_inference(operation, parameters)
+            else None
+        )
         try:
             _, created = start_run(
                 batch.requested_by,
@@ -320,6 +324,14 @@ def prepare_import_analysis(batch, case, messages):
                         )
 
 
+def import_selection_warning(selected, imported):
+    return (
+        f"Automatic analysis of {selected} of {imported} newly imported messages. "
+        "Each run covers only its retained selection. Comparisons do not span "
+        "separate selections; a selection boundary can cut an exchange."
+    )
+
+
 def describe_import_selection(data, run):
     """Disclose bounded coverage rather than implying whole-conversation analysis."""
     scope = run.parameters.get("_import_analysis")
@@ -327,10 +339,7 @@ def describe_import_selection(data, run):
         return
     data["metrics"]["import_selection"] = scope
     data["warnings"].append(
-        f"Automatic analysis of {scope['selected_messages']} of "
-        f"{scope['imported_messages']} newly imported messages. "
-        "Each run covers only its retained selection. Comparisons do not span "
-        "separate selections; a selection boundary can cut an exchange."
+        import_selection_warning(scope["selected_messages"], scope["imported_messages"])
     )
     if run.operation in {"style_profiles", "style_change"}:
         data["warnings"].append(

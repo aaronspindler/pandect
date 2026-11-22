@@ -286,14 +286,14 @@ def finding_row(
         else finding.get("text", "")
     ).strip()
     ai_suggestion = is_ai_suggestion(run.operation, finding)
-    if ai_suggestion:
+    rewrite_participant_labels = ai_suggestion and run.operation != "claim_comparison"
+    if rewrite_participant_labels:
         cited = [
             source for source in sources if source.id in finding.get("source_ids", [])
         ]
         names = participant_names(cited)
-        include_sender_role = run.operation != "session_summaries"
-        label = participant_text(label, names, include_sender_role=include_sender_role)
-        text = participant_text(text, names, include_sender_role=include_sender_role)
+        label = participant_text(label, names, operation=run.operation)
+        text = participant_text(text, names, operation=run.operation)
     excerpt = " ".join(text[:110].split())
     if len(text) > 110:
         excerpt += "…"
@@ -303,7 +303,7 @@ def finding_row(
         "review_reason": review_reason,
         "index": index,
         "label": label,
-        "text": text if ai_suggestion else finding.get("text", ""),
+        "text": text if rewrite_participant_labels else finding.get("text", ""),
         "summary_text": excerpt if excerpt != label else "",
         "short_value": excerpt
         if value_first and excerpt == text and excerpt != label

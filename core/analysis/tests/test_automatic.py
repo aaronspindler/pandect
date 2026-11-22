@@ -107,7 +107,7 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.assertFalse(run.external_processing)
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
-    def test_intake_uses_both_approved_routes_and_one_rule_based_lane(self):
+    def test_intake_defaults_to_one_private_ai_run_with_external_approval(self):
         approval = external_grant_kwargs(self.case, "content_events")
         self.login("editor")
         response = self.client.post(
@@ -122,14 +122,9 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.prepare_added()
         gateway.assert_not_called()
         self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
-        self.assertEqual(
-            set(
-                batch.runs.filter(operation="content_events").values_list(
-                    "external_processing", flat=True
-                )
-            ),
-            {True, False},
-        )
+        run = batch.runs.get(operation="content_events")
+        self.assertEqual(run.parameters["_execution"]["backend"], "local")
+        self.assertFalse(batch.runs.filter(external_processing=True).exists())
 
     @override_settings(**LOCAL_GEOCODER)
     def test_existing_private_forward_lookup_is_reused_by_intake(self):

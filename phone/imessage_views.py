@@ -31,6 +31,7 @@ from phone.imessage_forms import (
     IMessageUploadForm,
 )
 from phone.imessage_imports import confirm_import, preview_source, start_preview
+from phone.message_csv import IMPORT_FORMAT_LABELS
 from ui.live import render_live
 
 EARLIER_ANALYSIS_MODES = {
@@ -425,6 +426,7 @@ def imessage_review(request, case_id, run_id):
         imported = retained_messages.filter(pk__in=message_ids)
         first_message = imported.first()
     imported = Paginator(imported, 25).get_page(request.GET.get("messages_page"))
+    summary = data.get("imessage", {})
     return render_live(
         request,
         "phone/imessage_review.html",
@@ -436,7 +438,8 @@ def imessage_review(request, case_id, run_id):
             "run": current,
             "document": document,
             "source_error": source_error,
-            "summary": data.get("imessage", {}),
+            "summary": summary,
+            "format_label": IMPORT_FORMAT_LABELS.get(summary.get("parser_version")),
             "samples": samples,
             "metrics": metrics,
             "rows": rows,

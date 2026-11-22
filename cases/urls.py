@@ -10,9 +10,19 @@ urlpatterns = [
     path("<uuid:case_id>/", views.case_detail, name="case_detail"),
     path("<uuid:case_id>/settings/", views.case_settings, name="case_settings"),
     path(
+        "<uuid:case_id>/settings/ai-backend/",
+        views.case_ai_backend,
+        name="case_ai_backend",
+    ),
+    path(
         "<uuid:case_id>/settings/external-analysis/",
         views.case_external_analysis,
         name="case_external_analysis",
+    ),
+    path(
+        "<uuid:case_id>/settings/instagram-monitoring/",
+        views.case_instagram_monitoring,
+        name="case_instagram_monitoring",
     ),
     path("<uuid:case_id>/delete/", views.case_delete, name="case_delete"),
     path(

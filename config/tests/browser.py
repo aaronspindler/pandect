@@ -553,7 +553,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     "Add text message",
                     "Add phone call",
                     "Add facetime",
-                    "Import iMessage · CSV",
+                    "Import message CSV",
                     "Import vehicle locations",
                 )
                 for label in methods:

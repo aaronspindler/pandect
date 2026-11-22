@@ -11,6 +11,17 @@ from core.analysis.sources import output
 from text.analysis.deterministic import keywords
 from text.analysis.shared import STOPWORDS, WORD, bounded_sources
 
+CITED_SUGGESTION_BASIS = (
+    "Model suggestion with verified quotation anchors; "
+    "citation agreement does not prove its interpretation."
+)
+CITED_SUGGESTION_WARNING = (
+    "Suggestions can misinterpret sarcasm, quotations, "
+    "omitted exchanges, and relative dates. Inspect source "
+    "passages and retain disagreement; no statement is "
+    "promoted to a verified finding."
+)
+
 CONTENT_FINDING_KINDS = (
     "factual_claim",
     "reported_event",
@@ -381,10 +392,7 @@ def cited_model_analysis(
             "anchors": anchors,
             "values": {
                 "status": status[:80],
-                "basis": (
-                    "Model suggestion with verified quotation anchors; "
-                    "citation agreement does not prove its interpretation."
-                ),
+                "basis": CITED_SUGGESTION_BASIS,
             },
         }
         if finding_kinds:
@@ -431,14 +439,7 @@ def cited_model_analysis(
             "characters": sum(len(s.text) for s in usable),
             "method": "cited-content-v1",
         },
-        warnings=[
-            (
-                "Suggestions can misinterpret sarcasm, quotations, "
-                "omitted exchanges, and relative dates. Inspect source "
-                "passages and retain disagreement; no statement is "
-                "promoted to a verified finding."
-            )
-        ],
+        warnings=[CITED_SUGGESTION_WARNING],
         outcome="complete" if items else "empty",
     )
 
