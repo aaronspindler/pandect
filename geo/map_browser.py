@@ -426,37 +426,42 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     self.authenticate(context)
                     self.mock_tiles(context, [])
                     page = context.new_page()
+                    # The initial fit schedules its own replay. Let it finish
+                    # before rejecting the cache on a subsequent user zoom.
                     page.goto(url)
                     status = page.locator("[data-trip-status]")
                     expect(status).to_contain_text("2 of 2")
+                    map_section = page.locator("[data-case-map]")
+                    expect(map_section).to_have_attribute("data-trip-complete", "true")
                     while_rechecking = []
 
                     def reject_cache(
-                        route,
-                        *,
-                        while_rechecking=while_rechecking,
-                        status=status,
-                        page=page,
+                        route, *, snapshots=while_rechecking, status=status, page=page
                     ):
-                        while_rechecking.append(
-                            (
-                                status.inner_text(),
-                                status.is_visible(),
-                                page.locator(".case-map-endpoint").count(),
-                                page.locator(".trip-path-canvas").evaluate(
-                                    """canvas => {
-                                        const context = canvas.getContext('2d');
-                                        const pixels = context.getImageData(
-                                            0, 0, canvas.width, canvas.height
-                                        );
-                                        return pixels.data.some(
-                                            (value, index) => index % 4 === 3 && value
-                                        );
-                                    }"""
-                                ),
+                        try:
+                            has_pixels = page.locator(".trip-path-canvas").evaluate(
+                                """canvas => {
+                                    const {width, height} = canvas;
+                                    if (!width || !height) return false;
+                                    const context = canvas.getContext('2d');
+                                    const pixels = context.getImageData(
+                                        0, 0, width, height
+                                    );
+                                    return pixels.data.some(
+                                        (value, index) => index % 4 === 3 && value
+                                    );
+                                }"""
                             )
-                        )
-                        route.fulfill(status=409)
+                            snapshots.append(
+                                (
+                                    status.inner_text(),
+                                    status.is_visible(),
+                                    page.locator(".case-map-endpoint").count(),
+                                    has_pixels,
+                                )
+                            )
+                        finally:
+                            route.fulfill(status=409)
 
                     page.route(recheck, reject_cache)
                     with (
@@ -479,9 +484,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                             pending, ("Loading the complete trip path…", True, 0, False)
                         )
                     expect(status).to_contain_text("2 of 2")
-                    expect(page.locator("[data-case-map]")).to_have_attribute(
-                        "data-trip-complete", "true"
-                    )
+                    expect(map_section).to_have_attribute("data-trip-complete", "true")
                     context.close()
                     browser.close()
 
