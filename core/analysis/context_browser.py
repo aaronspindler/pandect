@@ -163,6 +163,7 @@ class ContextBrowserTests(BrowserTestCase):
         expect(page.get_by_label("Processing location", exact=True)).to_have_count(0)
         expect(page.locator('input[name="external_processing"]')).to_have_count(0)
         page.get_by_role("button", name="Start analysis", exact=True).click()
+        page.wait_for_url(re.compile(r"/analysis/[0-9a-f-]{36}/$"))
         expect(
             page.get_by_role("status").filter(has_text=re.compile(r"^Queued$"))
         ).to_be_visible()
@@ -245,13 +246,15 @@ class ContextBrowserTests(BrowserTestCase):
                     )
                 )
                 expect(
-                    page.get_by_role(
-                        "heading",
-                        name="No text recognized. Inspect the original images.",
+                    page.get_by_role("heading", name="OCR coverage", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("region", name="Limitations").get_by_text(
+                        "No text recognized. Inspect the original images.",
                         exact=True,
                     )
                 ).to_be_visible()
-                page.get_by_text("Details and history", exact=True).press("Enter")
+                page.get_by_text("Analysis run details", exact=True).press("Enter")
                 summary = page.locator("summary").filter(has_text="Processing summary")
                 summary.focus()
                 expect(summary).to_be_focused()

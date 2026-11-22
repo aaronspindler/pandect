@@ -455,23 +455,26 @@ assert context["matches"][0]["feature_id"] == "node/1"
 PY
 compose exec -T web python -c \
     'import json, os, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok", "version": os.environ["APP_VERSION"], "commit": os.environ["APP_COMMIT_SHA"]}'
-compose exec -T web python <<'PY'
-import os
+compose exec -T -e DJANGO_DEBUG=false -e DJANGO_SETTINGS_MODULE=config.settings web python <<'PY'
 import subprocess
 import time
 from urllib.error import URLError
 from urllib.request import urlopen
 
+import django
+from django.contrib.staticfiles.storage import staticfiles_storage
+
+django.setup()
+base_url = "http://127.0.0.1:8001"
 # Exercise the actual non-debug WSGI/static path as the unprivileged image user.
 process = subprocess.Popen(
     ["gunicorn", "config.wsgi:application", "--bind", "127.0.0.1:8001",
      "--logger-class", "config.privacy.PrivateAccessLogger", "--log-level", "warning"],
-    env=os.environ | {"DJANGO_DEBUG": "false"},
 )
 try:
     for attempt in range(50):
         try:
-            with urlopen("http://127.0.0.1:8001/health/", timeout=2) as response:
+            with urlopen(base_url + "/health/", timeout=2) as response:
                 assert response.status == 200
             break
         except (URLError, TimeoutError):
@@ -480,16 +483,21 @@ try:
             time.sleep(0.1)
     else:
         raise RuntimeError("The production WSGI server did not become ready.")
-    for path, expected in (
-        ("/static/ui/app.css", b".global-header"),
-        ("/static/core/workspace.css", b".evidence-workspace"),
-        ("/static/core/evidence.js", b"data-bulk-upload"),
-        ("/static/ui/icons/file-text.svg", b"<svg"),
-        ("/accounts/login/", b'name="login"'),
+    for asset, content_type in (
+        ("ui/app.css", "text/css"),
+        ("core/workspace.css", "text/css"),
+        ("core/evidence.js", "text/javascript"),
+        ("ui/icons/file-text.svg", "image/svg+xml"),
     ):
-        with urlopen("http://127.0.0.1:8001" + path, timeout=5) as response:
+        path = staticfiles_storage.url(asset)
+        with urlopen(base_url + path, timeout=5) as response:
             assert response.status == 200, path
-            assert expected in response.read(), path
+            assert response.headers.get_content_type() == content_type, path
+            assert "immutable" in response.headers.get("Cache-Control", ""), path
+            assert response.read(1), path
+    with urlopen(base_url + "/accounts/login/", timeout=5) as response:
+        assert response.status == 200
+        assert b'name="login"' in response.read()
 finally:
     process.terminate()
     process.wait(timeout=10)
