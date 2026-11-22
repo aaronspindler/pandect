@@ -67,6 +67,7 @@ class SightingBrowserTests(BrowserTestCase):
 
     def publish_proposal(self, page):
         page.get_by_role("button", name="Save proposal").press("Enter")
+        page.wait_for_url(re.compile(r"/analysis/[0-9a-f-]{36}/$"))
         expect(
             page.get_by_role("status").filter(has_text=re.compile(r"^Queued$"))
         ).to_be_visible()

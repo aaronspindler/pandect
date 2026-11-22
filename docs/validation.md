@@ -66,8 +66,9 @@ storage. Domain guides explain behavior; test modules own coverage inventories.
 `make compose-smoke` needs only Docker. It uses synthetic configuration, random
 loopback ports, and fresh volumes in a unique disposable project to exercise
 startup, storage, processing, and worker restart. It runs production worker startup
-and verifies the shared web/worker image. See
-[`scripts/compose-smoke.sh`](../scripts/compose-smoke.sh) for coverage. One successful
+and verifies the shared web/worker image. The non-debug HTTP probe requests
+assets through the production manifest and checks their content type and immutable
+caching. See [`scripts/compose-smoke.sh`](../scripts/compose-smoke.sh) for coverage. One successful
 probe does not establish exactly-once delivery after crashes. The script clears
 inherited `PANDECT_` settings, ignores your `.env`/data, and removes only its own
 containers/volumes on exit.
@@ -139,6 +140,10 @@ On Linux, install Playwright's OS dependencies (CI uses
 [Makefile](../Makefile) modules with `config.test_settings`, separately from unit
 tests, using synthetic accounts/material and temporary private storage. Never share
 a test database between competing Django processes or use an investigation database.
+
+Use accessible roles for controls and named regions for displayed evidence or
+limitations. Wait for the expected navigation before reading a redirected URL and
+for initial rendering to settle before simulating a refresh or retry.
 
 `PANDECT_BROWSER_ENGINES` selects `chromium`, `webkit`, or both (comma-separated;
 default both). `PANDECT_BROWSER_ARTIFACTS` overrides captures for the shared
