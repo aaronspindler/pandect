@@ -4,7 +4,7 @@ updates:
     # Updates pyproject.toml and uv.lock together, including the dev group.
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     open-pull-requests-limit: 5
     groups:
       python-dependencies:
@@ -13,7 +13,7 @@ updates:
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     open-pull-requests-limit: 5
     # PostgreSQL major upgrades need an explicit data migration plan.
     ignore:
@@ -28,7 +28,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     open-pull-requests-limit: 5
     groups:
       github-actions-dependencies:
