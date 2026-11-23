@@ -67,6 +67,26 @@ class CaseSearchBrowserTests(BrowserTestCase):
                     self.check_approval_layout(page, engine, approve)
                 approve.press("Enter")
                 page.wait_for_url("**/processing/#case-search-index")
+                processing_url = page.url
+                page.goto(
+                    self.url("cases:case_settings", case_id=case.pk) + "#meaning-search"
+                )
+                section = page.locator("#meaning-search")
+                expect(
+                    section.get_by_role("link", name="View indexing progress")
+                ).to_be_visible()
+                embedding_model = section.get_by_text("Embedding model", exact=True)
+                expect(embedding_model).to_be_hidden()
+                details = section.locator("summary").filter(
+                    has_text="Meaning search data and destination"
+                )
+                details.press("Enter")
+                expect(embedding_model).to_be_visible()
+                details.press("Enter")
+                expect(embedding_model).to_be_hidden()
+                if javascript:
+                    self.capture(page, engine, "hosted-approval-saved")
+                page.goto(processing_url)
                 with patch(
                     "core.case_search.indexing.embed",
                     side_effect=AnalysisError("gateway_authentication"),

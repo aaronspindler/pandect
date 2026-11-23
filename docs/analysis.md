@@ -462,6 +462,24 @@ The case owner reviews and approves configured destinations under
 [Case Settings](cases.md#external-analysis-approval) and selects
 [External AI](cases.md#ai-backend) for new eligible AI checks.
 
+### Model choices for case owners
+
+Case owners can choose a model per external inference method in
+[Case Settings](cases.md#external-analysis-approval). Without a saved choice,
+the method uses its installation default. Both default and alternate models use
+the configured provider for their purpose.
+
+| Environment variable | Additional model choices |
+| --- | --- |
+| `PANDECT_AI_TEXT_MODEL_CHOICES` | Comma-separated IDs for the configured external text provider, including direct providers. |
+| `PANDECT_AI_TRANSCRIPTION_MODEL_CHOICES` | Comma-separated IDs for external recording transcription through Workers AI. |
+
+Set the same choices in web and worker. Include only models qualified for the
+provider credentials, request format, and analysis purpose. Approval is a
+separate action that binds each method to its exact execution settings. If a
+saved choice becomes unavailable, the case owner can select an available model
+or return to the default and review the destination.
+
 ### OpenAI with a key stored in Cloudflare
 
 Store an OpenAI provider key in your authenticated gateway's **Provider Keys**
@@ -485,21 +503,20 @@ key or Workers AI token is needed in Pandect for this text route. See
 [Cloudflare BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)
 and [OpenAI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/openai/).
 
-With `PANDECT_AI_TEXT_MODEL=auto`, Pandect selects the OpenAI model by task.
+With `PANDECT_AI_TEXT_MODEL=auto`, Pandect defaults to the OpenAI model for
+each task below. All three models are available choices for each text method.
 Case Settings shows the resolved model, and the run retains it.
 
-| Text analysis | OpenAI model | Reasoning effort |
+| Text analysis | Default OpenAI model | Reasoning effort |
 | --- | --- | --- |
-| Topics with brief summaries | `gpt-6-luna` | Medium |
+| Topic summaries | `gpt-6-luna` | Medium |
 | Claims and commitments | `gpt-6-luna` | High |
 | Message-session summaries | `gpt-6.1-terra` | Medium |
 | Semantic conversation links | `gpt-6.1-terra` | High |
 | Question-driven synthesis | `gpt-6.2-sol` | High |
 
-An explicit model ID pins all OpenAI text tasks to that model. To switch an
-existing single-model installation to task-based routing, set the value to
-`auto` for both web and worker. If a queued run's reviewed model changes, it
-requires case-owner approval before evidence can be sent to the new model.
+An explicit model ID sets one default for all OpenAI text tasks. To use
+task-based defaults, set the value to `auto` for both web and worker.
 
 OpenAI uses the Gateway's `/openai/responses` endpoint for these tasks.
 Each request has a 32,768-token total completion allowance, including reasoning,
@@ -525,7 +542,7 @@ quality require live qualification. See [OpenAI JSON output](https://developers.
 | `PANDECT_AI_GATEWAY_ID` | Operator gateway ID. |
 | `PANDECT_AI_GATEWAY_TOKEN` | Gateway authentication, sent as `cf-aig-authorization`. |
 | `PANDECT_AI_TEXT_PROVIDER` | `workers-ai` selects Cloudflare Workers AI. `openai` selects OpenAI through Cloudflare. Workers AI is the default when no direct keys or explicit provider are set. |
-| `PANDECT_AI_TEXT_MODEL` | Defaults to `auto`. OpenAI uses the task table above. Workers AI uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. An explicit model ID pins the selected text provider to one model. |
+| `PANDECT_AI_TEXT_MODEL` | Defaults to `auto`. OpenAI uses the task table above. Workers AI uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. An explicit model ID sets a single default for the selected text provider. |
 | `PANDECT_AI_OPENAI_KEY_ALIAS` | Stored OpenAI provider key alias; `default`. |
 | `PANDECT_AI_WORKERS_TOKEN` | Workers AI upstream credential; required only for Workers AI routes. |
 | `PANDECT_AI_TRANSCRIPTION_MODEL` | `@cf/openai/whisper-large-v3-turbo`; external transcription remains on Workers AI. |

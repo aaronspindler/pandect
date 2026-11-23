@@ -1,0 +1,82 @@
+<section class="content-section" id="ai-processing" aria-labelledby="ai-processing-heading">
+  <h2 id="ai-processing-heading">AI processing</h2>
+  {% if case.ai_backend == 'gateway' and not ai_backend_form.external_ai_available %}
+    <p class="notice">External AI needs current approval. Review <a href="#external-analysis">External analysis</a> or choose Local AI.</p>
+  {% endif %}
+  <form class="form-panel" method="post" action="{% url 'cases:case_ai_backend' case.pk %}">
+    {% csrf_token %}
+    {% include 'ui/components/form_errors.html' with form=ai_backend_form %}
+    <div class="filter-bar">
+      {% include 'ui/components/form_field.html' with field=ai_backend_form.ai_backend only %}
+      <button class="button button-secondary" type="submit">Save AI backend</button>
+    </div>
+  </form>
+  <section id="external-analysis" aria-labelledby="external-analysis-heading">
+    <h3 id="external-analysis-heading">External analysis</h3>
+    {% if external_models_form.rows or external_models_form.errors %}
+      <form class="form-panel" method="post" action="{% url 'cases:case_external_models' case.pk %}">
+        {% csrf_token %}
+        {% include 'ui/components/form_errors.html' with form=external_models_form %}
+        {{ external_models_form.confirmation }}
+        {% if external_models_form.stale %}
+          <div class="notice">
+            <h4>Saved models</h4>
+            <dl class="metadata-grid">
+              {% for label, model, field in external_models_form.rows %}
+                <div><dt>{{ label }}</dt><dd>{{ model }}</dd></div>
+              {% endfor %}
+            </dl>
+          </div>
+        {% endif %}
+        {% if external_models_form.editable %}
+          <p class="muted">Choose models for new checks that use External AI.</p>
+        {% endif %}
+        <div class="field-grid">
+          {% for label, model, field in external_models_form.rows %}
+            {% if field %}
+              <div class="field{% if field.errors %} field-error{% endif %}">
+                <label for="{{ field.id_for_label }}">{{ label }}</label>
+                {{ field }}
+                {{ field.errors }}
+              </div>
+            {% else %}
+              <dl class="field"><dt>{{ label }}</dt><dd>{{ model }}</dd></dl>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% if external_models_form.editable %}
+          <div class="actions">
+            <button class="button button-secondary" type="submit">Save models</button>
+          </div>
+        {% endif %}
+      </form>
+    {% endif %}
+    {% if external_analysis.destinations %}
+      <details class="disclosure"{% if external_analysis.can_approve %} open{% endif %}>
+        <summary>{% if external_analysis.can_approve %}Review external data and destinations{% else %}Approved external destinations{% endif %}</summary>
+        <div class="disclosure-body">
+          <p class="prose">Approval allows Pandect to send the material listed below for analysis in this case. This can include relevant case history. The providers’ retention policies apply.</p>
+          <dl class="metadata-grid">
+            {% for destination in external_analysis.destinations %}
+              <div><dt>{{ destination.material }}</dt><dd>{{ destination.name }}{% if destination.approved %} · Approved{% endif %}</dd></div>
+            {% endfor %}
+          </dl>
+          {% if external_analysis.can_approve %}
+            <form method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
+              {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.approve_confirmation }}">
+              <button class="button button-primary" type="submit" name="action" value="approve">Approve listed destinations</button>
+            </form>
+          {% endif %}
+        </div>
+      </details>
+    {% else %}
+      <p class="muted">No external analysis destinations are available. Ask the operator to check the service configuration.</p>
+    {% endif %}
+    {% if external_analysis.active %}
+      <form method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
+        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.revoke_confirmation }}">
+        <button class="button button-secondary" type="submit" name="action" value="revoke">Revoke external analysis approval</button>
+      </form>
+    {% endif %}
+  </section>
+</section>

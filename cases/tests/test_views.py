@@ -15,7 +15,7 @@ from django.utils import timezone
 from cases.admin import CaseAdmin
 from cases.models import Case, CaseInvitation, CaseMembership
 from core.analysis.execution import available_executions
-from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
 from geo.models import PersonLocationEvidence
 from geo.testing import LOCAL_GEOCODER
 from people.models import Person
@@ -242,6 +242,146 @@ class CaseInterfaceTests(TestCase):
         )
         self.case.refresh_from_db()
         self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
+
+    @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
+    def test_only_owner_can_save_allowed_models_and_restore_defaults(self):
+        self.login()
+        settings = self.url("case_settings")
+        action = self.url("case_external_models")
+        initial = self.client.get(settings).context["external_models_form"]
+        selection = {
+            "confirmation": initial["confirmation"].value(),
+            "content_events": "gpt-6.2-sol",
+            "text_topics": "gpt-6.1-terra",
+            "claim_comparison": "gpt-6.2-sol",
+        }
+        for actor, status in (
+            (self.viewer, 403),
+            (self.editor, 403),
+            (self.outsider, 404),
+        ):
+            with self.subTest(actor=actor):
+                self.login(actor)
+                self.assertEqual(
+                    self.client.post(action, selection).status_code, status
+                )
+        self.login()
+        self.assertEqual(self.client.get(action).status_code, 405)
+        invalid = self.client.post(
+            action, selection | {"content_events": "gpt-unlisted"}
+        )
+        self.assertTrue(
+            invalid.context["external_models_form"].has_error(
+                "content_events", "invalid_choice"
+            )
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_models, {})
+
+        self.assertRedirects(
+            self.client.post(action, selection), f"{settings}#external-analysis"
+        )
+        self.case.refresh_from_db()
+        self.other_case.refresh_from_db()
+        models = {"content_events": "gpt-6.2-sol", "text_topics": "gpt-6.1-terra"}
+        self.assertEqual(self.case.external_analysis_models, models)
+        self.assertEqual(self.other_case.external_analysis_models, {})
+        self.assertFalse(self.case.external_analysis_approval)
+        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
+
+        self.assertEqual(
+            self.client.post(action, selection | {"content_events": ""}).status_code,
+            409,
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_models, models)
+        current = self.client.get(settings).context["external_models_form"]
+        self.assertRedirects(
+            self.client.post(
+                action,
+                selection
+                | {
+                    "confirmation": current["confirmation"].value(),
+                    "content_events": "",
+                },
+            ),
+            f"{settings}#external-analysis",
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(
+            self.case.external_analysis_models, {"text_topics": "gpt-6.1-terra"}
+        )
+
+    @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
+    def test_model_change_requires_review_of_the_exact_new_destination(self):
+        self.login()
+        settings = self.url("case_settings")
+        approval_action = self.url("case_external_analysis")
+        previous = self.client.get(settings).context["external_analysis"]
+        self.assertEqual(
+            self.client.post(
+                approval_action,
+                {"action": "approve", "confirmation": previous["approve_confirmation"]},
+            ).status_code,
+            302,
+        )
+        saved = self.client.get(settings)
+        old_confirmation = saved.context["external_analysis"]["approve_confirmation"]
+        self.assertEqual(
+            self.client.post(
+                self.url("case_external_models"),
+                {
+                    "confirmation": saved.context["external_models_form"][
+                        "confirmation"
+                    ].value(),
+                    "content_events": "gpt-6.2-sol",
+                },
+            ).status_code,
+            302,
+        )
+        self.case.refresh_from_db()
+        self.assertNotIn(
+            "gateway", available_executions(self.case, "content_events", {})
+        )
+        self.assertEqual(
+            available_executions(self.case, "text_topics", {})["gateway"]["model"],
+            "gpt-6-luna",
+        )
+        self.assertContains(
+            self.client.post(
+                approval_action,
+                {"action": "approve", "confirmation": old_confirmation},
+                follow=True,
+            ),
+            "Settings changed. Review the current destinations.",
+        )
+        current = self.client.get(settings).context["external_analysis"]
+        self.assertTrue(current["can_approve"])
+        self.assertEqual(
+            self.client.post(
+                approval_action,
+                {"action": "approve", "confirmation": current["approve_confirmation"]},
+            ).status_code,
+            302,
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(
+            available_executions(self.case, "content_events", {})["gateway"]["model"],
+            "gpt-6.2-sol",
+        )
+        with self.settings(
+            PANDECT_AI_GATEWAY=AUTO_OPENAI
+            | {"models": AUTO_OPENAI["models"] | {"text": "gpt-6-luna"}}
+        ):
+            self.assertNotIn(
+                "gateway", available_executions(self.case, "content_events", {})
+            )
+            unavailable = self.client.get(settings).context["external_models_form"]
+            self.assertEqual(unavailable["content_events"].value(), "gpt-6.2-sol")
+            self.assertIn(
+                ("gpt-6.2-sol", "gpt-6.2-sol (unavailable)"),
+                unavailable.fields["content_events"].choices,
+            )
 
     @override_settings(
         PANDECT_AI_GATEWAY={}, **(LOCAL_GEOCODER | {"PANDECT_GEOCODER_LOCAL": False})

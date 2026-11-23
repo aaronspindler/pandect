@@ -43,6 +43,7 @@ from ui.live import render_live
 
 from .forms import (
     CaseAIBackendForm,
+    CaseExternalModelsForm,
     CaseForm,
     ConfirmForm,
     InvitationForm,
@@ -185,7 +186,14 @@ def case_settings(request, case_id):
 
 
 def _render_case_settings(
-    request, case, *, status=200, form=None, latest_details=None, ai_backend_form=None
+    request,
+    case,
+    *,
+    status=200,
+    form=None,
+    latest_details=None,
+    ai_backend_form=None,
+    external_models_form=None,
 ):
     invitations = list(case.invitations.all())
     return _render_case(
@@ -198,6 +206,11 @@ def _render_case_settings(
             ai_backend_form
             if ai_backend_form is not None
             else CaseAIBackendForm(case=case)
+        ),
+        external_models_form=(
+            external_models_form
+            if external_models_form is not None
+            else CaseExternalModelsForm(case=case)
         ),
         latest_details=latest_details,
         memberships=case.memberships.select_related("user").order_by("user__username"),
@@ -233,13 +246,41 @@ def case_ai_backend(request, case_id):
 
 @product_login_required
 @require_POST
+def case_external_models(request, case_id):
+    with transaction.atomic():
+        case = get_case(request.user, case_id, owner=True, lock=True)
+        form = CaseExternalModelsForm(request.POST, case=case)
+        if form.is_valid():
+            models = {
+                field.name: form.cleaned_data[field.name]
+                for field in form.visible_fields()
+                if form.cleaned_data[field.name]
+            }
+            if case.external_analysis_models != models:
+                case.external_analysis_models = models
+                case.save(update_fields=("external_analysis_models",))
+            messages.success(request, "Analysis models saved.")
+            return redirect(
+                reverse(
+                    "cases:case_settings", args=(case.pk,), fragment="external-analysis"
+                )
+            )
+    return _render_case_settings(
+        request, case, status=409 if form.stale else 200, external_models_form=form
+    )
+
+
+@product_login_required
+@require_POST
 @transaction.atomic
 def case_external_analysis(request, case_id):
     case = get_case(request.user, case_id, owner=True, lock=True)
     action = request.POST.get("action")
     if action not in {"approve", "revoke"}:
         raise Http404("Case action not found.")
-    executions = configured_external_executions() if action == "approve" else {}
+    executions = (
+        configured_external_executions(case=case) if action == "approve" else {}
+    )
     if not constant_time_compare(
         request.POST.get("confirmation", ""),
         case_approval_confirmation(case, request.user, action, executions),

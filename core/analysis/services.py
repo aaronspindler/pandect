@@ -481,7 +481,7 @@ def _processing_inputs(run, case):
 
 
 def _authorize_execution(run, case):
-    execution = validate_execution(run)
+    execution = validate_execution(run, case)
     if run.external_processing:
         validate_case_execution_grant(
             case,
@@ -614,12 +614,12 @@ def start_run(
         valid_parameters = False
     if not valid_parameters:
         raise ValidationError("Analysis settings exceed the supported limit.")
-    # Execution settings are operator-owned, never accepted from a form or rerun.
+    # Resolve trusted execution settings independently of form or rerun data.
     retained_keys = {"_execution", "_external_approval"}
     parameters = {
         key: value for key, value in parameters.items() if key not in retained_keys
     }
-    execution = snapshot_execution(operation, parameters)
+    execution = snapshot_execution(operation, parameters, case=case)
     external = bool(execution and execution["location"] == "external")
     if approved_execution is not None and approved_execution != execution:
         raise AnalysisError("execution_changed")
@@ -679,7 +679,7 @@ def start_run(
     if (
         (require_configured_inference or (operation == "transcription" and external))
         and requires_inference(operation, parameters)
-        and not inference_configured(execution, operation)
+        and not inference_configured(execution)
     ):
         if not external:
             raise AnalysisError("local_ai_not_configured")

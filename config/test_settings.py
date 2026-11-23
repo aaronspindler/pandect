@@ -16,6 +16,7 @@ PANDECT_AI_GATEWAY = PANDECT_AI_GATEWAY | {
     "workers_token": "",
     "text_provider": "workers-ai",
     "openai_key_alias": "default",
+    "model_choices": {},
     "models": {
         "text": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
         "transcription": "@cf/openai/whisper-large-v3-turbo",

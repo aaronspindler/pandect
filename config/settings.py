@@ -361,6 +361,17 @@ PANDECT_AI_GATEWAY = {
             "PANDECT_AI_TRANSCRIPTION_MODEL", "@cf/openai/whisper-large-v3-turbo"
         ),
     },
+    "model_choices": {
+        purpose: tuple(
+            model.strip()
+            for model in os.environ.get(variable, "").split(",")
+            if model.strip()
+        )
+        for purpose, variable in (
+            ("text", "PANDECT_AI_TEXT_MODEL_CHOICES"),
+            ("transcription", "PANDECT_AI_TRANSCRIPTION_MODEL_CHOICES"),
+        )
+    },
     "timeout": 60,
     "max_request_bytes": 8 * 1024 * 1024,
     "max_response_bytes": 2 * 1024 * 1024,

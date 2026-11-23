@@ -16,6 +16,11 @@ urlpatterns = [
         name="case_ai_backend",
     ),
     path(
+        "<uuid:case_id>/settings/external-models/",
+        views.case_external_models,
+        name="case_external_models",
+    ),
+    path(
         "<uuid:case_id>/settings/external-analysis/",
         views.case_external_analysis,
         name="case_external_analysis",

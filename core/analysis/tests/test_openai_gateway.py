@@ -9,8 +9,14 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
+from core.analysis.approval import approve_case_execution
 from core.analysis.errors import AnalysisError
-from core.analysis.execution import gateway_execution, snapshot_execution
+from core.analysis.execution import (
+    configured_external_executions,
+    external_model_choices,
+    gateway_execution,
+    snapshot_execution,
+)
 from core.analysis.services import authorize_run, process_run, start_run
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
@@ -29,6 +35,7 @@ OPENAI = CONFIG | {
     },
 }
 AUTO_OPENAI = OPENAI | {"models": OPENAI["models"] | {"text": "auto"}}
+OPENAI_WITH_MODEL_CHOICES = OPENAI | {"model_choices": {"text": ("gpt-6-luna",)}}
 
 
 def openai_reply(value=None):
@@ -113,6 +120,35 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
             with self.assertRaisesMessage(AnalysisError, "gateway_not_configured"):
                 self.gateway.request("transcription", {"audio": []})
         build.assert_not_called()
+
+    @override_settings(
+        PANDECT_AI_GATEWAY=OPENAI_WITH_MODEL_CHOICES
+        | {
+            "workers_token": CONFIG["workers_token"],
+            "model_choices": {
+                "text": ("gpt-6-luna",),
+                "transcription": ("@cf/test/synthetic-transcriber", "@cf/../unsafe"),
+            },
+        }
+    )
+    def test_transcription_model_choices_are_distinct_from_text_models(self):
+        self.assertEqual(
+            external_model_choices("transcription"),
+            ("@cf/openai/whisper-large-v3-turbo", "@cf/test/synthetic-transcriber"),
+        )
+        self.assertEqual(
+            external_model_choices("content_events"), ("gpt-6.2-sol", "gpt-6-luna")
+        )
+        self.assertEqual(external_model_choices("claim_comparison"), ())
+        self.case.external_analysis_models = {
+            "transcription": "@cf/test/synthetic-transcriber"
+        }
+        self.assertEqual(
+            snapshot_execution("transcription", {"backend": "gateway"}, case=self.case)[
+                "model"
+            ],
+            "@cf/test/synthetic-transcriber",
+        )
 
     def test_refused_incomplete_malformed_and_tool_output_fail_without_a_result(self):
         cases = [
@@ -329,6 +365,68 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(retained["provider"], "openai")
         self.assertEqual(retained["model"], "gpt-6.2-sol")
         self.assertNotIn("gateway_token", retained)
+
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI_WITH_MODEL_CHOICES)
+    def test_saved_model_requires_new_run_and_reaches_transport_and_provenance(self):
+        self.case.external_analysis_models = {"content_events": "gpt-6-luna"}
+        self.case.save(update_fields=("external_analysis_models",))
+        with patch("core.analysis.gateway.build_opener") as build:
+            process_run(self.run.pk)
+        build.assert_not_called()
+        self.run.refresh_from_db()
+        self.assertEqual(self.run.status, "failed")
+        self.assertEqual(self.run.error_code, "execution_changed")
+        self.assertEqual(self.run.parameters["_execution"]["model"], "gpt-6.2-sol")
+        self.assertFalse(self.run.gateway_requests.exists())
+
+        executions = configured_external_executions(case=self.case)
+        approve_case_execution(self.case, self.users["owner"], executions)
+        run, _ = start_run(
+            self.users["editor"],
+            self.case.pk,
+            "content_events",
+            [{"kind": "text", "id": str(self.note.pk)}],
+            parameters={"backend": "gateway"},
+            approved_execution=executions["content_events"],
+            external_grant_revision=self.case.external_analysis_approval["revision"],
+        )
+        value = {
+            "items": [
+                {
+                    "kind": "reported",
+                    "text": "A source reports wording.",
+                    "citations": [
+                        {"source_id": run.inputs[0]["id"], "quote": self.note.body}
+                    ],
+                }
+            ]
+        }
+        with patch("core.analysis.gateway.build_opener") as build:
+            build.return_value.open.return_value = response(openai_reply(value))
+            process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "complete", run.error_code)
+        request = build.return_value.open.call_args.args[0]
+        self.assertEqual(json.loads(request.data)["model"], "gpt-6-luna")
+        self.assertEqual(run.gateway_requests.get().model, "gpt-6-luna")
+        self.assertEqual(run.result.provenance["execution"]["model"], "gpt-6-luna")
+        self.assertEqual(executions["text_topics"]["model"], "gpt-6.2-sol")
+
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI_WITH_MODEL_CHOICES)
+    def test_model_change_while_retry_waits_stops_the_next_request(self):
+        def change_model(_seconds):
+            self.case.external_analysis_models = {"content_events": "gpt-6-luna"}
+            self.case.save(update_fields=("external_analysis_models",))
+
+        with (
+            patch("core.analysis.gateway.build_opener") as build,
+            patch("core.analysis.gateway.time.sleep", side_effect=change_model),
+        ):
+            build.return_value.open.side_effect = error(429)
+            with self.assertRaisesMessage(AnalysisError, "execution_changed"):
+                self.gateway.infer("Synthetic", {})
+            self.assertEqual(build.return_value.open.call_count, 1)
+        self.assertEqual(self.run.gateway_requests.get().status, "rate_limit")
 
     @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
     def test_all_external_text_methods_use_their_approved_openai_models(self):

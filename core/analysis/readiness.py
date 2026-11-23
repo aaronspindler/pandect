@@ -59,7 +59,7 @@ UNSUPPORTED_FORMATS = {
 def configuration_readiness(operation, parameters=None, *, case=None):
     if parameters is None:
         parameters = {"include_summary": True, "semantic_links": True}
-    configured = configured_executions(operation, parameters)
+    configured = configured_executions(operation, parameters, case=case)
     if not configured:
         if operation == "claim_comparison":
             return "Configure private text analysis to compare claims."

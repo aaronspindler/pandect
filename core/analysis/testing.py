@@ -18,7 +18,7 @@ def external_grant_kwargs(case, operation):
     from core.analysis.approval import approve_case_execution
     from core.analysis.execution import configured_external_executions
 
-    executions = configured_external_executions()
+    executions = configured_external_executions(case)
     if case.external_analysis_approval.get("executions") != executions:
         approve_case_execution(case, case.owner, executions)
     return {

@@ -11,7 +11,7 @@ from django.test import TestCase, override_settings
 
 from core.analysis.approval import revoke_case_execution
 from core.analysis.errors import AnalysisError
-from core.analysis.gateway import GatewayClient
+from core.analysis.gateway import GatewayClient, gateway_configured
 from core.analysis.http import NoRedirect
 from core.analysis.services import authorize_run, start_run
 from core.analysis.testing import external_grant_kwargs
@@ -167,7 +167,8 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
                 override_settings(PANDECT_AI_GATEWAY=config),
                 patch("core.analysis.gateway.build_opener") as build,
             ):
-                with self.assertRaisesMessage(AnalysisError, "gateway_not_configured"):
+                self.assertFalse(gateway_configured("text", self.run.operation))
+                with self.assertRaisesMessage(AnalysisError, "execution_changed"):
                     self.client.request("text", {})
                 build.assert_not_called()
 

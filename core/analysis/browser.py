@@ -33,7 +33,7 @@ from core.analysis.services import (
     start_run,
 )
 from core.analysis.testing import external_grant_kwargs, wav_bytes
-from core.analysis.tests.test_openai_gateway import OPENAI
+from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
 from core.analysis.tests.test_topic_recovery import LOCAL
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
@@ -50,6 +50,8 @@ from phone.models import (
 from text.analysis.ai import content_events
 from text.models import TextEvidence
 from vehicle.models import Vehicle
+
+REVIEWED_OPENAI = AUTO_OPENAI | {"workers_token": "synthetic-workers-token"}
 
 
 class AnalysisBrowserTests(BrowserTestCase):
@@ -164,18 +166,31 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(page.get_by_text("AI backend saved.")).to_be_visible()
                 expect(backend).to_have_value(Case.AIBackend.LOCAL)
 
-    @override_settings(PANDECT_AI_GATEWAY=OPENAI, PANDECT_LOCAL_AI=LOCAL)
-    def test_openai_destination_and_stale_approval_without_javascript(self):
+    @override_settings(
+        PANDECT_AI_GATEWAY=REVIEWED_OPENAI,
+        PANDECT_LOCAL_AI=LOCAL,
+        PANDECT_SEARCH_EMBEDDING_PROVIDER="openai-gateway",
+    )
+    def test_openai_models_and_destination_review_without_javascript(self):
         settings_url = self.url("cases:case_settings", case_id=self.case.pk)
         for engine in self.engines:
             with (
                 self.subTest(engine=engine),
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
+                self.db(
+                    Case.objects.filter(pk=self.case.pk).update,
+                    ai_backend=Case.AIBackend.LOCAL,
+                    external_analysis_models={},
+                    external_analysis_approval={},
+                    search_embedding_approval={},
+                )
                 self.sign_in(page, self.owner)
                 page.goto(settings_url)
                 expect(
-                    page.get_by_text(re.compile("OpenAI via Cloudflare AI Gateway"))
+                    page.get_by_text(
+                        re.compile("OpenAI via Cloudflare AI Gateway")
+                    ).first
                 ).to_be_visible()
                 approval = page.get_by_role(
                     "button", name="Approve listed destinations"
@@ -202,8 +217,8 @@ class AnalysisBrowserTests(BrowserTestCase):
                 )
                 self.capture(page, engine, "openai-initial-forced-colors")
                 with self.settings(
-                    PANDECT_AI_GATEWAY=OPENAI
-                    | {"models": OPENAI["models"] | {"text": "gpt-6-astra"}}
+                    PANDECT_AI_GATEWAY=REVIEWED_OPENAI
+                    | {"models": REVIEWED_OPENAI["models"] | {"text": "gpt-6-astra"}}
                 ):
                     approval.press("Enter")
                     expect(
@@ -214,11 +229,84 @@ class AnalysisBrowserTests(BrowserTestCase):
                     expect(
                         page.get_by_text(
                             re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6-astra")
-                        )
+                        ).first
                     ).to_be_visible()
                     expect(approval).to_be_visible()
                 self.db(self.case.refresh_from_db)
                 self.assertFalse(self.case.external_analysis_approval)
+
+                page.emulate_media(color_scheme="dark", forced_colors="none")
+                page.reload()
+                approval.press("Enter")
+                expect(
+                    page.get_by_text("External analysis approved for this case.")
+                ).to_be_visible()
+                claims_model = page.get_by_label("Claims and commitments", exact=True)
+                expect(claims_model).to_have_value("")
+                claims_model.focus()
+                expect(claims_model).to_be_focused()
+                claims_model.select_option("gpt-6.2-sol")
+                page.get_by_role("button", name="Save models").press("Enter")
+                expect(page.get_by_text("Analysis models saved.")).to_be_visible()
+                expect(claims_model).to_have_value("gpt-6.2-sol")
+                expect(approval).to_be_visible()
+                self.db(self.case.refresh_from_db)
+                self.assertEqual(
+                    self.case.external_analysis_models,
+                    {"content_events": "gpt-6.2-sol"},
+                )
+                self.assertEqual(
+                    self.case.external_analysis_approval["executions"][
+                        "content_events"
+                    ]["model"],
+                    "gpt-6-luna",
+                )
+                approval.press("Enter")
+                expect(
+                    page.get_by_text("External analysis approved for this case.")
+                ).to_be_visible()
+                expect(approval).to_have_count(0)
+                expect(claims_model).to_have_value("gpt-6.2-sol")
+                destination_details = page.locator("#external-analysis summary").filter(
+                    has_text="Approved external destinations"
+                )
+                destination = page.get_by_text(
+                    re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6.2-sol")
+                )
+                expect(destination).to_be_hidden()
+                destination_details.press("Enter")
+                expect(destination).to_be_visible()
+                destination_details.press("Enter")
+                expect(destination).to_be_hidden()
+
+                page.get_by_label("AI backend", exact=True).select_option(
+                    Case.AIBackend.GATEWAY
+                )
+                page.get_by_role("button", name="Save AI backend").press("Enter")
+                expect(page.get_by_text("AI backend saved.")).to_be_visible()
+                page.get_by_role("button", name="Approve and start indexing").press(
+                    "Enter"
+                )
+                page.wait_for_url("**/processing/#case-search-index")
+                page.goto(settings_url)
+                expect(
+                    page.get_by_role("link", name="View indexing progress")
+                ).to_be_visible()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.locator("#ai-processing").evaluate(
+                        "section => section.scrollIntoView()"
+                    )
+                    self._assert_reflow(page)
+                    self.capture(
+                        page, engine, f"openai-models-approved-{width}-{height}"
+                    )
 
     def setUp(self):
         super().setUp()

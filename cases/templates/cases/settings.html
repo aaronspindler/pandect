@@ -98,63 +98,33 @@
 </form>
 </div>
 </details>
-<section class="content-section" id="ai-processing" aria-labelledby="ai-processing-heading">
-  <h2 id="ai-processing-heading">AI processing</h2>
-  {% if case.ai_backend == 'gateway' and not ai_backend_form.external_ai_available %}
-    <p class="notice">External AI needs current approval. Review the destinations under <a href="#external-analysis">External analysis</a> or choose Local AI.</p>
-  {% endif %}
-  <form class="form-panel" method="post" action="{% url 'cases:case_ai_backend' case.pk %}">
-    {% csrf_token %}{% include 'ui/components/form_fields.html' with form=ai_backend_form %}
-    <div class="form-actions"><button class="button button-secondary" type="submit">Save AI backend</button></div>
-  </form>
-</section>
-<details class="disclosure" id="external-analysis"{% if external_analysis.destinations or external_analysis.active %} open{% endif %}>
-  <summary>External analysis</summary>
-  {% if external_analysis.destinations %}
-    <p>Approval allows Pandect to send the material below when it runs analysis in this case. The providers’ retention policies apply. Sent requests cannot be recalled.</p>
-    <dl class="metadata-grid">
-      {% for destination in external_analysis.destinations %}
-        <div><dt>{{ destination.material }}</dt><dd>{{ destination.name }}{% if destination.approved %} · Approved{% endif %}</dd></div>
-      {% endfor %}
-    </dl>
-  {% else %}
-    <p>The operator has not configured an external analysis service.</p>
-  {% endif %}
-  <div class="actions">
-    {% if external_analysis.can_approve %}
-      <form method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
-        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.approve_confirmation }}">
-        <button class="button button-primary" type="submit" name="action" value="approve">Approve listed destinations</button>
-      </form>
-    {% endif %}
-    {% if external_analysis.active %}
-      <form method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
-        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.revoke_confirmation }}">
-        <button class="button button-secondary" type="submit" name="action" value="revoke">Revoke external analysis approval</button>
-      </form>
-    {% endif %}
-  </div>
-</details>
+{% include 'cases/ai_settings.html' %}
 {% if search_approval.visible %}
 <section class="content-section" id="meaning-search" aria-labelledby="meaning-search-heading">
   <h2 id="meaning-search-heading">Meaning search</h2>
   {% if search_approval.destination %}
-    <p>To index this case, Pandect sends passages from text evidence, messages, call transcripts, extracted text and finding previews to OpenAI through Cloudflare AI Gateway. This includes archived material and future additions. When a case member selects <strong>Search by meaning</strong>, Pandect sends their search text to the same destination.</p>
-    <dl class="metadata-grid">
-      <div><dt>Cloudflare account</dt><dd>{{ search_approval.destination.account }}</dd></div>
-      <div><dt>Gateway</dt><dd>{{ search_approval.destination.gateway }}</dd></div>
-      <div><dt>OpenAI key alias</dt><dd>{{ search_approval.destination.key_alias }}</dd></div>
-      <div><dt>Embedding model</dt><dd>{{ search_approval.destination.model }} · {{ search_approval.destination.dimensions }} dimensions</dd></div>
-    </dl>
-    <p>Pandect asks Cloudflare to skip logging and caching these requests. Provider retention policies apply to material already sent. The index stays in Pandect’s database.</p>
     {% if search_approval.approved %}
       <p><strong>Approved for this case.</strong> <a href="{% url 'core:analysis:processing' case.pk %}#case-search-index">View indexing progress</a></p>
-    {% else %}
-      <form method="post" action="{% url 'cases:case_search_approval' case.pk %}">
-        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ search_approval.approve_confirmation }}">
-        <button class="button button-primary" type="submit" name="action" value="approve">Approve and start indexing</button>
-      </form>
     {% endif %}
+    <details class="disclosure"{% if not search_approval.approved %} open{% endif %}>
+      <summary>Meaning search data and destination</summary>
+      <div class="disclosure-body">
+        <p class="prose">Pandect sends passages from text evidence, messages, call transcripts, extracted text, and finding previews to OpenAI through Cloudflare AI Gateway. This includes archived material and future additions. Search terms are sent when a case member uses <strong>Search by meaning</strong>.</p>
+        <dl class="metadata-grid">
+          <div><dt>Cloudflare account</dt><dd>{{ search_approval.destination.account }}</dd></div>
+          <div><dt>Gateway</dt><dd>{{ search_approval.destination.gateway }}</dd></div>
+          <div><dt>OpenAI key alias</dt><dd>{{ search_approval.destination.key_alias }}</dd></div>
+          <div><dt>Embedding model</dt><dd>{{ search_approval.destination.model }} · {{ search_approval.destination.dimensions }} dimensions</dd></div>
+        </dl>
+        <p class="prose">The search index stays in Pandect. Pandect asks Cloudflare to skip logging and caching. Provider retention policies apply.</p>
+        {% if not search_approval.approved %}
+          <form method="post" action="{% url 'cases:case_search_approval' case.pk %}">
+            {% csrf_token %}<input type="hidden" name="confirmation" value="{{ search_approval.approve_confirmation }}">
+            <button class="button button-primary" type="submit" name="action" value="approve">Approve and start indexing</button>
+          </form>
+        {% endif %}
+      </div>
+    </details>
   {% else %}
     <p>Hosted meaning search needs a configured gateway and embedding model before indexing can start.</p>
   {% endif %}

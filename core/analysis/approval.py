@@ -32,7 +32,7 @@ def case_approval_confirmation(case, actor, action, executions):
 
 
 def case_approval_context(case, actor):
-    executions = configured_external_executions()
+    executions = configured_external_executions(case=case)
     approval = case.external_analysis_approval
     approved = approval.get("executions", {})
     destinations = {}

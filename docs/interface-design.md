@@ -106,7 +106,7 @@ from that summary without JavaScript.
 | Findings catalogue | Searchable retained source-linked results, with filters for evidence and method. |
 | Important | Shared list of manually marked evidence and findings. Open the source or its dated notes. |
 | People / Vehicles | Searchable case records; owner/editor creation and editing, viewer inspection. |
-| Case settings | Owner-only name/access management and a separate delete section. |
+| Case settings | Owner-only name, access, and AI processing controls, with a separate delete section. |
 | Case details | Owner, timestamps, role, and saved read-only description for all case members. |
 | Invitation | Named recipient confirmation after authentication and email verification; **Accept invitation**. |
 | Account | Allauth email/password management, timezone preference, and POST sign-out, with the shared shell. |
@@ -175,6 +175,13 @@ newest-updated ordering. Empty collections lead with the available create action
 Filtered empty states keep the search and one **Clear filters** action. Case
 settings leads with collaboration and discloses the rename form. Only owners
 edit the name or collaborators. Saved descriptions remain read-only.
+
+AI processing shows the saved backend and external models by analysis method.
+The case owner saves model choices and reviews external destinations in separate
+actions. Approval status and the next available action stay visible. Transfer
+details appear beside approval, with technical destination details available
+in a disclosure after approval. Meaning search has its own approval and shows
+an indexing progress link once approved.
 
 Person details show reported social accounts and POIs. Owners/editors manage
 accounts with confirmed removal; viewers inspect. Search includes platforms and

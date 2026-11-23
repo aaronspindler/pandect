@@ -83,13 +83,19 @@ requests to approved external destinations, including requests from queued work.
 
 ## External analysis approval
 
-The case owner can approve or revoke the configured external services under
-**Case settings → External analysis**. The review lists each destination and the
+Under **Case settings → AI processing → External analysis**, the case owner can
+see the model for each external AI method. Where alternatives are available,
+choose a model for the method or use the installation default, then save the
+choices. The operator configures the available external models, private AI
+models, and the embedding profile for Meaning search.
+
+Review and approve the destinations in **External analysis** before sending
+evidence to a newly selected model. The review lists each destination and the
 data it receives. Analysis can include newly added evidence, selected material,
 and relevant active case history. Approval applies to this case and the displayed
-destinations. Changes to a destination require approval in Case Settings before
-Pandect sends evidence there. Revocation stops subsequent requests. Provider
-retention still applies to requests already sent.
+destinations. Queued work whose model has changed stops and can be retried after
+approval. Revocation stops subsequent requests. Provider retention still applies
+to requests already sent.
 
 New cases start without external approval. Owners and editors can start
 **Reprocess evidence** for retained material.

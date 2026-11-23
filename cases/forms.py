@@ -3,9 +3,15 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
+from django.utils.crypto import constant_time_compare
 from django.utils.functional import cached_property
 
-from core.analysis.execution import INFERENCE_OPERATIONS, available_executions
+from core.analysis.execution import (
+    INFERENCE_OPERATIONS,
+    available_executions,
+    execution_confirmation,
+    external_model_choices,
+)
 
 from .models import Case, CaseInvitation, CaseMembership
 
@@ -13,6 +19,14 @@ CASE_ACCESS_HELP = (
     "Viewers can inspect and download. Editors can also add or edit records "
     "and archive or restore evidence."
 )
+ANALYSIS_MODEL_LABELS = {
+    "transcription": "Recording transcription",
+    "text_topics": "Topic summaries",
+    "content_events": "Claims and commitments",
+    "session_summaries": "Message-session summaries",
+    "conversation_link": "Semantic conversation links",
+    "question_synthesis": "Question-driven synthesis",
+}
 
 
 class CaseForm(forms.ModelForm):
@@ -38,11 +52,6 @@ class CaseAIBackendForm(forms.Form):
     ai_backend = forms.ChoiceField(
         choices=Case.AIBackend.choices,
         label="AI backend",
-        help_text=(
-            "New checks use this backend when the method supports it. "
-            'Review and approve <a href="#external-analysis">external destinations</a> '
-            "before choosing External AI."
-        ),
     )
 
     def __init__(self, *args, case, **kwargs):
@@ -66,6 +75,64 @@ class CaseAIBackendForm(forms.Form):
                 "Approve an external AI destination before choosing External AI."
             )
         return backend
+
+
+class CaseExternalModelsForm(forms.Form):
+    confirmation = forms.CharField(widget=forms.HiddenInput)
+
+    def __init__(self, *args, case, **kwargs):
+        saved = case.external_analysis_models
+        options = {
+            operation: external_model_choices(operation)
+            for operation in ANALYSIS_MODEL_LABELS
+        }
+        self.expected_confirmation = execution_confirmation(
+            "analysis.case.models", [str(case.pk)], [saved, options]
+        )
+        self.stale = False
+        super().__init__(
+            *args,
+            initial={**saved, "confirmation": self.expected_confirmation},
+            **kwargs,
+        )
+        self.rows = []
+        for operation, label in ANALYSIS_MODEL_LABELS.items():
+            models, selected = options[operation], saved.get(operation)
+            if not models and not selected:
+                continue
+            default = next(iter(models), "Unavailable")
+            field = None
+            if len(models) > 1 or selected:
+                choices = [("", f"Default · {default}")]
+                choices.extend(
+                    (model, model)
+                    for model in models
+                    if model != default or model == selected
+                )
+                if selected and selected not in models:
+                    choices.append((selected, f"{selected} (unavailable)"))
+                self.fields[operation] = forms.ChoiceField(
+                    label=label, choices=choices, required=False
+                )
+                field = self[operation]
+            self.rows.append((label, selected or default, field))
+
+    @property
+    def editable(self):
+        return bool(self.visible_fields())
+
+    def clean(self):
+        values = super().clean()
+        if not constant_time_compare(
+            values.get("confirmation", ""), self.expected_confirmation
+        ):
+            self.stale = True
+            self.data = self.data.copy()
+            self.data["confirmation"] = self.expected_confirmation
+            raise forms.ValidationError(
+                "Compare your choices with the latest saved models, then save again."
+            )
+        return values
 
 
 class MembershipRoleForm(forms.ModelForm):

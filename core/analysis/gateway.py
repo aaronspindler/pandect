@@ -11,7 +11,7 @@ from django.db import transaction
 from django.http import Http404
 
 from core.analysis.errors import AnalysisError
-from core.analysis.execution import gateway_execution, validate_execution
+from core.analysis.execution import gateway_execution
 from core.analysis.http import NoRedirect
 from core.analysis.inference_payloads import decode_json, encode_json, evidence_messages
 from core.models import GatewayRequest
@@ -19,9 +19,13 @@ from core.models import GatewayRequest
 
 def gateway_configured(purpose, operation):
     """Check the selected external AI configuration without contacting a provider."""
+    return gateway_route_configured(purpose, gateway_execution(purpose, operation))
+
+
+def gateway_route_configured(purpose, execution):
+    """Validate a resolved route against the installation's credentials and limits."""
     config = settings.PANDECT_AI_GATEWAY
     try:
-        execution = gateway_execution(purpose, operation)
         if any(
             type(value) is not int or value <= 0
             for value in (
@@ -40,7 +44,7 @@ def gateway_configured(purpose, operation):
                     r"[!-~]+", settings.PANDECT_DIRECT_AI.get(f"{provider}_api_key", "")
                 )
             )
-        account, gateway = config["account"], config["gateway"]
+        account, gateway = execution["account"], execution["gateway"]
         workers = provider == "workers-ai"
         return bool(
             purpose in {"text", "transcription"}
@@ -49,6 +53,7 @@ def gateway_configured(purpose, operation):
             and config["gateway_token"]
             and (
                 workers
+                and len(model) <= 255
                 and re.fullmatch(r"@cf/[A-Za-z0-9_./-]+", model)
                 and not any(part in {".", "..", ""} for part in model.split("/"))
                 and config["workers_token"]
@@ -104,15 +109,21 @@ class GatewayClient:
         self.run = run
         self.authorize = authorize
 
+    def _execution(self, purpose):
+        return self.run.parameters.get("_execution") or gateway_execution(
+            purpose, self.run.operation
+        )
+
     def request(self, purpose, payload):
-        if not gateway_configured(purpose, self.run.operation):
-            raise AnalysisError("gateway_not_configured")
-        execution = gateway_execution(purpose, self.run.operation)
-        model, provider = execution["model"], execution["provider"]
-        workers = provider == "workers-ai"
         if not self.run.external_processing:
             raise AnalysisError("external_processing_not_approved")
-        validate_execution(self.run)
+        execution = self._execution(purpose)
+        if execution.get("purpose", purpose) != purpose or not gateway_route_configured(
+            purpose, execution
+        ):
+            raise AnalysisError("gateway_not_configured")
+        model, provider = execution["model"], execution["provider"]
+        workers = provider == "workers-ai"
         try:
             if not workers:
                 payload = payload | {"model": model}
@@ -121,22 +132,18 @@ class GatewayClient:
             raise AnalysisError("gateway_invalid_input") from None
         if len(body) > execution["max_request_bytes"]:
             raise AnalysisError("gateway_input_limit")
-        url, headers = endpoint_and_headers(execution)
         for attempt in range(2):
-            validate_execution(self.run)
-            if gateway_execution(purpose, self.run.operation) != execution:
-                raise AnalysisError("execution_changed")
             with transaction.atomic():
                 case = self.authorize(lock=True)
                 usage = GatewayRequest.objects.create(
                     case=case, run=self.run, model=model, request_bytes=len(body)
                 )
-            request = Request(url, data=body, headers=headers, method="POST")
             try:
                 self.authorize()
-                validate_execution(self.run)
-                if gateway_execution(purpose, self.run.operation) != execution:
-                    raise AnalysisError("execution_changed")
+                if not gateway_route_configured(purpose, execution):
+                    raise AnalysisError("gateway_not_configured")
+                url, headers = endpoint_and_headers(execution)
+                request = Request(url, data=body, headers=headers, method="POST")
                 with build_opener(NoRedirect()).open(
                     request, timeout=execution["timeout"]
                 ) as response:
@@ -212,6 +219,7 @@ class GatewayClient:
                             "processing_cancelled",
                             "external_processing_not_approved",
                             "execution_changed",
+                            "gateway_not_configured",
                             "source_archived",
                         }
                         else "invalid_response"
@@ -225,7 +233,7 @@ class GatewayClient:
             messages = evidence_messages(prompt, schema)
         except ValueError, TypeError, RecursionError:
             raise AnalysisError("gateway_invalid_input") from None
-        execution = gateway_execution("text", self.run.operation)
+        execution = self._execution("text")
         provider = execution["provider"]
         if provider == "anthropic":
             payload = {"system": messages[0]["content"], "messages": messages[1:]}

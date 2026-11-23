@@ -41,8 +41,17 @@ INFERENCE_OPERATIONS = (
 )
 
 
-def gateway_execution(purpose, operation):
+def gateway_execution(purpose, operation, *, case=None):
     """Retain the selected provider and method, never its credentials."""
+    execution = _default_gateway_execution(purpose, operation)
+    model = case.external_analysis_models.get(operation) if case is not None else None
+    if model:
+        # A retired choice blocks the method until the owner picks a current one.
+        execution["model"] = model if model in external_model_choices(operation) else ""
+    return execution
+
+
+def _default_gateway_execution(purpose, operation):
     config = settings.PANDECT_AI_GATEWAY
     provider = (
         config.get("text_provider", "workers-ai") if purpose == "text" else "workers-ai"
@@ -104,6 +113,33 @@ def gateway_execution(purpose, operation):
     return execution
 
 
+def external_model_choices(operation):
+    """List the installation default followed by eligible explicit choices."""
+    from core.analysis.gateway import gateway_route_configured
+
+    if operation not in INFERENCE_OPERATIONS:
+        return ()
+    purpose = "transcription" if operation == "transcription" else "text"
+    execution = _default_gateway_execution(purpose, operation)
+    if not gateway_route_configured(purpose, execution):
+        return ()
+    config = settings.PANDECT_AI_GATEWAY
+    models = [execution["model"]]
+    if (
+        purpose == "text"
+        and execution["provider"] == "openai"
+        and not execution.get("url")
+        and config["models"].get("text") == "auto"
+    ):
+        models.extend(OPENAI_TEXT_MODELS.values())
+    models.extend(config.get("model_choices", {}).get(purpose, ()))
+    return tuple(
+        model
+        for model in dict.fromkeys(models)
+        if gateway_route_configured(purpose, execution | {"model": model})
+    )
+
+
 def external_ai_destination(execution):
     provider = {
         "openai": "OpenAI",
@@ -134,12 +170,12 @@ def execution_destination(execution):
     return ""
 
 
-def inference_configured(execution, operation):
+def inference_configured(execution):
     """Check the current settings without contacting the processing service."""
     if execution["backend"] == "gateway":
-        from core.analysis.gateway import gateway_configured
+        from core.analysis.gateway import gateway_route_configured
 
-        return gateway_configured(execution["purpose"], operation)
+        return gateway_route_configured(execution["purpose"], execution)
     from core.analysis.local import validate_local_configuration
 
     try:
@@ -188,7 +224,7 @@ def processing_external(operation, parameters, backend="local"):
     return False
 
 
-def snapshot_execution(operation, parameters):
+def snapshot_execution(operation, parameters, *, case=None):
     """Only network-backed operations need a route, never a credential snapshot."""
     purpose = requires_inference(operation, parameters)
     if purpose:
@@ -201,7 +237,7 @@ def snapshot_execution(operation, parameters):
             "adapter_version": "2",
         }
         if backend == "gateway":
-            return common | gateway_execution(purpose, operation)
+            return common | gateway_execution(purpose, operation, case=case)
         config = getattr(settings, "PANDECT_LOCAL_AI", {})
         if purpose == "text":
             common["driver"] = "ollama"
@@ -264,7 +300,7 @@ def snapshot_execution(operation, parameters):
     return None
 
 
-def configured_executions(operation, parameters):
+def configured_executions(operation, parameters, *, case=None):
     """Resolve configured routes without contacting an inference or map service."""
     if requires_inference(operation, parameters):
         routes = {}
@@ -272,8 +308,10 @@ def configured_executions(operation, parameters):
             ("local",) if operation == "claim_comparison" else ("local", "gateway")
         )
         for backend in backends:
-            execution = snapshot_execution(operation, parameters | {"backend": backend})
-            if inference_configured(execution, operation):
+            execution = snapshot_execution(
+                operation, parameters | {"backend": backend}, case=case
+            )
+            if inference_configured(execution):
                 routes[backend] = execution
         return routes
     if operation not in GEOGRAPHIC:
@@ -291,12 +329,12 @@ def configured_executions(operation, parameters):
     return {execution["backend"]: execution}
 
 
-def configured_external_executions():
+def configured_external_executions(case=None):
     """Return the full external inventory for one case owner's review."""
     executions = {}
     for operation in (*INFERENCE_OPERATIONS, *GEOGRAPHIC):
         routes = configured_executions(
-            operation, {"include_summary": True, "semantic_links": True}
+            operation, {"include_summary": True, "semantic_links": True}, case=case
         )
         external = routes.get("gateway") or routes.get("external")
         if external is not None:
@@ -309,7 +347,9 @@ def available_executions(case, operation, parameters):
     revision = case.external_analysis_approval.get("revision")
     return {
         backend: execution
-        for backend, execution in configured_executions(operation, parameters).items()
+        for backend, execution in configured_executions(
+            operation, parameters, case=case
+        ).items()
         if execution is None
         or execution["location"] == "local"
         or _case_execution_granted(case, operation, execution, revision)
@@ -340,7 +380,7 @@ def validate_case_execution_grant(case, operation, execution, revision):
         raise AnalysisError("external_processing_not_approved")
 
 
-def validate_execution(run):
+def validate_execution(run, case):
     """Old runs keep their old route; new work cannot drift after queueing."""
     execution = run.parameters.get("_execution")
     purpose = requires_inference(run.operation, run.parameters)
@@ -352,7 +392,7 @@ def validate_execution(run):
     ):
         raise AnalysisError("execution_changed")
     if execution is not None and execution != snapshot_execution(
-        run.operation, run.parameters
+        run.operation, run.parameters, case=case
     ):
         raise AnalysisError("execution_changed")
     return execution
