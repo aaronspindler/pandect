@@ -37,11 +37,12 @@ English OCR data. Its build context excludes local secrets/data and explicitly
 includes app-local templates/assets. Build-time `collectstatic` supplies public
 assets to WhiteNoise; private evidence stays outside the static root.
 
-Web, worker, and the case event stream share one image. Production web defaults to
-`gunicorn config.wsgi:application`; the worker uses
-`sh /app/scripts/docker-entrypoint-worker.sh`. In Dokploy, the singleton worker
-migrates and emits its release preparation marker before processing tasks. Events
-then starts its ASGI Gunicorn process. Web activation follows events readiness. `APP_VERSION` carries the published `vN.N` identifier in the
+Web and the background worker share one image. Production web runs Gunicorn with
+`config.asgi:application` and the native ASGI worker. The web process handles
+Django requests and serves the case event stream on the same origin. Its ASGI
+lifespan owns one PostgreSQL listener per process. In Dokploy, the singleton
+background worker runs `sh /app/scripts/docker-entrypoint-worker.sh`, migrates
+and emits its release preparation marker before web activation. `APP_VERSION` carries the published `vN.N` identifier in the
 image, OCI version label, and healthy `/health/` response's `version` field;
 local builds default to `dev`. `APP_COMMIT_SHA` retains the exact source revision
 in the image, OCI revision label, and health response's `commit` field. See
@@ -156,7 +157,7 @@ navigation. Ordinary links and form submissions work without JavaScript.
 PostgreSQL maintains case activity revisions inside domain write transactions,
 including bulk writes. Each new evidence or processing model registers the
 collections it affects in a migration. A transactional notification wakes a
-shared PostgreSQL listener in each events process. The same-origin
+shared PostgreSQL listener in each ASGI web worker. The same-origin
 `/events/cases/<uuid>/` endpoint sends an invalidation signal to visible,
 authorized case tabs. The browser reconciles current counts and revisions on
 connection and after changes. Existing authorized HTML fragments use

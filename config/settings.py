@@ -79,6 +79,7 @@ INSTALLED_APPS = [
     "allauth.account",
 ]
 MIDDLEWARE = [
+    "config.streaming.AsyncStreamingMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",

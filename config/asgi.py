@@ -1,16 +1,24 @@
-"""
-ASGI config for config project.
-
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.1/howto/deployment/asgi/
-"""
+"""Serve Django HTTP and case change streams from one Gunicorn ASGI worker."""
 
 import os
 
-from django.core.asgi import get_asgi_application
+import django
+from django.core.handlers.asgi import get_script_prefix
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+django.setup(set_prefix=False)
 
-application = get_asgi_application()
+from cases.events import application as case_events  # noqa: E402
+from config.http_body import PandectASGIHandler  # noqa: E402
+
+http_application = PandectASGIHandler()
+
+
+async def application(scope, receive, send):
+    prefix = get_script_prefix(scope).rstrip("/")
+    if scope["type"] != "http" or scope["path"].startswith(
+        ("/events/", f"{prefix}/events/")
+    ):
+        await case_events(scope, receive, send)
+    else:
+        await http_application(scope, receive, send)

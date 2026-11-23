@@ -2,6 +2,7 @@ import hashlib
 import logging
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
@@ -9,6 +10,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from gunicorn.config import Config
 
 from accounts.adapter import PandectAccountAdapter
 from cases.models import Case, CaseInvitation
@@ -154,6 +156,19 @@ class ProductAccessTests(TestCase):
 
 
 class PrivateLoggingTests(SimpleTestCase):
+    def test_gunicorn_protocol_errors_redact_targets_and_tracebacks(self):
+        with patch("gunicorn.glogging.logging.getLogger", side_effect=logging.Logger):
+            logger = PrivateAccessLogger(Config())
+        target = "/invitations/synthetic-key/?q=synthetic-search"
+        with self.assertLogs(logger.error_log) as captured:
+            try:
+                raise ValueError(target)
+            except ValueError:
+                logger.exception("Error handling request %s", target)
+        self.assertIn("ValueError: /invitations/[redacted]/", captured.output[0])
+        self.assertNotIn("synthetic-key", captured.output[0])
+        self.assertNotIn("synthetic-search", captured.output[0])
+
     def test_log_filter_removes_tokens_queries_and_expected_error_tracebacks(self):
         record = logging.LogRecord(
             "django.server",

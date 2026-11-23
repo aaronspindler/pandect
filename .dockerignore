@@ -37,6 +37,5 @@
 !ui/**
 !scripts/
 !scripts/docker-entrypoint-worker.sh
-!scripts/docker-entrypoint-events.sh
 **/__pycache__/
 **/*.py[cod]

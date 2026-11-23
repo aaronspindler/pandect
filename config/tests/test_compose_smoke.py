@@ -148,8 +148,8 @@ class ComposeSmokeCommandTests(TestCase):
         )
         compose = [entry for entry in entries if entry["args"][0] == "compose"]
         override = compose[0]["override_content"]
-        self.assertEqual(override.count("image: " + IMAGE_ID), 3)
-        self.assertEqual(override.count("pull_policy: never"), 3)
+        self.assertEqual(override.count("image: " + IMAGE_ID), 2)
+        self.assertEqual(override.count("pull_policy: never"), 2)
         for command in self.compose_commands(entries):
             self.assertNotIn("--build", command)
             if command[0] == "up":

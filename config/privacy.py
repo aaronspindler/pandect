@@ -72,10 +72,21 @@ class RedactPrivateURLs(logging.Filter):
             # Expected permission/validation failures also need no traceback.
             record.exc_info = None
             record.exc_text = None
+        elif record.name == "gunicorn.error" and record.exc_info:
+            # Protocol exceptions can repeat the request target in the traceback.
+            record.exc_text = redact_url(
+                logging.Formatter().formatException(record.exc_info)
+            )
         return True
 
 
 class PrivateAccessLogger(Logger):
+    _redact_errors = RedactPrivateURLs()
+
+    def setup(self, cfg):
+        super().setup(cfg)
+        self.error_log.addFilter(self._redact_errors)
+
     def atoms(self, resp, req, environ, request_time):
         atoms = super().atoms(resp, req, environ, request_time)
         for key in (

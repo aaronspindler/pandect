@@ -68,3 +68,24 @@ class StaticAssetTests(SimpleTestCase):
         response = self.static_response(middleware, second_url)
         self.assertIn("immutable", response["Cache-Control"])
         self.assertEqual(b"".join(response.streaming_content), self.asset.read_bytes())
+
+    @override_settings(DEBUG=True)
+    async def test_asgi_asset_ranges_keep_bytes_headers_and_conditional_requests(self):
+        content = bytes(range(256)) * 1024
+        self.asset.write_bytes(content)
+        path = staticfiles_storage.url("app.css")
+        response = await self.async_client.get(
+            path, headers={"Range": "bytes=127-200000"}
+        )
+        self.assertTrue(response.is_async)
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(response["Content-Range"], f"bytes 127-200000/{len(content)}")
+        self.assertEqual(response["Content-Length"], str(200001 - 127))
+        self.assertIn("max-age=0", response["Cache-Control"])
+        parts = [part async for part in response]
+        self.assertGreater(len(parts), 1)
+        self.assertEqual(b"".join(parts), content[127:200001])
+        unchanged = await self.async_client.get(
+            path, headers={"If-None-Match": response["ETag"]}
+        )
+        self.assertEqual(unchanged.status_code, 304)

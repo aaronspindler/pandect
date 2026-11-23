@@ -3,11 +3,16 @@
 from functools import wraps
 
 from allauth.account.models import EmailAddress
+from asgiref.sync import async_to_sync
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
-from django.http import JsonResponse
+from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect
 from django.utils.deprecation import MiddlewareMixin
+
+from cases.permissions import get_case
+from core.evidence.uploads import CASE_FILE_FORMS, admin_accepts_file, file_limit
 
 
 def wants_json(request):
@@ -64,13 +69,55 @@ def product_login_required(view):
 
 
 class ProductUploadAccessMiddleware(MiddlewareMixin):
-    """Authorize multipart product requests before CSRF parses uploaded files."""
+    """Check upload permissions before receiving and parsing multipart bodies."""
 
     def process_view(self, request, view_func, view_args, view_kwargs):
-        if (
-            request.method != "POST"
-            or request.content_type != "multipart/form-data"
-            or not getattr(view_func, "product_login_required", False)
-        ):
+        multipart = (
+            request.method == "POST" and request.content_type == "multipart/form-data"
+        )
+        if multipart and getattr(view_func, "product_login_required", False):
+            if denied := product_access_response(request):
+                return denied
+        match = request.resolver_match
+        allow_files = (
+            multipart and match.app_name == "admin" and admin_accepts_file(request)
+        )
+        body = getattr(request, "scope", {}).get("pandect.body")
+        if body is None:
             return None
-        return product_access_response(request)
+        if multipart and match.view_name in CASE_FILE_FORMS:
+            get_case(request.user, view_kwargs["case_id"], edit=True)
+            allow_files = True
+
+        # A request carries at most one file and a bounded amount of form data.
+        limit = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+        if allow_files:
+            limit += file_limit(match)
+        length = request.META.get("CONTENT_LENGTH", "")
+        if length and (
+            not length.isascii() or not length.isdecimal() or len(length) > 20
+        ):
+            return HttpResponseBadRequest()
+        if length and int(length) > limit:
+            return self.too_large(request)
+        try:
+            received = async_to_sync(body.load)(limit, allow_files=allow_files)
+        except ConnectionAbortedError:
+            return HttpResponseBadRequest()
+        if received is None:
+            return self.too_large(request)
+        if length and int(length) != received:
+            return HttpResponseBadRequest()
+        body.file.seek(0)
+        # Django's multipart parser needs a length even with chunked transport.
+        request.META["CONTENT_LENGTH"] = str(received)
+        return None
+
+    @staticmethod
+    def too_large(request):
+        message = "The request exceeds the configured upload limit."
+        if wants_json(request):
+            return JsonResponse(
+                {"code": "file_too_large", "message": message}, status=413
+            )
+        return HttpResponse(message, status=413, content_type="text/plain")

@@ -220,7 +220,6 @@ jobs:
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
           DOKPLOY_WEB_APPLICATION_ID: ${{ secrets.DOKPLOY_WEB_APPLICATION_ID }}
           DOKPLOY_WORKER_APPLICATION_ID: ${{ secrets.DOKPLOY_WORKER_APPLICATION_ID }}
-          DOKPLOY_EVENTS_APPLICATION_ID: ${{ secrets.DOKPLOY_EVENTS_APPLICATION_ID }}
           DOKPLOY_REGISTRY_PASSWORD: ${{ secrets.DOKPLOY_REGISTRY_PASSWORD }}
         run: python3 scripts/deploy-dokploy.py
 

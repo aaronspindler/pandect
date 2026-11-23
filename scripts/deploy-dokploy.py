@@ -1,4 +1,4 @@
-"""Deploy one tested GHCR image to Dokploy's worker, events, and web applications."""
+"""Deploy one tested GHCR image to Dokploy's worker and web applications."""
 
 import json
 import os
@@ -386,6 +386,18 @@ def current_task(application, image):
     return task_id
 
 
+def public_health_ready(path, sha):
+    try:
+        health = api(f"https://openpandect.com{path}")
+    except DeploymentError:
+        return False
+    return (
+        isinstance(health, dict)
+        and health.get("status") == "ok"
+        and health.get("commit") == sha
+    )
+
+
 def wait_ready(application_id, image, sha, title, previous_ids, started_at, service):
     deadline = time.monotonic() + 12 * 60
     stable_task = None
@@ -433,17 +445,12 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, serv
                 for line in logs.splitlines()
             )
         elif task:
-            waiting_for = f"public {service} health on the expected commit"
-            path = "/events/health/" if service == "events" else "/health/"
-            try:
-                health = api(f"https://openpandect.com{path}")
-            except DeploymentError:
-                health = {}
-            ready = (
-                isinstance(health, dict)
-                and health.get("status") == "ok"
-                and health.get("commit") == sha
-            )
+            for path in ("/health/", "/events/health/"):
+                waiting_for = f"public web health at {path} on the expected commit"
+                if not public_health_ready(path, sha):
+                    break
+            else:
+                ready = True
         if ready:
             waiting_for = "the 60-second readiness window"
             if stable_task is None:
@@ -476,10 +483,10 @@ def deploy(application_id, image, sha, service):
         {
             "applicationId": application_id,
             "replicas": 1,
-            "command": None if service == "web" else "sh",
-            "args": None
-            if service == "web"
-            else [f"/app/scripts/docker-entrypoint-{service}.sh"],
+            "command": "sh" if service == "worker" else None,
+            "args": ["/app/scripts/docker-entrypoint-worker.sh"]
+            if service == "worker"
+            else None,
             "updateConfigSwarm": {
                 "Parallelism": 1,
                 "Order": "stop-first" if service == "worker" else "start-first",
@@ -543,15 +550,10 @@ def main():
         raise DeploymentError(
             "Image must identify this repository by immutable digest."
         )
-    services = []
-    for service in ("worker", "events", "web"):
-        services.append(
-            (required(f"DOKPLOY_{service.upper()}_APPLICATION_ID"), service)
-        )
-    if len({app_id for app_id, _ in services}) != len(services):
-        raise DeploymentError(
-            "Worker, events, and web must use separate Dokploy applications."
-        )
+    worker_id = required("DOKPLOY_WORKER_APPLICATION_ID")
+    web_id = required("DOKPLOY_WEB_APPLICATION_ID")
+    if worker_id == web_id:
+        raise DeploymentError("Worker and web must use separate Dokploy applications.")
     deployment_id = create_rollout(sha, image)
     mark_rollout(deployment_id, "in_progress")
     try:
@@ -560,8 +562,8 @@ def main():
         if not eligible_release(sha):
             mark_rollout(deployment_id, "inactive")
             return
-        for application_id, service in services:
-            deploy(application_id, image, sha, service)
+        deploy(worker_id, image, sha, "worker")
+        deploy(web_id, image, sha, "web")
     except Exception:
         try:
             mark_rollout(deployment_id, "failure")

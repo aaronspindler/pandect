@@ -1,7 +1,7 @@
 # Compose operation and recovery
 
 Use [local development](development.md#first-run) for setup and startup. Compose
-binds application and database ports to loopback. Its development server, console
+binds application and database ports to loopback. Its development settings, console
 email, and debug configuration are for local use.
 
 ```sh
@@ -16,7 +16,7 @@ evidence). Never use `down --volumes` on retained data. Legacy runtime files are
 not mounted or migrated.
 
 The local Compose web command runs pending schema migrations after database
-readiness and before starting the development server. `/health/` checks
+readiness and before starting the ASGI web server. `/health/` checks
 PostgreSQL. On startup failure, inspect logs and environment variables, fix the
 cause, and rerun `make run`. Changing `.env` does not rotate passwords in
 initialized PostgreSQL volumes: rotate in PostgreSQL first.
@@ -121,7 +121,7 @@ Each attempt uses a new owner-only directory.
   snapshot=$(mktemp -d "$HOME/pandect-backup.XXXXXXXX")
   printf 'Snapshot directory: %s\n' "$snapshot"
 
-  docker compose stop proxy events web
+  docker compose stop web
   docker compose --profile instagram-pilot stop --timeout -1 worker instagram-worker
   docker compose exec -T db sh -c \
     'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$snapshot/database.dump"
@@ -177,8 +177,8 @@ a new project name for fresh database/file volumes.
     < "$snapshot/app-data.tar"
   recovery run --rm --no-deps -T web python manage.py migrate --check
 
-  recovery up -d --wait proxy
-  recovery port proxy 8000
+  recovery up -d --wait web
+  recovery port web 8000
 )
 ```
 
@@ -251,7 +251,7 @@ old database/media retained; do not fake migration history.
 ## First Dokploy deployment
 
 After CI checks pass, CD publishes one multi-platform GHCR image and resolves its
-immutable digest. Dokploy runs native **worker**, **events**, and **web** Applications plus
+immutable digest. Dokploy runs native **worker** and **web** Applications plus
 managed **PostgreSQL**, without Compose.
 
 1. In the production project, create a managed PostgreSQL resource using the
@@ -263,24 +263,21 @@ managed **PostgreSQL**, without Compose.
    it. Check the mount explicitly when using a custom image. For an existing
    resource whose volume is mounted directly at `/var/lib/postgresql/18/docker`,
    preserve that exact volume and mount during the upgrade.
-2. Create native Docker Applications named `web`, `worker`, and `events` on the
+2. Create native Docker Applications named `web` and `worker` on the
    intended deployment server. Configure one replica each. Use the same
-   `ghcr.io/<owner>/<repository>@sha256:<digest>` image for all three.
+   `ghcr.io/<owner>/<repository>@sha256:<digest>` image for both.
    Leave web's Command and Arguments overrides empty so it uses the image's
    default Gunicorn command. Set worker's Command to `sh` and Arguments to the
-   single entry `/app/scripts/docker-entrypoint-worker.sh`. Set the events Command to
-   `sh` with the single Argument `/app/scripts/docker-entrypoint-events.sh`.
+   single entry `/app/scripts/docker-entrypoint-worker.sh`. The web image starts
+   Gunicorn with its native ASGI worker and owns the case event listener.
    Configure the web Application's native HTTP health check against
    `http://127.0.0.1:8000/health/`; keep worker rollout stop-first and web start-first.
-   Configure the events health check against `http://127.0.0.1:8000/events/health/`.
 3. Copy [`.env.dokploy.example`](../.env.dokploy.example) into the web and worker
    environments, replacing blank secrets and the database hostname. Debug defaults
    off; this example closes signups and uses
    `PANDECT_PUBLIC_ORIGIN=https://openpandect.com`. The public origin supplies the
    default allowed host, CSRF origin and email sender; optional explicit overrides
-   support other deployment requirements. Give events the matching Django secret
-   key, database connection, public origin, host settings, and trusted HTTPS
-   proxy settings. The event process only requires database and session access.
+   support other deployment requirements.
 4. Mount the same private persistent named volume at `/app/data` in web and
    worker. Keep them on the same server and storage-owning Swarm node;
    local named volumes are not shared between nodes. The application UID must
@@ -289,18 +286,19 @@ managed **PostgreSQL**, without Compose.
    Application through Dokploy's native Domains settings. Follow the existing
    Cloudflare ingress setup: internal HTTP, HTTPS at the public edge. Configure
    the public HTTP-to-HTTPS redirect at that edge. Do not edit Traefik directly.
-   Add a second Domain on the same hostname with path `/events/` pointing to
-   events on port 8000. Preserve the path prefix. Configure ingress to stream
-   `text/event-stream` without caching or buffering. Worker and database stay private.
+   The same web route serves `/events/`. Configure ingress to stream
+   `text/event-stream` without caching or buffering. If an earlier installation
+   routes that prefix to a separate service, point it at web during cutover.
+   Worker and database stay private.
 6. Deploy the singleton worker first. Its startup applies migrations, queues
    missing indexes for cases eligible for the configured meaning search provider, emits
    `PANDECT_WORKER_PREPARED <APP_COMMIT_SHA>`, and starts `db_worker`. Migration
    failure stops startup before the marker or worker. Confirm the new worker's
-   running task, image digest, and release marker. Deploy events and verify
-   the listener is ready on the public `/events/health/` route, then deploy web. Web
-   starts Gunicorn directly and serves build-collected WhiteNoise assets.
+   running task, image digest, and release marker. Deploy web and check the
+   expected commit on both `/health/` and `/events/health/`. The latter becomes
+   ready once the web process subscribes to PostgreSQL notifications.
 
-An events process maintains one PostgreSQL LISTEN connection and admits up to
+Each ASGI web worker maintains one PostgreSQL LISTEN connection and admits up to
 64 simultaneous case streams. Excess connections and interrupted streams fall
 back to the activity endpoint. If investigators see delayed updates, check
 `/events/health/`, then confirm the proxy flushes event responses and forwards
@@ -409,7 +407,6 @@ See [GitHub's deployment branch and environment settings](https://docs.github.co
 | `DOKPLOY_URL` | HTTPS Dokploy origin, without `/api`. |
 | `DOKPLOY_API_KEY` | Operator API key permitted to update/deploy these applications and read deployment/task status. |
 | `DOKPLOY_WEB_APPLICATION_ID` | Existing native web Application ID. |
-| `DOKPLOY_EVENTS_APPLICATION_ID` | Native events Application ID with the same-origin `/events/` domain rule. |
 | `DOKPLOY_WORKER_APPLICATION_ID` | Existing native worker Application ID. |
 | `DOKPLOY_REGISTRY_PASSWORD` | Registry credential with read access to the private GHCR package. |
 
@@ -434,7 +431,7 @@ attempted deployment. A newer descendant attempt may reuse a version that never
 reached successful GitHub release publication. For the
 [domain-app baseline](architecture.md#primary-keys-and-the-initial-schema),
 retain the old database/evidence volume, prepare a fresh PostgreSQL database and
-empty queue, and point all three Applications to it. Then set **production** environment
+empty queue, and point both Applications to it. Then set **production** environment
 variable `PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1`; the helper refuses
 mutations without it. Once ready, rerun **CD** for the intended successful CI run.
 
@@ -450,26 +447,24 @@ Before mutating Dokploy, the helper creates an explicit GitHub deployment record
 for task `pandect-rollout` in `production`, bound to the tested commit and image
 digest, CI run identity, and candidate version, and records `in_progress`. It
 repeats the ancestry guard before activation; failed or interrupted rollouts
-remain uncertain. The helper records `success` after worker, events, and web pass verification.
+remain uncertain. The helper records `success` after worker and web pass verification.
 CI uses the newest such record as its baseline; it never infers the attempted
 image from the deployment workflow's own revision or falls back to an older
 successful rollout. Missing tracking or a status-write failure selects full CI
 until a later rollout is verified. GitHub release publication remains separate.
 
 The attempt tag must resolve to the same digest recorded by the combined-image
-job. CD supplies it as `PANDECT_IMAGE`; all three Applications receive
+job. CD supplies it as `PANDECT_IMAGE`; both Applications receive
 `repository@sha256:...`. CD uses only the trusted workflow helper, never downloaded
 CI artifacts.
 
 CD updates each Application's Docker provider while preserving its environment
 and mounts. The singleton worker uses stop-first updates and the worker entry
 point. After migration, its new Swarm task must emit the expected preparation
-marker and stay on the release image for 60 seconds. Events then starts with
-`sh /app/scripts/docker-entrypoint-events.sh`. Its public `/events/health/` must
-return the expected commit and report a subscribed database listener. Finally
-web starts with the image's default command and reports the expected commit at
-`https://openpandect.com/health/`. Events and web use start-first updates and
-each must pass the same 60-second image stability check.
+marker and stay on the release image for 60 seconds. Web then starts with the
+image's default ASGI command. It uses start-first updates and must pass the same
+60-second image stability check. CD verifies the expected commit on
+both public health endpoints, including listener readiness on `/events/health/`.
 Queue execution still requires the bounded `check_task_worker` diagnostic above;
 CD's worker checks establish startup and task identity.
 
@@ -478,7 +473,7 @@ environments, database, and shared volume. Check pull access to the shared GHCR
 package first. Successful CI/CD switches both images and startup commands without
 a database reset or extra migration. Retain old digests/commands for reviewed recovery.
 
-Only after all three services pass verification does the deployment helper emit its
+Only after both services pass verification does the deployment helper emit its
 `deployed=true` output. A dependent job repeats read-only release preparation and
 checks the candidate still matches its expected version. If that source is
 already published, it leaves the versioned image and release unchanged.
@@ -533,8 +528,13 @@ Multipart file parts require an active authorized account before temporary
 storage. Product uploads check account access before CSRF parses the body and
 current owner/editor case access before accepting a file part; anonymous,
 unverified, viewer, unrelated, and revoked requests are rejected before file
-bytes are written. Proxy request-body and concurrency
-limits remain necessary because ingress servers may buffer requests before Django.
+bytes are written. In admin, adding a file requires staff access, permission to
+add that evidence type, and an editable case. The form validates the selected
+case before saving. The ASGI handler limits both the declared length and the
+bytes received. Budget temporary disk for each concurrent authorized upload because
+the raw multipart body and Django's parsed upload can coexist while the original
+is saved. Private downloads stream in bounded chunks. Configure request size and
+concurrency limits at ingress as well, since proxies can buffer requests.
 
 Vehicle CSV imports accept up to 100 MiB and 100,000 data rows. Message CSV imports
 also retain a separate 100 MiB file limit, 131,072-character field limit and 1 MiB

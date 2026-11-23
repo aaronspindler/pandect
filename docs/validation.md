@@ -67,7 +67,7 @@ storage. Domain guides explain behavior; test modules own coverage inventories.
 `PATH`. It uses synthetic configuration, random loopback ports, and fresh
 volumes in a disposable project to exercise startup, storage, processing, and
 worker restart. It runs production worker startup and verifies the shared
-worker, events, and web image. The non-debug HTTP probe requests
+worker and web image. The non-debug HTTP probe requests
 assets through the production manifest and checks their content type and immutable
 caching. See [`scripts/compose-smoke.sh`](../scripts/compose-smoke.sh) for coverage. One successful
 probe does not establish exactly-once delivery after crashes. The script clears
@@ -76,17 +76,17 @@ containers/volumes on exit.
 
 With the project's Playwright Chromium installed, run
 `PANDECT_SMOKE_WORKSPACE_BROWSER=1 make compose-smoke` to measure queued,
-running, and finished job badges through nginx and the production Gunicorn
-web and events commands across 30
-independent browser contexts. The probe measures commit-to-display latency,
-checks that healthy streams stop polling, and submits an ordinary multipart upload.
+running, and finished job badges through a temporary nginx proxy to the unified
+ASGI web process. The probe holds a multipart upload and a private download open
+while 30 browser contexts receive events. It checks the transfer contents, web
+worker memory growth, early upload rejection, and that healthy streams stop polling.
 Its local p95 target is two seconds. The deployment proxy needs a separate live check.
 
 To exercise a prebuilt local image without rebuilding it, run
 `sh scripts/compose-smoke.sh <local-image>`. The script resolves that reference
-to an immutable local image ID, uses it for web, events, and worker, and rejects
+to an immutable local image ID, uses it for web and worker, and rejects
 missing images or a running-image mismatch. Application images are never pulled
-or rebuilt in this mode; the PostgreSQL and nginx images may still be pulled. The no-argument Make
+or rebuilt in this mode; PostgreSQL and the optional probe proxy image may still be pulled. The no-argument Make
 target retains its normal local build. The application image's uv download cache
 uses a BuildKit cache mount and is not included in the shipped image.
 
@@ -351,7 +351,7 @@ credentials, network access, or a database:
 uv run --locked python -m unittest config.tests.test_dokploy_deploy config.tests.test_github_release
 ```
 
-These cover immutable deployment identity, startup commands, worker-before-events-before-web
+These cover immutable deployment identity, startup commands, worker-before-web
 ordering, bounded failures, ancestry guards, consecutive release allocation,
 release reruns, and tag conflicts. GitHub permissions, GHCR/Dokploy access, and
 publication require live verification.

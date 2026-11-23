@@ -42,16 +42,13 @@ if [ -n "$prebuilt_image" ]; then
     cat >> "$smoke_override" <<YAML
     image: $prebuilt_image
     pull_policy: never
-  events:
-    image: $prebuilt_image
-    pull_policy: never
   web:
     image: $prebuilt_image
     pull_policy: never
 YAML
 fi
 cat > "$smoke_env" <<'ENV'
-DJANGO_DEBUG=true
+DJANGO_DEBUG=false
 DJANGO_SECRET_KEY=synthetic-compose-smoke-secret-not-for-deployment
 POSTGRES_DB=pandect_smoke
 POSTGRES_USER=pandect_smoke
@@ -89,7 +86,6 @@ fi
 web_image=$(docker inspect --format '{{.Image}}' "$(compose ps -q web)")
 worker_image=$(docker inspect --format '{{.Image}}' "$(compose ps -q worker)")
 test "$web_image" = "$worker_image"
-test "$web_image" = "$(docker inspect --format '{{.Image}}' "$(compose ps -q events)")"
 if [ -n "$prebuilt_image" ]; then
     test "$web_image" = "$prebuilt_image"
 fi
@@ -97,7 +93,7 @@ compose exec -T web python -c '
 import json, os
 from urllib.request import Request, urlopen
 for path in ("/health/", "/events/health/"):
-    request = Request("http://proxy:8000" + path, headers={"Host": "localhost"})
+    request = Request("http://127.0.0.1:8000" + path, headers={"Host": "localhost"})
     with urlopen(request, timeout=5) as response:
         health = json.load(response)
     assert health["status"] == "ok" and health["commit"] == os.environ["APP_COMMIT_SHA"]
@@ -262,7 +258,7 @@ assert batch.status == "queued"
 assert not VehicleLocationEvidence.objects.exists()
 PY
 compose stop
-compose up --no-build --wait --wait-timeout 180 db web events proxy
+compose up --no-build --wait --wait-timeout 180 db web
 compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
 import hashlib
@@ -469,66 +465,59 @@ assert context["matches"][0]["feature_id"] == "node/1"
 PY
 compose exec -T web python -c \
     'import json, os, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/")) == {"status": "ok", "version": os.environ["APP_VERSION"], "commit": os.environ["APP_COMMIT_SHA"]}'
-compose exec -T -e DJANGO_DEBUG=false -e DJANGO_SETTINGS_MODULE=config.settings web python <<'PY'
-import subprocess
-import time
-from urllib.error import URLError
+compose exec -T -e DJANGO_SETTINGS_MODULE=config.settings web python <<'PYTHON'
 from urllib.request import urlopen
 
 import django
 from django.contrib.staticfiles.storage import staticfiles_storage
 
 django.setup()
-base_url = "http://127.0.0.1:8001"
-# Exercise the actual non-debug WSGI/static path as the unprivileged image user.
-process = subprocess.Popen(
-    ["gunicorn", "config.wsgi:application", "--bind", "127.0.0.1:8001",
-     "--logger-class", "config.privacy.PrivateAccessLogger", "--log-level", "warning"],
-)
-try:
-    for attempt in range(50):
-        try:
-            with urlopen(base_url + "/health/", timeout=2) as response:
-                assert response.status == 200
-            break
-        except (URLError, TimeoutError):
-            if process.poll() is not None:
-                raise RuntimeError("The production WSGI server exited.")
-            time.sleep(0.1)
-    else:
-        raise RuntimeError("The production WSGI server did not become ready.")
-    for asset, content_type in (
-        ("ui/app.css", "text/css"),
-        ("core/workspace.css", "text/css"),
-        ("core/evidence.js", "text/javascript"),
-        ("ui/icons/file-text.svg", "image/svg+xml"),
-    ):
-        path = staticfiles_storage.url(asset)
-        with urlopen(base_url + path, timeout=5) as response:
-            assert response.status == 200, path
-            assert response.headers.get_content_type() == content_type, path
-            assert "immutable" in response.headers.get("Cache-Control", ""), path
-            assert response.read(1), path
-    with urlopen(base_url + "/accounts/login/", timeout=5) as response:
-        assert response.status == 200
-        assert b'name="login"' in response.read()
-finally:
-    process.terminate()
-    process.wait(timeout=10)
-PY
+base_url = "http://127.0.0.1:8000"
+for asset, content_type in (
+    ("ui/app.css", "text/css"),
+    ("core/workspace.css", "text/css"),
+    ("core/evidence.js", "text/javascript"),
+    ("ui/icons/file-text.svg", "image/svg+xml"),
+):
+    path = staticfiles_storage.url(asset)
+    with urlopen(base_url + path, timeout=5) as response:
+        assert response.status == 200, path
+        assert response.headers.get_content_type() == content_type, path
+        assert "immutable" in response.headers.get("Cache-Control", ""), path
+        assert response.read(1), path
+with urlopen(base_url + "/accounts/login/", timeout=5) as response:
+    assert response.status == 200
+    assert b'name="login"' in response.read()
+PYTHON
 
 # Qualify real browser-visible latency on a host with Playwright installed.
 # The public port and fixture configuration belong to this disposable project.
 if [ "$workspace_browser" = 1 ]; then
-    # The disposable database is now migrated. Measure ordinary HTTP capacity
-    # using the image's real WSGI command, with the independent events process.
-    if [ -z "$prebuilt_image" ]; then
-        printf '  web:\n' >> "$smoke_override"
-    fi
-    printf '    command: !reset null\n' >> "$smoke_override"
-    compose up --no-build --no-deps --wait --wait-timeout 90 web
-    compose restart proxy
-    proxy_port=$(compose port proxy 8000)
+    # Exercise production-like ingress only in the optional browser qualification.
+    cat >> "$smoke_override" <<'YAML'
+  probe-proxy:
+    image: nginx:1.30.7-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3
+    ports: ["127.0.0.1::8000"]
+    configs:
+      - source: probe_ingress
+        target: /etc/nginx/conf.d/default.conf
+configs:
+  probe_ingress:
+    content: |
+      server {
+          listen 8000;
+          access_log off;
+          client_max_body_size 1026m;
+          proxy_http_version 1.1;
+          proxy_set_header Host $$http_host;
+          proxy_request_buffering off;
+          proxy_buffering off;
+          proxy_read_timeout 180s;
+          location / { proxy_pass http://web:8000; }
+      }
+YAML
+    compose up --no-build --no-deps --wait probe-proxy
+    proxy_port=$(compose port probe-proxy 8000)
     uv run --locked python "$smoke_root/scripts/workspace-browser-probe.py" \
         "$project" "http://$proxy_port" docker compose --file "$smoke_root/compose.yaml" \
         --file "$smoke_override" --project-directory "$smoke_root" \

@@ -36,7 +36,6 @@ COPY video/ video/
 COPY marketing/ marketing/
 COPY ui/ ui/
 COPY scripts/docker-entrypoint-worker.sh scripts/docker-entrypoint-worker.sh
-COPY scripts/docker-entrypoint-events.sh scripts/docker-entrypoint-events.sh
 # Normalize copied source permissions before running the image as pandect.
 RUN chmod -R u=rwX,go=rX /app \
     && groupadd --system pandect && useradd --system --create-home --gid pandect pandect \
@@ -53,4 +52,4 @@ LABEL org.opencontainers.image.version=${APP_VERSION} \
 USER pandect
 EXPOSE 8000
 
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "180", "--access-logfile", "-", "--logger-class", "config.privacy.PrivateAccessLogger"]
+CMD ["gunicorn", "--config", "config/gunicorn.py", "config.asgi:application"]
