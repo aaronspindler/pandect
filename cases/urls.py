@@ -21,6 +21,11 @@ urlpatterns = [
         name="case_external_analysis",
     ),
     path(
+        "<uuid:case_id>/settings/meaning-search/",
+        views.case_search_approval,
+        name="case_search_approval",
+    ),
+    path(
         "<uuid:case_id>/settings/instagram-monitoring/",
         views.case_instagram_monitoring,
         name="case_instagram_monitoring",

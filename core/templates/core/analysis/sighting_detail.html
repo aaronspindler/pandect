@@ -1,10 +1,16 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}Sighting group · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{% url 'core:analysis:sighting_groups' case.pk %}">Back to sighting groups</a>
+{% if important_back_url %}<a class="back-link" href="{{ important_back_url }}">Back to Important</a>
+{% else %}<a class="back-link" href="{% url 'core:analysis:sighting_groups' case.pk %}">Back to sighting groups</a>{% endif %}
 <header class="page-header">
   <div><h1>Sighting group</h1>{% if result %}<p>{{ anchor.title }}</p>{% endif %}</div>
-  {% if result %}<span class="badge">{{ outcome }}</span>{% endif %}
+  {% if result %}
+    <div class="actions">
+      <span class="badge">{{ outcome }}</span>
+      {% include 'core/important/reader_actions.html' %}
+    </div>
+  {% endif %}
 </header>
 {% if issue %}<p class="notice" role="alert">{{ issue }}</p>{% endif %}
 {% if unavailable %}
@@ -54,7 +60,7 @@
 <section class="analysis-section" aria-labelledby="sighting-review-heading">
   <h2 id="sighting-review-heading">Review proposal</h2>
   <p>Record your assessment of this group. Any later decision adds to its review history.</p>
-  <form class="form-actions" method="post" action="{% url 'core:analysis:sighting_review' case.pk run.pk %}">
+  <form class="form-actions" method="post" action="{{ review_url }}">
     {% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}">
     <button class="button button-primary" type="submit" name="decision" value="accepted">Accept for review</button>
     <button class="button button-secondary" type="submit" name="decision" value="rejected">Reject</button>

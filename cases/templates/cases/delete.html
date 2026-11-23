@@ -31,6 +31,10 @@
 <dt>Archived evidence</dt>
 <dd>{{ archived_evidence_count }}</dd>
 </div>
+{% if important_item_count %}
+<div><dt>Important item histories</dt><dd>{{ important_item_count }}</dd></div>
+<div><dt>Important item notes</dt><dd>{{ important_note_count }}</dd></div>
+{% endif %}
 <div>
 <dt>Collaborators</dt>
 <dd>{{ collaborator_count }}</dd>

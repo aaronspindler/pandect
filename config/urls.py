@@ -5,14 +5,19 @@ from django.contrib import admin
 from django.urls import include, path
 
 from accounts.views import timezone_settings
+from cases.activity import stream_unavailable
 from cases.views import invitation_accept
 from socialmedia.monitor_views import connection_settings
 
 from .views import health
 
 admin.site.login = secure_admin_login(admin.site.login)
+admin.site.site_header = "Pandect administration"
+admin.site.site_title = "Pandect administration"
+admin.site.index_title = "Manage this installation"
 
 urlpatterns = [
+    path("events/cases/<uuid:case_id>/", stream_unavailable, name="case_events"),
     path("", include("marketing.urls")),
     path("health/", health, name="health"),
     path("accounts/timezone/", timezone_settings, name="account_timezone"),

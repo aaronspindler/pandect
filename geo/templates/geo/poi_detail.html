@@ -2,8 +2,8 @@
 {% block title %}{{ poi }}{% endblock %}
 {% block content %}
 <div class="detail-layout">
-<p class="breadcrumb"><a href="{% url 'geo:case_map' case.pk %}#map-heading">Back to map</a></p>
-<div class="page-header"><div><p class="eyebrow">Person POI</p><h1>{{ poi }}</h1></div>{% if can_edit %}<a class="button button-primary" href="{% url 'geo:poi_edit' case.pk poi.pk %}">Edit POI</a>{% endif %}</div>
+<a class="back-link" href="{{ back_url }}">{{ back_label }}</a>
+<div class="page-header"><div><p class="eyebrow">Person POI</p><h1>{{ poi }}</h1></div>{% if can_edit %}<a class="button button-primary" href="{{ edit_url }}">Edit POI</a>{% endif %}</div>
 {% if not can_edit %}<p class="notice">You have viewer access to this POI.</p>{% endif %}
 <p class="help-text">Investigator annotation. A label does not verify residence, employment, or presence.</p>
 {% include "geo/poi_metadata.html" %}
@@ -12,7 +12,7 @@
 <div class="disclosure-body">
 {% if poi.notes %}<h2>Saved notes</h2><div class="prose">{{ poi.notes|linebreaks }}</div>{% endif %}
 <dl class="metadata-grid"><div><dt>Added by</dt><dd>{{ poi.created_by }}</dd></div><div><dt>Created</dt><dd>{{ poi.created_at|date:"j M Y, H:i T" }}</dd></div><div><dt>Updated</dt><dd>{{ poi.updated_at|date:"j M Y, H:i T" }}</dd></div></dl>
-{% if can_edit %}<div class="danger-section"><a class="button button-danger" href="{% url 'geo:poi_delete' case.pk poi.pk %}">Delete POI</a></div>{% endif %}
+{% if can_edit %}<div class="danger-section"><a class="button button-danger" href="{{ delete_url }}">Delete POI</a></div>{% endif %}
 </div>
 </details>
 </div>

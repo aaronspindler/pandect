@@ -2,6 +2,7 @@
   <summary class="button button-secondary" aria-label="More" data-tooltip="More" title="More">{% include 'ui/components/icon.html' with name='dots' %}<span class="evidence-toolbar-label">More</span></summary>
   <div class="evidence-more-panel">
     {% if can_edit %}
+    {% include 'core/important/reader_actions.html' with important_menu=True %}
     {% if kind == 'document' %}<a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}?document={{ item.pk }}">Import message CSV</a>{% endif %}
     {% partialdef checks inline %}
     <div id="evidence-rerun" data-live-region data-live-poll="false">

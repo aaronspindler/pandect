@@ -5,7 +5,10 @@ import signal
 import zlib
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
+from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfWriter
 from pypdf.generic import (
     DecodedStreamObject,
@@ -15,9 +18,13 @@ from pypdf.generic import (
 )
 
 from core.analysis.errors import AnalysisError
+from core.analysis.services import process_run, start_run
 from core.analysis.testing import file_source
+from core.models import GatewayRequest
 from core.parsers import run_parser
+from core.testing import EvidenceViewTestMixin
 from document.analysis.deterministic import native_text
+from document.models import DocumentEvidence
 
 
 def pdf_bytes(*pages, encrypted=False):
@@ -49,6 +56,25 @@ def pdf_bytes(*pages, encrypted=False):
     return buffer.getvalue()
 
 
+def scanned_pdf(*, native_page=False):
+    writer = PdfWriter()
+    if native_page:
+        writer.append(io.BytesIO(pdf_bytes("Synthetic native text")))
+    with Image.new("RGB", (1000, 240), "white") as image:
+        ImageDraw.Draw(image).text(
+            (40, 60),
+            "PANDECT LOCAL TEXT 12345",
+            font=ImageFont.load_default(size=48),
+            fill="black",
+        )
+        scan = io.BytesIO()
+        image.save(scan, format="PDF")
+    writer.append(scan)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
 class NativeDocumentTests(SimpleTestCase):
     def test_utf8_exact_derived_text_and_line_anchors_leave_original_unchanged(self):
         original = "\ufeff  Native café\r\nsecond line\n".encode()
@@ -72,12 +98,54 @@ class NativeDocumentTests(SimpleTestCase):
         self.assertEqual(result["items"][0]["text"].strip(), "Synthetic page one")
         self.assertEqual(result["items"][0]["anchors"], [source.anchor(page=1)])
         self.assertEqual(result["items"][1]["anchors"], [source.anchor(page=2)])
-        self.assertIn("visual review", result["items"][1]["values"]["Coverage"])
+        self.assertIn("No text recognized", result["items"][1]["values"]["Coverage"])
         self.assertEqual(source.item.file.storage.content, original)
 
-    def test_scanned_blank_encrypted_and_unknown_format_do_not_pass_as_extracted(self):
+    def test_scanned_text_uses_local_ocr_and_the_exact_source_page(self):
+        original = scanned_pdf(native_page=True)
+        source = file_source(original)
+        with patch("core.analysis.gateway.GatewayClient.request") as gateway:
+            result = native_text([source], {})
+        gateway.assert_not_called()
+        self.assertEqual(result["outcome"], "complete")
+        native, scanned = result["items"]
+        self.assertEqual(native["text"].strip(), "Synthetic native text")
+        self.assertEqual(native["anchors"], [source.anchor(page=1)])
+        self.assertEqual(scanned["text"], "PANDECT LOCAL TEXT 12345")
+        self.assertEqual(scanned["anchors"], [source.anchor(page=2)])
+        self.assertEqual(scanned["values"]["Method"], "Local PDF page OCR")
+        self.assertIn("tesseract", scanned["values"]["OCR engine"])
+        self.assertIn("PDFium", scanned["values"]["OCR renderer"])
+        self.assertEqual(scanned["values"]["Input SHA-256"], source.item.sha256)
+        self.assertEqual(source.item.file.storage.content, original)
+
+    def test_deadline_preserves_native_text_and_marks_the_scan_skipped(self):
+        source = file_source(scanned_pdf(native_page=True))
+        with patch("document.analysis.deterministic.monotonic", return_value=-45):
+            result = native_text([source], {})
+        self.assertEqual(result["outcome"], "partial")
+        self.assertEqual(result["items"][0]["text"].strip(), "Synthetic native text")
+        scanned = result["items"][1]
+        self.assertFalse(scanned["text"].strip())
+        self.assertIn("time limit", scanned["values"]["Coverage"])
+        self.assertEqual(scanned["anchors"], [source.anchor(page=2)])
+
+    def test_missing_engine_only_blocks_pages_requiring_ocr(self):
+        source = file_source(scanned_pdf(native_page=True))
+        with patch.dict("os.environ", {"PATH": "/nonexistent"}):
+            result = native_text([source], {})
+            with self.assertRaises(AnalysisError) as failure:
+                native_text([file_source(scanned_pdf())], {})
+        self.assertEqual(failure.exception.code, "ocr_not_installed")
+        self.assertEqual(result["outcome"], "partial")
+        self.assertEqual(result["items"][0]["text"].strip(), "Synthetic native text")
+        self.assertIn("OCR unavailable", result["items"][1]["values"]["Coverage"])
+
+    def test_blank_encrypted_and_unknown_format_do_not_pass_as_extracted(self):
+        result = native_text([file_source(pdf_bytes(None))], {})
+        self.assertEqual(result["outcome"], "partial")
+        self.assertFalse(result["items"][0]["text"])
         for content in (
-            pdf_bytes(None),
             pdf_bytes("Secret", encrypted=True),
             b"PK\x03\x04\x00",
             b"\xff\xfe",
@@ -159,3 +227,39 @@ class NativeDocumentTests(SimpleTestCase):
             run_parser("document", b"text")
         self.assertNotIn("SYNTHETIC_PROVIDER_KEY", create.call_args.kwargs["env"])
         self.assertIn("-I", create.call_args.args[0])
+
+
+class ScannedUploadTests(EvidenceViewTestMixin, TestCase):
+    def test_saved_scan_is_searchable_and_source_links_open_its_page(self):
+        document = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Synthetic two-page original",
+            file=SimpleUploadedFile("scan.pdf", scanned_pdf(native_page=True)),
+        )
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "native_text",
+            [{"kind": "document", "id": str(document.pk)}],
+        )
+        process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "complete", run.error_code)
+        self.assertEqual(run.method_version, "2")
+        self.assertFalse(GatewayRequest.objects.filter(run=run).exists())
+        scanned = run.result.passages.get(text__contains="PANDECT LOCAL TEXT 12345")
+        self.assertEqual(scanned.evidence_id, document.pk)
+        self.login("viewer")
+        results = self.client.get(self.url("list"), {"q": "PANDECT LOCAL TEXT 12345"})
+        self.assertEqual(len(results.context["rows"]), 1)
+        finding_url = reverse(
+            "core:analysis:detail", kwargs={"case_id": self.case.pk, "run_id": run.pk}
+        )
+        finding = self.client.get(finding_url)
+        original = self.url("detail", document, kind="document") + "?document_page=2"
+        self.assertContains(finding, original + "#document-preview")
+        self.assertContains(self.client.get(original), "Page 2 of 2")
+        self.login("outsider")
+        self.assertEqual(self.client.get(finding_url).status_code, 404)
+        self.assertEqual(self.client.get(original).status_code, 404)

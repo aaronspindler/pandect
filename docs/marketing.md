@@ -7,22 +7,26 @@ announcements with the same availability boundaries.
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Combined product overview, core workflow, fictional examples at `#analysis`, and links to capabilities and GitHub documentation. |
+| `/` | Product overview, case workflow, investigation hub link, fictional examples at `#analysis`, and setup and license links at `#self-hosting`. |
+| `/investigations/` | Four investigation workflows and links to their detail pages. |
+| `/investigations/incidents/` | Review incident records and distinguish event time from collection time. |
+| `/investigations/osint/` | Organize collected public sources and inspect repeated identifiers. |
+| `/investigations/communications/` | Review imported messages, call records, and supplied transcripts. |
+| `/investigations/vehicle-location/` | Review location observations, supported CSV imports, and possible trips. |
 | `/evidence/` | Complete evidence and analysis catalogue, supported imports/reports, input profiles, and setup requirements. |
 | `/trust/` | Case access, originals, analysis approval, and map tile privacy. |
 | `/roadmap/` | Planned work and exploration without release dates; linked from the footer. |
 
-These four pages are public, including the overview for signed-in visitors. All
+These pages are public, including the overview for signed-in visitors. All
 offer **Open workspace** when signed in; authentication still leads to **All cases**.
 The former `/product/` route permanently redirects to `/`. Its `#available`,
 `#analysis`, `#configured-services`, and `#limits` fragments remain valid on the
 overview; service and format details now live in the catalogue. The primary
-navigation contains Overview, Evidence & analysis, and Trust; Roadmap is
-in the footer navigation, with an explicit current-page state. Product copy leads
-with evidence, findings, and collaboration. The overview links to capabilities
-and fictional examples; self-hosting remains a supporting documentation link in
-the footer. The catalogue links to project and analysis guides. There is no
-hosting marketing page.
+navigation contains Overview, Investigations, Evidence & analysis, and Trust.
+The footer also links to Roadmap. Product copy leads with evidence, findings,
+and collaboration. The overview links to capabilities, investigations, and
+fictional examples, with self-hosting setup and licensing in a supporting section.
+The catalogue links to the relevant analysis and processing guides.
 
 Authentication and email verification protect case material, which public pages
 never query or display. Illustrations use
@@ -40,13 +44,53 @@ and fixed ink surfaces for fictional showcases. Investigator controls remain
 owned by `ui/`.
 All pages share responsive light/dark/forced-color layouts, keyboard focus, and a
 skip link. Static showcases are labelled fictional, retain readable source and
-uncertainty, and do not simulate interactive controls. The overview owns the
-product story and examples; the catalogue owns
-input profiles and method requirements; Trust owns access, retention, and
-processing privacy; Roadmap owns future work. Setup and operator responsibilities
-belong in the GitHub documentation. Keep short configuration and uncertainty notes
-beside relevant claims without repeating full explanations. Navigation and actions
-work without JavaScript.
+uncertainty, and do not simulate interactive controls. The overview introduces
+the product. Investigation pages show how to use it for specific workflows.
+The catalogue describes supported inputs and method requirements. Trust covers
+access, retention, and processing privacy. Roadmap covers future work. Setup and
+operator responsibilities belong in the GitHub documentation. Keep short
+configuration and uncertainty notes beside relevant claims. Navigation and
+actions work without JavaScript.
+
+## Investigation workflows
+
+The Investigations hub links to each detail page, and each breadcrumb leads back
+to the hub. Detail pages explain the workflow, illustrate it with a labelled
+fictional example, and link to the applicable evidence formats and source guide.
+Show the remaining uncertainty beside the observations.
+
+- **Incidents.** Distinguish the time reported for an event from the time a
+  source was collected. [Chronology](chronology.md#reading-a-day)
+- **OSINT.** Use investigator-collected public sources. A repeated identifier
+  shows a matching string, while identity, ownership, and independent
+  corroboration remain unresolved. [Case analysis](analysis.md)
+- **Communications.** Use supported CSV exports and review the stated timezone,
+  participants, and gaps. Treat intent as unresolved when the records only show
+  reported messages and call activity. [Message CSV imports](analysis-communications.md#message-csv-imports)
+- **Vehicle and location.** Trace possible trips to reported observations and
+  imported rows. Sampling gaps leave the route, driver, and continuous presence
+  unresolved. [Automatic vehicle trips](analysis-locations.md#automatic-vehicle-trips)
+
+## Search discovery and sharing
+
+Each page opens with a descriptive heading and a direct answer. Its unique
+title and description also supply its Open Graph preview alongside the Pandect
+icon. The homepage names Pandect with `WebSite` microdata.
+
+`PANDECT_PUBLIC_ORIGIN` supplies the origin for canonical URLs, sharing
+metadata, and the sitemap. Set it to `https://openpandect.com` on the official
+deployment. `/sitemap.xml` lists the nine public landing pages above once each
+at their canonical URLs. Catalogue filters and tracking parameters use their
+base page's canonical URL.
+
+`/robots.txt` advertises the sitemap and allows crawling by default so search
+crawlers, including OAI-SearchBot, can reach public pages. Django sends
+`X-Robots-Tag: noindex` on account, case, invitation, and admin responses.
+Authorization protects private material independently of indexing directives.
+Manage training crawler preferences separately at the edge. Cloudflare can
+modify the robots response and block crawler requests independently of the
+application. [Cloudflare robots guidance](https://developers.cloudflare.com/bots/additional-configurations/managed-robots-txt/)
+· [OpenAI crawler guidance](https://developers.openai.com/api/docs/bots)
 
 ## Evidence and analysis catalogue
 
@@ -92,19 +136,21 @@ configuration or legal policies.
 
 Use **Available**, **Requires configuration**, **Planned**, and **Exploring**
 consistently. Verify claims against [cases](cases.md), [evidence](evidence.md),
-[analysis](analysis.md), and [maps](maps.md). Search is within a case. State the
-bounded native PDF, printed-English JPEG/PNG, WAV, and import profiles rather
-than implying every upload format is supported. Message imports support the
-documented direct-chat CSV profiles for iMessage and WhatsApp.
+[analysis](analysis.md), and [maps](maps.md). Search is within a case.
+**Search by meaning** uses the [configured embedding provider](local-analysis.md#case-search-embeddings).
+Use the documented [extraction inputs](analysis-extraction.md#supported-input-profiles),
+[recording profile](original-previews.md#recordings), and
+[message import profiles](analysis-communications.md#message-csv-imports) for
+format and coverage claims.
 
 The public roadmap summarizes [proposed priorities](evidence-analysis-roadmap.md);
 [analysis](analysis.md) owns implemented methods. Review public pages and the
 copy kit when capabilities or priorities change.
 
-Keep possible trips, plate candidates, identifier matches, and model suggestions
-distinct from verified facts. Chronology shows recorded times separately from
-uncertain extracted dates. Results preserve source versions. Originals
-and checksums establish integrity, not truth.
+Keep possible trips, plate candidates, identifier matches, inferred sessions, and
+model suggestions distinct from verified facts. Chronology shows recorded times
+separately from uncertain extracted dates. Results preserve source versions.
+Originals and checksums establish the retained content and its integrity.
 
 ## Validation
 
@@ -119,3 +165,12 @@ uv run --locked --env-file .env python manage.py test --settings=config.test_set
 [Browser validation](validation.md#browser-checks) owns engine installation,
 artifacts, overrides, and limits. The marketing suite runs without JavaScript;
 review synthetic captures against [DESIGN.md](../DESIGN.md#completion-and-design-review).
+
+After an authorized release, fetch the nine public pages, `/sitemap.xml`, and
+`/robots.txt` through the public HTTPS edge. Check for 200 responses, matching
+canonical and sitemap URLs, and effective search crawler access, including for
+OAI-SearchBot. With verified site access, submit the sitemap in
+[Google Search Console](https://search.google.com/search-console/) and
+[Bing Webmaster Tools](https://www.bing.com/webmasters/). Use the first 28 days
+to record a baseline of indexed pages, impressions, clicks, and available
+generative search visibility metrics.

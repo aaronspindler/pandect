@@ -2,8 +2,8 @@
 {% block title %}Review comparison · {{ case.name }}{% endblock %}
 {% block content %}
 <header class="page-header"><div><h1>Review comparison</h1><p>Check the passages, your interpretations, and the selected observations before queuing.</p></div></header>
-{% if error %}<p role="alert" class="error-summary">{{ error }}</p>{% endif %}
-<form method="post" class="analysis-form">{% csrf_token %}<input type="hidden" name="operation" value="journey_claims"><input type="hidden" name="draft" value="{{ draft }}">
+{% if error %}<p role="alert" class="error-summary" tabindex="-1" data-error-summary>{{ error }}</p>{% endif %}
+<form method="post" action="{{ draft_url }}" class="analysis-form">{% csrf_token %}<input type="hidden" name="operation" value="journey_claims"><input type="hidden" name="draft" value="{{ draft }}">
 <section class="analysis-section" aria-labelledby="review-claims"><h2 id="review-claims">Claimed activity</h2>
 {% for row in claims %}<article class="analysis-section"><h3>{{ row.status }} · {{ row.source.item.title }}</h3><blockquote class="original-text">{{ row.quote }}</blockquote>
 {% if row.claim.result_id %}<p class="badge">Based on an AI suggestion</p>{% endif %}
@@ -13,5 +13,5 @@
 {% if missing %}<p>Choose a passage or time reference from each remaining source.</p><ul>{% for label in missing %}<li>{{ label }}</li>{% endfor %}</ul>{% endif %}
 <button class="button button-secondary" name="action" value="add">Add another interpretation</button></section>
 <section class="analysis-section" aria-labelledby="review-observations"><h2 id="review-observations">Selected observations · {{ observations|length }}</h2>{% if groups %}<ul>{% for group in groups %}<li>{{ group.label }} · {{ group.members|length }} observations</li>{% endfor %}</ul>{% endif %}<details class="disclosure"><summary>Inspect selected observations</summary><ul>{% for source in observations %}<li><a class="record-link" href="{{ source.url }}">{{ source.item.title }}</a> · {{ source.item.address|default:"Coordinates" }}{% if source.item.observed_at %} · {{ source.item.observed_at|date:"c" }}{% endif %}</li>{% endfor %}</ul></details></section>
-<div class="form-actions"><button class="button button-primary" name="action" value="queue"{% if missing %} disabled{% endif %}>Queue comparison</button><button class="button button-secondary" name="action" value="choose_again">Restart source selection</button></div></form>
+<div class="form-actions"><button class="button button-primary" name="action" value="queue"{% if missing %} disabled{% endif %}>Queue comparison</button><button class="button button-secondary" name="action" value="choose_again">Restart source selection</button><a class="button button-secondary" href="{{ cancel_url }}">Cancel</a></div></form>
 {% endblock %}

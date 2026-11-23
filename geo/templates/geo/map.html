@@ -6,9 +6,9 @@
 <link rel="stylesheet" href="{% static 'geo/vendor/leaflet/leaflet.css' %}">
 <link rel="stylesheet" href="{% static 'geo/map.css' %}">
 <link rel="stylesheet" href="{% static 'geo/trips.css' %}">
-<script src="{% static 'geo/vendor/leaflet/leaflet.js' %}" defer></script>
+<script data-workspace-document src="{% static 'geo/vendor/leaflet/leaflet.js' %}" defer></script>
 <script src="{% static 'geo/map.js' %}" defer></script>
-<script src="{% static 'geo/prepare_trips.js' %}" defer></script>
+
 {% endblock %}
 {% block content %}
 {% if detail %}<a class="back-link" href="{{ back_url }}#trip-list">Back to trips</a>{% endif %}
@@ -65,7 +65,7 @@
 </div>
 {% endpartialdef %}
 {% endif %}
-<section class="case-map-section" aria-labelledby="map-heading" data-case-map data-geometry-url="{{ geometry_url }}" {% if can_edit %}data-poi-create-url="{% url 'geo:poi_create' case.pk %}"{% endif %} data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}">
+<section class="case-map-section" aria-labelledby="map-heading" data-case-map data-geometry-url="{{ geometry_url }}" {% if can_edit %}data-poi-create-url="{{ poi_create_url }}"{% endif %} data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}">
   <div class="section-header">
     <div>
       <h2 id="map-heading" tabindex="-1">Trip map</h2>
@@ -107,7 +107,7 @@
 </section>
 {% block trip_detail %}{% endblock %}
 {% if poi_page or query or can_edit %}<section class="content-section" aria-labelledby="poi-list">
-  <div class="section-header"><h2 id="poi-list">Points of interest</h2>{% if can_edit %}<a class="record-link" href="{% url 'geo:poi_create' case.pk %}">Add POI</a>{% endif %}</div>
+  <div class="section-header"><h2 id="poi-list">Points of interest</h2>{% if can_edit %}<a class="record-link" href="{{ poi_create_url }}">Add POI</a>{% endif %}</div>
   {% include "geo/poi_list.html" %}
 </section>{% endif %}
 

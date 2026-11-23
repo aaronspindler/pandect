@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from django.test import TestCase
 from django.urls import reverse
+from django.utils.html import escape
 
 from cases.models import CaseMembership
 from core.analysis.operations import get_operation
@@ -17,7 +18,7 @@ from core.analysis.services import (
 )
 from core.analysis.sightings import candidate_links
 from core.evidence.deletion import plan_deletion
-from core.models import AnalysisResult, AnalysisReview, AnalysisRun
+from core.models import AnalysisResult, AnalysisReview, AnalysisRun, ImportantItem
 from core.testing import EvidenceViewTestMixin
 from geo.models import LocationEvidence, PersonLocationEvidence
 
@@ -154,6 +155,77 @@ class SightingWorkflowTests(EvidenceViewTestMixin, TestCase):
         ).delete()
         self.assertEqual(process_run(run.pk), "access_removed")
         self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
+
+    def test_important_reopens_the_completed_sighting_group_with_return_context(self):
+        first = self.observation("First observation", associated=True)
+        second = self.observation("Second observation", associated=True)
+        run, _ = self.create_group(first, kind="person-location")
+        process_run(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, AnalysisRun.Status.COMPLETE, run.error_code)
+        detail = self.inspect_url("sighting_detail", run)
+        self.assertContains(self.client.get(detail), "Mark important")
+
+        mark = reverse("core:important:mark_finding", args=[self.case.pk, run.pk, 0])
+        self.assertRedirects(self.client.post(mark, {"action": "mark"}), detail)
+        saved = ImportantItem.objects.get(finding_result__run=run, item_index=0)
+        source = reverse(
+            "core:analysis:sighting_detail",
+            args=[self.case.pk, run.pk],
+            query={"important_page": 1, "important_item": saved.pk},
+        )
+        important = reverse("core:important:list", args=[self.case.pk])
+        self.assertContains(self.client.get(important), f'href="{escape(source)}"')
+        self.login("viewer")
+        response = self.client.get(source)
+        self.assertContains(response, second.title)
+        self.assertContains(response, f'href="{important}?page=1#important-{saved.pk}"')
+        self.assertNotContains(response, "Remove from Important")
+        self.assertFalse(AnalysisReview.objects.filter(result__run=run).exists())
+
+    def test_important_displays_the_latest_sighting_review_outcome(self):
+        first = self.observation("First observation", associated=True)
+        second = self.observation("Second observation", associated=True)
+        run, _ = self.create_group(first, kind="person-location")
+        process_run(run.pk)
+        result = AnalysisResult.objects.get(run=run)
+        mark = reverse("core:important:mark_finding", args=[self.case.pk, run.pk, 0])
+        self.assertRedirects(
+            self.client.post(mark, {"action": "mark"}),
+            self.inspect_url("sighting_detail", run),
+        )
+        saved = ImportantItem.objects.get(finding_result=result, item_index=0)
+        urls = (
+            reverse("core:important:list", args=[self.case.pk]),
+            reverse("core:important:notes", args=[self.case.pk, saved.pk]),
+        )
+        for url in urls:
+            self.assertContains(self.client.get(url), "Saved proposal · Unresolved")
+
+        revision = ""
+        for decision, label in (
+            ("accepted", "Accepted for review"),
+            ("rejected", "Rejected"),
+        ):
+            with self.subTest(decision=decision):
+                self.assertEqual(self.review(run, decision, revision).status_code, 302)
+                revision = str(result.reviews.first().pk)
+                for url in urls:
+                    self.assertContains(
+                        self.client.get(url), f"Saved proposal · {label}"
+                    )
+
+        self.assertEqual(
+            self.client.post(
+                self.url("archive", second, "person-location")
+            ).status_code,
+            302,
+        )
+        for url in urls:
+            response = self.client.get(url)
+            self.assertContains(response, "Historical proposal")
+            self.assertContains(response, "Rejected")
+            self.assertContains(response, "Archived source")
 
     def test_publication_rechecks_revocation_after_computing_the_group(self):
         first = self.observation("First observation", associated=True)

@@ -15,10 +15,10 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
 from core.analysis.catalogue import PER_PAGE, finding_queryset, finding_rows
 from core.models import AnalysisFindingSource
+from geo.map_navigation import current_map_trip, map_query, trip_query
 from geo.models import PointOfInterest
 from geo.report_forms import VehicleReportForm
 from geo.trip_geometry import GEOMETRY_CHUNK_SIZE, geometry_revision, source_positions
-from geo.trip_models import VehicleTrip
 from geo.trip_processing import (
     format_trip,
     format_trips,
@@ -36,7 +36,7 @@ class TripMapForm(VehicleReportForm):
     q = forms.CharField(required=False, max_length=200, label="Search POIs")
 
 
-def poi_map_data(request, case, query):
+def poi_map_data(request, case, query, return_query):
     pois = PointOfInterest.objects.filter(person__case=case).select_related("person")
     if query:
         pois = pois.filter(
@@ -53,6 +53,9 @@ def poi_map_data(request, case, query):
     points = []
     for index, poi in enumerate(page, start=page.start_index()):
         poi.number = f"P{index}"
+        poi.map_detail_url = reverse(
+            "geo:poi_detail", args=(case.pk, poi.pk), query=return_query
+        )
         if poi.plottable:
             points.append(
                 {
@@ -61,15 +64,21 @@ def poi_map_data(request, case, query):
                     "longitude": float(poi.longitude),
                     "title": str(poi),
                     "poi": True,
-                    "url": reverse("geo:poi_detail", args=(case.pk, poi.pk)),
+                    "url": poi.map_detail_url,
                 }
             )
     return page, points
 
 
-def _map_context(request, case):
+def _map_context(request, case, *, trip=None):
     query = request.GET.get("q", "")[:200].strip()
-    poi_page, points = poi_map_data(request, case, query)
+    if trip is None:
+        return_query = {"from_map": "1"} | map_query(request.GET)
+    else:
+        return_query = {"from_trip": trip.pk} | trip_query(request.GET)
+        if trip.evidence_state != "active":
+            return_query.setdefault("state", trip.evidence_state)
+    poi_page, points = poi_map_data(request, case, query, return_query)
     return {
         **case_context(case, request.user),
         "poi_page": poi_page,
@@ -79,6 +88,11 @@ def _map_context(request, case):
         "tile_url": settings.PANDECT_MAP_TILE_URL,
         "tile_attribution": settings.PANDECT_MAP_TILE_ATTRIBUTION,
         "map_url": reverse("geo:case_map", args=(case.pk,)),
+        "poi_create_url": reverse(
+            "geo:poi_create",
+            args=(case.pk,),
+            query=return_query,
+        ),
     }
 
 
@@ -161,19 +175,7 @@ def _trip_findings(case, sources, page_number):
 @require_GET
 def trip_detail(request, case_id, trip_id):
     case = get_case(request.user, case_id)
-    state = (
-        VehicleTrip.objects.filter(case=case, vehicle__case=case, pk=trip_id)
-        .values_list("evidence_state", flat=True)
-        .first()
-    )
-    if not state:
-        raise Http404("Trip not found.")
-    try:
-        trip = saved_trips(case, state=state).get(pk=trip_id)
-    except VehicleTrip.DoesNotExist as error:
-        raise Http404(
-            "This trip changed. Open the map to see the current trips."
-        ) from error
+    trip = current_map_trip(case, trip_id)
     sources = trip_sources(case, trip)
     if wants_json(request):
         cursor = request.GET.get("cursor", "0")
@@ -249,18 +251,12 @@ def trip_detail(request, case_id, trip_id):
     page = Paginator(address_sources if review_estimates else sources, 50).get_page(
         request.GET.get("sources_page")
     )
-    context = _map_context(request, case)
-    back_params = request.GET.copy()
-    for key in tuple(back_params):
-        if key not in {"state", "vehicle_id", "start", "end", "q", "page", "poi_page"}:
-            del back_params[key]
+    context = _map_context(request, case, trip=trip)
+    back_params = map_query(request.GET)
     if trip.evidence_state != "active":
         back_params.setdefault("state", trip.evidence_state)
-    back_url = context["map_url"]
-    if back_params:
-        back_url += "?" + back_params.urlencode()
     context.update(
-        back_url=back_url,
+        back_url=reverse("geo:case_map", args=(case.pk,), query=back_params),
         selected_trip=format_trip(case, trip),
         findings_page=_trip_findings(case, sources, request.GET.get("findings_page")),
         geometry_url=reverse("geo:trip_detail", args=(case.pk, trip.pk)),

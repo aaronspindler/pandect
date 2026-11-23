@@ -93,6 +93,98 @@ class ConversationBrowserTests(BrowserTestCase):
             },
         )
 
+    def test_case_shell_stays_mounted_between_conversations_and_chronology(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.url("core:analysis:index", case_id=self.case.pk))
+                page.evaluate("window.rail = document.querySelector('.app-navigation')")
+                page.evaluate("window.search = document.getElementById('case-search')")
+                page.get_by_role("link", name="Conversations", exact=True).click()
+                page.locator(f'a[href="{self.reader_path}"]').click()
+                panel = page.locator("[data-message-panel]")
+                page.locator("[data-message-select]").first.click()
+                expect(panel).to_be_visible()
+                page.go_back()
+                expect(panel).to_be_hidden()
+                page.get_by_role("link", name="Case Tools", exact=True).click()
+                page.get_by_role("link", name="Chronology", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Daily timeline")
+                ).to_be_visible()
+                page.get_by_role("link", name="Processing", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                page.go_back()
+                expect(
+                    page.get_by_role("heading", name="Daily timeline")
+                ).to_be_visible()
+                self.assertTrue(
+                    page.evaluate(
+                        "window.rail.isConnected && window.search.isConnected"
+                    )
+                )
+
+    def test_newer_reader_actions_keep_selection_and_navigation(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(self.live_server_url + self.reader_path)
+                later = page.locator('[data-conversation-edge="next"] a')
+                pending = []
+
+                def hold(route, _request, pending=pending):
+                    pending.append(route)
+
+                page.route("**" + self.reader_path + "?page=2", hold)
+                with page.expect_request(lambda req: req.url.endswith("?page=2")):
+                    later.evaluate("link => link.click()")
+                page.locator("[data-message-select]").first.click()
+                heading = page.locator("[data-message-panel] h2")
+                expect(heading).to_be_focused()
+                pending.pop().continue_()
+                expect(page.locator(".conversation-message")).to_have_count(55)
+                expect(heading).to_be_focused()
+
+                timeline = self.url("core:evidence:chronology", case_id=self.case.pk)
+                processing = self.url("core:analysis:processing", case_id=self.case.pk)
+                page.goto(f"{timeline}?view=day&day=2026-11-10")
+                page.route(processing, hold)
+                rail_link = page.get_by_role("link", name="Processing", exact=True)
+                with page.expect_request(processing):
+                    rail_link.click()
+
+                dates = []
+
+                def hold_date(route, _request, dates=dates):
+                    dates.append(route)
+
+                page.route(f"{timeline}?**day=2026-11-12*", hold_date, times=1)
+                date = page.get_by_label("Date", exact=True)
+                with page.expect_request(lambda req: "day=2026-11-12" in req.url):
+                    date.fill("2026-11-12")
+                expect(page.locator("[data-workspace-status]")).not_to_have_attribute(
+                    "aria-busy", "true"
+                )
+                pending.pop().continue_()
+                dates.pop().continue_()
+                expect(page.locator('[data-timeline-day="2026-11-12"]')).to_be_visible()
+                expect(page).to_have_url(re.compile("day=2026-11-12"))
+
+                page.route(f"{timeline}?**day=2026-11-13*", hold_date, times=1)
+                with page.expect_request(lambda req: "day=2026-11-13" in req.url):
+                    date.fill("2026-11-13")
+                with page.expect_request(processing):
+                    rail_link.click()
+                dates.pop().continue_()
+                pending.pop().continue_()
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                page.go_back()
+                expect(page.locator('[data-timeline-day="2026-11-12"]')).to_be_visible()
+
     def test_no_javascript_unified_messages_and_exact_evidence_roundtrip(self):
         for engine in self.engines:
             with (
@@ -484,7 +576,9 @@ class ConversationBrowserTests(BrowserTestCase):
                         field = page.get_by_label("Jump to date")
                         field.fill("2026-11-11")
                         page.get_by_role("button", name="Go", exact=True).press("Enter")
-                        jump = page.locator("#conversation-day-result")
+                        jump = page.locator(
+                            "[data-conversation-items] #conversation-day-result"
+                        )
                         expect(jump).to_be_in_viewport()
                         expect(field).to_have_value("2026-11-11")
                         self.assert_reflow(page, 390)
@@ -992,7 +1086,9 @@ class ConversationBrowserTests(BrowserTestCase):
                 expect(action).to_be_visible()
                 action.press("Enter")
                 page.get_by_role("button", name="Request summaries").press("Enter")
-                expect(page.get_by_role("heading", name="Processing")).to_be_visible()
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
                 expect(page.get_by_text("Summaries are being queued.")).to_be_visible()
                 page.get_by_role("link", name="Back to sessions & summaries").press(
                     "Enter"

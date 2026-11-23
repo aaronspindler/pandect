@@ -27,6 +27,9 @@ class Case(models.Model):
     external_analysis_approval = models.JSONField(
         default=dict, blank=True, editable=False
     )
+    search_embedding_approval = models.JSONField(
+        default=dict, db_default={}, blank=True, editable=False
+    )
     ai_backend = models.CharField(
         max_length=7,
         choices=AIBackend,
@@ -75,6 +78,7 @@ class CaseActivity(models.Model):
     findings = models.BigIntegerField(db_default=0)
     people = models.BigIntegerField(db_default=0)
     vehicles = models.BigIntegerField(db_default=0)
+    important = models.BigIntegerField(db_default=0)
 
     def __str__(self):
         return f"Activity in case {self.case_id}"
@@ -82,7 +86,15 @@ class CaseActivity(models.Model):
     def versions(self):
         return {
             name: getattr(self, name)
-            for name in ("work", "evidence", "images", "findings", "people", "vehicles")
+            for name in (
+                "work",
+                "evidence",
+                "images",
+                "findings",
+                "people",
+                "vehicles",
+                "important",
+            )
         }
 
 

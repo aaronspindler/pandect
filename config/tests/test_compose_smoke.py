@@ -132,7 +132,7 @@ class ComposeSmokeCommandTests(TestCase):
             self.assertIn("--no-build", command)
         self.assert_isolated_and_cleaned(entries)
 
-    def test_prebuilt_image_is_resolved_locally_and_used_for_both_services(self):
+    def test_all_application_services_use_the_resolved_local_image(self):
         result, entries = self.run_smoke("synthetic-local-image:tested")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
@@ -148,8 +148,8 @@ class ComposeSmokeCommandTests(TestCase):
         )
         compose = [entry for entry in entries if entry["args"][0] == "compose"]
         override = compose[0]["override_content"]
-        self.assertEqual(override.count("image: " + IMAGE_ID), 2)
-        self.assertEqual(override.count("pull_policy: never"), 2)
+        self.assertEqual(override.count("image: " + IMAGE_ID), 3)
+        self.assertEqual(override.count("pull_policy: never"), 3)
         for command in self.compose_commands(entries):
             self.assertNotIn("--build", command)
             if command[0] == "up":

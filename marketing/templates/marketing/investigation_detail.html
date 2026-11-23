@@ -1,0 +1,35 @@
+{% extends 'marketing/base.html' %}
+{% block content %}
+<nav class="wrap" aria-label="Breadcrumb">
+  <a class="text-link" href="{% url 'marketing:investigations' %}">All investigation types</a>
+  <span aria-hidden="true"> / </span>
+  <span aria-current="page">{% block breadcrumb_title %}{% endblock %}</span>
+</nav>
+<section class="marketing-hero wrap trust-intro" aria-labelledby="investigation-heading">
+  <div>
+    <h1 id="investigation-heading">{% block investigation_heading %}{% endblock %}</h1>
+    <p class="lead">{% block investigation_answer %}{% endblock %}</p>
+    <div class="hero-actions">
+      <a class="text-link" href="{% url 'marketing:evidence' %}{% block evidence_filter %}{% endblock %}#formats">{% block evidence_link_label %}{% endblock %} <span aria-hidden="true">→</span></a>
+      {% block source_guide %}{% endblock %}
+    </div>
+  </div>
+  <div>
+    <figure class="analysis-mockup">
+      <figcaption>Fictional example · {% block example_title %}{% endblock %}</figcaption>
+      <div class="mockup-body">
+        <ul class="mockup-sources" role="list">
+          {% block example_sources %}{% endblock %}
+        </ul>
+        <p class="mockup-note">{% block example_interpretation %}{% endblock %}</p>
+      </div>
+    </figure>
+  </div>
+</section>
+<section class="marketing-section wrap analysis-showcase" aria-labelledby="workflow-heading">
+  <div class="section-heading"><h2 id="workflow-heading">{% block workflow_heading %}{% endblock %}</h2></div>
+  <div class="principles">
+    {% block workflow_steps %}{% endblock %}
+  </div>
+</section>
+{% endblock %}

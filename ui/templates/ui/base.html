@@ -11,12 +11,23 @@
   <link rel="stylesheet" href="{% static 'ui/primitives.css' %}">
   <link rel="stylesheet" href="{% static 'ui/app.css' %}">
   <script src="{% static 'ui/timezone.js' %}" data-automatic="{% if user.timezone %}false{% else %}true{% endif %}" data-method="{{ request.method }}"></script>
+  <script src="{% static 'ui/page.js' %}" defer></script>
   <script src="{% static 'ui/app.js' %}" defer></script>
   <script src="{% static 'ui/live.js' %}" defer></script>
-  {% if case %}<link rel="stylesheet" href="{% static 'ui/case-search.css' %}"><script src="{% static 'ui/case-search.js' %}" defer></script>{% endif %}
+  {% if case %}
+  <meta name="htmx-config" content='{"historyEnabled":false,"historyCacheSize":0,"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"timeout":15000}'>
+  <script src="{% static 'ui/vendor/htmx/htmx.min.js' %}" defer></script>
+  <script src="{% static 'ui/workspace.js' %}" defer></script>
+  <script src="{% static 'ui/collection.js' %}" data-cases-url="{% url 'cases:case_list' %}" defer></script>
+  <script src="{% static 'core/evidence.js' %}" defer></script>
+  <script src="{% static 'phone/conversations.js' %}" defer></script>
+  <script src="{% static 'core/daily-chronology.js' %}" defer></script>
+  <script src="{% static 'image/preview.js' %}" defer></script>
+  <script src="{% static 'geo/prepare_trips.js' %}" defer></script>
+  <link rel="stylesheet" href="{% static 'ui/case-search.css' %}"><script src="{% static 'ui/case-search.js' %}" defer></script>{% endif %}
   {% block extra_head %}{% endblock %}
 </head>
-<body class="{% if user.is_authenticated %}app-page {% endif %}{% if case %}case-page {% endif %}{% block body_class %}{% endblock %}">
+<body {% if case %}data-workspace-case="{{ case.pk }}" data-workspace-root="{% url 'cases:case_detail' case.pk %}" {% endif %}class="{% if user.is_authenticated %}app-page {% endif %}{% if case %}case-page {% endif %}{% block body_class %}{% endblock %}">
   <a class="skip-link" href="#main-content">Skip to content</a>
   {% if user.is_authenticated %}
   {% include "ui/components/navigation.html" %}
@@ -40,6 +51,8 @@
     {% block before_content %}{% endblock %}
     {% block content %}{% endblock %}
   </main>
+  {% if case %}{% include 'ui/components/quick_dialog.html' %}
+  <div data-workspace-status class="visually-hidden" role="status"></div>{% endif %}
   {% block extra_js %}{% endblock %}
 </body>
 </html>

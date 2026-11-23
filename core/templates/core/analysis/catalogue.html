@@ -17,9 +17,29 @@
 </form>
 {% partialdef collection inline %}
 <div data-collection-kind="findings" data-collection-count="{{ page_obj.paginator.count }}">
-<p class="muted">{{ page_obj.paginator.count }} finding{{ page_obj.paginator.count|pluralize }}{% if filters.history == 'all' %} · Includes earlier results{% endif %}. Check the cited sources when interpreting a finding.</p>
+{% if rows or timing_only_count %}
+<p class="result-count">{{ page_obj.paginator.count }} finding{{ page_obj.paginator.count|pluralize }}{% if filters.history == 'all' %} · Includes earlier results{% endif %}. Check the cited sources when interpreting a finding.</p>
 {% if timing_only_count %}<p class="muted">{% if show_timing_only %}Including {{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }}. <a href="{{ timing_visibility_url }}">Hide timing-only findings</a>{% else %}{{ timing_only_count }} timing-only finding{{ timing_only_count|pluralize }} hidden. <a href="{{ timing_visibility_url }}">Show all findings</a>{% endif %}</p>{% endif %}
 {% include 'core/analysis/_catalogue_rows.html' with rows=rows history=filters.history timing_only_count=timing_only_count show_timing_only=show_timing_only only %}
+{% elif form.errors %}
+<section class="empty-state compact-empty">
+  <h2>Check the search and filters</h2>
+  <p>Correct the fields above or reset the filters.</p>
+  <a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Show all findings</a>
+</section>
+{% elif form.q.value or advanced_filters or evidence_title %}
+<section class="empty-state compact-empty">
+  <h2>No matching findings</h2>
+  <p>Try a different search or reset the filters.</p>
+  <a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Show all findings</a>
+</section>
+{% else %}
+<section class="empty-state compact-empty">
+  <h2>No findings yet</h2>
+  <p>Findings appear here after a check finds something in the evidence. Processing shows current work and completed checks.</p>
+  <a class="button button-secondary" href="{% url 'core:analysis:processing' case.pk %}">View processing</a>
+</section>
+{% endif %}
 {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Finding pages">
   {% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}
 </nav>{% endif %}

@@ -5,7 +5,14 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from cases.models import CaseActivity, CaseMembership
-from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, ExtractedPassage
+from core.models import (
+    AnalysisResult,
+    AnalysisRun,
+    CaseAnalysisBatch,
+    ExtractedPassage,
+    ImportantItem,
+    ImportantNote,
+)
 from core.testing import EvidenceViewTestMixin
 from image.models import ImageEvidence
 from people.models import Person
@@ -109,6 +116,28 @@ class CaseActivityTests(EvidenceViewTestMixin, TestCase):
         ExtractedPassage.objects.bulk_create([ExtractedPassage(kind="image", **values)])
         self.assertGreater(self.snapshot()["versions"]["images"], other["images"])
 
+    def test_important_collection_tracks_mark_and_note_counts(self):
+        source = self.text()
+        url = reverse("core:important:list", args=[self.case.pk])
+        baseline = self.snapshot()["versions"]["important"]
+        item = ImportantItem.objects.create(
+            case=self.case,
+            evidence_kind="text",
+            evidence_id=source.pk,
+            marked_at=source.created_at,
+            marked_by=self.users["owner"],
+        )
+        marked = self.snapshot()["versions"]["important"]
+        self.assertGreater(marked, baseline)
+        ImportantNote.objects.create(
+            item=item, author=self.users["owner"], body="Private note"
+        )
+        self.assertGreater(self.snapshot()["versions"]["important"], marked)
+        response = self.client.get(url, HTTP_X_PANDECT_LIVE="collection")
+        self.assertContains(response, 'data-collection-kind="important"')
+        self.assertContains(response, "Notes · 1")
+        self.assertNotContains(response, "Private note")
+
     def test_baseline_access_and_bounded_idle_query(self):
         for role in ("owner", "editor", "viewer"):
             self.login(role)
@@ -139,3 +168,11 @@ class CaseActivityTests(EvidenceViewTestMixin, TestCase):
             ).status_code,
             401,
         )
+
+    def test_wsgi_stream_fallback_checks_access_and_disables_caching(self):
+        url = reverse("case_events", args=[self.case.pk])
+        for role, status in (("viewer", 204), ("outsider", 404)):
+            self.login(role)
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status)
+            self.assertIn("no-store", response["Cache-Control"])

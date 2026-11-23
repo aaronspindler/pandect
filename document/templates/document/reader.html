@@ -4,6 +4,10 @@
   {% elif preview.format == 'UTF-8' %}
     <p class="muted">Decoded UTF-8 display{% if preview.bom %}; the byte-order mark is omitted{% endif %}. Download original preserves the exact file bytes.</p>
     <div class="original-text" tabindex="0" role="region" aria-label="Decoded document text">{{ preview.text }}</div>
+  {% elif preview.format == 'Email' %}
+    <p class="muted">Decoded email. Sender, recipients and date come from the file. Attachments and external content are excluded from the preview.</p>
+    {% if preview.partial %}<p class="notice">{{ preview.coverage }}</p>{% endif %}
+    <div class="original-text" tabindex="0" role="region" aria-label="Decoded email text">{{ preview.text }}</div>
   {% elif preview.format == 'PDF' %}
     <nav class="actions" aria-label="Document pages">
       {% if previous %}<a class="button button-secondary" href="{{ previous }}">Previous page</a>{% endif %}
@@ -17,6 +21,6 @@
       <button class="button button-secondary" type="submit">Go to page</button>
     </form>
     <p class="muted">Local page preview. Download original preserves the PDF.</p>
-    <img src="{% url 'core:evidence:document_page' case_id=case.pk evidence_id=item.pk page=number %}" alt="Page {{ number }} of {{ item.title }}" loading="lazy">
+    <img src="{% url 'core:evidence:document_page' case_id=case.pk evidence_id=item.pk page=number %}" data-record-label="Page {{ number }} of " alt="Page {{ number }} of {{ item.title }}" loading="lazy">
   {% endif %}
 </section>

@@ -1,23 +1,37 @@
 {% load static %}
 <!doctype html>
-<html lang="en">
+<html lang="en" prefix="og: https://ogp.me/ns#">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>{% block title %}An investigation workspace{% endblock %} · Pandect</title>
-  <meta name="description" content="{% block description %}Bring evidence together, search within a case, and explore source-linked findings with collaborators in Pandect.{% endblock %}">
+  <title>{{ page_title }}</title>
+  <meta name="description" content="{{ page_description }}">
+  <link rel="canonical" href="{{ canonical_url }}">
+  {% static 'ui/brand/apple-touch-icon.png' as share_image %}
+  <meta property="og:title" content="{{ page_title }}">
+  <meta property="og:description" content="{{ page_description }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Pandect">
+  <meta property="og:url" content="{{ canonical_url }}">
+  <meta property="og:image" content="{{ public_origin }}{{ share_image }}">
+  <meta property="og:image:alt" content="Pandect arch logo">
   <link rel="icon" type="image/png" sizes="32x32" href="{% static 'ui/brand/favicon.png' %}">
-  <link rel="apple-touch-icon" sizes="180x180" href="{% static 'ui/brand/apple-touch-icon.png' %}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ share_image }}">
   <link rel="stylesheet" href="{% static 'ui/primitives.css' %}">
   <link rel="stylesheet" href="{% static 'marketing/marketing.css' %}">
 </head>
-<body class="marketing">
+<body class="marketing"{% if request.resolver_match.url_name == 'home' %} itemscope itemtype="https://schema.org/WebSite"{% endif %}>
+  {% if request.resolver_match.url_name == 'home' %}
+    <meta itemprop="name" content="Pandect">
+    <link itemprop="url" href="{{ canonical_url }}">
+  {% endif %}
   <a class="skip-link" href="#main-content">Skip to content</a>
   <header class="marketing-header wrap">
     <a class="wordmark" href="{% url 'marketing:home' %}" aria-label="Pandect">{% include 'ui/components/brand.html' %}</a>
     <nav class="marketing-nav" aria-label="Main navigation">
       <a href="{% url 'marketing:home' %}" {% if request.resolver_match.url_name == 'home' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="{% url 'marketing:investigations' %}" {% if request.resolver_match.url_name == 'investigations' %}aria-current="page"{% endif %}>Investigations</a>
       <a href="{% url 'marketing:evidence' %}" {% if request.resolver_match.url_name == 'evidence' %}aria-current="page"{% endif %}>Evidence &amp; analysis</a>
       <a href="{% url 'marketing:trust' %}" {% if request.resolver_match.url_name == 'trust' %}aria-current="page"{% endif %}>Trust</a>
       {% if user.is_authenticated %}
@@ -37,6 +51,7 @@
     </div>
     <nav aria-label="Footer navigation">
       <a href="{% url 'marketing:home' %}" {% if request.resolver_match.url_name == 'home' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="{% url 'marketing:investigations' %}" {% if request.resolver_match.url_name == 'investigations' %}aria-current="page"{% endif %}>Investigations</a>
       <a href="{% url 'marketing:evidence' %}" {% if request.resolver_match.url_name == 'evidence' %}aria-current="page"{% endif %}>Evidence &amp; analysis</a>
       <a href="{% url 'marketing:trust' %}" {% if request.resolver_match.url_name == 'trust' %}aria-current="page"{% endif %}>Trust</a>
       <a href="{% url 'marketing:roadmap' %}" {% if request.resolver_match.url_name == 'roadmap' %}aria-current="page"{% endif %}>Roadmap</a>

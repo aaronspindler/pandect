@@ -1,6 +1,7 @@
 """Recoverable private passage preparation on the existing database queue."""
 
 import hashlib
+from datetime import timedelta
 from uuid import uuid4
 
 from allauth.account.models import EmailAddress
@@ -9,14 +10,17 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404
 from django.tasks import task
+from django.utils import timezone
 
 from cases.permissions import get_case
-from core.analysis.errors import AnalysisError
+from core.analysis.errors import AnalysisError, error_message
+from core.case_search.approval import search_approval_current
 from core.case_search.semantic_model import (
     BATCH_SIZE,
     CHUNK_BYTES,
     embed,
     execution,
+    is_external,
     next_chunk,
     profile,
 )
@@ -28,71 +32,121 @@ from core.models import CaseSearchIndex, SearchDocument, SearchPassage
 from core.models.search import SOURCE_FIELDS
 
 SEED_BATCH = 500
+RETRY_DELAYS = (15, 60)
+TRANSIENT_ERRORS = {
+    "gateway_rate_limit",
+    "gateway_unavailable",
+    "local_ai_busy",
+    "local_ai_unavailable",
+}
 LABELS = {
-    "disabled": "Meaning search requires a configured private embedding model.",
+    "disabled": "Meaning search is unavailable in this installation.",
+    "awaiting_approval": "The case owner must approve meaning search in Case settings.",
     "unprepared": "The meaning search index has not been prepared yet.",
-    "changed": "The meaning search model changed. Rebuild the index in Processing.",
-    "queued": "Meaning search is indexing this case. Some passages may be missing.",
-    "running": "Meaning search is indexing this case. Some passages may be missing.",
-    "failed": "Meaning search indexing stopped. Resume it from Processing.",
+    "changed": "Meaning search settings changed. Rebuild the index in Processing.",
+    "queued": "Meaning search indexing is queued.",
+    "running": "Meaning search indexing is running.",
+    "failed": "Meaning search indexing stopped.",
     "ready": "Meaning search is ready.",
 }
 
 
 def search_index_status(case, *, count_passages=True):
     identity = profile()
-    index = CaseSearchIndex.objects.filter(case=case).first() if identity else None
-    status = "disabled" if not identity else "unprepared"
-    passages = 0
-    if index:
-        status = index.status if index.profile == identity else "changed"
-        if status != "changed":
-            published = SearchPassage.objects.filter(
-                case=case,
-                document__case=case,
-                document__profile=identity,
-                document__complete=True,
-            )
-            passages = published.count() if count_passages else int(published.exists())
+    status = "disabled"
+    reason = ""
+    token = None
+    passages = documents = 0
+    if identity and is_external() and not search_approval_current(case):
+        status = "awaiting_approval"
+    elif identity:
+        index = CaseSearchIndex.objects.filter(case=case).first()
+        status = "unprepared"
+        if index:
+            status = index.status if index.profile == identity else "changed"
+            token = index.token
+            if status != "changed":
+                indexed = SearchPassage.objects.filter(
+                    case=case,
+                    profile=identity,
+                    document__case=case,
+                    document__profile=identity,
+                )
+                if count_passages:
+                    documents = SearchDocument.objects.filter(
+                        case=case, profile=identity, complete=True
+                    ).count()
+                    passages = indexed.count()
+                else:
+                    passages = int(indexed.filter(document__complete=True).exists())
+                if index.error_code:
+                    if status == "queued":
+                        reason = (
+                            "The embedding service is busy or unavailable. "
+                            "An automatic retry is scheduled."
+                        )
+                    elif index.error_code == "paused_by_operator":
+                        reason = (
+                            "An operator paused indexing. Resume to continue "
+                            "from the saved position."
+                        )
+                    else:
+                        reason = error_message(index.error_code)
     return {
         "status": status,
         "label": LABELS[status],
+        "token": token,
+        "reason": reason,
         "passages": passages,
-        "can_retry": status in {"failed", "changed", "unprepared", "queued", "running"},
+        "documents": documents,
+        "can_retry": status in {"failed", "changed", "unprepared"},
     }
 
 
-def _enqueue(index):
+def _enqueue(index, *, delay=0):
     index.token = uuid4()
     index.status = "queued"
     index.save()
-    index_case_passages.enqueue(str(index.pk), str(index.token))
+    delivery = index_case_passages
+    if delay:
+        delivery = delivery.using(run_after=timezone.now() + timedelta(seconds=delay))
+    delivery.enqueue(str(index.pk), str(index.token))
 
 
 @transaction.atomic
-def prepare_case_search(case, user, *, retry=False):
+def prepare_case_search(case, user, *, retry=False, interrupted_token=None):
     case = get_case(user, case.pk, edit=True, lock=True)
     if not EmailAddress.objects.filter(user=user, verified=True).exists():
         raise PermissionDenied
     identity = profile()
-    if not identity:
+    if not identity or (is_external() and not search_approval_current(case)):
         return False
-    index, created = CaseSearchIndex.objects.select_for_update().get_or_create(
-        case=case, defaults={"profile": identity, "requested_by": user}
-    )
-    changed = index.profile != identity
-    if (
-        not created
-        and not changed
-        and not (retry and index.status in ("queued", "running", "failed"))
+    index = CaseSearchIndex.objects.select_for_update().filter(case=case).first()
+    if interrupted_token is not None and (
+        not index
+        or index.token != interrupted_token
+        or index.status not in ("queued", "running")
     ):
         return False
-    if changed:
-        index.source_type_index = 0
-        index.source_cursor = None
+    config = embedding_identity(execution())
+    if is_external():
+        config["approval_revision"] = case.search_embedding_approval["revision"]
+    if index:
+        changed = index.profile != identity or index.execution != config
+        if (
+            not changed
+            and interrupted_token is None
+            and not (retry and index.status == "failed")
+        ):
+            return False
+        if changed:
+            index.source_type_index = 0
+            index.source_cursor = None
+    else:
+        index = CaseSearchIndex(case=case)
     index.requested_by = user
     index.profile = identity
-    index.execution = embedding_identity(execution())
+    index.execution = config
     index.error_code = ""
     index.failures = 0
     _enqueue(index)
@@ -116,6 +170,8 @@ def add_sources(case_id, source, ids):
     from cases.models import Case
 
     case = Case.objects.select_for_update().get(pk=case_id)
+    if is_external() and not search_approval_current(case):
+        return
     _bulk_sources(case, source, ids)
     index = CaseSearchIndex.objects.select_for_update().filter(case=case).first()
     if index is None:
@@ -160,6 +216,10 @@ def _authorize(index, *, lock=False):
     case = authorize(index.requested_by_id, index.case_id, edit=True, lock=lock)
     if index.profile != profile():
         raise AnalysisError("execution_changed")
+    if is_external():
+        revision = index.execution.get("approval_revision")
+        if not revision or not search_approval_current(case, revision=revision):
+            raise AnalysisError("embedding_approval_required")
     if not CaseSearchIndex.objects.filter(
         pk=index.pk, token=index.token, status="running"
     ).exists():
@@ -240,7 +300,12 @@ def index_case_passages(index_id, token):
         windows = load_windows(case, requests, WINDOW)
         pending, progress = _batch(index, docs, windows)
         vectors = (
-            embed([text for _, _, text in pending], lambda: _authorize(index))
+            embed(
+                [text for _, _, text in pending],
+                lambda: _authorize(index),
+                case=case,
+                purpose="index",
+            )
             if pending
             else []
         )
@@ -259,13 +324,16 @@ def index_case_passages(index_id, token):
                 for d, _, _ in progress
                 if d.pk in current and windows.get(d.source()) == live.get(d.source())
             }
-            previous_profiles = [
+            restarting = [
                 doc.pk
                 for doc, _, _ in progress
                 if doc.pk in valid and doc.profile and doc.profile != index.profile
             ]
-            if previous_profiles:
-                SearchPassage.objects.filter(document_id__in=previous_profiles).delete()
+            if restarting:
+                # A previous attempt may have partially built this same profile.
+                SearchPassage.objects.filter(
+                    document_id__in=restarting, profile=index.profile
+                ).delete()
             for doc, offset, complete in progress:
                 if doc.pk in valid:
                     doc.profile, doc.offset, doc.complete = (
@@ -282,6 +350,7 @@ def index_case_passages(index_id, token):
                     SearchPassage(
                         case=case,
                         document=doc,
+                        profile=index.profile,
                         start=start,
                         length=len(text),
                         digest=hashlib.sha256(text.encode()).hexdigest(),
@@ -291,6 +360,14 @@ def index_case_passages(index_id, token):
                     if doc.pk in valid
                 ]
             )
+            finished = [
+                d.pk for d, _, complete in progress if complete and d.pk in valid
+            ]
+            if finished:
+                SearchPassage.objects.filter(document_id__in=finished).exclude(
+                    profile=index.profile
+                ).delete()
+            index.error_code = ""
             index.failures = 0
             _enqueue(index)
         return "queued"
@@ -312,8 +389,8 @@ def index_case_passages(index_id, token):
             return "superseded"
         current.failures += 1
         current.error_code = code
-        if current.failures < 3 and code in {"local_ai_busy", "local_ai_unavailable"}:
-            _enqueue(current)
+        if code in TRANSIENT_ERRORS and current.failures <= len(RETRY_DELAYS):
+            _enqueue(current, delay=RETRY_DELAYS[current.failures - 1])
             return "queued"
         current.status = "failed"
         current.save(update_fields=("status", "failures", "error_code"))

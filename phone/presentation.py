@@ -1,4 +1,5 @@
 from django.core.paginator import Paginator
+from django.db.models.functions import Substr
 from django.utils import timezone
 from django.utils.formats import date_format
 
@@ -22,6 +23,25 @@ def message_evidence_label(body, sender, occurred_at):
         else "Time not recorded"
     )
     return f"{message_excerpt(body)} · {sender} · {timestamp}"
+
+
+def message_labels(case, message_ids):
+    return {
+        message.pk: message_evidence_label(
+            message.label_body, message.sender, message.occurred_at
+        )
+        for message in scoped_evidence(case, "text-message")
+        .filter(pk__in=message_ids)
+        .select_related("sender")
+        .only(
+            "occurred_at",
+            "sender__first_name",
+            "sender__last_name",
+            "sender__email",
+            "sender__phone_number",
+        )
+        .annotate(label_body=Substr("body", 1, 81))
+    }
 
 
 def reader_context(

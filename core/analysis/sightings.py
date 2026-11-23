@@ -6,19 +6,92 @@ from uuid import UUID
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import Http404
+from django.utils.dateparse import parse_datetime
 
 from core.analysis.errors import AnalysisError
 from core.analysis.projection import identifier_key
 from core.analysis.sources import Source, output, source_id
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import KINDS, LOCATION_KINDS
-from core.models import AnalysisFinding
+from core.models import AnalysisFinding, AnalysisReview, AnalysisRun
 from geo.analysis.deterministic.locations import distance_m, number
 
 MAX_CANDIDATES = 25
 MAX_SELECTION = 12
 ASSOCIATIONS = {"person-location": "person_id", "vehicle-location": "vehicle_id"}
 SPATIAL_METHODS = {"spatial_groups", "colocation"}
+REVIEW_DECISIONS = {
+    AnalysisReview.Decision.ACCEPTED: "Accepted for review",
+    AnalysisReview.Decision.REJECTED: "Rejected",
+    AnalysisReview.Decision.UNRESOLVED: "Unresolved",
+}
+
+
+def sighting_reviews(case, result):
+    return result.reviews.filter(case=case, item_index__isnull=True)
+
+
+def review_outcome(review):
+    return REVIEW_DECISIONS[
+        review.decision if review else AnalysisReview.Decision.UNRESOLVED
+    ]
+
+
+def saved_group(case, run, *, cache=None):
+    """Read a retained proposal only when its exact sources still resolve."""
+    from core.analysis.services import SourceResolutionCache, resolve_inputs
+
+    result = getattr(run, "result", None)
+    if (
+        not result
+        or result.case_id != case.pk
+        or run.status != AnalysisRun.Status.COMPLETE
+    ):
+        raise AnalysisError("source_unavailable")
+    cache = cache or SourceResolutionCache(case, with_content=False)
+    sources = resolve_inputs(run, case, require_current_review=False, cache=cache)
+    originals = {
+        str(source.id): (source.kind, str(source.item.pk)) for source in sources
+    }
+    try:
+        references = {
+            (ref["result_id"], ref["item_index"])
+            for ref in run.parameters.get("finding_refs", ())
+        }
+        values = result.data["items"][0]["values"]
+        links = values["links"]
+        if not 1 <= len(links) <= MAX_SELECTION:
+            raise ValueError
+        linked = []
+        for link in links:
+            first, second = link["endpoints"]
+            linked.extend((first, second))
+        if set(values["member_identities"]) != {
+            source["identity"] for source in linked
+        }:
+            raise ValueError
+        for endpoint in [
+            values["anchor"],
+            *linked,
+            *values["supporting"],
+            *values["contrary"],
+        ]:
+            if not isinstance(endpoint["title"], str) or originals[
+                endpoint["source_id"]
+            ] != (endpoint["kind"], endpoint["evidence_id"]):
+                raise ValueError
+            if finding := endpoint.get("finding"):
+                result_id, item_index = finding["result_id"], finding["item_index"]
+                parent, _ = cache.finding_results[result_id]
+                if (result_id, item_index) not in references or str(
+                    parent.run_id
+                ) != finding["run_id"]:
+                    raise ValueError
+            if endpoint.get("observed_at"):
+                parse_datetime(endpoint["observed_at"])
+    except IndexError, KeyError, TypeError, ValueError:
+        raise AnalysisError("source_unavailable") from None
+    return result, values, sources
 
 
 def _choice(token):

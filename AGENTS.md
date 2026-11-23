@@ -20,8 +20,9 @@ revisions without changing the file.
 Pandect is a public, open-source, self-hostable investigation and intelligence
 platform. Design around the investigator's task and next useful action,
 with clear language, thoughtful defaults, progressive disclosure, and accessibility.
-Preserve source attribution, saved legacy notes, and legacy finding review reasons;
-do not restore freeform note authoring. Use the [roadmap](docs/evidence-analysis-roadmap.md)
+Preserve source attribution, saved legacy notes, and legacy finding review reasons.
+Limit new note authoring to dated notes attached to items marked Important.
+Use the [roadmap](docs/evidence-analysis-roadmap.md)
 for future scope rather than presenting planned features as available.
 
 ## Simplicity and maintainability
@@ -70,10 +71,11 @@ runtime pins, and migration details.
 - Use Django templates and progressive enhancement; reserve rich components for
   complex interactions. Enforce authorization and domain rules in the backend.
 - Maintain reproducible Compose setup and documented configuration, migrations,
-  storage, health checks, upgrades, backup, and recovery. Never reset or migrate
-  runtime data incidentally or from application startup. The pre-release baseline
-  requires a fresh PostgreSQL database and queue; it supplies no legacy migration
-  or compatibility aliases.
+  storage, health checks, upgrades, backup, and recovery. Run schema migrations
+  through the documented setup and release commands before serving requests or
+  consuming queue work. Never reset or migrate runtime data incidentally or in
+  Django startup hooks. The pre-release baseline requires a fresh PostgreSQL
+  database and queue; it supplies no legacy migration or compatibility aliases.
 
 ## Case authorization and evidence integrity
 

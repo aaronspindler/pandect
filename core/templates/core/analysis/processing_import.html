@@ -1,7 +1,9 @@
 <a class="record-row analysis-history-row" href="{% url 'geo:vehicle_import_review' case.pk item.pk %}">
   <div>
     <strong>{{ item.document.title }}</strong>
-    <p>{% if item.phase == 'publish' %}Import vehicle locations{% if item.status == 'running' %} · Saving observations{% endif %}
+    <p>{% if item.status == 'pending' %}Saved CSV ready to prepare
+      {% elif item.status == 'review' %}Review locations before importing
+      {% elif item.phase == 'publish' %}Import vehicle locations{% if item.status == 'running' %} · Saving observations{% endif %}
       {% else %}Prepare vehicle location review{% if item.status == 'running' and item.processed_rows %} · {{ item.processed_rows }} row{{ item.processed_rows|pluralize }} processed{% endif %}{% endif %}</p>
     <p class="muted">{{ item.created_at|date:'j M Y, H:i T' }}</p>
   </div>

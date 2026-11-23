@@ -615,6 +615,9 @@ class IMessageImportBrowserTests(BrowserTestCase):
                 expect(page.locator("#message-import")).to_have_attribute(
                     "data-live-poll", "false"
                 )
+                expect(page.locator("[data-live-message]")).to_have_text(
+                    "Message review ready"
+                )
                 page.set_viewport_size({"width": 390, "height": 844})
                 self.capture(page, engine, "cheap-progress-ready-mobile")
                 ready.focus()

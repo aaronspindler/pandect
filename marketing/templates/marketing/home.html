@@ -1,16 +1,14 @@
 {% extends 'marketing/base.html' %}
-{% block title %}An investigation workspace{% endblock %}
 {% block content %}
 <section class="marketing-hero home-intro wrap" aria-labelledby="home-heading">
   <div>
-    <p class="section-label"><span class="label-mark" aria-hidden="true"></span> Open-source investigation workspace</p>
-    <h1 id="home-heading">Every detail.<br>One <em>clearer picture.</em></h1>
-    <p class="lead">Turn scattered evidence into a case you can explore. Search the material, examine the patterns, and trace every finding to its source.</p>
+    <h1 id="home-heading">Open-source <em>investigation software</em></h1>
+    <p class="lead">Pandect gives investigators a private workspace to organize evidence. Search case material, collaborate with invited viewers and editors, and trace findings to their sources.</p>
     <div class="hero-actions">
       <a class="marketing-button" href="{% url 'marketing:evidence' %}">Explore capabilities <span aria-hidden="true">→</span></a>
       <a class="text-link" href="#analysis">See it in practice <span aria-hidden="true">→</span></a>
     </div>
-    <p class="intro-note">Your infrastructure. Your evidence. Your investigation.</p>
+    <p class="intro-note">Core case work needs no AI credentials.</p>
   </div>
   {% include 'marketing/workspace.html' %}
 </section>
@@ -22,20 +20,32 @@
 </div>
 <section class="marketing-section wrap" id="available" aria-labelledby="workflow-heading">
   <div class="section-heading heading-with-aside">
-    <div><p class="section-label">01 / The workflow · Available now</p><h2 id="workflow-heading">Build the case.<br>Follow the evidence.</h2></div>
-    <p>One workspace for the material, the analysis, and the people working through it. Core case work needs no AI credentials.</p>
+    <div><p class="section-label">01 / The workflow · Available now</p><h2 id="workflow-heading">Organize and review a case</h2></div>
   </div>
   <div class="principles">
-    <article><span class="step-number" aria-hidden="true">01 {% include 'ui/components/icon.html' with name='stack' %}</span><h3>Bring the material together.</h3><p>Keep files, messages, and reported locations alongside the people and vehicles in a private case.</p></article>
-    <article><span class="step-number" aria-hidden="true">02 {% include 'ui/components/icon.html' with name='search' %}</span><h3>Find a thread. Follow it.</h3><p>Search within a case, inspect findings, and follow recorded chronology or possible trips back to their sources.</p></article>
-    <article><span class="step-number" aria-hidden="true">03 {% include 'ui/components/icon.html' with name='users' %}</span><h3>Move the work forward.</h3><p>Invite viewers or editors and follow findings back to their sources.</p></article>
+    <article><span class="step-number" aria-hidden="true">01 {% include 'ui/components/icon.html' with name='stack' %}</span><h3>Collect evidence</h3><p>Keep files, messages, and reported locations alongside the people and vehicles in a private case.</p></article>
+    <article><span class="step-number" aria-hidden="true">02 {% include 'ui/components/icon.html' with name='search' %}</span><h3>Search and trace findings</h3><p>Search within a case and trace findings, recorded chronology, and possible trips to their sources. Search by meaning finds related passages with a private or case-approved hosted model.</p></article>
+    <article><span class="step-number" aria-hidden="true">03 {% include 'ui/components/icon.html' with name='users' %}</span><h3>Collaborate in one case</h3><p>Case owners can invite viewers to inspect evidence and editors to add or update case material.</p></article>
+  </div>
+  <div class="hero-actions">
+    <a class="text-link" href="{% url 'marketing:investigations' %}">Explore investigation workflows <span aria-hidden="true">→</span></a>
   </div>
 </section>
 {% include 'marketing/analysis_examples.html' %}
 <section class="availability-section" id="configured-services" aria-labelledby="limits">
   <div class="marketing-section wrap split-section">
-    <div><p class="section-label">Explore the toolkit</p><h2 id="limits">Start with the evidence.<br>See what’s possible.</h2></div>
-    <div><p>Supported formats and optional services vary by method. Check the catalogue for input limits and setup requirements.</p><div class="hero-actions"><a class="text-link" href="{% url 'marketing:evidence' %}#requirements">Evidence types and requirements <span aria-hidden="true">→</span></a><a class="text-link" href="{% url 'marketing:trust' %}">Processing and privacy <span aria-hidden="true">→</span></a></div></div>
+    <div><h2 id="limits">Analysis requirements and privacy</h2></div>
+    <div><p>Supported formats and optional services vary by method. Check the catalogue for input limits and setup requirements.</p><div class="hero-actions"><a class="text-link" href="{% url 'marketing:evidence' %}#requirements">Analysis setup requirements <span aria-hidden="true">→</span></a><a class="text-link" href="{% url 'marketing:trust' %}#processing">Evidence processing and privacy <span aria-hidden="true">→</span></a></div></div>
+  </div>
+</section>
+<section class="marketing-section wrap split-section" id="self-hosting" aria-labelledby="self-hosting-heading">
+  <div><h2 id="self-hosting-heading">Can I self-host Pandect?</h2></div>
+  <div>
+    <p>You can run Pandect on your own infrastructure under the AGPL-3.0-only license. The project provides setup instructions for local use and an operations guide for hosted deployments.</p>
+    <div class="hero-actions">
+      <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/README.md#get-started">Set up Pandect <span aria-hidden="true">↗</span></a>
+      <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/LICENSE">Read the AGPL-3.0-only license <span aria-hidden="true">↗</span></a>
+    </div>
   </div>
 </section>
 {% endblock %}

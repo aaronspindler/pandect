@@ -36,6 +36,7 @@ COPY video/ video/
 COPY marketing/ marketing/
 COPY ui/ ui/
 COPY scripts/docker-entrypoint-worker.sh scripts/docker-entrypoint-worker.sh
+COPY scripts/docker-entrypoint-events.sh scripts/docker-entrypoint-events.sh
 # Normalize copied source permissions before running the image as pandect.
 RUN chmod -R u=rwX,go=rX /app \
     && groupadd --system pandect && useradd --system --create-home --gid pandect pandect \

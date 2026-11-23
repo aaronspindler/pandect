@@ -13,7 +13,7 @@ from image.analysis import MAX_LAYOUT_LINES, MAX_LAYOUT_WORDS, MIN_OCR_WORD_SCOR
 from image.parsers import _image
 
 
-def _tesseract(arguments, content=None):
+def _tesseract(arguments, content=None, *, timeout=15):
     """Run only the installed local engine, with bounded private output."""
     with tempfile.TemporaryFile() as stream:
         try:
@@ -22,7 +22,7 @@ def _tesseract(arguments, content=None):
                 input=content,
                 stdout=stream,
                 stderr=subprocess.DEVNULL,
-                timeout=15,
+                timeout=timeout,
                 check=False,
                 env={**os.environ, "OMP_THREAD_LIMIT": "1"},
             )
@@ -45,13 +45,12 @@ def _ocr(content):
     prepared = _image(content, prepare=True)
     if prepared["status"] == "unsupported":
         return prepared
-    version = _tesseract(["--version"]).splitlines()[0][:100]
-    raw = _tesseract(
-        ["stdin", "stdout", "-l", "eng", "--psm", "3", "tsv"],
+    version = tesseract_version()
+    regions = read_prepared_text(
         base64.b64decode(prepared["image"]),
-    )
-    regions = text_regions(
-        raw, prepared["prepared_width"], prepared["prepared_height"], layout=True
+        prepared["prepared_width"],
+        prepared["prepared_height"],
+        layout=True,
     )
     return prepared | {
         "engine": version,
@@ -60,6 +59,22 @@ def _ocr(content):
         if not regions or any(r["confidence"] < MIN_OCR_WORD_SCORE for r in regions)
         else "complete",
     }
+
+
+def tesseract_version(*, timeout=15):
+    lines = _tesseract(["--version"], timeout=timeout).splitlines()
+    if not lines:
+        raise ParserFailure("ocr_invalid_output")
+    return lines[0][:100]
+
+
+def read_prepared_text(content, width, height, *, layout=False, timeout=15):
+    raw = _tesseract(
+        ["stdin", "stdout", "-l", "eng", "--psm", "3", "tsv"],
+        content,
+        timeout=timeout,
+    )
+    return text_regions(raw, width, height, layout=layout)
 
 
 def text_regions(raw, width, height, *, layout=False):

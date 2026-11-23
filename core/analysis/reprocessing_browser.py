@@ -108,7 +108,21 @@ class ReprocessingBrowserTests(BrowserTestCase):
                 submit = page.get_by_role(
                     "button", name="Start reprocessing", exact=True
                 )
-                submit.focus()
+                text.uncheck()
+                location.uncheck()
+                submit.press("Enter")
+                error_link = page.get_by_role(
+                    "link", name="Evidence types: Choose at least one evidence type."
+                )
+                expect(error_link).to_be_visible()
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.capture(page, engine, "reprocess-selection-error-mobile")
+                error_link.press("Enter")
+                expect(
+                    page.get_by_role("group", name="Choose evidence types")
+                ).to_be_focused()
+                text.check()
+                location.check()
                 submission_id = page.locator(
                     "input[name='submission_id']"
                 ).input_value()

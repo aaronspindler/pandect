@@ -8,12 +8,12 @@ calls have nothing to decode/transcribe; supplied transcripts remain independent
 
 | Operation | Supported input | Output and important limits |
 | --- | --- | --- |
-| Native text | UTF-8, with optional BOM; unencrypted native-text PDF | Exact derived text with line/page anchors. UTF-8 BOM removal is recorded. No native text on a PDF page means visual review is needed; it does not establish a blank page. Mixed text/scanned pages produce partial coverage. Office formats are unsupported. |
+| Extract document text | UTF-8 with optional BOM, individual `.eml` files, or unencrypted PDF | Line/page anchors. UTF-8 BOM removal is recorded. PDF pages with usable text retain native text. Other pages are rendered and checked with local printed-English OCR. Office formats are unsupported. |
 | Image metadata | JPEG and single-frame PNG | Decoded dimensions, raw EXIF/XMP, orientation, device/software claims, capture-time and GPS candidates. An absent timezone is left absent. Raw values stay available alongside interpretations. Multi-picture JPEGs inspect only the primary image with explicitly partial coverage. |
-| Audio metadata | Uncompressed signed 16-bit little-endian PCM WAV, mono/stereo, 8–48 kHz | Decoded duration, sample rate, channels and codec; numerical RMS and one-second digital-zero/full-scale sample observations. Supplied values remain separate, with discrepancies disclosed. |
-| Local OCR | JPEG/PNG source or separately retained page image, printed English | Searchable OCR lines and word-anchored candidates for text blocks, rows, labelled fields and apparent messages. Complex layouts can have several readings. Handwriting, mixed text, other languages and direct PDF rendering are unsupported. |
+| Audio metadata | [Supported WAV or AAC-in-M4A recording](original-previews.md#recordings) | Decoded duration, sample rate, channels and codec. Includes numerical RMS and one-second digital-zero/full-scale sample observations. Supplied values remain separate, with discrepancies disclosed. |
+| Read text in images | JPEG/PNG source or separately retained page image, printed English | Searchable OCR lines and word-anchored candidates for text blocks, rows, labelled fields and apparent messages. Complex layouts can have several readings. Handwriting, mixed text and other languages are unsupported. Use **Extract document text** for PDFs. |
 | Find vehicle plates | One retained JPEG/PNG image | Local geometric region detection and three Tesseract readings per possible plate. Crops, source rectangles, processing settings and engine scores remain reviewable. This is a bounded heuristic for roughly horizontal rectangular plates with a central Latin text line; other shapes, scripts and layouts can be missed. |
-| Transcription | The supported WAV profile, English input | Candidate text with source recording intervals and original-timeline chunk offsets. No speaker identity or diarization. Non-English input profiles are unsupported. |
+| Transcription | [Supported WAV or AAC-in-M4A recording](original-previews.md#recordings), English input | Candidate text with source recording intervals and original-timeline chunk offsets. No speaker identity or diarization. |
 
 Tesseract/English data runs entirely on the worker, without credentials, network
 requests or remote fallback. Uploads and **Run checks again** queue image metadata,
@@ -53,6 +53,27 @@ Transcript text stays searchable as extracted content and opens at its saved
 source anchors. The findings catalogue surfaces timed segments flagged for
 uncertain speech so an investigator can check the audio.
 
+## Email extraction
+
+Upload one `.eml` file as a Document. **Extract document text** reads selected
+message headers (From, To, Cc, Bcc, Date, Subject and Message-ID) and one body
+locally. The displayed headers are decoded and unfolded. The body prefers plain
+text, falling back to text extracted from HTML. HTML layout, scripts, embedded
+resources, links in attributes and other non-text content are excluded. No URL is
+fetched. The retained result and reader disclose when alternate bodies,
+attachments or other MIME parts were skipped, when conversion was lossy, and when
+decoding problems were detected. Consider them when assessing search coverage.
+
+Search and follow-up analysis cite the retained extraction and the original email
+file. Headers are claims in the email and can be missing or forged. They do not
+create case people, establish sent time, or verify the sender. Downloading the
+original preserves exact bytes, including attachments. Add attachments separately
+for analysis. Mailboxes (`.mbox`, `.pst`) and Outlook `.msg` are unsupported.
+
+The isolated parser bounds originals to 16 MiB, top-level headers to 64 KiB,
+MIME structure to 128 parts and 12 levels, and decoded text to 2 MiB. The usual
+case settings govern any later AI analysis of the retained text.
+
 ## Source anchors and interpretation
 
 ### Visible structure in images
@@ -91,8 +112,8 @@ handwriting or interfaces has not been established.
 
 ### Vehicle plate candidates
 
-Upload/**Run checks again** includes plate search. To run alone, choose **Find
-vehicle plates** under **Additional analysis**, selecting one original per run.
+Upload/**Run checks again** includes plate search. To run it separately, open
+**Case Tools → Analysis methods → Find vehicle plates** and select one original.
 Originals, vehicle records and earlier results remain unchanged.
 
 Version 2 uses headless OpenCV on a metadata-free preview up to 2048 pixels on
@@ -141,10 +162,20 @@ guessing or automatic conflict resolution occurs. MPO searches only the primary.
 
 ### Other extraction anchors
 
-PDF anchors use one-based pages and native content-stream order, which may differ
-from visual/hidden-text order. Compare original pages. Extraction neither renders
-pages nor executes embedded content; scanned pages need separately retained
-JPEG/PNG images for OCR.
+PDF findings open the original at the cited one-based page. Native content-stream
+order may differ from visual order. When a page already has usable native text,
+extraction preserves it and does not search separately for text inside images on
+that page. Pages without native text use a local PDFium rendering and Tesseract
+recognition on the worker. They retain candidate text, engine and renderer
+versions, and the lowest word score when any words were recognized. Check candidate
+text against the original. Low scores, missing text and skipped pages appear as
+partial coverage. No recognized text leaves the page contents unresolved.
+
+Version 2 of **Extract document text** adds this PDF OCR path. Existing results
+remain readable. On an earlier result or a partial extraction, an investigator
+can run the current method again. For an individual page beyond PDF OCR limits,
+an investigator can retain a separate JPEG/PNG page image with its source noted
+and run **Read text in images**.
 
 OCR prepares a JPEG up to 2048 pixels long, excluding EXIF/XMP and compositing
 transparency on white. Normalized rectangles use original **unrotated pixels**;
@@ -186,10 +217,15 @@ byte and closed on success/failure. Linux enforces 1 GiB address space; macOS
 samples group RSS and terminates above 1 GiB, without a hard instantaneous ceiling.
 
 Format limits: 100 PDF pages, 4 MiB/decompressed stream, 16 MiB accumulated streams,
-2 MiB derived text, 50 million image pixels, 256 KiB image metadata and 30 decoded
-WAV minutes. Decompression warnings fail closed. Unsupported encodings, encrypted
+2 MiB derived text, 50 million image pixels, 256 KiB image metadata and 30 minutes
+of decoded audio. Decompression warnings fail closed. Unsupported encodings, encrypted
 PDFs, malformed/truncated files and limits produce visible outcomes/recoverable
 failures, never replaced originals or incomplete publication labelled complete.
+
+PDF OCR renders one page at a time at up to 288 DPI and 3,072 pixels on the
+longest side. It stops scheduling more pages after 12 seconds per document or
+45 seconds elapsed in a multi-document run, and retains any successfully read
+pages. The existing 20-second hard limit still applies to each isolated parser.
 
 Resource isolation is not an OS security sandbox. Confine unprivileged workers,
 private storage and networking. Tesseract receives prepared JPEG stdin, never

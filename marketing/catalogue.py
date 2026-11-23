@@ -39,10 +39,10 @@ EVIDENCE_TYPES = (
             "can be imported."
         ),
         "formats": (
-            "Text extraction supports UTF-8 files and unencrypted native-text PDF, "
+            "Text extraction supports UTF-8 files, .eml email and unencrypted PDF, "
             "up to 16 MiB input, 100 PDF pages and 2 MiB extracted text. "
-            "Printed-English OCR supports JPEG/PNG page images. "
-            "Office extraction and OCR directly from scanned PDFs are unsupported."
+            "Local printed-English OCR supports JPEG/PNG images and PDF pages "
+            "without a text layer. Office extraction is unsupported."
         ),
         "prerequisites": TEXT_PREREQUISITE,
     },
@@ -196,10 +196,11 @@ EVIDENCE_TYPES = (
 ANALYSES = {
     "native_text": {
         "label": "Extract document text",
-        "description": "Read embedded text with page or line references.",
+        "description": "Read document and email text with page or line references.",
         "detail": (
-            "UTF-8 files or unencrypted native-text PDF. Scanned pages need "
-            "separately retained JPEG/PNG page images for OCR."
+            "UTF-8 files, .eml email or unencrypted PDF. Local OCR reads printed "
+            "English on PDF pages without a text layer. Review the original "
+            "where recognition is missing or uncertain."
         ),
     },
     "image_metadata": {

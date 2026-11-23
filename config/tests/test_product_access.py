@@ -62,8 +62,24 @@ class ProductAccessTests(TestCase):
             reverse("account_login"),
             {"login": self.user.email, "password": "synthetic"},
         )
-        self.assertRedirects(response, reverse("cases:case_list"))
+        case_list = reverse("cases:case_list")
+        self.assertRedirects(response, case_list, fetch_redirect_response=False)
+        response = self.client.get(case_list)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["X-Robots-Tag"], "noindex")
         self.assertEqual(self.client.get(reverse("marketing:home")).status_code, 200)
+
+    def test_workspace_routes_send_noindex_to_anonymous_crawlers(self):
+        for path, status in (
+            (reverse("account_login"), 200),
+            (reverse("cases:case_list"), 302),
+            (reverse("invitation_accept", args=("synthetic-token",)), 302),
+            (reverse("admin:index"), 302),
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, status)
+                self.assertEqual(response["X-Robots-Tag"], "noindex")
 
     def test_unverified_session_keeps_invitation_through_confirmation(self):
         self.client.force_login(self.user)
@@ -134,6 +150,7 @@ class ProductAccessTests(TestCase):
                     self.assertIn("no-store", response["Cache-Control"])
                     self.assertIn("private", response["Cache-Control"])
                     self.assertEqual(response["Referrer-Policy"], "same-origin")
+                    self.assertEqual(response["X-Robots-Tag"], "noindex")
 
 
 class PrivateLoggingTests(SimpleTestCase):

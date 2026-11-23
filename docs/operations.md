@@ -15,10 +15,11 @@ docker compose down
 evidence). Never use `down --volumes` on retained data. Legacy runtime files are
 not mounted or migrated.
 
-The application migrates after database readiness; later starts apply only pending
-migrations. `/health/` checks PostgreSQL. On startup failure, inspect logs and
-environment variables, fix the cause, and rerun `make run`. Changing `.env` does
-not rotate passwords in initialized PostgreSQL volumes: rotate in PostgreSQL first.
+The local Compose web command runs pending schema migrations after database
+readiness and before starting the development server. `/health/` checks
+PostgreSQL. On startup failure, inspect logs and environment variables, fix the
+cause, and rerun `make run`. Changing `.env` does not rotate passwords in
+initialized PostgreSQL volumes: rotate in PostgreSQL first.
 
 HTTP readiness does not prove queue execution. Use the [worker diagnostic and
 recovery procedures](background-tasks.md#startup-and-diagnostics) after startup.
@@ -45,26 +46,28 @@ For a populated local development installation:
    `SELECT system_identifier FROM pg_control_system()`. Check the server is
    PostgreSQL 18 using the same data directory, architecture and Debian variant
    as the replacement. Record case/evidence counts and original checksums.
-2. Pull the pinned `db` image. Stop host and Compose web/worker writers. Follow
-   **Capture a matching backup** below, keeping the writers stopped after
-   checking the two archives. Include the host media root if it holds originals.
+2. Pull the pinned `db` image and [capture a matching backup](#capture-a-matching-backup).
+   Keep all writers stopped. Include every private storage root used by this database.
 3. Run `docker compose up -d --no-deps --wait db` with the same project and
    volume. Compare the cluster identifier and mount to the recorded values
    before applying migrations. Verify both extension names appear in
    `pg_available_extensions`.
-4. Build the updated app and run
+4. Select the installation's usual Compose profiles and run `docker compose build`.
+   Then run
    `docker compose run --rm --no-deps web python manage.py migrate --noinput`.
-   Verify the recorded inventory and original checksums. Run `make run` and the
+   Verify the recorded inventory and original checksums. Run
+   `docker compose up --no-build --wait` with those profiles, then run the
    worker diagnostic. Keep the rollback backup. If the data directory needs a
    different major version or the original cluster cannot be verified, use
    **Restore in a separate Compose project** below and retain the original volumes.
 
-For the existing empty Dokploy database, change the managed PostgreSQL
-resource's image to the pinned reference, retain its private service name and
-mount, and redeploy that database directly. This installation can skip backup
-and restore. Check both extensions are available, deploy the worker to apply the
-migrations and wait for its preparation marker, then activate web. Check
-`/health/`, the queue diagnostic and an authenticated search in the target.
+For an existing Dokploy database, stop its writers and back up the managed
+database and private evidence storage together before changing the image. A new
+resource verified to be unused needs no pre-upgrade snapshot. For an in-place
+PostgreSQL 18 update, retain the private service name and the verified mount.
+Check both extensions are available, then follow the
+[worker-first procedure](#first-dokploy-deployment) and verify authenticated
+search on the target.
 
 The message full-text migration builds a stored PostgreSQL search vector from
 existing message metadata and body text and replaces the previous functional
@@ -72,18 +75,44 @@ index. PostgreSQL maintains it on inserts, bulk imports, and metadata edits.
 Allow for a table rewrite, index build and an exclusive lock during migration
 on large message exports. Message originals and their checksums are preserved.
 
+### Switch the meaning search provider
+
+Capture a matching backup and drain writers before migrating an existing index.
+The migration accepts both 384- and 1,536-dimensional vectors, records the
+profile on existing passages and updates the unique offset constraint. Allow
+for the table update and its locks on a large case. Deploy matching migrated
+worker and web versions before selecting `openai-gateway` on both services.
+Follow the [provider setup](local-analysis.md#case-search-embeddings). Check
+the [synthetic hosted qualification](validation.md#hosted-meaning-search)
+before asking a real case owner to approve external indexing.
+
+A model change rebuilds the index from retained sources. Monitor complete
+sources and passages in Processing. To stop external search, revoke the case
+grant or set the installation provider to `disabled`. Keep the widened schema
+when switching providers. Returning to older application code and its
+384-dimensional schema requires the coordinated pre-upgrade backup once hosted
+vectors exist.
+
 ### Backup contents
 
-Keep coordinated database/private-file backups encrypted off-host, with their
-application revision and PostgreSQL major version. The database holds accounts,
-case/evidence metadata, captured text, and private task arguments/results;
-`app_data` holds originals and derived files.
+Keep coordinated database and private-file backups encrypted off-host. Record
+the application revision, PostgreSQL major version, and private storage roots
+with the snapshot. The database holds accounts, case/evidence metadata,
+captured text, and private task arguments and results. With default Compose
+storage, `app_data` holds originals and derived files.
 
 ### Capture a matching backup
 
-Run from the active local Compose checkout after stopping additional writers
-(including host web/worker processes). Each attempt uses a new owner-only directory.
-Use a backup only after both archive checks pass and `COMPLETE` exists.
+Use these commands when all private evidence for the database is under the
+Compose `app_data` volume. If the database also uses host media, other mounts,
+or external storage, coordinate an archive of every such root during the same
+write outage and verify it before marking the snapshot complete. Stop any
+additional writers, including host web/worker processes and parallel workers,
+before capturing the database and files.
+
+Run from the active local Compose checkout. The stop commands prevent new web
+writes and let both worker queues finish their active task before exiting.
+Each attempt uses a new owner-only directory.
 
 ```sh
 (
@@ -92,7 +121,8 @@ Use a backup only after both archive checks pass and `COMPLETE` exists.
   snapshot=$(mktemp -d "$HOME/pandect-backup.XXXXXXXX")
   printf 'Snapshot directory: %s\n' "$snapshot"
 
-  docker compose stop web worker
+  docker compose stop proxy events web
+  docker compose --profile instagram-pilot stop --timeout -1 worker instagram-worker
   docker compose exec -T db sh -c \
     'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$snapshot/database.dump"
   docker compose run --rm --no-deps -T web tar -C /app/data -cf - . \
@@ -101,19 +131,23 @@ Use a backup only after both archive checks pass and `COMPLETE` exists.
   docker compose exec -T db pg_restore --list < "$snapshot/database.dump" > /dev/null
   tar -tf "$snapshot/app-data.tar" > /dev/null
   touch "$snapshot/COMPLETE"
-  docker compose up --wait web worker
 )
 ```
 
-A capture/check failure leaves writers stopped and the snapshot incomplete.
-Inspect it, then retry with a new snapshot or restart with
-`docker compose up --wait web worker`. Copy completed snapshots off-host.
-Archive checks verify structure; test restoration to qualify recovery.
+Use the snapshot after both archive checks pass and `COMPLETE` exists. A capture
+or check failure leaves the snapshot incomplete. Inspect the failure and retry
+in a fresh directory. For a backup during normal operation, restart with
+`docker compose up --wait` using the installation's usual profiles after
+inspection. During an upgrade, keep the writers stopped until the upgrade
+procedure says to restart them. Copy complete snapshots off-host and test
+restoration to qualify recovery.
 
 ### Restore in a separate Compose project
 
 Use a trusted completed snapshot and matching application revision/PostgreSQL
-major version. Follow [local setup](development.md) for a separate owner-only
+major version. The example restores the default Compose volume layout. Restore
+every other recorded private storage root and preserve its storage keys before
+starting web. Follow [local setup](development.md) for a separate owner-only
 recovery environment with fresh secrets, closed signups, and external services
 unset. Clear production Django/PostgreSQL/Pandect/Compose shell overrides and use
 a new project name for fresh database/file volumes.
@@ -143,8 +177,8 @@ a new project name for fresh database/file volumes.
     < "$snapshot/app-data.tar"
   recovery run --rm --no-deps -T web python manage.py migrate --check
 
-  recovery up --wait db web
-  recovery port web 8000
+  recovery up -d --wait proxy
+  recovery port proxy 8000
 )
 ```
 
@@ -168,29 +202,37 @@ credentials or remote fallback; supported profiles and version recovery are in
 
 ## Upgrades and hosted deployment
 
-Back up before upgrades and stop old web writers/workers before migration.
+Before upgrading local Compose, [capture a matching backup](#capture-a-matching-backup)
+and leave every writer stopped until migration and verification finish.
 Findings catalogue migrations backfill retained JSON/input snapshots in bounded,
 resumable per-result transactions. They do not read originals, rerun analysis,
 contact providers, rewrite result/review JSON, or rebuild at startup. Duration
 grows with retained findings. These additive migrations require the current
 [baseline](architecture.md); they cannot upgrade rewritten pre-release baselines.
-The timing-only finding migration reclassifies only searchable projection flags;
-canonical results, sources and reviews are unchanged. Activate matching updated
-web/worker code after migration: old writers can otherwise publish stale flags,
-and old readers label timing flags as weak plate regions. Before returning to old
-code, stop writers and reverse `core.0006_timing_only_findings` to
-`core.0005_saved_selection` using the updated checkout; its reverse restores the
-plate-only flags. Do not unapply earlier migrations or remove retained results.
-The PDF renderer is pinned in the application lockfile.
+The timing-only finding migration reclassifies searchable projection flags.
+Activate matching web and worker code after migration so both interpret those
+flags consistently.
 
-After reviewing dependency/runtime compatibility:
+Before rolling back, identify the exact running and target application revisions,
+their migration graphs, and their compatibility with the current schema. If the
+target needs a schema reversal, inspect Django's full `migrate --plan` for that
+target with writers stopped. Include dependent apps and check for lost data or
+irreversible operations. The former `core.0005_saved_selection` target crosses
+later migrations and can remove retained records. For an incompatible or unsafe
+reversal, qualify recovery from a matching backup in a separate environment
+before cutover. Retain the current database and files for recovery.
+
+After reviewing dependency and runtime compatibility, select the installation's
+usual Compose profiles and run:
 
 ```sh
-docker compose stop web worker
-docker compose build web
-docker compose run --rm web python manage.py migrate --noinput
-docker compose up --wait
+docker compose build
+docker compose run --rm --no-deps web python manage.py migrate --noinput
 ```
+
+Verify the migrated inventory and original checksums, then run
+`docker compose up --no-build --wait` with the usual profiles and check worker
+execution.
 
 Gunicorn serves the application; WhiteNoise serves build-collected public assets.
 Rebuild after template/static changes and deploy matching templates/hashed-asset
@@ -209,7 +251,7 @@ old database/media retained; do not fake migration history.
 ## First Dokploy deployment
 
 After CI checks pass, CD publishes one multi-platform GHCR image and resolves its
-immutable digest. Dokploy runs native **web** and **worker** Applications plus
+immutable digest. Dokploy runs native **worker**, **events**, and **web** Applications plus
 managed **PostgreSQL**, without Compose.
 
 1. In the production project, create a managed PostgreSQL resource using the
@@ -221,36 +263,48 @@ managed **PostgreSQL**, without Compose.
    it. Check the mount explicitly when using a custom image. For an existing
    resource whose volume is mounted directly at `/var/lib/postgresql/18/docker`,
    preserve that exact volume and mount during the upgrade.
-2. Create native Docker Applications named `web` and `worker` on the same intended
-   deployment server. Configure one replica each. Use the same
-   `ghcr.io/<owner>/<repository>@sha256:<digest>` image for both, never `latest`.
+2. Create native Docker Applications named `web`, `worker`, and `events` on the
+   intended deployment server. Configure one replica each. Use the same
+   `ghcr.io/<owner>/<repository>@sha256:<digest>` image for all three.
    Leave web's Command and Arguments overrides empty so it uses the image's
    default Gunicorn command. Set worker's Command to `sh` and Arguments to the
-   single entry `/app/scripts/docker-entrypoint-worker.sh`.
+   single entry `/app/scripts/docker-entrypoint-worker.sh`. Set the events Command to
+   `sh` with the single Argument `/app/scripts/docker-entrypoint-events.sh`.
    Configure the web Application's native HTTP health check against
    `http://127.0.0.1:8000/health/`; keep worker rollout stop-first and web start-first.
-3. Copy [`.env.dokploy.example`](../.env.dokploy.example) into both application
+   Configure the events health check against `http://127.0.0.1:8000/events/health/`.
+3. Copy [`.env.dokploy.example`](../.env.dokploy.example) into the web and worker
    environments, replacing blank secrets and the database hostname. Debug defaults
    off; this example closes signups and uses
    `PANDECT_PUBLIC_ORIGIN=https://openpandect.com`. The public origin supplies the
    default allowed host, CSRF origin and email sender; optional explicit overrides
-   support other deployment requirements. Keep both applications on the same
-   secret key and database credentials.
-4. Mount the same private persistent named volume at `/app/data` in both
-   applications. Keep them on the same server and storage-owning Swarm node;
+   support other deployment requirements. Give events the matching Django secret
+   key, database connection, public origin, host settings, and trusted HTTPS
+   proxy settings. The event process only requires database and session access.
+4. Mount the same private persistent named volume at `/app/data` in web and
+   worker. Keep them on the same server and storage-owning Swarm node;
    local named volumes are not shared between nodes. The application UID must
    own the mount. No public route may serve that directory.
 5. Configure `openpandect.com`, path `/`, container port `8000` on the web
    Application through Dokploy's native Domains settings. Follow the existing
    Cloudflare ingress setup: internal HTTP, HTTPS at the public edge. Configure
    the public HTTP-to-HTTPS redirect at that edge. Do not edit Traefik directly.
-   Do not create domains or published ports for the worker or database.
+   Add a second Domain on the same hostname with path `/events/` pointing to
+   events on port 8000. Preserve the path prefix. Configure ingress to stream
+   `text/event-stream` without caching or buffering. Worker and database stay private.
 6. Deploy the singleton worker first. Its startup applies migrations, queues
-   missing indexes when private meaning search is configured, emits
+   missing indexes for cases eligible for the configured meaning search provider, emits
    `PANDECT_WORKER_PREPARED <APP_COMMIT_SHA>`, and starts `db_worker`. Migration
    failure stops startup before the marker or worker. Confirm the new worker's
-   running task, image digest, and release marker before deploying web. Web
+   running task, image digest, and release marker. Deploy events and verify
+   the listener is ready on the public `/events/health/` route, then deploy web. Web
    starts Gunicorn directly and serves build-collected WhiteNoise assets.
+
+An events process maintains one PostgreSQL LISTEN connection and admits up to
+64 simultaneous case streams. Excess connections and interrupted streams fall
+back to the activity endpoint. If investigators see delayed updates, check
+`/events/health/`, then confirm the proxy flushes event responses and forwards
+the session cookie on the same origin. Event delivery uses normal case access.
 
 Disable native push autodeployment; GitHub CD owns activation after CI. Application
 releases never recreate the independently provisioned database. The singleton,
@@ -355,6 +409,7 @@ See [GitHub's deployment branch and environment settings](https://docs.github.co
 | `DOKPLOY_URL` | HTTPS Dokploy origin, without `/api`. |
 | `DOKPLOY_API_KEY` | Operator API key permitted to update/deploy these applications and read deployment/task status. |
 | `DOKPLOY_WEB_APPLICATION_ID` | Existing native web Application ID. |
+| `DOKPLOY_EVENTS_APPLICATION_ID` | Native events Application ID with the same-origin `/events/` domain rule. |
 | `DOKPLOY_WORKER_APPLICATION_ID` | Existing native worker Application ID. |
 | `DOKPLOY_REGISTRY_PASSWORD` | Registry credential with read access to the private GHCR package. |
 
@@ -379,7 +434,7 @@ attempted deployment. A newer descendant attempt may reuse a version that never
 reached successful GitHub release publication. For the
 [domain-app baseline](architecture.md#primary-keys-and-the-initial-schema),
 retain the old database/evidence volume, prepare a fresh PostgreSQL database and
-empty queue, and point both Applications to it. Then set **production** environment
+empty queue, and point all three Applications to it. Then set **production** environment
 variable `PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1`; the helper refuses
 mutations without it. Once ready, rerun **CD** for the intended successful CI run.
 
@@ -395,27 +450,26 @@ Before mutating Dokploy, the helper creates an explicit GitHub deployment record
 for task `pandect-rollout` in `production`, bound to the tested commit and image
 digest, CI run identity, and candidate version, and records `in_progress`. It
 repeats the ancestry guard before activation; failed or interrupted rollouts
-remain uncertain. Only verification of both worker and web records `success`.
+remain uncertain. The helper records `success` after worker, events, and web pass verification.
 CI uses the newest such record as its baseline; it never infers the attempted
 image from the deployment workflow's own revision or falls back to an older
 successful rollout. Missing tracking or a status-write failure selects full CI
 until a later rollout is verified. GitHub release publication remains separate.
 
 The attempt tag must resolve to the same digest recorded by the combined-image
-job. CD supplies it as `PANDECT_IMAGE`; both Applications receive
+job. CD supplies it as `PANDECT_IMAGE`; all three Applications receive
 `repository@sha256:...`. CD uses only the trusted workflow helper, never downloaded
 CI artifacts.
 
-CD updates each native Application's Docker provider, sets worker's Command to
-`sh` with `/app/scripts/docker-entrypoint-worker.sh` as its sole Argument, and
-clears web's Command and Arguments overrides to use the image default. It then
-triggers deployment, preserving runtime environment and mounts. Both Applications
-remain singleton; the worker uses stop-first updates and web uses start-first
-updates. The worker deploys first, applies migrations, and must report the exact
-prepared marker while one running Swarm task uses the expected
-image for a 60-second stability window. Then web deploys and must report the
-expected commit over `https://openpandect.com/health/`, with a stable running task
-on its exact image. An accepted deploy request alone does not count as success.
+CD updates each Application's Docker provider while preserving its environment
+and mounts. The singleton worker uses stop-first updates and the worker entry
+point. After migration, its new Swarm task must emit the expected preparation
+marker and stay on the release image for 60 seconds. Events then starts with
+`sh /app/scripts/docker-entrypoint-events.sh`. Its public `/events/health/` must
+return the expected commit and report a subscribed database listener. Finally
+web starts with the image's default command and reports the expected commit at
+`https://openpandect.com/health/`. Events and web use start-first updates and
+each must pass the same 60-second image stability check.
 Queue execution still requires the bounded `check_task_worker` diagnostic above;
 CD's worker checks establish startup and task identity.
 
@@ -424,7 +478,7 @@ environments, database, and shared volume. Check pull access to the shared GHCR
 package first. Successful CI/CD switches both images and startup commands without
 a database reset or extra migration. Retain old digests/commands for reviewed recovery.
 
-Only after both services pass verification does the deployment helper emit its
+Only after all three services pass verification does the deployment helper emit its
 `deployed=true` output. A dependent job repeats read-only release preparation and
 checks the candidate still matches its expected version. If that source is
 already published, it leaves the versioned image and release unchanged.

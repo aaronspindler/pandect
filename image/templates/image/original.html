@@ -1,8 +1,6 @@
-{% load static %}
 <div class="file-original"><p class="file-original-meta muted">{{ item.original_filename }} · {{ item.byte_size|filesizeformat }}</p>
   <figure class="evidence-image-preview" data-image-preview>
-    <img src="{% url 'core:evidence:preview' case_id=case.pk kind=kind evidence_id=item.pk %}" alt="Image preview of {{ item.title }}" decoding="async" aria-describedby="image-preview-caption">
+    <img src="{% url 'core:evidence:preview' case_id=case.pk kind=kind evidence_id=item.pk %}" data-record-label="Image preview of " alt="Image preview of {{ item.title }}" decoding="async" aria-describedby="image-preview-caption">
     <figcaption id="image-preview-caption" role="status">Preview</figcaption>
   </figure>
 </div>
-<script src="{% static 'image/preview.js' %}" defer></script>

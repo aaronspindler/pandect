@@ -1,0 +1,30 @@
+{% extends 'marketing/investigation_detail.html' %}
+{% block breadcrumb_title %}Vehicle and location investigations{% endblock %}
+{% block investigation_heading %}Vehicle and location <em>investigations</em>{% endblock %}
+{% block investigation_answer %}Pandect helps investigators review reported locations and the observations behind possible vehicle trips. Add observations manually or import a supported Asset Location CSV, then inspect each trip’s reported endpoints, times, and source records.{% endblock %}
+{% block evidence_filter %}?type=locations{% endblock %}
+{% block evidence_link_label %}See location formats{% endblock %}
+{% block source_guide %}
+  <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/vehicle-location-imports.md#import-workflow">Read the vehicle location import guide <span aria-hidden="true">↗</span></a>
+{% endblock %}
+{% block example_title %}A gap between observations{% endblock %}
+{% block example_sources %}
+  <li><strong>08:12 · Freight entrance</strong><span>Reported location · Asset Location CSV, row 8</span></li>
+  <li><strong>08:36 · Service lot</strong><span>Reported location · Asset Location CSV, row 9</span></li>
+{% endblock %}
+{% block example_interpretation %}The two reported observations are 24 minutes apart. The records leave the vehicle’s road route, driver, and continuous presence between samples unknown.{% endblock %}
+{% block workflow_heading %}How to review reported vehicle movement{% endblock %}
+{% block workflow_steps %}
+  <article>
+    <h3>Check the source and export clock</h3>
+    <p>Confirm the vehicle, export timezone, and observation timestamp when importing. Open the retained CSV and any imported row to inspect the original values.</p>
+  </article>
+  <article>
+    <h3>Inspect the observations behind a trip</h3>
+    <p>Review the first and last reported places and times. Check the individual records and sampling gaps before interpreting movement between reported positions.</p>
+  </article>
+  <article>
+    <h3>Use map context when available</h3>
+    <p>Trip maps show reported coordinates. Background tiles are optional. To plot an address-only observation, configure a <a href="https://github.com/aaronspindler/pandect/blob/main/docs/maps.md#local-address-lookup">private address lookup</a> and select an estimate. Review the <a href="{% url 'marketing:trust' %}#processing">processing and privacy options</a> before using external services.</p>
+  </article>
+{% endblock %}

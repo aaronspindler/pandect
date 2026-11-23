@@ -1,0 +1,16 @@
+{% if not important_menu %}
+  {% if important_marked %}<span class="badge">Important</span>{% endif %}
+  {% if important_notes_url %}<a{% if important_live_collection %} data-collection-context="return_collection"{% endif %} class="button button-secondary" href="{{ important_notes_url }}">Notes</a>{% endif %}
+  {% if can_edit and important_marked and important_notes_url %}<a data-quick-form data-saved-link="View notes"{% if important_live_collection %} data-collection-context="return_collection"{% endif %} class="button button-secondary" href="{{ important_notes_url }}#write-note">Add note</a>{% endif %}
+{% endif %}
+{% if can_edit and important_action_url and not important_status_only %}
+  <form{% if important_live_collection %} data-collection-context="return_collection"{% endif %} action="{{ important_action_url }}" method="post">
+    {% csrf_token %}
+    <input type="hidden" name="reader_return" value="{{ important_reader_return }}">
+    {% if important_marked %}
+      <button class="button button-secondary" type="submit" name="action" value="unmark">Remove from Important</button>
+    {% else %}
+      <button class="button button-secondary" type="submit" name="action" value="mark">Mark important</button>
+    {% endif %}
+  </form>
+{% endif %}

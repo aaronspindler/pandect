@@ -2,7 +2,7 @@
 
 Self-hosted and operator-hosted Pandect share one Django configuration and user
 model, with deployment differences supplied by environment variables. The UI uses
-Django templates, local CSS, and focused vanilla JavaScript. See the
+Django templates, local CSS, locally served htmx, and focused JavaScript. See the
 [documentation index](README.md) for domain workflows.
 
 ## Runtime decisions
@@ -37,11 +37,11 @@ English OCR data. Its build context excludes local secrets/data and explicitly
 includes app-local templates/assets. Build-time `collectstatic` supplies public
 assets to WhiteNoise; private evidence stays outside the static root.
 
-Web and worker share one image. Production web defaults to
+Web, worker, and the case event stream share one image. Production web defaults to
 `gunicorn config.wsgi:application`; the worker uses
 `sh /app/scripts/docker-entrypoint-worker.sh`. In Dokploy, the singleton worker
-migrates and emits its release preparation marker before processing tasks; web
-activation follows. `APP_VERSION` carries the published `vN.N` identifier in the
+migrates and emits its release preparation marker before processing tasks. Events
+then starts its ASGI Gunicorn process. Web activation follows events readiness. `APP_VERSION` carries the published `vN.N` identifier in the
 image, OCI version label, and healthy `/health/` response's `version` field;
 local builds default to `dev`. `APP_COMMIT_SHA` retains the exact source revision
 in the image, OCI revision label, and health response's `commit` field. See
@@ -49,7 +49,9 @@ in the image, OCI revision label, and health response's `commit` field. See
 Compose overrides startup commands for development. PostgreSQL 18's named volume
 mounts at `/var/lib/postgresql`. Compose and CI pin the same multi-architecture
 pgvector image. Case search uses PostgreSQL full-text search, trigrams and
-384-dimensional passage embeddings in the existing case database.
+case-scoped exact vector search in the existing database. Passage vectors
+carry their embedding profile. PostgreSQL accepts the supported widths of 384
+and 1,536, and queries compare compatible vectors from complete sources.
 
 Django's Tasks API uses the beta `django-tasks-db` dependency and PostgreSQL
 without a separate broker. Ordinary workers use the `default` queue. The optional
@@ -145,18 +147,23 @@ owns vehicle-location calculations.
 
 ## Interface delivery and migrations
 
-The shared shell follows [DESIGN.md](../DESIGN.md). At wide desktop sizes,
-evidence uses case navigation, a dense record list, and a reading pane. Smaller
-screens use the same canonical list/detail URLs and full-page form workflows.
-JavaScript enhances batching and checks the case activity endpoint for active
-counts and committed collection revisions. PostgreSQL maintains those revisions
-inside domain write transactions, including bulk writes. A new evidence or
-processing model registers the collections it affects in its migration. The case navigation
-and page content share a polling schedule. Authorized page URLs return Django
-template fragments for safe requests with `X-Pandect-Live: 1` for progress or
-`X-Pandect-Live: collection` for collection results. Responses vary on that
-header. No additional service or frontend dependency is required. Core
-record management and manual refresh work without JavaScript.
+The case shell follows [DESIGN.md](../DESIGN.md). Django owns the canonical
+page, permissions, forms, and fragments. Locally served htmx enhances same-case
+navigation and paging. Private HTML is fetched again on history navigation.
+Case switches and transitions across map tile security policies use document
+navigation. Ordinary links and form submissions work without JavaScript.
+
+PostgreSQL maintains case activity revisions inside domain write transactions,
+including bulk writes. Each new evidence or processing model registers the
+collections it affects in a migration. A transactional notification wakes a
+shared PostgreSQL listener in each events process. The same-origin
+`/events/cases/<uuid>/` endpoint sends an invalidation signal to visible,
+authorized case tabs. The browser reconciles current counts and revisions on
+connection and after changes. Existing authorized HTML fragments use
+`X-Pandect-Live: 1` for progress and `X-Pandect-Live: collection` for
+collection results. Lists offer an in-place refresh while processing status
+updates automatically. The polling and manual refresh paths recover from a
+stream outage.
 
 Product entry points require an active account with a verified allauth email.
 Case authorization is separate from Django staff/model permissions. Current roles

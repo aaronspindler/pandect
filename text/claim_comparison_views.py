@@ -11,6 +11,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -18,6 +19,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.form_base import selection
+from core.analysis.navigation import current_comparison_origin, evidence_return_url
 from core.analysis.services import snapshot_and_resolve_sources, start_run
 from core.evidence.types import KIND_LABELS
 from phone.analysis.presentation import addition_label
@@ -124,32 +126,64 @@ def _salt(case, user):
     return f"text.claim-comparison.{case.pk}.{user.pk}"
 
 
-def _render(request, case, **context):
+def _render(request, case, *, draft_data, **context):
     return render(
         request,
         "text/claim_comparison.html",
-        case_context(case, request.user) | {"nav_section": "analysis"} | context,
+        case_context(case, request.user)
+        | {
+            "nav_section": "analysis",
+            "tokens": draft_data["tokens"],
+            "submission_id": draft_data["submission_id"],
+            "picker_state": draft_data.get("picker_state", {}),
+            "picker_url": reverse(
+                "core:analysis:create",
+                args=[case.pk],
+                query=draft_data.get("chooser_query", {}) | {"operation": OPERATION},
+            ),
+            "cancel_url": evidence_return_url(
+                case.pk, draft_data.get("result_query", {})
+            )
+            or reverse("core:analysis:index", args=[case.pk]),
+        }
+        | context,
         status=400 if context.get("error") else 200,
     )
 
 
-def prepare(request, case, tokens, *, submission_id):
+def prepare(
+    request,
+    case,
+    tokens,
+    *,
+    submission_id,
+    chooser_query=None,
+    result_query=None,
+    picker_state=None,
+):
     """Open the quotation step from the editor-authorized evidence picker."""
-    digest, rows, claim_sources = _resolve(case, [selection(value) for value in tokens])
+    try:
+        digest, rows, claim_sources = _resolve(
+            case, [selection(value) for value in tokens]
+        )
+    except Http404:
+        raise AnalysisError("source_unavailable") from None
     draft = {
         "digest": digest,
         "tokens": tokens,
         "submission_id": str(submission_id),
+        "chooser_query": chooser_query or {},
+        "result_query": result_query or {},
+        "picker_state": picker_state or {},
     }
     return _render(
         request,
         case,
+        draft_data=draft,
         form=ClaimForm(claim_sources=claim_sources),
         draft=signing.dumps(draft, salt=_salt(case, request.user)),
-        tokens=draft["tokens"],
         rows=rows.values(),
         claim_sources=claim_sources.values(),
-        submission_id=draft["submission_id"],
     )
 
 
@@ -163,8 +197,14 @@ def confirm(request, case_id):
         draft = signing.loads(token, salt=_salt(case, request.user))
     except signing.BadSignature:
         raise Http404("Comparison selection unavailable.") from None
+    chooser_query = draft.get("chooser_query", {})
+    current_chooser, result_query = current_comparison_origin(
+        case, chooser_query, draft.get("result_query", {})
+    )
+    if current_chooser != chooser_query:
+        draft["picker_state"] = {"q": draft.get("picker_state", {}).get("q", "")}
+    draft.update(chooser_query=current_chooser, result_query=result_query)
     selections = [selection(value) for value in draft["tokens"]]
-    context = {"tokens": draft["tokens"], "submission_id": draft["submission_id"]}
     try:
         digest, rows, claim_sources = _resolve(case, selections)
         if digest != draft["digest"]:
@@ -177,7 +217,7 @@ def confirm(request, case_id):
                 error.code if isinstance(error, AnalysisError) else "source_unavailable"
             )
         )
-        return _render(request, case, error=message, **context)
+        return _render(request, case, draft_data=draft, error=message)
 
     form = ClaimForm(request.POST, claim_sources=claim_sources)
     if form.is_valid():
@@ -205,13 +245,19 @@ def confirm(request, case_id):
                 if created
                 else "This comparison was already queued.",
             )
-            return redirect("core:analysis:detail", case.pk, run.pk)
+            return redirect(
+                reverse(
+                    "core:analysis:detail",
+                    args=[case.pk, run.pk],
+                    query=draft.get("result_query"),
+                )
+            )
     return _render(
         request,
         case,
+        draft_data=draft,
         form=form,
         draft=token,
         rows=rows.values(),
         claim_sources=claim_sources.values(),
-        **context,
     )

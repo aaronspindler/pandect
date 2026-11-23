@@ -55,6 +55,21 @@ def date_only_messages(case):
     return _date_only_contexts(case).order_by().values("message_id")
 
 
+def date_only_message_dates(case, message_ids):
+    dates = {}
+    for message_id, raw in (
+        _date_only_contexts(case)
+        .filter(message_id__in=message_ids)
+        .order_by()
+        .values_list("message_id", "raw_timestamp")
+    ):
+        try:
+            dates[message_id] = date.fromisoformat(raw)
+        except ValueError:
+            dates[message_id] = None
+    return dates
+
+
 def attach_unplaced_dates(case, rows):
     messages = {row["id"]: row for row in rows if row["kind"] == "text-message"}
     for context in (

@@ -28,6 +28,16 @@ Vehicle/date/evidence-state filters affect trips only. Independent URL-backed
 `poi_page` lists at most 100 POIs per page; only that page is plotted alongside
 the selected complete trip. Person details list 25 POIs per page and preselect
 the person when adding.
+POI details opened from a map marker or list return to the same map search and
+pages. **Back to trip** reopens the selected trip with its map filters, source
+page, and findings page. If that trip becomes unavailable, the link returns to
+the filtered case map. From a Person record, **Back to person** returns to that
+person's Points of interest section with its page and People list filters.
+These origins carry through add, edit, and delete, including **Add POI here**
+on the map. Cancelling or saving an edit returns to the point. Deleting a
+point returns to the view it came from. If an edit changes the associated
+person, the return link still leads to the Person record that opened the task.
+Latitude and longitude sit together when space allows and stack on phones.
 
 Owners/editors add/edit/delete; viewers inspect. Requests check current access
 and restrict person selection server-side. Stale edits preserve drafts for review.
@@ -58,11 +68,13 @@ page with evidence/CSV-row links. Pagination never limits processing history.
 See [trip rules](analysis-locations.md#automatic-vehicle-trips).
 
 New manual observations, completed imports, archive/restore, and confirmed source
-deletion invalidate affected vehicles' trips and queue rebuilding. Map, report,
-and vehicle details share the current completed generation; pending, failed, and
-superseded output is not current. Cases lacking trips offer owner/editor-only
-**Prepare trips**; JavaScript submits this idempotent POST automatically. Viewers
-cannot start work and GET never enqueues. Processing shows progress/recovery.
+deletion invalidate affected vehicles' trips. A verified owner or editor's write
+queues rebuilding. If a superuser with viewer-only case access deletes a source,
+an owner or editor must [prepare replacement trips](background-tasks.md#saved-vehicle-trips).
+Map, report, and vehicle details share the current completed generation.
+Cases lacking trips offer **Prepare trips** to owners and editors. JavaScript
+submits this idempotent POST automatically for eligible users. GET never
+enqueues work. Processing shows progress and recovery.
 
 Lines connect reported positions or selected address estimates in
 time order, interrupted by missing or ambiguous positions. Arrows follow

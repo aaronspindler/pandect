@@ -4,7 +4,6 @@
 <p class="breadcrumb"><a href="{% url 'cases:case_settings' case.pk %}">Back to case settings</a></p>
 <div class="page-header">
 <div>
-<p class="eyebrow">{{ case.name }}</p>
 <h1>
 {% if creating %}Invite collaborator{% else %}Change invitation access{% endif %}
 </h1>
@@ -14,7 +13,6 @@
 </div>
 <form method="post" class="form-panel" data-unsaved-form>
 {% csrf_token %}{% include "ui/components/form_fields.html" %}
-<p class="muted">Viewers inspect and download. Editors also add or edit records and archive or restore evidence. You remain the owner.</p>
 <p class="muted">
 {% if creating %}The invitation expires after {{ invitation_days }} day{{ invitation_days|pluralize }}.{% else %}Saving sends a new invitation link and invalidates the previous link.{% endif %}
 </p>

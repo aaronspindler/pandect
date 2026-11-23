@@ -9,14 +9,14 @@ from django.views.decorators.http import require_safe
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError
-from core.analysis.navigation import finding_url
+from core.analysis.navigation import finding_url, result_navigation
 from core.analysis.services import resolve_inputs
 from core.evidence.types import COMMUNICATION_KINDS
 from core.models import AnalysisResult
 from geo.trip_processing import saved_trips
 
 
-def comparison_sources(item, run, sources):
+def comparison_sources(item, run, sources, *, history=None):
     """Link each cited passage, observation and group."""
     links = []
     args = (run.case_id, run.pk, item["index"])
@@ -27,7 +27,7 @@ def comparison_sources(item, run, sources):
                 (
                     f"Read passage from {source.item.title} · "
                     f"characters {anchor['start']}–{anchor['end']}",
-                    reverse("geo:plan_passage", args=(*args, ordinal)),
+                    reverse("geo:plan_passage", args=(*args, ordinal), query=history),
                 )
             )
         else:
@@ -54,7 +54,11 @@ def comparison_sources(item, run, sources):
         links.append(
             (
                 f"Inspect {group['label']}",
-                reverse("geo:plan_group", args=(run.case_id, run.pk, index)),
+                reverse(
+                    "geo:plan_group",
+                    args=(run.case_id, run.pk, index),
+                    query=(history or {}) | {"finding": item["index"] + 1},
+                ),
             )
         )
     return links
@@ -99,12 +103,13 @@ def passage(request, case_id, run_id, item_index, ordinal):
     parts = source.anchor(start=start, end=end).get("extraction_ranges", [])
     for part in parts:
         part["url"] = finding_url(case.pk, source.derived_run_id, part["finding_index"])
+    history = result_navigation(request.GET, case.pk)
     return render(
         request,
         "geo/analysis/plan_passage.html",
         case_context(case, request.user)
         | {
-            "nav_section": "analysis",
+            "nav_section": "evidence" if "return_evidence" in history else "analysis",
             "source": source,
             "parts": parts,
             "start": start,
@@ -113,7 +118,7 @@ def passage(request, case_id, run_id, item_index, ordinal):
             "quote": body[start:end],
             "after": body[end : end + 200],
             "run": result.run,
-            "back_url": finding_url(case.pk, run_id, item_index),
+            "back_url": finding_url(case.pk, run_id, item_index, history=history),
             "exchange_url": reverse(
                 "core:analysis:browse",
                 args=(case.pk,),
@@ -152,15 +157,26 @@ def group(request, case_id, run_id, index):
             )
     else:
         current_url = finding_url(case.pk, selected["run_id"], selected["item_index"])
+    history = result_navigation(request.GET, case.pk)
+    back_url = reverse("core:analysis:detail", args=(case.pk, run_id), query=history)
+    finding = request.GET.get("finding", "")
+    items = result.data.get("items", [])
+    if finding.isascii() and finding.isdecimal() and len(finding) <= 9:
+        item_index = int(finding) - 1
+        if 0 <= item_index < len(items) and index in items[item_index].get(
+            "group_indices", ()
+        ):
+            back_url = finding_url(case.pk, run_id, item_index, history=history)
     return render(
         request,
         "geo/analysis/plan_group.html",
         case_context(case, request.user)
         | {
-            "nav_section": "analysis",
+            "nav_section": "evidence" if "return_evidence" in history else "analysis",
             "group": selected,
             "run": result.run,
             "page": Paginator(members, 25).get_page(request.GET.get("page")),
             "group_url": current_url,
+            "back_url": back_url,
         },
     )

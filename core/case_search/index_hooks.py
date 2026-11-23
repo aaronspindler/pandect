@@ -3,9 +3,10 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from django.conf import settings
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
+from core.case_search.semantic_model import profile
 
 # Imports save messages individually for their evidence integrity checks. Buffer
 # only IDs from that transaction and write at most one work record per source.
@@ -30,7 +31,7 @@ def collect_import_messages(case_id):
 @receiver(post_save, sender="phone.TextMessageEvidence")
 @receiver(post_save, sender="phone.CallEvidenceAttachment")
 def new_original(sender, instance, created, raw=False, **kwargs):
-    if raw or not created or not settings.PANDECT_LOCAL_EMBEDDING.get("url"):
+    if raw or not created or not profile():
         return
     from .indexing import SEED_BATCH, add_sources
 

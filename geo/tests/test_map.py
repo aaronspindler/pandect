@@ -16,6 +16,7 @@ from core.analysis.operations import get_operation
 from core.analysis.services import snapshot_sources
 from core.models import AnalysisResult, AnalysisRun
 from geo.models import PointOfInterest, VehicleLocationEvidence
+from geo.poi_forms import PointOfInterestForm
 from geo.testing import MapCaseFixtures
 from geo.trip_jobs import _snapshot
 from geo.trip_models import (
@@ -115,6 +116,106 @@ class SavedTripFixtures(MapCaseFixtures):
 
 @override_settings(PANDECT_MAP_TILE_URL="", PANDECT_MAP_TILE_ORIGIN="")
 class InvestigationMapTests(SavedTripFixtures, TestCase):
+    def test_poi_actions_keep_the_selected_trip_and_its_filters(self):
+        self.client.force_login(self.editor)
+        filters = {
+            "q": "Synthetic",
+            "page": "2",
+            "poi_page": "1",
+            "state": "all",
+            "sources_page": "2",
+            "findings_page": "3",
+            "view": "estimates",
+        }
+        origin = {"from_trip": self.trip.pk} | filters
+        trip_url = reverse(
+            "geo:trip_detail",
+            args=(self.case.pk, self.trip.pk),
+            query=filters,
+            fragment="map-heading",
+        )
+        selected_trip = self.client.get(
+            self.detail_url, filters | {"next": "https://example.test/"}
+        )
+        self.assertEqual(selected_trip.status_code, 200)
+        create_url = selected_trip.context["poi_create_url"]
+        self.assertEqual(
+            create_url, reverse("geo:poi_create", args=(self.case.pk,), query=origin)
+        )
+        form = self.client.get(create_url)
+        self.assertEqual(form.context["back_url"], trip_url)
+        self.assertContains(form, "Back to trip")
+        data = {
+            "person": self.person.pk,
+            "kind": "home",
+            "latitude": "43.64",
+            "longitude": "-79.38",
+        }
+        invalid = self.client.post(create_url, data | {"latitude": ""})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(invalid.context["back_url"], trip_url)
+        created = self.client.post(create_url, data)
+        poi = PointOfInterest.objects.get(person=self.person)
+        poi_url = reverse("geo:poi_detail", args=(self.case.pk, poi.pk), query=origin)
+        self.assertRedirects(created, poi_url)
+        selected_trip = self.client.get(trip_url)
+        self.assertEqual(selected_trip.context["points"][0]["url"], poi_url)
+        detail = self.client.get(poi_url)
+        self.assertEqual(detail.context["back_url"], trip_url)
+
+        edit_url = detail.context["edit_url"]
+        self.assertEqual(self.client.get(edit_url).context["back_url"], poi_url)
+        edited = self.client.post(
+            edit_url,
+            data | {"kind": "work", "revision": PointOfInterestForm.revision_for(poi)},
+        )
+        self.assertRedirects(edited, poi_url)
+        poi.refresh_from_db()
+        self.assertEqual(poi.kind, "work")
+
+        delete_url = self.client.get(poi_url).context["delete_url"]
+        self.assertEqual(self.client.get(delete_url).context["back_url"], poi_url)
+        self.assertRedirects(self.client.post(delete_url, {"confirm": "on"}), trip_url)
+        self.assertFalse(PointOfInterest.objects.filter(pk=poi.pk).exists())
+
+    def test_unavailable_trip_origin_returns_to_filtered_map(self):
+        self.state.current_generation = None
+        self.state.save(update_fields=("current_generation",))
+        for case, user in ((self.case, self.owner), (self.other, self.outsider)):
+            with self.subTest(case=case.pk):
+                self.client.force_login(user)
+                person = Person.objects.create(case=case, first_name="Synthetic person")
+                poi = PointOfInterest.objects.create(
+                    person=person, created_by=user, kind="home", latitude=0, longitude=0
+                )
+                filters = {"q": "Synthetic", "state": "all"}
+                map_url = reverse(
+                    "geo:case_map",
+                    args=(case.pk,),
+                    query=filters,
+                    fragment="map-heading",
+                )
+                poi_url = reverse(
+                    "geo:poi_detail",
+                    args=(case.pk, poi.pk),
+                    query={"from_trip": self.trip.pk, "view": "estimates"} | filters,
+                )
+                detail = self.client.get(poi_url)
+                self.assertEqual(detail.context["back_url"], map_url)
+                self.assertContains(detail, "Back to map")
+                delete_url = detail.context["delete_url"]
+                self.assertEqual(
+                    delete_url,
+                    reverse(
+                        "geo:poi_delete",
+                        args=(case.pk, poi.pk),
+                        query={"from_map": "1"} | filters,
+                    ),
+                )
+                self.assertRedirects(
+                    self.client.post(delete_url, {"confirm": "on"}), map_url
+                )
+
     def test_summary_page_does_not_repeat_history_checks_for_every_trip(self):
         for minute in range(1, 26):
             self.add_trip(minute=minute)

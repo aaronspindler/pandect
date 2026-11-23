@@ -74,6 +74,13 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
             "Start reprocessing</button>",
             html=True,
         )
+        response = self.client.post(
+            self.reprocess_url(self.other_case),
+            {"submission_id": str(response.context["form"]["submission_id"].value())},
+        )
+        self.assertContains(response, 'href="#id_evidence_types_group"')
+        self.assertContains(response, 'id="id_evidence_types_group"')
+        self.assertContains(response, 'id="id_evidence_types_error"')
         self.assertFalse(CaseAnalysisBatch.objects.exists())
 
     def test_owner_and_editor_submit_selected_types_and_duplicate_returns_same_batch(
@@ -155,11 +162,11 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         self.assertIn("evidence_types", response.context["form"].errors)
         self.assertContains(
             response,
-            'id="id_evidence_types" '
+            'id="id_evidence_types_group" '
             'aria-describedby="reprocess-types-help id_evidence_types_error"',
         )
         self.assertContains(response, 'id="id_evidence_types_error"')
-        self.assertContains(response, 'href="#id_evidence_types"')
+        self.assertContains(response, 'href="#id_evidence_types_group"')
 
     def test_viewers_and_unrelated_or_revoked_users_cannot_reprocess(self):
         payload = self.selection("editor")

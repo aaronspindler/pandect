@@ -6,7 +6,9 @@ from uuid import UUID
 from django.urls import reverse
 
 from core.evidence.navigation import collection_params
+from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS
+from core.important.navigation import return_params
 from core.models import AnalysisRun
 
 FINDINGS_PER_PAGE = 50
@@ -78,22 +80,43 @@ def findings_list_query(query):
     return {key: values[key] for key in FINDINGS_LIST_FIELDS if key in values}
 
 
+def current_comparison_origin(case, chooser_query, result_query):
+    """Recover the collection when a signed draft's original reader disappears."""
+    source = chooser_query.get("source")
+    if not source:
+        return chooser_query, result_query
+    kind, evidence_id = source.split(":", 2)[:2]
+    if scoped_evidence(case, kind).filter(pk=evidence_id).exists():
+        return chooser_query, result_query
+    filters = chooser_query.get("return_collection", "")
+    return {"return_collection": filters}, {
+        "return_evidence": f"reader=list&{filters}" if filters else "reader=list"
+    }
+
+
 def evidence_return_url(case_id, query):
-    """Restore the reader through its case-bound route and an exact row anchor."""
+    """Restore an Evidence view through its case-bound route."""
     encoded = query.get("return_evidence", "")
     if not encoded or len(encoded) > 3000:
         return ""
     try:
         selection = dict(parse_qsl(encoded, max_num_fields=16))
+        if selection.get("reader") == "list":
+            return reverse(
+                "core:evidence:list",
+                args=[case_id],
+                query=collection_params(selection),
+            )
         evidence_id = UUID(selection["evidence"])
         kind = selection["kind"]
-        anchor = (
-            f"evidence-finding-{UUID(selection['row'])}"
-            if "row" in selection
-            else "evidence-layout"
-            if selection.get("layout") == "1"
-            else "evidence-history-heading"
-        )
+        if "row" in selection:
+            anchor = f"evidence-finding-{UUID(selection['row'])}"
+        elif selection.get("layout") == "1":
+            anchor = "evidence-layout"
+        elif selection.get("reader") == "1":
+            anchor = "evidence-reader"
+        else:
+            anchor = "evidence-history-heading"
     except KeyError, ValueError:
         return ""
     if kind not in KIND_LABELS:
@@ -111,7 +134,7 @@ def evidence_return_url(case_id, query):
 
 
 def result_navigation(query, case_id):
-    params = history_query(query)
+    params = history_query(query) | return_params(query)
     catalogue = findings_list_query(query)
     if catalogue is not None:
         params["return_findings"] = urlencode(catalogue)

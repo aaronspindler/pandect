@@ -1,7 +1,8 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}{{ operation_label }} · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{{ back_to_analysis }}">{{ back_label }}</a>
+{% if important_back_url %}<a class="back-link" href="{{ important_back_url }}">Back to Important</a>
+{% else %}<a class="back-link" href="{{ back_to_analysis }}">{{ back_label }}</a>{% endif %}
 {% if run.status == 'queued' or run.status == 'running' %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef live inline %}
 <div id="analysis-result"{% if focused_finding %} class="analysis-focused-result"{% endif %} data-live-region data-live-poll="{% if run.status == 'queued' or run.status == 'running' %}true{% else %}false{% endif %}">

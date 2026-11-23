@@ -1,6 +1,6 @@
 {% if error %}<p class="notice">{{ error }} Download the original to listen.</p>
 {% else %}
-<audio controls preload="none" aria-label="Play {{ label }}">
+<audio controls preload="none"{% if standalone %} data-record-label="Play "{% endif %} aria-label="Play {{ label }}">
   <source src="{{ play_url }}" type="{{ recording.content_type }}">
   Your browser does not support inline audio. Download the original to listen.
 </audio>

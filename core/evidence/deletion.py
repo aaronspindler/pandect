@@ -10,6 +10,7 @@ from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import Q
 from django.db.models.deletion import Collector, ProtectedError
 from django.http import StreamingHttpResponse
 
@@ -17,7 +18,7 @@ from cases.permissions import get_case
 from core.analysis.operations import OPERATIONS
 from core.evidence.queries import get_evidence, same_case_evidence
 from core.evidence.types import KIND_LABELS, KINDS
-from core.models import AnalysisRun, SavedSelection
+from core.models import AnalysisRun, ImportantItem, ImportantNote, SavedSelection
 from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
@@ -46,6 +47,8 @@ INVENTORY_LABELS = {
     "callevidenceattachment": "Retained call material",
     "instagramcapture": "Instagram list capture",
     "instagramcomparison": "Instagram list comparison",
+    "importantitem": "Important item",
+    "importantnote": "Important item note",
 }
 
 
@@ -133,6 +136,7 @@ def _outside_case(model, objects, case_id):
         return False
     scopes = {
         VehicleLocationImportRow: ("batch__case_id",),
+        ImportantNote: ("item__case_id",),
         InstagramCapture: ("monitor_check__monitor__case_id", "evidence__case_id"),
         InstagramComparison: (
             "capture__monitor_check__monitor__case_id",
@@ -168,6 +172,11 @@ def _record_rows(model, objects):
             "run",
             "result",
             "message",
+            "evidence_kind",
+            "evidence_id",
+            "finding_result",
+            "item_index",
+            "item",
         }
     )
     return model.objects.filter(pk__in=[obj.pk for obj in objects]).values(
@@ -178,6 +187,12 @@ def _record_rows(model, objects):
 def _record_name(model, row):
     if model in MODEL_KINDS:
         return row["title"] + (" · Archived" if row["is_archived"] else "")
+    if model is ImportantItem:
+        if row["finding_result"]:
+            return f"Finding {row['item_index'] + 1} · result {row['finding_result']}"
+        return f"{KIND_LABELS[row['evidence_kind']]} evidence · {row['evidence_id']}"
+    if model is ImportantNote:
+        return f"Note · important item {row['item']}"
     if model is AnalysisRun:
         operation = OPERATIONS.get(row["operation"])
         return (
@@ -275,6 +290,12 @@ def plan_deletions(items, kind):
             "vehicle_id", flat=True
         )
     )
+    marked_evidence = Q()
+    for root_kind, objects in roots.items():
+        if objects:
+            marked_evidence |= Q(
+                evidence_kind=root_kind, evidence_id__in=[obj.pk for obj in objects]
+            )
     try:
         for objects in roots.values():
             if objects:
@@ -283,6 +304,11 @@ def plan_deletions(items, kind):
             collector.collect(batches, fail_on_restricted=False)
         collector.collect(runs, fail_on_restricted=False)
         collector.collect(generations, fail_on_restricted=False)
+        # Evidence kinds have separate tables, so these targets use typed UUIDs.
+        # Collect before the scope checks to detect inconsistent case links.
+        collector.collect(
+            ImportantItem.objects.filter(marked_evidence), fail_on_restricted=False
+        )
     except ProtectedError:
         plan.blocker = (
             "Related material has a protected relationship. "

@@ -2,15 +2,15 @@
 {% block title %}Interpret a passage · {{ case.name }}{% endblock %}
 {% block content %}
 <header class="page-header"><div><h1>Interpret a passage</h1><p>Keep the source wording alongside your reading of the statement. Leave uncertain details unresolved.</p></div></header>
-{% if error %}<p class="error-summary" role="alert">{{ error }}</p>{% endif %}
-{% if option_count > 1 %}<form method="post" class="analysis-picker">{% csrf_token %}<input type="hidden" name="operation" value="journey_claims"><input type="hidden" name="draft" value="{{ draft }}"><div class="field"><label for="selected-passage">Passage source</label><select id="selected-passage" name="option">{% for key,row in options %}<option value="{{ key }}"{% if key == option_key %} selected{% endif %}>{{ row.label }}</option>{% endfor %}</select></div><button class="button button-secondary" name="action" value="switch">Open passage source</button></form>{% endif %}
+{% if error %}<p class="error-summary" role="alert" tabindex="-1" data-error-summary>{{ error }}</p>{% endif %}
+{% include 'ui/components/form_errors.html' with form=form %}
+{% if option_count > 1 %}<form method="post" action="{{ draft_url }}" class="analysis-picker">{% csrf_token %}<input type="hidden" name="operation" value="journey_claims"><input type="hidden" name="draft" value="{{ draft }}"><div class="field"><label for="selected-passage">Passage source</label><select id="selected-passage" name="option">{% for key,row in options %}<option value="{{ key }}"{% if key == option_key %} selected{% endif %}>{{ row.label }}</option>{% endfor %}</select></div><button class="button button-secondary" name="action" value="switch">Open passage source</button></form>{% endif %}
 <section class="analysis-section" aria-labelledby="current-source"><h2 id="current-source">{{ option.label }}</h2>
 {% if option.claim %}<p class="badge">AI suggestion</p><blockquote class="original-text">{{ option.quote }}</blockquote>
 {% else %}<div class="original-text">{{ option.source.text|slice:":4000" }}</div>{% if option.source.text|length > 4000 %}<p class="muted">Showing the first 4,000 characters. Open the source to select a later passage.</p>{% endif %}{% endif %}
 <a href="{{ option.source.url }}" class="record-link">Open source</a></section>
-<form method="post" class="form-layout" novalidate>
+<form method="post" action="{{ draft_url }}" class="form-layout" novalidate data-unsaved-form>
 {% csrf_token %}<input type="hidden" name="operation" value="journey_claims"><input type="hidden" name="draft" value="{{ draft }}"><input type="hidden" name="option" value="{{ option_key }}">
-{% include 'ui/components/form_errors.html' with form=form %}
 {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
 {% for field in form.visible_fields %}
 {% if field.name == 'latitude' %}<details class="disclosure"{% if form.latitude.value or form.longitude.value or form.latitude.errors or form.longitude.errors or form.radius_m.errors %} open{% endif %}><summary>Compare coordinates</summary><div class="form-layout">{% endif %}
@@ -18,6 +18,6 @@
 {% include 'ui/components/form_field.html' with field=field only %}
 {% if field.name == 'radius_m' or field.name == 'reference_occurrence' or field.name == 'reference_quote' and form.reference_occurrence.is_hidden %}</div></details>{% endif %}
 {% endfor %}
-<div class="form-actions"><button class="button button-primary" name="action" value="review">Review comparison</button><button class="button button-secondary" name="action" value="choose_again">Restart source selection</button></div>
+<div class="form-actions"><button class="button button-primary" name="action" value="review">Review comparison</button><button class="button button-secondary" name="action" value="choose_again">Restart source selection</button><a class="button button-secondary" href="{{ cancel_url }}">Cancel</a></div>
 </form>
 {% endblock %}

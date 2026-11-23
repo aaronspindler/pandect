@@ -1,0 +1,22 @@
+.quick-dialog {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--boundary);
+  border-radius: .75rem;
+  padding: clamp(1rem, 3vw, 2rem);
+  width: min(42rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+.quick-dialog::backdrop { background: rgb(11 21 25 / 55%); }
+.quick-dialog .section-header { align-items: center; }
+.quick-dialog h2 { margin-bottom: 0; }
+.quick-dialog [data-dialog-feedback]:empty { display: none; }
+.quick-dialog .form-layout { width: 100%; margin: 0; }
+.quick-dialog [data-dialog-feedback]:not(:empty) { margin-block: 1rem; }
+.quick-save-feedback { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .5rem; color: var(--success); }
+@media (max-width: 32rem) {
+  .quick-dialog { width: calc(100% - 1rem); max-height: calc(100dvh - 1rem); }
+}

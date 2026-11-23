@@ -1,0 +1,12 @@
+<section class="case-summary" id="{{ summary_id }}" aria-labelledby="{{ summary_id }}-heading"{% if collection_summary %} data-collection-summary{% endif %}>
+  <h2 id="{{ summary_id }}-heading">{{ summary_heading }}</h2>
+  <dl class="case-summary-grid">
+    {% for metric in summary_items %}
+    <div class="case-summary-card{% if metric.count and metric.tone %} case-summary-card--{{ metric.tone }}{% endif %}">
+      <dt>{{ metric.label }}</dt>
+      <dd>{{ metric.count|floatformat:'0g' }}{% if metric.icon %}{% include 'ui/components/icon.html' with name=metric.icon only %}{% endif %}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+  {% if summary_note %}<p class="case-summary-note">{{ summary_note }}</p>{% endif %}
+</section>

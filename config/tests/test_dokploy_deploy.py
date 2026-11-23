@@ -36,6 +36,7 @@ ENVIRONMENT = {
     "DOKPLOY_API_KEY": "synthetic-dokploy-key",
     "DOKPLOY_REGISTRY_PASSWORD": "synthetic-registry-password",
     "DOKPLOY_WEB_APPLICATION_ID": "web-id",
+    "DOKPLOY_EVENTS_APPLICATION_ID": "events-id",
     "DOKPLOY_WORKER_APPLICATION_ID": "worker-id",
     "PANDECT_IMAGE": IMAGE,
 }
@@ -180,6 +181,7 @@ class DeploymentCommandTests(TestCase):
             activate.call_args_list,
             [
                 call("worker-id", IMAGE, SHA, "worker"),
+                call("events-id", IMAGE, SHA, "events"),
                 call("web-id", IMAGE, SHA, "web"),
             ],
         )
@@ -246,7 +248,7 @@ class DeploymentCommandTests(TestCase):
         self.assertEqual(activate.call_args.args[-1], "worker")
         self.assertEqual(self.output.read_text(), "")
 
-    def test_failed_web_does_not_report_deployment_success(self):
+    def test_failed_events_prevents_web_activation_and_release(self):
         with (
             patch.object(deploy, "api", return_value={"object": {"sha": SHA}}),
             patch.object(
@@ -256,7 +258,7 @@ class DeploymentCommandTests(TestCase):
         ):
             deploy.main()
         self.assertEqual(activate.call_count, 2)
-        self.assertEqual(activate.call_args.args[-1], "web")
+        self.assertEqual(activate.call_args.args[-1], "events")
         self.assertEqual(self.output.read_text(), "")
 
     def test_native_provider_update_preserves_runtime_configuration(self):
@@ -315,6 +317,18 @@ class DeploymentCommandTests(TestCase):
         self.assertIsNone(update["args"])
         self.assertEqual(update["updateConfigSwarm"]["Order"], "start-first")
         self.assertNotIn("healthCheckSwarm", update)
+
+    def test_event_application_uses_the_streaming_entrypoint(self):
+        with (
+            patch.object(deploy, "dokploy", return_value=[]) as request,
+            patch.object(deploy, "wait_ready"),
+            redirect_stdout(io.StringIO()),
+        ):
+            deploy.deploy("events-id", IMAGE, SHA, "events")
+        update = request.call_args_list[1].args[1]
+        self.assertEqual(update["command"], "sh")
+        self.assertEqual(update["args"], ["/app/scripts/docker-entrypoint-events.sh"])
+        self.assertEqual(update["updateConfigSwarm"]["Order"], "start-first")
 
     def test_failed_provider_write_is_not_retried_or_activated(self):
         with (
@@ -517,7 +531,7 @@ class RolloutMarkerTests(TestCase):
             },
         )
 
-    def test_marker_precedes_last_main_check_and_both_verified_services(self):
+    def test_marker_precedes_last_main_check_and_verified_services(self):
         with (
             patch.object(deploy, "api", side_effect=self.request),
             patch.object(deploy, "deploy", side_effect=self.activate),
@@ -525,7 +539,16 @@ class RolloutMarkerTests(TestCase):
             deploy.main()
         self.assertEqual(
             self.events,
-            ["history", "record", "in_progress", "history", "worker", "web", "success"],
+            [
+                "history",
+                "record",
+                "in_progress",
+                "history",
+                "worker",
+                "events",
+                "web",
+                "success",
+            ],
         )
         self.assertEqual(self.output.read_text(), "deployed=true\n")
 
@@ -603,7 +626,7 @@ class RolloutMarkerTests(TestCase):
             self.assertRaises(deploy.DeploymentError),
         ):
             deploy.main()
-        self.assertEqual(self.events[-3:], ["worker", "web", "success"])
+        self.assertEqual(self.events[-4:], ["worker", "events", "web", "success"])
         self.assertEqual(self.accepted_statuses, ["in_progress"])
         self.assertEqual(self.output.read_text(), "")
 
@@ -1030,8 +1053,8 @@ class ReleaseReadinessTests(TestCase):
             return f"2026-11-06T00:00:00Z PANDECT_WORKER_PREPARED {SHA}\n"
         self.fail(f"Unexpected API path: {path}")
 
-    def wait(self, worker=False):
-        deploy.wait_ready("app", IMAGE, SHA, "release", {"old"}, 0, worker)
+    def wait(self, service="web"):
+        deploy.wait_ready("app", IMAGE, SHA, "release", {"old"}, 0, service)
 
     def test_current_image_and_public_commit_must_remain_ready(self):
         with (
@@ -1042,13 +1065,24 @@ class ReleaseReadinessTests(TestCase):
             self.wait()
         self.assertGreaterEqual(task.call_count, 2)
 
+    def test_event_readiness_uses_public_streaming_route(self):
+        with (
+            patch.object(deploy, "dokploy", side_effect=self.request),
+            patch.object(deploy, "current_task", return_value="task"),
+            patch.object(
+                deploy, "api", return_value={"status": "ok", "commit": SHA}
+            ) as health,
+        ):
+            self.wait("events")
+        health.assert_called_with("https://openpandect.com/events/health/")
+
     def test_worker_requires_release_marker_and_stable_task(self):
         with (
             patch.object(deploy, "dokploy", side_effect=self.request),
             patch.object(deploy, "current_task", return_value="task") as task,
             patch.object(deploy, "api") as public,
         ):
-            self.wait(worker=True)
+            self.wait("worker")
         self.assertGreaterEqual(task.call_count, 2)
         public.assert_not_called()
 
@@ -1096,7 +1130,7 @@ class ReleaseReadinessTests(TestCase):
             patch.object(deploy, "current_task", return_value="task"),
             self.assertRaisesRegex(deploy.DeploymentError, "worker startup marker"),
         ):
-            self.wait(worker=True)
+            self.wait("worker")
 
     def test_failed_deployment_cannot_use_an_old_healthy_task(self):
         with (

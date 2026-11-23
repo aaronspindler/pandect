@@ -9,21 +9,21 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
-from cases.models import Case
-
 
 class CatalogueMigrationTests(TransactionTestCase):
     def test_populated_pre_catalogue_database_migrates_without_source_access(self):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
-        before = [("core", "0002_caseanalysisbatch")]
+        before = [("core", "0002_caseanalysisbatch"), ("cases", "0003_case_ai_backend")]
         try:
             executor.migrate(before)
             old = executor.loader.project_state(before).apps
             Run = old.get_model("core", "AnalysisRun")
             Result = old.get_model("core", "AnalysisResult")
             user = get_user_model().objects.create_user(username="migration-fixture")
-            case = Case.objects.create(owner=user, name="Synthetic migration")
+            case = old.get_model("cases", "Case").objects.create(
+                owner_id=user.pk, name="Synthetic migration"
+            )
             source = {
                 "id": str(uuid4()),
                 "kind": "document",

@@ -1,6 +1,6 @@
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier
@@ -11,6 +11,7 @@ from uuid import uuid4
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import close_old_connections, connection
 from django.test import Client, TestCase, TransactionTestCase, override_settings
@@ -18,7 +19,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from cases.models import Case, CaseMembership
-from core.evidence.types import FILE_KINDS, KINDS, LOCATION_KINDS
+from core.evidence.types import FILE_KINDS, KIND_LABELS, KINDS, LOCATION_KINDS
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence
@@ -53,7 +54,7 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
                     self.assertNotIn(f'value="{value}"', widget)
                 self.assertNotIn("Private foreign vehicle", widget)
 
-    def test_message_labels_show_content_sender_and_local_time(self):
+    def test_message_rows_show_excerpt_sender_and_local_time_in_separate_fields(self):
         message = TextMessageEvidence.objects.create(
             case=self.case,
             uploaded_by=self.users["owner"],
@@ -64,21 +65,25 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             occurred_at=datetime(2026, 11, 16, 14, 30, tzinfo=UTC),
         )
         original = (message.title, message.body, message.sha256, message.edited_at)
-        label = (
-            "Meet at the harbour. Bring the file. · Synthetic person · "
-            "16 Nov 2026, 09:30:00 EST"
-        )
+        snippet = "Meet at the harbour. Bring the file."
+        local_time = "16 Nov 2026, 09:30:00 EST"
+        reader_label = f"{snippet} · Synthetic person · {local_time}"
         self.client.cookies["pandect_timezone"] = "America/Toronto"
         for role in ("owner", "editor", "viewer"):
             self.login(role)
             with self.subTest(role=role):
                 response = self.client.get(self.url("list"))
-                self.assertEqual(response.context["rows"][0]["title"], label)
-                self.assertContains(response, label)
+                row = response.context["rows"][0]
+                self.assertEqual(row["title"], snippet)
+                self.assertEqual(row["details_label"], "Sender")
+                self.assertEqual(row["details_value"], "Synthetic person")
+                self.assertContains(response, snippet)
+                self.assertContains(response, local_time)
+                self.assertNotContains(response, reader_label)
                 detail = self.client.get(
                     self.url("detail", message, kind="text-message")
                 )
-                self.assertContains(detail, f"<h1>{label}</h1>", html=True)
+                self.assertContains(detail, f"<h1>{reader_label}</h1>", html=True)
                 self.assertContains(detail, "Saved title")
                 self.assertContains(detail, message.title)
         message.refresh_from_db()
@@ -86,7 +91,7 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
             (message.title, message.body, message.sha256, message.edited_at), original
         )
 
-    def test_message_excerpts_are_bounded_escaped_and_match_the_reader(self):
+    def test_message_excerpts_are_bounded_and_escaped(self):
         body = "<script>untrusted</script>\n" + "x" * 120 + " original ending"
         message = TextMessageEvidence.objects.create(
             case=self.case,
@@ -98,15 +103,16 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.login("viewer")
         response = self.client.get(self.url("list"))
-        label = response.context["rows"][0]["title"]
-        self.assertEqual(
-            label,
-            " ".join(body[:80].split()) + "… · Synthetic person · Time not recorded",
-        )
+        snippet = " ".join(body[:80].split()) + "…"
+        self.assertEqual(response.context["rows"][0]["title"], snippet)
+        self.assertContains(response, "Time not recorded")
         self.assertNotContains(response, "<script>untrusted</script>")
         self.assertNotContains(response, "original ending")
         detail = self.client.get(self.url("detail", message, kind="text-message"))
-        self.assertEqual(detail.context["display_title"], label)
+        self.assertEqual(
+            detail.context["display_title"],
+            f"{snippet} · Synthetic person · Time not recorded",
+        )
         self.assertContains(detail, "original ending")
         self.assertNotContains(detail, "<script>untrusted</script>")
 
@@ -147,6 +153,104 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(label_queries[0].count('"body"'), 1)
         second = self.client.get(self.url("list"), {"page": 2})
         self.assertEqual(len(second.context["rows"]), 2)
+
+    def test_mixed_evidence_table_shows_type_details_and_source_time_roles(self):
+        event = datetime(2026, 11, 18, 14, 24, 40, tzinfo=UTC)
+        collected = event + timedelta(days=1)
+        parties = {"sender": self.person, "recipient": self.person}
+        call = parties | {"occurred_at": event}
+        recipient = Person.objects.create(case=self.case, first_name="Sample recipient")
+        place = {"address": "8 Alder Lane", "observed_at": event}
+        fixtures = {
+            "text-message": (
+                call | {"body": "A retained message."},
+                "Sender",
+                "Synthetic person",
+                "Message time",
+            ),
+            "phone-call": (
+                call | {"recipient": recipient},
+                "Participants",
+                "Synthetic person, Sample recipient",
+                "Call time",
+            ),
+            "facetime": (
+                parties,
+                "Participants",
+                "Synthetic person",
+                "Call time",
+            ),
+            "location": (place, "Address", "8 Alder Lane", "Observed"),
+            "person-location": (
+                place | {"person": self.person},
+                "Linked person",
+                "Synthetic person",
+                "Observed",
+            ),
+            "vehicle-location": (
+                place | {"vehicle": self.vehicle},
+                "Vehicle",
+                str(self.vehicle),
+                "Observed",
+            ),
+            "image": (
+                {"file": ContentFile(b"Image", name="entrance.png")},
+                "Original file",
+                "entrance.png",
+                "Collected",
+            ),
+            "document": (
+                {"file": ContentFile(b"Document", name="receipt.pdf")},
+                "Original file",
+                "receipt.pdf",
+                "Collected",
+            ),
+            "audio": (
+                {
+                    "file": ContentFile(b"Audio", name="call.wav"),
+                    "duration": timedelta(),
+                },
+                "Duration",
+                "0:00:00",
+                "Collected",
+            ),
+            "text": (
+                {"body": "Interview material.", "source": "Gatehouse interview"},
+                "Source",
+                "Gatehouse interview",
+                "Collected",
+            ),
+        }
+        self.assertEqual(fixtures.keys(), KINDS.keys())
+        for kind, (fields, _, _, _) in fixtures.items():
+            KINDS[kind].objects.create(
+                case=self.case,
+                uploaded_by=self.case.owner,
+                title=f"Sample {kind}",
+                collected_at=collected,
+                **fields,
+            )
+        self.login("viewer")
+        response = self.client.get(self.url("list"))
+        for header in ("Evidence", "Type", "Details", "Date and time"):
+            self.assertContains(
+                response,
+                f'<th scope="col" role="columnheader">{header}</th>',
+                html=True,
+            )
+        self.assertContains(response, "Time not recorded", count=1)
+        rows = {row["kind"]: row for row in response.context["rows"]}
+        self.assertEqual(rows.keys(), fixtures.keys())
+        for kind, (_, details_label, details_value, time_label) in fixtures.items():
+            with self.subTest(kind=kind):
+                row = rows[kind]
+                self.assertEqual(row["details_label"], details_label)
+                self.assertEqual(row["details_value"], details_value)
+                self.assertEqual(row["time_label"], time_label)
+                expected_time = collected if time_label == "Collected" else event
+                if kind == "facetime":
+                    expected_time = None
+                self.assertEqual(row["time_value"], expected_time)
 
     def test_bulk_page_requires_current_case_edit_access(self):
         self.assertEqual(self.client.get(self.url("bulk_create")).status_code, 302)
@@ -797,12 +901,83 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.context["page_obj"].paginator.count, 28)
         self.assertEqual(len(response.context["rows"]), 25)
         self.assertNotContains(response, "Private other material")
+        self.assertContains(response, "Active evidence by type")
+        self.assertEqual(
+            {
+                item["label"]: item["count"]
+                for item in response.context["evidence_summary"]
+            },
+            dict.fromkeys(KIND_LABELS.values(), 0) | {"Text": 28},
+        )
         self.assertFalse(
             any('"body"' in query["sql"] for query in queries.captured_queries)
         )
         self.assertLess(len(queries), 20)
         second = self.client.get(self.url("list"), {"page": 2})
         self.assertEqual(len(second.context["rows"]), 3)
+        self.assertEqual(
+            second.context["evidence_summary"], response.context["evidence_summary"]
+        )
+
+    def test_evidence_summary_follows_archive_state_across_list_filters(self):
+        self.text()
+        archived = self.text()
+        message = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Retained message",
+            sender=self.person,
+            recipient=self.person,
+            body="Synthetic context",
+        )
+        other_person = Person.objects.create(case=self.other_case, first_name="Other")
+        inconsistent = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Inconsistent message",
+            sender=self.person,
+            recipient=self.person,
+            body="Synthetic context",
+        )
+        TextMessageEvidence.objects.filter(pk=inconsistent.pk).update(
+            sender=other_person
+        )
+        self.login("editor")
+        self.client.post(self.url("archive", archived))
+        self.login("viewer")
+
+        for state, heading, text_count, message_count in (
+            ("active", "Active evidence by type", 1, 1),
+            ("archived", "Archived evidence by type", 1, 0),
+            ("all", "All evidence by type", 2, 1),
+        ):
+            with self.subTest(state=state):
+                response = self.client.get(
+                    self.url("list"),
+                    {
+                        "q": "No matching text",
+                        "person": self.person.pk,
+                        "type": "text-message",
+                        "state": state,
+                    },
+                    headers={"X-Pandect-Live": "collection"},
+                )
+                self.assertEqual(response.context["rows"], [])
+                self.assertEqual(response["X-Pandect-Live"], "collection")
+                self.assertContains(response, heading)
+                self.assertEqual(
+                    {
+                        item["label"]: item["count"]
+                        for item in response.context["evidence_summary"]
+                    },
+                    dict.fromkeys(KIND_LABELS.values(), 0)
+                    | {"Text": text_count, "Text message": message_count},
+                )
+
+        detail = self.client.get(self.url("detail", message, kind="text-message"))
+        self.assertNotContains(detail, "evidence-summary")
+        self.login("outsider")
+        self.assertEqual(self.client.get(self.url("list")).status_code, 404)
 
     def test_pagination_and_detail_links_share_bounded_search_parameters(self):
         for number in range(26):

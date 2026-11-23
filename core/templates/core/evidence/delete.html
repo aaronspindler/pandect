@@ -1,7 +1,7 @@
 {% extends "ui/base.html" %}
 {% block title %}Delete {{ item.title }} · {{ case }}{% endblock %}
 {% block content %}
-<div class="form-layout">
+<div class="form-layout" data-workspace-document>
   <p class="breadcrumb"><a href="{{ cancel_url }}">Back to evidence</a></p>
   <div class="page-header"><div><p class="eyebrow">{{ case }}</p><h1>Delete {{ item.title }}?</h1><p>This permanently deletes the evidence and its files. There is no in-app undo.</p></div></div>
   {% if deletion_blocker %}

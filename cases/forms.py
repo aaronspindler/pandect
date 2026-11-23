@@ -9,6 +9,11 @@ from core.analysis.execution import INFERENCE_OPERATIONS, available_executions
 
 from .models import Case, CaseInvitation, CaseMembership
 
+CASE_ACCESS_HELP = (
+    "Viewers can inspect and download. Editors can also add or edit records "
+    "and archive or restore evidence."
+)
+
 
 class CaseForm(forms.ModelForm):
     expected_updated_at = forms.CharField(widget=forms.HiddenInput, required=False)
@@ -68,6 +73,7 @@ class MembershipRoleForm(forms.ModelForm):
         model = CaseMembership
         fields = ("role",)
         labels = {"role": "Case access"}
+        help_texts = {"role": CASE_ACCESS_HELP}
 
 
 class InvitationForm(forms.ModelForm):
@@ -75,6 +81,7 @@ class InvitationForm(forms.ModelForm):
         model = CaseInvitation
         fields = ("email", "role")
         labels = {"email": "Email address", "role": "Case access"}
+        help_texts = {"role": CASE_ACCESS_HELP}
 
     def __init__(self, *args, case, **kwargs):
         super().__init__(*args, **kwargs)
@@ -114,3 +121,4 @@ class InvitationRoleForm(forms.ModelForm):
         model = CaseInvitation
         fields = ("role",)
         labels = {"role": "Case access"}
+        help_texts = {"role": CASE_ACCESS_HELP}

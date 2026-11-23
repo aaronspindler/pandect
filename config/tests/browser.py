@@ -15,9 +15,11 @@ from email.parser import BytesParser
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.template.defaultfilters import filesizeformat
 from django.test import override_settings
 from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
 from django.urls import reverse
@@ -705,13 +707,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     explore.get_by_role("link", name="Trips", exact=True)
                 ).to_be_visible()
-                case_details = page.locator(".case-details-body")
-                details_summary = case_details.locator(":scope > summary")
-                expect(
-                    case_details.get_by_text(self.case.description, exact=True)
-                ).to_be_hidden()
-                details_summary.focus()
-                details_summary.press("Enter")
+                case_details = page.get_by_role("region", name="Case details")
                 expect(
                     case_details.get_by_text(self.case.description, exact=True)
                 ).to_be_visible()
@@ -721,13 +717,17 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(case_details.locator("time")).to_have_count(2)
                 expect(case_details.locator("input, textarea")).to_have_count(0)
                 self.capture(page, engine, "case-tools-390x844")
-                details_summary.press("Enter")
-                expect(
-                    case_details.get_by_text(self.case.description, exact=True)
-                ).to_be_hidden()
                 page.get_by_role("navigation", name="Investigation").get_by_role(
                     "link", name="Evidence", exact=True
                 ).press("Enter")
+                overview = page.get_by_role("region", name="Active evidence by type")
+                expect(overview).to_be_visible()
+                self.capture(page, engine, "evidence-counts-390x844")
+                query_field = page.get_by_role("searchbox", name="Filter evidence")
+                panel = overview.bounding_box()
+                self.assertLessEqual(
+                    panel["y"] + panel["height"], query_field.bounding_box()["y"]
+                )
                 summary = page.locator(".evidence-filters > summary")
                 state = page.get_by_label("State", exact=True)
                 expect(state).to_be_hidden()
@@ -752,6 +752,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(state).to_have_value("all")
                 page.get_by_role("button", name="Apply filters", exact=True).click()
                 self.assertIn("state=all", page.url)
+                expect(
+                    page.get_by_role("region", name="All evidence by type")
+                ).to_be_visible()
                 expect(state).to_have_value("all")
                 page.locator(".evidence-row").first.click()
                 self.assertIn("state=all", page.url)
@@ -853,8 +856,22 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     "https://example.com/source"
                 )
 
-    def test_message_evidence_labels_and_responsive_navigation(self):
+    def test_evidence_table_metadata_and_responsive_navigation(self):
         sender = Person.objects.create(case=self.case, first_name="Jordan Smith")
+        DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Delivery receipt",
+            file=SimpleUploadedFile("delivery-receipt.txt", b"Synthetic receipt"),
+            collected_at=datetime(2026, 11, 16, 17, 24, 40, tzinfo=UTC),
+        )
+        LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="West loading bay",
+            address="14 Alder Lane",
+            observed_at=datetime(2026, 11, 17, 14, 2, 16, tzinfo=UTC),
+        )
         message = TextMessageEvidence.objects.create(
             case=self.case,
             uploaded_by=self.owner,
@@ -864,10 +881,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
             body="Meet at the harbour.\nBring the file.",
             occurred_at=datetime(2026, 11, 16, 14, 30, tzinfo=UTC),
         )
-        label = (
-            "Meet at the harbour. Bring the file. · Jordan Smith · "
-            "16 Nov 2026, 09:30:00 EST"
-        )
+        excerpt = "Meet at the harbour. Bring the file."
+        message_time = "16 Nov 2026, 09:30:00 EST"
+        reader_label = f"{excerpt} · Jordan Smith · {message_time}"
         list_url = self.url("core:evidence:list", case_id=self.case.pk)
         detail_url = self.url(
             "core:evidence:detail",
@@ -899,32 +915,71 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 ):
                     page.set_viewport_size({"width": width, "height": height})
                     page.goto(list_url)
-                    link = page.locator(".evidence-row").filter(has_text=label)
-                    expect(link).to_be_visible()
-                    expect(link.locator(".evidence-row-title")).to_have_text(label)
+                    table = page.get_by_role("table", name="Evidence", exact=True)
+                    row = table.get_by_role("row").filter(has_text=excerpt)
+                    link = row.get_by_role("link", name=excerpt, exact=True)
+                    expect(
+                        row.get_by_role("cell", name="Sender Jordan Smith", exact=True)
+                    ).to_be_visible()
+                    expect(row.get_by_text(message_time, exact=True)).to_be_visible()
+                    if width == 1440:
+                        expect(table.get_by_role("columnheader")).to_have_text(
+                            ["Evidence", "Type", "Details", "Date and time"]
+                        )
+                        receipt = table.get_by_role("row").filter(
+                            has_text="Delivery receipt"
+                        )
+                        expect(
+                            receipt.get_by_text("Collected", exact=True)
+                        ).to_be_visible()
+                        expect(
+                            receipt.get_by_text("delivery-receipt.txt")
+                        ).to_be_visible()
+                        location = table.get_by_role("row").filter(
+                            has_text="West loading bay"
+                        )
+                        expect(
+                            location.get_by_text("Observed", exact=True)
+                        ).to_be_visible()
+                        expect(location.get_by_text("14 Alder Lane")).to_be_visible()
                     link.focus()
                     expect(link).to_be_focused()
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
-                    self.capture(page, engine, f"message-label-list-{width}-{height}")
+                    self.capture(page, engine, f"evidence-table-{width}x{height}")
                     link.press("Enter")
                     expect(page).to_have_url(detail_url)
-                    expect(page.get_by_role("heading", level=1)).to_have_text(label)
+                    expect(page.get_by_role("heading", level=1)).to_have_text(
+                        reader_label
+                    )
+                    if width == 1440:
+                        expect(link).to_have_attribute("aria-current", "true")
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width + 1
                     )
-                    self.capture(page, engine, f"message-label-reader-{width}-{height}")
+                    self.capture(
+                        page, engine, f"evidence-table-reader-{width}x{height}"
+                    )
+                page.goto(list_url)
                 page.evaluate("document.documentElement.style.fontSize = '200%'")
                 self.assertLessEqual(
                     page.evaluate("document.documentElement.scrollWidth"), 321
                 )
-                self.capture(page, engine, "message-label-large-text")
+                self.capture(page, engine, "evidence-table-large-text")
                 page.evaluate("document.documentElement.style.fontSize = ''")
+                page.set_viewport_size({"width": 1440, "height": 900})
                 page.emulate_media(color_scheme="dark", reduced_motion="reduce")
-                self.capture(page, engine, "message-label-dark")
-                page.emulate_media(forced_colors="active")
-                self.capture(page, engine, "message-label-forced-colors")
+                self.capture(page, engine, "evidence-table-dark")
+                if engine == "chromium":
+                    page.emulate_media(forced_colors="active")
+                    self.capture(page, engine, "evidence-table-forced-colors")
+                time_cell = page.get_by_role("cell").filter(has_text=message_time)
+                box = time_cell.bounding_box()
+                page.mouse.click(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                )
+                expect(page).to_have_url(detail_url)
 
     def test_communication_evidence_and_retained_attachments(self):
         sender = Person.objects.create(case=self.case, first_name="Alex Sender")
@@ -986,6 +1041,15 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             "2026-10-26T12:30:15"
                         )
                         page.get_by_label("Duration", exact=True).fill("00:00:00")
+                        for label, limit in (
+                            ("Transcript", settings.PANDECT_MAX_TEXT_BYTES),
+                            ("Audio file", settings.PANDECT_MAX_FILE_BYTES),
+                        ):
+                            expect(
+                                page.get_by_label(label)
+                            ).to_have_accessible_description(
+                                re.compile(re.escape(f"Up to {filesizeformat(limit)}."))
+                            )
                     for width, height in (
                         (1440, 900),
                         (1440, 1024),
@@ -1017,15 +1081,27 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     ).to_be_visible()
                     detail_url = page.url
                     if kind != "text-message":
+                        filters = f"?q={engine}&type={kind}&state=all&page=1"
+                        filtered_reader = detail_url + filters
+                        page.goto(filtered_reader)
                         expect(
                             page.get_by_text(
                                 "No transcript or audio.",
                                 exact=False,
                             )
                         ).to_be_visible()
-                        page.get_by_role(
+                        add_content = page.get_by_role(
                             "link", name="Add transcript or audio", exact=True
+                        )
+                        add_content.click()
+                        page.get_by_role(
+                            "link", name="Back to call evidence", exact=True
                         ).click()
+                        expect(page).to_have_url(filtered_reader)
+                        add_content.click()
+                        page.get_by_role("link", name="Cancel", exact=True).click()
+                        expect(page).to_have_url(filtered_reader)
+                        add_content.click()
                         page.get_by_role(
                             "button", name="Add transcript or audio", exact=True
                         ).click()
@@ -1048,6 +1124,9 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                             "heading", name=audio_filename, exact=True
                         )
                         expect(filename_heading).to_be_visible()
+                        anchor = filename_heading.locator("..").get_attribute("id")
+                        self.assertTrue(anchor.startswith("attachment-"))
+                        expect(page).to_have_url(f"{filtered_reader}#{anchor}")
                         page.set_viewport_size({"width": 320, "height": 844})
                         filename_heading.scroll_into_view_if_needed()
                         self.assertLessEqual(
@@ -1493,6 +1572,10 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
 
                     self.assertEqual(self.db(publish), "complete")
                     page.get_by_role("link", name="Refresh status").click()
+                    if keep:
+                        expect(page.locator("[data-live-message]")).to_have_text(
+                            "Vehicle locations imported"
+                        )
                     expected = 2 if keep else 1
                     expect(page.locator(".import-results a")).to_have_count(expected)
                     expect(
@@ -1529,7 +1612,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
-                page.get_by_role("navigation", name="Other case tools").get_by_role(
+                page.get_by_role("region", name="Case records").get_by_role(
                     "link", name="Vehicles", exact=True
                 ).click()
                 expect(
@@ -1579,6 +1662,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     )
                     self.capture(page, engine, f"vehicle-form-{width}-{height}")
                 page.get_by_role("button", name="Add vehicle", exact=True).click()
+                page.get_by_role("link", name="Open vehicle").click()
                 title = f"2020 Synthetic Motors Hatchback {engine}"
                 expect(
                     page.get_by_role("heading", name=title, exact=True)
@@ -3025,8 +3109,11 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator(".evidence-row")).to_have_count(25)
                 for height, minimum in ((900, 12), (1024, 14)):
                     page.set_viewport_size({"width": 1440, "height": height})
-                    visible = page.locator(".evidence-row").evaluate_all(
-                        """rows => {
+                    visible = (
+                        page.get_by_role("table", name="Evidence", exact=True)
+                        .locator("tbody tr")
+                        .evaluate_all(
+                            """rows => {
                           const pane = document.querySelector('.evidence-records')
                             .getBoundingClientRect();
                           const top = Math.max(0, pane.top);
@@ -3037,6 +3124,7 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                               && box.bottom <= bottom + 0.5;
                           }).length;
                         }"""
+                        )
                     )
                     self.assertGreaterEqual(
                         visible, minimum, f"{engine}: density at 1440x{height}"
@@ -3157,6 +3245,8 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 ).bounding_box()
                 self.assertGreaterEqual(box["x"] + box["width"], 2560 - 40)
                 self.capture(page, engine, "evidence-list-2560x900")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                self.capture(page, engine, "evidence-list-1440x900")
 
                 # Emulate 200% text sizing independently of device pixel density.
                 # Unitless row line heights must grow with the enlarged text.
@@ -3167,11 +3257,15 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     page.evaluate("document.documentElement.scrollWidth"), 1441
                 )
                 title_box = page.locator(".evidence-row-title").first.bounding_box()
-                meta_box = page.locator(".evidence-row-meta").first.bounding_box()
+                meta_box = page.locator(".evidence-table-type").first.bounding_box()
                 self.assertGreaterEqual(
                     meta_box["y"], title_box["y"] + title_box["height"] - 1
                 )
                 self.capture(page, engine, "workspace-200-percent-text")
+                page.goto(self.evidence_url(self.records[0]))
+                expect(
+                    page.locator('.evidence-row[aria-current="true"]')
+                ).to_be_in_viewport()
 
     def test_long_original_keeps_findings_and_info_reachable(self):
         original = "\n\n".join(
@@ -3785,8 +3879,14 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     )
                     page.emulate_media(forced_colors="none")
                 page.emulate_media(color_scheme="light")
+                page.evaluate("window.originalReviewDocument = true")
                 page.get_by_role("link", name="Next inventory page").click()
-                expect(page.get_by_text("Page 2 of 3", exact=False)).to_be_visible()
+                expect(
+                    page.get_by_role("navigation", name="Deletion inventory pages")
+                ).to_contain_text("Page 2 of 3")
+                self.assertFalse(
+                    page.evaluate("Boolean(window.originalReviewDocument)")
+                )
                 with page.expect_download() as event:
                     page.get_by_role(
                         "link", name="Download the complete deletion inventory (JSON)"

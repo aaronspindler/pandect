@@ -3,8 +3,8 @@
   <summary>Message source</summary>
   <div class="conversation-panel-disclosure-content">
     {% if communication_context %}
-    <p>Retained export <a href="{% url 'core:evidence:detail' case.pk 'document' communication_context.source_document_id %}">{{ communication_context.source_document.title }}</a> · Row {{ communication_context.source_row }}</p>
-    <a class="record-link" href="{{ item.source_info_url }}">View source metadata</a>
+    <p>Retained export <a data-workspace-link href="{% url 'core:evidence:detail' case.pk 'document' communication_context.source_document_id %}">{{ communication_context.source_document.title }}</a> · Row {{ communication_context.source_row }}</p>
+    <a data-workspace-link class="record-link" href="{{ item.source_info_url }}">View source metadata</a>
     {% endif %}
     {% if item.source or item.collected_at %}
     <dl class="conversation-message-meta">

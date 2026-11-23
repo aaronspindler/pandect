@@ -1,7 +1,7 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}{{ group.label }} · {{ case.name }}{% endblock %}
 {% block content %}
-<a class="back-link" href="{% url 'core:analysis:detail' case.pk run.pk %}">Back to plan comparison</a>
+<a class="back-link" href="{{ back_url }}">Back to plan comparison</a>
 <header class="page-header"><div><h1>{{ group.label }}</h1><p>{{ page.paginator.count }} selected observation{{ page.paginator.count|pluralize }} · Method {{ group.method_version }}{% if group.origin == 'trip' %} · Generation revision {{ group.revision }}{% endif %}</p></div></header>
 {% if group_url %}<a class="record-link" href="{{ group_url }}">{% if group.origin == 'trip' %}Open this trip{% else %}Open original finding{% endif %}</a>
 {% elif group.origin == 'trip' %}<p class="notice">This comparison retains the observations from an earlier trip generation.</p>{% endif %}
@@ -11,5 +11,5 @@
   {% if source.derived_result_id %}<a class="record-link" href="{{ source.url }}">Inspect selected address estimate</a>{% endif %}
   {% if source.item.source_row %}<a class="record-link" href="{{ source.original_url }}?info=1#original-csv-row">Open source CSV row {{ source.item.source_row }}</a>{% endif %}
 </li>{% endfor %}</ol>
-{% if page.has_other_pages %}<nav class="pagination" aria-label="Observation pages">{% if page.has_previous %}<a class="button button-secondary" href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="button button-secondary" href="?page={{ page.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
+{% if page.has_other_pages %}<nav class="pagination" aria-label="Observation pages">{% if page.has_previous %}<a class="button button-secondary" href="{% querystring page=page.previous_page_number %}">Previous</a>{% endif %}<span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="button button-secondary" href="{% querystring page=page.next_page_number %}">Next</a>{% endif %}</nav>{% endif %}
 {% endblock %}

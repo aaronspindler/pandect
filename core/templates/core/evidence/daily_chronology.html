@@ -8,7 +8,7 @@
   {% include 'ui/components/form_errors.html' %}
   <div data-timeline-controls>
     <div class="day-controls">
-      <form method="get" class="day-picker" aria-label="Choose a day">
+      <form data-workspace-form method="get" class="day-picker" aria-label="Choose a day">
         <input type="hidden" name="view" value="day">
         {% if show_utc %}<input type="hidden" name="clock" value="utc">{% endif %}
         {% include 'ui/components/form_field.html' with field=form.day only %}
@@ -18,16 +18,16 @@
       <div class="day-clock">
         <p class="help-text">{{ account_timezone }}{% if show_utc and account_timezone != 'UTC' %} · Times shown in UTC{% endif %}</p>
         {% if account_timezone != 'UTC' %}
-          {% if show_utc %}<a class="record-link" data-timeline-clock href="{% querystring clock=None %}">Show local times</a>
-          {% else %}<a class="record-link" data-timeline-clock href="{% querystring clock='utc' %}">Show UTC times</a>{% endif %}
+          {% if show_utc %}<a data-workspace-link class="record-link" data-timeline-clock href="{% querystring clock=None %}">Show local times</a>
+          {% else %}<a data-workspace-link class="record-link" data-timeline-clock href="{% querystring clock='utc' %}">Show UTC times</a>{% endif %}
         {% endif %}
       </div>
       {% endif %}
     </div>
     <nav class="actions day-other-views" aria-label="Chronology views">
-      <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}">Recorded chronology</a>
-      <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=unplaced">Unplaced evidence and time claims</a>
-      <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=references">Extracted date references</a>
+      <a data-workspace-link class="record-link" href="{% url 'core:evidence:chronology' case.pk %}">Recorded chronology</a>
+      <a data-workspace-link class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=unplaced">Unplaced evidence and time claims</a>
+      <a data-workspace-link class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=references">Extracted date references</a>
     </nav>
   </div>
   {% if day %}
@@ -42,4 +42,3 @@
   {% endif %}
 </div>
 {% endblock %}
-{% block extra_js %}{% if day %}<script src="{% static 'core/daily-chronology.js' %}" defer></script>{% endif %}{% endblock %}

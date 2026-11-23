@@ -5,6 +5,11 @@
       {% if item.short_value %}<p class="muted">{% if item.ai_suggestion %}AI suggestion · {% endif %}{{ item.label }}</p>{% endif %}
     {% else %}<h3 id="finding-heading-{{ item.number }}">{% include 'core/analysis/finding_link.html' %}</h3>{% endif %}
   </header>
+  {% if focused_finding and important_action_url %}
+    {% if can_edit or important_marked or important_notes_url %}
+      <div class="actions">{% include 'core/important/reader_actions.html' %}</div>
+    {% endif %}
+  {% endif %}
   {% if focused_finding and run.status != 'complete' %}<p><span class="badge" role="status">{{ run.get_status_display }}</span></p>{% endif %}
   {% if item.text or item.weak_ocr_text %}
     {% if not focused_finding or not item.short_value and run.operation != 'claim_comparison' %}

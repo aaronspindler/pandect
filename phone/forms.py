@@ -1,6 +1,8 @@
 from uuid import uuid4
 
 from django import forms
+from django.conf import settings
+from django.template.defaultfilters import filesizeformat
 
 from core.evidence.forms import EvidenceForm, validate_file, validate_text
 from phone.models import CallEvidenceAttachment
@@ -49,11 +51,15 @@ class CommunicationEvidenceForm(EvidenceForm):
             else:
                 if "file" in self.fields:
                     self.fields["file"].label = "Audio file"
-                    self.fields["file"].help_text = (
-                        "Optional original recording, retained without automatic "
-                        "format verification. Later recordings are new attachments."
+                    self.fields["file"].help_text += (
+                        " The original recording is retained without verification "
+                        "of its format. Later recordings are new attachments."
                     )
-                    self.fields["transcript"].widget.attrs["rows"] = 12
+                    transcript = self.fields["transcript"]
+                    transcript.help_text += (
+                        f" Up to {filesizeformat(settings.PANDECT_MAX_TEXT_BYTES)}."
+                    )
+                    transcript.widget.attrs["rows"] = 12
                 self.fields["duration"].help_text = (
                     "Reported duration, such as 00:01:30. "
                     "Leave blank if unknown; zero is valid."

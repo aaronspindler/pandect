@@ -3,78 +3,121 @@
 {% block content %}
 <header class="page-header case-tools-header">
   <h1>Case Tools</h1>
+  <nav class="actions case-tools-jumps" aria-label="On this page">
+    <a class="record-link" href="#latest-records">Jump to latest records</a>
+    {% if operation_groups %}<a class="record-link" href="#analysis-methods">Jump to analysis methods</a>{% endif %}
+  </nav>
+  {% if can_edit %}
   <div class="actions">
     {% if is_owner %}<a class="button button-secondary" href="{% url 'cases:case_settings' case.pk %}">Case settings</a>{% endif %}
-    {% if can_edit %}<a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>{% endif %}
+    <a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>
   </div>
+  {% endif %}
 </header>
 
 <nav class="case-tools-directory" aria-label="Explore case">
-  <a href="{% url 'core:analysis:browse' case.pk %}">{% include 'ui/components/icon.html' with name='file-text' %}Findings</a>
-  <a href="{% url 'phone:conversation_list' case.pk %}">{% include 'ui/components/icon.html' with name='message' %}Conversations</a>
-  <a href="{% url 'geo:case_map' case.pk %}">{% include 'ui/components/icon.html' with name='map' %}Trips</a>
-  <a href="{% url 'core:evidence:list' case.pk %}?type=image&amp;view=gallery">{% include 'ui/components/icon.html' with name='photo' %}Images</a>
+  <section aria-labelledby="explore-evidence-heading">
+    <h2 id="explore-evidence-heading">{% include 'ui/components/icon.html' with name='search' %}Explore evidence</h2>
+    <div class="case-tools-links case-tools-explore">
+      <a href="{% url 'core:analysis:browse' case.pk %}">Findings</a>
+      <a data-workspace-link href="{% url 'phone:conversation_list' case.pk %}">Conversations</a>
+      <a data-workspace-document href="{% url 'geo:case_map' case.pk %}">Trips</a>
+      <a href="{% url 'core:evidence:list' case.pk %}?type=image&amp;view=gallery">Images</a>
+      <a href="{% url 'core:important:list' case.pk %}">Important</a>
+      <a data-workspace-link href="{% url 'core:evidence:chronology' case.pk %}?view=day">Chronology</a>
+    </div>
+  </section>
+  <section aria-labelledby="case-records-heading">
+    <h2 id="case-records-heading">{% include 'ui/components/icon.html' with name='users' %}Case records</h2>
+    <div class="case-tools-links">
+      <a href="{% url 'people:list' case.pk %}">People</a>
+      <a href="{% url 'vehicle:list' case.pk %}">Vehicles</a>
+      <a href="{% url 'core:analysis:connections' case.pk %}">Repeated identifiers</a>
+      <a href="{% url 'core:analysis:sighting_groups' case.pk %}">Sighting groups</a>
+      {% if show_instagram_monitors %}<a href="{% url 'instagram:list' case.pk %}">Instagram monitors</a>{% endif %}
+    </div>
+  </section>
+  <section id="analysis-reports" aria-labelledby="analysis-reports-heading">
+    <h2 id="analysis-reports-heading">{% include 'ui/components/icon.html' with name='files' %}Reports</h2>
+    <div class="case-tools-links">
+      {% for name,label in reports %}<a href="{% url 'core:analysis:report' case.pk name %}">{{ label }}</a>{% endfor %}
+    </div>
+  </section>
 </nav>
 
-{% partialdef collection inline %}
-<div data-collection-kind="case-tools">
-{% if highlights or recent_evidence %}
-<div class="case-tool-grid case-tools-recent">
-  {% if recent_evidence %}
-  <section class="analysis-section" aria-labelledby="recent-evidence-heading">
-    <div class="section-header"><h2 id="recent-evidence-heading">Recent evidence</h2><a class="record-link" href="{% url 'core:evidence:list' case.pk %}">All evidence{% if evidence_count %} · {{ evidence_count }}{% endif %}</a></div>
-    {% for item in recent_evidence %}<a class="record-row" href="{{ item.url }}"><div><strong>{{ item.title }}</strong><p>{{ item.label }}</p></div></a>
+<section class="case-tools-section" id="latest-records" tabindex="-1" aria-labelledby="latest-records-heading">
+  <div class="section-header">
+    <h2 id="latest-records-heading">Latest records</h2>
+    <div class="actions">
+      <a class="record-link" href="{% url 'core:evidence:list' case.pk %}">All evidence</a>
+      <a class="record-link" href="{% url 'core:analysis:browse' case.pk %}">All findings</a>
+    </div>
+  </div>
+  {% partialdef collection inline %}
+  <div data-collection-kind="case-tools">
+    {% if latest_records %}
+    <table class="case-tools-latest" aria-labelledby="latest-records-heading">
+      <thead><tr><th scope="col">Record</th><th scope="col">Type or source</th><th scope="col">Added or saved</th></tr></thead>
+      <tbody>
+        {% for item in latest_records %}
+        <tr>
+          <th scope="row"><a class="record-link" href="{{ item.url }}">
+            {% if item.record_type == 'Finding' %}{% include 'ui/components/icon.html' with name='search' %}{% elif item.kind == 'image' %}{% include 'ui/components/icon.html' with name='photo' %}{% else %}{% include 'ui/components/icon.html' with name='file-text' %}{% endif %}
+            <span>{{ item.title }}</span>
+          </a></th>
+          <td>
+            <div class="case-tools-source">
+              <span class="badge">{{ item.record_type }}</span>
+              {% if item.ai_suggestion %}<span class="badge">AI suggestion</span>{% endif %}
+              {% if item.partial %}<span class="badge">Partial coverage</span>{% endif %}
+              {% if item.record_type == 'Finding' %}<span>{% if item.summary_text %}{{ item.label }} · {% endif %}From {{ item.source_title }}{% if item.attachment_label %} · {{ item.attachment_label }}{% endif %}</span>
+              {% else %}<span>{{ item.label }}</span>{% endif %}
+            </div>
+          </td>
+          <td><time datetime="{{ item.created_at|date:'c' }}">{{ item.created_at|date:'j M Y, H:i T' }}</time></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% elif can_edit %}
+    <p class="muted">No recent evidence or findings. <a href="{% url 'core:evidence:create' case.pk %}">Add evidence to this case</a>.</p>
+    {% else %}
+    <p class="muted">Evidence appears here when an owner or editor adds it.</p>
+    {% endif %}
+  </div>
+  {% endpartialdef %}
+</section>
+
+{% if operation_groups %}
+<section class="case-tools-section" id="analysis-methods" tabindex="-1" aria-labelledby="analysis-methods-heading">
+  <div class="section-header">
+    <h2 id="analysis-methods-heading">Analysis methods</h2>
+    <a class="record-link" href="{% url 'core:analysis:create' case.pk %}">Browse methods by evidence type</a>
+  </div>
+  <div class="case-tools-methods">
+    {% for group,choices in operation_groups %}
+    <div>
+      {% cycle 'file-text' 'stack' 'message' 'map' as group_icon silent %}
+      <h3>{% include 'ui/components/icon.html' with name=group_icon %}{{ group }}</h3>
+      <div class="case-tools-links">
+        {% for choice in choices %}<a href="{{ choice.url }}">{{ choice.label }}</a>{% endfor %}
+      </div>
+    </div>
     {% endfor %}
-  </section>
-  {% endif %}
-  {% if highlights %}
-  <section class="analysis-section analysis-highlights" aria-labelledby="case-findings-heading">
-    <div class="section-header"><h2 id="case-findings-heading">Recent findings</h2></div>
-    <ul class="analysis-finding-rows">
-      {% for item in highlights %}
-      <li><a class="analysis-finding-link" href="{{ item.url }}"><div>
-        <strong>{{ item.summary_text|default:item.label }}</strong>
-        {% if item.ai_suggestion %}<small>AI suggestion</small>{% endif %}
-        <small>{% if item.summary_text %}{{ item.label }} · {% endif %}{{ item.source_title }}{% if item.attachment_label %} · {{ item.attachment_label }}{% endif %}</small>
-        {% if item.partial %}<small>Partial coverage</small>{% endif %}
-      </div>{% include 'ui/components/icon.html' with name='chevron-right' %}</a></li>
-      {% endfor %}
-    </ul>
-  </section>
-  {% endif %}
-</div>
-{% elif not can_edit and not evidence_count %}
-<p class="muted">Evidence appears here when an owner or editor adds it.</p>
+  </div>
+</section>
 {% endif %}
 
-</div>
-{% endpartialdef %}
-
-<nav class="content-section" aria-label="Other case tools">
-  <h2>More case tools</h2>
-  <div class="actions">
-    <a class="record-link" href="{% url 'core:evidence:chronology' case.pk %}?view=day">Chronology</a>
-    <a class="record-link" href="{% url 'people:list' case.pk %}">People</a>
-    <a class="record-link" href="{% url 'vehicle:list' case.pk %}">Vehicles</a>
-    <a class="record-link" href="{% url 'core:analysis:connections' case.pk %}">Repeated identifiers</a>
-    <a class="record-link" href="{% url 'core:analysis:sighting_groups' case.pk %}">Sighting groups</a>
-    {% if show_instagram_monitors %}<a class="record-link" href="{% url 'instagram:list' case.pk %}">Instagram monitors</a>{% endif %}
-    {% if can_edit %}<a class="record-link" href="{% url 'core:analysis:create' case.pk %}">Additional analysis</a>{% endif %}
-  </div>
-</nav>
-<details class="disclosure" id="analysis-reports">
-  <summary id="analysis-reports-heading">Reports</summary>
-  <div class="analysis-options">{% for name,label,description in reports %}
-    <a href="{% url 'core:analysis:report' case.pk name %}" aria-labelledby="report-{{ name }}-label" aria-describedby="report-{{ name }}-description">
-      <span><strong id="report-{{ name }}-label">{{ label }}</strong><small id="report-{{ name }}-description">{{ description }}</small></span>
-      {% include 'ui/components/icon.html' with name='chevron-right' %}
-    </a>
-  {% endfor %}</div>
-</details>
-<details class="disclosure case-details-body"><summary>Case details</summary>
-  <dl class="metadata-grid"><div><dt>Owner</dt><dd>{{ case.owner.get_username }}</dd></div><div><dt>Your role</dt><dd>{{ case_role|capfirst }}</dd></div><div><dt>Created</dt><dd><time datetime="{{ case.created_at|date:'c' }}">{{ case.created_at|date:'j M Y, H:i T' }}</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ case.updated_at|date:'c' }}">{{ case.updated_at|date:'j M Y, H:i T' }}</time></dd></div></dl>
-  {% if case.description %}<div class="prose"><h2>Case description</h2>{{ case.description|linebreaks }}</div>{% endif %}
-</details>
+<section class="case-tools-section" id="case-details" aria-labelledby="case-details-heading">
+  <h2 id="case-details-heading">Case details</h2>
+  <dl class="metadata-grid">
+    <div><dt>Owner</dt><dd>{{ case.owner.get_username }}</dd></div>
+    <div><dt>Your role</dt><dd>{{ case_role|capfirst }}</dd></div>
+    <div><dt>Created</dt><dd><time datetime="{{ case.created_at|date:'c' }}">{{ case.created_at|date:'j M Y, H:i T' }}</time></dd></div>
+    <div><dt>Updated</dt><dd><time datetime="{{ case.updated_at|date:'c' }}">{{ case.updated_at|date:'j M Y, H:i T' }}</time></dd></div>
+  </dl>
+  {% if case.description %}<div class="prose"><h3>Case description</h3>{{ case.description|linebreaks }}</div>{% endif %}
+</section>
 {% endblock %}
 
 {% block extra_js %}{% include 'ui/components/collection_script.html' %}{% endblock %}

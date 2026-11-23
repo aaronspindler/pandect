@@ -1,8 +1,8 @@
-(() => {
+window.PandectPage((signal) => {
   "use strict";
 
   let timeline = document.querySelector("[data-timeline]");
-  if (!timeline) return;
+  if (!timeline || !window.PandectWorkspace) return;
 
   const controls = document.querySelector("[data-timeline-controls]");
   const picker = document.querySelector(".day-picker");
@@ -10,6 +10,8 @@
   const clock = document.querySelector("[data-timeline-clock]");
   const status = document.querySelector("[data-timeline-status]");
   let activeDay = timeline.querySelector("[data-timeline-day]");
+  const firstEntry = history.state?.workspaceIndex;
+  let lastEntry = firstEntry;
   let jump;
   let lastScroll = window.scrollY;
   let scrollFrame;
@@ -23,12 +25,17 @@
     return url;
   }
 
-  function selectDay(day, method = "replaceState") {
+  function selectDay(day, push = false) {
     if (activeDay === day) return;
     if (date.value === activeDay.dataset.timelineDay) date.value = day.dataset.timelineDay;
     activeDay = day;
     const url = dayURL(day);
-    if (url.href !== location.href) history[method](history.state, "", url);
+    if (url.href !== location.href) {
+      if (push) {
+        window.PandectWorkspace.pushLocal(url);
+        lastEntry = history.state.workspaceIndex;
+      } else window.PandectWorkspace.replaceLocal(url);
+    }
     if (clock) {
       if (url.searchParams.get("clock") === "utc") url.searchParams.delete("clock");
       else url.searchParams.set("clock", "utc");
@@ -152,43 +159,75 @@
 
   let scroll = enableScroll(timeline);
 
-  async function jumpToDate() {
-    const selected = date.value;
-    if (jump?.day === selected) return;
+  async function openDate(url, restore) {
+    if (jump?.url === url.href) return;
     jump?.controller.abort();
-    jump = null;
-    if (!selected || !date.validity.valid ||
-      (activeDay.dataset.timelineDay === selected && activeDay.dataset.timelinePage === "1")) {
-      status.textContent = "";
-      return;
-    }
-    const request = { day: selected, controller: new AbortController() };
+    const isCurrent = window.PandectWorkspace.beginLocal();
+    const request = { url: url.href, controller: new AbortController() };
     jump = request;
-    const url = new URL(picker.action);
-    url.search = new URLSearchParams(new FormData(picker));
     status.classList.remove("sr-only");
     status.textContent = "Opening date…";
     try {
       const incoming = await loadDay(url, request.controller.signal, timeline.dataset.timezone);
-      if (jump !== request) return;
+      if (jump !== request || !isCurrent()) return;
       scroll.abort();
       timeline.replaceWith(incoming.panel);
       timeline = incoming.panel;
-      selectDay(incoming.day, "pushState");
+      date.value = incoming.day.dataset.timelineDay;
+      selectDay(incoming.day, !restore);
+      if (restore) {
+        document.getElementById(restore.focus)?.focus({preventScroll: true});
+        window.scrollTo(0, restore.scroll || 0);
+      }
       lastScroll = window.scrollY;
       scroll = enableScroll(timeline);
       status.classList.add("sr-only");
       status.textContent = `Showing ${incoming.day.querySelector("h2").textContent}.`;
     } catch {
-      if (jump === request) status.textContent = "Could not open this date. Use Go to date to try again.";
+      if (jump === request && isCurrent()) {
+        if (restore) location.reload();
+        else status.textContent = "Could not open this date. Use Go to date to try again.";
+      }
     } finally {
       if (jump === request) jump = null;
     }
   }
 
+  function jumpToDate() {
+    if (!date.value || !date.validity.valid ||
+        (activeDay.dataset.timelineDay === date.value && activeDay.dataset.timelinePage === "1")) {
+      window.PandectWorkspace.beginLocal();
+      jump?.controller.abort();
+      jump = null;
+      status.textContent = "";
+      return;
+    }
+    const url = new URL(picker.action);
+    url.search = new URLSearchParams(new FormData(picker));
+    openDate(url);
+  }
+
+  // An older date response must not supersede a later workspace navigation.
+  document.addEventListener("pandect:check-navigation", event => {
+    if (jump && !event.defaultPrevented) {
+      jump.controller.abort();
+      jump = null;
+      status.textContent = "";
+    }
+  }, {signal});
+
+  // Date jumps share the mounted picker; other Chronology views use a workspace visit.
+  document.addEventListener("pandect:restore-local", event => {
+    const index = history.state.workspaceIndex;
+    const url = new URL(location.href);
+    if (firstEntry === lastEntry || index < firstEntry || index > lastEntry || !url.searchParams.get("day")) return;
+    event.preventDefault();
+    openDate(url, history.state.workspace);
+  }, {signal});
+
   // Native date fields may delay change until a keyboard edit is committed.
-  date.addEventListener("input", jumpToDate);
-  date.addEventListener("change", jumpToDate);
+  date.addEventListener("input", jumpToDate, {signal});
+  date.addEventListener("change", jumpToDate, {signal});
 
   window.addEventListener("scroll", () => {
     if (scrollFrame) return;
@@ -200,17 +239,20 @@
       const visible = Array.from(days).find((day) => day.getBoundingClientRect().bottom > 1);
       if (visible) selectDay(visible);
     });
-  }, { passive: true });
+  }, { passive: true, signal });
 
   // A link may be used from a second visible section, before its heading reaches the top.
   function selectLinkDay(event) {
     const day = event.target.closest("a")?.closest("[data-timeline-day]");
     if (day) selectDay(day);
   }
-  document.addEventListener("focusin", selectLinkDay);
-  document.addEventListener("click", selectLinkDay);
+  document.addEventListener("focusin", selectLinkDay, {signal});
+  document.addEventListener("click", selectLinkDay, {capture: true, signal});
 
-  window.addEventListener("popstate", () => {
-    if (dayURL(activeDay).search !== location.search) location.reload();
-  });
-})();
+  signal.addEventListener("abort", () => {
+    jump?.controller.abort();
+    jump = null;
+    scroll.abort();
+    cancelAnimationFrame(scrollFrame);
+  }, {once: true});
+});

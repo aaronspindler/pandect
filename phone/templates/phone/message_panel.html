@@ -6,12 +6,12 @@
   <h3>Original message</h3>
   <div class="conversation-message-body">{% if selected_message.pk == message.pk %}{{ message.body }}{% endif %}</div>
   <dl class="conversation-message-meta">
-    <div><dt>Reported sender</dt><dd><a href="{% url 'people:detail' case.pk message.sender_id %}">{{ message.sender }}</a></dd></div>
-    <div><dt>Reported recipient</dt><dd><a href="{% url 'people:detail' case.pk message.recipient_id %}">{{ message.recipient }}</a></dd></div>
+    <div><dt>Reported sender</dt><dd><a data-workspace-link href="{% url 'people:detail' case.pk message.sender_id %}">{{ message.sender }}</a></dd></div>
+    <div><dt>Reported recipient</dt><dd><a data-workspace-link href="{% url 'people:detail' case.pk message.recipient_id %}">{{ message.recipient }}</a></dd></div>
     <div><dt>Sent at</dt><dd>{% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Not recorded{% endif %}</dd></div>
     {% if message.is_archived %}<div><dt>Status</dt><dd>Archived</dd></div>{% endif %}
   </dl>
-  <a class="record-link" href="{{ message.evidence_url }}">Open evidence<span class="sr-only">: {{ message.title }}</span></a>
+  <a data-workspace-link class="record-link" href="{{ message.evidence_url }}">Open evidence<span class="sr-only">: {{ message.title }}</span></a>
 </section>
 {% if message.analysis.count %}
 <details class="conversation-analysis conversation-panel-disclosure" id="message-analysis-{{ message.pk }}" data-message-analysis open>

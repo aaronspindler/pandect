@@ -1,5 +1,6 @@
 """Current case work and retained processing history, separate from queue rows."""
 
+from collections import Counter
 from uuid import UUID, uuid4
 
 from django.core.paginator import Paginator
@@ -10,7 +11,7 @@ from django.views.decorators.http import require_safe
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import error_message
-from core.analysis.navigation import history_filters, query_suffix
+from core.analysis.navigation import evidence_return_url, history_filters, query_suffix
 from core.analysis.operations import OPERATION_GROUPS, OPERATIONS
 from core.analysis.reprocessing import MODE_LABELS
 from core.analysis.retries import failed_checks, latest_failed_retry
@@ -25,9 +26,17 @@ from socialmedia.monitor_jobs import check_message
 from ui.live import render_live
 
 ACTIVE_RUNS = ("queued", "running")
-ACTIVE_IMPORTS = ("pending", "queued", "running")
+ACTIVE_IMPORTS = ("queued", "running")
+IMPORTS_AWAITING_ACTION = ("pending", "review")
 ACTIVE_TRIPS = Q(status__in=ACTIVE_RUNS) | Q(
     status="complete", geocode_status__in=ACTIVE_RUNS
+)
+PROCESSED_RUNS = (
+    AnalysisRun.Status.COMPLETE,
+    AnalysisRun.Status.PARTIAL,
+    AnalysisRun.Status.EMPTY,
+    AnalysisRun.Status.INSUFFICIENT,
+    AnalysisRun.Status.UNSUPPORTED,
 )
 NEEDS_ATTENTION_LIMIT = 3
 
@@ -45,29 +54,60 @@ def case_trip_generations(case):
     )
 
 
-def _analysis_run_counts(case_runs):
+def _run_counts(case_runs):
     counts = (
-        case_runs.filter(
-            operation__in=[
-                method for group in OPERATION_GROUPS.values() for method in group
-            ],
-            status__in=(
-                AnalysisRun.Status.COMPLETE,
-                AnalysisRun.Status.PARTIAL,
-                AnalysisRun.Status.EMPTY,
-                AnalysisRun.Status.INSUFFICIENT,
-                AnalysisRun.Status.UNSUPPORTED,
-            ),
-        )
-        .values("operation")
-        .annotate(count=Count("pk"))
+        case_runs.values_list("operation", "status")
+        .annotate(count=Count("*"))
         .order_by("operation")
     )
+    statuses = Counter()
+    saved = Counter()
+    methods = {method for group in OPERATION_GROUPS.values() for method in group}
+    for operation, status, count in counts:
+        statuses[status] += count
+        if operation in methods and status in PROCESSED_RUNS:
+            saved[operation] += count
     rows = [
-        {"label": OPERATIONS[row["operation"]].label, "count": row["count"]}
-        for row in counts
+        {"label": OPERATIONS[operation].label, "count": count}
+        for operation, count in saved.items()
     ]
-    return sorted(rows, key=lambda row: (-row["count"], row["label"].casefold()))
+    return statuses, sorted(
+        rows, key=lambda row: (-row["count"], row["label"].casefold())
+    )
+
+
+def _status_counts(work):
+    return dict(work.values_list("status").annotate(count=Count("*")).order_by())
+
+
+def _processing_summary(
+    run_counts, batches, imports, trips, monitor_counts, index_status
+):
+    """Bucket each saved work record at its current processing stage."""
+    counts = run_counts.copy()
+    counts.update(_status_counts(batches))
+    counts.update(_status_counts(imports))
+    counts.update(monitor_counts)
+    trip_counts = (
+        trips.values_list("status", "geocode_status")
+        .annotate(count=Count("*"))
+        .order_by()
+    )
+    for status, geocode_status, count in trip_counts:
+        if status == "complete" and geocode_status in (*ACTIVE_RUNS, "failed"):
+            status = geocode_status
+        counts[status] += count
+    counts["complete" if index_status == "ready" else index_status] += 1
+    return [
+        {"label": "Queued", "count": counts["queued"]},
+        {"label": "Processing", "count": counts["running"], "tone": "active"},
+        {
+            "label": "Processed",
+            "count": sum(counts[status] for status in PROCESSED_RUNS),
+            "tone": "success",
+        },
+        {"label": "Failed", "count": counts["failed"], "tone": "error"},
+    ]
 
 
 @product_login_required
@@ -87,12 +127,15 @@ def index(request, case_id):
     )
     runs = all_runs
     batch = None
+    batch_reader_url = ""
     if value := request.GET.get("batch"):
         try:
             batch = CaseAnalysisBatch.objects.get(case=case, pk=UUID(value))
         except ValueError, CaseAnalysisBatch.DoesNotExist:
             raise Http404("Processing batch not found.") from None
         runs = runs.filter(batch=batch)
+        if batch.scope.get("type") == "selected_analysis":
+            batch_reader_url = evidence_return_url(case.pk, request.GET)
     active = all_runs.filter(status__in=ACTIVE_RUNS)
     if batch:
         active = active.exclude(batch=batch)
@@ -206,13 +249,14 @@ def index(request, case_id):
     active_imports = Paginator(imports_in_progress, 10).get_page(
         request.GET.get("active_imports_page")
     )
-    import_reviews = list(imports.filter(status="review")[:6])
+    imports_awaiting_action = imports.filter(status__in=IMPORTS_AWAITING_ACTION)
+    import_reviews = list(imports_awaiting_action[:6])
     failed_imports = list(imports.filter(status="failed")[: NEEDS_ATTENTION_LIMIT + 1])
     showing_import_reviews = request.GET.get("imports") == "review"
     import_history = Paginator(
-        imports.filter(status="review")
+        imports_awaiting_action
         if showing_import_reviews
-        else imports.exclude(status__in=(*ACTIVE_IMPORTS, "review")),
+        else imports.exclude(status__in=(*ACTIVE_IMPORTS, *IMPORTS_AWAITING_ACTION)),
         25,
     ).get_page(request.GET.get("imports_page"))
     trip_generations = (
@@ -249,19 +293,28 @@ def index(request, case_id):
         .select_related("monitor")
         .order_by("-started_at", "-pk")
     )
-    running_monitors = instagram_checks.filter(status="running").count()
+    monitor_counts = _status_counts(instagram_checks)
+    running_monitors = monitor_counts.get("running", 0)
     monitor_history = Paginator(
         instagram_checks.exclude(status="running"), 10
     ).get_page(request.GET.get("instagram_page"))
     for check in monitor_history:
         check.message = check_message(check.error) if check.error else ""
-    analysis_run_counts = _analysis_run_counts(case_runs)
+    run_counts, analysis_run_counts = _run_counts(case_runs)
     return render_live(
         request,
         "core/analysis/processing.html",
         context
         | {
             "nav_section": "processing",
+            "processing_summary": _processing_summary(
+                run_counts,
+                all_batches,
+                imports,
+                trip_generations,
+                monitor_counts,
+                search_index["status"],
+            ),
             "analysis_run_counts": analysis_run_counts,
             "analysis_run_total": sum(row["count"] for row in analysis_run_counts),
             "page_obj": page,
@@ -288,7 +341,8 @@ def index(request, case_id):
             "running_monitors": running_monitors,
             "monitor_history": monitor_history,
             "live_pending": bool(
-                case_runs.filter(status__in=ACTIVE_RUNS).exists()
+                run_counts["queued"]
+                or run_counts["running"]
                 or active_batches.paginator.count
                 or active_trips.paginator.count
                 or search_pending
@@ -302,11 +356,18 @@ def index(request, case_id):
             "trip_history": trip_history,
             "batches": batches,
             "batch": batch,
+            "batch_reader_url": batch_reader_url,
             "reprocessing_mode": MODE_LABELS.get(batch.scope.get("mode"))
             if batch and batch.scope.get("type") == "reprocess"
             else "",
             "search_needs_attention": context["can_edit"]
-            and search_index["status"] in {"changed", "failed"},
+            and (
+                search_index["status"] in {"changed", "failed"}
+                or (
+                    context["is_owner"]
+                    and search_index["status"] == "awaiting_approval"
+                )
+            ),
             "batch_error_message": error_message(batch.error_code)
             if batch and batch.error_code
             else "",
@@ -333,6 +394,11 @@ def index(request, case_id):
                 ({"reviews": "messages"} if showing_message_reviews else filters)
                 | ({"history_page": page.number} if page.number > 1 else {})
                 | ({"batch": batch.pk} if batch else {})
+                | (
+                    {"return_evidence": request.GET["return_evidence"]}
+                    if batch_reader_url
+                    else {}
+                )
                 or {"history": "1"}
             ),
             "evidence_kinds": KIND_LABELS.items(),

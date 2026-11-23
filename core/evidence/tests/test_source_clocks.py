@@ -147,6 +147,17 @@ class SourceClockTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(info["source_zone"], "UTC")
         self.assertContains(unplaced, "01 Nov 2026")
 
+        collection = self.client.get(
+            self.url("list"), {"type": "text-message", "q": "Only a day"}
+        )
+        row = collection.context["rows"][0]
+        self.assertTrue(row["time_date_only"])
+        self.assertEqual(row["time_value"].isoformat(), raw)
+        self.assertContains(collection, 'datetime="2026-11-01"')
+        self.assertContains(collection, "01 Nov 2026")
+        self.assertContains(collection, "Date only")
+        self.assertNotContains(collection, "20:00:00")
+
     def test_calculated_call_ends_distinguish_zero_overlap_and_missing_duration(self):
         for title, minutes, duration in (
             ("Ends later", 0, timedelta(hours=1)),

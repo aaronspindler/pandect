@@ -33,7 +33,15 @@ class CollectionFragmentTests(EvidenceViewTestMixin, TestCase):
                 self.assertNotContains(fragment, 'id="evidence-reader"')
                 self.assertIn("X-Pandect-Live", fragment["Vary"])
                 self.assertEqual(fragment["X-Pandect-Live"], "collection")
-                self.assertIn(fragment.content.strip(), page.content)
+                # Evidence places its summary above the full-page filter toolbar.
+                overview, records_start, records = fragment.content.partition(
+                    b'<div data-collection-kind="evidence"'
+                )
+                if records_start and overview.strip():
+                    self.assertIn(overview.strip(), page.content)
+                    self.assertIn((records_start + records).strip(), page.content)
+                else:
+                    self.assertIn(fragment.content.strip(), page.content)
         CaseMembership.objects.filter(
             case=self.case, user=self.users["viewer"]
         ).delete()

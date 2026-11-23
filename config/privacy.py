@@ -1,4 +1,4 @@
-"""Keep private pages out of caches and sensitive URLs out of routine logs."""
+"""Keep private pages out of caches and search, and redact sensitive URLs."""
 
 import logging
 import re
@@ -31,11 +31,16 @@ class PrivatePageMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        if request.path_info.startswith(("/cases/", "/accounts/", "/invitations/")):
+        private_page = request.path_info.startswith(
+            ("/cases/", "/accounts/", "/invitations/", "/events/")
+        )
+        if private_page:
             add_never_cache_headers(response)
             # Preserve same-origin form Origin/Referer checks. `no-referrer`
             # makes browsers send Origin: null for ordinary form POSTs.
             response["Referrer-Policy"] = "same-origin"
+        if private_page or request.path_info.startswith("/admin/"):
+            response["X-Robots-Tag"] = "noindex"
         response.setdefault("X-Content-Type-Options", "nosniff")
         tile_source = ""
         match = request.resolver_match

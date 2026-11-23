@@ -10,7 +10,7 @@ from django.contrib import messages
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.mail import EmailMessage
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import Case as CaseExpression
 from django.db.models import Count, OuterRef, Q, Subquery, Value, When
 from django.http import Http404
@@ -28,7 +28,14 @@ from core.analysis.approval import (
     revoke_case_execution,
 )
 from core.analysis.execution import configured_external_executions
+from core.case_search.approval import (
+    approve_case_search,
+    revoke_case_search,
+    search_approval_context,
+)
+from core.case_search.indexing import prepare_case_search
 from core.evidence.types import KINDS
+from core.models import ImportantItem, ImportantNote
 from geo.models import PointOfInterest
 from socialmedia import instagram_connector, monitor_jobs
 from socialmedia.models import SocialAccount
@@ -197,6 +204,7 @@ def _render_case_settings(
         pending_invitations=[item for item in invitations if item.is_pending],
         invitation_history=[item for item in invitations if not item.is_pending],
         external_analysis=case_approval_context(case, request.user),
+        search_approval=search_approval_context(case, request.user),
         instagram_scheduling_available=instagram_connector.scheduling_available(),
         instagram_target_approved=monitor_jobs.target_approved(case.pk),
         instagram_target=instagram_connector.PILOT_TARGET,
@@ -250,6 +258,49 @@ def case_external_analysis(request, case_id):
 
 @product_login_required
 @require_POST
+@transaction.atomic
+def case_search_approval(request, case_id):
+    case = get_case(request.user, case_id, owner=True, lock=True)
+    action = request.POST.get("action")
+    if action not in {"approve", "revoke"}:
+        raise Http404("Case action not found.")
+    review = search_approval_context(case, request.user)
+    if not constant_time_compare(
+        request.POST.get("confirmation", ""), review[f"{action}_confirmation"]
+    ):
+        messages.error(
+            request, "Settings changed. Review the meaning search destination."
+        )
+    elif action == "revoke" and review["saved_destination"]:
+        revoke_case_search(case)
+        messages.success(request, "Meaning search approval revoked for this case.")
+    elif action == "approve" and review["destination"] and not review["approved"]:
+        try:
+            with transaction.atomic():
+                approve_case_search(case, request.user, review)
+                if not prepare_case_search(case, request.user, retry=True):
+                    raise ValidationError("The reviewed search configuration changed.")
+        except DatabaseError, ValidationError:
+            messages.error(
+                request,
+                "Indexing could not be queued. Review the destination and try again.",
+            )
+        else:
+            messages.success(request, "Meaning search approved. Indexing is queued.")
+            return redirect(
+                reverse(
+                    "core:analysis:processing",
+                    args=(case.pk,),
+                    fragment="case-search-index",
+                )
+            )
+    return redirect(
+        reverse("cases:case_settings", args=(case.pk,), fragment="meaning-search")
+    )
+
+
+@product_login_required
+@require_POST
 def case_instagram_monitoring(request, case_id):
     action = request.POST.get("action")
     if action not in {"approve", "revoke"}:
@@ -297,6 +348,8 @@ def case_delete(request, case_id):
         "poi_count": PointOfInterest.objects.filter(person__case=case).count(),
         "active_evidence_count": sum(item["active"] for item in evidence_counts),
         "archived_evidence_count": sum(item["archived"] for item in evidence_counts),
+        "important_item_count": ImportantItem.objects.filter(case=case).count(),
+        "important_note_count": ImportantNote.objects.filter(item__case=case).count(),
     }
     return _render_case(request, "cases/delete.html", case, form=form, **counts)
 

@@ -1,16 +1,23 @@
 from unittest.mock import patch
+from urllib.parse import urlencode
 from uuid import uuid4
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.http import Http404
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils.html import escape
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
+from core.analysis.form_base import SOURCE_PAGE_SIZE
 from core.analysis.services import process_run
 from core.analysis.sources import source_id
+from core.analysis.testing import preview_image_bytes
 from core.analysis.tests.test_execution import LOCAL
 from core.models import AnalysisRun
 from core.testing import EvidenceViewTestMixin
+from image.models import ImageEvidence
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence, TextMessageEvidence
 from text.models import TextEvidence
 
@@ -145,6 +152,14 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         self.assertNotIn(foreign.body, denied.content.decode())
         self.assertFalse(AnalysisRun.objects.filter(operation=self.operation).exists())
 
+        with patch(
+            "text.claim_comparison_views.snapshot_and_resolve_sources",
+            side_effect=Http404,
+        ):
+            changed = self.choose(self.selected)
+        self.assertContains(changed, "A selected original or exact extraction")
+        self.assertEqual(changed.context["form"]["sources"].value(), self.selected)
+
         draft = self.prepare()
         rejected = self.confirm(draft, quote="Invented wording.")
         self.assertContains(rejected, "Copy the exact wording")
@@ -159,7 +174,212 @@ class ClaimComparisonViewTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(self.notice.is_archived)
         stale = self.confirm(draft)
         self.assertNotContains(stale, self.notice.body, status_code=400)
+        self.assertEqual(
+            stale.context["picker_url"],
+            self.create_url + "?operation=claim_comparison",
+        )
+        self.assertContains(stale, "Back to evidence selection", status_code=400)
+        self.notice.delete()
+        back = self.client.post(
+            stale.context["picker_url"],
+            {
+                "operation": self.operation,
+                "submission_id": stale.context["submission_id"],
+                "sources": stale.context["tokens"],
+                "browse_sources": "review",
+            }
+            | stale.context["picker_state"],
+        )
+        self.assertContains(
+            back, "Unavailable sources were cleared from the selection."
+        )
+        self.assertTrue(
+            any(
+                option.data["value"] == self.selected[0] and option.data["selected"]
+                for option, _, _ in back.context["source_options"]
+            )
+        )
+        self.assertNotContains(back, f'value="{self.selected[1]}"')
+        retried = self.client.post(
+            stale.context["picker_url"],
+            {
+                "operation": self.operation,
+                "submission_id": stale.context["submission_id"],
+                "sources": [self.selected[0], f"text:{self.text().pk}"],
+                "sources_cursor": self.selected[1],
+            },
+        )
+        self.assertContains(retried, "Choose the claim")
+        self.assertEqual(retried.context["picker_state"]["sources_cursor"], "")
         self.assertFalse(AnalysisRun.objects.filter(operation=self.operation).exists())
+
+    def test_broadening_a_blocked_reader_keeps_the_return_to_that_record(self):
+        source = ImageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Scanned booking confirmation without OCR",
+            file=SimpleUploadedFile("booking.png", preview_image_bytes()),
+        )
+        filters = {"q": "booking confirmation", "type": "image", "page": "2"}
+        method_url = reverse(
+            "core:analysis:create",
+            args=[self.case.pk],
+            query={
+                "operation": self.operation,
+                "source": f"image:{source.pk}",
+                "return_collection": urlencode(filters),
+            },
+        )
+        reader = reverse(
+            "core:evidence:detail",
+            args=[self.case.pk, "image", source.pk],
+            query=filters,
+            fragment="evidence-reader",
+        )
+        fixed = self.client.get(method_url)
+        self.assertTrue(fixed.context["fixed_source"])
+        picker = fixed.context["case_sources_url"]
+        self.assertContains(
+            fixed, f'href="{escape(picker)}">Choose from all case evidence</a>'
+        )
+        expanded = self.client.get(picker)
+        self.assertFalse(expanded.context["fixed_source"])
+        prepared = self.client.post(
+            picker,
+            {
+                "operation": self.operation,
+                "sources": self.selected,
+                "submission_id": str(uuid4()),
+            },
+        )
+        self.assertContains(prepared, f'href="{escape(reader)}">Cancel</a>')
+        queued = self.confirm(prepared.context["draft"])
+        self.assertEqual(queued.status_code, 302)
+        result = self.client.get(queued.url)
+        self.assertContains(result, f'href="{escape(reader)}">Back to evidence</a>')
+
+    def test_reader_and_paged_source_selection_survive_comparison(self):
+        for index in range(SOURCE_PAGE_SIZE):
+            TextEvidence.objects.create(
+                case=self.case,
+                title=f"Cancellation record {index}",
+                body="This retained copy concerns a different reservation.",
+                uploaded_by=self.users["owner"],
+            )
+        reader_query = {"q": "Booking & café", "type": "text-message", "page": "2"}
+        method_url = reverse(
+            "core:analysis:create",
+            args=[self.case.pk],
+            query={
+                "operation": self.operation,
+                "source": self.selected[0],
+                "return_collection": urlencode(reader_query),
+            },
+        )
+        reader = reverse(
+            "core:evidence:detail",
+            args=[self.case.pk, "text-message", self.message.pk],
+            query=reader_query,
+            fragment="evidence-reader",
+        )
+        first = self.client.get(f"{method_url}&q=Cancellation")
+        choices = first.context["form"].source_page
+        self.assertTrue(choices.has_next())
+        selection = {
+            "operation": self.operation,
+            "sources": self.selected,
+            "submission_id": str(uuid4()),
+            "q": "Cancellation",
+            "sources_page": "2",
+            "sources_cursor": choices.after,
+        }
+        prepared = self.client.post(method_url, selection)
+        self.assertContains(prepared, "Choose the claim")
+        self.assertContains(prepared, f'href="{escape(reader)}">Cancel</a>')
+        draft = prepared.context["draft"]
+
+        invalid = self.confirm(draft, quote="Missing from the retained message.")
+        self.assertContains(invalid, "Copy the exact wording")
+        self.assertContains(invalid, f'href="{escape(reader)}">Cancel</a>')
+        self.assertContains(
+            invalid, f'action="{escape(invalid.context["picker_url"])}"'
+        )
+        self.assertContains(invalid, 'name="q" value="Cancellation"')
+        back = self.client.post(
+            invalid.context["picker_url"],
+            selection | invalid.context["picker_state"] | {"browse_sources": "review"},
+        )
+        form = back.context["form"]
+        self.assertEqual(form.source_page.number, 2)
+        self.assertEqual(form.sources_cursor, choices.after)
+        self.assertEqual(back.context["query"], "Cancellation")
+        self.assertEqual(form["sources"].value(), self.selected)
+        self.assertFalse(AnalysisRun.objects.exists())
+
+        queued = self.confirm(draft, return_evidence="ignored")
+        self.assertEqual(queued.status_code, 302)
+        self.assertEqual(self.confirm(draft).url, queued.url)
+        result = self.client.get(queued.url)
+        self.assertContains(result, f'href="{escape(reader)}">Back to evidence</a>')
+        self.assertEqual(
+            self.client.get(result.context["back_to_analysis"]).context["item"],
+            self.message,
+        )
+        self.assertEqual(
+            AnalysisRun.objects.filter(operation=self.operation).count(), 1
+        )
+
+    def test_deleted_reader_returns_to_filtered_evidence_without_blocking_comparison(
+        self,
+    ):
+        alternate = self.message_source("Retained statement")
+        reader_query = {"q": "Booking & café", "type": "text-message", "page": "2"}
+        method_url = reverse(
+            "core:analysis:create",
+            args=[self.case.pk],
+            query={
+                "operation": self.operation,
+                "source": self.selected[0],
+                "return_collection": urlencode(reader_query),
+            },
+        )
+        eligible = [f"text-message:{alternate.pk}", self.selected[1]]
+        prepared = self.client.post(
+            method_url,
+            {
+                "operation": self.operation,
+                "sources": eligible,
+                "submission_id": str(uuid4()),
+            },
+        )
+        self.assertContains(prepared, "Choose the claim")
+        draft = prepared.context["draft"]
+        self.message.delete()
+        collection = reverse(
+            "core:evidence:list", args=[self.case.pk], query=reader_query
+        )
+        alternate_source = source_id({"kind": "text-message", "id": alternate.pk})
+        invalid = self.confirm(draft, source_id=alternate_source, quote="Incorrect")
+        self.assertContains(invalid, f'href="{escape(collection)}">Cancel</a>')
+        selection = {
+            "operation": self.operation,
+            "submission_id": invalid.context["submission_id"],
+            "sources": invalid.context["tokens"],
+        } | invalid.context["picker_state"]
+        back = self.client.post(
+            invalid.context["picker_url"],
+            selection | {"browse_sources": "review"},
+        )
+        self.assertEqual(back.context["form"]["sources"].value(), eligible)
+        reselected = self.client.post(invalid.context["picker_url"], selection)
+        self.assertContains(reselected, f'href="{escape(collection)}">Cancel</a>')
+        queued = self.confirm(reselected.context["draft"], source_id=alternate_source)
+        self.assertEqual(queued.status_code, 302)
+        self.assertEqual(
+            self.confirm(draft, source_id=alternate_source).url, queued.url
+        )
+        result = self.client.get(queued.url)
+        self.assertContains(result, f'href="{escape(collection)}">Back to evidence</a>')
 
     def test_selection_requires_a_message_or_call_transcript(self):
         other = self.text()

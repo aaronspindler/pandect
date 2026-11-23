@@ -1,0 +1,31 @@
+{% extends 'marketing/investigation_detail.html' %}
+{% block breadcrumb_title %}Communications investigations{% endblock %}
+{% block investigation_heading %}Communications <em>investigations</em>{% endblock %}
+{% block investigation_answer %}Pandect helps investigators review retained messages, call records, and supplied transcripts in one case. Import supported iMessage and WhatsApp CSV exports, confirm the export timezone and participant associations, and trace message timing back to the original rows.{% endblock %}
+{% block evidence_filter %}?type=communications{% endblock %}
+{% block evidence_link_label %}See message and call formats{% endblock %}
+{% block source_guide %}
+  <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/analysis-communications.md#message-csv-imports">Read the message import guide <span aria-hidden="true">↗</span></a>
+{% endblock %}
+{% block example_title %}A pickup cancellation{% endblock %}
+{% block example_sources %}
+  <li><strong>09:12 · Message</strong><span>“Pickup is set for 11.” · Export row 5</span></li>
+  <li><strong>09:38 · Message</strong><span>“Cancel the pickup.” · Export row 9</span></li>
+  <li><strong>09:42 · Call</strong><span>Duration and contents unknown · Call record</span></li>
+{% endblock %}
+{% block example_interpretation %}After checking the export timezone, read the cancellation in context. The retained records leave the call’s content, the reason for the cancellation, and activity outside this record window unknown.{% endblock %}
+{% block workflow_heading %}How to review messages and calls{% endblock %}
+{% block workflow_steps %}
+  <article>
+    <h3>Confirm who and when before importing</h3>
+    <p>Review the supported direct-message export, its timezone, and the participant associations. Pandect retains the original CSV and links imported messages to their source rows.</p>
+  </article>
+  <article>
+    <h3>Follow the conversation</h3>
+    <p>Read the retained messages in conversation order. Search for a phrase and open the original message or supplied transcript to check the wording and context.</p>
+  </article>
+  <article>
+    <h3>Review recorded call activity</h3>
+    <p>Check call counts, start times, and known durations alongside the available messages. Missing timing or content leaves gaps in what can be concluded.</p>
+  </article>
+{% endblock %}

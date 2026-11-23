@@ -1,18 +1,20 @@
 """Exact extraction versions, source ranges, review indices and native links."""
 
 from unittest.mock import patch
-from uuid import UUID
+from urllib.parse import urlencode
+from uuid import UUID, uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils.html import escape
 
 from core.analysis.catalogue import project_result
 from core.analysis.services import process_run, resolve_inputs, start_run
 from core.analysis.sources import output, source_id
 from core.analysis.testing import external_grant_kwargs, local_ocr_response, wav_bytes
 from core.analysis.testing import preview_image_bytes as image_bytes
-from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
+from core.analysis.tests.test_gateway import CONFIG, TRANSCRIPTION_CONFIG
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -29,6 +31,207 @@ from text.models import TextEvidence
 
 
 class AnalysisNavigationTests(EvidenceViewTestMixin, TestCase):
+    def test_claim_selection_recovers_when_the_saved_page_vanishes(self):
+        source = self.text()
+        self.login("editor")
+        chooser = reverse("core:analysis:create", args=[self.case.pk])
+        cursor = f"text:{uuid4()}"
+        response = self.client.post(
+            chooser,
+            {
+                "operation": "claim_comparison",
+                "browse_sources": "review",
+                "q": source.title,
+                "sources": [f"text:{source.pk}"],
+                "sources_page": "2",
+                "sources_cursor": cursor,
+            },
+        )
+        self.assertEqual(response.context["query"], source.title)
+        form = response.context["form"]
+        self.assertEqual(form.source_page.number, 1)
+        self.assertEqual(form["sources"].value(), [f"text:{source.pk}"])
+        self.assertContains(
+            response, "The source list changed. Showing the first page."
+        )
+
+    def test_reader_analysis_returns_to_its_collection_after_source_search_and_errors(
+        self,
+    ):
+        note = self.text()
+        self.login("editor")
+        filters = {"q": "Interview & café", "type": "text", "state": "all", "page": "2"}
+        reader = reverse(
+            "core:evidence:detail", args=[self.case.pk, "text", note.pk], query=filters
+        )
+        chooser = reverse("core:analysis:create", args=[self.case.pk])
+        origin = {"return_collection": urlencode(filters)}
+        chooser_url = chooser + f"?source=text:{note.pk}&{urlencode(origin)}"
+        response = self.client.get(reader)
+        self.assertContains(
+            response,
+            f'data-collection-context="return_collection" href="{escape(chooser_url)}"',
+        )
+        direct_url = reverse(
+            "core:analysis:external_evidence",
+            args=[self.case.pk, "text", note.pk],
+            query={"operation": "text_topics"} | origin,
+        )
+        self.assertContains(response, f'href="{escape(direct_url)}"')
+        self.assertEqual(self.client.get(direct_url).context["evidence_url"], reader)
+
+        response = self.client.get(chooser_url)
+        method_query = {"operation": "entities", "source": f"text:{note.pk}"} | origin
+        self.assertContains(response, f'href="?{escape(urlencode(method_query))}"')
+        method_url = chooser + "?" + urlencode(method_query)
+        response = self.client.get(method_url)
+        self.assertEqual(response.context["evidence_url"], reader)
+        self.assertContains(response, f'href="{escape(reader)}">Cancel</a>')
+        self.assertContains(
+            response,
+            f'href="{escape(response.context["chooser_url"])}">Change analysis</a>',
+        )
+        self.assertEqual(
+            self.client.get(response.context["chooser_url"]).context["evidence_url"],
+            reader,
+        )
+
+        payload = {"operation": "entities", "submission_id": str(uuid4())}
+        response = self.client.post(
+            method_url,
+            payload
+            | {
+                "browse_sources": "search",
+                "sources": [f"text:{note.pk}"],
+                "q": "Picker text",
+            },
+        )
+        self.assertEqual(response.context["query"], "Picker text")
+        self.assertEqual(response.context["evidence_url"], reader)
+        response = self.client.post(method_url, payload)
+        self.assertIn("sources", response.context["form"].errors)
+        self.assertContains(response, f'href="{escape(reader)}">Cancel</a>')
+
+        result = self.client.post(
+            method_url, payload | {"sources": [f"text:{note.pk}"]}, follow=True
+        )
+        run = AnalysisRun.objects.get(case=self.case, operation="entities")
+        self.assertEqual(
+            result.redirect_chain[0][0].split("?")[0], self.detail_url(run)
+        )
+        self.assertEqual(
+            result.context["back_to_analysis"], reader + "#evidence-reader"
+        )
+        self.assertContains(
+            result, f'href="{escape(reader)}#evidence-reader">Back to evidence</a>'
+        )
+        self.assertContains(self.client.get(reader), 'id="evidence-reader"')
+
+    def test_missing_recording_recovery_retains_reader_filters(self):
+        call = PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["owner"],
+            title="Call without recording",
+            sender=self.person,
+            recipient=self.person,
+        )
+        self.login("editor")
+        filters = {"q": "Call without recording", "type": "phone-call", "state": "all"}
+        picker = self.client.get(
+            reverse("core:analysis:create", args=[self.case.pk]),
+            {
+                "source": f"phone-call:{call.pk}",
+                "operation": "audio_metadata",
+                "return_collection": urlencode(filters),
+            },
+        )
+        add_recording = self.url("add_attachment", call, kind="phone-call")
+        recording_url = add_recording + "?" + urlencode(filters)
+        self.assertContains(
+            picker, f'href="{escape(recording_url)}">Add a recording</a>'
+        )
+        reader_url = (
+            self.url("detail", call, kind="phone-call") + "?" + urlencode(filters)
+        )
+        self.assertContains(
+            self.client.get(recording_url), f'href="{escape(reader_url)}">Cancel</a>'
+        )
+
+    def test_reader_analysis_ignores_navigation_outside_the_collection_allowlist(self):
+        note = self.text()
+        self.login("editor")
+        chooser = reverse("core:analysis:create", args=[self.case.pk])
+        response = self.client.get(
+            chooser,
+            {
+                "source": f"text:{note.pk}",
+                "return_collection": urlencode(
+                    {
+                        "q": "Interview",
+                        "next": "https://example.test/",
+                        "evidence": uuid4(),
+                    }
+                ),
+            },
+        )
+        self.assertEqual(
+            response.context["evidence_url"], self.url("detail", note) + "?q=Interview"
+        )
+        self.assertNotContains(response, "example.test%2F")
+
+    @override_settings(PANDECT_AI_GATEWAY=CONFIG)
+    def test_reader_started_batch_keeps_return_through_filters_and_check_detail(self):
+        note = self.text()
+        external_grant_kwargs(self.case, "text_topics")
+        self.case.ai_backend = "gateway"
+        self.case.save(update_fields=["ai_backend"])
+        self.login("editor")
+        filters = {"q": "Interview", "type": "text", "state": "all"}
+        back = self.url("detail", note) + "?" + urlencode(filters) + "#evidence-reader"
+        picker = reverse(
+            "core:analysis:external_evidence",
+            args=[self.case.pk, "text", note.pk],
+            query={"operation": "text_topics", "return_collection": urlencode(filters)},
+        )
+        result = self.client.post(
+            picker,
+            {
+                "operation": "text_topics",
+                "submission_id": str(uuid4()),
+                "sources": [f"text:{note.pk}"],
+                "include_summary": "on",
+            },
+            follow=True,
+        )
+        batch = result.context["batch"]
+        self.assertEqual(batch.runs.count(), 2)
+        origin = result.wsgi_request.GET["return_evidence"]
+        self.assertContains(result, f'href="{escape(back)}">Back to evidence</a>')
+        self.assertContains(result, f'name="return_evidence" value="{escape(origin)}"')
+        processing = reverse("core:analysis:processing", args=[self.case.pk])
+        params = {"batch": batch.pk, "return_evidence": origin}
+        filtered = self.client.get(processing, params | {"status": "queued"})
+        self.assertContains(filtered, f'href="{escape(back)}">Back to evidence</a>')
+        clear = processing + "?" + urlencode(params) + "#processing-history"
+        self.assertContains(filtered, f'href="{escape(clear)}">Clear filters</a>')
+
+        run = batch.runs.order_by("pk").first()
+        filtered_query = urlencode({"status": "queued"} | params)
+        check_url = self.detail_url(run) + "?" + filtered_query
+        self.assertContains(filtered, f'href="{escape(check_url)}"')
+        check = self.client.get(check_url)
+        return_to_batch = processing + "?" + filtered_query + "#processing-history"
+        self.assertContains(
+            check, f'href="{escape(return_to_batch)}">Back to batch checks</a>'
+        )
+        self.assertContains(
+            self.client.get(return_to_batch),
+            f'href="{escape(back)}">Back to evidence</a>',
+        )
+        reader = self.client.get(back)
+        self.assertEqual(reader.context["item"], note)
+        self.assertEqual(reader.context["query"], filters["q"])
+
     def detail_url(self, run):
         return reverse(
             "core:analysis:detail", kwargs={"case_id": self.case.pk, "run_id": run.pk}

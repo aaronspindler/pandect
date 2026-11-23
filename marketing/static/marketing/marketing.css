@@ -214,7 +214,7 @@
   .marketing .wrap { width:calc(100% - 2.5rem); }
   .marketing-header { gap:.5rem; padding-block:1rem; }
   .marketing-header .wordmark { width:7rem; }
-  .marketing-nav { width:100%; gap:.25rem 1rem; }
+  .marketing-nav { width:100%; gap:.25rem .625rem; }
   .marketing-nav .account-link { padding-inline:.75rem; }
   .marketing-hero { padding-block:3rem; }
   .marketing h1 { font-size:clamp(2.5rem,1rem + 7vw,4rem); }
@@ -243,7 +243,6 @@
   .roadmap-group { padding-block:2rem; gap:1rem; }
 }
 @media (max-width:24rem) {
-  .marketing-nav { gap:.25rem .75rem; }
   .capability-strip { grid-template-columns:1fr; gap:.5rem; }
   .capability-strip > span + span { border-left:0; }
 }

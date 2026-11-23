@@ -5,7 +5,7 @@
     {% if detailed %}
     <p class="conversation-finding-label"><strong>{{ item.label }}</strong></p>
     {% else %}
-    <a class="record-link" href="{{ item.url }}"><span class="sr-only">Open finding: </span>{{ item.label }}</a>
+    <a data-workspace-link class="record-link" href="{{ item.url }}"><span class="sr-only">Open finding: </span>{{ item.label }}</a>
     {% endif %}
     {% if not item.unavailable %}
     {% if item.ai_suggestion or item.weak_label or item.partial %}<p class="conversation-finding-status muted">{% include 'phone/finding_labels.html' %}</p>{% endif %}
@@ -20,21 +20,21 @@
     {% if detailed and item.text_truncated and not item.message_count %}<p class="muted">Excerpt · Open the finding for the complete text.</p>{% endif %}
     {% if item.warning %}<p>{{ item.warning }}</p>{% endif %}
     {% if shared %}
-    {% if item.message_sources %}<ul class="conversation-finding-sources">{% for source in item.message_sources %}{% if forloop.first or detailed %}<li><a class="record-link" href="{{ source.url }}">Show message<span class="sr-only">: {{ source.title }}</span></a> · {{ source.title }}{% if source.archived %} · Archived{% endif %}</li>{% endif %}{% endfor %}</ul>{% endif %}
+    {% if item.message_sources %}<ul class="conversation-finding-sources">{% for source in item.message_sources %}{% if forloop.first or detailed %}<li><a data-workspace-link class="record-link" href="{{ source.url }}">Show message<span class="sr-only">: {{ source.title }}</span></a> · {{ source.title }}{% if source.archived %} · Archived{% endif %}</li>{% endif %}{% endfor %}</ul>{% endif %}
     {% if detailed and item.additional_message_sources %}<p class="muted">{{ item.additional_message_sources }} more cited message{{ item.additional_message_sources|pluralize }} · Open the finding for all sources.</p>{% endif %}
     {% if item.outside_sources %}<p class="muted">Also cites sources outside this view.</p>{% endif %}
     {% endif %}
     {% else %}<p class="muted">The saved sources are no longer available in their analyzed version.</p>{% endif %}
-    {% if detailed %}<a class="record-link" href="{{ item.url }}">Open finding<span class="sr-only">: {{ item.label }}</span></a>{% endif %}
+    {% if detailed %}<a data-workspace-link class="record-link" href="{{ item.url }}">Open finding<span class="sr-only">: {{ item.label }}</span></a>{% endif %}
   </li>
   {% endfor %}
 </ol>
 {% endwith %}
-{% if analysis.more_url %}<a class="record-link" href="{{ analysis.more_url }}">More findings</a>{% endif %}
+{% if analysis.more_url %}<a data-workspace-link class="record-link" href="{{ analysis.more_url }}">More findings</a>{% endif %}
 {% if analysis.page_obj %}
 {% if analysis.page_obj.has_other_pages %}<nav class="conversation-analysis-paging" aria-label="{% if shared %}Conversation finding pages{% else %}Finding pages for {{ message.title }}{% endif %}">
-  {% if analysis.previous_url %}<a class="record-link" href="{{ analysis.previous_url }}">Previous findings</a>{% endif %}
+  {% if analysis.previous_url %}<a data-workspace-link class="record-link" href="{{ analysis.previous_url }}">Previous findings</a>{% endif %}
   <span class="muted">{{ analysis.page_obj.start_index }}–{{ analysis.page_obj.end_index }} of {{ analysis.count }}</span>
-  {% if analysis.next_url %}<a class="record-link" href="{{ analysis.next_url }}">Next findings</a>{% endif %}
+  {% if analysis.next_url %}<a data-workspace-link class="record-link" href="{{ analysis.next_url }}">Next findings</a>{% endif %}
 </nav>{% endif %}
 {% endif %}

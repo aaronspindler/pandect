@@ -2,6 +2,7 @@
 
 import re
 from datetime import UTC, datetime
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
 from playwright.sync_api import expect
@@ -65,18 +66,46 @@ class JourneyClaimBrowserTests(BrowserTestCase):
                 self.browser_page(engine, java_script_enabled=False) as (_, page),
             ):
                 self.sign_in(page)
-                page.goto(self.url("core:analysis:create", case_id=self.case.pk))
+                reader_url = (
+                    self.url(
+                        "core:evidence:detail",
+                        case_id=self.case.pk,
+                        kind="text",
+                        evidence_id=self.claim.pk,
+                    )
+                    + "?"
+                    + urlencode({"q": "Appointment", "state": "all", "type": "text"})
+                )
+                page.goto(reader_url)
+                page.get_by_text("Analyze evidence", exact=True).press("Enter")
+                page.get_by_role("link", name="Choose analysis", exact=True).press(
+                    "Enter"
+                )
                 choose = page.get_by_role(
                     "link", name="Compare plans with locations", exact=True
                 )
                 choose.press("Enter")
                 self.capture_screen(page, engine, "choose")
+                page.get_by_label("Find statement sources").fill("correspondence")
+                page.get_by_role(
+                    "region", name="Statements and time references"
+                ).get_by_role("button", name="Search", exact=True).press("Enter")
                 for title in (self.claim.title, self.observation.title):
                     checkbox = page.get_by_role("checkbox", name=title, exact=False)
                     checkbox.focus()
                     expect(checkbox).to_be_focused()
                     checkbox.press("Space")
                     expect(checkbox).to_be_checked()
+                page.get_by_role("button", name="Choose passages").press("Enter")
+                page.get_by_role("button", name="Restart source selection").press(
+                    "Enter"
+                )
+                expect(page.get_by_label("Find statement sources")).to_have_value(
+                    "correspondence"
+                )
+                expect(
+                    page.get_by_role("checkbox", name=self.claim.title, exact=False)
+                ).to_be_checked()
                 page.get_by_role("button", name="Choose passages").press("Enter")
                 page.get_by_label("Exact quotation", exact=True).fill(self.quote)
                 page.get_by_label("Statement type").select_option("proposed")
@@ -106,7 +135,7 @@ class JourneyClaimBrowserTests(BrowserTestCase):
                 self.capture_screen(page, engine, "review")
                 page.get_by_role("button", name="Queue comparison").press("Enter")
                 expect(page.get_by_text("Queued", exact=True).first).to_be_visible()
-                run_id = UUID(page.url.rstrip("/").split("/")[-1])
+                run_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
                 self.db(process_run, str(run_id))
                 page.reload()
                 passage = page.get_by_role(
@@ -154,3 +183,11 @@ class JourneyClaimBrowserTests(BrowserTestCase):
                     page.evaluate("document.documentElement.clientWidth") + 1,
                 )
                 self.capture(page, engine, "passage-zoom")
+                page.evaluate("document.documentElement.style.zoom = ''")
+                page.get_by_role("link", name="Back to comparison finding").press(
+                    "Enter"
+                )
+                page.get_by_role("link", name="Back to evidence", exact=True).press(
+                    "Enter"
+                )
+                expect(page).to_have_url(reader_url + "#evidence-reader")

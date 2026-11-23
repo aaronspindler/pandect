@@ -1,0 +1,101 @@
+{% load l10n %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>{{ title|force_escape }}</title>
+  <style>
+    :root { font: 1em/1.5 system-ui, sans-serif; color: #14282e; background: #fff; }
+    body { max-width: 68ch; margin: 0 auto; padding: 1.5rem 1rem; overflow-wrap: anywhere; }
+    h1, h2, h3 { line-height: 1.25; }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.25rem; }
+    a { color: #12645e; text-underline-offset: .2em; }
+    a:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+    nav, section { margin-block: 2rem; }
+    ol, ul { padding-inline-start: 1.5rem; }
+    li { margin-block: .25rem; }
+    nav a, li a { display: inline-block; box-sizing: border-box; min-height: 44px; padding-block: .625rem; }
+    article { border-top: 1px solid #71878b; padding-top: .5rem; margin-bottom: 1.5rem; }
+    .packet-excerpt, .packet-citation { white-space: pre-wrap; }
+    .meta { color: #4b6169; }
+    .digest { font-family: ui-monospace, monospace; }
+    @media screen and (prefers-color-scheme: dark) {
+      :root { color: #edf4f5; background: #0b1519; }
+      a { color: #8bd5c4; }
+      .meta { color: #b0c1c5; }
+    }
+    @page { margin: 16mm; }
+    @media print {
+      body { max-width: none; padding: 0; color: #000; background: #fff; }
+      .screen-only { display: none; }
+      h1, h2, h3 { break-after: avoid; }
+      .entry-meta { break-after: avoid; }
+      li, .packet-citation, .hash { break-inside: avoid; }
+      nav a, li a { display: inline; min-height: 0; padding: 0; }
+      a, .meta { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>{{ title|force_escape }}</h1>
+    <p>Selected excerpts prepared for disclosure. The preparer may have removed or redacted material.</p>
+    <p class="screen-only">Use your browser’s Print command to print or save as PDF. Turn off browser headers and footers.</p>
+  </header>
+  {% partialdef content inline %}
+  <nav aria-labelledby="packet-index">
+    <h2 id="packet-index">Exhibit index</h2>
+    <ol>
+      {% for number, exhibit in exhibits %}
+        <li><a href="#exhibit-{{ number|unlocalize }}">{{ exhibit.title|force_escape }}</a></li>
+      {% endfor %}
+    </ol>
+  </nav>
+  <section aria-labelledby="packet-chronology">
+    <h2 id="packet-chronology">Chronology</h2>
+    <p class="meta">Dates come from the preparer. Undated entries appear last.</p>
+    <ul>
+      {% for number, exhibit in chronology %}
+        <li>
+          {% if exhibit.date %}
+            <time datetime="{{ exhibit.date|date:'Y-m-d' }}">{{ exhibit.date|date:'j M Y' }}</time>
+          {% else %}
+            <span>Undated</span>
+          {% endif %}
+          · <a href="#exhibit-{{ number|unlocalize }}">Exhibit {{ number|unlocalize }} · {{ exhibit.title|force_escape }}</a>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section aria-labelledby="packet-exhibits">
+    <h2 id="packet-exhibits">Exhibits</h2>
+    {% for number, exhibit in exhibits %}
+      <article id="exhibit-{{ number|unlocalize }}">
+        <h3>Exhibit {{ number|unlocalize }} · {{ exhibit.title|force_escape }}</h3>
+        <p class="meta entry-meta">
+          {{ exhibit.kind|force_escape }} ·
+          {% if exhibit.date %}
+            <time datetime="{{ exhibit.date|date:'Y-m-d' }}">{{ exhibit.date|date:'j M Y' }}</time>
+          {% else %}
+            Undated
+          {% endif %}
+        </p>
+        <p class="packet-excerpt">{{ exhibit.excerpt|force_escape }}</p>
+        {% if exhibit.citation %}<p class="packet-citation"><strong>Source reference</strong><br>{{ exhibit.citation|force_escape }}</p>{% endif %}
+        {% if exhibit.source_sha256 %}
+          <p class="meta hash"><small>Retained source SHA-256<br><span class="digest">{{ exhibit.source_sha256|force_escape }}</span></small></p>
+        {% endif %}
+      </article>
+    {% endfor %}
+    {% if includes_checksums %}
+      <p class="meta"><small>A source checksum identifies the retained material. Excerpts in this packet may differ from that material.</small></p>
+    {% endif %}
+  </section>
+  {% endpartialdef %}
+</main>
+</body>
+</html>

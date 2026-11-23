@@ -1,7 +1,7 @@
 """One same-case evidence boundary for readers, search, reports and workers."""
 
 from django.core.exceptions import ValidationError
-from django.db.models import CharField, F, Q, Value
+from django.db.models import CharField, Count, F, Q, Value
 from django.http import Http404
 
 from core.evidence.types import FILE_KINDS, KINDS
@@ -36,6 +36,23 @@ def scoped_evidence(case, kind):
     except KeyError:
         raise Http404("Evidence not found.") from None
     return same_case_evidence(model.objects.filter(case=case))
+
+
+def evidence_counts_by_type(case, *, archived):
+    """Count visible evidence by type, including empty types, in one query."""
+    queries = []
+    for kind in KINDS:
+        records = scoped_evidence(case, kind)
+        if archived is not None:
+            records = records.filter(is_archived=archived)
+        queries.append(
+            records.order_by()
+            .annotate(kind=Value(kind))
+            .values("kind")
+            .annotate(total=Count("*"))
+            .values_list("kind", "total")
+        )
+    return dict(queries[0].union(*queries[1:], all=True).order_by())
 
 
 def duplicate_matches(case, sha256):

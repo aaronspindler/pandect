@@ -1,7 +1,7 @@
 """Compact status for the case navigation and live collection refreshes."""
 
 from django.db.models import Count, Exists
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_safe
 
 from cases.models import Case
@@ -14,9 +14,18 @@ from core.analysis.processing import (
     case_imports,
     case_trip_generations,
 )
-from core.case_search.semantic_model import profile
+from core.case_search.approval import search_approval_current
+from core.case_search.semantic_model import is_external, profile
 from core.models import AnalysisRun, CaseAnalysisBatch, CaseSearchIndex
 from socialmedia.models import InstagramCheck
+
+
+@product_login_required
+@require_safe
+def stream_unavailable(request, case_id):
+    """WSGI-only installations tell EventSource to use the snapshot fallback."""
+    get_case(request.user, case_id)
+    return HttpResponse(status=204)
 
 
 @product_login_required
@@ -40,7 +49,9 @@ def status(request, case_id):
                 InstagramCheck.objects.filter(monitor__case=case, status="running")
             )
         )
-        if identity := profile():
+        if (identity := profile()) and (
+            not is_external() or search_approval_current(case)
+        ):
             pending |= Exists(
                 CaseSearchIndex.objects.filter(
                     case=case, profile=identity, status__in=ACTIVE_RUNS

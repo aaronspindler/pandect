@@ -1,4 +1,4 @@
-(() => {
+window.PandectPage((signal) => {
   "use strict";
   const announce = (message) => {
     const region = document.querySelector("[data-evidence-status]");
@@ -25,7 +25,7 @@
     }
   };
   revealInfoAnchor();
-  window.addEventListener("hashchange", revealInfoAnchor);
+  window.addEventListener("hashchange", revealInfoAnchor, {signal});
   const records = document.querySelector(".evidence-records");
   if (records) {
     const selected = records.querySelector('[aria-current="true"]');
@@ -33,7 +33,9 @@
     // of persistent browser storage. Canonical links/Back remain the baseline.
     const state = history.state || {};
     if (typeof state.evidenceScroll === "number") records.scrollTop = state.evidenceScroll;
-    else if (selected && selected.offsetTop > records.clientHeight) selected.scrollIntoView({block:"nearest"});
+    else if (selected && selected.getBoundingClientRect().bottom > records.getBoundingClientRect().bottom) {
+      selected.scrollIntoView({block:"nearest"});
+    }
     records.addEventListener("click", (event) => {
       if (event.target.closest(".evidence-row, .evidence-match-link")) {
         history.replaceState({...history.state, evidenceScroll: records.scrollTop}, "");
@@ -53,7 +55,7 @@
       event.preventDefault();
       event.returnValue = "";
     }
-  });
+  }, {signal});
   if (!window.FormData || !window.XMLHttpRequest || !window.crypto?.randomUUID) return;
   const fileInput = form.querySelector('input[type="file"]');
   const section = document.getElementById("upload-queue");
@@ -341,4 +343,4 @@
   form.hidden = false;
   document.querySelector("[data-bulk-fallback]").hidden = true;
   refreshControls();
-})();
+});

@@ -1,16 +1,186 @@
+from html.parser import HTMLParser
+from urllib.robotparser import RobotFileParser
+from xml.etree import ElementTree
+
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.templatetags.static import static
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import resolve, reverse
 
 from cases.models import Case, CaseMembership
 from text.models import TextEvidence
 
+NAVIGATION_PAGES = {
+    "home": "/",
+    "evidence": "/evidence/",
+    "trust": "/trust/",
+    "roadmap": "/roadmap/",
+    "investigations": "/investigations/",
+}
+PUBLIC_PAGES = {
+    **NAVIGATION_PAGES,
+    "investigation_incidents": "/investigations/incidents/",
+    "investigation_osint": "/investigations/osint/",
+    "investigation_communications": "/investigations/communications/",
+    "investigation_vehicle_location": "/investigations/vehicle-location/",
+}
+PUBLIC_ORIGIN = "https://public.example.test"
+
+
+class SearchMarkup(HTMLParser):
+    def __init__(self, html):
+        super().__init__()
+        self.title = ""
+        self.in_title = False
+        self.elements = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        self.elements.append((tag, dict(attrs)))
+        if tag == "title":
+            self.in_title = True
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self.in_title = False
+
+    def handle_data(self, data):
+        if self.in_title:
+            self.title += data
+
+    def attributes(self, tag, attribute, value):
+        return [
+            attrs
+            for element, attrs in self.elements
+            if element == tag and attrs.get(attribute) == value
+        ]
+
+
+@override_settings(
+    PANDECT_PUBLIC_ORIGIN=PUBLIC_ORIGIN,
+    ALLOWED_HOSTS=["alternate.example.test"],
+    SECURE_SSL_REDIRECT=False,
+)
+class MarketingSearchTests(SimpleTestCase):
+    def setUp(self):
+        self.client.defaults["HTTP_HOST"] = "alternate.example.test"
+
+    def test_crawler_resources_are_public_and_read_only(self):
+        for path, content_type in (
+            ("/robots.txt", "text/plain"),
+            ("/sitemap.xml", "application/xml"),
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["Content-Type"].split(";")[0], content_type)
+                response = self.client.head(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.content, b"")
+                self.assertEqual(self.client.post(path).status_code, 405)
+
+    def test_sitemap_contains_only_canonical_public_pages(self):
+        response = self.client.get(reverse("marketing:sitemap"))
+        namespace = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+        sitemap = ElementTree.fromstring(response.content)
+        self.assertEqual(sitemap.tag, f"{namespace}urlset")
+        self.assertCountEqual(
+            [url.text for url in sitemap.findall(f"{namespace}url/{namespace}loc")],
+            [PUBLIC_ORIGIN + path for path in PUBLIC_PAGES.values()],
+        )
+
+    def test_unknown_investigation_returns_not_found(self):
+        self.assertEqual(self.client.get("/investigations/unknown/").status_code, 404)
+
+    def test_robots_allows_search_bots_to_fetch_public_pages_and_login(self):
+        response = self.client.get(reverse("marketing:robots"))
+        robots = RobotFileParser()
+        robots.parse(response.content.decode().splitlines())
+        self.assertEqual(robots.site_maps(), [f"{PUBLIC_ORIGIN}/sitemap.xml"])
+        paths = (*PUBLIC_PAGES.values(), reverse("account_login"))
+        for bot in ("Googlebot", "bingbot", "OAI-SearchBot"):
+            for path in paths:
+                with self.subTest(bot=bot, path=path):
+                    self.assertTrue(robots.can_fetch(bot, PUBLIC_ORIGIN + path))
+
+    def test_sharing_metadata_matches_page_metadata_and_canonical_urls(self):
+        titles, descriptions = set(), set()
+        for name, path in PUBLIC_PAGES.items():
+            with self.subTest(page=name):
+                self.assertEqual(reverse(f"marketing:{name}"), path)
+                canonical = PUBLIC_ORIGIN + path
+                response = self.client.get(path, {"utm_source": "synthetic"})
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("X-Robots-Tag", response)
+                markup = SearchMarkup(response.content.decode())
+                self.assertEqual(
+                    [
+                        tag["href"]
+                        for tag in markup.attributes("link", "rel", "canonical")
+                    ],
+                    [canonical],
+                )
+                self.assertTrue(markup.title.strip())
+                (description,) = markup.attributes("meta", "name", "description")
+                self.assertTrue(description["content"].strip())
+                titles.add(markup.title)
+                descriptions.add(description["content"])
+                for property_name, content in {
+                    "og:title": markup.title,
+                    "og:description": description["content"],
+                    "og:url": canonical,
+                    "og:type": "website",
+                    "og:site_name": "Pandect",
+                    "og:image": PUBLIC_ORIGIN + static("ui/brand/apple-touch-icon.png"),
+                }.items():
+                    self.assertEqual(
+                        markup.attributes("meta", "property", property_name),
+                        [
+                            {"property": property_name, "content": content},
+                        ],
+                    )
+        self.assertEqual(len(titles), len(PUBLIC_PAGES))
+        self.assertEqual(len(descriptions), len(PUBLIC_PAGES))
+
+    def test_only_home_declares_the_website_name(self):
+        for name in PUBLIC_PAGES:
+            with self.subTest(page=name):
+                path = reverse(f"marketing:{name}")
+                response = self.client.get(path)
+                if name == "home":
+                    self.assertContains(
+                        response, 'itemtype="https://schema.org/WebSite"'
+                    )
+                    self.assertContains(
+                        response, '<meta itemprop="name" content="Pandect">', html=True
+                    )
+                    self.assertContains(
+                        response,
+                        f'<link itemprop="url" href="{PUBLIC_ORIGIN}/">',
+                        html=True,
+                    )
+                else:
+                    self.assertNotContains(
+                        response, 'itemtype="https://schema.org/WebSite"'
+                    )
+
+    def test_catalogue_filters_remain_functional_at_one_canonical_url(self):
+        path = reverse("marketing:evidence")
+        response = self.client.get(
+            path, {"type": "documents", "utm_source": "synthetic"}
+        )
+        self.assertEqual(response.context["selected_family"]["id"], "documents")
+        for tag in (
+            f'<link rel="canonical" href="{PUBLIC_ORIGIN}{path}">',
+            f'<meta property="og:url" content="{PUBLIC_ORIGIN}{path}">',
+        ):
+            self.assertContains(response, tag, html=True)
+
 
 class MarketingPageTests(TestCase):
-    pages = ("home", "evidence", "trust", "roadmap")
+    pages = PUBLIC_PAGES
 
     @classmethod
     def setUpTestData(cls):
@@ -41,10 +211,9 @@ class MarketingPageTests(TestCase):
                 html = response.content.decode()
                 header = html.split("<header", 1)[1].split("</header>", 1)[0]
                 footer = html.split("<footer", 1)[1].split("</footer>", 1)[0]
-                for destination in self.pages:
-                    self.assertIn(
-                        f'href="{reverse(f"marketing:{destination}")}"', footer
-                    )
+                for path in NAVIGATION_PAGES.values():
+                    self.assertIn(f'href="{path}"', footer)
+                self.assertIn('href="/investigations/"', header)
                 self.assertNotIn(reverse("marketing:roadmap"), header)
                 self.assertNotIn(reverse("marketing:product"), html)
                 self.assertNotIn('href="/hosting/"', html)

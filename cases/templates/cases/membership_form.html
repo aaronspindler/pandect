@@ -4,14 +4,12 @@
 <p class="breadcrumb"><a href="{% url 'cases:case_settings' case.pk %}">Back to case settings</a></p>
 <div class="page-header">
 <div>
-<p class="eyebrow">{{ case.name }}</p>
 <h1>Change access for {{ membership.user.get_username }}</h1>
 <p class="muted">Changes take effect on the next request. You remain the owner.</p>
 </div>
 </div>
 <form method="post" class="form-panel">
 {% csrf_token %}{% include "ui/components/form_fields.html" %}
-<p class="muted">Viewers inspect and download. Editors also add or edit records and archive or restore evidence.</p>
 <div class="form-actions">
 <button class="button button-primary" type="submit">Save access</button>
 <a class="button" href="{% url 'cases:case_settings' case.pk %}">Cancel</a>

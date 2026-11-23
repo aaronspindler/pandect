@@ -326,10 +326,10 @@ def finding_row(
     }
 
 
-def case_highlights(runs, case):
-    """Recent useful results, latest per operation/source, with current sources."""
+def case_highlights(case):
+    """Recent saved findings from the latest published runs per operation/source."""
     recent = list(
-        runs.filter(result__case=case)
+        AnalysisRun.objects.filter(case=case, result__case=case)
         .filter(Q(previous_run__isnull=True) | Q(previous_run__case=case))
         .exclude(
             operation__in=(
@@ -352,7 +352,7 @@ def case_highlights(runs, case):
     ).values_list("result_id", "item_index"):
         hidden_indices[result_id].add(item_index)
     seen = set()
-    highlights = []
+    current_results = []
     for run in recent:
         identities = {
             (
@@ -370,17 +370,22 @@ def case_highlights(runs, case):
             AnalysisRun.Status.PARTIAL,
         }:
             continue
+        current_results.append((run.result, current))
+    # Run creation determines supersession; publication determines reading order.
+    current_results.sort(key=lambda entry: entry[0].created_at, reverse=True)
+    highlights = []
+    for result, current in current_results:
         highlights.extend(
             result_highlights(
-                run.result,
+                result,
                 case,
                 allowed=current,
-                hidden_indices=hidden_indices.get(run.result.pk, ()),
+                hidden_indices=hidden_indices.get(result.pk, ()),
             )
         )
-        if len(highlights) >= 12:
+        if len(highlights) >= 3:
             break
-    return highlights[:12]
+    return highlights[:3]
 
 
 def result_highlights(result, case, *, allowed, hidden_indices):
@@ -423,7 +428,14 @@ def result_highlights(result, case, *, allowed, hidden_indices):
             if row["summary_text"] in plate_readings:
                 continue
             plate_readings.add(row["summary_text"])
-        highlights.append(row)
+        highlights.append(
+            row
+            | {
+                "record_type": "Finding",
+                "title": row["summary_text"] or row["label"],
+                "created_at": result.created_at,
+            }
+        )
         if len(highlights) == 3:
             break
     return highlights

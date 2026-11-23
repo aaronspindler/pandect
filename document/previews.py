@@ -3,6 +3,7 @@
 from core.analysis.errors import AnalysisError
 from core.analysis.sources import Source
 from core.parsers import read_source, run_parser
+from document.email_parser import is_email_filename
 
 MESSAGES = {
     "encrypted_pdf": "This PDF is encrypted. Download the original to inspect it.",
@@ -10,7 +11,10 @@ MESSAGES = {
     "invalid_document_page": "That page is not in this document.",
     "input_limit": "Document previews support files up to 16 MiB.",
     "extracted_text_limit": "The decoded text exceeds the 2 MiB reading limit.",
-    "unsupported_document_format": "Inline reading supports PDF and UTF-8 text files.",
+    "unsupported_document_format": "Preview supports PDF, UTF-8 text, and .eml files.",
+    "email_headers_missing": "This .eml file has no readable message headers.",
+    "email_header_limit": "The email exceeds the header size limit.",
+    "email_structure_limit": "The email contains too many or deeply nested parts.",
     "source_changed": "The retained bytes no longer match this original's checksum.",
     "source_unavailable": "The original file is unavailable.",
 }
@@ -19,7 +23,13 @@ MESSAGES = {
 def inspect_document(item, *, page=1, render=False):
     content, _ = read_source(Source(str(item.pk), "document", item))
     parsed = run_parser(
-        "document_preview", content, options={"page": page, "render": render}
+        "document_preview",
+        content,
+        options={
+            "page": page,
+            "render": render,
+            "email": is_email_filename(item.original_filename),
+        },
     )
     if parsed.get("status") != "complete":
         raise AnalysisError(parsed.get("reason", "unsupported_document_format"))

@@ -20,30 +20,31 @@ from django.views.decorators.http import (
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError
+from core.analysis.important import has_available_citations, retained_finding_url
 from core.analysis.navigation import finding_url
 from core.analysis.services import (
     SourceResolutionCache,
-    resolve_inputs,
     start_run,
     validate_current_sighting,
 )
 from core.analysis.sightings import (
     MAX_CANDIDATES,
     MAX_SELECTION,
+    REVIEW_DECISIONS,
     candidate_links,
     prepare_proposal,
+    review_outcome,
+    saved_group,
+    sighting_reviews,
 )
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import KIND_LABELS, LOCATION_KINDS
+from core.important.navigation import return_params
+from core.important.reader import reader_context
 from core.models import AnalysisFindingSource, AnalysisReview, AnalysisRun
 
 OPERATION = "sighting_group"
 ANCHOR_KINDS = ("image", *LOCATION_KINDS)
-DECISIONS = {
-    AnalysisReview.Decision.ACCEPTED: "Accepted for review",
-    AnalysisReview.Decision.REJECTED: "Rejected",
-    AnalysisReview.Decision.UNRESOLVED: "Unresolved",
-}
 
 
 class SightingForm(forms.Form):
@@ -64,7 +65,7 @@ class SightingForm(forms.Form):
 
 class ReviewForm(forms.Form):
     revision = forms.UUIDField(required=False)
-    decision = forms.ChoiceField(choices=DECISIONS)
+    decision = forms.ChoiceField(choices=REVIEW_DECISIONS)
 
 
 def _runs(case):
@@ -273,64 +274,6 @@ def create(request, case_id):
     )
 
 
-def _reviews(case, result):
-    return result.reviews.filter(case=case, item_index__isnull=True)
-
-
-def _saved_group(case, run, *, cache=None):
-    result = getattr(run, "result", None)
-    if (
-        not result
-        or result.case_id != case.pk
-        or run.status != AnalysisRun.Status.COMPLETE
-    ):
-        raise AnalysisError("source_unavailable")
-    cache = cache or SourceResolutionCache(case, with_content=False)
-    sources = resolve_inputs(run, case, require_current_review=False, cache=cache)
-    originals = {
-        str(source.id): (source.kind, str(source.item.pk)) for source in sources
-    }
-    try:
-        references = {
-            (ref["result_id"], ref["item_index"])
-            for ref in run.parameters.get("finding_refs", ())
-        }
-        values = result.data["items"][0]["values"]
-        links = values["links"]
-        if not 1 <= len(links) <= MAX_SELECTION:
-            raise ValueError
-        linked = []
-        for link in links:
-            first, second = link["endpoints"]
-            linked.extend((first, second))
-        if set(values["member_identities"]) != {
-            source["identity"] for source in linked
-        }:
-            raise ValueError
-        for endpoint in [
-            values["anchor"],
-            *linked,
-            *values["supporting"],
-            *values["contrary"],
-        ]:
-            if not isinstance(endpoint["title"], str) or originals[
-                endpoint["source_id"]
-            ] != (endpoint["kind"], endpoint["evidence_id"]):
-                raise ValueError
-            if finding := endpoint.get("finding"):
-                result_id, item_index = finding["result_id"], finding["item_index"]
-                parent, _ = cache.finding_results[result_id]
-                if (result_id, item_index) not in references or str(
-                    parent.run_id
-                ) != finding["run_id"]:
-                    raise ValueError
-            if endpoint.get("observed_at"):
-                parse_datetime(endpoint["observed_at"])
-    except IndexError, KeyError, TypeError, ValueError:
-        raise AnalysisError("source_unavailable") from None
-    return result, values, sources
-
-
 def _group_rows(case, runs, *, hide_unavailable=False):
     cache = SourceResolutionCache(case, with_content=False)
     rows = []
@@ -340,7 +283,7 @@ def _group_rows(case, runs, *, hide_unavailable=False):
         description = ""
         if result is not None or run.status == AnalysisRun.Status.COMPLETE:
             try:
-                _, values, _ = _saved_group(case, run, cache=cache)
+                _, values, _ = saved_group(case, run, cache=cache)
             except AnalysisError:
                 if hide_unavailable:
                     continue
@@ -391,11 +334,22 @@ def _detail(request, case, run, *, issue="", status=200):
     if not hasattr(run, "result") and run.status != AnalysisRun.Status.COMPLETE:
         return redirect("core:analysis:detail", case.pk, run.pk)
     try:
-        result, values, sources = _saved_group(case, run)
+        result, values, sources = saved_group(case, run)
     except AnalysisError:
         context["unavailable"] = True
     else:
         context |= _saved_detail(request, case, run, result, values, sources)
+        source_map = {str(source.id): source for source in sources}
+        if has_available_citations(run.operation, result.data["items"][0], source_map):
+            context.update(
+                reader_context(
+                    request,
+                    case,
+                    finding_result=result,
+                    item_index=0,
+                    source_url=retained_finding_url(case.pk, run, 0),
+                )
+            )
     return render(request, "core/analysis/sighting_detail.html", context, status=status)
 
 
@@ -405,7 +359,7 @@ def _saved_detail(request, case, run, result, values, sources):
         validate_current_sighting(run, case, sources)
     except AnalysisError as error:
         stale_code = error.code
-    reviews = _reviews(case, result).select_related("reviewed_by")
+    reviews = sighting_reviews(case, result).select_related("reviewed_by")
     latest = reviews.first()
     history = Paginator(reviews, 25).get_page(request.GET.get("reviews"))
     supporting = [_endpoint(case, source) for source in values["supporting"]]
@@ -421,10 +375,15 @@ def _saved_detail(request, case, run, result, values, sources):
             case, run, values, request.GET.get("alternatives")
         ),
         "revision": latest.pk if latest else "",
-        "outcome": DECISIONS[latest.decision] if latest else "Unresolved",
+        "outcome": review_outcome(latest),
         "history": history,
-        "history_rows": [(entry, DECISIONS[entry.decision]) for entry in history],
+        "history_rows": [(entry, review_outcome(entry)) for entry in history],
         "retry_id": uuid4(),
+        "review_url": reverse(
+            "core:analysis:sighting_review",
+            args=[case.pk, run.pk],
+            query=return_params(request.GET),
+        ),
     }
 
 
@@ -443,7 +402,7 @@ def review(request, case_id, run_id):
         case = get_case(request.user, case_id, edit=True, lock=True)
         run = get_object_or_404(_runs(case), pk=run_id, result__case=case)
         result = run.result
-        latest = _reviews(case, result).first()
+        latest = sighting_reviews(case, result).first()
         if not form.is_valid():
             issue, status = "Choose a valid review decision.", 400
         elif form.cleaned_data["revision"] != (latest.pk if latest else None):
@@ -453,7 +412,7 @@ def review(request, case_id, run_id):
             )
         else:
             try:
-                _, _, sources = _saved_group(case, run)
+                _, _, sources = saved_group(case, run)
                 validate_current_sighting(run, case, sources)
             except AnalysisError:
                 issue, status = (
@@ -467,5 +426,9 @@ def review(request, case_id, run_id):
                     reviewed_by=request.user,
                     decision=form.cleaned_data["decision"],
                 )
-                return redirect("core:analysis:sighting_detail", case.pk, run.pk)
+                return redirect(
+                    retained_finding_url(
+                        case.pk, run, 0, history=return_params(request.GET)
+                    )
+                )
     return _detail(request, case, run, issue=issue, status=status)

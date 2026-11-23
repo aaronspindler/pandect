@@ -1,4 +1,5 @@
-(() => {
+// Leaflet caches its initial viewport. Wait for the local map styles to finish loading.
+window.addEventListener("load", () => {
   "use strict";
   const section = document.querySelector("[data-case-map]");
   if (!section) return;
@@ -10,9 +11,8 @@
     return;
   }
   const points = JSON.parse(document.getElementById("case-map-points").textContent);
-  const map = L.map(canvas, { center: [20, 0], zoom: 2, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false, worldCopyJump: true });
   canvas.hidden = false;
-  map.invalidateSize({ pan: false });
+  const map = L.map(canvas, { center: [20, 0], zoom: 2, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false, worldCopyJump: true });
   map.attributionControl.setPrefix(false);
   map.on("resize", () => map.eachLayer((layer) => {
     const popup = layer.getPopup?.();
@@ -359,4 +359,4 @@
     if (event.persisted) { stopped = false; scheduleReplay(); }
   });
   replay();
-})();
+}, {once: true});

@@ -1,0 +1,28 @@
+<tr role="row">
+  <td class="evidence-table-title" role="cell">
+    <a id="workspace-row-{{ row.id }}" class="evidence-row{% if item.pk == row.id and kind == row.kind %} is-selected{% endif %}" href="{{ row.url }}"{% if item.pk == row.id and kind == row.kind %} aria-current="true"{% endif %}>
+      <span class="evidence-type-icon" aria-hidden="true">{% include 'ui/components/icon.html' with name=row.icon only %}</span>
+      <span class="evidence-row-content">
+        <span class="evidence-row-title">{{ row.title }}</span>
+        {% if row.content_match %}<span class="evidence-row-meta">{{ row.content_match.label }}: {{ row.content_match.excerpt }}</span>{% endif %}
+      </span>
+    </a>
+    {% if row.content_match.url %}<a class="record-link evidence-match-link" href="{{ row.content_match.url }}">{% if row.content_match.anchor %}Open matching transcript{% else %}Open matching finding{% endif %}<span class="visually-hidden"> for {{ row.title }}</span></a>{% endif %}
+  </td>
+  <td class="evidence-table-type" role="cell">
+    {{ row.label }}
+    {% if row.association or row.is_archived %}<span class="evidence-table-label">{% if row.association %}{{ row.association }}{% if row.is_archived %} · {% endif %}{% endif %}{% if row.is_archived %}Archived{% endif %}</span>{% endif %}
+  </td>
+  <td role="cell">{% if row.details_value %}<span class="evidence-table-label">{{ row.details_label }}</span> {{ row.details_value }}{% endif %}</td>
+  <td role="cell">
+    {% if row.time_value %}
+      {% if row.time_date_only %}
+        <span class="evidence-table-label">Date only</span> <time datetime="{{ row.time_value|date:'Y-m-d' }}">{{ row.time_value|date:"d M Y" }}</time>
+      {% else %}
+        <span class="evidence-table-label">{{ row.time_label }}</span> <time datetime="{{ row.time_value|date:'c' }}">{{ row.time_value|date:"d M Y, H:i:s T" }}</time>
+      {% endif %}
+    {% else %}
+      <span class="evidence-table-label">Time not recorded</span>
+    {% endif %}
+  </td>
+</tr>

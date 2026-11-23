@@ -304,14 +304,21 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                         "evidence_id": self.message.pk,
                     },
                 )
-                message_row = page.locator(
+                message_link = page.locator(
                     f'a.evidence-row[href="{message_path}'
                     f'?person={self.person.pk}&state=all"]'
                 )
-                expect(message_row).to_be_visible()
-                expect(message_row).to_contain_text("person-00@example.test")
-                expect(message_row).to_contain_text(self.person.first_name)
-                message_row.press("Enter")
+                expect(message_link).to_be_visible()
+                expect(message_link).to_contain_text("person-00@example.test")
+                sender = (
+                    page.get_by_role("row")
+                    .filter(has=message_link)
+                    .get_by_role(
+                        "cell", name=f"Sender {self.person.first_name}", exact=True
+                    )
+                )
+                expect(sender).to_be_visible()
+                message_link.press("Enter")
                 page.get_by_role("navigation", name="Evidence actions").get_by_role(
                     "link", name=re.compile(r"^Findings \(\d+\)$")
                 ).press("Enter")

@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 
 from django.test import TestCase
 from django.urls import reverse
+from django.utils.html import escape
 
 from core.analysis.errors import AnalysisError
 from core.analysis.services import process_run, start_run
@@ -82,6 +84,125 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
         process_run(run.pk)
         self.assertEqual(run.result.data["items"][0]["label"], "Supporting observation")
 
+    def test_reader_origin_survives_restart_validation_and_result_navigation(self):
+        filters = {
+            "q": "Calendar & appointments",
+            "type": "text",
+            "state": "all",
+            "page": 2,
+        }
+        chooser = {
+            "source": self.picked["claim"],
+            "return_collection": urlencode(filters),
+        }
+        method_url = reverse(
+            "core:analysis:create",
+            args=(self.case.pk,),
+            query=chooser | {"operation": "journey_claims"},
+        )
+        reader_url = reverse(
+            "core:evidence:detail",
+            args=(self.case.pk, "text", self.source.pk),
+            query=filters,
+            fragment="evidence-reader",
+        )
+        initial = self.client.get(method_url)
+        self.assertContains(initial, f'href="{escape(reader_url)}">Cancel</a>')
+        self.assertEqual(initial.context["pickers"][0]["query"], "")
+        prepared = self.client.post(
+            method_url,
+            {
+                "operation": "journey_claims",
+                "action": "prepare",
+                "claim_query": "Calendar extract",
+                "movement_query": "Midday report",
+                **self.picked,
+            },
+        )
+        initial_draft = prepared.context["draft"]
+        invalid = self.interpret(initial_draft)
+        self.assertContains(invalid, "Choose the occurrence in its source context.")
+        self.assertContains(invalid, f'href="{escape(reader_url)}">Cancel</a>')
+        restarted = self.post(action="choose_again", draft=invalid.context["draft"])
+        claim_picker, movement_picker = restarted.context["pickers"]
+        self.assertEqual(claim_picker["query"], "Calendar extract")
+        self.assertEqual(movement_picker["query"], "Midday report")
+        self.assertEqual(restarted.context["picker_url"], method_url)
+        for value in self.picked.values():
+            self.assertContains(restarted, f'value="{value}" checked')
+
+        reviewed = self.interpret(initial_draft, quote="First plan.")
+        self.assertContains(reviewed, f'href="{escape(reader_url)}">Cancel</a>')
+        queued = self.post(action="queue", draft=reviewed.context["draft"])
+        repeated = self.post(action="queue", draft=reviewed.context["draft"])
+        self.assertEqual(queued.status_code, 302)
+        self.assertEqual(queued.url, repeated.url)
+        run = AnalysisRun.objects.get(operation="journey_claims")
+        process_run(run.pk)
+        result = self.client.get(queued.url)
+        self.assertEqual(result.context["back_to_analysis"], reader_url)
+        passage_url = next(
+            url
+            for label, url in result.context["items"][0]["comparison_links"]
+            if label.startswith("Read passage")
+        )
+        passage = self.client.get(passage_url)
+        self.assertContains(passage, "<mark>First plan.</mark>")
+        returned = self.client.get(passage.context["back_url"])
+        self.assertEqual(returned.context["back_to_analysis"], reader_url)
+
+    def test_draft_without_saved_navigation_keeps_working(self):
+        from django.core import signing
+
+        salt = f"journey-claims.{self.case.pk}.{self.users['editor'].pk}"
+        old_state = signing.loads(self.prepare(), salt=salt)
+        for key in ("chooser_query", "result_query", "picker_state"):
+            del old_state[key]
+        draft = signing.dumps(old_state, salt=salt, compress=True)
+        reviewed = self.interpret(draft, quote="First plan.")
+        self.assertEqual(
+            reviewed.context["cancel_url"],
+            reverse("core:analysis:index", args=(self.case.pk,)),
+        )
+        queued = self.post(action="queue", draft=reviewed.context["draft"])
+        run = AnalysisRun.objects.get(operation="journey_claims")
+        self.assertRedirects(
+            queued, reverse("core:analysis:detail", args=(self.case.pk, run.pk))
+        )
+
+    def test_missing_reader_origin_returns_to_filtered_evidence(self):
+        origin = self.text()
+        filters = {"q": "Older statement", "type": "text", "state": "all"}
+        method_url = reverse(
+            "core:analysis:create",
+            args=(self.case.pk,),
+            query={
+                "operation": "journey_claims",
+                "source": f"text:{origin.pk}",
+                "return_collection": urlencode(filters),
+            },
+        )
+        prepared = self.client.post(
+            method_url,
+            {"operation": "journey_claims", "action": "prepare", **self.picked},
+        )
+        origin.delete()
+        review = self.interpret(prepared.context["draft"], quote="First plan.")
+        self.assertContains(review, "Queue comparison")
+        collection = reverse("core:evidence:list", args=(self.case.pk,), query=filters)
+        self.assertEqual(review.context["cancel_url"], collection)
+        restarted = self.post(action="choose_again", draft=review.context["draft"])
+        self.assertEqual(restarted.context["cancel_url"], collection)
+        prepared_again = self.client.post(
+            restarted.context["picker_url"],
+            {"operation": "journey_claims", "action": "prepare", **self.picked},
+        )
+        self.assertEqual(prepared_again.context["cancel_url"], collection)
+        queued = self.post(action="queue", draft=review.context["draft"])
+        self.assertEqual(
+            self.client.get(queued.url).context["back_to_analysis"], collection
+        )
+
     def test_no_js_retains_earlier_interpretation_and_links_cancellation(self):
         first = self.interpret(self.prepare(), quote="First plan.")
         added = self.post(action="add", draft=first.context["draft"])
@@ -142,6 +263,67 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertContains(second, f'value="{selected}" checked')
         self.assertContains(second, self.source.title)
+        picker = second.context["pickers"][0]
+        prepared = self.post(
+            action="prepare",
+            claim=selected,
+            movement=self.picked["movement"],
+            claim_cursor=picker["cursor"],
+        )
+        restarted = self.post(action="choose_again", draft=prepared.context["draft"])
+        self.assertEqual(restarted.context["pickers"][0]["cursor"], picker["cursor"])
+        self.assertContains(restarted, f'value="{selected}" checked')
+
+    def test_restart_recovers_a_removed_selection_and_its_stale_cursor(self):
+        replacement = TextEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.users["editor"],
+            title="Calendar replacement",
+            body="Another plan.",
+        )
+        prepared = self.post(
+            action="prepare",
+            claim_cursor=self.picked["claim"],
+            claim_query="Calendar",
+            movement_query="Midday",
+            **self.picked,
+        )
+        self.assertContains(prepared, "Interpret a passage")
+        reviewed = self.interpret(prepared.context["draft"], quote="First plan.")
+        self.source.delete()
+        blocked = self.post(action="queue", draft=reviewed.context["draft"])
+        self.assertContains(blocked, "Restart source selection")
+        self.assertFalse(
+            AnalysisRun.objects.filter(operation="journey_claims").exists()
+        )
+
+        restarted = self.post(
+            action="choose_again", draft=blocked.context["restart_draft"]
+        )
+        self.assertContains(
+            restarted, "Unavailable sources were removed from the selection."
+        )
+        self.assertContains(restarted, "Its search restarted from the first page.")
+        claim, movement = restarted.context["pickers"]
+        self.assertEqual((claim["query"], claim["cursor"]), ("Calendar", ""))
+        self.assertEqual(movement["query"], "Midday")
+        self.assertNotContains(restarted, f'value="{self.picked["claim"]}"')
+        self.assertContains(restarted, f'value="{self.picked["movement"]}" checked')
+        self.assertContains(restarted, replacement.title)
+
+        prepared_again = self.post(
+            action="prepare",
+            claim=f"text:{replacement.pk}",
+            movement=self.picked["movement"],
+            claim_cursor=self.picked["claim"],
+            claim_query="Calendar",
+        )
+        self.assertContains(prepared_again, "Interpret a passage")
+        restarted_again = self.post(
+            action="choose_again", draft=prepared_again.context["draft"]
+        )
+        claim = restarted_again.context["pickers"][0]
+        self.assertEqual((claim["query"], claim["cursor"]), ("Calendar", ""))
 
     def test_form_newlines_map_to_original_offsets(self):
         quoted = "First plan.\nMeet at 11:00."

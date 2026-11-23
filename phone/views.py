@@ -15,6 +15,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
 from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.errors import AnalysisError
+from core.evidence.navigation import query_suffix
 from core.evidence.queries import get_evidence
 from core.evidence.types import (
     CALL_KINDS,
@@ -42,6 +43,7 @@ def add_attachment(request, case_id, kind, evidence_id):
         with retain_uploaded_originals() as originals:
             case = get_case(request.user, case_id, edit=True, lock=is_post)
             item = get_evidence(case, kind, evidence_id, lock=is_post)
+            reader_url = _detail_url(case, kind, item) + query_suffix(request)
             form = CallAttachmentForm(
                 request.POST if is_post else None, request.FILES if is_post else None
             )
@@ -112,7 +114,7 @@ def add_attachment(request, case_id, kind, evidence_id):
         status = 503
     else:
         if attachment is not None:
-            url = _detail_url(case, kind, item) + f"#attachment-{attachment.pk}"
+            url = reader_url + f"#attachment-{attachment.pk}"
             if wants_json(request):
                 return JsonResponse(
                     {"id": str(attachment.pk), "detail_url": url},
@@ -139,7 +141,7 @@ def add_attachment(request, case_id, kind, evidence_id):
         case_context(case, request.user)
         | {
             "item": item,
-            "kind": kind,
+            "reader_url": reader_url,
             "form": form,
             "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
             "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,

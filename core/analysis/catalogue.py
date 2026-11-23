@@ -133,10 +133,10 @@ def result_detail_projections():
     return details
 
 
-def raw_finding_item():
+def raw_finding_item(data_field="result__data"):
     """Fetch a single canonical item without loading the rest of the result."""
     return Func(
-        F("result__data"),
+        F(data_field),
         Value("items"),
         Cast(F("item_index"), TextField()),
         function="jsonb_extract_path",

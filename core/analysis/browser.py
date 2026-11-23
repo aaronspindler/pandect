@@ -749,15 +749,15 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.sign_in(page)
                 index_url = self.url("core:analysis:index", case_id=self.case.pk)
                 page.goto(index_url)
-                expect(page.locator(".analysis-highlights")).to_have_count(0)
-                self.capture(page, engine, "analysis-empty")
+                latest = page.get_by_role("region", name="Latest records")
+                expect(latest.locator("time")).to_have_count(3)
+                expect(latest.get_by_text("Finding", exact=True)).to_have_count(0)
+                self.capture(page, engine, "case-tools-evidence-only")
                 self.db(self._many_findings)
                 page.goto(index_url)
-                expect(page.locator(".analysis-highlights")).to_contain_text(
-                    "contact-01@example.test"
-                )
+                expect(latest.locator("time")).to_have_count(6)
                 expect(
-                    page.locator(".case-tools-directory + .case-tools-recent")
+                    latest.get_by_role("link", name="contact-01@example.test")
                 ).to_be_visible()
                 expect(
                     page.get_by_role("heading", name="Case Tools", exact=True)
@@ -766,16 +766,24 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("button", name="Run local checks", exact=True)
                 ).to_have_count(0)
-                expect(
-                    page.locator("#analysis-reports .analysis-options a")
-                ).to_have_count(5)
                 directory = page.get_by_role("navigation", name="Explore case")
-                for label in ("Findings", "Conversations", "Trips", "Images"):
+                reports = directory.get_by_role("region", name="Reports")
+                expect(reports.get_by_role("link")).to_have_count(5)
+                for label in (
+                    "Findings",
+                    "Conversations",
+                    "Trips",
+                    "Images",
+                    "Important",
+                    "Chronology",
+                    "People",
+                    "Vehicles",
+                    "Repeated identifiers",
+                    "Sighting groups",
+                ):
                     expect(
                         directory.get_by_role("link", name=label, exact=True)
                     ).to_be_visible()
-                report_menu = page.locator("#analysis-reports")
-                expect(report_menu).not_to_have_attribute("open", "")
                 navigation = page.get_by_role("navigation", name="Investigation")
                 navigation.get_by_role("link", name="Processing", exact=True).press(
                     "Enter"
@@ -818,6 +826,10 @@ class AnalysisBrowserTests(BrowserTestCase):
                 navigation.get_by_role("link", name="Case Tools", exact=True).press(
                     "Enter"
                 )
+                methods = page.get_by_role("region", name="Analysis methods")
+                tool_links = directory.get_by_role("link").or_(
+                    methods.get_by_role("link")
+                )
                 for width, height, label in (
                     (1440, 900, "desktop"),
                     (1440, 1024, "tall-desktop"),
@@ -827,18 +839,18 @@ class AnalysisBrowserTests(BrowserTestCase):
                 ):
                     page.set_viewport_size({"width": width, "height": height})
                     self._assert_reflow(page)
-                    expect(
-                        page.get_by_role("link", name="Additional analysis", exact=True)
-                    ).to_be_visible()
-                    for link in page.locator(".case-tools-directory a").all():
-                        if not link.is_visible():
-                            continue
+                    for link in tool_links.all():
                         bounds = link.bounding_box()
                         self.assertIsNotNone(bounds)
                         self.assertGreaterEqual(bounds["width"], 44)
                         self.assertGreaterEqual(bounds["height"], 44)
                     self.capture(page, engine, f"analysis-overview-{label}")
-                report_menu.locator("summary").press("Enter")
+                page.get_by_role("link", name="Jump to latest records").press("Enter")
+                expect(latest).to_be_in_viewport()
+                self.capture(page, engine, "case-tools-latest-reflow")
+                page.get_by_role("link", name="Jump to analysis methods").press("Enter")
+                expect(methods).to_be_in_viewport()
+                self.capture(page, engine, "case-tools-methods-reflow")
                 pattern = page.get_by_role("link", name="Vehicle trips", exact=True)
                 pattern.focus()
                 expect(pattern).to_be_focused()
@@ -847,9 +859,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     page.get_by_role("heading", name="Vehicle trips", exact=True)
                 ).to_be_visible()
                 page.go_back()
-                expect(page.locator("#analysis-reports-heading")).to_have_text(
-                    "Reports"
-                )
+                expect(reports).to_be_visible()
                 page.evaluate("document.documentElement.style.fontSize = '200%'")
                 self._assert_reflow(page)
                 self.capture(page, engine, "analysis-overview-large-text")
@@ -861,7 +871,6 @@ class AnalysisBrowserTests(BrowserTestCase):
                 page.emulate_media(color_scheme="light", forced_colors="active")
                 page.reload()
                 self.capture(page, engine, "analysis-overview-forced-colors")
-                report_menu.locator("summary").press("Enter")
                 report_link = page.get_by_role(
                     "link", name=re.compile(r"^Call patterns")
                 )
@@ -877,12 +886,12 @@ class AnalysisBrowserTests(BrowserTestCase):
                     reduced_motion="no-preference",
                 )
                 page.goto(index_url)
-                additional_analysis = page.get_by_role(
-                    "link", name="Additional analysis", exact=True
+                chooser_link = methods.get_by_role(
+                    "link", name="Browse methods by evidence type", exact=True
                 )
-                additional_analysis.focus()
-                expect(additional_analysis).to_be_focused()
-                additional_analysis.press("Enter")
+                chooser_link.focus()
+                expect(chooser_link).to_be_focused()
+                chooser_link.press("Enter")
                 expect(
                     page.get_by_role("heading", name="Choose an analysis")
                 ).to_be_visible()
@@ -1549,22 +1558,8 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Case Tools", exact=True)
                 ).to_be_visible()
-                additional_analysis = page.get_by_role(
-                    "link", name="Additional analysis", exact=True
-                )
-                additional_analysis.focus()
-                expect(additional_analysis).to_be_focused()
-                additional_analysis.press("Enter")
-                expect(
-                    page.get_by_role("heading", name="Choose an analysis", exact=True)
-                ).to_be_visible()
-                expect(page.locator('input[name="sources"]')).to_have_count(0)
-                expect(
-                    page.get_by_role(
-                        "heading", name="Extract and inspect files", exact=True
-                    )
-                ).to_be_visible()
-                task = page.get_by_role(
+                methods = page.get_by_role("region", name="Analysis methods")
+                task = methods.get_by_role(
                     "link", name="Extract document text", exact=True
                 )
                 task.focus()
@@ -1879,9 +1874,8 @@ class AnalysisBrowserTests(BrowserTestCase):
                 self.sign_in(page, self.viewer)
                 page.goto(self.url("core:analysis:index", case_id=self.case.pk))
                 expect(
-                    page.get_by_role("link", name="Additional analysis", exact=True)
+                    page.get_by_role("region", name="Analysis methods")
                 ).to_have_count(0)
-                page.locator("#analysis-reports > summary").press("Enter")
                 page.get_by_role("link", name="Call patterns", exact=True).click()
                 expect(
                     page.get_by_role("heading", name="Call patterns", exact=True)

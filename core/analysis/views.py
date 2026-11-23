@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 from uuid import UUID, uuid4
 
 from django.contrib import messages
@@ -40,6 +40,7 @@ from core.analysis.forms import (
     analysis_form,
     report_form,
 )
+from core.analysis.important import has_available_citations, retained_finding_url
 from core.analysis.manual import start_selected_analysis
 from core.analysis.navigation import (
     FINDINGS_PER_PAGE,
@@ -52,6 +53,7 @@ from core.analysis.navigation import (
 )
 from core.analysis.navigation import query_suffix as analysis_query_suffix
 from core.analysis.operations import (
+    CASE_OPERATIONS,
     INPUT_GUIDANCE,
     OPERATION_GROUPS,
     OPERATIONS,
@@ -79,11 +81,13 @@ from core.analysis.services import (
     set_address_estimate,
 )
 from core.evidence.collection import collection_context
-from core.evidence.navigation import list_params
+from core.evidence.navigation import collection_params, list_params
 from core.evidence.queries import get_evidence
 from core.evidence.time_claims import unavailable_time_claim
 from core.evidence.types import CALL_KINDS, KIND_LABELS
 from core.evidence.views import render_detail
+from core.important.navigation import return_params
+from core.important.reader import reader_context
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
 from geo.analysis import presentation as geo_presentation
 from image.analysis.presentation import (
@@ -149,41 +153,57 @@ def _processing_details(run):
     }
 
 
+def _operation_groups(operations, params, *, base_url=""):
+    return [
+        (
+            group,
+            [
+                {
+                    "key": key,
+                    "label": operations[key].label,
+                    "description": description,
+                    "url": base_url
+                    + analysis_query_suffix({"operation": key} | params),
+                }
+                for key, description in choices.items()
+                if key in operations
+            ],
+        )
+        for group, choices in OPERATION_GROUPS.items()
+        if operations.keys() & choices.keys()
+    ]
+
+
 @product_login_required
 @require_safe
 def index(request, case_id):
     case = get_case(request.user, case_id)
-    evidence = collection_context(case, QueryDict())
+    context = _context(request, case)
+    evidence = collection_context(case, QueryDict())["rows"][:3]
+    latest_records = [row | {"record_type": "Evidence"} for row in evidence]
+    latest_records.extend(case_highlights(case))
+    latest_records.sort(key=lambda row: row["created_at"], reverse=True)
     return render_live(
         request,
         "core/analysis/index.html",
-        _context(request, case)
+        context
         | {
-            "highlights": case_highlights(AnalysisRun.objects.filter(case=case), case)[
-                :3
-            ],
-            "recent_evidence": evidence["rows"][:3],
+            "latest_records": latest_records,
+            "operation_groups": _operation_groups(
+                CASE_OPERATIONS,
+                {},
+                base_url=reverse("core:analysis:create", args=[case.pk]),
+            )
+            if context["can_edit"]
+            else [],
             "show_instagram_monitors": instagram_connector.scheduling_available()
             or InstagramMonitor.objects.filter(case=case).exists(),
-            "evidence_count": evidence["page_obj"].paginator.count,
             "reports": (
-                ("vehicle-trips", "Vehicle trips", "Possible journeys and stops"),
-                ("calls", "Call patterns", "Who called whom, when and how often"),
-                (
-                    "vehicle-coverage",
-                    "Vehicle observation coverage",
-                    "Recorded locations and gaps",
-                ),
-                (
-                    "vehicle-speed",
-                    "Vehicle speed and heading",
-                    "Source-reported movement",
-                ),
-                (
-                    "duplicates",
-                    "Exact file duplicates",
-                    "Files with identical bytes",
-                ),
+                ("vehicle-trips", "Vehicle trips"),
+                ("calls", "Call patterns"),
+                ("vehicle-coverage", "Vehicle observation coverage"),
+                ("vehicle-speed", "Vehicle speed and heading"),
+                ("duplicates", "Exact file duplicates"),
             ),
         },
         collection=True,
@@ -392,19 +412,18 @@ def create(request, case_id, kind=None, evidence_id=None):
     case = get_case(request.user, case_id, edit=True)
     evidence = None
     evidence_url = ""
+    reader_params = {}
+    collection_origin = False
     focused_source = request.GET.get("source", "")
-    operations = {
-        name: spec
-        for name, spec in OPERATIONS.items()
-        if name not in {"question_synthesis", "imessage_import", "sighting_group"}
-    }
+    all_sources = (
+        evidence_id is None
+        and bool(focused_source)
+        and request.GET.get("all_sources") == "1"
+    )
+    operations = CASE_OPERATIONS
     if evidence_id is not None:
         item = get_evidence(case, kind, evidence_id)
         evidence = (kind, item)
-        evidence_url = reverse(
-            "core:evidence:detail",
-            kwargs={"case_id": case.pk, "kind": kind, "evidence_id": item.pk},
-        )
         operations = additional_operations(kind)
     elif focused_source:
         try:
@@ -418,8 +437,25 @@ def create(request, case_id, kind=None, evidence_id=None):
         except ValueError, IndexError, ValidationError:
             raise Http404("Source not found.") from None
         evidence = (focused["kind"], item)
+    encoded = request.GET.get("return_collection")
+    if encoded is not None and len(encoded) <= 3000:
+        try:
+            reader_params = collection_params(
+                dict(parse_qsl(encoded, max_num_fields=7))
+            )
+        except ValueError:
+            pass
+        else:
+            collection_origin = True
+    if evidence:
         evidence_url = reverse(
-            "core:evidence:detail", args=[case.pk, focused["kind"], item.pk]
+            "core:evidence:detail",
+            args=[case.pk, evidence[0], evidence[1].pk],
+            query=reader_params,
+        )
+    elif collection_origin:
+        evidence_url = reverse(
+            "core:evidence:list", args=[case.pk], query=reader_params
         )
     kind_filter = evidence[0] if evidence else request.GET.get("type", "")
     if kind_filter not in KIND_LABELS:
@@ -429,31 +465,29 @@ def create(request, case_id, kind=None, evidence_id=None):
             name: spec for name, spec in operations.items() if kind_filter in spec.kinds
         }
     chooser_params = {"source": focused_source} if focused_source else {}
+    if all_sources:
+        chooser_params["all_sources"] = "1"
     if kind_filter and not evidence:
         chooser_params["type"] = kind_filter
+    if collection_origin:
+        chooser_params["return_collection"] = urlencode(reader_params)
+    result_query = {}
+    if evidence:
+        result_query["return_evidence"] = urlencode(
+            {"kind": evidence[0], "evidence": evidence[1].pk, "reader": "1"}
+            | reader_params
+        )
+    elif collection_origin:
+        result_query["return_evidence"] = urlencode({"reader": "list"} | reader_params)
     chooser_context = _context(request, case) | {
-        "operation_groups": [
-            (
-                group,
-                [
-                    {
-                        "key": key,
-                        "label": operations[key].label,
-                        "description": description,
-                    }
-                    for key, description in choices.items()
-                    if key in operations
-                ],
-            )
-            for group, choices in OPERATION_GROUPS.items()
-            if operations.keys() & choices.keys()
-        ],
+        "operation_groups": _operation_groups(operations, chooser_params),
         "evidence": evidence[1] if evidence else None,
         "evidence_url": evidence_url,
+        "collection_query": chooser_params.get("return_collection"),
+        "evidence_collection_suffix": analysis_query_suffix(reader_params),
         "chooser_url": request.path + analysis_query_suffix(chooser_params),
         "chooser_kinds": KIND_LABELS.items(),
         "chooser_kind": kind_filter,
-        "focused_source": focused_source,
     }
     operation = (
         request.POST.get("operation")
@@ -467,25 +501,31 @@ def create(request, case_id, kind=None, evidence_id=None):
     if operation == "journey_claims":
         from geo.journey_claim_views import create as create_comparison
 
-        return create_comparison(request, case)
+        return create_comparison(
+            request, case, chooser_query=chooser_params, result_query=result_query
+        )
     call_recording = (
         kind_filter in CALL_KINDS and operation in CALL_RECORDING_OPERATIONS
     )
-    choose_retained_material = focused_source.count(":") == 1 and (
-        call_recording
-        or (
-            kind_filter in EXTRACTIONS_BY_KIND
-            and (operation in TEXT_OPERATIONS or operation in COORDINATE_OPERATIONS)
-            and source_readiness(case, operation, [(focused_source, "")])[
-                focused_source
-            ]["blocking"]
+    choose_retained_material = (
+        not all_sources
+        and focused_source.count(":") == 1
+        and (
+            call_recording
+            or (
+                kind_filter in EXTRACTIONS_BY_KIND
+                and (operation in TEXT_OPERATIONS or operation in COORDINATE_OPERATIONS)
+                and source_readiness(case, operation, [(focused_source, "")])[
+                    focused_source
+                ]["blocking"]
+            )
         )
     )
-    exact_source = "" if choose_retained_material else focused_source
+    exact_source = "" if choose_retained_material or all_sources else focused_source
     fixed_source = (
         evidence_id is not None
         or choose_retained_material
-        or (call_recording and evidence is not None)
+        or (call_recording and evidence is not None and not all_sources)
     )
     posted = request.POST.copy() if request.method == "POST" else None
     browse = request.POST.get("browse_sources") if posted is not None else None
@@ -521,17 +561,30 @@ def create(request, case_id, kind=None, evidence_id=None):
             "source_before" if sources_reverse else "source_after", ""
         )
         sources_page = max(1, sources_page + (-1 if sources_reverse else 1))
-    form = analysis_form(
-        posted,
-        case=case,
-        operation=operation,
-        query=query,
-        evidence=evidence if fixed_source else None,
-        sources_page=sources_page,
-        sources_cursor=sources_cursor,
-        sources_reverse=sources_reverse,
-        selected_sources=(exact_source,) if exact_source else (),
-    )
+    form_options = {
+        "case": case,
+        "operation": operation,
+        "query": query,
+        "evidence": evidence if fixed_source else None,
+        "sources_page": sources_page,
+        "sources_cursor": sources_cursor,
+        "sources_reverse": sources_reverse,
+        "selected_sources": (exact_source,) if exact_source else (),
+    }
+    try:
+        form = analysis_form(posted, **form_options)
+    except Http404:
+        if operation != "claim_comparison" or not sources_cursor:
+            raise
+        form_options.update(sources_page=1, sources_cursor="", sources_reverse=False)
+        form = analysis_form(posted, **form_options)
+        messages.info(request, "The source list changed. Showing the first page.")
+    if operation == "claim_comparison" and browse == "review":
+        choices = dict(form.fields["sources"].choices)
+        if any(value not in choices for value in posted.getlist("sources")):
+            messages.info(
+                request, "Unavailable sources were cleared from the selection."
+            )
     form.fields["operation"].choices = [
         (key, spec.label) for key, spec in operations.items()
     ]
@@ -552,6 +605,14 @@ def create(request, case_id, kind=None, evidence_id=None):
                     case,
                     selected,
                     submission_id=form.cleaned_data["submission_id"],
+                    chooser_query=chooser_params,
+                    result_query=result_query,
+                    picker_state={
+                        "q": query,
+                        "sources_page": form.source_page.number,
+                        "sources_cursor": form.sources_cursor,
+                        "sources_reverse": "1" if form.sources_reverse else "",
+                    },
                 )
             batch, runs, created = start_selected_analysis(
                 request.user,
@@ -574,12 +635,14 @@ def create(request, case_id, kind=None, evidence_id=None):
                 "Analysis queued." if created else "This analysis was already queued.",
             )
             if len(runs) == 1:
-                return redirect(_url(case, runs[0]))
+                return redirect(
+                    _url(case, runs[0]) + analysis_query_suffix(result_query)
+                )
             return redirect(
                 reverse(
                     "core:analysis:processing",
                     args=(case.pk,),
-                    query={"batch": batch.pk},
+                    query={"batch": batch.pk} | result_query,
                     fragment="processing-history",
                 )
             )
@@ -594,7 +657,13 @@ def create(request, case_id, kind=None, evidence_id=None):
         | {
             "form": form,
             "fixed_source": fixed_source,
-            "choose_retained_material": choose_retained_material,
+            "case_sources_url": reverse(
+                "core:analysis:create",
+                args=[case.pk],
+                query=chooser_params | {"operation": operation, "all_sources": "1"},
+            )
+            if choose_retained_material
+            else "",
             "choose_call_recording": choose_retained_material and call_recording,
             "has_compatible_source": any(
                 not readiness["blocking"] for readiness in form.readiness.values()
@@ -638,6 +707,7 @@ def _finding_detail(
     prior_runs,
     *,
     focused,
+    history,
 ):
     item = finding | row
     item["prior_finding_links"] = [
@@ -681,6 +751,15 @@ def _finding_detail(
                         for part in anchor["extraction_ranges"]
                         for x in part.get("original_anchors", [])
                     )
+            original_url = source.original_url if source.derived_result_id else url
+            if source.kind == "document":
+                pages = {
+                    anchor["page"] for anchor in display_anchors if anchor.get("page")
+                }
+                if len(pages) == 1:
+                    original_url += f"?document_page={pages.pop()}#document-preview"
+                    if source.derived_result_id is None:
+                        url = original_url
             links.append(
                 {
                     "id": source_id,
@@ -699,9 +778,7 @@ def _finding_detail(
                     "derived_label": "Selected geographic estimate"
                     if source.derived_coordinates is not None
                     else "Exact selected extraction version",
-                    "original_url": source.original_url
-                    if source.derived_result_id
-                    else None,
+                    "original_url": original_url if source.derived_result_id else None,
                     "coordinates": source.coordinates,
                     "coordinate_label": (
                         "Address estimate"
@@ -736,7 +813,9 @@ def _finding_detail(
     if run.operation == "journey_claims":
         from geo.journey_claim_readers import comparison_sources
 
-        item["comparison_links"] = comparison_sources(item, run, source_map)
+        item["comparison_links"] = comparison_sources(
+            item, run, source_map, history=history
+        )
     reference_key = values.get("Reference snapshot")
     reference = (
         references.get(reference_key) if isinstance(reference_key, str) else None
@@ -788,10 +867,13 @@ def detail(request, case_id, run_id):
             return render_live(
                 request, "core/analysis/sighting_ready.html", {"case": case, "run": run}
             )
-        return redirect("core:analysis:sighting_detail", case.pk, run.pk)
+        return redirect(
+            retained_finding_url(case.pk, run, 0, history=return_params(request.GET))
+        )
     history = history_query(request.GET)
     history_back = processing_back_query(history, batch_id=run.batch_id)
-    if "batch" not in history_back:
+    back_to_batch = "batch" in history_back
+    if not back_to_batch:
         history.pop("batch", None)
     reader_url = evidence_return_url(case.pk, request.GET)
     if (
@@ -803,30 +885,34 @@ def detail(request, case_id, run_id):
             reverse("phone:imessage_review", args=[case.pk, run.pk], query=history)
         )
     findings_back = findings_list_query(request.GET)
+    if findings_back is not None:
+        history["return_findings"] = urlencode(findings_back)
+    if reader_url:
+        history["return_evidence"] = request.GET["return_evidence"]
+        if back_to_batch:
+            history_back["return_evidence"] = history["return_evidence"]
+    finding_history = history | return_params(request.GET)
     back_to_analysis = (
         reverse("core:analysis:processing", args=[case.pk])
         + analysis_query_suffix(history_back)
         + ("#processing-history" if history_back else "")
     )
-    back_label = (
-        "Back to batch checks" if "batch" in history_back else "Back to Processing"
-    )
-    if findings_back is not None:
+    back_label = "Back to batch checks" if back_to_batch else "Back to Processing"
+    section = "processing"
+    if reader_url and not back_to_batch:
+        back_label = "Back to evidence"
+        back_to_analysis = reader_url
+        section = "evidence"
+    elif findings_back is not None and not reader_url:
         back_label = "Back to findings"
         back_to_analysis = reverse(
             "core:analysis:browse", args=[case.pk], query=findings_back
         )
-        history["return_findings"] = urlencode(findings_back)
-    section = "analysis" if findings_back is not None else "processing"
-    if reader_url:
-        back_label = "Back to evidence"
-        back_to_analysis = reader_url
-        history["return_evidence"] = request.GET["return_evidence"]
-        section = "evidence"
+        section = "analysis"
     context = _context(request, case) | {
         "nav_section": section,
         "run": run,
-        "history_suffix": analysis_query_suffix(history),
+        "history_suffix": analysis_query_suffix(finding_history),
         "back_to_analysis": back_to_analysis,
         "back_label": back_label,
         "operation_label": (
@@ -959,6 +1045,28 @@ def detail(request, case_id, run_id):
                         reverse("core:analysis:detail", args=[case.pk, estimates[pk]]),
                     )
             source_map = {str(source.id): source for source in sources}
+            if (
+                focused
+                and run.operation != "sighting_group"
+                and has_available_citations(run.operation, entries[0][1], source_map)
+            ):
+                index = entries[0][0]
+                source_url = retained_finding_url(
+                    case.pk,
+                    run,
+                    index,
+                    show_weak=show_weak,
+                    history=history,
+                )
+                context.update(
+                    reader_context(
+                        request,
+                        case,
+                        finding_result=result,
+                        item_index=index,
+                        source_url=source_url,
+                    )
+                )
             entries = [
                 (
                     index,
@@ -986,7 +1094,7 @@ def detail(request, case_id, run_id):
                     source_map,
                     previews,
                     request.GET,
-                    history,
+                    finding_history,
                     entries[0][1] if selected_position is not None else None,
                 )
             snapshots = list(
@@ -1016,7 +1124,7 @@ def detail(request, case_id, run_id):
                         case,
                         run,
                         show_weak=show_weak,
-                        history=history,
+                        history=finding_history,
                         sources=sources,
                         review_reason=priorities.get(index, (0, ""))[1],
                     ),
@@ -1028,6 +1136,7 @@ def detail(request, case_id, run_id):
                     references,
                     prior_runs,
                     focused=focused,
+                    history=history,
                 )
                 for index, finding in entries
             ]
@@ -1056,7 +1165,7 @@ def detail(request, case_id, run_id):
                 context.update(
                     focused_finding_context(run.operation, items[0], result.data)
                 )
-            run_query = history | ({"weak": 1} if show_weak else {})
+            run_query = finding_history | ({"weak": 1} if show_weak else {})
             context |= {
                 "result": result,
                 "result_groups": groups,

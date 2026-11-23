@@ -1,7 +1,7 @@
 {% extends 'ui/base.html' %}
 {% load import_checks static %}
 {% block title %}Review message CSV · {{ case.name }}{% endblock %}
-{% block extra_head %}<script src="{% static 'phone/imessage_review.js' %}" defer></script>{% endblock %}
+{% block extra_head %}<script data-workspace-document src="{% static 'phone/imessage_review.js' %}" defer></script>{% endblock %}
 {% block content %}
 {% if run.status == 'queued' or run.status == 'running' %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef live inline %}

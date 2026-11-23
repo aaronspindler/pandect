@@ -1,4 +1,4 @@
-(() => {
+window.PandectPage((signal) => {
   "use strict";
   document.querySelectorAll("[data-image-preview]").forEach((figure) => {
     const image = figure.querySelector("img");
@@ -14,4 +14,4 @@
     if (image.complete) update();
     else caption.textContent = "Loading image preview…";
   });
-})();
+});

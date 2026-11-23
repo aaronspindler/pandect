@@ -290,10 +290,22 @@ class AnalysisReview(models.Model):
 
 
 class GatewayRequest(models.Model):
+    class Operation(models.TextChoices):
+        ANALYSIS = "analysis", "Analysis"
+        SEARCH_INDEX = "search_index", "Meaning search indexing"
+        SEARCH_QUERY = "search_query", "Meaning search query"
+
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
     run = models.ForeignKey(
-        AnalysisRun, on_delete=models.CASCADE, related_name="gateway_requests"
+        AnalysisRun,
+        on_delete=models.CASCADE,
+        related_name="gateway_requests",
+        blank=True,
+        null=True,
+    )
+    operation = models.CharField(
+        max_length=16, choices=Operation, default=Operation.ANALYSIS
     )
     model = models.CharField(max_length=255)
     status = models.CharField(max_length=32, default="pending")
@@ -303,11 +315,24 @@ class GatewayRequest(models.Model):
     output_tokens = models.PositiveIntegerField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(operation="analysis", run__isnull=False)
+                    | models.Q(
+                        operation__in=["search_index", "search_query"], run__isnull=True
+                    )
+                ),
+                name="gateway_usage_operation_run",
+            )
+        ]
+
     def __str__(self):
         return f"Gateway request {self.pk}"
 
     def save(self, *args, **kwargs):
-        if self.run.case_id != self.case_id:
+        if self.run_id is not None and self.run.case_id != self.case_id:
             raise ValidationError("Gateway usage must belong to the run's case.")
         if self._state.adding:
             kwargs["force_insert"] = True

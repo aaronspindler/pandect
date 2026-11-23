@@ -15,7 +15,7 @@ from core.analysis.forms import analysis_form
 from core.analysis.import_checks import imported_sources
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
-from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
+from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, CaseSearchIndex
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from geo.models import (
@@ -25,6 +25,7 @@ from geo.models import (
     VehicleTripState,
 )
 from geo.trip_processing import METHOD_VERSION
+from socialmedia.models import InstagramCheck, InstagramConnection, InstagramMonitor
 
 
 class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
@@ -277,6 +278,13 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(response.context["analysis_run_total"], 26)
         self.assertEqual(
+            {
+                item["label"]: item["count"]
+                for item in response.context["processing_summary"]
+            },
+            {"Queued": 2, "Processing": 1, "Processed": 26, "Failed": 1},
+        )
+        self.assertEqual(
             response.context["analysis_run_counts"],
             [{"label": "Extract document text", "count": 26}],
         )
@@ -335,6 +343,14 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
                     [run.pk for run in response.context["page_obj"]], [rerun.pk]
                 )
                 self.assertEqual(response.context["analysis_run_total"], 8)
+                self.assertContains(response, 'id="processing-summary-live"')
+                self.assertEqual(
+                    {
+                        item["label"]: item["count"]
+                        for item in response.context["processing_summary"]
+                    },
+                    {"Queued": 2, "Processing": 1, "Processed": 11, "Failed": 1},
+                )
                 self.assertEqual(
                     response.context["analysis_run_counts"],
                     [
@@ -343,6 +359,55 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
                         {"label": "Read text in images", "count": 2},
                     ],
                 )
+
+    def test_processing_overview_counts_distinct_work_across_sections(self):
+        owner = self.users["owner"]
+        for status in ("pending", "running", "review", "complete", "failed"):
+            self.vehicle_import(status=status)
+        state = VehicleTripState.objects.create(case=self.case, vehicle=self.vehicle)
+        for status, addresses in (
+            ("queued", "pending"),
+            ("complete", "queued"),
+            ("complete", "running"),
+            ("complete", "failed"),
+            ("complete", "complete"),
+            ("complete", "disabled"),
+            ("superseded", "pending"),
+        ):
+            VehicleTripGeneration.objects.create(
+                case=self.case,
+                vehicle=self.vehicle,
+                state=state,
+                revision=state.revision,
+                method_version=METHOD_VERSION,
+                requested_by=owner,
+                status=status,
+                geocode_status=addresses,
+            )
+        monitor = InstagramMonitor.objects.create(
+            case=self.case,
+            connection=InstagramConnection.objects.create(user=owner),
+            created_by=owner,
+            target="synthetic",
+        )
+        for status in ("running", "complete", "failed", "cancelled"):
+            InstagramCheck.objects.create(monitor=monitor, status=status)
+        CaseSearchIndex.objects.create(
+            case=self.case,
+            requested_by=owner,
+            profile="synthetic-index",
+            status="ready",
+        )
+        self.login("viewer")
+        with patch("core.case_search.indexing.profile", return_value="synthetic-index"):
+            response = self.client.get(self.processing_url())
+        self.assertEqual(
+            {
+                item["label"]: item["count"]
+                for item in response.context["processing_summary"]
+            },
+            {"Queued": 2, "Processing": 3, "Processed": 5, "Failed": 3},
+        )
 
     def test_processing_current_work_and_import_history_are_bounded_independently(self):
         document = self.document()
@@ -430,19 +495,33 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             self.assertNotContains(result, "Analysis run counts")
             self.assertEqual(result.context["analysis_run_total"], 0)
 
-    def test_imports_ready_for_review_remain_visible_with_current_work(self):
+    def test_vehicle_imports_awaiting_action_do_not_count_as_active_work(self):
         ready = self.vehicle_import(status="review", title="Locations ready for review")
+        pending = self.vehicle_import(status="pending", title="Saved CSV to prepare")
         self.login("editor")
         response = self.client.get(self.processing_url())
         self.assertEqual(
-            [item.pk for item in response.context["import_reviews"]], [ready.pk]
+            {item.pk for item in response.context["import_reviews"]},
+            {pending.pk, ready.pk},
         )
+        self.assertContains(response, "Awaiting preparation")
         self.assertContains(response, "Ready to review")
-        self.assertContains(response, "Needs attention")
+        self.assertLess(
+            response.content.index(b"Processing overview"),
+            response.content.index(b"Needs attention"),
+        )
         self.assertEqual(response.context["active_imports"].paginator.count, 0)
+        self.assertFalse(response.context["live_pending"])
+        activity = self.client.get(reverse("cases:activity", args=[self.case.pk]))
+        self.assertFalse(activity.json()["active"])
         self.assertContains(
             response,
-            reverse("geo:vehicle_import_review", args=[self.case.pk, ready.pk]),
+            reverse("geo:vehicle_import_review", args=[self.case.pk, pending.pk]),
+        )
+        filtered = self.client.get(self.processing_url(), {"imports": "review"})
+        self.assertEqual(
+            {item.pk for item in filtered.context["import_history"]},
+            {pending.pk, ready.pk},
         )
 
     def test_needs_attention_links_current_stopped_preparation_and_imports(self):

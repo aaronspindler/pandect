@@ -1,6 +1,5 @@
 {% extends 'core/analysis/base.html' %}
 {% load static %}
-{% block extra_head %}{{ block.super }}{% if name == 'vehicle-trips' %}<script src="{% static 'geo/prepare_trips.js' %}" defer></script>{% endif %}{% endblock %}
 {% block title %}Report · {{ case.name }}{% endblock %}
 {% block content %}
 <a class="back-link" href="{% url 'core:analysis:index' case.pk %}">Back to Case Tools</a>

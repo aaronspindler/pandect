@@ -22,6 +22,7 @@ from django.views.decorators.http import (
     require_POST,
     require_safe,
 )
+from django.views.decorators.vary import vary_on_headers
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
@@ -40,7 +41,11 @@ from core.evidence.deletion import (
 from core.evidence.form_registry import TYPE_FIELDS, evidence_form
 from core.evidence.forms import COMMON_FIELDS, SOURCE_FIELDS, EvidenceDeleteForm
 from core.evidence.navigation import list_params, query_suffix
-from core.evidence.queries import duplicate_matches, get_evidence
+from core.evidence.queries import (
+    duplicate_matches,
+    evidence_counts_by_type,
+    get_evidence,
+)
 from core.evidence.types import (
     CALL_KINDS,
     COMMUNICATION_KINDS,
@@ -50,15 +55,29 @@ from core.evidence.types import (
     LOCATION_KINDS,
     READER_TEMPLATES,
 )
+from core.important.reader import reader_context as important_reader_context
 from core.storage import retain_uploaded_originals
 from geo.models import VehicleLocationImport
 from image.previews import image_preview
 from phone.forms import save_call_content
+from ui.dialogs import form_saved, render_quick_form, render_record, wants_record
 from ui.live import render_live
 
 SAVE_UNCONFIRMED = (
     "The save could not be confirmed. Keep your original and retry this submission."
 )
+EVIDENCE_SUMMARY_ICONS = {
+    "image": "photo",
+    "audio": "music",
+    "document": "file-text",
+    "text": "file-text",
+    "location": "map",
+    "person-location": "users",
+    "vehicle-location": "car",
+    "text-message": "message",
+    "phone-call": "phone",
+    "facetime": "phone",
+}
 
 
 def _error(request, code, message, status=400, errors=None):
@@ -93,18 +112,44 @@ def _info_url(request, case, kind, item):
     )
 
 
-def _list_context(request, case):
-    return collection_context(case, request.GET)
+def _list_context(request, case, *, workspace_rows=True):
+    context = collection_context(case, request.GET, workspace_rows=workspace_rows)
+    if workspace_rows:
+        for row in context["rows"]:
+            row["icon"] = EVIDENCE_SUMMARY_ICONS.get(row["kind"], "file-text")
+    return context
 
 
 @product_login_required
 @require_safe
 def evidence_list(request, case_id):
     case = get_case(request.user, case_id)
-    context = case_context(case, request.user) | _list_context(request, case)
+    gallery = (
+        request.GET.get("type") == "image" and request.GET.get("view") == "gallery"
+    )
+    context = case_context(case, request.user) | _list_context(
+        request, case, workspace_rows=not gallery
+    )
     context["nav_section"] = "evidence"
-    if context["selected_kind"] == "image" and request.GET.get("view") == "gallery":
+    if gallery:
         return render_live(request, "image/gallery.html", context, collection=True)
+    state = context["state"]
+    counts = evidence_counts_by_type(
+        case, archived=None if state == "all" else state == "archived"
+    )
+    context["evidence_summary_heading"] = {
+        "active": "Active evidence by type",
+        "archived": "Archived evidence by type",
+        "all": "All evidence by type",
+    }[state]
+    context["evidence_summary"] = [
+        {
+            "label": label,
+            "count": counts[kind],
+            "icon": EVIDENCE_SUMMARY_ICONS.get(kind),
+        }
+        for kind, label in KIND_LABELS.items()
+    ]
     return render_live(
         request, "core/evidence/workspace.html", context, collection=True
     )
@@ -112,6 +157,7 @@ def evidence_list(request, case_id):
 
 @product_login_required
 @require_safe
+@vary_on_headers("X-Pandect-Form")
 def detail(request, case_id, kind, evidence_id):
     case = get_case(request.user, case_id)
     item = get_evidence(
@@ -131,15 +177,17 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
         if request.method in {"GET", "HEAD"}
         else None
     )
-    if mode != "1":
+    record_only = wants_record(request) and mode is None
+    if mode != "1" and not record_only:
         context.update(_list_context(request, case))
     if mode == "collection":
         return render_live(
             request, "core/evidence/workspace.html", context, collection=True
         )
-    context.update(
-        evidence_findings_context(case, kind, item, request.GET, form=analysis_form)
-    )
+    if not record_only:
+        context.update(
+            evidence_findings_context(case, kind, item, request.GET, form=analysis_form)
+        )
     if mode == "1":
         context["list_suffix"] = query_suffix(request)
         return render_live(request, "core/evidence/workspace.html", context)
@@ -162,6 +210,41 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
             or request.GET.get("section") == "details"
             or any(key in request.GET for key in ("thread_page", "reply_page")),
         }
+    )
+    if record_only:
+        if kind == "text-message":
+            from phone.presentation import message_evidence_label
+
+            context["display_title"] = message_evidence_label(
+                item.body, item.sender, item.occurred_at
+            )
+        return render_record(request, "core/evidence/workspace.html", context)
+    reader_params = list_params(request)
+    for key in (
+        "findings_page",
+        "results_page",
+        "thread_page",
+        "reply_page",
+        "conversation_list_page",
+    ):
+        page = request.GET.get(key, "")
+        if len(page) <= 9 and page.isascii() and page.isdecimal():
+            reader_params[key] = page
+    if context["info_open"]:
+        reader_params["info"] = "1"
+    context.update(
+        important_reader_context(
+            request,
+            case,
+            evidence_kind=kind,
+            evidence_id=item.pk,
+            source_url=reverse(
+                "core:evidence:detail",
+                args=[case.pk, kind, item.pk],
+                query=reader_params,
+                fragment="evidence-reader",
+            ),
+        )
     )
     if kind in COMMUNICATION_KINDS:
         from phone.conversations import conversation_list_page
@@ -447,9 +530,6 @@ def create(request, case_id):
         "has_vehicles": kind != "vehicle-location"
         or form.fields["vehicle"].queryset.exists(),
         "nav_section": "evidence",
-        "max_text_bytes": settings.PANDECT_MAX_TEXT_BYTES,
-        "max_batch_files": settings.PANDECT_MAX_BATCH_FILES,
-        "max_file_bytes": settings.PANDECT_MAX_FILE_BYTES,
     }
     return render(request, "core/evidence/form.html", context, status=status)
 
@@ -484,10 +564,11 @@ def edit(request, case_id, kind, evidence_id):
                 status = 409
             else:
                 form.save()
-                messages.success(
-                    request, "Evidence details saved. The original is unchanged."
+                return form_saved(
+                    request,
+                    "Evidence details saved. The original is unchanged.",
+                    _info_url(request, case, kind, item),
                 )
-                return redirect(_info_url(request, case, kind, item))
         elif is_post:
             status = 400
         context = case_context(case, request.user) | {
@@ -503,7 +584,7 @@ def edit(request, case_id, kind, evidence_id):
             "conflict": conflict,
             "latest_details": latest_details if conflict else [],
         }
-    return render(request, "core/evidence/form.html", context, status=status)
+    return render_quick_form(request, "core/evidence/form.html", context, status=status)
 
 
 @product_login_required

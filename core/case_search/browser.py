@@ -1,10 +1,19 @@
 """Keyboard, reflow and progressively enhanced case search."""
 
+from itertools import product
+from unittest.mock import patch
+
+from django.test import override_settings
 from playwright.sync_api import expect
 
 from cases.models import Case
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.errors import AnalysisError
+from core.analysis.tests.test_gateway import CONFIG
+from core.case_search.indexing import index_case_passages
+from core.models import CaseSearchIndex
 from people.models import Person
+from text.models import TextEvidence
 
 
 class CaseSearchBrowserTests(BrowserTestCase):
@@ -17,6 +26,117 @@ class CaseSearchBrowserTests(BrowserTestCase):
         self.person = Person.objects.create(
             case=self.case, first_name="Evelyn", last_name="Rivers"
         )
+
+    @override_settings(
+        PANDECT_SEARCH_EMBEDDING_PROVIDER="openai-gateway", PANDECT_AI_GATEWAY=CONFIG
+    )
+    def test_hosted_approval_resume_and_first_related_result(self):
+        def run_work(case):
+            for _ in range(12):
+                index = CaseSearchIndex.objects.get(case=case)
+                if index.status in {"ready", "failed"}:
+                    return index.status
+                index_case_passages.call(str(index.pk), str(index.token))
+            self.fail("Index did not finish its bounded synthetic work.")
+
+        def vectors(texts, authorize, **kwargs):
+            authorize()
+            return [[1.0] + [0.0] * 1535 for _ in texts]
+
+        for engine, javascript in product(self.engines, (True, False)):
+            case = Case.objects.create(
+                owner=self.owner, name=f"Harbour inspection {engine}"
+            )
+            note = TextEvidence.objects.create(
+                case=case,
+                uploaded_by=self.owner,
+                title="Harbour interview",
+                body="The boat captain delayed the inspection until tomorrow.",
+            )
+            with (
+                self.subTest(engine=engine, javascript=javascript),
+                self.browser_page(engine, java_script_enabled=javascript) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(
+                    self.url("cases:case_settings", case_id=case.pk) + "#meaning-search"
+                )
+                approve = page.get_by_role("button", name="Approve and start indexing")
+                expect(approve).to_be_visible()
+                if javascript:
+                    self.check_approval_layout(page, engine, approve)
+                approve.press("Enter")
+                page.wait_for_url("**/processing/#case-search-index")
+                with patch(
+                    "core.case_search.indexing.embed",
+                    side_effect=AnalysisError("gateway_authentication"),
+                ):
+                    self.assertEqual(self.db(run_work, case), "failed")
+                page.reload()
+                resume = page.get_by_role("button", name="Resume indexing")
+                expect(resume).to_be_visible()
+                if javascript:
+                    self.capture(page, engine, "hosted-stopped")
+                resume.click()
+                expect(resume).to_have_count(0)
+                with patch("core.case_search.indexing.embed", side_effect=vectors):
+                    self.assertEqual(self.db(run_work, case), "ready")
+                with patch(
+                    "core.case_search.semantic.embed", side_effect=vectors
+                ) as query:
+                    page.goto(
+                        self.url("core:search:results", case_id=case.pk)
+                        + "?q=meeting+postponed&type=text"
+                    )
+                    query.assert_not_called()
+                    page.get_by_role("button", name="Search by meaning").click()
+                    results = page.get_by_role("region", name="Related passages")
+                    hit = results.get_by_role(
+                        "link", name="Harbour interview", exact=False
+                    )
+                    expect(hit).to_be_visible()
+                    self.capture(
+                        page,
+                        engine,
+                        "hosted-results" if javascript else "hosted-results-no-js",
+                    )
+                    query.assert_called_once()
+                    hit.click()
+                    page.wait_for_url(
+                        self.url(
+                            "core:evidence:detail",
+                            case_id=case.pk,
+                            kind="text",
+                            evidence_id=note.pk,
+                        )
+                    )
+
+    def check_approval_layout(self, page, engine, approve):
+        for width, height in (
+            (1440, 900),
+            (1440, 1024),
+            (768, 1024),
+            (390, 844),
+            (320, 844),
+        ):
+            page.set_viewport_size({"width": width, "height": height})
+            page.locator("#meaning-search").evaluate(
+                "section => section.scrollIntoView()"
+            )
+            self.assertLessEqual(
+                page.evaluate("document.documentElement.scrollWidth"), width + 1
+            )
+            self.capture(page, engine, f"hosted-approval-{width}x{height}")
+        page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+        approve.focus()
+        expect(approve).to_be_focused()
+        self.capture(page, engine, "hosted-approval-dark")
+        if engine == "chromium":
+            page.emulate_media(forced_colors="active")
+            self.capture(page, engine, "hosted-approval-forced-colors")
+            page.emulate_media(forced_colors="none")
+        page.evaluate("document.documentElement.style.fontSize = '200%'")
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 321)
 
     def test_quick_matches_and_search_navigation(self):
         for engine in self.engines:
@@ -75,7 +195,7 @@ class CaseSearchBrowserTests(BrowserTestCase):
                 page.get_by_label("Record type").select_option("person")
                 page.get_by_role("button", name="Apply filters").click()
                 expect(page.get_by_label("Record type")).to_have_value("person")
-                self.assertIn("type=person", page.url)
+                page.wait_for_url("**/search/?*type=person*")
                 hit = (
                     page.locator(".case-search-hit")
                     .filter(has_text="Evelyn Rivers")

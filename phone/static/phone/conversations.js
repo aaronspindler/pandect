@@ -1,4 +1,4 @@
-(() => {
+window.PandectPage((signal) => {
   "use strict";
 
   function ordinaryClick(event) {
@@ -10,6 +10,8 @@
     const initialDay = new URL(location.href).searchParams.get("day");
     let selected = transcript.querySelector("[data-selected-message]");
     let transcriptOffset = null;
+    const firstEntry = history.state?.workspaceIndex;
+    let lastEntry = firstEntry;
     workspace.classList.add("is-interactive");
 
     function show(row, anchor = row || selected) {
@@ -48,11 +50,12 @@
     }
 
     function navigate(row, url) {
-      if (row?.hasAttribute("data-load-panel-on-open")) {
+      if (!window.PandectWorkspace) {
         location.assign(url);
         return;
       }
-      if (url !== location.href) history.pushState(null, "", url);
+      window.PandectWorkspace.pushLocal(url);
+      lastEntry = history.state.workspaceIndex;
       show(row);
     }
 
@@ -68,16 +71,25 @@
       if (!bubble) return;
       // The original is plain selectable text. Finishing a drag must not open the inspector.
       if (!event.target.closest("[data-message-select]") && !window.getSelection()?.isCollapsed) return;
+      const row = bubble.closest(".conversation-message");
+      const link = bubble.querySelector("[data-message-select]");
+      if (row.hasAttribute("data-load-panel-on-open")) {
+        if (!link.contains(event.target)) link.click();
+        return;
+      }
       event.preventDefault();
-      navigate(bubble.closest(".conversation-message"), bubble.querySelector("[data-message-select]").href);
-    });
+      navigate(row, link.href);
+    }, {signal});
     workspace.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !event.defaultPrevented && selected) {
         event.preventDefault();
         navigate(null, panel.querySelector("[data-message-close]").href);
       }
-    });
-    window.addEventListener("popstate", () => {
+    }, {signal});
+    document.addEventListener("pandect:restore-local", event => {
+      // Only entries opened within this still-mounted transcript can reuse its rows.
+      const index = history.state?.workspaceIndex;
+      if (index < firstEntry || index > lastEntry || firstEntry === lastEntry) return;
       const params = new URL(location.href).searchParams;
       const id = params.get("message");
       const row = id ? document.getElementById(`message-${id}`) : null;
@@ -94,9 +106,11 @@
       } else {
         available = transcript.querySelector("[data-conversation-items]").dataset.page === (params.get("page") || "1");
       }
-      if (available) show(row, anchor);
-      else location.reload();
-    });
+      if (available) {
+        event.preventDefault();
+        show(row, anchor);
+      }
+    }, {signal});
   }
 
   function enablePaging(reader, workspace) {
@@ -112,7 +126,9 @@
       let failed = false;
 
       const load = async (activated = false) => {
-        if (loading || failed || link.hidden) return;
+        if (signal.aborted || loading || failed || link.hidden) return;
+        const isCurrent = activated && window.PandectWorkspace?.beginLocal();
+        const focus = document.activeElement;
         loading = true;
         observer.unobserve(edge);
         link.setAttribute("aria-disabled", "true");
@@ -121,10 +137,11 @@
           const response = await fetch(link.href, {
             credentials: "same-origin",
             cache: "no-store",
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
           });
           if (!response.ok || response.redirected) throw new Error("Page unavailable");
           const page = new DOMParser().parseFromString(await response.text(), "text/html");
+          if (signal.aborted) return;
           const incomingReader = reader.id ? page.getElementById(reader.id) : page.querySelector("[data-conversation-scroll]");
           const incoming = incomingReader?.querySelector("[data-conversation-items]");
           if (!incoming || incoming.dataset.page !== new URL(link.href).searchParams.get(pageParam)) {
@@ -155,6 +172,7 @@
             } else rows.splice(rows.indexOf(newDate), 1);
           }
           const fragment = document.createDocumentFragment();
+          const focusLoaded = activated && (!isCurrent || isCurrent()) && document.activeElement === focus;
           rows.forEach((row) => fragment.append(row));
           if (previous) {
             items.prepend(fragment);
@@ -176,24 +194,26 @@
             }
             window.scrollBy(0, shift);
           }
-          if (activated) records[0]?.focus();
+          if (focusLoaded) records[0]?.focus();
         } catch {
+          if (signal.aborted) return;
           failed = true;
           status.textContent = `Could not load ${label}. Use the link to open the page.`;
         } finally {
           loading = false;
           link.removeAttribute("aria-disabled");
-          if (!failed && !link.hidden) observer.observe(edge);
+          if (!signal.aborted && !failed && !link.hidden) observer.observe(edge);
         }
       };
       const observer = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting)) load();
       }, { rootMargin: "200px 0px" });
+      signal.addEventListener("abort", () => observer.disconnect(), {once: true});
       link.addEventListener("click", (event) => {
         if (failed || !ordinaryClick(event)) return;
         event.preventDefault();
         load(true);
-      });
+      }, {signal});
       observer.observe(edge);
     });
   }
@@ -203,4 +223,4 @@
     if (workspace) enableMessageSelection(workspace, reader);
     if ("IntersectionObserver" in window) enablePaging(reader, workspace);
   });
-})();
+});

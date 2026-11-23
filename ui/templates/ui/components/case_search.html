@@ -1,4 +1,4 @@
-<form id="case-search" role="search" aria-label="Case-wide search" action="{% url 'core:search:results' case.pk %}" method="get" data-suggestions-url="{% url 'core:search:suggestions' case.pk %}">
+<form id="case-search" hx-preserve role="search" aria-label="Case-wide search" action="{% url 'core:search:results' case.pk %}" method="get" data-suggestions-url="{% url 'core:search:suggestions' case.pk %}">
   <label class="visually-hidden" for="case-search-query">Search this case</label>
   <input id="case-search-query" name="q" type="search" value="{{ case_search_query }}" placeholder="Search this case" maxlength="200" autocomplete="off" spellcheck="false"{% if search_form.q.errors %} aria-invalid="true" aria-describedby="case-query-errors"{% endif %}>
   <kbd aria-hidden="true" class="case-search-shortcut" hidden></kbd>

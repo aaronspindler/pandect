@@ -125,10 +125,12 @@ public pages follow the marketing identity above.
   between `20rem` and `26rem` alongside a flexible reader. The list fills the
   workspace when no record is selected. Below either threshold, the collection
   and detail each use the workspace width and scroll with the document.
-- Desktop evidence rows have a `3.5rem` minimum height, a readable title link
-  covering the row, and one metadata line. Keep secondary actions in the detail
-  page. Target 12 complete rows at `1440 × 900` and 14 at `1440 × 1024` with ordinary
-  synthetic titles at default zoom. Never clip text or controls to meet counts.
+- Desktop evidence rows have a `3.5rem` minimum height and a readable title link
+  covering the row. Align type, details, and date and time in the wide collection.
+  Stack supporting fields under the title in narrow collections and split panes.
+  Keep secondary actions in the detail page. Target 12 complete rows at
+  `1440 × 900` and 14 at `1440 × 1024` with ordinary synthetic titles at default
+  zoom. Never clip text or controls to meet counts.
 - Keep headings, search, filters, and pagination compact. Avoid repeated case
   titles and timestamps. Use fluid gutters and let multi-column views and
   structured results use the available width. Keep reading passages around
@@ -166,19 +168,21 @@ accessibility changes require an explicit user request and must not block handof
   regions without announcing every progress tick or moving focus on updates.
 - Honor forced colors and reduced motion. Keep transitions brief (normally
   `150ms` or less) and nonessential motion removable.
-- Prefer full-page flows to dialogs. A justified dialog needs a name, initial
-  focus, Escape, focus containment, and focus return.
+- Use a native dialog for short adds and edits that benefit from the surrounding
+  record or list. Give it a name, initial focus, Escape, focus containment, and
+  focus return. Keep uploads, multi-step reviews, approvals, and deletion on
+  dedicated pages. Every dialog action has a working full-page form.
 
 ## Interaction and writing
 
 | Pattern | Required behavior |
 | --- | --- |
-| Navigation | Stable case context and predictable Back, following the URL rules above. |
+| Navigation | Stable case context and predictable Back. A task opened from a filtered collection should return to the same view and record after cancellation or completion. |
 | Create/edit | Named fields and explicit Save/Cancel. |
 | Read-only | Explain the role and omit unavailable mutations; permissions follow [AGENTS.md](AGENTS.md#case-authorization-and-evidence-integrity). |
 | Search/filter | Labeled controls, submit fallback, result count, clear action, filters in URL. |
-| Empty/no results | Explain the collection or retain the query; offer a permitted next action. |
-| Busy/success | Name the action, prevent repeat submission, confirm changes with a useful next link. |
+| Empty/no results | Separate a new collection, an unsuccessful search, and invalid filters. Preserve entered criteria and offer a permitted next action. |
+| Busy/success | Name the action, prevent repeat submission, and show when a decision awaits the investigator. Announce the outcome of background work and provide the next useful action. |
 | Error/access removed | Explain failure and recovery without secrets/storage paths; stop revoked work and return to All cases. |
 | Edit conflict | Preserve proposed values and require review of newer saved details. |
 | Archive/delete | Explain retention or removal, identify the target/consequences, provide safe cancellation; mutate through POST. |

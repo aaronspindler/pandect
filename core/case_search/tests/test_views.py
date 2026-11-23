@@ -144,7 +144,7 @@ class CaseSearchViewTests(EvidenceViewTestMixin, TestCase):
             related.assert_called_once()
         self.assertContains(response, "0 keyword matches")
         self.assertContains(response, "Indexing this case.")
-        self.assertContains(response, "Related by meaning (1)")
+        self.assertContains(response, "Related passages (1)")
         self.assertContains(response, item.body)
         self.assertNotContains(response, "Try another word")
         self.assertContains(response, self.url("detail", item))

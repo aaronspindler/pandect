@@ -44,7 +44,16 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
         )
         self.assertTrue(engines and not set(engines) - {"chromium", "webkit"})
         artifacts = artifact_directory("marketing-browser")
-        pages = ("home", "evidence", "trust", "roadmap")
+        investigation_filters = {
+            "investigation_incidents": "",
+            "investigation_osint": "?type=documents",
+            "investigation_communications": "?type=communications",
+            "investigation_vehicle_location": "?type=locations",
+        }
+        pages = ("home", "evidence", "trust", "roadmap", "investigations")
+        pages += tuple(investigation_filters)
+        investigations_path = reverse("marketing:investigations")
+        evidence_path = reverse("marketing:evidence")
         viewports = (
             (1440, 900),
             (1440, 1024),
@@ -118,10 +127,38 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                             expect(
                                 page.locator(".catalogue-families [aria-current]")
                             ).to_have_text("All analysis")
-                        current_scope = "footer" if name == "roadmap" else "header"
-                        expect(
-                            page.locator(f"{current_scope} [aria-current='page']")
-                        ).to_have_attribute("href", reverse(f"marketing:{name}"))
+                        if name in investigation_filters:
+                            breadcrumb = page.get_by_role(
+                                "navigation", name="Breadcrumb"
+                            )
+                            expect(
+                                breadcrumb.get_by_role(
+                                    "link", name="All investigation types"
+                                )
+                            ).to_have_attribute("href", investigations_path)
+                            expect(
+                                breadcrumb.locator("[aria-current='page']")
+                            ).to_have_text(
+                                page.get_by_role("heading", level=1).inner_text()
+                            )
+                            expect(
+                                page.get_by_text("Fictional example")
+                            ).to_be_visible()
+                            formats = evidence_path + investigation_filters[name]
+                            expect(
+                                page.locator(f'main a[href="{formats}#formats"]')
+                            ).to_be_visible()
+                        else:
+                            current_scope = "footer" if name == "roadmap" else "header"
+                            expect(
+                                page.locator(f"{current_scope} [aria-current='page']")
+                            ).to_have_attribute("href", reverse(f"marketing:{name}"))
+                        if name == "investigations":
+                            for investigation in investigation_filters:
+                                path = reverse(f"marketing:{investigation}")
+                                expect(
+                                    page.locator(f'main a[href="{path}"]')
+                                ).to_be_visible()
                         expect(
                             page.locator("header").get_by_role(
                                 "link", name="Roadmap", exact=True
@@ -221,6 +258,7 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                     expect(page.locator("#main-content")).to_be_focused()
                     for scope, name, href in (
                         ("header", "Overview", reverse("marketing:home")),
+                        ("header", "Investigations", investigations_path),
                         (
                             "header",
                             "Evidence & analysis",
@@ -241,10 +279,19 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         ),
                         (
                             "main",
-                            "Evidence types and requirements",
+                            "Analysis setup requirements",
                             reverse("marketing:evidence") + "#requirements",
                         ),
-                        ("main", "Processing and privacy", reverse("marketing:trust")),
+                        (
+                            "main",
+                            "Evidence processing and privacy",
+                            reverse("marketing:trust") + "#processing",
+                        ),
+                        (
+                            "main",
+                            "Explore investigation workflows",
+                            investigations_path,
+                        ),
                     ):
                         page.goto(self.live_server_url + reverse("marketing:home"))
                         link = page.locator(scope).get_by_role(
@@ -267,6 +314,16 @@ class MarketingBrowserTests(StaticLiveServerTestCase):
                         expect(page).to_have_url(self.live_server_url + href)
                         if "#" in href:
                             expect(page.locator(":target")).to_be_in_viewport()
+
+                    investigations_url = self.live_server_url + investigations_path
+                    page.goto(investigations_url)
+                    osint_path = reverse("marketing:investigation_osint")
+                    page.locator(f'main a[href="{osint_path}"]').press("Enter")
+                    expect(page).to_have_url(self.live_server_url + osint_path)
+                    page.get_by_role("link", name="All investigation types").press(
+                        "Enter"
+                    )
+                    expect(page).to_have_url(investigations_url)
 
                     for fragment in (
                         "available",

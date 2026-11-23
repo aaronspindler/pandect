@@ -9,15 +9,20 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST, require_safe
+from django.views.decorators.http import (
+    require_http_methods,
+    require_POST,
+    require_safe,
+)
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 
-from .indexing import prepare_case_search
+from .approval import search_approval_current
+from .indexing import prepare_case_search, search_index_status
 from .queries import highlight_terms, search, suggest
 from .semantic import meaning_query, related_results
-from .semantic_model import profile
+from .semantic_model import is_external, profile
 from .sources import TYPE_CHOICES
 
 
@@ -92,7 +97,7 @@ class SearchForm(forms.Form):
 
 
 @product_login_required
-@require_safe
+@require_http_methods(["GET", "HEAD", "POST"])
 def results(request, case_id):
     case = get_case(request.user, case_id)
     form = SearchForm(request.GET)
@@ -135,18 +140,30 @@ def results(request, case_id):
                 if not page.paginator.count:
                     _, context["spelling"] = suggest(case, query)
                 if meaning_query(query, values["type"]):
-                    if request.GET.get("meaning") == "1":
+                    submitted = (
+                        request.method == "POST" and request.POST.get("meaning") == "1"
+                    )
+                    local_link = (
+                        request.method == "GET"
+                        and request.GET.get("meaning") == "1"
+                        and not is_external()
+                    )
+                    if submitted or local_link:
                         context["meaning_requested"] = True
                         context["related"], context["meaning_status"] = related_results(
                             case,
                             user=request.user,
                             query=query,
+                            allow_external=submitted,
                             keyword_urls={row["url"] for row in page},
                             **filters,
                         )
                     else:
-                        context["offer_meaning"] = bool(profile())
-            # Membership can change while a keyword query or private embedding runs.
+                        context["hosted_meaning"] = is_external()
+                        context["offer_meaning"] = bool(profile()) and (
+                            not context["hosted_meaning"]
+                            or search_approval_current(case)
+                        )
             get_case(request.user, case_id)
     return render(
         request,
@@ -183,6 +200,9 @@ def retry(request, case_id):
     case = get_case(request.user, case_id, edit=True)
     if prepare_case_search(case, request.user, retry=True):
         messages.success(request, "Search indexing queued.")
+    else:
+        case.refresh_from_db()
+        messages.info(request, search_index_status(case, count_passages=False)["label"])
     return redirect(
         reverse("core:analysis:processing", args=[case.pk]) + "#case-search-index"
     )

@@ -1,0 +1,31 @@
+{% extends 'marketing/base.html' %}
+{% block content %}
+<section class="marketing-hero wrap" aria-labelledby="investigations-heading">
+  <h1 id="investigations-heading">Investigation <em>types</em></h1>
+  <p class="lead">Use Pandect to organize evidence in private cases, review recorded activity, and trace findings to their sources. Explore the workflow that fits the evidence you have.</p>
+</section>
+<div class="wrap roadmap-sections">
+  <ul class="roadmap-grid" role="list">
+    <li>
+      <h2>Incidents</h2>
+      <p>Review reports, photos, and timed records together while keeping collection times and recorded events distinct.</p>
+      <a class="text-link" href="{% url 'marketing:investigation_incidents' %}">Explore incident investigations <span aria-hidden="true">→</span></a>
+    </li>
+    <li>
+      <h2>Open-source intelligence</h2>
+      <p>Organize collected public material and follow recurring identifiers back to the passages where they appear.</p>
+      <a class="text-link" href="{% url 'marketing:investigation_osint' %}">Explore open-source investigations <span aria-hidden="true">→</span></a>
+    </li>
+    <li>
+      <h2>Communications</h2>
+      <p>Read retained messages, review call timing, and account for gaps in records or missing durations.</p>
+      <a class="text-link" href="{% url 'marketing:investigation_communications' %}">Explore communications investigations <span aria-hidden="true">→</span></a>
+    </li>
+    <li>
+      <h2>Vehicles and locations</h2>
+      <p>Review reported locations and see which observations support a possible trip.</p>
+      <a class="text-link" href="{% url 'marketing:investigation_vehicle_location' %}">Explore vehicle and location investigations <span aria-hidden="true">→</span></a>
+    </li>
+  </ul>
+</div>
+{% endblock %}

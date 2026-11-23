@@ -2,7 +2,7 @@
 <ul class="record-list">
 {% for poi in poi_page %}
   <li class="record-row">
-    <div><a class="record-link" href="{% url 'geo:poi_detail' case.pk poi.pk %}">{% if poi.number %}{{ poi.number }}. {% endif %}{{ poi }}</a>
+    <div><a class="record-link" href="{% if poi.map_detail_url %}{{ poi.map_detail_url }}{% else %}{% url 'geo:poi_detail' case.pk poi.pk %}?from_person={{ person.pk }}{% if list_query %}&amp;{{ list_query }}{% endif %}{% if poi_page.has_other_pages %}&amp;poi_page={{ poi_page.number }}{% endif %}{% endif %}">{% if poi.number %}{{ poi.number }}. {% endif %}{{ poi }}</a>
     <p class="muted">Investigator POI · {{ poi.latitude }}, {{ poi.longitude }}{% if not poi.plottable %} · Outside map display range{% endif %}</p>
     {% if poi.address %}<p>{{ poi.address|linebreaksbr }}</p>{% endif %}</div>
     {% if poi.number %}<button class="button button-secondary" type="button" data-map-show="{{ poi.number }}" aria-label="Show {{ poi }} on map" hidden>Show on map</button>{% endif %}

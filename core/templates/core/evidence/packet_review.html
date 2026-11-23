@@ -1,0 +1,46 @@
+{% extends "ui/base.html" %}
+{% load static %}
+{% block title %}Review evidence packet · {{ case.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'core/packet.css' %}">{% endblock %}
+{% block content %}
+<div class="page-content">
+  <a class="back-link" href="{{ picker_url }}">Back to selected sources</a>
+  <header class="page-header"><div><h1>{% if preview %}Review evidence packet{% else %}Prepare exhibits{% endif %}</h1></div></header>
+  {% if unavailable %}
+  <p role="alert">The selection could not be opened, or some evidence is no longer available. Go back to select sources again.</p>
+  {% elif preview %}
+    {% if error %}<p class="error-summary" role="alert" tabindex="-1" data-error-summary>{{ error }}</p>{% endif %}
+    <div class="packet-preview">
+      <p>Check the excerpts and citations before downloading. To save a PDF, open the downloaded file, choose Print, and turn off browser headers and footers.</p>
+      <h2>{{ preview.title }}</h2>
+      {% include 'core/evidence/packet_download.html#content' with exhibits=preview.exhibits chronology=preview.chronology includes_checksums=preview.includes_checksums only %}
+    </div>
+    <form method="post" class="actions form-actions">
+      {% csrf_token %}
+      <input type="hidden" name="selection" value="{{ selection }}">
+      <input type="hidden" name="review" value="{{ review }}">
+      {% for field in form %}{{ field.as_hidden }}{% endfor %}
+      {% for exhibit,source in forms_with_sources %}{% for field in exhibit %}{{ field.as_hidden }}{% endfor %}{% endfor %}
+      <button class="button button-primary" type="submit" name="action" value="download">Download evidence packet</button>
+      <button class="button button-secondary" type="submit" name="action" value="edit">Edit packet</button>
+    </form>
+  {% else %}
+    <p>Only the text and optional checksums you enter below go into the download. Each selected source has one numbered exhibit. Check what each excerpt reveals before you share it.</p>
+    <form method="post" class="form-layout">
+      {% csrf_token %}
+      <input type="hidden" name="selection" value="{{ selection }}">
+      {% include 'ui/components/form_errors.html' with form=form %}
+      {% for field in form %}{% include 'ui/components/form_field.html' with field=field only %}{% endfor %}
+      {% for exhibit,source in forms_with_sources %}
+        <fieldset class="packet-exhibit">
+          <legend>Selected source {{ forloop.counter }} · {{ source.label }}</legend>
+          <p><a class="record-link" href="{{ source.url }}" target="_blank" rel="noopener">{{ source.title }} (opens in a new tab)</a></p>
+          {% include 'ui/components/form_errors.html' with form=exhibit %}
+          {% for field in exhibit %}{% include 'ui/components/form_field.html' with field=field only %}{% endfor %}
+        </fieldset>
+      {% endfor %}
+      <div class="actions form-actions"><button class="button button-primary" type="submit" name="action" value="preview">Preview packet</button><a class="button button-secondary" href="{{ picker_url }}">Cancel</a></div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

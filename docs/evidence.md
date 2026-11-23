@@ -19,8 +19,9 @@ near the title jumps to every current finding citing the record or its attachmen
 that used this evidence. **Info** exposes provenance, integrity and retained
 descriptions. **Edit details** and
 **Analyze evidence** are directly visible to owners/editors.
-**More** holds secondary actions such as archive/restore. **Processing** shows
-current case work and opens case-wide history on demand. See the
+**More** holds secondary actions such as **Mark important** and archive/restore.
+See [Important items](cases.md#important-items) for shared marks and notes.
+**Processing** shows current case work and opens case-wide history on demand. See the
 [screen specifications](interface-design.md#evidence-browsing-and-reading)
 and [automatic checks/recovery](analysis.md#retained-processing).
 
@@ -30,6 +31,28 @@ timezone; missing times say **Time not recorded**. Excerpts take the first 80
 source characters, collapse whitespace, and mark longer messages with an ellipsis.
 The complete original, saved title, and imported source-row attribution remain
 retained; these labels also apply to messages imported earlier.
+
+### Evidence packets
+
+Owners and editors can open **Evidence → Prepare evidence packet** to choose up
+to 12 active case records across searches and pages. **Prepare exhibits** creates
+one exhibit per source. Use the original reader to check passages and record a
+source reference such as a page, message, or recording time. Give each exhibit a
+number and enter the disclosure copy, removing sensitive details as needed.
+Mark supporting, contrary, or unresolved material and supply a date when known.
+The chronology uses the dates you enter and puts undated exhibits last.
+
+Preview the complete packet, then download the self-contained HTML. The file
+opens offline. To print or save as PDF, turn off browser headers and footers
+in the print dialog. The text-only packet contains the reviewed titles, roles,
+dates, references and excerpts, plus any retained source checksums you select.
+A retained-source checksum identifies the original and cannot verify a redacted
+excerpt or interpretation.
+
+Pandect does not save the packet as case evidence or send it to an external
+service. Keep the editing page open while working. Download rechecks your access
+and the availability of every selected source. Once downloaded, the file is
+outside Pandect's access controls.
 
 ## Investigator workflow
 
@@ -49,6 +72,12 @@ Categories describe submitted material; parsers do not verify them. Text capture
 one browser-submitted original. Upload a text file as Document to preserve exact
 bytes: textareas may normalize line endings, though the server never trims or
 normalizes received text.
+Add a single-message `.eml` export as a Document through either upload flow.
+Pandect preserves the entire email file, including any embedded attachments, and
+extracts selected headers and body text for search. Add relevant attachments as
+separate evidence when you need to analyze them, with attribution to the email.
+The extracted headers do not create case people or establish a sent time in the
+chronology. See [email extraction](analysis-extraction.md#email-extraction).
 If a person location or vehicle location has no matching case records to choose
 from, the form explains the prerequisite and links to **Add person** or
 **Add vehicle**. People and vehicles from another case never fill those choices.
@@ -89,19 +118,15 @@ collections paginate at 25. The record title opens the original reader. Matches
 in extracted findings or supplied transcripts include a separate link to the
 matching passage. Text originals display escaped and read-only.
 
-Image previews support JPEG (`.jpg`/`.jpeg`) and single-frame PNG up to 16 MiB/
-50 million pixels, including 48 MP iPhone RAW exports saved as JPEG. Multi-picture
-JPEGs preview only the primary image; originals retain auxiliary pictures. The
-bounded parser respects EXIF orientation, flattens transparency onto white, and
-re-encodes JPEG at up to 2048 pixels per side without source metadata. Originals/
-checksums stay unchanged. Unsupported, corrupt, oversized, changed, or unavailable
-files retain downloads. Archived images and no-JavaScript previews work; JavaScript
-adds loading/failure messages.
+The collection shows a title or message excerpt alongside the type and its most
+useful recorded detail, such as a sender, filename, or linked vehicle. The date
+and time field shows when a communication occurred, when a location was
+observed, or when a file or text was collected. It retains the precision of
+date-only message imports. The list still orders records by when they were added.
 
-Preview requests recheck case access/checksums, use private/no-store and `nosniff`,
-and process locally without AI credentials, external services, or public storage
-URLs. They store neither previews nor analysis. Downloads use authorized attachment
-routes. Supported documents/WAV recordings also have [private readers](original-previews.md).
+Use the [private readers](original-previews.md) to preview supported images,
+documents, and WAV or AAC-in-M4A recordings. See that guide for format limits,
+what a preview failure means, and how previews and downloads check integrity.
 
 Duplicate warnings show a preview and **Review all matches**, a private paginated
 checksum-filtered list including archived originals, without resubmitting uploads.
@@ -138,8 +163,8 @@ Comparison uses retained-original checksums.
 
 ## Models and metadata
 
-[Shared models](../core/models/evidence.py) define common fields; domain apps own
-originals. Key distinctions:
+[Shared models](../core/models/evidence.py) define common fields. Domain apps
+own originals.
 
 - Source/citation, URL, description, and collection time record provenance.
   Collection/upload times differ; saved descriptions remain readable/searchable.
@@ -149,9 +174,11 @@ originals. Key distinctions:
   Creation time is fixed; ordinary saves update edit time.
 - Unique immutable submission IDs make product uploads idempotent; existing records/
   trusted maintenance may omit them.
-- Filenames/sizes are generated. Declared content type/technical metadata are claims,
-  separate from extraction. Unknown numeric values remain unknown; counts/dimensions
-  must be positive and durations nonnegative. Zero duration differs from unknown.
+- At upload, Pandect retains the original filename's basename and computes the
+  byte size and checksum. Its generated storage key is independent of the
+  filename. Declared content type and technical metadata remain separate from
+  extraction. Counts and dimensions must be positive and durations nonnegative.
+  A zero duration is recorded as zero.
 
 [Analysis](analysis.md) retains derived metadata, OCR, and transcripts separately.
 Communication/location contracts follow; [vehicle imports](vehicle-location-imports.md)
@@ -177,11 +204,13 @@ evidence; whole-case deletion removes both.
 ### Reading conversations
 
 **Case Tools → Conversations** groups messages by reported person pair regardless
-of direction, showing count/latest time. Scrolling loads 25 pairs or 50 messages
-at a time, oldest first. Linked-message readers can load earlier messages upward
-without moving the current position. Unknown times sort last; UUID ties imply no
-event order. Earlier/later links work by keyboard, without JavaScript, or after
-loading failure. Every batch checks current access.
+of direction. The pair list shows the message count and latest recorded time,
+with most recent activity first and 25 pairs per page. Open a pair to read its
+messages in chronological order, 50 per page. Unknown times come last. Messages
+with identical timestamps have a stable display order based on UUID. Scroll up
+when the reader opens on a later message to load earlier messages without losing
+your place. Earlier and later links work by keyboard, without JavaScript, and
+after a loading failure. Every page request checks current access.
 
 Use **Search messages** on the **Messages** tab to find a word or exact phrase
 in the full conversation, including archived messages. Search ignores letter
@@ -196,15 +225,15 @@ the first saved session with a message on that day. Scroll up for earlier entrie
 for later ones. If the day has no matches, choose another date from the same
 reader page.
 
-**Messages** combines all exports and individually retained messages. Matching
-copies share one timeline row when distinct exports supply an unambiguous
-matching native message ID and the same original wording, reported sender,
-recipient, and known time. Conflicting service identifiers, matching IDs across
-WhatsApp and other export formats, and ambiguous repeats remain separate.
-Expand **Retained copies** to inspect each original's export, row, archive state,
-and findings. Mixed-source transcripts include a short source reference per message.
-The reported participants alone do not establish native thread identity or a
-complete exchange.
+The **Messages** tab opens by default and combines all exports and individually
+retained messages. Matching copies share one timeline row when distinct exports
+supply an unambiguous matching native message ID and the same original wording,
+reported sender, recipient, and known time. Conflicting service identifiers,
+matching IDs across WhatsApp and other export formats, and ambiguous repeats
+remain separate. Use **Show retained copies** to inspect each original's export,
+row, archive state, and findings. Mixed-source transcripts include a short
+source reference per message. The reported participants alone do not establish
+native thread identity or a complete exchange.
 
 Select a message to open **Message details** beside the transcript. On a narrow
 screen the details fill the reader. Close the panel to return to the message.
@@ -223,27 +252,31 @@ means saved sessions disagree about membership. Expand it for the alternatives
 and a link to the full paginated list when there are more than 25.
 Missing messages and overlapping topics can affect any inferred boundary.
 
-Switch to **Sessions & summaries** to browse saved groupings for the pair, 25 per page.
-Identical memberships appear once. Distinct groupings can overlap. **Show
-messages** expands the saved originals in order, 50 at a time, including their
-source references and links to Message details. When a saved report covers the
-entire instance, a short AI suggestion appears by default. Expand **Full
-summary** to read all saved statements inline and reach the cited report.
-Long summaries load in the instance when you expand them.
-Owners and editors can **Request summary** for available services without a saved
-summary of that exact grouping.
+Switch to **Sessions & summaries** to browse saved groupings for the pair in
+chronological order, 25 per page. Identical memberships appear once. Distinct
+groupings can overlap. **Show messages** expands the saved originals in order,
+50 at a time, with source references and links to Message details. When a saved
+report covers the full session, a short AI suggestion appears by default. Open
+**Full summary** for the saved statements and **View cited report** for the
+complete report.
+Owners and editors can **Request summary** for a session when an eligible
+service has yet to summarize the exact grouping. **Summarize missing sessions**
+opens a review of up to 50 saved sessions per page. Submit eligible groups from
+that page and follow the batch in **Processing**. If there are no saved sessions,
+use **Group this conversation** to review the active messages for the pair. See
+[communication analysis](analysis-communications.md) for grouping and summary limits.
 
 **Findings** starts open with up to three short previews of saved findings for
 the message. Select a finding title for its full details. **More findings** opens
 the complete list at that message, 25 per page.
 Expand **Conversation findings (count)** above the transcript to see saved
 session results and findings citing several sources, with links to cited messages.
-**More findings** opens the rest with separate pagination.
-Findings follow the participant pair through their exact citations. Results may also cite sources outside the
-current view and say so. **Open finding** retains full context, source inventory,
-and history. AI suggestions and partial coverage remain labelled. If an analyzed
-source has changed or is unavailable, the reader withholds the finding content.
-Opening the reader or selecting a message never starts analysis.
+**More findings** opens the rest with separate pagination. **Show message** opens
+the cited message. Results label citations outside the current conversation.
+**Open finding** retains full context, source inventory, and history. AI
+suggestions and partial coverage remain labelled. If an analyzed source has
+changed or is unavailable, the reader withholds the finding content. Opening the
+reader or selecting a message never starts analysis.
 
 **Open evidence** shows original, findings, integrity, native reply/thread links,
 and actions. **View in conversation** returns to that message with details open,
@@ -267,6 +300,8 @@ they are supplied material, not verification/automatic transcription. Requests
 accept one file up to 1 GiB and supplied text up to 10 MiB UTF-8.
 Calls use ordinary forms. Uncertain submissions retry the original ID/content;
 new additions need new IDs. Failed file submissions may need reselection.
+Opening the attachment form from filtered Evidence preserves that collection
+through Back, Cancel, and save. Save returns to the new retained material.
 
 **Download communication record** returns the hashed canonical UTF-8 JSON: sorted
 keys, compact separators, unescaped Unicode, participant UUIDs, UTC ISO event time
@@ -282,8 +317,8 @@ no storage URLs. Collection search covers participants/contacts/audio filenames
 without duplicate calls for multiple matching attachments.
 
 The three communication models use scoped admin. Calls show read-only additions
-without storage URLs; **View on site** opens product intake. Attachments have no
-standalone admin. Case-admin deletion additionally needs
+without storage URLs. **View on site** opens the existing record's Evidence
+reader. Attachments have no standalone admin. Case-admin deletion additionally needs
 `phone.delete_callevidenceattachment` when attachments exist.
 
 ## Location observations
@@ -353,7 +388,8 @@ Deletion does not remove backups or external-provider retention.
 
 ## Django admin
 
-Concrete models appear under `/admin/` → **Evidence** with [shared gates](cases.md#django-admin).
+In `/admin/`, find the model under its domain app, such as **Document** or
+**Image**. The [shared case and role requirements](cases.md#django-admin) apply.
 People, vehicles, import batches, and source documents must match the evidence
 case. Admin/product exclude inconsistent maintenance-created records. Owner-only
 case deletion counts all case evidence without exposing inconsistent source details.
@@ -364,9 +400,9 @@ imported values, and saved descriptions are read-only. Declared technical metada
 remains editable. **Is archived** records real transitions' operator/time; admin
 history is not a versioned evidence journal.
 
-Filenames expose no storage paths/URLs. **View on site** opens product readers/
-downloads, additionally requiring verified email. Individual deletion requires a
-superuser with case access and [confirmation](#permanent-deletion). Admin confirmation
+Filenames expose no storage paths or URLs. **View on site** opens the evidence
+reader for that record, which requires verified email. Individual deletion
+requires a superuser with case access and [confirmation](#permanent-deletion). Admin confirmation
 shows counts by record type, stored-file totals, and affected cases instead of
 listing every item; the complete private JSON inventory is optional. Case-admin
 deletion requires ownership/contained-model permissions and post-commit cleanup.
@@ -442,11 +478,14 @@ preservation, not storage write protection.
 
 ## Private storage and deletion
 
-Django default storage uses local `PANDECT_MEDIA_ROOT` (`data/media`) or Compose
-`/app/data` in `app_data`. Generated keys follow
-`evidence/cases/<case_id>/<model_name>/<uuid>` without filenames/extensions. Code
-requires no filesystem-only `.path`; operators may configure private `STORAGES`.
-No hosted-storage dependency/credentials are installed.
+Django's default file storage uses `PANDECT_MEDIA_ROOT`. It defaults to the
+checkout's `data/media` on the host and `/app/data/media` in Compose, where
+`app_data` is mounted at `/app/data`. Generated keys follow
+`evidence/cases/<case_id>/<model_name>/<uuid>` without filenames or extensions.
+Operators may configure private `STORAGES`. The application supports storage
+backends without a filesystem `.path`. See
+[coordinated backups](operations.md#database-backup-and-restoration) for the
+database and storage requirements.
 
 Product upload/detail/download/archive/delete recheck current access and parent
 case. Attachments use `application/octet-stream`, `nosniff`, and no-store, returning

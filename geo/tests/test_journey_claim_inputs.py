@@ -1,6 +1,7 @@
 """A selected prior interpretation is pinned to its exact sources and members."""
 
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
@@ -209,6 +210,19 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
             expand_input(self.case, token, "movement")
         expanded = expand_input(self.case, token, "movement")
         text = self.text()
+        self.login("owner")
+        create = reverse("core:analysis:create", args=(self.case.pk,))
+        claim_token = f"text:{text.pk}"
+        prepared = self.client.post(
+            create,
+            {
+                "operation": "journey_claims",
+                "action": "prepare",
+                "claim": claim_token,
+                "movement": token,
+            },
+        )
+        self.assertContains(prepared, "Interpret a passage")
         choice = {"kind": "text", "id": str(text.pk)}
         parameters = self.comparison(expanded).parameters
         parameters["claims"] = [
@@ -226,6 +240,32 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
         url = reverse("geo:plan_group", args=(self.case.pk, run.pk, 0))
         trip_url = reverse("geo:trip_detail", args=(self.case.pk, trip.pk))
         self.assertContains(self.client.get(url), trip_url)
+        filters = {"q": "Trip note", "state": "all", "type": "text"}
+        result = self.client.get(
+            reverse("core:analysis:detail", args=(self.case.pk, run.pk)),
+            {
+                "return_evidence": urlencode(
+                    {"kind": "text", "evidence": text.pk, "reader": "1"} | filters
+                )
+            },
+        )
+        group_link = next(
+            link
+            for _, link in result.context["items"][0]["comparison_links"]
+            if link.startswith(url)
+        )
+        group = self.client.get(group_link)
+        self.assertContains(group, trip_url)
+        self.assertTrue(group.context["back_url"].endswith("#finding-1"))
+        self.assertEqual(
+            self.client.get(group.context["back_url"]).context["back_to_analysis"],
+            reverse(
+                "core:evidence:detail",
+                args=(self.case.pk, "text", text.pk),
+                query=filters,
+                fragment="evidence-reader",
+            ),
+        )
         self.assertNotIn(
             str(untimed.pk), {entry["evidence_id"] for entry in run.inputs}
         )
@@ -252,6 +292,22 @@ class ComparisonInputTests(EvidenceViewTestMixin, TestCase):
         self.assertNotContains(response, trip_url)
         self.assertNotContains(response, str(current_trip.pk))
         self.assertNotContains(response, str(new_row.pk))
+        self.login("owner")
+        restarted = self.client.post(
+            create,
+            {
+                "operation": "journey_claims",
+                "action": "choose_again",
+                "draft": prepared.context["draft"],
+            },
+        )
+        self.assertContains(
+            restarted, "Unavailable sources were removed from the selection."
+        )
+        self.assertContains(restarted, f'value="{claim_token}" checked')
+        self.assertNotContains(restarted, f'value="{token}"')
+        self.assertContains(restarted, f'value="trip:{current_trip.pk}"')
+        self.assertNotContains(restarted, f'value="trip:{current_trip.pk}" checked')
         for member in expanded["selections"]:
             self.assertContains(
                 response,

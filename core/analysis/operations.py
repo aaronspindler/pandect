@@ -44,9 +44,10 @@ INPUT_GUIDANCE = {
         "candidates are possible; review every reading against the original."
     ),
     "native_text": (
-        "UTF-8 text or unencrypted native-text PDF, up to 16 MiB. Scanned PDF "
-        "pages require separate page-image OCR; office formats are "
-        "unsupported."
+        "UTF-8 text, .eml email, or unencrypted PDF, up to 16 MiB. Local OCR "
+        "reads printed English on PDF pages without a text layer. Inspect "
+        "uncertain or skipped pages against the original. Office formats "
+        "are unsupported."
     ),
     "image_metadata": (
         "JPEG or PNG originals, up to 16 MiB. Metadata describes source "
@@ -81,7 +82,7 @@ INPUT_GUIDANCE = {
     ),
     "comm_patterns": (
         "Retained text messages with reported participants and message times. "
-        "Use Call patterns under Explore patterns for call counts and durations."
+        "Open Case Tools → Reports → Call patterns for call counts and durations."
     ),
     "session_summaries": (
         "Retained text messages, summarized in inferred session groups. For "
@@ -102,7 +103,7 @@ OPERATIONS = {
     ),
     "claim_comparison": Operation("Compare a claim", compare_claim, COMPARISON_KINDS),
     "native_text": Operation(
-        "Extract document text", documents.native_text, ("document",)
+        "Extract document text", documents.native_text, ("document",), version="2"
     ),
     "image_metadata": Operation(
         "Inspect image metadata", image_metadata.image_metadata, ("image",), version="3"
@@ -243,6 +244,13 @@ OPERATIONS = {
 }
 
 
+CASE_OPERATIONS = {
+    name: operation
+    for name, operation in OPERATIONS.items()
+    if name not in {"question_synthesis", "imessage_import", "sighting_group"}
+}
+
+
 def get_operation(name):
     try:
         return OPERATIONS[name]
@@ -252,7 +260,7 @@ def get_operation(name):
 
 OPERATION_GROUPS = {
     "Extract and inspect files": {
-        "native_text": "Read native document text with page or line references.",
+        "native_text": "Read document and email text with page or line references.",
         "image_metadata": (
             "Compare decoded image properties with embedded metadata claims."
         ),

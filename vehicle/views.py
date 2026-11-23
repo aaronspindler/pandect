@@ -8,12 +8,14 @@ from django.db.models.deletion import RestrictedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_safe
+from django.views.decorators.vary import vary_on_headers
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.reports import report
 from core.evidence.queries import same_case_evidence
 from geo.models import VehicleLocationImport
+from ui.dialogs import form_saved, render_quick_form, render_record, wants_record
 from ui.live import render_live
 from vehicle.forms import VehicleDeleteForm, VehicleForm
 from vehicle.models import Vehicle
@@ -64,9 +66,13 @@ def vehicle_list(request, case_id):
 
 @product_login_required
 @require_safe
+@vary_on_headers("X-Pandect-Form")
 def vehicle_detail(request, case_id, vehicle_id):
     case = get_case(request.user, case_id)
     vehicle = get_object_or_404(Vehicle, case=case, pk=vehicle_id)
+    context = case_context(case, request.user) | {"vehicle": vehicle}
+    if wants_record(request):
+        return render_record(request, "vehicle/detail.html", context)
     trip_report = report(case, "vehicle-trips", vehicle_id=vehicle.pk, page_size=5)
     observations = same_case_evidence(
         vehicle.location_evidence.filter(case=case)
@@ -75,8 +81,7 @@ def vehicle_detail(request, case_id, vehicle_id):
         request,
         "vehicle/detail.html",
         {
-            **case_context(case, request.user),
-            "vehicle": vehicle,
+            **context,
             "trip_report": trip_report,
             "more_trips": trip_report["page_obj"].has_next(),
             "latest_observation": observations.filter(
@@ -112,16 +117,16 @@ def vehicle_create(request, case_id, import_id=None):
             vehicle = form.save(commit=False)
             vehicle.case = case
             vehicle.save(force_insert=True)
-            messages.success(request, "Vehicle added.")
             if review_url:
+                messages.success(request, "Vehicle added.")
                 return redirect(review_url)
             url = reverse(
                 "vehicle:detail", kwargs={"case_id": case.pk, "vehicle_id": vehicle.pk}
             )
             if query := list_query(request):
                 url += f"?{query}"
-            return redirect(url)
-    return render(
+            return form_saved(request, "Vehicle added.", url)
+    return render_quick_form(
         request,
         "vehicle/form.html",
         {
@@ -150,18 +155,17 @@ def vehicle_edit(request, case_id, vehicle_id):
         )
         if request.method == "POST" and form.is_valid():
             form.save(commit=False).save(force_update=True)
-            messages.success(request, "Vehicle details saved.")
             url = reverse(
                 "vehicle:detail", kwargs={"case_id": case.pk, "vehicle_id": vehicle.pk}
             )
             if query := list_query(request):
                 url += f"?{query}"
-            return redirect(url)
+            return form_saved(request, "Vehicle details saved.", url)
         if form.stale:
             latest_vehicle = Vehicle.objects.get(pk=vehicle.pk, case=case)
             form.data = form.data.copy()
             form.data["revision"] = form.initial["revision"]
-    return render(
+    return render_quick_form(
         request,
         "vehicle/form.html",
         {

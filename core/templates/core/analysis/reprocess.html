@@ -6,22 +6,14 @@
   <div><h1>Reprocess evidence</h1><p>Run all applicable processing and analysis on selected evidence types. Originals and earlier results are kept.</p></div>
 </header>
 
-<form method="post" class="analysis-section analysis-form form-layout" novalidate data-unsaved-form>
+<form method="post" class="analysis-form form-layout" novalidate data-unsaved-form>
   {% csrf_token %}{{ form.submission_id }}
-  {% if form.errors %}
-  <div class="error-summary" role="alert" tabindex="-1" data-error-summary>
-    <h2>Review your selection</h2>
-    <ul>
-      {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
-      {% for field in form %}{% for error in field.errors %}<li>{% if field.is_hidden %}{{ error }}{% else %}<a href="#{{ field.auto_id }}">{{ field.label }}: {{ error }}</a>{% endif %}</li>{% endfor %}{% endfor %}
-    </ul>
-  </div>
-  {% endif %}
+  {% include 'ui/components/form_errors.html' with error_heading='Review your selection' %}
 
-  {% if form.evidence_types.field.choices %}
-  <fieldset class="analysis-sources{% if form.evidence_types.errors %} field-error{% endif %}" id="{{ form.evidence_types.auto_id }}" aria-describedby="reprocess-types-help{% if form.evidence_types.aria_describedby %} {{ form.evidence_types.aria_describedby }}{% endif %}" tabindex="-1">
+  {% if form.evidence_types.field.choices or form.evidence_types.errors %}
+  <fieldset class="analysis-sources{% if form.evidence_types.errors %} field-error{% endif %}" id="{{ form.evidence_types.auto_id }}_group" aria-describedby="reprocess-types-help{% if form.evidence_types.aria_describedby %} {{ form.evidence_types.aria_describedby }}{% endif %}" tabindex="-1">
     <legend>Choose evidence types</legend>
-    <p class="help-text" id="reprocess-types-help">Select any combination. Only active evidence already in this case when you submit is included.</p>
+    <p class="help-text" id="reprocess-types-help">{% if form.evidence_types.field.choices %}Select any combination. Only active evidence already in this case when you submit is included.{% else %}The case has no active evidence to select.{% endif %}</p>
     <div class="reprocess-types">
       {% for choice in form.evidence_types %}<label for="{{ choice.id_for_label }}">{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>{% endfor %}
     </div>

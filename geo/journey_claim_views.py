@@ -11,11 +11,13 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.urls import reverse
 
 from cases.permissions import case_context, get_case
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.form_base import _source_choice_page, selection
 from core.analysis.manual import start_selected_analysis
+from core.analysis.navigation import current_comparison_origin, evidence_return_url
 from core.analysis.readiness import source_readiness
 from core.analysis.services import snapshot_and_resolve_sources
 from core.analysis.sources import source_id
@@ -36,7 +38,7 @@ PICKERS = {"claim": "content_events", "movement": "location_conflicts"}
 DERIVED = ("trip:", "finding:")
 
 
-def _picker(case, role, data, chosen):
+def _picker(case, role, data, chosen, *, recover=False):
     """Use the existing bounded cursor picker for originals and extractions."""
     action = data.get("browse", "")
     query = data.get(role + "_query", "")[:200]
@@ -57,15 +59,17 @@ def _picker(case, role, data, chosen):
             derived_number = 1
 
     raw = [value for value in chosen if not value.startswith(DERIVED)]
-    page, retained = _source_choice_page(
-        case,
-        PICKERS[role],
-        query,
-        selected=raw,
-        cursor=cursor,
-        reverse=backwards,
-        extractions_by_kind=COMPARISON_EXTRACTIONS,
-    )
+    page_options = {"selected": raw, "extractions_by_kind": COMPARISON_EXTRACTIONS}
+    reset = False
+    try:
+        page, retained = _source_choice_page(
+            case, PICKERS[role], query, cursor=cursor, reverse=backwards, **page_options
+        )
+    except Http404:
+        if not cursor:
+            raise
+        cursor, backwards, reset = "", False, True
+        page, retained = _source_choice_page(case, PICKERS[role], query, **page_options)
     choices = dict(retained) | dict(page)
     readiness = (
         source_readiness(case, PICKERS[role], choices.items()) if choices else {}
@@ -77,25 +81,34 @@ def _picker(case, role, data, chosen):
         rows.append(
             (token, label, state["label"] if state["blocking"] else "", token in chosen)
         )
-    derived_rows = [(token, label, "", token in chosen) for token, label in derived]
-    known_derived = {row[0] for row in derived_rows}
+    unavailable = any(
+        token not in choices or readiness[token]["blocking"] for token in raw
+    )
+    derived_choices = dict(derived)
     for token in chosen:
-        if token.startswith(DERIVED) and token not in known_derived:
+        if not token.startswith(DERIVED) or (token in derived_choices and not recover):
+            continue
+        try:
             option = expand_input(case, token, role)
-            derived_rows.append((token, option["label"], "", True))
-    if any(token not in choices or readiness[token]["blocking"] for token in raw):
-        raise ValidationError(
-            "A selected source is unavailable. Choose its exact retained material."
-        )
+        except AnalysisError, ValidationError:
+            derived_choices.pop(token, None)
+            unavailable = True
+        else:
+            derived_choices.setdefault(token, option["label"])
     return {
         "role": role,
         "rows": rows,
-        "derived_rows": derived_rows,
+        "derived_rows": [
+            (token, label, "", token in chosen)
+            for token, label in derived_choices.items()
+        ],
         "page": page,
         "derived": derived,
         "cursor": cursor,
         "back": backwards,
         "query": query,
+        "reset": reset,
+        "unavailable": unavailable,
     }
 
 
@@ -141,7 +154,10 @@ def _selection(case, picked):
                 )
     chosen = list(selections.values())
     check_material_size(case, chosen)
-    snapshots, sources = snapshot_and_resolve_sources(case, chosen)
+    try:
+        snapshots, sources = snapshot_and_resolve_sources(case, chosen)
+    except Http404:
+        raise AnalysisError("source_unavailable") from None
     check_source_integrity(case, sources)
     by_id = {source.id: source for source in sources}
     claim_options = {}
@@ -318,48 +334,108 @@ def _queue(request, case, state):
         request,
         "Comparison queued." if created else "This comparison was already queued.",
     )
-    return redirect("core:analysis:detail", case.pk, runs[0].pk)
+    return redirect(
+        reverse(
+            "core:analysis:detail",
+            args=(case.pk, runs[0].pk),
+            query=state["result_query"],
+        )
+    )
 
 
-def create(request, case):
+def create(request, case, *, chooser_query=None, result_query=None):
     """Called from the verified, edit-authorized Additional analysis chooser."""
     data = request.POST if request.method == "POST" else request.GET
     context = case_context(case, request.user) | {"nav_section": "analysis"}
     salt = f"journey-claims.{case.pk}.{request.user.pk}"
     action = request.POST.get("action", "")
     token = request.POST.get("draft")
+    if token:
+        try:
+            state = signing.loads(token, salt=salt)
+        except signing.BadSignature:
+            raise Http404("Comparison selection unavailable.") from None
+    else:
+        state = {
+            "picked": {
+                role: list(dict.fromkeys(request.POST.getlist(role)))
+                for role in PICKERS
+            },
+            "claims": [],
+            "submission_id": str(uuid4()),
+        }
+    # New drafts keep the validated origin. Older drafts use the current
+    # chooser context and can still complete with no originating record.
+    state.setdefault("chooser_query", chooser_query or {})
+    state.setdefault("result_query", result_query or {})
+    if token:
+        state["chooser_query"], state["result_query"] = current_comparison_origin(
+            case, state["chooser_query"], state["result_query"]
+        )
+    chooser = state["chooser_query"]
+    context.update(
+        chooser_url=reverse("core:analysis:create", args=(case.pk,), query=chooser),
+        picker_url=reverse(
+            "core:analysis:create",
+            args=(case.pk,),
+            query=chooser | {"operation": "journey_claims"},
+        ),
+        draft_url=reverse("core:analysis:create", args=(case.pk,)),
+        cancel_url=evidence_return_url(case.pk, state["result_query"])
+        or reverse("core:analysis:index", args=(case.pk,)),
+    )
     try:
         if token:
-            try:
-                state = signing.loads(token, salt=salt)
-            except signing.BadSignature:
-                raise Http404("Comparison selection unavailable.") from None
             if action == "queue":
                 return _queue(request, case, state)
             if action != "choose_again":
                 return _interpret(request, case, state, context, action, salt)
-        else:
-            state = {
-                "picked": {
-                    role: list(dict.fromkeys(request.POST.getlist(role)))
-                    for role in PICKERS
-                },
-                "claims": [],
-                "submission_id": str(uuid4()),
-            }
+            data = state.get("picker_state", {})
         if (
             sum(map(len, state["picked"].values()))
             > settings.PANDECT_ANALYSIS_MAX_SOURCES
         ):
             raise ValidationError("Choose at most 500 sources, including trip members.")
-        context["pickers"] = [
-            _picker(case, role, data, state["picked"][role]) for role in PICKERS
+        pickers = context["pickers"] = [
+            _picker(
+                case,
+                role,
+                data,
+                state["picked"][role],
+                recover=action == "choose_again" or bool(data.get("browse")),
+            )
+            for role in PICKERS
         ]
+        notices = []
+        if any(picker["unavailable"] for picker in pickers):
+            if action == "prepare":
+                raise ValidationError(
+                    "A selected source is unavailable. "
+                    "Choose its exact retained material."
+                )
+            notices.append("Unavailable sources were removed from the selection.")
+        if any(picker["reset"] for picker in pickers):
+            notices.append(
+                "A source page is no longer available. "
+                "Its search restarted from the first page."
+            )
+        if notices:
+            context["error"] = " ".join(notices)
         if action == "prepare":
             if not all(state["picked"].values()):
                 raise ValidationError(
                     "Select a statement source and an observation, trip, or visit."
                 )
+            state["picker_state"] = {
+                f"{picker['role']}_{key}": value
+                for picker in context["pickers"]
+                for key, value in (
+                    ("query", picker["query"]),
+                    ("cursor", picker["cursor"]),
+                    ("back", "1" if picker["back"] else ""),
+                    ("derived_page", picker["derived"].number),
+                )
+            }
             return _interpret(request, case, state, context, action, salt)
     except (AnalysisError, ValidationError) as error:
         context["error"] = (
@@ -367,4 +443,6 @@ def create(request, case):
             if isinstance(error, AnalysisError)
             else " ".join(error.messages)
         )
+        if token and action != "choose_again":
+            context["restart_draft"] = token
     return render(request, "geo/journey_claim_choose.html", context)

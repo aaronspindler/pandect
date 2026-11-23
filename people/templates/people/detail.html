@@ -6,13 +6,14 @@
 <div class="detail-layout">
 <p class="breadcrumb"><a href="{% url 'people:list' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to people</a></p>
 <div class="page-header">
-  <div><h1>{{ person }}</h1><p class="help-text">Identity unverified</p></div>
+  <div>{% partialdef heading inline %}<h1 id="record-title" data-record-part>{{ person }}</h1>{% endpartialdef %}<p class="help-text">Identity unverified</p></div>
   <div class="actions">
     {% if related_findings.page_obj.paginator.count %}<a class="record-link" href="#related-findings">Findings · {{ related_findings.page_obj.paginator.count }}</a>{% endif %}
-    {% if can_edit %}<a class="button button-primary" href="{% url 'people:edit' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit person</a>{% endif %}
+    {% if can_edit %}<a data-quick-form class="button button-primary" href="{% url 'people:edit' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit person</a>{% endif %}
   </div>
 </div>
 {% if not can_edit %}<p class="notice">You have viewer access to this person record.</p>{% endif %}
+{% partialdef details inline %}<div id="record-details" data-record-part>
 {% if person.email or person.phone_number or person.address %}
 <section class="content-section" aria-labelledby="contact-heading"><h2 id="contact-heading">Contact details</h2>
   <dl class="metadata-grid">
@@ -22,6 +23,7 @@
   </dl>
 </section>
 {% else %}<p class="muted">No contact details recorded.</p>{% endif %}
+</div>{% endpartialdef %}
 
 <section class="content-section" aria-labelledby="related-evidence">
   <div class="section-header"><h2 id="related-evidence">Related evidence</h2><a class="button button-secondary" href="{{ related_evidence_url }}">Browse related evidence</a></div>
@@ -56,18 +58,23 @@
   </ul>
   {% else %}<p class="muted">No social accounts recorded.</p>{% endif %}
 </section>
-<section class="content-section" aria-labelledby="poi-list"><div class="section-header"><h2 id="poi-list">Points of interest</h2>{% if can_edit %}<a class="button button-secondary" href="{% url 'geo:poi_create' case.pk %}?person={{ person.pk }}">Add POI</a>{% endif %}</div>{% include "geo/poi_list.html" %}</section>
+<section class="content-section" aria-labelledby="poi-list"><div class="section-header"><h2 id="poi-list">Points of interest</h2>{% if can_edit %}<a class="button button-secondary" href="{% url 'geo:poi_create' case.pk %}?person={{ person.pk }}&amp;from_person={{ person.pk }}{% if list_query %}&amp;{{ list_query }}{% endif %}{% if poi_page.has_other_pages %}&amp;poi_page={{ poi_page.number }}{% endif %}">Add POI</a>{% endif %}</div>{% include "geo/poi_list.html" %}</section>
 <details class="disclosure">
 <summary>Record details</summary>
-<div class="disclosure-body">
+{% partialdef history inline %}<div class="disclosure-body" id="record-history" data-record-part>
 {% if person.notes %}<h2>Saved notes</h2><div class="prose">{{ person.notes|linebreaks }}</div>{% endif %}
 {% if person.first_name or person.last_name %}<dl class="metadata-grid">
 {% if person.first_name %}<div><dt>First name</dt><dd>{{ person.first_name }}</dd></div>{% endif %}
 {% if person.last_name %}<div><dt>Last name</dt><dd>{{ person.last_name }}</dd></div>{% endif %}
 </dl>{% endif %}
 <dl class="metadata-grid"><div><dt>Created</dt><dd><time datetime="{{ person.created_at|date:'c' }}">{{ person.created_at|date:"j M Y, H:i T" }}</time></dd></div><div><dt>Updated</dt><dd><time datetime="{{ person.updated_at|date:'c' }}">{{ person.updated_at|date:"j M Y, H:i T" }}</time></dd></div></dl>
-</div>
+</div>{% endpartialdef %}
 </details>
 {% if is_owner %}<div class="danger-section"><a class="button button-danger" href="{% url 'people:delete' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Delete person</a></div>{% endif %}
 </div>
 {% endblock %}
+
+{% partialdef record %}
+<title>{{ person }} · {{ case }} · Pandect</title>
+{% partial heading %}{% partial details %}{% partial history %}
+{% endpartialdef %}

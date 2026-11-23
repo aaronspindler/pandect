@@ -1,0 +1,29 @@
+{% extends 'marketing/investigation_detail.html' %}
+{% block breadcrumb_title %}Incident investigations{% endblock %}
+{% block investigation_heading %}Incident <em>investigations</em>{% endblock %}
+{% block investigation_answer %}Pandect brings incident reports, photos, messages, and location observations into a private case. Review the recorded sequence, distinguish event times from collection times, and open the original evidence behind each finding.{% endblock %}
+{% block evidence_link_label %}See supported evidence formats{% endblock %}
+{% block source_guide %}
+  <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/chronology.md#recorded-chronology-and-date-references">Read the chronology guide <span aria-hidden="true">↗</span></a>
+{% endblock %}
+{% block example_title %}Gate obstruction report{% endblock %}
+{% block example_sources %}
+  <li><strong>10:04 · Site message</strong><span>“The service gate is blocked.” · Recorded send time</span></li>
+  <li><strong>10:20 · Gate photo</strong><span>Recorded collection time · Capture time unknown</span></li>
+{% endblock %}
+{% block example_interpretation %}Use 10:04 for the message and 10:20 for the photo’s collection. The time the photo was taken and when the obstruction began remain unknown.{% endblock %}
+{% block workflow_heading %}How to review an incident in Pandect{% endblock %}
+{% block workflow_steps %}
+  <article>
+    <h3>Collect the incident material</h3>
+    <p>Add reports, photos, and relevant communications to one case. Record where each item came from and when it was collected if known.</p>
+  </article>
+  <article>
+    <h3>Review what was recorded and when</h3>
+    <p>Open the chronology to compare reported message and observation times with acquisition times. Check undated material in the evidence reader.</p>
+  </article>
+  <article>
+    <h3>Review findings together</h3>
+    <p>Follow findings back to the source material. Invite case viewers or editors to compare the accounts and identify where more evidence is needed.</p>
+  </article>
+{% endblock %}

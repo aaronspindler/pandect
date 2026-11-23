@@ -1,0 +1,40 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Important · {{ case.name }}{% endblock %}
+{% block extra_js %}{% include 'ui/components/collection_script.html' %}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <h1>Important</h1>
+  <a class="button button-secondary" href="{% url 'core:analysis:index' case.pk %}">Back to Case Tools</a>
+</header>
+{% partialdef collection inline %}
+<div data-collection-kind="important" data-collection-count="{{ page_obj.paginator.count }}">
+{% if rows %}
+  <p>{{ page_obj.paginator.count }} item{{ page_obj.paginator.count|pluralize }}</p>
+  <ul class="record-list">
+    {% for row in rows %}
+      <li class="record-row" id="important-{{ row.item.pk }}">
+        {% if row.target %}
+          <div>
+            <a class="record-link" href="{{ row.source_url }}"><strong>{{ row.target.title }}</strong></a>
+            <small>{{ row.target.label }}{% for qualifier in row.target.qualifiers %} · {{ qualifier }}{% endfor %}</small>
+            <small>Marked by {{ row.item.marked_by.get_username }} · <time datetime="{{ row.item.marked_at|date:'c' }}">{{ row.item.marked_at|date:'j M Y, H:i T' }}</time></small>
+          </div>
+          <div class="actions"><a data-notes-for="{{ row.target.title }}" class="button button-secondary" href="{{ row.notes_url }}" aria-label="Notes for {{ row.target.title }} ({{ row.note_count }})">Notes · {{ row.note_count }}</a>
+            {% if can_edit %}<a data-quick-form data-saved-link="View notes" class="button button-secondary" href="{{ row.notes_url }}#write-note">Add note</a>{% endif %}
+          </div>
+        {% else %}
+          <strong>Source unavailable</strong>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  {% include 'core/important/pagination.html' with page_label='Important items pages' %}
+{% elif can_edit %}
+  <p>Mark evidence or a finding important while reading it to save it here.</p>
+  <div class="actions"><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Browse evidence</a><a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a></div>
+{% else %}
+  <p>Items appear here when a case owner or editor marks them important.</p>
+{% endif %}
+</div>
+{% endpartialdef %}
+{% endblock %}

@@ -37,7 +37,13 @@ cancellations, reported events, corrections, and candidate question/answer
 pairs through the same content path. Keyword and topic output is a saved report.
 Metadata-only calls provide no speech.
 
-Model requests send only selected text and require exact source quotations.
+The shared cited model requests send the text, ID and type of each input, with a speaker
+attribution label. Message inputs also include reported sender and recipient
+UUIDs and the recorded event time when present. Pandect resolves display names
+locally. Automatic requests can include bounded relevant case history as
+described under [message import analysis](#message-csv-imports).
+
+Suggestions require exact source quotations.
 An exact quote that appears once in its cited source can be located without a
 model-supplied offset. An ambiguous repeated quote needs the correct offset.
 Review negation, sarcasm, hearsay, quotation, relative dates, missing exchanges,
@@ -49,7 +55,7 @@ approve the configured destination to use [external AI](analysis.md#external-ai-
 
 ## Compare a claim
 
-Open **Case Tools → More case tools → Additional analysis → Compare a claim**.
+Open **Case Tools → Analysis methods → Compare a claim**.
 Choose the message or call transcript with the statement and one to five other
 active text sources. Comparison evidence can include retained text, messages,
 supplied call transcripts, or exact versions of saved text extractions and
@@ -57,6 +63,15 @@ transcripts. Select the claim source and copy its exact wording. Include enough
 context to identify one occurrence if the wording repeats. The comparison
 accepts up to 12,000 characters across the selection and up to 1,000 characters
 for the claim. Runtime limits can require a smaller selection.
+
+**Back to evidence selection** restores the selected sources, title search, and
+source page. If that page is unavailable, the picker opens the first page with
+the same title search and available selections. The picker reports any deleted
+selections it clears. From an Evidence record that needs an extraction,
+**Choose from all case evidence** broadens the search while keeping the
+original return link. **Cancel** and the result's **Back to evidence** link
+retain the starting record and filters. If that record was removed, they open
+the filtered Evidence collection.
 
 The queued comparison uses the configured [private text service](local-analysis.md).
 The result retains the original claim, source-linked quotations, and potentially
@@ -132,31 +147,17 @@ session summaries stop on any invalid citation. Cross-channel links allow up to
 [Safe worker diagnostics](background-tasks.md#failure-inspection-and-recovery)
 identify the rejected category without retaining source text or model responses.
 
-**Case Tools → Conversations** [reads retained messages](evidence.md#reading-conversations)
-from all imports and individual entries. Select a message to inspect its source,
-findings and any saved session boundary. **Conversation findings** shows up to
-three saved findings above the message stream with links to cited messages and
-the full findings. **Sessions & summaries** pairs each saved grouping
-with a current report when the summary's covered message chunks match the
-entire membership. **Group this conversation** reviews the active messages for
-that reported pair and the time gap before queuing local grouping. A
+The [conversation reader](evidence.md#reading-conversations) uses retained
+session memberships and displays a saved summary when the report covers the
+entire grouping. Grouping uses active messages for the reported pair. A
 conversation over the source limit or one million characters needs a smaller
 manual selection.
-**Request summary** opens review for precisely those messages
-and their grouping adjustments. Owners and editors can choose **Summarize
-missing sessions** to request one summary per available unsummarized session,
-reviewing up to 50 saved sessions at a time. Each request covers the eligible
-sessions on that review page. Saved summaries are kept, pending summaries for
-the same messages and grouping settings are skipped. Different overlapping
-groupings can each have a summary. Sessions over the per-run source or chunk
-limit are skipped.
-Review shows the [case's selected AI backend](cases.md#ai-backend). Requests
-queue one summary per included session and show progress in **Processing**.
-Instance summary statements show sender names and keep their AI suggestion labels
-and source citations. Open the cited summary directly from the instance or follow
-individual statements to their findings. A focused grouping or summary result
-links back when its verified message membership matches a saved instance.
-Reading either tab starts no analysis.
+
+Bulk review queues one summary per eligible session on the review page, using
+the [case's selected AI backend](cases.md#ai-backend). It preserves saved
+summaries and skips pending summaries with the same messages and grouping
+settings, as well as sessions over the per-run source or chunk limit. Distinct
+overlapping groupings can each have a summary.
 
 **Read inferred message sessions**, **Inspect message timing** and **Summarize
 message sessions** accept Text messages, excluding calls/FaceTime/transcripts.
@@ -322,9 +323,8 @@ analysis configuration and approval. Historical imports receive no automatic
 backfill.
 
 The suite covers identifiers, dates, keywords, sessions, timing, reported writing
-profiles, repeated wording, and temporal exchanges. Model analysis adds topic
-suggestions, claims, session summaries and semantic exchanges for each eligible
-service.
+profiles, repeated wording, and temporal exchanges. Eligible AI checks add topic
+suggestions, claims, session summaries, and semantic exchanges.
 Writing profiles separate reported senders. Comparisons split
 each sender's earlier/later timed samples near the middle at a distinct timestamp,
 never dividing ties. Fewer than two times cannot compare; adequacy guards yield

@@ -7,11 +7,11 @@
     <div><dt>{% if is_call %}Call started at{% else %}Sent at{% endif %}</dt><dd>{% if item.occurred_at %}{{ item.occurred_at|date:"d M Y, H:i:s T" }}{% else %}Not recorded{% endif %}</dd></div>
     {% if is_call %}<div><dt>Reported duration</dt><dd>{{ item.duration|default_if_none:"Not recorded" }}</dd></div>{% endif %}
   </dl>
-  {% if not is_call %}<div class="section-header"><h3>Original message</h3>{% if conversation_url %}<a class="record-link" href="{{ conversation_url }}">View in conversation</a>{% endif %}</div><div class="original-text">{{ item.body }}</div>{% endif %}
+  {% if not is_call %}<div class="section-header"><h3>Original message</h3>{% if conversation_url %}<a data-workspace-link class="record-link" href="{{ conversation_url }}">View in conversation</a>{% endif %}</div><div class="original-text">{{ item.body }}</div>{% endif %}
 </section>
 {% if is_call %}
 <section aria-labelledby="call-content-heading">
-  <div class="section-header"><h3 id="call-content-heading">Recordings and transcripts</h3>{% if can_edit %}<a class="button button-secondary" href="{% url 'phone:add_attachment' case_id=case.pk kind=kind evidence_id=item.pk %}">Add transcript or audio</a>{% endif %}</div>
+  <div class="section-header"><h3 id="call-content-heading">Recordings and transcripts</h3>{% if can_edit %}<a data-collection-context class="button button-secondary" href="{% url 'phone:add_attachment' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Add transcript or audio</a>{% endif %}</div>
   {% for attachment in attachments %}
   <article class="description-section" id="attachment-{{ attachment.pk }}" aria-labelledby="attachment-heading-{{ attachment.pk }}">
     <h4 id="attachment-heading-{{ attachment.pk }}">{% if attachment.file %}{{ attachment.original_filename }}{% else %}Supplied transcript{% endif %}</h4>

@@ -31,16 +31,23 @@ the execution snapshot before each step.
 ## Investigator progress and completed imports
 
 **Processing** separates active work/history and preparation/execution.
+The overview at the top counts analysis checks, batch preparation, vehicle
+imports, trip preparation and address lookups (one count per trip generation),
+Instagram checks, and meaning-based search indexing when configured. **Processed**
+includes checks that finished with partial results, no findings, insufficient
+evidence, or unsupported input. **Failed** includes retained failures, including
+earlier attempts. Vehicle imports awaiting investigator action, cancelled work,
+and superseded work are excluded from the cards.
 **Checks queued** means preparation finished; runs/follow-ups may still be active.
 An individual check shows **Queued**, **Checking sources**, **Running analysis**,
 or **Saving results**. Running checks show their start time. The progress bar is
 indeterminate while the worker runs a method or saves its result. The outcome
 appears once publication commits. Imports and batch preparation show measured
 row, source, or check counts as they become available.
-**Needs attention** links to stopped preparation, vehicle imports, and current
-trip or address preparation failures. Batch details lead to a new request or the
-existing import review when one is available. Earlier attempts remain inspectable
-in history.
+**Needs attention** shows work that requires an investigator to act.
+It includes saved vehicle CSVs awaiting preparation or review, stopped attempts,
+and current trip or address preparation failures. **In progress** shows queued
+or running work. Earlier attempts remain inspectable in history.
 
 **Retry all failed checks** lets a case owner or editor request new attempts
 across all pages of failed check history. Retry preparation runs in the background
@@ -56,12 +63,6 @@ never guessed. See the [Processing workflow](interface-design.md#case-tools-proc
 for filters, review, recovery, and automatic updates to visible progress/results.
 Refresh remains available without JavaScript; there is no notification scheduler.
 
-When [private meaning search](local-analysis.md#private-case-search-embeddings)
-is configured, Processing shows the case index and its progress. The worker
-queues missing indexes after migrations and rechecks case permissions before
-embedding source text. After correcting a failure, an owner or editor can retry
-from Processing. Keyword search is available while passages are being indexed.
-
 Confirmed vehicle and message CSV publication starts analysis for newly published
 observations and messages using retained import relationships. Preview, excluded
 and reused rows start no batch. Vehicle trip preparation is independent. Bounded
@@ -75,6 +76,28 @@ needed. Any remaining external run without a case approval stops recoverably.
 Existing results remain available and cases receive no retrospective processing.
 Before starting older workers during rollback, stop queued grant-backed external
 work or disable external services. Older workers cannot enforce case approval.
+
+## Meaning search indexing
+
+Processing shows case approval, queue state, completed sources and indexed
+passages. The passage count advances as batches commit, including during a long
+transcript. A source becomes searchable once its final passage commits. When an
+index stops, Processing shows the cause and a recovery action.
+Correct the reported configuration or access issue, then choose **Resume
+indexing**. Already queued or running work keeps its delivery and checkpoint.
+Temporary service and rate-limit failures get two delayed retries. A failed
+batch leaves previously published documents available under the active profile.
+
+The worker and the host command `python manage.py prepare_case_search` prepare
+eligible case indexes. Hosted search requires the owner's current grant to the
+[configured destination](local-analysis.md#case-search-embeddings). A revoked
+worker or superseded delivery cannot publish. New material and eligible retained
+archives are included. To inspect or resume one case from the command line, use
+`python manage.py prepare_case_search --case CASE_UUID --status` or
+`--case CASE_UUID --retry`. After **confirming the delivery was interrupted**
+in the worker, use `--case CASE_UUID --confirm-interrupted TOKEN` with the
+token printed by the status command. This replaces only that active delivery.
+Use Processing to verify progress after recovery.
 
 ## Instagram monitor queue
 
@@ -123,12 +146,14 @@ docker compose exec web python manage.py check_task_worker --timeout 30
 docker compose logs --tail 100 worker
 ```
 
-Workers share web's image, configuration and private volume. After migrations/web
-readiness they run `python manage.py db_worker --no-reload`. Compose restarts
-unexpected exits. Use [`make run`](development.md#first-run) to rebuild after source
-changes and let each worker finish its active task before replacement. A regular
-`docker compose stop` gives the default worker 30 seconds before forced shutdown.
-Hosted deployments apply migrations once before starting web/workers.
+Workers share web's image, configuration and private volume. In development
+Compose, workers start after the migrated web service is healthy. Rebuild using
+[`make run`](development.md#first-run) with the active profiles so every worker
+can finish its current task. A regular `docker compose stop` limits shutdown to
+30 seconds for the default worker and 60 seconds for the Instagram worker.
+In Dokploy, the singleton worker entrypoint applies pending migrations before it
+consumes queue work. Verify its preparation marker before activating the new web
+release. See [Dokploy deployment](operations.md#first-dokploy-deployment).
 
 `check_task_worker` enqueues `core.tasks.worker_probe` with a fresh nonce, waits
 for its matching result and prints the task UUID and `OK`. Failure, mismatch,
@@ -241,13 +266,17 @@ and follow operation-specific idempotent recovery before replacement. Never
 blindly reset rows or add generic retry loops. Correct problems and rerun harmless
 probes. Failed/abandoned rows remain inspectable.
 
-Manually review retention: successful results keep 14 days, failures 30 days.
+Review pruning with a dry run. These commands remove successful deliveries at
+least 14 days old and failed deliveries at least 30 days old. Without
+`--queue-name`, the command covers only the `default` queue. The example includes
+the Instagram queue so it also covers finished deliveries from a previously
+enabled pilot.
 
 ```sh
 docker compose exec web python manage.py prune_db_task_results \
-  --min-age-days 14 --failed-min-age-days 30 --dry-run
+  --queue-name default,instagram --min-age-days 14 --failed-min-age-days 30 --dry-run
 docker compose exec web python manage.py prune_db_task_results \
-  --min-age-days 14 --failed-min-age-days 30
+  --queue-name default,instagram --min-age-days 14 --failed-min-age-days 30
 ```
 
 Housekeeping is unscheduled and removes only finished results. Review queued/running

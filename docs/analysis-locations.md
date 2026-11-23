@@ -36,7 +36,7 @@ references and coverage limits.
 
 ## Compare plans with locations
 
-Open **Case Tools → Additional analysis → Compare plans with locations**. Select
+Open **Case Tools → Analysis methods → Compare plans with locations**. Select
 a message, captured text, supplied call transcript, or exact retained document
 extraction, OCR or transcription. Select the location observations to compare,
 or choose a retained visit, journey or current active vehicle trip to include its
@@ -49,6 +49,12 @@ describes, the stated place, and any interpretable time and UTC offset. A relati
 time needs a cited reference. Keep uncertainty explicit or add another
 interpretation of the passage. Review the selection before queuing it. The
 reported sender and recipient are separate from the subjects of the claim.
+
+**Restart source selection** restores the two pickers' searches, pages, and
+available selections. It reports unavailable selections and resets a missing
+page to the first page of that picker. Starting from Evidence keeps its reader
+and filters available through Cancel and the result. If that record was
+removed, the return opens the filtered Evidence collection.
 
 For a plan naming several people or vehicles together, select them in one reading.
 Each sample can support or call into question the place and time for its own
@@ -70,7 +76,9 @@ contribute to a journey comparison. The first and last samples cannot establish
 where the subject was between them.
 
 Open a passage to see the highlighted text and its underlying pages, lines or
-recording intervals. From a message or call passage, **Browse related exchanges**
+recording intervals. Return links from a passage or saved group reopen the
+citing finding and keep its Evidence context. From a message or call passage,
+**Browse related exchanges**
 opens the existing cross-channel findings for that communication, including
 timing-only candidates. A saved trip comparison retains its generation, ordered
 members, and original links after a rebuild. Source changes or loss of case

@@ -1,0 +1,13 @@
+{% extends "account/base_manage.html" %}
+{% block head_title %}Sign out{% endblock %}
+{% block content %}
+<h1>Sign out</h1>
+<p>End your session in this browser.</p>
+<form method="post" action="{% url 'account_logout' %}" class="form-panel">
+  {% csrf_token %}{{ redirect_field }}
+  <div class="form-actions">
+    <button class="button button-primary" type="submit">Sign out</button>
+    <a class="button button-secondary" href="{% url 'account_email' %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

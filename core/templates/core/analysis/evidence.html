@@ -1,4 +1,5 @@
-<section id="evidence-findings" data-live-region data-live-poll="{{ analysis_pending|yesno:'true,false' }}" class="evidence-section analysis-highlights" aria-labelledby="evidence-findings-heading">
+<section id="evidence-findings" class="evidence-section analysis-highlights" aria-labelledby="evidence-findings-heading">
+  <div id="evidence-findings-progress" data-live-region data-live-poll="{{ analysis_pending|yesno:'true,false' }}">
   <div class="evidence-findings-header">
     <h2 id="evidence-findings-heading" tabindex="-1">Findings</h2>
     {% if can_edit and not analysis_activity and not findings_page or analysis_form.errors %}
@@ -16,6 +17,9 @@
     <a class="record-link" href="{{ analysis_activity.url }}">{{ analysis_activity.action }}</a>
   </div>
   {% endif %}
+  </div>
+  {% include 'ui/components/refresh_saved.html' with saved_scope='findings and analysis history' %}
+  <div id="evidence-saved-findings" data-live-region data-live-saved="{{ findings_page|yesno:'true,false' }}" aria-labelledby="evidence-findings-heading">
   {% if findings_page %}
   <ul class="analysis-finding-rows">
     {% for item in findings_page %}
@@ -55,8 +59,10 @@
   {% elif not analysis_activity %}
   <p class="muted">{% if has_evidence_analysis %}No current findings cite this evidence.{% else %}No checks yet.{% endif %}</p>
   {% endif %}
+  </div>
+  <div id="evidence-saved-history" data-live-region data-live-saved="{{ analysis_page_obj|yesno:'true,false' }}">
   {% if analysis_page_obj %}
-  <details id="evidence-outcomes" class="disclosure"{% if analysis_outcomes_open %} open{% endif %}>
+  <details data-workspace-region id="evidence-outcomes" class="disclosure"{% if analysis_outcomes_open %} open{% endif %}>
     <summary id="evidence-history-heading">Analysis history</summary>
     <div class="disclosure-body">
       {% for run in analysis_page_obj %}
@@ -79,4 +85,5 @@
     </div>
   </details>
   {% endif %}
+  </div>
 </section>

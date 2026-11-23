@@ -49,6 +49,64 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
         )
         return run.pk
 
+    def test_push_connection_survives_navigation_and_reconciles_on_reconnect(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.add_init_script(
+                    """window.caseStreams = [];
+                    window.EventSource = class extends EventTarget {
+                        static OPEN = 1;
+                        static CLOSED = 2;
+                        constructor(url) {
+                            super();
+                            this.url = new URL(url, location.href).href;
+                            window.caseStreams.push(this);
+                            queueMicrotask(() => this.resume());
+                        }
+                        resume() { this.readyState = 1; this.onopen?.(); }
+                        interrupt() { this.readyState = 0; this.onerror?.(); }
+                        close() { this.readyState = 2; }
+                    };"""
+                )
+                page.goto(self.url("core:analysis:index", case_id=self.case.pk))
+                page.evaluate("window.initialStream = window.caseStreams[0]")
+                page.get_by_role("link", name="Processing", exact=True).click()
+                expect(
+                    page.get_by_role("heading", name="Processing", exact=True)
+                ).to_be_visible()
+                self.assertTrue(
+                    page.evaluate(
+                        "window.caseStreams.length === 1 && "
+                        "window.initialStream === window.caseStreams[0]"
+                    )
+                )
+                page.wait_for_load_state("networkidle")
+                snapshots = []
+                activity = self.url("cases:activity", case_id=self.case.pk)
+                page.on(
+                    "request",
+                    lambda request, seen=snapshots, url=activity: (
+                        seen.append(request) if request.url == url else None
+                    ),
+                )
+                page.clock.install()
+                page.clock.fast_forward(31000)
+                self.assertEqual(snapshots, [])
+                run = self.db(self.queue)
+                page.evaluate("""for (let i = 0; i < 5; i++) {
+                    window.initialStream.dispatchEvent(new Event('change'));
+                }""")
+                badge = page.locator("#processing-activity-count")
+                expect(badge).to_have_text("1 queued")
+                self.assertEqual(len(snapshots), 1)
+                page.evaluate("window.initialStream.interrupt()")
+                self.db(process_run, run)
+                # There was no change signal while the browser was disconnected.
+                page.evaluate("window.initialStream.resume()")
+                expect(badge).to_be_hidden()
+                self.assertEqual(len(snapshots), 2)
+
     def test_results_and_findings_update_without_navigation(self):
         for engine in self.engines:
             for name in ("core:analysis:detail", "core:evidence:detail"):
@@ -67,9 +125,14 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                         region = page.locator("#evidence-findings")
                     page.goto(self.url(name, **kwargs) + "?state=all")
                     page.evaluate("window.liveSentinel = 42")
-                    expect(region).to_have_attribute("data-live-poll", "true")
+                    progress = (
+                        region
+                        if name == "core:analysis:detail"
+                        else page.locator("#evidence-findings-progress")
+                    )
+                    expect(progress).to_have_attribute("data-live-poll", "true")
                     self.db(process_run, run_id)
-                    expect(region).to_have_attribute(
+                    expect(progress).to_have_attribute(
                         "data-live-poll", "false", timeout=15000
                     )
                     expect(region).to_contain_text("live@example.test")
@@ -232,7 +295,8 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 "content_events",
             )
         )
-        for saved_runs, engine in enumerate(self.engines, start=6):
+        for engine in self.engines:
+            saved_runs = AnalysisRun.objects.filter(case=self.case).count()
             run_id = self.queue()
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
@@ -240,6 +304,13 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     self.url("core:analysis:processing", case_id=self.case.pk)
                     + "?status=queued"
                 )
+                overview = page.get_by_role("region", name="Processing overview")
+                cards = overview.locator("dd")
+                expect(overview.locator("dt")).to_have_text(
+                    ["Queued", "Processing", "Processed", "Failed"]
+                )
+                expect(cards).to_have_text(["1", "0", str(saved_runs), "0"])
+                self.capture(page, engine, "processing-overview")
                 counts = page.locator("#processing-analysis-runs")
                 expect(
                     counts.get_by_text(f"{saved_runs} saved runs", exact=True)
@@ -260,6 +331,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(page.locator("#processing-activity")).to_contain_text(
                     "Saving results", timeout=15000
                 )
+                expect(cards).to_have_text(["0", "1", str(saved_runs), "0"])
                 expect(field).to_be_focused()
                 expect(field).to_have_value("complete")
                 expect(filters).to_have_attribute("open", "")
@@ -271,6 +343,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 expect(
                     counts.get_by_text(f"{saved_runs + 1} saved runs", exact=True)
                 ).to_be_visible()
+                expect(cards).to_have_text(["0", "0", str(saved_runs + 1), "0"])
                 expect(breakdown).to_have_attribute("open", "")
                 expect(field).to_be_focused()
                 expect(field).to_have_value("complete")
@@ -360,6 +433,35 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     role="viewer",
                 )
 
+    def test_open_reader_keeps_saved_findings_and_history_until_refreshed(self):
+        for engine in self.engines:
+            prior = self.queue()
+            process_run(prior)
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.goto(
+                    self.url(
+                        "core:evidence:detail",
+                        case_id=self.case.pk,
+                        kind="text",
+                        evidence_id=self.source.pk,
+                    )
+                )
+                first = page.locator("#evidence-saved-findings li").first
+                first.evaluate("el => window.originalFinding = el")
+                run = self.db(self.queue)
+                self.db(process_run, run)
+                page.evaluate("document.dispatchEvent(new Event('pandect:refresh'))")
+                button = page.locator("[data-live-refresh-saved]")
+                expect(button).to_be_visible()
+                added = page.locator(f'#evidence-saved-history a[href*="{run}"]')
+                expect(added).to_have_count(0)
+                self.assertTrue(first.evaluate("el => el === window.originalFinding"))
+                button.click()
+                expect(added).to_have_count(1)
+                expect(button).to_be_hidden()
+                self.assertFalse(first.evaluate("el => el === window.originalFinding"))
+
     def test_case_tools_keeps_results_stable_and_detects_short_jobs(self):
         for engine in self.engines:
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
@@ -381,11 +483,14 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 page.clock.fast_forward(30001)
                 refresh = page.get_by_role("link", name="Refresh results", exact=True)
                 expect(refresh).to_be_visible()
-                recent = page.locator('[data-collection-kind="case-tools"]')
+                recent = page.get_by_role("region", name="Latest records")
                 expect(recent).not_to_contain_text(title)
                 page.evaluate("window.liveSentinel = 42")
                 refresh.click()
                 expect(recent).to_contain_text(title)
+                expect(
+                    recent.get_by_role("link", name="live@example.test", exact=True)
+                ).to_be_visible()
                 expect(refresh).to_be_hidden()
                 self.assertEqual(page.evaluate("window.liveSentinel"), 42)
 
@@ -403,6 +508,56 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 self.db(process_run, second_run)
                 page.clock.fast_forward(5001)
                 expect(badge).to_be_hidden()
+
+    def test_evidence_summary_refresh_preserves_archive_and_search_scope(self):
+        for engine in self.engines:
+            archived_count = TextEvidence.objects.filter(
+                case=self.case, is_archived=True
+            ).count()
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.clock.install()
+                title = f"Archive-{engine}"
+                url = self.url("core:evidence:list", case_id=self.case.pk)
+                url += f"?state=archived&q={title}"
+                with page.expect_response(
+                    self.url("cases:activity", case_id=self.case.pk)
+                ):
+                    page.goto(url)
+                summary = page.get_by_role("region", name="Archived evidence by type")
+                expect(summary).to_be_visible()
+                text_count = (
+                    summary.locator(".case-summary-card")
+                    .filter(has=page.get_by_text("Text", exact=True))
+                    .locator("dd")
+                )
+                records = page.locator("#evidence-records")
+                expect(text_count).to_have_text(str(archived_count))
+                expect(
+                    records.get_by_role("heading", name="No matching evidence")
+                ).to_be_visible()
+                self.db(
+                    TextEvidence.objects.create,
+                    case=self.case,
+                    uploaded_by=self.owner,
+                    title=title,
+                    body="Synthetic archived evidence.",
+                    is_archived=True,
+                    archive_changed_by=self.owner,
+                    archive_changed_at=datetime.now(UTC),
+                )
+                page.clock.fast_forward(30001)
+                refresh = page.get_by_role("link", name="Refresh results", exact=True)
+                expect(refresh).to_be_visible()
+                expect(text_count).to_have_text(str(archived_count))
+                page.evaluate("window.liveSentinel = 42")
+                refresh.click()
+                expect(records.get_by_role("link", name=title)).to_be_visible()
+                expect(refresh).to_be_hidden()
+                expect(text_count).to_have_text(str(archived_count + 1))
+                expect(summary).to_be_visible()
+                expect(page).to_have_url(url)
+                self.assertEqual(page.evaluate("window.liveSentinel"), 42)
 
     def test_idle_processing_and_open_evidence_discover_finished_work(self):
         for engine in self.engines:
@@ -429,6 +584,12 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                     with page.expect_response(activity_url):
                         page.goto(self.url(route, **kwargs))
                     page.evaluate("window.liveSentinel = 42")
+                    history = page.locator(
+                        "#processing-check-history .analysis-history-row"
+                    )
+                    prior_history = history.count()
+                    if prior_history:
+                        history.first.evaluate("el => window.savedHistoryRow = el")
                     with page.expect_response(activity_url):
                         page.clock.fast_forward(30001)
                     self.assertEqual(fragments, [])
@@ -440,6 +601,16 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                         page.clock.fast_forward(30001)
                     if route == "core:analysis:processing":
                         row = page.locator(f'#processing-results a[href*="{run_id}"]')
+                        if prior_history:
+                            refresh = page.locator("[data-live-refresh-saved]")
+                            expect(refresh).to_be_visible()
+                            expect(row).to_have_count(0)
+                            self.assertTrue(
+                                history.first.evaluate(
+                                    "el => el === window.savedHistoryRow"
+                                )
+                            )
+                            refresh.click()
                         expect(row).to_have_count(1)
                     else:
                         expect(page.locator("#evidence-findings")).to_contain_text(
@@ -631,6 +802,112 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 for width, height in ((1440, 900), (390, 844)):
                     page.set_viewport_size({"width": width, "height": height})
                     self.capture(page, engine, f"filtered-reader-{width}")
+
+    def test_collection_access_loss_offers_recovery_without_case_activity(self):
+        cases_url = self.url("cases:case_list")
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.clock.install()
+                expect(page.locator("[data-case-activity-url]")).to_have_count(0)
+                requests = []
+
+                def expired_search(route, *, requests=requests):
+                    if route.request.headers.get("x-pandect-live") == "collection":
+                        requests.append(route.request.url)
+                        route.fulfill(status=401)
+                    else:
+                        route.continue_()
+
+                page.route(f"{cases_url}**", expired_search)
+                search = page.get_by_role("searchbox", name="Search cases")
+                search.fill("Synthetic case")
+                page.clock.run_for(300)
+                expect(
+                    page.get_by_text(
+                        "Your session or access may have changed.", exact=False
+                    )
+                ).to_be_visible()
+                recovery = page.locator("main").get_by_role(
+                    "link", name="All cases", exact=True
+                )
+                expect(recovery).to_be_visible()
+                expect(search).to_be_focused()
+                self.capture(page, engine, "collection-access-recovery")
+                search.fill("Another query")
+                page.clock.run_for(1000)
+                self.assertEqual(len(requests), 1)
+                recovery.click()
+                expect(page).to_have_url(cases_url)
+                expect(search).to_have_value("")
+
+    def test_case_collection_access_loss_stops_in_flight_activity(self):
+        activity_url = self.url("cases:activity", case_id=self.case.pk)
+        evidence_url = self.url("core:evidence:list", case_id=self.case.pk)
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page, self.viewer)
+                page.clock.install()
+                with page.expect_response(activity_url) as initial:
+                    page.goto(evidence_url)
+                initial.value.finished()
+                page.evaluate(
+                    """(activityUrl) => {
+                        const fetch = window.fetch;
+                        window.activityRequests = 0;
+                        window.fetch = async (url, options) => {
+                            if (new URL(url, location.href).href !== activityUrl) {
+                                return fetch(url, options);
+                            }
+                            window.activityRequests++;
+                            const response = await fetch(url, options);
+                            const read = response.json.bind(response);
+                            response.json = async () => {
+                                const snapshot = await read();
+                                await new Promise(resolve => {
+                                    window.releaseActivity = resolve;
+                                    document.body.dataset.activityDelayed = "true";
+                                });
+                                return snapshot;
+                            };
+                            return response;
+                        };
+                    }""",
+                    activity_url,
+                )
+                page.clock.run_for(31000)
+                expect(page.locator("body")).to_have_attribute(
+                    "data-activity-delayed", "true"
+                )
+
+                page.route(
+                    f"{evidence_url}**",
+                    lambda route: (
+                        route.fulfill(status=404)
+                        if route.request.headers.get("x-pandect-live") == "collection"
+                        else route.continue_()
+                    ),
+                )
+                search = page.get_by_role("searchbox", name="Filter evidence")
+                search.fill("Synthetic query")
+                page.clock.run_for(300)
+                feedback = page.locator("[data-activity-feedback]")
+                recovery = page.locator("main").get_by_role(
+                    "link", name="All cases", exact=True
+                )
+                expect(feedback.get_by_role("status")).to_contain_text(
+                    "Your session or access may have changed."
+                )
+                expect(recovery).to_have_count(1)
+                expect(recovery).to_be_visible()
+                expect(search).to_be_focused()
+
+                page.evaluate("window.releaseActivity()")
+                page.clock.run_for(61000)
+                expect(recovery).to_have_count(1)
+                expect(recovery).to_be_visible()
+                self.assertEqual(page.evaluate("window.activityRequests"), 1)
+                self.capture(page, engine, "case-collection-access-recovery")
 
     def test_mobile_typing_in_people_vehicles_findings_and_images(self):
         Person.objects.create(case=self.case, first_name="Collection fixture")

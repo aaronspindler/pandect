@@ -61,7 +61,7 @@ def gateway_configured(purpose, operation):
         return False
 
 
-def _endpoint_and_headers(execution):
+def endpoint_and_headers(execution):
     headers = {"Content-Type": "application/json", "User-Agent": "Pandect/0.1"}
     provider = execution["provider"]
     if execution.get("url"):
@@ -85,7 +85,11 @@ def _endpoint_and_headers(execution):
         path = f"workers-ai/{execution['model']}"
         headers["Authorization"] = f"Bearer {config['workers_token']}"
     else:
-        path = "openai/responses"
+        path = (
+            "openai/embeddings"
+            if execution.get("purpose") == "embedding"
+            else "openai/responses"
+        )
         headers["cf-aig-byok-alias"] = execution["key_alias"]
         headers["cf-aig-request-timeout"] = str(execution["timeout"] * 1000)
     url = (
@@ -117,7 +121,7 @@ class GatewayClient:
             raise AnalysisError("gateway_invalid_input") from None
         if len(body) > execution["max_request_bytes"]:
             raise AnalysisError("gateway_input_limit")
-        url, headers = _endpoint_and_headers(execution)
+        url, headers = endpoint_and_headers(execution)
         for attempt in range(2):
             validate_execution(self.run)
             if gateway_execution(purpose, self.run.operation) != execution:

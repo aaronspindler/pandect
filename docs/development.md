@@ -39,8 +39,8 @@ make run
 Use `make run` for subsequent starts and rebuilds. It builds the image while the
 current workers keep processing. Once the build succeeds, each enabled worker
 finishes its current task and exits. Pending tasks stay in PostgreSQL. Compose
-then brings up the stack with the new app image and waits for web and database
-health and worker startup.
+then brings up the new app image and waits for the database, web, and event
+listener health checks and worker startup.
 
 Run one `make run` at a time. Worker shutdown has no forced-stop deadline. If you
 interrupt the wait, Docker continues stopping those workers. Let them exit
@@ -51,10 +51,10 @@ Verify queue execution with
 `docker compose stop` retains database and evidence volumes.
 
 Open <http://localhost:8000/> (or `PANDECT_WEB_PORT`), create an account, and verify
-its email before opening case material. The development container migrates on
-startup and runs Django's development server. With `DJANGO_DEBUG=true`, private
-verification/invitation links appear in `docker compose logs web`; keep those
-logs private. Production uses SMTP.
+its email before opening case material. The local Compose web command applies
+pending migrations before starting Django's development server. With
+`DJANGO_DEBUG=true`, private verification and invitation links appear in
+`docker compose logs web`. Keep those logs private. Production uses SMTP.
 
 WhiteNoise serves assets in development and production. Debug mode revalidates
 source files immediately; non-debug builds use `collectstatic` content hashes.
@@ -80,18 +80,35 @@ For Django's host autoreloader with PostgreSQL in Docker, first install Tesserac
 and English data: `brew install tesseract` on macOS, or
 `sudo apt-get install tesseract-ocr tesseract-ocr-eng` on Debian/Ubuntu. Check
 `tesseract --version` and that `tesseract --list-langs` includes `eng`. The
-application image already includes both packages. Then run:
+application image already includes both packages.
+
+Keep the database and media together. Host Django defaults to the checkout's
+`data/media`, while Compose uses `/app/data/media` on the named `app_data`
+volume. Use a separate database and media directory for host development unless
+both runtimes use the same persistent storage and keys. When switching back to
+Compose, stop the host server and workers first. If a database already references
+files in more than one root, include all of them in a
+[coordinated backup](operations.md#capture-a-matching-backup).
+
+With the intended database and storage configured, run:
 
 ```sh
-docker compose stop web worker
+docker compose stop proxy events web
+docker compose --profile instagram-pilot stop --timeout -1 worker instagram-worker
 docker compose up -d --wait db
 uv run --locked --env-file .env python manage.py migrate
 uv run --locked --env-file .env python manage.py runserver
 ```
 
+The Compose proxy serves web and the case event stream on the same loopback
+port. Host-only `runserver` uses polling for activity updates. Use the Compose
+stack to exercise push delivery.
+
 Use `uv run --locked --env-file .env python manage.py <command>` for management
 commands; uv loads `.env`, Django does not. Compose loads it separately and uses
-database hostname `db`. In another terminal, run
+database hostname `db`. If meaning search is configured, run
+`uv run --locked --env-file .env python manage.py prepare_case_search` after
+migrations to queue missing indexes. In another terminal, run
 `uv run --locked --env-file .env python manage.py db_worker --no-reload` to process
 background jobs, including vehicle CSV preparation/publication and automatic
 checks. Invitation mail is synchronous. See [background tasks](background-tasks.md)
@@ -124,8 +141,8 @@ measurement, qualification and upgrading older local text configurations.
 | `POSTGRES_DB`, `POSTGRES_USER` | Default to `pandect`. |
 | `POSTGRES_PASSWORD` | Required by Compose; use a generated local password. |
 | `POSTGRES_HOST`, `POSTGRES_PORT` | Host commands default to `127.0.0.1:5432`; `POSTGRES_PORT` also selects Compose's loopback database port. Containers use `db:5432`. |
-| `PANDECT_WEB_PORT` | Compose's loopback web port, default `8000`. |
-| `PANDECT_MEDIA_ROOT` | Optional private original-storage path; defaults to `data/media`. Originals are served only through case-authorized download routes. |
+| `PANDECT_WEB_PORT` | Compose's loopback proxy port for web and case events, default `8000`. |
+| `PANDECT_MEDIA_ROOT` | Private file storage root. Host default is `data/media` in the checkout. Compose defaults to `/app/data/media` inside the shared `app_data` mount. An override outside that mount needs its own private persistent mount shared by web and every worker. |
 | `DJANGO_DEFAULT_FROM_EMAIL` | Optional sender override; defaults to `pandect@` followed by the public-origin hostname, or `pandect@localhost` for IP and `.localhost` origins. |
 | `DJANGO_EMAIL_HOST`, `DJANGO_EMAIL_PORT` | SMTP host and port when debug is disabled; defaults `localhost:587`. |
 | `DJANGO_EMAIL_HOST_USER`, `DJANGO_EMAIL_HOST_PASSWORD` | Operator SMTP credentials when debug is disabled. SMTP uses STARTTLS and a ten-second timeout. |

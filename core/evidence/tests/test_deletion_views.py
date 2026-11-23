@@ -17,7 +17,13 @@ from django.utils import timezone
 from cases.models import CaseMembership
 from core.evidence import deletion
 from core.evidence.types import CALL_KINDS, KINDS
-from core.models import AnalysisArtifact, AnalysisResult, AnalysisRun
+from core.models import (
+    AnalysisArtifact,
+    AnalysisResult,
+    AnalysisRun,
+    ImportantItem,
+    ImportantNote,
+)
 from core.testing import ALL_MODELS, EvidenceTestMixin
 from document.models import DocumentEvidence
 from geo.models import (
@@ -506,6 +512,41 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
             )
         self.assertEqual(response.status_code, 302)
         self.assertFalse(VehicleLocationEvidence.objects.filter(pk=added.pk).exists())
+
+    def test_import_inventory_requires_new_confirmation_after_important_note(self):
+        source, _, _, _, message, _ = self.import_tree()
+        self.client.force_login(self.editor)
+        mark_url = reverse(
+            "core:important:mark_evidence",
+            args=[self.case.pk, "text-message", message.pk],
+        )
+        self.assertEqual(
+            self.client.post(mark_url, {"action": "mark"}).status_code, 302
+        )
+        item = ImportantItem.objects.get(case=self.case, evidence_id=message.pk)
+
+        self.client.force_login(self.operator)
+        confirmation = self.confirmation(source)
+        self.client.force_login(self.editor)
+        notes_url = reverse("core:important:notes", args=[self.case.pk, item.pk])
+        body = "Compare with the original message annotation."
+        self.assertEqual(self.client.post(notes_url, {"body": body}).status_code, 302)
+        note = ImportantNote.objects.get(item=item)
+
+        self.client.force_login(self.operator)
+        response = self.client.post(self.url(source), confirmation)
+        self.assertContains(response, deletion.CHANGED, status_code=409)
+        self.assertTrue(type(message).objects.filter(pk=message.pk).exists())
+        export = self.client.get(self.url(source) + "?download=manifest")
+        manifest = b"".join(export.streaming_content)
+        ids = {row["id"] for row in json.loads(manifest)["entries"]}
+        self.assertTrue({str(item.pk), str(note.pk)} <= ids)
+        self.assertNotIn(body.encode(), manifest)
+
+        response = self.client.post(self.url(source), self.confirmation(source))
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(ImportantItem.objects.filter(pk=item.pk).exists())
+        self.assertFalse(ImportantNote.objects.filter(pk=note.pk).exists())
 
     def test_confirmation_cannot_be_omitted_tampered_or_reused_for_another_target(self):
         first = self.create_evidence(DocumentEvidence)

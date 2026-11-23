@@ -12,7 +12,10 @@ register = template.Library()
 @register.inclusion_tag("audio/player.html", takes_context=True)
 def audio_reader(context, item, attachment=None):
     kind = context.get("kind", "audio")
-    result = {"label": attachment.original_filename if attachment else item.title}
+    result = {
+        "label": attachment.original_filename if attachment else item.title,
+        "standalone": attachment is None,
+    }
     try:
         _, _, parsed = inspect_recording(item, kind=kind, attachment=attachment)
     except AnalysisError as error:

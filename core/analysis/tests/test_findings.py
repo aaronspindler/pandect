@@ -1,6 +1,7 @@
 """Current, source-linked case findings without a review or analysis setup step."""
 
 import json
+from datetime import timedelta
 from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -92,10 +93,10 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         self.assertNotIn("Uncited person", preview)
         self.assertContains(catalogue, "Alex &lt;script&gt;")
         self.assertNotContains(catalogue, "<script>")
-        case_home = self.client.get(self.index_url())
+        _, highlights = self.findings()
         evidence = self.client.get(self.url("detail", message, kind="text-message"))
         for rows in (
-            case_home.context["highlights"],
+            highlights,
             evidence.context["findings_page"],
         ):
             self.assertTrue(
@@ -189,7 +190,11 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
     def findings(self):
         response = self.client.get(self.index_url())
         self.assertEqual(response.status_code, 200)
-        return response, response.context["highlights"]
+        return response, [
+            row
+            for row in response.context["latest_records"]
+            if row["record_type"] == "Finding"
+        ]
 
     def test_adding_text_produces_source_linked_case_findings_without_review(self):
         self.login("editor")
@@ -253,11 +258,44 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         source = self.source()
         first = self.entities(source)
         newest = self.entities(source)
+        # Even if the older run finished later, the newer run supersedes it.
+        AnalysisResult.objects.filter(run=first).update(
+            created_at=newest.result.created_at + timedelta(seconds=1)
+        )
         self.login("owner")
         _, highlights = self.findings()
         self.assertEqual(len(highlights), 1)
         self.assertIn(str(newest.pk), highlights[0]["url"])
         self.assertNotIn(str(first.pk), highlights[0]["url"])
+
+    def test_latest_records_reserve_each_kind_and_order_by_added_or_saved_time(self):
+        sources = [
+            self.source(f"source-{n}@example.test", title=f"Record {n}")
+            for n in range(4)
+        ]
+        runs = [self.entities(source) for source in sources]
+        # The earliest requested run completes after a later evidence addition.
+        newest_evidence = self.source(title="Latest addition")
+        saved = newest_evidence.created_at + timedelta(seconds=1)
+        AnalysisResult.objects.filter(run=runs[0]).update(created_at=saved)
+        self.login("viewer")
+        response, highlights = self.findings()
+        records = response.context["latest_records"]
+        self.assertEqual(len(records), 6)
+        self.assertEqual(
+            [row["title"] for row in records],
+            [
+                "source-0@example.test",
+                "Latest addition",
+                "source-3@example.test",
+                "source-2@example.test",
+                "Record 3",
+                "Record 2",
+            ],
+        )
+        self.assertEqual(records[0]["created_at"], saved)
+        self.assertEqual(records[1]["url"], self.url("detail", newest_evidence))
+        self.assertIn(str(runs[0].pk), highlights[0]["url"])
 
     def test_archived_changed_and_cross_case_sources_are_excluded(self):
         active = self.source("active@example.test")
@@ -428,11 +466,8 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         for role in ("owner", "editor", "viewer"):
             self.login(role)
             response, _ = self.findings()
-            self.assertEqual(response.context["evidence_count"], 28)
-            self.assertEqual(len(response.context["recent_evidence"]), 3)
-            self.assertEqual(
-                response.context["recent_evidence"][0]["id"], active[-1].pk
-            )
+            self.assertEqual(len(response.context["latest_records"]), 3)
+            self.assertEqual(response.context["latest_records"][0]["id"], active[-1].pk)
             self.assertNotContains(response, "Archived source")
             self.assertNotContains(response, "Foreign source")
             self.assertNotContains(response, 'id="processing-history"')
@@ -447,6 +482,43 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
                 self.assertNotContains(response, settings)
             analysis = reverse("core:analysis:create", args=[self.case.pk])
             if role == "viewer":
+                self.assertEqual(response.context["operation_groups"], [])
                 self.assertNotContains(response, analysis)
             else:
                 self.assertContains(response, analysis)
+
+    def test_empty_case_home_offers_intake_only_to_contributors(self):
+        for role in ("owner", "editor", "viewer"):
+            with self.subTest(role=role):
+                self.login(role)
+                home = self.client.get(self.index_url())
+                self.assertEqual(home.context["latest_records"], [])
+                if role == "viewer":
+                    self.assertNotContains(home, self.url("create"))
+                    self.assertContains(home, "when an owner or editor adds it")
+                else:
+                    self.assertContains(home, self.url("create"))
+                    self.assertContains(home, "No recent evidence or findings.")
+
+    def test_homepage_method_links_match_chooser_and_open_without_starting_work(self):
+        self.login("editor")
+        chooser_url = reverse("core:analysis:create", args=[self.case.pk])
+        chooser = self.client.get(chooser_url)
+        home = self.client.get(self.index_url())
+        home_groups = {
+            group: [choice["url"] for choice in choices]
+            for group, choices in home.context["operation_groups"]
+        }
+        self.assertEqual(
+            home_groups,
+            {
+                group: [chooser_url + choice["url"] for choice in choices]
+                for group, choices in chooser.context["operation_groups"]
+            },
+        )
+        for choices in home_groups.values():
+            for url in choices:
+                with self.subTest(url=url):
+                    self.assertContains(home, f'href="{url}"')
+                    self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertFalse(AnalysisRun.objects.exists())

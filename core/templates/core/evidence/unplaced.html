@@ -8,7 +8,7 @@
       <p class="help-text">{% if references %}Dates quoted in retained sources may describe different events or depend on missing context.{% else %}These sources and interpretations have no established place in event order.{% endif %}</p>
     </div>
     <nav class="actions" aria-label="Chronology views">
-      <a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}?view=day">Daily timeline</a>
+      <a data-workspace-link class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}?view=day">Daily timeline</a>
       <a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}{% querystring view=None page=None originals_page=None start=None end=None %}">Back to chronology</a>
     </nav>
   </div>

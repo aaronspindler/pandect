@@ -5,6 +5,7 @@ if [ "$#" -gt 1 ]; then
     printf 'Usage: %s [local-image]\n' "$0" >&2
     exit 2
 fi
+workspace_browser=${PANDECT_SMOKE_WORKSPACE_BROWSER:-0}
 prebuilt_image=
 if [ "$#" -eq 1 ]; then
     # Resolve a local reference once; never pull or rebuild a replacement image.
@@ -39,6 +40,9 @@ services:
 YAML
 if [ -n "$prebuilt_image" ]; then
     cat >> "$smoke_override" <<YAML
+    image: $prebuilt_image
+    pull_policy: never
+  events:
     image: $prebuilt_image
     pull_policy: never
   web:
@@ -85,9 +89,19 @@ fi
 web_image=$(docker inspect --format '{{.Image}}' "$(compose ps -q web)")
 worker_image=$(docker inspect --format '{{.Image}}' "$(compose ps -q worker)")
 test "$web_image" = "$worker_image"
+test "$web_image" = "$(docker inspect --format '{{.Image}}' "$(compose ps -q events)")"
 if [ -n "$prebuilt_image" ]; then
     test "$web_image" = "$prebuilt_image"
 fi
+compose exec -T web python -c '
+import json, os
+from urllib.request import Request, urlopen
+for path in ("/health/", "/events/health/"):
+    request = Request("http://proxy:8000" + path, headers={"Host": "localhost"})
+    with urlopen(request, timeout=5) as response:
+        health = json.load(response)
+    assert health["status"] == "ok" and health["commit"] == os.environ["APP_COMMIT_SHA"]
+'
 compose exec -T web python manage.py migrate --check
 compose exec -T web python manage.py check_task_worker --timeout 30
 compose exec -T web python manage.py shell <<'PY'
@@ -248,7 +262,7 @@ assert batch.status == "queued"
 assert not VehicleLocationEvidence.objects.exists()
 PY
 compose stop
-compose up --no-build --wait --wait-timeout 180 db web
+compose up --no-build --wait --wait-timeout 180 db web events proxy
 compose exec -T web python manage.py shell <<'PY'
 from django.contrib.auth import get_user_model
 import hashlib
@@ -502,3 +516,21 @@ finally:
     process.terminate()
     process.wait(timeout=10)
 PY
+
+# Qualify real browser-visible latency on a host with Playwright installed.
+# The public port and fixture configuration belong to this disposable project.
+if [ "$workspace_browser" = 1 ]; then
+    # The disposable database is now migrated. Measure ordinary HTTP capacity
+    # using the image's real WSGI command, with the independent events process.
+    if [ -z "$prebuilt_image" ]; then
+        printf '  web:\n' >> "$smoke_override"
+    fi
+    printf '    command: !reset null\n' >> "$smoke_override"
+    compose up --no-build --no-deps --wait --wait-timeout 90 web
+    compose restart proxy
+    proxy_port=$(compose port proxy 8000)
+    uv run --locked python "$smoke_root/scripts/workspace-browser-probe.py" \
+        "$project" "http://$proxy_port" docker compose --file "$smoke_root/compose.yaml" \
+        --file "$smoke_override" --project-directory "$smoke_root" \
+        --project-name "$project" --env-file "$smoke_env"
+fi

@@ -1,5 +1,6 @@
+{% partialdef import_outcome %}{% if run.status == 'complete' or run.status == 'partial' %}{% if final %}Messages imported{% else %}Message review ready{% endif %}{% else %}Message processing stopped{% endif %}{% endpartialdef %}
 {% partialdef live inline %}
-<div class="page-content" id="message-import" data-live-region data-live-poll="{% if run.status == 'queued' or run.status == 'running' %}true{% else %}false{% endif %}">
+<div class="page-content" id="message-import" data-live-region{% if run.status == 'queued' or run.status == 'running' %} data-live-poll="true"{% else %} data-live-poll="false" data-live-outcome="{% partial import_outcome %}"{% endif %}>
   {% if processing_back_url %}<a class="back-link" href="{{ processing_back_url }}">Back to Processing</a>
   {% else %}<a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>{% endif %}
   {% if run.status == 'queued' or run.status == 'running' %}
@@ -10,7 +11,7 @@
       <p>You can return later while processing continues.</p>
     </section>
   {% else %}
-    <h1>{% if final and run.status == 'complete' or final and run.status == 'partial' %}Messages imported{% elif run.status == 'complete' or run.status == 'partial' %}Message review ready{% else %}Message processing stopped{% endif %}</h1>
+    <h1>{% partial import_outcome %}</h1>
     {% if run.status != 'complete' %}<p role="status">{{ run.get_status_display }}</p>{% endif %}
     <p><a class="button button-primary" href="{% url 'phone:imessage_review' case.pk run.pk %}{{ review_suffix }}">{% if run.status == 'complete' or run.status == 'partial' %}{% if final %}Open message import{% else %}Review prepared messages{% endif %}{% else %}Review stopped import{% endif %}</a></p>
   {% endif %}

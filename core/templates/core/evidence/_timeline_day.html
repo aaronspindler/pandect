@@ -14,7 +14,7 @@
       </div>
       <div class="day-entry">
         <p class="day-kind">{{ row.label }}{% if row.archived %} · Archived{% endif %}{% if row.partial %} · Partial coverage{% endif %}{% if row.overlap %} · Multiple groupings{% endif %}</p>
-        <a class="record-link" href="{{ row.url }}">{{ row.title }}</a>
+        <a data-workspace-link class="record-link" href="{{ row.url }}">{{ row.title }}</a>
         {% if row.detail %}<p>{{ row.detail }}</p>{% endif %}
         {% if row.clock_note %}<p>{{ row.clock_note }}</p>{% endif %}
         {% if row.end_out_of_range %}<p>Calculated end outside the supported range.</p>{% endif %}
@@ -27,13 +27,13 @@
   </ol>
   {% if previous_page or next_page %}
   <nav class="pagination" aria-label="Entries for {{ day|date:'j F Y' }}">
-    {% if previous_page %}<a class="button button-secondary" href="{% querystring page=previous_page %}#timeline-day-{{ iso_day }}">Previous entries</a>{% endif %}
+    {% if previous_page %}<a data-workspace-link class="button button-secondary" href="{% querystring page=previous_page %}#timeline-day-{{ iso_day }}">Previous entries</a>{% endif %}
     <span>Page {{ page_number }}</span>
-    {% if next_page %}<a class="button button-secondary" href="{% querystring page=next_page %}#timeline-day-{{ iso_day }}">Next entries</a>{% endif %}
+    {% if next_page %}<a data-workspace-link class="button button-secondary" href="{% querystring page=next_page %}#timeline-day-{{ iso_day }}">Next entries</a>{% endif %}
   </nav>
   {% endif %}
   {% else %}
-  <div class="empty-state compact-empty"><p>No dated activity or collections on this day.</p><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Browse evidence</a></div>
+  <div class="empty-state compact-empty"><p>No dated activity or collections on this day.</p><a data-workspace-link class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Browse evidence</a></div>
   {% endif %}
 </section>
 {% endwith %}

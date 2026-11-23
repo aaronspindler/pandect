@@ -7,15 +7,16 @@ own feature details and supported inputs.
 
 ## One line
 
-Pandect is an investigation workspace for organizing evidence,
-searching within a case, and exploring source-linked findings with collaborators.
+Pandect is open-source investigation software for organizing evidence in private
+cases, searching case material, and tracing findings to their sources with
+collaborators.
 
 ## Short description
 
 Bring gathered material into a private case. Pandect keeps original files,
 messages, and location observations together, helps you search and examine them,
 and links findings to sources. Invite viewers or editors to review the case
-together. Pandect is in active development.
+together. Pandect is self-hostable and in active development.
 
 ## Project introduction
 
@@ -23,61 +24,67 @@ Pandect is an investigation workspace built with Django and
 PostgreSQL. Organize collected material, including open-source intelligence,
 in private cases with their own people, vehicles, evidence, and permissions.
 
-Retain documents, images, audio, text, communications, and location observations;
-search supported case text; and explore source-linked findings. Eligible evidence
+Retain documents, images, audio, text, communications, and location observations.
+Search supported case text and explore source-linked findings. Eligible evidence
 receives automatic analysis, including native document text extraction and
 printed-English image recognition. Maps, supported imports, exact identifier
 connections, and recorded chronology help examine activity. Inspect supported
 originals privately. Invite collaborators to inspect or edit.
 
-Transcription and model suggestions need configured services. External AI requires
-case-owner approval in Case Settings. Inferred event timelines,
-graphs, and broader discovery are planned. Pandect is in active development;
-self-hosting is available and managed hosting is planned.
+Transcription and model suggestions need configured services. Search by meaning
+uses a configured private model or a case-approved hosted model. External AI
+requires case-owner approval in Case Settings. Inferred event timelines, graphs, and broader discovery
+are planned. Pandect is in active development. Self-hosting is available, and
+managed hosting is planned.
 
 ## Announcement copy
 
 Pandect brings evidence into a private investigation workspace.
-Organize files, messages, and locations; search a case; and inspect sources behind
+Organize files, messages, and locations. Search a case and inspect sources behind
 findings with collaborators. Local checks cover supported document text,
 printed-English image recognition, and metadata. Explore identifier matches,
-recorded chronology, and printable shared briefs. Transcription and synthesis
-over selected text/findings need configuration. In active development, with
-inferred timelines, graphs, and broader discovery planned.
+recorded chronology, and possible trips. Transcription and model suggestions
+need configuration. Pandect is in active development, with inferred timelines,
+graphs, and broader discovery planned.
 [Source and setup](https://github.com/aaronspindler/pandect).
 
 ## Short social post
 
 Pandect is an investigation workspace. Organize evidence in private
-cases, browse source-linked findings, follow recorded chronology, and share cited
-briefs. In active development; model-assisted analysis needs configuration.
+cases, browse source-linked findings, and follow recorded chronology.
+Model-assisted analysis needs configuration. Pandect is in active development.
 [Explore Pandect](https://github.com/aaronspindler/pandect).
 
-## Feature language
+## Investigation workflows
 
-Keep availability beside claims, including in slides, screenshots, and short
-announcements. Follow [content boundaries](marketing.md#content-boundaries) and
-verify capability-specific copy against its domain guide.
+- **Incident investigations.** Review reports, photos, and timed records in a
+  private case. Use recorded chronology to distinguish reported event times
+  from collection times.
+- **Open-source investigations (OSINT).** Organize public material you collect,
+  retain its source URLs, and follow repeated identifiers back to the originals.
+- **Communications investigations.** Review supported iMessage and WhatsApp CSV
+  exports alongside call records and supplied transcripts. Check export timezones
+  and gaps before interpreting the sequence.
+- **Vehicle and location investigations.** Review reported observations and
+  trace possible trips back to their source records and imported rows.
+
+Use the workflow notes and source links in the marketing guide when adapting
+this copy. [Investigation workflows](marketing.md#investigation-workflows)
 
 ## Editorial boundaries
 
+Keep availability beside claims in all formats. Follow the
+[public content boundaries](marketing.md#content-boundaries) for capability,
+configuration, uncertainty, and roadmap wording.
+
 - Lead with gathering material, organizing cases, searching, inspecting sources,
   and collaborating. Use **Findings** for the case destination.
-- Keep self-hosting as a supporting setup detail rather than a headline or
-  primary call to action.
-- Name the documented iMessage and WhatsApp direct-chat CSV import profiles.
-  Social accounts are manually recorded; live account collection and vendor API
-  integrations are unavailable.
-- State configuration requirements for transcription, model assistance,
-  geographic lookups, and basemaps. Core work needs no AI credentials; OCR stays
-  local with no external fallback.
-- Separate possible trips, plate candidates, identifier matches, inferred
-  sessions, and model suggestions from facts. Recorded chronology does not verify
-  events. Originals/checksums establish
-  retained content and integrity, not truth or identity.
-- Keep plans provisional. Require evidence for dates, completion percentages,
-  pricing, hosted signup, guarantees, certifications, endorsements, and accuracy
-  claims.
-- Label fictional/synthetic previews; do not show future controls as available.
-- Follow [license wording](../README.md#license) and [LICENSE](../LICENSE);
-  product copy creates no legal terms.
+- Use descriptive page headings and answer the reader's question in the opening
+  paragraph. Keep page descriptions specific to the visible content.
+- Link to setup and the AGPL-3.0-only license when describing self-hosting.
+- Distinguish manually recorded social accounts from the offline
+  [Instagram monitoring pilot](instagram-monitors.md). Describe active
+  collection as a synthetic workflow and preserve the live release boundary.
+- Label fictional or synthetic previews. Show controls only for available workflows.
+- Use the project's license wording in reusable copy.
+  [License wording](../README.md#license) · [LICENSE](../LICENSE)

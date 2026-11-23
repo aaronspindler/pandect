@@ -159,7 +159,9 @@ class SearchQualification(EvidenceTestMixin, TestCase):
             self.assertEqual(page.paginator.count, target_count - len(items) + 1)
 
         def meaning():
-            response = self.client.get(url, {"q": QUERIES[0][0]})
+            response = self.client.post(
+                url, {"meaning": "1"}, query_params={"q": QUERIES[0][0]}
+            )
             self.assertEqual(response.status_code, 200)
             self.assertIn(
                 items[0].pk, [row["id"] for row in response.context["related"]]
@@ -236,8 +238,9 @@ class SearchQualification(EvidenceTestMixin, TestCase):
             cursor.execute(
                 """
                 INSERT INTO core_searchpassage
-                    (id,case_id,document_id,start,length,digest,embedding)
-                SELECT gen_random_uuid(),d.case_id,d.id,0,%s,%s,prototype.embedding
+                    (id,case_id,document_id,profile,start,length,digest,embedding)
+                SELECT gen_random_uuid(),d.case_id,d.id,d.profile,0,%s,%s,
+                       prototype.embedding
                 FROM core_searchdocument d
                 JOIN phone_textmessageevidence m ON m.id=d.message_id
                 CROSS JOIN (SELECT embedding FROM core_searchpassage

@@ -1,10 +1,12 @@
 from decimal import Decimal
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import Client, TestCase
 from django.urls import reverse
+from django.utils.html import escape
 
 from cases.models import CaseMembership
 from geo.models import PointOfInterest
@@ -153,6 +155,173 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
 
     def url_for_map(self):
         return reverse("geo:case_map", args=(self.case.pk,))
+
+    def test_poi_detail_returns_to_its_map_or_person_list_context(self):
+        self.client.force_login(self.viewer)
+        filters = {
+            "q": "Home",
+            "page": "2",
+            "poi_page": "3",
+            "state": "all",
+            "vehicle_id": str(self.vehicle.pk),
+            "start": "2026-11-01T09:00",
+            "end": "2026-11-02T09:00",
+        }
+        map_page = self.client.get(
+            self.url_for_map(),
+            filters | {"next": "https://example.test/", "from_person": "1"},
+        )
+        point_url = map_page.context["points"][0]["url"]
+        self.assertContains(map_page, f'href="{escape(point_url)}"')
+        self.assertEqual(
+            parse_qs(urlsplit(point_url).query),
+            {"from_map": ["1"]} | {key: [value] for key, value in filters.items()},
+        )
+        map_back_url = reverse(
+            "geo:case_map",
+            args=(self.case.pk,),
+            query=filters,
+            fragment="map-heading",
+        )
+        self.assertContains(
+            self.client.get(point_url),
+            f'href="{escape(map_back_url)}">Back to map',
+        )
+
+        person_url = reverse("people:detail", args=(self.case.pk, self.person.pk))
+        person_filters = {"q": "Synthetic", "page": "2"}
+        person_page = self.client.get(person_url, person_filters)
+        detail_url = reverse(
+            "geo:poi_detail",
+            args=(self.case.pk, self.poi.pk),
+            query={"from_person": self.person.pk} | person_filters,
+        )
+        self.assertContains(person_page, f'href="{escape(detail_url)}"')
+        back_url = reverse(
+            "people:detail",
+            args=(self.case.pk, self.person.pk),
+            query=person_filters,
+            fragment="poi-list",
+        )
+        self.assertContains(
+            self.client.get(detail_url + f"&person={self.other_person.pk}"),
+            f'href="{escape(back_url)}">Back to person',
+        )
+        legacy_detail = reverse(
+            "geo:poi_detail",
+            args=(self.case.pk, self.poi.pk),
+            query={"from_person": "1"} | person_filters,
+        )
+        self.assertContains(
+            self.client.get(legacy_detail),
+            f'href="{escape(back_url)}">Back to person',
+        )
+
+    def test_filtered_map_round_trip_through_invalid_add_save_and_delete(self):
+        self.client.force_login(self.editor)
+        filters = {"q": "Synthetic", "page": "2", "poi_page": "3", "state": "all"}
+        origin = {"from_map": "1"} | filters
+        back = reverse(
+            "geo:case_map", args=(self.case.pk,), query=filters, fragment="map-heading"
+        )
+        map_page = self.client.get(self.url_for_map(), filters)
+        create_url = reverse("geo:poi_create", args=(self.case.pk,), query=origin)
+        self.assertContains(map_page, f'href="{escape(create_url)}">Add POI')
+        self.assertContains(map_page, f'data-poi-create-url="{escape(create_url)}"')
+        create_url += "&latitude=43.64&longitude=-79.38"
+        response = self.client.post(create_url, self.data(latitude=""))
+        self.assertContains(response, f'href="{escape(back)}">Cancel', status_code=400)
+        response = self.client.post(create_url, self.data())
+        created = PointOfInterest.objects.exclude(
+            pk__in=[self.poi.pk, self.other_poi.pk]
+        ).get()
+        detail_url = reverse(
+            "geo:poi_detail", args=(self.case.pk, created.pk), query=origin
+        )
+        self.assertRedirects(response, detail_url, fetch_redirect_response=False)
+        delete_url = reverse(
+            "geo:poi_delete", args=(self.case.pk, created.pk), query=origin
+        )
+        self.assertContains(
+            self.client.get(detail_url), f'href="{escape(delete_url)}">Delete POI'
+        )
+        self.assertContains(
+            self.client.post(delete_url),
+            f'href="{escape(detail_url)}">Cancel',
+            status_code=400,
+        )
+        self.assertRedirects(
+            self.client.post(delete_url, {"confirm": "on"}),
+            back,
+            fetch_redirect_response=False,
+        )
+
+    def test_person_return_survives_stale_edit_and_reassignment(self):
+        self.client.force_login(self.editor)
+        second_person = Person.objects.create(
+            case=self.case, first_name="New association"
+        )
+        filters = {"q": "Synthetic", "page": "2", "poi_page": "3"}
+        origin = {"from_person": self.person.pk} | filters
+        detail_url = reverse(
+            "geo:poi_detail", args=(self.case.pk, self.poi.pk), query=origin
+        )
+        edit_url = reverse(
+            "geo:poi_edit", args=(self.case.pk, self.poi.pk), query=origin
+        )
+        back = reverse(
+            "people:detail",
+            args=(self.case.pk, self.person.pk),
+            query=filters,
+            fragment="poi-list",
+        )
+        self.assertContains(
+            self.client.get(detail_url), f'href="{escape(edit_url)}">Edit POI'
+        )
+        payload = self.data(
+            revision=PointOfInterestForm.revision_for(self.poi),
+            person=second_person.pk,
+        )
+        self.poi.source = "Updated saved source"
+        self.poi.save()
+        stale = self.client.post(edit_url, payload)
+        self.assertContains(
+            stale, f'href="{escape(detail_url)}">Cancel', status_code=409
+        )
+        payload["revision"] = stale.context["form"]["revision"].value()
+        self.assertRedirects(
+            self.client.post(edit_url, payload),
+            detail_url,
+            fetch_redirect_response=False,
+        )
+        self.poi.refresh_from_db()
+        self.assertEqual(self.poi.person_id, second_person.pk)
+        detail = self.client.get(detail_url)
+        self.assertContains(detail, "New association")
+        self.assertContains(detail, f'href="{escape(back)}">Back to person')
+        delete_url = reverse(
+            "geo:poi_delete", args=(self.case.pk, self.poi.pk), query=origin
+        )
+        self.assertRedirects(
+            self.client.post(delete_url, {"confirm": "on"}),
+            back,
+            fetch_redirect_response=False,
+        )
+
+    def test_foreign_or_malformed_person_origin_cannot_become_a_return_link(self):
+        self.client.force_login(self.editor)
+        for origin in (self.other_person.pk, "https://example.test/", uuid4()):
+            with self.subTest(origin=origin):
+                response = self.client.get(
+                    self.poi_url("detail"),
+                    {"from_person": origin, "next": "https://example.test/"},
+                )
+                self.assertContains(
+                    response, f'href="{self.url_for_map()}#map-heading">Back to map'
+                )
+                self.assertNotContains(response, "Back to person")
+                self.assertNotContains(response, str(origin))
+                self.assertNotContains(response, "example.test")
 
     def test_outsiders_superusers_and_cross_case_ids_are_not_disclosed(self):
         for superuser in (False, True):

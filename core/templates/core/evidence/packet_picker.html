@@ -1,0 +1,50 @@
+{% extends "ui/base.html" %}
+{% block title %}Prepare evidence packet · {{ case.name }}{% endblock %}
+{% block content %}
+<div class="page-content">
+  <a class="back-link" href="{% url 'core:evidence:list' case.pk %}">Back to evidence</a>
+  <header class="page-header"><div><h1>Prepare evidence packet</h1><p>Choose up to {{ limit }} sources. You’ll decide what each exhibit discloses before downloading.</p></div></header>
+  {% if error %}<p class="error-summary" role="alert" tabindex="-1" data-error-summary>{{ error }}</p>{% endif %}
+  <section class="form-layout" aria-labelledby="selected-sources-heading">
+    <h2 id="selected-sources-heading">Selected sources ({{ selected_sources|length }})</h2>
+    {% if selected_sources %}
+    <form method="post">
+      {% csrf_token %}
+      <ol>
+        {% for source in selected_sources %}
+        <li><a class="record-link" href="{{ source.url }}">{{ source.title }}</a> · {{ source.label }} <button class="button button-secondary" type="submit" name="remove" value="{{ source.ref }}" aria-label="Remove {{ source.title }} from packet">Remove</button></li>
+        {% endfor %}
+      </ol>
+    </form>
+    <a class="button button-primary" href="{% url 'core:evidence:packet_review' case.pk %}?selection={{ selection|urlencode }}">Prepare exhibits</a>
+    {% else %}<p class="muted">Choose sources from the evidence below.</p>{% endif %}
+  </section>
+  <section class="form-layout" aria-labelledby="pick-sources-heading">
+    <h2 id="pick-sources-heading">Case evidence</h2>
+    <form method="get" role="search" aria-label="Find sources">
+      {% if selection %}<input type="hidden" name="selection" value="{{ selection }}">{% endif %}
+      <div class="field"><label for="packet-query">Search evidence</label><input id="packet-query" name="q" type="search" maxlength="200" value="{{ query }}"></div>
+      <div class="field"><label for="packet-type">Evidence type</label><select id="packet-type" name="type"><option value="">All types</option>{% for value,label in kind_choices %}<option value="{{ value }}"{% if selected_kind == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      <button class="button button-secondary" type="submit">Apply filters</button>
+    </form>
+    {% if rows %}
+      <form method="post">
+        {% csrf_token %}
+        <ul class="record-list">
+          {% for row in rows %}
+          <li class="record-row">{% if row.selected %}<span>{{ row.title }} · {{ row.label }} · Selected</span>{% else %}<div class="field-checkbox"><label><input type="checkbox" name="source" value="{{ row.ref }}"><span>{{ row.title }} · {{ row.label }}</span></label></div>{% endif %}</li>
+          {% endfor %}
+        </ul>
+        <button class="button button-secondary" type="submit">Add selected sources</button>
+      </form>
+      <nav aria-label="Evidence pages" class="actions">
+        {% if pagination.previous %}<a class="button button-secondary" href="{{ pagination.previous }}">Previous page</a>{% endif %}
+        <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if pagination.next %}<a class="button button-secondary" href="{{ pagination.next }}">Next page</a>{% endif %}
+      </nav>
+    {% else %}
+      <p>{% if query or selected_kind %}No active evidence matches your filters.{% else %}There’s no active evidence in this case.{% endif %}</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

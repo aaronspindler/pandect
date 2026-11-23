@@ -6,7 +6,7 @@
   <div class="page-header">
     <div><h1>Chronology</h1><p class="help-text">Explicit timestamps from retained evidence. Displayed in {{ display_timezone }}.</p></div>
     <nav class="actions" aria-label="Chronology views">
-      <a class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}?view=day">Daily timeline</a>
+      <a data-workspace-link class="button button-secondary" href="{% url 'core:evidence:chronology' case.pk %}?view=day">Daily timeline</a>
       <a class="button button-secondary" href="{% querystring view='unplaced' page=None category=None vehicle=None start=None end=None clock=None %}">Unplaced evidence and time claims</a>
       <a class="button button-secondary" href="{% querystring view='references' page=None category=None vehicle=None start=None end=None clock=None %}">Extracted date references</a>
     </nav>

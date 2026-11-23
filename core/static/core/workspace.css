@@ -43,10 +43,6 @@
   font-size:.875rem;
 }
 
-.evidence-match-link {
-  margin-inline-start:.625rem;
-}
-
 .evidence-search-row {
   display:flex;
   align-items:flex-start;
@@ -214,7 +210,150 @@
 }
 
 .workspace-page .evidence-records {
+  container:evidence-records / inline-size;
   padding:0 .75rem;
+}
+
+.evidence-table {
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  table-layout:fixed;
+  font-size:.875rem;
+  line-height:1.3;
+}
+
+.evidence-table :is(th,td) {
+  padding:.5rem .625rem;
+  border-block-end:1px solid var(--divider);
+  text-align:start;
+  vertical-align:middle;
+  overflow-wrap:anywhere;
+}
+
+.evidence-table th {
+  color:var(--secondary);
+  font-weight:600;
+}
+
+.evidence-table th:nth-child(2) { width:14%; }
+.evidence-table th:nth-child(3) { width:22%; }
+.evidence-table th:nth-child(4) { width:24%; }
+
+.evidence-table tbody tr {
+  position:relative;
+}
+
+.evidence-table tbody tr:hover {
+  background:var(--background);
+}
+
+.evidence-table tbody tr:has(.is-selected) {
+  background:var(--selected);
+}
+
+.evidence-table .evidence-table-title {
+  padding:0;
+}
+
+.evidence-table .evidence-row {
+  border:0;
+  background:transparent;
+}
+
+/* Stretch the actual record link over its row, below any separate match link. */
+.evidence-table .evidence-row::after {
+  position:absolute;
+  inset:0;
+  content:"";
+}
+
+.evidence-table .evidence-row:focus-visible {
+  outline-offset:-3px;
+}
+
+.evidence-table .is-selected .evidence-row-title {
+  text-decoration:underline;
+}
+
+.evidence-table .evidence-match-link {
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  min-height:44px;
+  margin-inline:2.875rem .625rem;
+}
+
+.evidence-table-label {
+  display:block;
+  color:var(--secondary);
+}
+
+.evidence-table time {
+  font-variant-numeric:tabular-nums;
+}
+
+@container evidence-records (width < 48rem) {
+  .evidence-table,
+  .evidence-table tbody {
+    display:block;
+  }
+
+  /* Preserve the column names for assistive technology in the stacked layout. */
+  .evidence-table thead {
+    position:absolute;
+    width:1px;
+    height:1px;
+    overflow:hidden;
+    clip-path:inset(50%);
+  }
+
+  .evidence-table tbody tr {
+    display:flex;
+    flex-wrap:wrap;
+    align-items:baseline;
+    gap:.125rem .75rem;
+    min-height:3.5rem;
+    padding:.375rem .625rem .375rem 2.875rem;
+    border-block-end:1px solid var(--divider);
+  }
+
+  .evidence-table td {
+    min-width:0;
+    padding:0;
+    border:0;
+  }
+
+  .evidence-table td:empty {
+    position:absolute;
+  }
+
+  .evidence-table .evidence-table-title {
+    width:100%;
+  }
+
+  .evidence-table .evidence-row {
+    min-height:0;
+    padding:0;
+  }
+
+  .evidence-table .evidence-type-icon {
+    position:absolute;
+    inset-block-start:.375rem;
+    inset-inline-start:.625rem;
+  }
+
+  .evidence-table .evidence-row:focus-visible {
+    outline-offset:2px;
+  }
+
+  .evidence-table .evidence-match-link {
+    margin-inline:0;
+  }
+
+  .evidence-table-label {
+    display:inline;
+  }
 }
 
 .workspace-page .evidence-reader {

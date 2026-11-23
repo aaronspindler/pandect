@@ -21,25 +21,25 @@
           <div>
             {% for statement in instance.summary.statements %}
               <p class="instance-summary">{{ statement.text }}</p>
-              <a class="record-link" href="{{ statement.url }}">View citations<span class="sr-only"> for summary statement {{ forloop.counter }}</span></a>
+              <a data-workspace-link class="record-link" href="{{ statement.url }}">View citations<span class="sr-only"> for summary statement {{ forloop.counter }}</span></a>
             {% endfor %}
           </div>
         </details>
         {% else %}
-          <a class="record-link" href="{% querystring page=page_obj.number full_summary=instance.id %}#instance-summary-{{ instance.id }}" aria-expanded="false">Full summary</a>
+          <a data-workspace-link class="record-link" href="{% querystring page=page_obj.number full_summary=instance.id %}#instance-summary-{{ instance.id }}" aria-expanded="false">Full summary</a>
         {% endif %}
       {% else %}<p class="instance-summary muted">No full summary available</p>{% endif %}
       <div class="instance-actions">
-        {% if instance.summary %}<a class="record-link" href="{{ instance.summary.report_url }}">View cited report</a>{% endif %}
+        {% if instance.summary %}<a data-workspace-link class="record-link" href="{{ instance.summary.report_url }}">View cited report</a>{% endif %}
         {% if instance.messages %}
-          <a class="record-link" href="{% querystring instance_query page=page_obj.number %}#instance-{{ instance.id }}" aria-expanded="true" aria-controls="instance-messages-{{ instance.id }}">Hide messages</a>
+          <a data-workspace-link class="record-link" href="{% querystring instance_query page=page_obj.number %}#instance-{{ instance.id }}" aria-expanded="true" aria-controls="instance-messages-{{ instance.id }}">Hide messages</a>
         {% else %}
-          <a class="record-link" href="{% querystring instance_query page=page_obj.number instance=instance.id %}#instance-{{ instance.id }}" aria-expanded="false">Show messages</a>
+          <a data-workspace-link class="record-link" href="{% querystring instance_query page=page_obj.number instance=instance.id %}#instance-{{ instance.id }}" aria-expanded="false">Show messages</a>
         {% endif %}
         {% if instance.summary_missing and can_edit %}
           <a class="record-link" href="{% url 'phone:instance_summary' case.pk first_person.pk second_person.pk instance.id %}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">Request summary</a>
         {% endif %}
-        <a class="record-link" href="{{ instance.url }}">Grouping details{% if instance.partial %} · Partial coverage{% endif %}</a>
+        <a data-workspace-link class="record-link" href="{{ instance.url }}">Grouping details{% if instance.partial %} · Partial coverage{% endif %}</a>
       </div>
       {% if instance.messages %}
       <div class="instance-originals" id="instance-messages-{{ instance.id }}" data-conversation-scroll data-scroll-label="messages" data-page-param="message_page">
@@ -49,7 +49,7 @@
           <li id="instance-message-{{ instance.id }}-{{ message.pk }}" tabindex="-1">
             <div class="instance-message-meta"{% if instance.day_message == message.pk %} id="conversation-day-result" tabindex="-1"{% endif %}><strong>{{ message.sender }}</strong> · {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}{% if message.is_archived %} · Archived{% endif %}</div>
             <div class="conversation-message-body">{{ message.body }}</div>
-            <div class="instance-message-meta">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %} · <a href="{{ message.transcript_url }}">Message details</a></div>
+            <div class="instance-message-meta">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %} · <a data-workspace-link href="{{ message.transcript_url }}">Message details</a></div>
           </li>
           {% endfor %}
         </ol>
@@ -68,7 +68,7 @@
   <p>Inferred sessions group messages by reported participants and times.</p>
   <div class="actions">
     {% if can_edit %}<a class="button button-primary" href="{% url 'phone:group_conversation' case.pk first_person.pk second_person.pk %}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">Group this conversation</a>{% endif %}
-    <a class="button button-secondary" href="{{ request.path }}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">View messages</a>
+    <a data-workspace-link class="button button-secondary" href="{{ request.path }}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">View messages</a>
   </div>
 </section>
 {% endif %}

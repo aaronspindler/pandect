@@ -41,7 +41,7 @@ EMBEDDING = {
 UNIT = [1.0] + [0.0] * 383
 
 
-def vectors(texts, authorize):
+def vectors(texts, authorize, **kwargs):
     authorize()
     return [UNIT for _ in texts]
 
@@ -158,7 +158,7 @@ class SemanticSearchTests(EvidenceViewTestMixin, TestCase):
         self.source("The meeting moved.")
         self.finish()
 
-        def revoke(texts, authorize):
+        def revoke(texts, authorize, **kwargs):
             CaseMembership.objects.filter(
                 case=self.case, user=self.users["viewer"]
             ).delete()

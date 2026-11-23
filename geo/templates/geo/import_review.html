@@ -8,7 +8,7 @@
 {% endpartialdef %}
 {% partialdef live inline %}
 {% get_current_timezone as current_timezone %}
-<div class="page-content" id="vehicle-import" data-live-region data-live-poll="{% if batch.status == 'queued' or batch.status == 'running' %}true{% else %}false{% endif %}">
+<div class="page-content" id="vehicle-import" data-live-region data-live-poll="{% if batch.status == 'queued' or batch.status == 'running' %}true{% else %}false{% endif %}"{% if batch.completed_at %} data-live-outcome="Vehicle locations imported"{% elif batch.status == 'failed' or batch.status == 'review' and batch.error_code %} data-live-outcome="Vehicle location import needs attention"{% elif batch.status == 'review' %} data-live-outcome="Vehicle location review ready"{% endif %}>
   <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
   <header class="page-header"><div><h1>{% if batch.completed_at %}Vehicle locations imported{% else %}Import vehicle locations{% endif %}</h1></div></header>
   {% if batch.completed_at %}

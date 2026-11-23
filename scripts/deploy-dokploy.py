@@ -1,4 +1,4 @@
-"""Deploy one tested GHCR image to Dokploy's separate web and worker applications."""
+"""Deploy one tested GHCR image to Dokploy's worker, events, and web applications."""
 
 import json
 import os
@@ -386,7 +386,7 @@ def current_task(application, image):
     return task_id
 
 
-def wait_ready(application_id, image, sha, title, previous_ids, started_at, worker):
+def wait_ready(application_id, image, sha, title, previous_ids, started_at, service):
     deadline = time.monotonic() + 12 * 60
     stable_task = None
     stable_since = None
@@ -411,7 +411,7 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, work
             application = dokploy("application.one", applicationId=application_id)
             task = current_task(application, image)
         ready = False
-        if task and worker:
+        if task and service == "worker":
             waiting_for = "the worker startup marker for the expected commit"
             logs = dokploy(
                 "application.readLogs",
@@ -433,9 +433,10 @@ def wait_ready(application_id, image, sha, title, previous_ids, started_at, work
                 for line in logs.splitlines()
             )
         elif task:
-            waiting_for = "public web health on the expected commit"
+            waiting_for = f"public {service} health on the expected commit"
+            path = "/events/health/" if service == "events" else "/health/"
             try:
-                health = api("https://openpandect.com/health/")
+                health = api(f"https://openpandect.com{path}")
             except DeploymentError:
                 health = {}
             ready = (
@@ -475,10 +476,10 @@ def deploy(application_id, image, sha, service):
         {
             "applicationId": application_id,
             "replicas": 1,
-            "command": "sh" if service == "worker" else None,
-            "args": ["/app/scripts/docker-entrypoint-worker.sh"]
-            if service == "worker"
-            else None,
+            "command": None if service == "web" else "sh",
+            "args": None
+            if service == "web"
+            else [f"/app/scripts/docker-entrypoint-{service}.sh"],
             "updateConfigSwarm": {
                 "Parallelism": 1,
                 "Order": "stop-first" if service == "worker" else "start-first",
@@ -508,7 +509,7 @@ def deploy(application_id, image, sha, service):
         title,
         {item["deploymentId"] for item in previous},
         started_at,
-        service == "worker",
+        service,
     )
     print(f"Verified {service} running {version} ({sha}) from {image}.")
 
@@ -525,7 +526,7 @@ def main():
     if os.environ.get("PANDECT_PRODUCTION_DATABASE_BASELINE") != "domain-apps-v1":
         raise DeploymentError(
             "Production requires a fresh PostgreSQL database and empty queue for "
-            "the domain-app migration baseline. Configure both Dokploy applications "
+            "the domain-app migration baseline. Configure the Dokploy applications "
             "for it, then set the GitHub production environment variable "
             "PANDECT_PRODUCTION_DATABASE_BASELINE=domain-apps-v1. "
             "See docs/operations.md."
@@ -543,12 +544,14 @@ def main():
             "Image must identify this repository by immutable digest."
         )
     services = []
-    for service in ("worker", "web"):
+    for service in ("worker", "events", "web"):
         services.append(
             (required(f"DOKPLOY_{service.upper()}_APPLICATION_ID"), service)
         )
-    if services[0][0] == services[1][0]:
-        raise DeploymentError("Web and worker must use separate Dokploy applications.")
+    if len({app_id for app_id, _ in services}) != len(services):
+        raise DeploymentError(
+            "Worker, events, and web must use separate Dokploy applications."
+        )
     deployment_id = create_rollout(sha, image)
     mark_rollout(deployment_id, "in_progress")
     try:
@@ -566,7 +569,7 @@ def main():
             print("Could not mark the failed rollout; it remains unverified.")
         raise
     # If this status write fails, leave the marker unverified and block release
-    # publication even though both services may already be running the image.
+    # publication even though all services may already be running the image.
     mark_rollout(deployment_id, "success")
     with open(output_path, "a", encoding="utf-8") as output:
         output.write("deployed=true\n")

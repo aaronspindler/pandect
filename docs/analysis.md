@@ -5,18 +5,20 @@ This guide owns analysis behavior, retained results and configuration; the
 owns navigation. Newly added evidence queues applicable analysis automatically. Owners/editors
 start and cancel work. Viewers inspect originals and results. Case permissions apply to workers, search, downloads and playback.
 
-Case highlights inspect 40 recent eligible published runs, keep the latest result
-per operation/source or attachment, and show 12 findings at most. Source validation
-excludes archived or unavailable sources, weak OCR, and timing-only
-findings. **Browse all findings** provides access to saved findings; Processing
-retains the full results and run history.
+Under **Case Tools → Latest records**, findings are dated by when their
+result was saved. The preview selects up to three findings from the 40 most
+recently created eligible runs with published results. It keeps the latest
+result per operation and source or attachment, and excludes archived or
+unavailable sources, weak OCR, and timing-only findings. Open
+**Findings** for the catalogue or **Processing** for full results and run history.
 Vehicle trips share saved complete histories with Map/vehicle pages, including
 existing imports after preparation.
 
 **Browse all findings** searches retained labels, text and measurements, with 25
 findings per page and filters for method, evidence type, specific evidence, and person.
 The evidence reader applies the exact-source filter directly. Archived
-sources and weak plate regions remain labelled.
+sources and weak plate regions remain labelled. An empty catalogue links to
+Processing. An empty search or filter selection offers to show all findings.
 
 Message timing reports, writing profile measurements and comparison intervals,
 keyword and topic reports, and AI session summaries are available under
@@ -80,17 +82,10 @@ Where timing-only rows are available, **Show all findings** reveals them and
 preserves other filters. Exact result links reveal their target at its saved
 index. Candidate links require investigator review.
 
-Conversation readers show single-message findings in **Message details** and
-session and multiple-source findings under **Conversation findings**. Saved
-inferred sessions also supply the transcript colours and boundary markers.
-They use the same latest-result and current-source checks as the catalogue,
-matching individual finding citations to the reported participant pair.
-The **Instances** tab shows a short excerpt from saved reports with verified
-coverage of a complete grouping. **Full summary** reveals all saved statements
-for that instance inline. Owners and editors can request missing
-summaries for a specific instance. Mixed-method runs retain per-finding **AI
-suggestion** labels. Finding pagination is independent of message pagination;
-the reader starts no work. See [conversation reading](evidence.md#reading-conversations).
+[Conversation findings](evidence.md#reading-conversations) use the same
+latest-result and current-source checks as the catalogue. Exact citations match
+findings to the reported participant pair. Mixed-method runs retain per-finding
+**AI suggestion** labels. See the [grouping and summary rules](analysis-communications.md#conversation-sessions-and-interaction).
 
 By default, the newest requested successful equivalent run supersedes earlier
 findings before search filters. Equivalence includes method/version,
@@ -106,12 +101,12 @@ short preview, a source link and relevant qualifiers. Inferred session rows show
 reported participants, message count and observed times. Bounded **Matching search
 details** retain the exact matching text when it differs from the preview.
 **Back to findings** restores the search, filters and page from the findings list.
+**Mark important** on an individual finding saves a reference to that exact
+retained result, with shared investigator notes in [Important](cases.md#important-items).
 
-AI findings display explicit reported-sender/recipient UUID references using the
-names of participants in their cited communications. Source quotations and
-downloaded retained results stay exact. Model requests keep participant IDs;
-resolving display names adds no personal details to AI payloads. Reported
-associations do not verify identity.
+AI findings display reported participant names for UUID references in their cited
+communications. Pandect resolves those names for display. Source quotations and
+downloaded results stay exact. See [what text analysis sends](analysis-communications.md#supported-text-operations).
 
 Finding headings and report participant filters use readable names. Session thread
 references pair the export title with the exact native thread ID. Processing
@@ -222,7 +217,7 @@ the text limits and citation rules. Source/access changes and runtime/model
 identity drift still stop the run. Pending version 1 fails with
 `processing_version_unavailable`; start a new run. Earlier results are retained.
 
-Single/bulk investigator uploads queue applicable native text extraction, image
+Single/bulk investigator uploads queue applicable document text extraction, image
 metadata, printed-English OCR, plate search, audio metadata, available-text
 identifiers/dates/keywords and location quality/address normalization. New call
 transcripts/recordings process independently. Extraction follow-ups bind that exact
@@ -290,8 +285,8 @@ configuration; execution checks live connectivity and identity.
 [chronology](chronology.md) shows reported times, acquisitions and separately cited unplaced claims;
 [previews](original-previews.md) provide private PDF/text reading and WAV/M4A playback.
 
-**Additional analysis** selects task, exact retained sources and context for
-comparisons, lookup, model work or conversation imports. From an evidence record,
+Open **Case Tools → Analysis methods** to choose a task and select the retained
+sources and context for a comparison, lookup, or model check. From an evidence record,
 choose a compatible recording or retained extraction when the method requires one.
 The picker shows 25 sources per page,
 including retained extraction versions/call additions. Cursor navigation avoids
@@ -374,7 +369,7 @@ citations are retained.
 - Location schematics distinguish reported positions, selected estimates and
   candidates; measurements/map references link to sources.
 
-Runs show 50 findings at most; derived inputs link extraction and original.
+Runs show 50 findings per page. Derived inputs link to the extraction and original.
 Owners and editors can select or clear an address estimate from its finding. Saved
 finding review reasons remain in the database for retention.
 
@@ -396,11 +391,12 @@ current case approval for the configured route. Confirm a crashed worker
 stopped before cancellation/recovery; it may already have sent requests. Cancelled
 output remains withheld. New runs/queue inserts commit or roll back together.
 
-Originals/supplied metadata, extracted observations, suggestions and investigator
-conclusions stay distinct. Using an estimate does not verify a location. Spatial
-inputs require a selected geocode candidate. Downstream runs pin that selection.
-Clearing it blocks new processing with the estimate and preserves historical
-results.
+Originals and supplied metadata, extracted observations, suggestions, and
+investigator conclusions stay distinct. Spatial methods can use reported
+coordinates directly. To use a derived address estimate, select a geocode
+candidate. Downstream runs pin that selection. Clearing it blocks new processing
+with the estimate and preserves historical results. An estimate does not verify
+a location.
 
 ## Supported operation guides
 
@@ -512,9 +508,11 @@ header. These bounds allow room for reasoning alongside the cited JSON output;
 they are ceilings, not guaranteed usage or completion times. Reasoning tokens
 are billed as output. See [OpenAI reasoning budgets](https://developers.openai.com/api/docs/guides/reasoning)
 and [Cloudflare request timeouts](https://developers.cloudflare.com/ai-gateway/configuration/request-handling/).
-Requests use `store=false` and JSON-object output. Existing source-quotation and
-domain validation still apply. Refused, incomplete, malformed, or unsupported
-output publishes no result.
+Requests use `store=false` and JSON-object output. Pandect applies source-quotation
+and domain validation before accepting suggestions. Refused, incomplete,
+malformed, or unsupported replies cannot supply suggestions. Some methods can
+still publish independently calculated results, such as topic keywords, with
+[partial coverage](#retained-processing).
 An explicitly pinned GPT model must support these Responses API parameters.
 Model availability/access and analysis
 quality require live qualification. See [OpenAI JSON output](https://developers.openai.com/api/docs/guides/structured-outputs).

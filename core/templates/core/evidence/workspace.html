@@ -13,8 +13,14 @@
     <div class="evidence-list-toolbar">
       <div class="evidence-list-heading">
         {% if item %}<h2>Evidence</h2>{% else %}<h1>Evidence</h1>{% endif %}
-        {% if can_edit %}<div class="evidence-create-actions"><a class="button button-primary" href="{% url 'core:evidence:create' case_id=case.pk %}">Add<span class="visually-hidden"> evidence</span></a></div>{% endif %}
+        {% if can_edit and not item %}<a class="record-link" href="{% url 'core:evidence:packet' case.pk %}">Prepare evidence packet</a>{% endif %}
+        {% if can_edit %}<a class="button button-primary" href="{% url 'core:evidence:create' case_id=case.pk %}">Add evidence</a>{% endif %}
       </div>
+      {% if evidence_summary %}
+        {% partialdef summary inline %}
+        {% include 'ui/case_summary.html' with summary_heading=evidence_summary_heading summary_id='evidence-summary' summary_items=evidence_summary collection_summary=True only %}
+        {% endpartialdef %}
+      {% endif %}
       {% if checksum %}<p class="muted">Matching original checksum. <a href="{% url 'core:evidence:list' case.pk %}">Show all evidence</a></p>{% endif %}
       <form data-collection-form method="get" action="{% url 'core:evidence:list' case_id=case.pk %}" class="evidence-search" role="search" aria-label="Evidence list filter">
         {% if selected_kind == 'image' and request.GET.view == 'gallery' %}<input type="hidden" name="view" value="gallery">{% endif %}
@@ -42,17 +48,29 @@
         </div>
       </form>
     </div>
-    {% partialdef collection inline %}
+    {% partialdef records inline %}
     <div data-collection-kind="evidence" data-collection-count="{{ page_obj.paginator.count }}" id="evidence-records" class="evidence-records" tabindex="0" role="region" aria-label="Evidence records">
-      {% for row in rows %}
-      {% include 'core/evidence/row.html' %}
-      {% empty %}
+      {% if rows %}
+      <table class="evidence-table" role="table" aria-label="Evidence">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th scope="col" role="columnheader">Evidence</th>
+            <th scope="col" role="columnheader">Type</th>
+            <th scope="col" role="columnheader">Details</th>
+            <th scope="col" role="columnheader">Date and time</th>
+          </tr>
+        </thead>
+        <tbody role="rowgroup">
+          {% for row in rows %}{% include 'core/evidence/table_row.html' %}{% endfor %}
+        </tbody>
+      </table>
+      {% else %}
       <div class="empty-state compact-empty">
         {% if query or selected_kind or selected_person %}<h2>No matching evidence</h2><p>Try another search or clear your filters.</p><a href="{% url 'core:evidence:list' case_id=case.pk %}">Clear filters</a>
         {% elif state == 'archived' %}<h2>No archived evidence</h2><p>Archived evidence remains available to current case members.</p>
         {% else %}<h2>No evidence yet</h2>{% if can_edit %}<p>Add files, text, communications, or locations. Supported checks run automatically.</p>{% else %}<p>An owner or editor can add evidence to this case.</p>{% endif %}{% endif %}
       </div>
-      {% endfor %}
+      {% endif %}
     </div>
     <nav data-collection-pagination class="evidence-pagination" aria-label="Evidence pages">
       {% if pagination.previous %}<a class="button button-secondary icon-button" href="{{ pagination.previous }}" aria-label="Previous page" data-tooltip="Previous page" title="Previous page">{% include 'ui/components/icon.html' with name='chevron-left' %}</a>{% else %}<span class="pagination-placeholder"></span>{% endif %}
@@ -64,10 +82,10 @@
   {% if item %}
   <section class="evidence-reader" id="evidence-reader" tabindex="0" aria-label="Selected evidence">
     <div class="evidence-content">
-    {% if selected_kind == 'image' and request.GET.view == 'gallery' %}<a data-collection-context class="record-link" href="{{ list_url }}#image-{{ item.pk }}">Back to images</a>{% else %}<a data-collection-context class="back-link" href="{{ list_url }}">Back to evidence</a>{% endif %}
+    {% if important_back_url %}<a class="record-link" href="{{ important_back_url }}">Back to Important</a>{% elif selected_kind == 'image' and request.GET.view == 'gallery' %}<a data-collection-context class="record-link" href="{{ list_url }}#image-{{ item.pk }}">Back to images</a>{% else %}<a data-collection-context class="back-link" href="{{ list_url }}">Back to evidence</a>{% endif %}
     <header class="evidence-reader-header">
-      <div><h1>{{ display_title|default:item.title }}</h1><p class="evidence-meta">{{ kind_label }}{% if item.source %} · {{ item.source }}{% endif %}{% if item.collected_at %} · Collected {{ item.collected_at|date:"d M Y" }}{% endif %}{% if item.is_archived %} · Archived{% endif %}</p></div>
-      <div class="actions">
+      {% partialdef record_heading inline %}<div id="evidence-record-title" data-record-part data-record-title="{{ item.title }}"><h1>{{ display_title|default:item.title }}</h1><p class="evidence-meta">{{ kind_label }}{% if item.source %} · {{ item.source }}{% endif %}{% if item.collected_at %} · Collected {{ item.collected_at|date:"d M Y" }}{% endif %}{% if item.is_archived %} · Archived{% endif %}</p></div>
+      {% endpartialdef %}<div class="actions">
         <a class="button button-secondary" href="{% url 'core:evidence:download' case_id=case.pk kind=kind evidence_id=item.pk %}">{% include 'ui/components/icon.html' with name='download' %} Download original</a>
         {% include 'core/evidence/info.html' %}
         {% if can_edit or can_delete_evidence %}{% include 'core/evidence/more.html' %}{% endif %}
@@ -75,13 +93,14 @@
     </header>
     <nav class="evidence-task-actions actions" aria-label="Evidence actions">
       {% partialdef findings_link inline %}<span id="evidence-findings-link" data-live-region data-live-poll="false"><a class="record-link" href="#evidence-findings-heading">Findings ({{ findings_page.paginator.count }})</a></span>{% endpartialdef %}
+      {% include 'core/important/reader_actions.html' with important_status_only=True %}
       {% if can_edit %}
-      <a data-collection-context class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
+      <a data-quick-form="Edit evidence details" data-collection-context class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
       <details class="evidence-analyze" data-disclosure>
         <summary class="button button-secondary">Analyze evidence</summary>
         <div class="evidence-more-panel evidence-analysis-panel">
-          {% for key,spec in additional_operations %}<a class="record-link" href="{% url 'core:analysis:external_evidence' case.pk kind item.pk %}?operation={{ key }}">{{ spec.label }}</a>{% endfor %}
-          <a class="record-link" href="{% url 'core:analysis:create' case.pk %}?source={{ kind|urlencode }}:{{ item.pk }}">Choose analysis</a>
+          {% for key,spec in additional_operations %}<a class="record-link" data-collection-context="return_collection" href="{% url 'core:analysis:external_evidence' case.pk kind item.pk %}?operation={{ key }}{% if list_suffix %}&amp;return_collection={{ list_suffix|slice:'1:'|urlencode }}{% endif %}">{{ spec.label }}</a>{% endfor %}
+          <a class="record-link" data-collection-context="return_collection" href="{% url 'core:analysis:create' case.pk %}?source={{ kind|urlencode }}:{{ item.pk }}{% if list_suffix %}&amp;return_collection={{ list_suffix|slice:'1:'|urlencode }}{% endif %}">Choose analysis</a>
         </div>
       </details>
       {% endif %}
@@ -98,8 +117,18 @@
 </div>
 {% endblock %}
 
+{% partialdef collection %}
+{% if evidence_summary %}{% partial summary %}{% endif %}
+{% partial records %}
+{% endpartialdef %}
+
 {% partialdef live %}
 {% partial findings_link %}
 {% include 'core/analysis/evidence.html' with evidence=item %}
 {% include 'core/evidence/more.html#checks' %}
+{% endpartialdef %}
+
+{% partialdef record %}
+<title>{{ display_title|default:item.title }} · {{ case.name }} · Pandect</title>
+{% partial record_heading %}{% include "core/evidence/info.html#editable_metadata" %}
 {% endpartialdef %}

@@ -13,7 +13,7 @@
         {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'H:i:s T' }}</time>{% else %}<span>Time not recorded</span>{% endif %}
         {% if message.is_archived %}<span class="conversation-archived">Archived</span>{% endif %}
         <span class="conversation-selected-label">Selected</span>
-        <a class="conversation-select" data-message-select data-tooltip="Message details" title="Message details" href="{% querystring transcript_query message=message.pk page=None analysis_page=message.analysis.page_obj.number|default:None %}#message-{{ message.pk }}"{% if selected_message.pk == message.pk %} aria-current="true"{% endif %}>
+        <a data-workspace-link class="conversation-select" data-message-select data-tooltip="Message details" title="Message details" href="{% querystring transcript_query message=message.pk page=None analysis_page=message.analysis.page_obj.number|default:None %}#message-{{ message.pk }}"{% if selected_message.pk == message.pk %} aria-current="true"{% endif %}>
           <span class="sr-only">Message details for {{ message.sender }}{% if message.occurred_at %}, {{ message.occurred_at|date:'j M Y, H:i:s T' }}{% else %}, {{ message.title }}{% endif %}</span>
           {% include 'ui/components/icon.html' with name='chevron-right' %}
         </a>

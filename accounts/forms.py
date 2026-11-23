@@ -1,8 +1,20 @@
 from zoneinfo import available_timezones
 
+from allauth.account.forms import LoginForm
 from django import forms
 
 from .models import User
+
+
+class PandectLoginForm(LoginForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        login = self.fields["login"]
+        login.label = "Username or email"
+        login.widget.attrs.pop("placeholder", None)
+        login.widget.attrs["autocomplete"] = "username"
+        if "remember" in self.fields:
+            self.fields["remember"].label = "Keep me signed in"
 
 
 class TimezoneForm(forms.ModelForm):

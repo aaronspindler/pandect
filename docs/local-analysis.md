@@ -25,12 +25,9 @@ whisper.cpp **v1.9.5** at `d1be6fde11ac6e0407606b4e42fe72d34add8037`.
 Model licenses are separate from runtime licenses; retain upstream
 metadata/notices with provisioned artifacts.
 
-Recording preparation supports signed 16-bit PCM WAV and single-stream AAC M4A
-without video, mono/stereo at 8–48 kHz, up to 30 minutes. Both original bytes and
-decoded signed 16-bit PCM are limited to 16 MiB. M4A decoding uses pinned PyAV
-19.0.2 and its wheel's bundled FFmpeg libraries inside the isolated local parser;
-no separate decoder executable is needed. Originals and their checksums remain
-unchanged. See [recording previews](original-previews.md#recordings).
+Recording preparation uses the [shared recording profile](original-previews.md#recordings).
+The parser produces the PCM used for transcription chunks while retaining the
+original recording and its checksum.
 
 ## Use Ollama for local text analysis
 
@@ -123,38 +120,51 @@ Pandect's other services. Qualify with synthetic/sanitized text using the existi
 `evaluate_local_analysis` command below. Successful execution does not establish
 investigation accuracy.
 
-## Private case-search embeddings
+## Case-search embeddings
 
-Meaning search uses an independently pinned English embedding model on the
-operator's Ollama service. Provision `ollama pull all-minilm:22m` on that
-service and inspect `/api/version` and the model's local manifest digest in
-`/api/tags`. Set these in the web and worker environments:
+Set `PANDECT_SEARCH_EMBEDDING_PROVIDER` in both web and worker environments.
+The selection applies only to meaning search. Keyword search stays available
+with every setting, including `disabled`.
+
+| Provider | What to configure |
+| --- | --- |
+| `local` (default) | An operator-controlled Ollama service with the four pins below. |
+| `openai-gateway` | `PANDECT_AI_ACCOUNT_ID`, `PANDECT_AI_GATEWAY_ID`, `PANDECT_AI_GATEWAY_TOKEN` and `PANDECT_AI_OPENAI_KEY_ALIAS`. Store the OpenAI key behind that alias in Cloudflare AI Gateway. |
+| `disabled` | Turn off meaning search and its indexing jobs. |
+
+With `openai-gateway`, Pandect requests 1,536 dimensions from OpenAI
+`text-embedding-3-large` through the configured Cloudflare gateway. Vectors stay
+in the case database. An owner selects **Approve and start** under **Meaning
+search** in Case settings to approve indexing of eligible active, archived and
+future sources and explicit query submissions. Changing the approved
+destination or model profile requires a fresh approval. The gateway request
+disables Cloudflare payload logging and cache reuse. Configure the provider's
+retention separately. Each outbound attempt records its case, operation, model,
+byte counts, status and provider-reported input tokens when available.
+
+Both profiles use up to 32 verbatim passages per request, each at most 246 UTF-8
+bytes. A passage retains its source, offset and text fingerprint. Only complete
+documents from the selected profile are searchable. Investigators can request
+up to six additional related passages from the first keyword results page.
+The hosted profile uses a minimum cosine similarity of 0.4884. Returned
+passages can be unrelated even above the cutoff. Inspect the linked source.
+
+### Private case-search embeddings
+
+Set the following for the optional 384-dimensional local profile. Provision
+`ollama pull all-minilm:22m` on the private service and inspect `/api/version`
+and the installed model's manifest digest in `/api/tags`.
 
 | Setting | Value |
 | --- | --- |
-| `PANDECT_LOCAL_EMBEDDING_URL` | Private Ollama origin as reached by the application, e.g. `http://host.docker.internal:11434` in Docker Desktop. |
+| `PANDECT_LOCAL_EMBEDDING_URL` | Private Ollama origin reachable by the application, e.g. `http://host.docker.internal:11434` in Docker Desktop. |
 | `PANDECT_LOCAL_EMBEDDING_MODEL` | `all-minilm:22m` |
 | `PANDECT_LOCAL_EMBEDDING_SHA256` | Full 64-character installed manifest digest. |
 | `PANDECT_LOCAL_EMBEDDING_RUNTIME` | `ollama@<exact reviewed version>` |
 
-The client requests the digest-addressed local model and validates the response.
-Query text and source passages go only to this configured private endpoint.
-Keyword results return independently. Choose **Search by meaning** from the
-first page of eligible results to request related passages.
-See [case search](interface-design.md) for
-source coverage. Each chunk retains its source, offset and text fingerprint.
-Each case index records the embedding model, manifest digest, runtime, and
-chunking version. The worker embeds up to 32 passages of 246 UTF-8 bytes per
-request, with truncation disabled. A document becomes searchable after its last
-chunk commits. Changing the pins queues a rebuild under the new profile.
-
-Compose and the Dokploy worker enqueue missing case indexes after migrations.
-For a host-run worker, run `python manage.py prepare_case_search` with the
-same environment when enabling or changing the model. Processing shows
-case-specific progress and retry. Fix the reported runtime or access issue, then
-retry from Processing or run `python manage.py prepare_case_search --retry`.
-Workers resume from their last committed chunk. A previous delivery cannot
-publish after its replacement takes over.
+The client validates the digest-addressed local model and its runtime. See
+[index recovery](background-tasks.md#meaning-search-indexing) and the
+[upgrade procedure](operations.md#switch-the-meaning-search-provider).
 
 ## Start optional CPU transcription
 
@@ -375,12 +385,14 @@ uv run --locked --env-file .env python manage.py evaluate_local_analysis --audio
 uv run --locked --env-file .env python manage.py evaluate_local_analysis --method transcription --audio /absolute/synthetic.wav > /tmp/local-transcription.json
 ```
 
-The command runs listed text methods through real local adapters/citation validators
-on fixed synthetic messages. It writes no database records, calls no external
-AI service and exits nonzero on any selected failure. Optional audio exercises
-PCM parsing and chunk/timeline handling. JSON records expected distinctions,
-validated output, usage and elapsed time without assigning a quality grade.
-Keep audio/output private.
+The command runs text methods through local adapters and citation validators
+using fixed synthetic messages. It writes no database records and calls no external
+AI service. Optional audio exercises PCM parsing and chunk/timeline handling. It
+exits nonzero if a method has status `failed`. A returned result can have status
+`completed` with a partial outcome, such as retained keywords after model failure.
+Check each method's `output.outcome`, warnings, and suggestions against the
+expected distinctions. The JSON also records usage and elapsed time. Keep audio
+and output private.
 
 1. Exercise each configured private and case-approved external path;
    control basemap egress too.

@@ -1,0 +1,30 @@
+{% extends 'marketing/investigation_detail.html' %}
+{% block breadcrumb_title %}Open-source investigations (OSINT){% endblock %}
+{% block investigation_heading %}Open-source investigations <em>(OSINT)</em>{% endblock %}
+{% block investigation_answer %}Pandect gives open-source intelligence investigators a private workspace for public documents, images, and text they have collected. Keep each source’s URL and collection time, search extracted text, and review where the same identifier appears.{% endblock %}
+{% block evidence_filter %}?type=documents{% endblock %}
+{% block evidence_link_label %}See document and text formats{% endblock %}
+{% block source_guide %}
+  <a class="text-link" href="https://github.com/aaronspindler/pandect/blob/main/docs/evidence.md#investigator-workflow">Read the evidence intake guide <span aria-hidden="true">↗</span></a>
+{% endblock %}
+{% block example_title %}A repeated domain{% endblock %}
+{% block example_sources %}
+  <li><strong>Public permit notice</strong><span>Page 2 mentions northyard.example.com</span></li>
+  <li><strong>Contractor bulletin</strong><span>Contact section mentions northyard.example.com</span></li>
+{% endblock %}
+{% block example_interpretation %}The same domain appears in both documents. Check each passage in context. Who controls the domain and whether the mentions are independent remain open questions.{% endblock %}
+{% block workflow_heading %}How to review collected public sources{% endblock %}
+{% block workflow_steps %}
+  <article>
+    <h3>Record where material came from</h3>
+    <p>Add copies you collected to the case. Enter a source name, URL, and collection time when available so collaborators can trace each item.</p>
+  </article>
+  <article>
+    <h3>Search text in the case</h3>
+    <p>Search retained text and extracted passages from supported files. Follow each match to the material that supplied it.</p>
+  </article>
+  <article>
+    <h3>Review repeated identifiers</h3>
+    <p>Inspect the originals behind repeated candidate strings such as supported domains, URLs, or email addresses. Look for independent evidence before drawing a conclusion about a connection.</p>
+  </article>
+{% endblock %}

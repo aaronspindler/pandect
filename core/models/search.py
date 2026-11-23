@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import models
+from django.db.models.lookups import In
 from pgvector.django import VectorField
 
 
@@ -99,13 +100,26 @@ class SearchPassage(models.Model):
     start = models.PositiveIntegerField()
     length = models.PositiveSmallIntegerField()
     digest = models.CharField(max_length=64)
-    embedding = VectorField(dimensions=384)
+    profile = models.CharField(max_length=64)
+    embedding = VectorField()
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["document", "start"], name="case_search_offset"
-            )
+                fields=["document", "profile", "start"],
+                name="case_search_profile_offset",
+            ),
+            models.CheckConstraint(
+                condition=In(
+                    models.Func(
+                        "embedding",
+                        function="vector_dims",
+                        output_field=models.IntegerField(),
+                    ),
+                    (384, 1536),
+                ),
+                name="case_search_embedding_dimensions",
+            ),
         ]
 
     def __str__(self):

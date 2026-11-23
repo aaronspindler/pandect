@@ -2,7 +2,6 @@
 
 from django.core.paginator import Paginator
 from django.db.models import Case, CharField, Q, Value, When
-from django.db.models.functions import Substr
 from django.urls import reverse
 
 from core.analysis.search import derived_content_condition, derived_text_matches
@@ -16,8 +15,9 @@ from core.evidence.types import (
     KINDS,
     LOCATION_KINDS,
 )
+from core.evidence.workspace_rows import attach_workspace_rows
 from people.models import Person
-from phone.presentation import message_evidence_label
+from phone.presentation import message_labels
 
 
 def person_attribution(kind, person):
@@ -35,7 +35,7 @@ def person_attribution(kind, person):
     )
 
 
-def collection_context(case, params):
+def collection_context(case, params, *, workspace_rows=False):
     query = params.get("q", "")[:200].strip()
     checksum = params.get("checksum", "")[:64]
     selected_kind = params.get("type", "")
@@ -117,30 +117,18 @@ def collection_context(case, params):
         queries[0].union(*queries[1:], all=True).order_by("-created_at", "kind", "id")
     )
     page = Paginator(combined, 25).get_page(params.get("page"))
-    page_rows = list(page.object_list)
-    message_ids = [row["id"] for row in page_rows if row["kind"] == "text-message"]
-    message_labels = {
-        message.pk: message_evidence_label(
-            message.label_body, message.sender, message.occurred_at
-        )
-        for message in scoped_evidence(case, "text-message")
-        .filter(pk__in=message_ids)
-        .select_related("sender")
-        .only(
-            "occurred_at",
-            "sender__first_name",
-            "sender__last_name",
-            "sender__email",
-            "sender__phone_number",
-        )
-        .annotate(label_body=Substr("body", 1, 81))
-    }
+    rows = list(page.object_list)
+    if workspace_rows:
+        attach_workspace_rows(case, rows)
+    else:
+        message_ids = [row["id"] for row in rows if row["kind"] == "text-message"]
+        message_titles = message_labels(case, message_ids)
+        for row in rows:
+            if row["kind"] == "text-message":
+                row["title"] = message_titles.get(row["id"], row["title"])
     params = collection_params(params)
     suffix = "?" + params.urlencode() if params else ""
-    rows = []
-    for row in page_rows:
-        if row["kind"] == "text-message":
-            row["title"] = message_labels.get(row["id"], row["title"])
+    for row in rows:
         row["label"] = KIND_LABELS[row["kind"]]
         row["url"] = (
             reverse(
@@ -153,7 +141,6 @@ def collection_context(case, params):
             )
             + suffix
         )
-        rows.append(row)
     matches = derived_text_matches(case=case, rows=rows, query=query)
     matches.update(retained_text_matches(case=case, rows=rows, query=query))
     for row in rows:

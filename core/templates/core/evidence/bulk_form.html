@@ -5,11 +5,12 @@
 <div class="page-content">
   <a class="back-link" href="{% url 'core:evidence:list' case_id=case.pk %}">Back to evidence</a>
   <header class="page-header"><h1>Add evidence</h1></header>
-  <nav class="actions" aria-label="Ways to add evidence">
+  <nav class="actions evidence-intake-jumps" aria-label="Ways to add evidence">
     <a class="record-link" href="#upload-files-heading">Upload files</a>
     <a class="record-link" href="#add-record-heading">Add a record</a>
     <a class="record-link" href="#import-records-heading">Import CSV</a>
   </nav>
+  <div class="evidence-intake">
   <section class="form-layout" aria-labelledby="upload-files-heading">
   <h2 id="upload-files-heading" tabindex="-1">Upload files</h2>
   <p data-bulk-fallback class="notice">Bulk uploads need browser support and JavaScript. You can always <a href="{% url 'core:evidence:create' case_id=case.pk %}?kind=document">add one file at a time</a>.</p>
@@ -38,6 +39,7 @@
     <div class="actions" data-upload-actions hidden><button class="button button-primary" type="submit" disabled>Upload files</button><a class="button button-secondary" href="{% url 'core:evidence:create' case_id=case.pk %}" data-new-batch hidden>Start another batch</a></div>
   </form>
   </section>
+  <div class="evidence-intake-methods">
   <section class="content-section form-layout evidence-entry-methods" aria-labelledby="add-record-heading">
     <h2 id="add-record-heading" tabindex="-1">Add a record</h2>
     <nav class="related-actions" aria-labelledby="add-record-heading">
@@ -52,5 +54,7 @@
       <a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}">Import message CSV</a>
     </nav>
   </section>
+  </div>
+  </div>
 </div>
 {% endblock %}

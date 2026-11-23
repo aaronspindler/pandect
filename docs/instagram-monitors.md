@@ -18,8 +18,13 @@ PANDECT_INSTAGRAM_PILOT_KEY=<dedicated-random-secret>
 ```
 
 ```sh
-docker compose --profile instagram-pilot up --build -d --wait
+COMPOSE_PROFILES=instagram-pilot make run
 ```
+
+Use the same profile on subsequent rebuilds so `make run` waits for both workers
+to finish active tasks before replacing their shared image. If the installation
+uses other profiles, include them in the comma-separated `COMPOSE_PROFILES`
+value. See [local startup](development.md#first-run).
 
 The profile starts the fixture and `instagram-worker`. The dedicated worker
 uses the same application image, PostgreSQL database, and private evidence
@@ -71,12 +76,14 @@ affected monitors. Reapproval allows the investigator to resume them.
 ask the operator to verify that the worker stopped before requesting recovery.
 A stale delivery cannot publish results or start a second schedule.
 
-To turn off collection for the installation, stop the profiled services,
-remove both fixture settings, and refresh the web and worker configuration.
+To turn off collection for the installation, let both workers finish their
+active tasks before stopping the fixture and refreshing application settings.
 
 ```sh
-docker compose --profile instagram-pilot stop instagram-worker instagram-pilot
+docker compose --profile instagram-pilot stop --timeout -1 worker instagram-worker
+docker compose --profile instagram-pilot stop instagram-pilot
 # Remove PANDECT_INSTAGRAM_PILOT_URL and PANDECT_INSTAGRAM_PILOT_KEY from .env.
+# Remove instagram-pilot from COMPOSE_PROFILES if it is set.
 docker compose up -d --wait web worker
 ```
 

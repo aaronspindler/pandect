@@ -44,7 +44,7 @@ checks and migration drift detection. `make check` still includes both groups
 and the full PostgreSQL test suite; `make validate` retains configuration and
 database validation.
 
-Native Dokploy image deployment and the separate live web/database/worker checks
+Native Dokploy image deployment and the live web, event listener, database, and worker checks
 are documented in [the Dokploy deployment procedure](operations.md#first-dokploy-deployment).
 The development Compose smoke does not validate public DNS, TLS, or a remote rollout.
 
@@ -63,21 +63,30 @@ and failed sign-in; production password settings are unchanged.
 Tests live with their apps, generate synthetic content in code, and use temporary
 storage. Domain guides explain behavior; test modules own coverage inventories.
 
-`make compose-smoke` needs only Docker. It uses synthetic configuration, random
-loopback ports, and fresh volumes in a unique disposable project to exercise
-startup, storage, processing, and worker restart. It runs production worker startup
-and verifies the shared web/worker image. The non-debug HTTP probe requests
+`make compose-smoke` needs Docker with Compose v2 and a host `python3` on
+`PATH`. It uses synthetic configuration, random loopback ports, and fresh
+volumes in a disposable project to exercise startup, storage, processing, and
+worker restart. It runs production worker startup and verifies the shared
+worker, events, and web image. The non-debug HTTP probe requests
 assets through the production manifest and checks their content type and immutable
 caching. See [`scripts/compose-smoke.sh`](../scripts/compose-smoke.sh) for coverage. One successful
 probe does not establish exactly-once delivery after crashes. The script clears
 inherited `PANDECT_` settings, ignores your `.env`/data, and removes only its own
 containers/volumes on exit.
 
+With the project's Playwright Chromium installed, run
+`PANDECT_SMOKE_WORKSPACE_BROWSER=1 make compose-smoke` to measure queued,
+running, and finished job badges through nginx and the production Gunicorn
+web and events commands across 30
+independent browser contexts. The probe measures commit-to-display latency,
+checks that healthy streams stop polling, and submits an ordinary multipart upload.
+Its local p95 target is two seconds. The deployment proxy needs a separate live check.
+
 To exercise a prebuilt local image without rebuilding it, run
 `sh scripts/compose-smoke.sh <local-image>`. The script resolves that reference
-to an immutable local image ID, uses it for both web and worker, and rejects
+to an immutable local image ID, uses it for web, events, and worker, and rejects
 missing images or a running-image mismatch. Application images are never pulled
-or rebuilt in this mode; PostgreSQL may still be pulled. The no-argument Make
+or rebuilt in this mode; the PostgreSQL and nginx images may still be pulled. The no-argument Make
 target retains its normal local build. The application image's uv download cache
 uses a BuildKit cache mount and is not included in the shipped image.
 
@@ -109,8 +118,8 @@ The checker rejects runtime/evidence directories, environment files except the
 two root examples, dumps, document/message/location exports, archives, recordings,
 and images outside static/design directories. It reports categories/counts without
 reading or printing evidence contents or filenames. `make repository-check`
-checks the index and locally reachable history; CI fetches full history and runs
-it through `make check`. Shallow clones require `git fetch --unshallow` first.
+checks the index and locally reachable history. CI fetches full history and runs
+it through `make static-check`. Shallow clones require `git fetch --unshallow` first.
 
 Run the Git integration regression tests without a database:
 
@@ -145,8 +154,11 @@ Use accessible roles for controls and named regions for displayed evidence or
 limitations. Wait for the expected navigation before reading a redirected URL and
 for initial rendering to settle before simulating a refresh or retry.
 
-`PANDECT_BROWSER_ENGINES` selects `chromium`, `webkit`, or both (comma-separated;
-default both). `PANDECT_BROWSER_ARTIFACTS` overrides captures for the shared
+`PANDECT_BROWSER_ENGINES` selects `chromium`, `webkit`, or both (comma-separated,
+default both). The four Instagram collection modules listed under
+`INSTAGRAM_COLLECTOR_TESTS` in the Makefile use Chromium and are omitted from
+the WebKit-only target. The shared Instagram monitor journey runs on both
+engines. `PANDECT_BROWSER_ARTIFACTS` overrides captures for the shared
 harness and marketing within the checkout's `data/validation/` directory. Paths
 and symlinks resolving outside that directory are rejected. Map captures always
 use `data/validation/maps`. Defaults are listed below. Artifacts are ignored local
@@ -156,6 +168,7 @@ output; keep fixtures synthetic.
 | --- | --- |
 | `config.tests.browser` | `data/validation/browser` |
 | `core.evidence.bulk_admin_browser` | `data/validation/browser` |
+| `core.evidence.packet_browser` | `data/validation/evidence-packet` |
 | Message CSV import | `data/validation/message-csv-browser` |
 | `marketing.browser` | `data/validation/marketing-browser` |
 | `core.analysis.browser` | `data/validation/analysis-browser` |
@@ -236,6 +249,19 @@ independent records with repeated synthetic filler text and its matching vector.
 It measures retrieval and database footprint separately from model throughput.
 Set `PANDECT_QUALIFY_PASSAGES` to vary the scale.
 
+### Hosted meaning search
+
+With the gateway and its stored OpenAI key alias configured, run the following
+opt-in check from the application environment. It creates a disposable test
+database, approves a synthetic case, indexes its generated evidence and posts
+queries through the ordinary results page. It makes billable embedding
+requests and checks linked excerpts, retrieval, unsupported queries and usage.
+Routine tests use mocked inference.
+
+```sh
+uv run --locked --env-file .env python manage.py test core.case_search.hosted_qualification --settings=config.test_settings --noinput
+```
+
 Parser tests use bounded child processes with synthetic documents, images, audio,
 geographic data, and local printed OCR. Host checks require
 [Tesseract and English data](development.md#run-python-on-the-host). Routine tests
@@ -267,9 +293,9 @@ capacity in routine tests.
   `.python-version` and installs from `uv.lock`.
 - Full application runs retain fresh PostgreSQL migrations, tests, database
   validation, and Compose smoke on native Linux amd64 and arm64 runners.
-- Separate Linux amd64 Chromium and WebKit jobs each install one engine and run
-  all `make browser-check` journeys, with independent PostgreSQL services and
-  synthetic configuration. `PANDECT_BROWSER_ENGINES` selects the engine.
+- Separate Linux amd64 Chromium and WebKit jobs run their respective
+  [browser suites](#browser-checks) with independent PostgreSQL services and
+  synthetic configuration.
 - A separate application-run job audits locked dependencies without database
   credentials. The scheduled audit also continues independently of source changes.
 - CI and the scheduled audit share uv dependency caches keyed by `.python-version`,
@@ -295,19 +321,9 @@ capacity in routine tests.
   [does not recommend browser caching](https://playwright.dev/python/docs/ci#caching-browsers)
   because restore/download times are comparable and Linux dependencies still need
   installation.
-- After those checks pass for a `main` push in the Pandect operator repository,
-  **CD** allocates the next consecutive `v1.N` release version, builds native
-  Linux amd64 and arm64 images, and publishes a combined attempt image to GHCR.
-  CI itself does not publish packages or deploy. CD verifies both platforms and
-  resolves the attempt tag to the published immutable digest, then deploys it to
-  the native web and worker Dokploy Applications with their respective startup
-  commands, verifying worker startup before the web release. See
-  [continuous deployment](operations.md#continuous-deployment). After both services
-  pass verification, the final publication stage promotes the versioned image
-  and publishes a GitHub release for the tested commit. Published successful
-  releases advance the version sequence; failed or skipped runs do not consume
-  numbers. Successful-source reruns leave published images and releases unchanged.
-  Rejected older attempts and failed deployments do not publish a release.
+- Successful full CI for a `main` push in the operator repository is eligible
+  for [continuous deployment](operations.md#continuous-deployment), which owns
+  image publication, rollout, and release sequencing.
 - **Scheduled security audit** reruns the dependency audit weekly and on demand.
 - **CodeQL** uses GitHub-managed default setup in the repository's security
   settings. Upstream scans Python, JavaScript/TypeScript, and Actions with extended
@@ -335,7 +351,7 @@ credentials, network access, or a database:
 uv run --locked python -m unittest config.tests.test_dokploy_deploy config.tests.test_github_release
 ```
 
-These cover immutable deployment identity, startup commands, worker-before-web
+These cover immutable deployment identity, startup commands, worker-before-events-before-web
 ordering, bounded failures, ancestry guards, consecutive release allocation,
 release reruns, and tag conflicts. GitHub permissions, GHCR/Dokploy access, and
 publication require live verification.
@@ -408,8 +424,10 @@ ecosystems. Each ecosystem groups version updates into one PR, retaining a limit
 of five open PRs per ecosystem. Native uv updates maintain both `pyproject.toml`
 and `uv.lock`, including the development group. Docker discovers the Dockerfile
 and Compose images. Python image updates are excluded because the exact Python
-pin, compatibility range, lockfile, and image must be upgraded together. PostgreSQL
-major updates are excluded because they require a planned database upgrade.
+pin, compatibility range, lockfile, and image must be upgraded together. The
+major-update ignore rule matches `postgres`. The current Compose image is
+`pgvector/pgvector`, so review the PostgreSQL variant in its tag separately
+and plan any PostgreSQL major upgrade before accepting an image update.
 Security updates follow GitHub's separate settings; these groups do not opt into
 grouping security updates.
 

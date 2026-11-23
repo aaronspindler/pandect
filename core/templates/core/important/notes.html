@@ -1,0 +1,38 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Notes · {{ case.name }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>Notes</h1><p>{{ target.title }}</p><p>{{ target.label }}{% for qualifier in target.qualifiers %} · {{ qualifier }}{% endfor %}</p></div>
+  <div class="actions">
+    {% if back_url %}<a class="button button-secondary" href="{{ back_url }}">Back to Important</a>{% endif %}
+    <a class="button button-secondary" href="{{ source_url }}">Open source</a>
+  </div>
+</header>
+
+{% partialdef dialog inline %}
+{% if can_edit and item.marked_at %}
+  <form method="post" class="content-section" id="write-note" aria-label="Add a note">
+    {% csrf_token %}
+    {% if quick_dialog %}<p>{{ target.title }}</p>{% endif %}
+    {% include 'ui/components/form_errors.html' %}
+    {% include 'ui/components/form_field.html' with field=form.body %}
+    <div class="actions"><button class="button button-primary" type="submit">Add note</button></div>
+  </form>
+{% elif can_edit %}
+  <p>Mark this item important to add another note.</p>
+{% endif %}
+{% endpartialdef %}
+
+<section class="content-section" aria-labelledby="saved-notes-heading">
+  <h2 id="saved-notes-heading">Saved notes</h2>
+  {% for note in page_obj %}
+    <article class="analysis-section">
+      <p><strong>{{ note.author.get_username }}</strong> · <time datetime="{{ note.created_at|date:'c' }}">{{ note.created_at|date:'j M Y, H:i T' }}</time></p>
+      <div class="prose">{{ note.body|linebreaksbr }}</div>
+    </article>
+  {% empty %}
+    <p>No notes yet.</p>
+  {% endfor %}
+  {% include 'core/important/pagination.html' with page_label='Note pages' %}
+</section>
+{% endblock %}

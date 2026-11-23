@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header">
   <div><h1>Vehicles</h1></div>
-  {% if can_edit and page_obj.object_list or can_edit and query %}<div class="actions"><a data-collection-context class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
+  {% if can_edit and page_obj.object_list or can_edit and query %}<div class="actions"><a data-quick-form data-saved-link="Open vehicle" data-collection-context class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
 </div>
 {% if page_obj.object_list or query %}
 <form data-collection-form class="search-form" method="get" role="search" aria-label="Search vehicles">
@@ -33,7 +33,7 @@
 <section class="empty-state"><h2>{% if query %}No matching vehicles{% else %}No vehicles yet{% endif %}</h2>
   <p>{% if query %}Try another vehicle name or identifier.{% elif can_edit %}Add a make, model, plate, or VIN to get started.{% else %}The owner or an editor can add vehicles.{% endif %}</p>
   {% if not query %}
-    {% if can_edit %}<a class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a>{% endif %}
+    {% if can_edit %}<a data-quick-form data-saved-link="Open vehicle" class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a>{% endif %}
   {% endif %}
 </section>
 {% endif %}

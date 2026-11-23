@@ -572,7 +572,10 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 page.on(
                     "pageerror", lambda error, errors=errors: errors.append(str(error))
                 )
-                page.goto(self.map_url)
+                filters = "?q=Alex+Example&state=all"
+                filtered_map = self.map_url + filters
+                filtered_trip = self.detail_url + filters
+                page.goto(filtered_trip)
                 canvas = page.locator("#investigation-map")
                 canvas.click(position={"x": 100, "y": 100})
                 page.get_by_role("link", name="Add POI here", exact=True).click()
@@ -582,6 +585,12 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 self.assertTrue(page.get_by_label("Latitude", exact=True).input_value())
                 self.assertTrue(
                     page.get_by_label("Longitude", exact=True).input_value()
+                )
+                expect(
+                    page.get_by_role("link", name="Cancel", exact=True)
+                ).to_have_attribute(
+                    "href",
+                    filtered_trip.removeprefix(self.live_server_url) + "#map-heading",
                 )
                 page.get_by_label("Person", exact=True).select_option(
                     str(self.person.pk)
@@ -621,6 +630,16 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width
                     )
+                    latitude = page.get_by_label("Latitude", exact=True).bounding_box()
+                    longitude = page.get_by_label(
+                        "Longitude", exact=True
+                    ).bounding_box()
+                    if width >= 768:
+                        self.assertEqual(latitude["y"], longitude["y"])
+                        self.assertLess(latitude["x"], longitude["x"])
+                    else:
+                        self.assertEqual(latitude["x"], longitude["x"])
+                        self.assertLess(latitude["y"], longitude["y"])
                     self.capture(page, engine, f"poi-form-{width}x{height}")
                 page.get_by_role("button", name="Save changes", exact=True).click()
                 label = f"Meeting place {engine} · Alex Example"
@@ -638,10 +657,11 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                         },
                     )
                 )
-                page.get_by_role("link", name="Back to map", exact=True).click()
+                page.get_by_role("link", name="Back to trip", exact=True).click()
                 page.wait_for_url(
-                    self.map_url + "#map-heading", wait_until="domcontentloaded"
+                    filtered_trip + "#map-heading", wait_until="domcontentloaded"
                 )
+                page.goto(filtered_map)
                 page.bring_to_front()
                 show = page.get_by_role(
                     "button", name=f"Show {label} on map", exact=True
@@ -693,6 +713,14 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 )
                 self.capture(page, engine, "poi-map-enlarged-text")
                 self.assertEqual(errors, [])
+                page.goto(filtered_map)
+                show.scroll_into_view_if_needed()
+                show.press("Enter")
+                page.locator(".leaflet-popup-content").get_by_role(
+                    "link", name=re.compile(re.escape(label))
+                ).click()
+                page.get_by_role("link", name="Back to map", exact=True).click()
+                expect(page).to_have_url(filtered_map + "#map-heading")
                 context.close()
                 # Add and delete also work without the map library or JavaScript.
                 context = browser.new_context(
@@ -703,8 +731,15 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 person_url = self.live_server_url + reverse(
                     "people:detail", args=(self.case.pk, self.person.pk)
                 )
-                page.goto(person_url)
+                filtered_person = person_url + "?q=Alex&page=2"
+                page.goto(filtered_person)
+                page.get_by_role("link", name=label, exact=True).click()
+                page.get_by_role("link", name="Back to person", exact=True).click()
+                expect(page).to_have_url(filtered_person + "#poi-list")
                 page.get_by_role("link", name="Add POI", exact=True).click()
+                page.get_by_role("link", name="Cancel", exact=True).press("Enter")
+                expect(page).to_have_url(filtered_person + "#poi-list")
+                page.get_by_role("link", name="Add POI", exact=True).press("Enter")
                 expect(page.get_by_label("Person", exact=True)).to_have_value(
                     str(self.person.pk)
                 )
@@ -715,10 +750,15 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("heading", name="Work · Alex Example", exact=True)
                 ).to_be_visible()
+                work_detail = page.url
                 self.capture(page, engine, "poi-detail-no-js")
                 page.locator("summary").filter(has_text="Record details").focus()
                 page.locator("summary").filter(has_text="Record details").press("Enter")
                 page.get_by_role("link", name="Delete POI", exact=True).click()
+                page.get_by_role("link", name="Cancel", exact=True).press("Enter")
+                expect(page).to_have_url(work_detail)
+                page.locator("summary").filter(has_text="Record details").press("Enter")
+                page.get_by_role("link", name="Delete POI", exact=True).press("Enter")
                 page.get_by_label(
                     "I understand this permanently deletes this POI.", exact=True
                 ).check()
@@ -728,6 +768,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 expect(
                     page.get_by_role("heading", name="Alex Example", exact=True)
                 ).to_be_visible()
+                expect(page).to_have_url(filtered_person + "#poi-list")
                 expect(page.locator(".message[role=status]")).to_contain_text(
                     "POI deleted"
                 )

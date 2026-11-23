@@ -9,6 +9,7 @@ from django.http import QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_safe
+from django.views.decorators.vary import vary_on_headers
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
@@ -17,6 +18,7 @@ from core.evidence.collection import collection_context
 from people.forms import PersonDeleteForm, PersonForm
 from people.models import Person
 from socialmedia.models import SocialAccount
+from ui.dialogs import form_saved, render_quick_form, render_record, wants_record
 from ui.live import render_live
 
 
@@ -66,9 +68,13 @@ def person_list(request, case_id):
 
 @product_login_required
 @require_safe
+@vary_on_headers("X-Pandect-Form")
 def person_detail(request, case_id, person_id):
     case = get_case(request.user, case_id)
     person = get_object_or_404(Person, case=case, pk=person_id)
+    context = case_context(case, request.user) | {"person": person}
+    if wants_record(request):
+        return render_record(request, "people/detail.html", context)
     evidence_params = QueryDict(mutable=True)
     evidence_params.update({"person": str(person.pk), "state": "all"})
     evidence_url = (
@@ -88,8 +94,7 @@ def person_detail(request, case_id, person_id):
         request,
         "people/detail.html",
         {
-            **case_context(case, request.user),
-            "person": person,
+            **context,
             "social_accounts": person.social_accounts.all(),
             "related_evidence": related_evidence,
             "related_findings": related_findings,
@@ -121,14 +126,13 @@ def person_create(request, case_id):
             person = form.save(commit=False)
             person.case = case
             person.save(force_insert=True)
-            messages.success(request, "Person added.")
             url = reverse(
                 "people:detail", kwargs={"case_id": case.pk, "person_id": person.pk}
             )
             if query := list_query(request):
                 url += f"?{query}"
-            return redirect(url)
-    return render(
+            return form_saved(request, "Person added.", url)
+    return render_quick_form(
         request,
         "people/form.html",
         {
@@ -156,18 +160,17 @@ def person_edit(request, case_id, person_id):
         )
         if request.method == "POST" and form.is_valid():
             form.save(commit=False).save(force_update=True)
-            messages.success(request, "Person details saved.")
             url = reverse(
                 "people:detail", kwargs={"case_id": case.pk, "person_id": person.pk}
             )
             if query := list_query(request):
                 url += f"?{query}"
-            return redirect(url)
+            return form_saved(request, "Person details saved.", url)
         if form.stale:
             latest_person = Person.objects.get(pk=person.pk, case=case)
             form.data = form.data.copy()
             form.data["revision"] = form.initial["revision"]
-    return render(
+    return render_quick_form(
         request,
         "people/form.html",
         {

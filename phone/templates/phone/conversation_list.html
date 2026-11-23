@@ -1,7 +1,7 @@
 {% extends 'ui/base.html' %}
 {% load static %}
 {% block title %}Conversations · {{ case.name }}{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="{% static 'phone/conversations.css' %}"><script src="{% static 'phone/conversations.js' %}" defer></script>{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'phone/conversations.css' %}">{% endblock %}
 {% block body_class %}conversation-page{% endblock %}
 {% block content %}
 <header class="page-header conversation-header">
@@ -29,7 +29,12 @@
 <section class="empty-state">
   <h2>No conversations yet</h2>
   <p>Messages appear here when they are added to this case or published from a retained export.</p>
-  {% if can_edit %}<a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}">Add evidence</a>{% else %}<p class="secondary">The owner or an editor can add messages.</p>{% endif %}
+  {% if can_edit %}
+  <div class="actions actions-centered">
+    <a class="button button-primary" href="{% url 'core:evidence:create' case.pk %}?kind=text-message">Add text message</a>
+    <a class="button button-secondary" href="{% url 'phone:imessage_upload' case.pk %}">Import message CSV</a>
+  </div>
+  {% else %}<p class="secondary">The owner or an editor can add messages.</p>{% endif %}
 </section>
 {% endif %}
 {% endblock %}

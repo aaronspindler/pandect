@@ -73,6 +73,27 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertContains(response, 'type="submit" disabled>Start analysis')
 
+    def test_findings_empty_states_link_to_processing_or_reset(self):
+        self.login("viewer")
+        browse = self.analysis_url("browse")
+        processing = self.analysis_url("processing")
+        response = self.client.get(browse)
+        self.assertContains(response, "No findings yet")
+        self.assertContains(response, f'href="{processing}">View processing</a>')
+
+        response = self.client.get(browse, {"q": "Synthetic search"})
+        self.assertContains(response, "No matching findings")
+        self.assertContains(response, f'href="{browse}">Show all findings</a>')
+        self.assertContains(response, 'value="Synthetic search"')
+
+        response = self.client.get(
+            browse, {"q": "Synthetic search", "method": "unavailable"}
+        )
+        self.assertContains(response, "Check the search and filters")
+        self.assertNotContains(response, "No matching findings")
+        self.assertContains(response, 'value="Synthetic search"')
+        self.assertContains(response, f'href="{browse}">Show all findings</a>')
+
     def test_analysis_chooser_defers_source_selection_until_a_task_is_chosen(self):
         self.login("editor")
         for query in ({}, {"operation": "unknown"}):
@@ -1181,6 +1202,10 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Review your selection")
+        self.assertContains(response, 'href="#id_sources_group"')
+        self.assertContains(
+            response, 'aria-describedby="analysis-source-guidance id_sources_error"'
+        )
         self.assertEqual(AnalysisRun.objects.count(), 1)
         foreign_vehicle = Vehicle.objects.create(case=self.other_case, model="Foreign")
         response = self.client.get(

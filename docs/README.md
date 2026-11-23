@@ -32,7 +32,7 @@ The guides below describe current behavior and procedures; the
 ## Design and planning
 
 - [Investigator screens and workflows](interface-design.md)
-- [Current interface review and remaining coverage](interface-review.md)
+- [Interface review coverage and archived results](interface-review.md)
 - [Design references and assets](design/README.md)
 - [Public marketing pages](marketing.md)
 - [Project descriptions and reusable marketing copy](marketing-copy.md)

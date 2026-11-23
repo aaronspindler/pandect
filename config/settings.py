@@ -175,6 +175,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 ACCOUNT_LOGIN_METHODS = {"username", "email"}
+ACCOUNT_FORMS = {"login": "accounts.forms.PandectLoginForm"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_ADAPTER = "accounts.adapter.PandectAccountAdapter"
@@ -392,6 +393,9 @@ PANDECT_LOCAL_AI = {
 }
 PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE = os.environ.get(
     "PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE", ""
+)
+PANDECT_SEARCH_EMBEDDING_PROVIDER = os.environ.get(
+    "PANDECT_SEARCH_EMBEDDING_PROVIDER", "local"
 )
 PANDECT_LOCAL_EMBEDDING = {
     "url": os.environ.get("PANDECT_LOCAL_EMBEDDING_URL", ""),

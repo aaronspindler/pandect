@@ -2,21 +2,11 @@
 {% block title %}{% if editing %}Edit evidence details{% else %}Add {{ kind_label|lower }}{% endif %} · {{ case.name }}{% endblock %}
 {% block content %}
 <div class="page-content">
-  <a class="back-link" href="{% if editing %}{{ cancel_url }}{% else %}{% url 'core:evidence:list' case_id=case.pk %}{% endif %}">Back to evidence</a>
+  <a class="back-link" href="{% if editing %}{{ cancel_url }}{% else %}{% url 'core:evidence:create' case_id=case.pk %}{% endif %}">{% if editing %}Back to evidence{% else %}Back to add evidence{% endif %}</a>
   <header class="page-header"><div><h1>{% if editing %}Edit evidence details{% else %}Add {{ kind_label|lower }}{% endif %}</h1>{% if not editing %}<p>Supported checks run automatically. Results appear in Findings.</p>{% endif %}</div></header>
+  {% partialdef dialog inline %}
   {% if conflict %}<section class="notice" aria-labelledby="latest-saved-details"><h2 id="latest-saved-details">Review newer saved details</h2><p>Your changes are preserved below. Compare them with these saved values before saving.</p><dl class="metadata-grid">{% for label,value in latest_details %}<div><dt>{{ label }}</dt><dd>{{ value|default_if_none:"Not recorded"|default:"Not recorded"|linebreaksbr }}</dd></div>{% endfor %}</dl></section>{% endif %}
   {% if not editing %}
-  <details class="disclosure form-layout">
-    <summary>Change type</summary>
-  <form method="get" class="type-picker" aria-label="Choose evidence type">
-    <div class="field"><label for="evidence-kind">Evidence type</label><select name="kind" id="evidence-kind">{% for value,label in kind_choices %}<option value="{{ value }}"{% if value == kind %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-    <button class="button button-secondary" type="submit">Choose type</button>
-  </form>
-  <div class="related-actions"><a class="record-link" href="{% url 'core:evidence:create' case_id=case.pk %}">Add files</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a><a class="record-link" href="{% url 'phone:imessage_upload' case_id=case.pk %}">Import message CSV</a></div>
-  </details>
-  <details class="form-guidance form-layout"><summary>About {{ kind_label|lower }} evidence</summary>
-    {% if is_communication %}<p class="muted">Sender and recipient must be people in this case. Reported associations do not verify identity. Original communication details are retained. Text: up to {{ max_text_bytes|filesizeformat }}; audio: up to {{ max_file_bytes|filesizeformat }}.</p>{% if is_call %}<p>Transcript and audio are optional. You can add more retained transcripts or recordings after saving.</p>{% endif %}{% elif is_file %}<p class="muted">Upload one file, up to {{ max_file_bytes|filesizeformat }}. To upload several, <a href="{% url 'core:evidence:create' case_id=case.pk %}">add files</a>.</p>{% elif kind == 'text' %}<p class="muted">Text: up to {{ max_text_bytes|filesizeformat }}.</p>{% else %}<p class="muted">Record a reported location. The address, coordinates, observation time, and any person or vehicle association are retained as the original. A reported association does not verify identity, ownership, or presence.</p>{% endif %}
-  </details>
   {% if not has_people %}<p class="notice">Add a person to this case before recording a {% if is_communication %}communication{% else %}person location{% endif %}. <a href="{% url 'people:create' case_id=case.pk %}">Add person</a>.</p>{% endif %}
   {% if kind == 'vehicle-location' and not has_vehicles %}<p class="notice">Add a vehicle to this case before recording a vehicle location. <a href="{% url 'vehicle:create' case_id=case.pk %}">Add vehicle</a>.</p>{% endif %}{% endif %}
   {% if duplicates %}<section class="notice form-layout" tabindex="-1" data-error-summary role="alert" aria-labelledby="duplicate-heading">
@@ -36,7 +26,24 @@
       <div class="disclosure-body">{% for field in form.additional_fields %}{% include 'ui/components/form_field.html' with field=field only %}{% endfor %}</div>
     </details>
     {% if not editing and is_file or not editing and is_call %}<p class="muted">Your browser may require you to select the file again after a validation error. Other entered details are retained.</p>{% endif %}
-    <div class="actions form-actions"><button class="button button-primary" type="submit"{% if duplicates %} name="duplicate_confirmation" value="{{ duplicates.confirmation }}"{% endif %}>{% if duplicates %}Add duplicate anyway{% elif conflict %}Save reviewed changes{% elif editing %}Save changes{% elif is_communication %}Save {{ kind_label|lower }}{% elif kind == 'text' %}Save text{% elif is_file %}Upload file{% else %}Save location{% endif %}</button><a class="button button-secondary" href="{% if editing %}{{ cancel_url }}{% else %}{% url 'core:evidence:list' case_id=case.pk %}{% endif %}">Cancel</a></div>
+    <div class="actions form-actions"><button class="button button-primary" type="submit"{% if duplicates %} name="duplicate_confirmation" value="{{ duplicates.confirmation }}"{% endif %}>{% if duplicates %}Add duplicate anyway{% elif conflict %}Save reviewed changes{% elif editing %}Save changes{% elif is_communication %}Save {{ kind_label|lower }}{% elif kind == 'text' %}Save text{% elif is_file %}Upload file{% else %}Save location{% endif %}</button><a data-dialog-cancel class="button button-secondary" href="{% if editing %}{{ cancel_url }}{% else %}{% url 'core:evidence:list' case_id=case.pk %}{% endif %}">Cancel</a></div>
   </form>
+  {% endpartialdef %}
+  {% if not editing %}
+  <div class="form-layout">
+    <details class="disclosure">
+      <summary>Change type</summary>
+      <form method="get" class="type-picker" aria-label="Choose evidence type">
+        <div class="field"><label for="evidence-kind">Evidence type</label><select name="kind" id="evidence-kind">{% for value,label in kind_choices %}<option value="{{ value }}"{% if value == kind %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <button class="button button-secondary" type="submit">Choose type</button>
+      </form>
+    </details>
+    {% if is_communication or not is_file and kind != 'text' %}
+    <details class="disclosure"><summary>About {{ kind_label|lower }} evidence</summary>
+      {% if is_communication %}<p class="muted">Sender and recipient must be people in this case. Reported associations do not verify identity. Original communication details are retained.</p>{% if is_call %}<p>You can add more retained transcripts or recordings after saving.</p>{% endif %}{% else %}<p class="muted">The address, coordinates, observation time, and any person or vehicle association are retained as recorded. A reported association does not verify identity, ownership, or presence.</p>{% endif %}
+    </details>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

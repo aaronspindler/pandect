@@ -1,4 +1,4 @@
-(() => {
+window.PandectPage((signal) => {
   "use strict";
   // One tooltip layer avoids clipping inside scrolling lists and disclosures.
   const tooltip = document.createElement("div");
@@ -21,6 +21,7 @@
     tooltip.hidden = true;
     tooltipControl = null;
   };
+  signal.addEventListener("abort", () => { hideTooltip(); tooltip.remove(); }, {once: true});
   const positionTooltip = () => {
     if (!tooltipControl) return;
     const anchor = tooltipControl.getBoundingClientRect();
@@ -59,16 +60,16 @@
     if (event.pointerType === "touch") return;
     const control = event.target.closest(tooltipSelector);
     if (control) showTooltip(control);
-  });
+  }, {signal});
   document.addEventListener("pointerout", (event) => {
     if (tooltipControl && tooltipControl.contains(event.target) && !tooltipControl.contains(event.relatedTarget) && tooltipControl !== document.activeElement) scheduleTooltipHide();
-  });
+  }, {signal});
   document.addEventListener("focusin", (event) => {
     const control = event.target.closest(tooltipSelector);
     if (control) showTooltip(control);
     else hideTooltip();
-  });
-  document.addEventListener("focusout", scheduleTooltipHide);
+  }, {signal});
+  document.addEventListener("focusout", scheduleTooltipHide, {signal});
   tooltip.addEventListener("pointerenter", () => clearTimeout(tooltipTimer));
   tooltip.addEventListener("pointerleave", scheduleTooltipHide);
   document.addEventListener("keydown", (event) => {
@@ -77,10 +78,10 @@
       event.preventDefault();
       event.stopImmediatePropagation();
     }
-  });
-  document.addEventListener("click", hideTooltip);
-  document.addEventListener("scroll", (event) => { if (!tooltip.contains(event.target)) positionTooltip(); }, true);
-  window.addEventListener("resize", positionTooltip);
+  }, {signal});
+  document.addEventListener("click", hideTooltip, {signal});
+  document.addEventListener("scroll", (event) => { if (!tooltip.contains(event.target)) positionTooltip(); }, {capture: true, signal});
+  window.addEventListener("resize", positionTooltip, {signal});
   const disclosures = Array.from(document.querySelectorAll("[data-disclosure]"));
   const isOpenDisclosure = (details) =>
     details.open && details.querySelector(":scope > summary")?.getClientRects().length > 0;
@@ -93,10 +94,10 @@
       if (isOpenDisclosure(details)) disclosures.forEach((other) => {
         if (other !== details && isOpenDisclosure(other)) closeDisclosure(other);
       });
-    });
+    }, {signal});
     details.querySelectorAll("[data-close-disclosure]").forEach((button) => {
       button.hidden = false;
-      button.addEventListener("click", () => closeDisclosure(details, true));
+      button.addEventListener("click", () => closeDisclosure(details, true), {signal});
     });
   });
   document.addEventListener("keydown", (event) => {
@@ -106,12 +107,12 @@
       event.preventDefault();
       closeDisclosure(open, true);
     }
-  });
+  }, {signal});
   document.addEventListener("pointerdown", (event) => {
     disclosures.forEach((details) => {
       if (!details.contains(event.target) && isOpenDisclosure(details)) closeDisclosure(details);
     });
-  });
+  }, {signal});
   document.querySelector("[data-error-summary]")?.focus();
   document.querySelectorAll("[data-error-summary] a").forEach((link) => {
     link.addEventListener("click", () => {
@@ -126,13 +127,18 @@
   const dirtyForms = new Set();
   document.addEventListener("input", (event) => {
     const form = event.target.closest("[data-unsaved-form]:not([data-evidence-upload])");
-    if (form) dirtyForms.add(form);
-  });
-  document.addEventListener("submit", (event) => dirtyForms.delete(event.target));
+    if (form && !form.closest("dialog")) dirtyForms.add(form);
+  }, {signal});
+  document.addEventListener("submit", (event) => dirtyForms.delete(event.target), {signal});
+  document.addEventListener("pandect:check-navigation", (event) => {
+    if (!dirtyForms.size) return;
+    if (window.confirm("Discard your unsaved changes?")) dirtyForms.clear();
+    else event.preventDefault();
+  }, {signal});
   window.addEventListener("beforeunload", (event) => {
     if (dirtyForms.size) {
       event.preventDefault();
       event.returnValue = "";
     }
-  });
-})();
+  }, {signal});
+});
