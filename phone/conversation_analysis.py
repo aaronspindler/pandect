@@ -38,6 +38,8 @@ CONTEXT_PARAMETERS = (
     "analysis_page",
     "conversation_analysis_page",
     "weak",
+    "q",
+    "match",
 )
 
 

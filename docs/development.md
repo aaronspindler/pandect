@@ -36,8 +36,16 @@ PY
 make run
 ```
 
-Use `make run` for subsequent starts. It builds the shared image, starts
-PostgreSQL, web, and worker, and waits for web/database health and worker startup.
+Use `make run` for subsequent starts and rebuilds. It builds the image while the
+current workers keep processing. Once the build succeeds, each enabled worker
+finishes its current task and exits. Pending tasks stay in PostgreSQL. Compose
+then brings up the stack with the new app image and waits for web and database
+health and worker startup.
+
+Run one `make run` at a time. Worker shutdown has no forced-stop deadline. If you
+interrupt the wait, Docker continues stopping those workers. Let them exit
+before rerunning `make run`.
+
 Verify queue execution with
 `docker compose exec web python manage.py check_task_worker --timeout 30`.
 `docker compose stop` retains database and evidence volumes.

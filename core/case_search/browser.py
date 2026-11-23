@@ -40,6 +40,17 @@ class CaseSearchBrowserTests(BrowserTestCase):
                 expect(feedback).to_have_count(0)
                 expect(box).to_have_value("Unavailable")
                 page.unroute(suggestions)
+                box.fill("missing quick title")
+                expect(
+                    page.get_by_text("No quick matches.", exact=True)
+                ).to_be_visible()
+                full = page.get_by_role("option", name="Search all results")
+                box.press("ArrowDown")
+                expect(full).to_have_attribute("aria-selected", "true")
+                box.press("Enter")
+                expect(
+                    page.get_by_role("heading", name="0 keyword matches")
+                ).to_be_visible()
                 box.fill("Evel")
                 option = page.get_by_role("option", name="Evelyn Rivers Person")
                 expect(option).to_be_visible()

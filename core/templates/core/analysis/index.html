@@ -16,6 +16,8 @@
   <a href="{% url 'core:evidence:list' case.pk %}?type=image&amp;view=gallery">{% include 'ui/components/icon.html' with name='photo' %}Images</a>
 </nav>
 
+{% partialdef collection inline %}
+<div data-collection-kind="case-tools">
 {% if highlights or recent_evidence %}
 <div class="case-tool-grid case-tools-recent">
   {% if recent_evidence %}
@@ -45,6 +47,9 @@
 <p class="muted">Evidence appears here when an owner or editor adds it.</p>
 {% endif %}
 
+</div>
+{% endpartialdef %}
+
 <nav class="content-section" aria-label="Other case tools">
   <h2>More case tools</h2>
   <div class="actions">
@@ -71,3 +76,5 @@
   {% if case.description %}<div class="prose"><h2>Case description</h2>{{ case.description|linebreaks }}</div>{% endif %}
 </details>
 {% endblock %}
+
+{% block extra_js %}{% include 'ui/components/collection_script.html' %}{% endblock %}

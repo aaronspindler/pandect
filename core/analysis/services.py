@@ -24,7 +24,7 @@ from core.analysis.artifacts import (
     decode_artifact,
 )
 from core.analysis.dependencies import validate_references
-from core.analysis.diagnostics import log_analysis_failure
+from core.analysis.diagnostics import log_analysis_failure, model_validation_code
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
     inference_configured,
@@ -588,6 +588,7 @@ def start_run(
     approved_execution=None,
     external_grant_revision=None,
     require_configured_inference=False,
+    require_retained_inputs=False,
 ):
     case = get_case(actor, case_id, edit=True, lock=True)
     if previous_run:
@@ -642,7 +643,10 @@ def start_run(
     snapshots = snapshot_sources(case, selections, allowed_kinds=specification.kinds)
     if (
         previous_run
-        and operation in {"claim_comparison", "journey_claims", "sighting_group"}
+        and (
+            require_retained_inputs
+            or operation in {"claim_comparison", "journey_claims", "sighting_group"}
+        )
         and (previous_run.operation != operation or previous_run.inputs != snapshots)
     ):
         raise AnalysisError("source_changed")
@@ -706,6 +710,8 @@ def start_run(
         batch=batch,
     )
     resolved = _processing_inputs(run, case)
+    if require_retained_inputs and any(source.item.is_archived for source in resolved):
+        raise AnalysisError("source_archived")
     if operation == "claim_comparison":
         validate_selection(resolved, run.parameters)
     elif operation == "question_synthesis":
@@ -849,8 +855,8 @@ def process_run(run_id):
         run.status = "running"
         run.attempts += 1
         run.started_at = timezone.now()
-        run.progress = 10
-        run.save(update_fields=["status", "attempts", "started_at", "progress"])
+        run.stage = AnalysisRun.Stage.SOURCES
+        run.save(update_fields=["status", "attempts", "started_at", "stage"])
     stored_files = []
     publication_finished = False
     stage = "authorization"
@@ -895,6 +901,11 @@ def process_run(run_id):
         if run.operation in {"geocode_locations", "geographic_context"}:
             parameters["external_processing"] = run.external_processing
         stage = "analysis"
+        running = AnalysisRun.objects.filter(
+            pk=run.pk, status=AnalysisRun.Status.RUNNING
+        )
+        if not running.update(stage=AnalysisRun.Stage.ANALYSIS):
+            raise AnalysisError("processing_cancelled")
         data = operation.function(sources, parameters, **kwargs)
         stage = "validation"
         if not isinstance(data, dict):
@@ -916,6 +927,8 @@ def process_run(run_id):
             raise AnalysisError("invalid_preview")
         data = validate_output(data, sources, operation=run.operation)
         stage = "publication"
+        if not running.update(stage=AnalysisRun.Stage.PUBLICATION):
+            raise AnalysisError("processing_cancelled")
         with transaction.atomic():
             case = authorize_run(run, lock=True)
             current = AnalysisRun.objects.select_for_update().get(pk=run.pk)
@@ -1033,7 +1046,7 @@ def process_run(run_id):
         log_analysis_failure(run, error, code, stage)
     except Exception as error:
         # Parser/provider strings can contain private source contents.
-        code = "processing_failed"
+        code = model_validation_code(error) or "processing_failed"
         log_analysis_failure(run, error, code, stage)
     from core.storage import delete_original
 

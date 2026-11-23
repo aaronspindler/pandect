@@ -64,6 +64,28 @@ class Case(models.Model):
         super().save(*args, **kwargs)
 
 
+class CaseActivity(models.Model):
+    """Committed collection revisions. Domain writes advance these in PostgreSQL."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.OneToOneField(Case, related_name="activity", on_delete=models.CASCADE)
+    work = models.BigIntegerField(db_default=0)
+    evidence = models.BigIntegerField(db_default=0)
+    images = models.BigIntegerField(db_default=0)
+    findings = models.BigIntegerField(db_default=0)
+    people = models.BigIntegerField(db_default=0)
+    vehicles = models.BigIntegerField(db_default=0)
+
+    def __str__(self):
+        return f"Activity in case {self.case_id}"
+
+    def versions(self):
+        return {
+            name: getattr(self, name)
+            for name in ("work", "evidence", "images", "findings", "people", "vehicles")
+        }
+
+
 class CaseMembership(models.Model):
     class Role(models.TextChoices):
         VIEWER = "viewer", "Viewer"

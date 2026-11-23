@@ -1,0 +1,1 @@
+{% if run.status == 'running' and run.started_at %}Started <time datetime="{{ run.started_at|date:'c' }}">{{ run.started_at|date:'j M Y, H:i T' }}</time>{% else %}<time datetime="{{ run.created_at|date:'c' }}">{{ run.created_at|date:'j M Y, H:i T' }}</time>{% endif %}

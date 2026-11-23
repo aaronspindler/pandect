@@ -17,6 +17,7 @@ from core.evidence.collection import collection_context
 from people.forms import PersonDeleteForm, PersonForm
 from people.models import Person
 from socialmedia.models import SocialAccount
+from ui.live import render_live
 
 
 def list_query(request):
@@ -49,7 +50,7 @@ def person_list(request, case_id):
             | Exists(matching_accounts)
         )
     page = Paginator(people, 25).get_page(request.GET.get("page"))
-    return render(
+    return render_live(
         request,
         "people/list.html",
         {
@@ -59,6 +60,7 @@ def person_list(request, case_id):
             "search_query": urlencode({"q": query}) if query else "",
             "list_query": list_query(request),
         },
+        collection=True,
     )
 
 

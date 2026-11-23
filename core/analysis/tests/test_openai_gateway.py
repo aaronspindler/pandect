@@ -445,7 +445,61 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
             process_run(self.run.pk)
         self.run.refresh_from_db()
         self.assertEqual(self.run.status, "failed")
+        self.assertEqual(self.run.error_code, "model_quote_mismatch")
         self.assertFalse(hasattr(self.run, "result"))
+
+    def test_valid_suggestions_publish_as_partial_alongside_rejected_citations(self):
+        citation = {"source_id": self.run.inputs[0]["id"], "quote": self.note.body}
+        retained = {
+            "kind": "correction",
+            "text": "A synthetic cited suggestion.",
+            "status": "reported",
+            "citations": [citation],
+        }
+        rejected = [
+            retained
+            | {
+                "text": "An unknown source was cited.",
+                "citations": [citation, citation | {"source_id": "unknown"}],
+            },
+            retained
+            | {
+                "text": "A fabricated quote was cited.",
+                "citations": [citation | {"quote": "Not present in the original."}],
+            },
+        ]
+        for operation in ("content_events", "text_topics"):
+            with self.subTest(operation=operation):
+                run, _ = start_run(
+                    self.users["owner"],
+                    self.case.pk,
+                    operation,
+                    [{"kind": "text", "id": str(self.note.pk)}],
+                    parameters={"backend": "gateway", "_suggestions_only": True},
+                    **external_grant_kwargs(self.case, operation),
+                )
+                with patch("core.analysis.gateway.build_opener") as build:
+                    build.return_value.open.return_value = response(
+                        openai_reply({"items": [rejected[0], retained, rejected[1]]})
+                    )
+                    process_run(run.pk)
+                    build.return_value.open.assert_called_once()
+                run.refresh_from_db()
+                self.assertEqual(run.status, "partial", run.error_code)
+                data = run.result.data
+                self.assertEqual(data["metrics"]["rejected_suggestions"], 2)
+                self.assertEqual(len(data["items"]), 1)
+                self.assertEqual(data["items"][0]["text"], retained["text"])
+                self.assertEqual(
+                    data["items"][0]["anchors"],
+                    [
+                        {
+                            "source_id": run.inputs[0]["id"],
+                            "start": 0,
+                            "end": len(self.note.body),
+                        }
+                    ],
+                )
 
 
 @override_settings(PANDECT_AI_GATEWAY=OPENAI)

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import activity, views
 
 app_name = "cases"
 
@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.case_list, name="case_list"),
     path("new/", views.case_create, name="case_create"),
     path("<uuid:case_id>/", views.case_detail, name="case_detail"),
+    path("<uuid:case_id>/activity/", activity.status, name="activity"),
     path("<uuid:case_id>/settings/", views.case_settings, name="case_settings"),
     path(
         "<uuid:case_id>/settings/ai-backend/",

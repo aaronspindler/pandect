@@ -2,6 +2,7 @@
 {% load static %}
 {% block title %}Images · {{ case.name }}{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="{% static 'image/gallery.css' %}">{% endblock %}
+{% block extra_js %}{% include 'ui/components/collection_script.html' %}{% endblock %}
 {% block content %}
 <header class="page-header">
   <h1>Images</h1>
@@ -9,16 +10,18 @@
 </header>
 <details class="disclosure"{% if query or state != 'active' or checksum or selected_person %} open{% endif %}>
   <summary>Search and filters</summary>
-  <form method="get" class="filter-bar" role="search" aria-label="Filter images">
+  <form data-collection-form method="get" class="filter-bar" role="search" aria-label="Filter images">
     <input type="hidden" name="type" value="image"><input type="hidden" name="view" value="gallery">
     {% if checksum %}<input type="hidden" name="checksum" value="{{ checksum }}">{% endif %}
     {% if selected_person %}<input type="hidden" name="person" value="{{ selected_person.pk }}">{% endif %}
     <div class="field"><label for="image-search">Search images</label><input type="search" id="image-search" name="q" maxlength="200" value="{{ query }}"></div>
     <div class="field"><label for="image-state">State</label><select id="image-state" name="state"><option value="active"{% if state == 'active' %} selected{% endif %}>Active</option><option value="archived"{% if state == 'archived' %} selected{% endif %}>Archived</option><option value="all"{% if state == 'all' %} selected{% endif %}>All images</option></select></div>
     <button class="button button-secondary" type="submit">Apply filters</button>
-    {% if query or state != 'active' or checksum or selected_person %}<a href="?type=image&amp;view=gallery">Clear filters</a>{% endif %}
+    <a data-collection-clear data-other-filters="{% if state != 'active' or checksum or selected_person %}true{% endif %}" href="?type=image&amp;view=gallery"{% if not query and state == 'active' and not checksum and not selected_person %} hidden{% endif %}>Clear filters</a>
   </form>
 </details>
+{% partialdef collection inline %}
+<div data-collection-kind="images" data-collection-count="{{ page_obj.paginator.count }}">
 {% if rows %}
 <p class="muted">{{ page_obj.paginator.count }} image{{ page_obj.paginator.count|pluralize }}</p>
 <ul class="image-gallery" aria-label="Case images">
@@ -41,4 +44,6 @@
 {% else %}
 <div class="empty-state"><h2>No images yet</h2><p>{% if can_edit %}Add a photograph or another image to this case.{% else %}Images appear here when an owner or editor adds them.{% endif %}</p></div>
 {% endif %}
+</div>
+{% endpartialdef %}
 {% endblock %}

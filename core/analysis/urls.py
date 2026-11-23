@@ -28,6 +28,9 @@ urlpatterns = [
     path("processing/", processing.index, name="processing"),
     path("processing/reprocess/", reprocessing_views.reprocess, name="reprocess"),
     path(
+        "processing/retry-failed/", reprocessing_views.retry_failed, name="retry_failed"
+    ),
+    path(
         "processing/<uuid:batch_id>/resume/",
         reprocessing_views.resume,
         name="resume_batch",

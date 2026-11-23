@@ -1012,7 +1012,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     submit.press("Enter")
                     expect(page).not_to_have_url(detail_url)
                     expect(
-                        page.get_by_role("heading", name="Processing 0%")
+                        page.get_by_role("heading", name="Queued", exact=True)
                     ).to_be_visible()
                     self.assertTrue(
                         self.db(
@@ -1126,7 +1126,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     retry.press("Enter")
                     expect(page).not_to_have_url(detail_url)
                     expect(
-                        page.get_by_role("heading", name="Processing 0%")
+                        page.get_by_role("heading", name="Queued", exact=True)
                     ).to_be_visible()
                     retried_id = UUID(page.url.rstrip("/").split("/")[-1])
                     retried = self.db(AnalysisRun.objects.get, pk=retried_id)
@@ -1836,7 +1836,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                     self.capture(page, engine, f"local-analysis-form-{label}")
                 start.press("Enter")
                 expect(
-                    page.get_by_role("heading", name="Processing 0%")
+                    page.get_by_role("heading", name="Queued", exact=True)
                 ).to_be_visible()
                 self.assertFalse(
                     self.db(AnalysisRun.objects.filter(external_processing=True).exists)

@@ -206,6 +206,22 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
     def processing_url(self):
         return reverse("core:analysis:processing", args=[self.case.pk])
 
+    def test_retry_all_failed_requires_current_edit_access_and_post(self):
+        self.retained_run(self.document(), status="failed")
+        url = reverse("core:analysis:retry_failed", args=[self.case.pk])
+        submission = {"submission_id": str(uuid4())}
+        for role, expected in (("viewer", 403), ("outsider", 404)):
+            with self.subTest(role=role):
+                self.login(role)
+                self.assertEqual(
+                    self.client.post(url, submission).status_code, expected
+                )
+        self.login("editor")
+        self.assertEqual(self.client.get(url).status_code, 405)
+        CaseMembership.objects.get(case=self.case, user=self.users["editor"]).delete()
+        self.assertEqual(self.client.post(url, submission).status_code, 404)
+        self.assertFalse(CaseAnalysisBatch.objects.filter(case=self.case).exists())
+
     def retained_run(self, source, *, kind="document", **overrides):
         values = {
             "case": source.case,

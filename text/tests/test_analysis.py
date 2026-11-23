@@ -418,18 +418,14 @@ class TextAnalysisTests(SimpleTestCase):
         self.assertEqual(empty["outcome"], "insufficient")
         self.assertEqual(empty["items"], [])
 
-    def test_rejected_topics_retain_keywords_without_publishing_any_suggestions(self):
+    def test_entirely_rejected_topics_retain_keywords(self):
         original = source("Harbour harbour delivery.")
-        valid = {
+        invalid = {
             "kind": "Topic",
-            "text": "Harbour delivery",
-            "citations": [{"source_id": original.id, "quote": "Harbour"}],
-        }
-        invalid = valid | {
             "text": "Unverified suggestion",
             "citations": [{"source_id": original.id, "quote": "Absent quotation"}],
         }
-        for response in ({"items": [valid, invalid]}, {"items": "invalid"}):
+        for response in ({"items": [invalid]}, {"items": "invalid"}):
             with self.subTest(response=response):
                 result = text_topics([original], {}, infer=Mock(return_value=response))
                 self.assertEqual(result["outcome"], "partial")
@@ -450,12 +446,13 @@ class TextAnalysisTests(SimpleTestCase):
         self.assertNotIn("private provider diagnostic", str(result))
 
     def test_topic_input_limit_retains_bounded_keywords_without_inference(self):
-        original = source("harbour " * 8001)
+        original = source("harbour " * 16001)
         infer = Mock()
         result = text_topics([original], {}, infer=infer)
         infer.assert_not_called()
         self.assertEqual(result["outcome"], "partial")
         self.assertEqual(result["items"], keywords([original], {})["items"])
+        self.assertIn(error_message("model_content_limit"), result["warnings"])
         with self.assertRaises(ValidationError):
             text_topics([source("harbour " * 125001)], {}, infer=infer)
 
@@ -523,7 +520,7 @@ class TextAnalysisTests(SimpleTestCase):
         for citation in (
             {"source_id": "other", "quote": "I will"},
             {"source_id": original.id, "quote": "I never said this"},
-            {"source_id": original.id, "quote": "I will", "start": 4},
+            {"source_id": original.id, "quote": "I will", "start": True},
         ):
             with self.subTest(citation=citation), self.assertRaises(ValidationError):
                 content_events(
@@ -589,26 +586,50 @@ class TextAnalysisTests(SimpleTestCase):
             content_events([original, other], {}, infer=infer)["outcome"], "empty"
         )
 
-    def test_unique_unicode_quote_is_anchored_without_model_offsets(self):
+    def test_unique_unicode_quote_is_anchored_without_a_correct_model_offset(self):
         original = source("🙂 The gate’s closed.\nTry tomorrow.")
         quote = "The gate’s closed."
-        result = content_events(
-            [original],
-            {},
-            infer=lambda prompt, schema: {
-                "items": [
-                    {
-                        "kind": "cancellation",
-                        "text": "The reported sender says the gate is closed.",
-                        "citations": [{"source_id": original.id, "quote": quote}],
-                    }
-                ]
-            },
-        )
-        self.assertEqual(
-            result["items"][0]["anchors"],
-            [original.anchor(start=2, end=2 + len(quote))],
-        )
+        for offset in (None, 0, 3):
+            with self.subTest(offset=offset):
+                result = content_events(
+                    [original],
+                    {},
+                    infer=lambda prompt, schema, offset=offset: {
+                        "items": [
+                            {
+                                "kind": "cancellation",
+                                "text": "The reported sender says the gate is closed.",
+                                "citations": [
+                                    {
+                                        "source_id": original.id,
+                                        "quote": quote,
+                                        "start": offset,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                )
+                self.assertEqual(
+                    result["items"][0]["anchors"],
+                    [original.anchor(start=2, end=2 + len(quote))],
+                )
+
+    def test_topics_and_claims_allow_up_to_128000_selected_characters(self):
+        for analyze in (text_topics, content_events):
+            with self.subTest(analyze=analyze.__name__):
+                exact = source("x" * 128_000)
+                parameters = {"_suggestions_only": True}
+                infer = Mock(return_value={"items": []})
+                result = analyze([exact], parameters, infer=infer)
+                self.assertEqual(result["metrics"]["characters"], 128_000)
+                self.assertEqual(result["metrics"]["method"], "cited-content-v2")
+                self.assertIn(exact.text, infer.call_args.args[0])
+                infer.reset_mock()
+                with self.assertRaises(ValidationError) as caught:
+                    analyze([source(exact.text + "x")], parameters, infer=infer)
+                self.assertEqual(caught.exception.code, "model_content_limit")
+                infer.assert_not_called()
 
     def test_model_validation_has_safe_distinct_diagnostic_categories(self):
         original = source("The same reply. The same reply.")
@@ -667,7 +688,7 @@ class TextAnalysisTests(SimpleTestCase):
             self.assertEqual(caught.exception.code, code)
 
     def test_model_repeated_quote_needs_offset_and_missing_content_is_explicit(self):
-        original = source("yes yes")
+        original = source("yes yes aaa")
         suggestion = {
             "kind": "claim",
             "text": "Candidate",
@@ -675,6 +696,12 @@ class TextAnalysisTests(SimpleTestCase):
         }
         with self.assertRaises(ValidationError):
             content_events([original], {}, infer=lambda p, s: {"items": [suggestion]})
+        overlapping = suggestion | {
+            "citations": [{"source_id": original.id, "quote": "aa"}]
+        }
+        with self.assertRaises(ValidationError) as caught:
+            content_events([original], {}, infer=lambda p, s: {"items": [overlapping]})
+        self.assertEqual(caught.exception.code, "model_quote_offset_required")
         suggestion["citations"][0]["start"] = 4
         self.assertEqual(
             content_events([original], {}, infer=lambda p, s: {"items": [suggestion]})[

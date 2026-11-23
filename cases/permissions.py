@@ -28,7 +28,7 @@ def get_case(user, case_id, *, edit=False, owner=False, lock=False):
     """Lock only inside a transaction; inaccessible UUIDs remain undisclosed."""
     if not user.is_authenticated or not user.is_active:
         raise Http404("Case not found.")
-    queryset = Case.objects.select_related("owner")
+    queryset = Case.objects.select_related("owner", "activity")
     if lock:
         queryset = queryset.select_for_update(of=("self",))
     try:
@@ -49,6 +49,7 @@ def case_context(case, user):
     role = case_role(case, user)
     return {
         "case": case,
+        "case_activity_versions": case.activity.versions(),
         "case_role": role,
         "can_edit": role in ("owner", "editor"),
         "is_owner": role == "owner",

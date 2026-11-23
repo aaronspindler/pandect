@@ -32,6 +32,7 @@ from core.evidence.types import KINDS
 from geo.models import PointOfInterest
 from socialmedia import instagram_connector, monitor_jobs
 from socialmedia.models import SocialAccount
+from ui.live import render_live
 
 from .forms import (
     CaseAIBackendForm,
@@ -108,10 +109,11 @@ def case_list(request):
     page = Paginator(
         queryset.order_by("-updated_at", "-created_at", "pk"), 25
     ).get_page(request.GET.get("page"))
-    return render(
+    return render_live(
         request,
         "cases/list.html",
         {"page_obj": page, "query": query, "ownership": ownership},
+        collection=True,
     )
 
 

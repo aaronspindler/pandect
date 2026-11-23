@@ -8,21 +8,19 @@ from traceback import walk_tb
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
-from core.analysis.errors import ERROR_MESSAGES
+from core.analysis.errors import ERROR_MESSAGES, MODEL_VALIDATION_MESSAGES
 from core.analysis.operations import OPERATIONS
 
 logger = logging.getLogger("core.analysis.failures")
 
-MODEL_VALIDATION_CODES = frozenset(
-    {
-        "model_result_structure",
-        "model_suggestion_citations",
-        "model_citation_structure",
-        "model_citation_source",
-        "model_quote_offset_required",
-        "model_quote_mismatch",
-    }
-)
+
+def model_validation_code(error):
+    if not isinstance(error, ValidationError):
+        return None
+    code = getattr(error, "code", None)
+    if isinstance(code, str) and code in MODEL_VALIDATION_MESSAGES:
+        return code
+    return None
 
 
 def log_analysis_failure(run, error, code, stage):
@@ -42,13 +40,7 @@ def log_analysis_failure(run, error, code, stage):
         if not function.isidentifier():
             function = "anonymous"
         locations.append(f"{'.'.join(parts)[:200]}:{function[:80]}:{line}")
-    validation_code = getattr(error, "code", None)
-    if (
-        not isinstance(error, ValidationError)
-        or not isinstance(validation_code, str)
-        or validation_code not in MODEL_VALIDATION_CODES
-    ):
-        validation_code = "none"
+    validation_code = model_validation_code(error) or "none"
     exception_type = type(error).__name__
     if not exception_type.isidentifier():
         exception_type = "Exception"

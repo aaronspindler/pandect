@@ -1,16 +1,19 @@
 {% extends "ui/base.html" %}
 {% block title %}Vehicles · {{ case }}{% endblock %}
+{% block extra_js %}{% include 'ui/components/collection_script.html' %}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div><h1>Vehicles</h1></div>
-  {% if can_edit and page_obj.object_list or can_edit and query %}<div class="actions"><a class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
+  {% if can_edit and page_obj.object_list or can_edit and query %}<div class="actions"><a data-collection-context class="button button-primary" href="{% url 'vehicle:create' case_id=case.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Add vehicle</a><a class="record-link" href="{% url 'geo:vehicle_import_upload' case_id=case.pk %}">Import vehicle locations</a></div>{% endif %}
 </div>
 {% if page_obj.object_list or query %}
-<form class="search-form" method="get" role="search" aria-label="Search vehicles">
+<form data-collection-form class="search-form" method="get" role="search" aria-label="Search vehicles">
   <label for="vehicles-search">Search vehicles</label>
-  <div class="actions"><input id="vehicles-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Make, model, year, plate, VIN, or color"><button class="button button-secondary" type="submit">Search</button>{% if query %}<a class="button button-secondary" href="{% url 'vehicle:list' case_id=case.pk %}">Clear filters</a>{% endif %}</div>
+  <div class="actions"><input id="vehicles-search" name="q" type="search" value="{{ query }}" maxlength="200" placeholder="Make, model, year, plate, VIN, or color"><button class="button button-secondary" type="submit">Search</button><a data-collection-clear class="button button-secondary" href="{% url 'vehicle:list' case_id=case.pk %}"{% if not query %} hidden{% endif %}>Clear filters</a></div>
 </form>
 {% endif %}
+{% partialdef collection inline %}
+<div data-collection-kind="vehicles" data-collection-count="{{ page_obj.paginator.count }}">
 {% if page_obj.object_list %}
 <p class="result-count secondary">{{ page_obj.paginator.count }} vehicle{{ page_obj.paginator.count|pluralize }}</p>
 <div class="record-list" aria-label="Vehicles in {{ case }}">
@@ -34,4 +37,6 @@
   {% endif %}
 </section>
 {% endif %}
+</div>
+{% endpartialdef %}
 {% endblock %}

@@ -13,13 +13,32 @@
   <a href="?tab=instances{% if list_page > 1 %}&amp;list_page={{ list_page }}{% endif %}"{% if instances_tab %} aria-current="page"{% endif %}>Sessions &amp; summaries</a>
 </nav>
 {% if page_obj.object_list %}
+<div class="conversation-reader-tools">
+{% if not instances_tab %}
+<form method="get" action="{{ request.path }}#conversation-search-result" class="conversation-search-form">
+  {% if list_page > 1 %}<input type="hidden" name="list_page" value="{{ list_page }}">{% endif %}
+  {% if request.GET.weak == '1' %}<input type="hidden" name="weak" value="1">{% endif %}
+  <div class="conversation-tool-controls">
+    <div class="field">
+      <label for="{{ search_form.q.id_for_label }}">{{ search_form.q.label }}</label>
+      {{ search_form.q }}
+    </div>
+    <button class="button button-secondary" type="submit">Search</button>
+  </div>
+  {% if search_form.q.errors %}
+  <div id="conversation-search-result" tabindex="-1">{{ search_form.q.errors }}</div>
+  {% elif search_query and not match_in_page %}
+  {% include 'phone/conversation_matches.html' %}
+  {% endif %}
+</form>
+{% endif %}
 <form method="get" action="{{ request.path }}#conversation-day-result" class="conversation-day-form"{% if not day_message %} id="conversation-day-result" tabindex="-1"{% endif %}>
   {% if instances_tab %}<input type="hidden" name="tab" value="instances">{% endif %}
   {% if list_page > 1 %}<input type="hidden" name="list_page" value="{{ list_page }}">{% endif %}
   {% if not instances_tab and request.GET.weak == '1' %}<input type="hidden" name="weak" value="1">{% endif %}
   {% if page_obj.number > 1 %}<input type="hidden" name="page" value="{{ page_obj.number }}">{% endif %}
   {% get_current_timezone as display_timezone %}
-  <div class="conversation-day-controls">
+  <div class="conversation-tool-controls">
     <div class="field">
       <label for="{{ day_form.day.id_for_label }}">Jump to date <span class="muted">({{ display_timezone }})</span></label>
       {{ day_form.day }}
@@ -29,6 +48,7 @@
   {{ day_form.day.errors }}
   {% if day_not_found %}<p class="muted" role="status">{% if instances_tab %}No saved sessions contain messages on that date.{% else %}No messages were recorded on that date.{% endif %}</p>{% endif %}
 </form>
+</div>
 {% endif %}
 {% if instances_tab %}
   {% include 'phone/conversation_instances.html' %}

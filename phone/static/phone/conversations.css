@@ -4,11 +4,14 @@
 .conversation-tabs { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1rem; border-bottom:1px solid var(--divider); }
 .conversation-tabs a { display:inline-flex; align-items:center; min-height:44px; padding:.5rem .75rem; }
 .conversation-tabs [aria-current] { color:var(--text); border-bottom:3px solid var(--accent); font-weight:600; text-decoration:none; }
-.conversation-day-form { margin-bottom:1rem; }
-.conversation-day-controls { display:flex; flex-wrap:wrap; align-items:end; gap:.5rem; }
-.conversation-day-controls .field { margin:0; }
+.conversation-reader-tools { display:flex; flex-wrap:wrap; align-items:start; gap:.75rem 1.5rem; margin-bottom:1rem; }
+.conversation-tool-controls { display:flex; flex-wrap:wrap; align-items:end; gap:.5rem; }
+.conversation-tool-controls .field { margin:0; }
 .conversation-day-form p { margin:.5rem 0 0; }
-#conversation-day-result { scroll-margin:1rem; }
+.conversation-matches { display:flex; flex-wrap:wrap; align-items:center; gap:0 .75rem; }
+.conversation-matches .record-link { margin:0; }
+#conversation-day-result,#conversation-search-result { scroll-margin:1rem; }
+.conversation-message #conversation-search-result { scroll-margin-block-start:min(10rem,20dvh); }
 .conversation-instances,.instance-message-list { padding:0; margin:0; list-style:none; }
 .conversation-instance { padding:1rem 0; border-top:1px solid var(--divider); overflow-wrap:anywhere; scroll-margin:1rem; }
 .conversation-instance h3,.instance-message-meta { font-size:.875rem; color:var(--secondary); }
@@ -60,6 +63,7 @@
 .conversation-select { position:absolute; inset:.0625rem .0625rem auto auto; width:44px; height:44px; display:grid; place-items:center; border-radius:var(--radius); }
 .conversation-select .icon { width:16px; height:16px; }
 .conversation-message-body { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.5; cursor:text; }
+.conversation-message-body mark { background:var(--selected); color:var(--text); text-decoration:underline; }
 .conversation-bubble .conversation-message-body { margin-inline-end:1.75rem; }
 .conversation-message-source { display:block; font-size:.875rem; margin-top:.25rem; color:var(--secondary); }
 .conversation-analysis { min-width:0; overflow-wrap:anywhere; scroll-margin:1rem; }

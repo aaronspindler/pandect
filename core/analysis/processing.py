@@ -1,6 +1,6 @@
 """Current case work and retained processing history, separate from queue rows."""
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.core.paginator import Paginator
 from django.db.models import Count, Exists, F, OuterRef, Q
@@ -13,6 +13,7 @@ from core.analysis.errors import error_message
 from core.analysis.navigation import history_filters, query_suffix
 from core.analysis.operations import OPERATION_GROUPS, OPERATIONS
 from core.analysis.reprocessing import MODE_LABELS
+from core.analysis.retries import failed_checks, latest_failed_retry
 from core.case_search.indexing import search_index_status
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS, KINDS
@@ -29,6 +30,19 @@ ACTIVE_TRIPS = Q(status__in=ACTIVE_RUNS) | Q(
     status="complete", geocode_status__in=ACTIVE_RUNS
 )
 NEEDS_ATTENTION_LIMIT = 3
+
+
+def case_imports(case):
+    return VehicleLocationImport.objects.filter(case=case, document__case=case)
+
+
+def case_trip_generations(case):
+    return VehicleTripGeneration.objects.filter(
+        case=case,
+        vehicle__case=case,
+        state__case=case,
+        state__vehicle_id=F("vehicle_id"),
+    )
 
 
 def _analysis_run_counts(case_runs):
@@ -170,6 +184,7 @@ def index(request, case_id):
             scope__people=OuterRef("scope__people"),
             scope__instances=OuterRef("scope__instances"),
         )
+        | Q(scope__type="failed_retries", scope__type__exact=OuterRef("scope__type"))
     )
     failed_batches = list(
         all_batches.filter(status="failed")
@@ -177,9 +192,7 @@ def index(request, case_id):
         .exclude(pk=batch.pk if batch else None)
         .only("scope", "created_at")[: NEEDS_ATTENTION_LIMIT + 1]
     )
-    imports = VehicleLocationImport.objects.filter(
-        case=case, document__case=case
-    ).select_related("document")
+    imports = case_imports(case).select_related("document")
     imports = imports.only(
         "id",
         "document__title",
@@ -203,12 +216,7 @@ def index(request, case_id):
         25,
     ).get_page(request.GET.get("imports_page"))
     trip_generations = (
-        VehicleTripGeneration.objects.filter(
-            case=case,
-            vehicle__case=case,
-            state__case=case,
-            state__vehicle_id=F("vehicle_id"),
-        )
+        case_trip_generations(case)
         .select_related("vehicle")
         .defer("cursor", "carry", "metrics")
     )
@@ -227,6 +235,15 @@ def index(request, case_id):
     search_index = search_index_status(case)
     search_pending = search_index["status"] in ("queued", "running")
     context = case_context(case, request.user)
+    retry_submission = retry_after = None
+    if context["can_edit"] and failed_checks(case).exists():
+        latest_retry = latest_failed_retry(case)
+        if (
+            latest_retry is None
+            or latest_retry.status != CaseAnalysisBatch.Status.QUEUED
+        ):
+            retry_submission = uuid4()
+            retry_after = latest_retry.pk if latest_retry else None
     instagram_checks = (
         InstagramCheck.objects.filter(monitor__case=case)
         .select_related("monitor")
@@ -258,6 +275,8 @@ def index(request, case_id):
             "failed_checks": case_runs.filter(status="failed")
             .filter(~Exists(followups))
             .exists(),
+            "retry_submission": retry_submission,
+            "retry_after": retry_after,
             "failed_batches": failed_batches[:NEEDS_ATTENTION_LIMIT],
             "more_failed_batches": len(failed_batches) > NEEDS_ATTENTION_LIMIT,
             "failed_imports": failed_imports[:NEEDS_ATTENTION_LIMIT],

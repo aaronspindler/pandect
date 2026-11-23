@@ -48,7 +48,7 @@ def vehicle_list(request, case_id):
             search |= Q(year=int(query))
         vehicles = vehicles.filter(search)
     page = Paginator(vehicles, 25).get_page(request.GET.get("page"))
-    return render(
+    return render_live(
         request,
         "vehicle/list.html",
         {
@@ -58,6 +58,7 @@ def vehicle_list(request, case_id):
             "search_query": urlencode({"q": query}) if query else "",
             "list_query": list_query(request),
         },
+        collection=True,
     )
 
 

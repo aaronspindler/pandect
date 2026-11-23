@@ -1,12 +1,13 @@
 {% extends "ui/base.html" %}
 {% block title %}All cases{% endblock %}
+{% block extra_js %}{% include 'ui/components/collection_script.html' %}{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>All cases</h1>
   {% if page_obj.object_list or query or ownership != 'all' %}<a class="button button-primary" href="{% url 'cases:case_create' %}">Create case</a>{% endif %}
 </div>
 {% if page_obj.object_list or query or ownership != 'all' %}
-<form method="get" class="filter-bar" role="search" aria-label="Search cases">
+<form data-collection-form method="get" class="filter-bar" role="search" aria-label="Search cases">
   <div class="field">
 <label for="case-query">Search cases</label>
 <input id="case-query" type="search" name="q" value="{{ query }}" maxlength="200" placeholder="Search by name or description">
@@ -22,11 +23,11 @@
     </div>
   </details>
   <button class="button" type="submit">Search</button>
-  {% if query or ownership != 'all' %}
-<a class="button button-secondary" href="{% url 'cases:case_list' %}">Clear filters</a>
-{% endif %}
+  <a data-collection-clear data-other-filters="{% if ownership != 'all' %}true{% endif %}" class="button button-secondary" href="{% url 'cases:case_list' %}"{% if not query and ownership == 'all' %} hidden{% endif %}>Clear filters</a>
 </form>
 {% endif %}
+{% partialdef collection inline %}
+<div data-collection-kind="cases" data-collection-count="{{ page_obj.paginator.count }}">
 {% if page_obj %}
 <p class="result-count muted">{{ page_obj.paginator.count }} case{{ page_obj.paginator.count|pluralize }}</p>
 <div class="record-list">
@@ -59,4 +60,6 @@
 {% endif %}
 </div>
 {% endif %}
+</div>
+{% endpartialdef %}
 {% endblock %}

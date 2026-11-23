@@ -38,13 +38,14 @@ pairs through the same content path. Keyword and topic output is a saved report.
 Metadata-only calls provide no speech.
 
 Model requests send only selected text and require exact source quotations.
-Absent/unknown/ambiguous repeated quotes or invalid offsets are rejected. Valid
-anchors do not establish interpretation accuracy: negation, sarcasm, hearsay, quotation, relative
-dates, missing exchanges, conflicts and planned/completed actions need review.
-Requests allow 64,000 characters and 100 suggestions; local runtime token budgets
-also apply without truncation. Missing text is insufficient; unavailable inference
-fails recoverably. Private inference is the default. Review and approve the
-configured destination to use [external AI](analysis.md#external-ai-configuration).
+An exact quote that appears once in its cited source can be located without a
+model-supplied offset. An ambiguous repeated quote needs the correct offset.
+Review negation, sarcasm, hearsay, quotation, relative dates, missing exchanges,
+conflicts and planned/completed actions in the originals.
+Topic and claim requests allow up to 128,000 selected characters and 100
+suggestions. Runtime context and request limits also apply without truncation.
+Missing text is insufficient. Private inference is the default. Review and
+approve the configured destination to use [external AI](analysis.md#external-ai-configuration).
 
 ## Compare a claim
 
@@ -120,11 +121,14 @@ Shared cited model processing supplies the model with the same limits enforced
 on its response: at most 100 suggestions, 1–10 citations per suggestion, and
 4,000 characters per suggestion or quotation. Citation source IDs must come from
 the selected inputs. Quotations must copy contiguous source text exactly,
-including punctuation, whitespace and Unicode characters. Unique quotations are
-located locally; repeated quotations require an exact zero-based character
-offset. Unsupported source references or quotations prevent model suggestions
-from publishing. Claims, links and session summaries stop without a result;
-keyword/topic analysis can retain its independent keyword results.
+including punctuation, whitespace and Unicode characters. For topics and claims,
+Pandect can correct an offset when the quotation occurs exactly once in its
+cited source. If a suggestion has an invalid citation, the entire suggestion is
+omitted. When other suggestions can be verified, the result is marked partial
+and counts the omissions. If all are rejected, claim analysis fails and topic
+analysis can still retain its independently calculated keywords. Links and
+session summaries stop on any invalid citation. Cross-channel links allow up to
+64,000 characters. Session summaries use the smaller chunks described below.
 [Safe worker diagnostics](background-tasks.md#failure-inspection-and-recovery)
 identify the rejected category without retaining source text or model responses.
 

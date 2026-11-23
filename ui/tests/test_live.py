@@ -127,3 +127,31 @@ class LiveFragmentTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(failed, 'data-live-poll="false"')
         self.assertContains(failed, "Processing could not finish")
         self.assertEqual(AnalysisRun.objects.count(), 2)
+
+    def test_old_running_checks_show_indeterminate_progress_across_case_pages(self):
+        self.login("viewer")
+        AnalysisRun.objects.filter(pk__in=(self.run.pk, self.preview.pk)).update(
+            status="running", progress=10, started_at=self.run.created_at
+        )
+        for url in (*self.urls[:3], self.urls[4]):
+            with self.subTest(url=url):
+                response = self.client.get(url, HTTP_X_PANDECT_LIVE="1")
+                self.assertContains(response, "Running analysis")
+                self.assertContains(response, "Started <time")
+                self.assertNotContains(response, "10%")
+                if url in (self.urls[1], self.urls[4]):
+                    self.assertContains(
+                        response,
+                        '<progress class="work-progress" '
+                        'aria-label="Running analysis"></progress>',
+                        html=True,
+                    )
+
+    def test_processing_shows_measured_import_rows_before_the_total_is_known(self):
+        self.login("viewer")
+        self.batch.status = "running"
+        self.batch.processed_rows = 12
+        self.batch.save(update_fields=["status", "processed_rows"])
+        self.assertContains(
+            self.client.get(self.urls[0], HTTP_X_PANDECT_LIVE="1"), "12 rows processed"
+        )

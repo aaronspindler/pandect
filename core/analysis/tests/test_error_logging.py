@@ -118,10 +118,10 @@ class ProcessingFailureLoggingTests(EvidenceViewTestMixin, TestCase):
             ),
             self.assertLogs("core.analysis.failures", level="ERROR") as logs,
         ):
-            self.assertEqual(process_run(str(run.pk)), "processing_failed")
+            self.assertEqual(process_run(str(run.pk)), "model_citation_source")
         run.refresh_from_db()
         self.assertEqual(run.status, "failed")
-        self.assertEqual(run.error_code, "processing_failed")
+        self.assertEqual(run.error_code, "model_citation_source")
         self.assertIsNotNone(run.finished_at)
         self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
         self.assertIn("stage=analysis", logs.records[0].getMessage())

@@ -69,7 +69,12 @@ def resume_case_analysis(actor, case_id, batch_id):
 def start_case_analysis(actor, case_id, *, submission_id, scope=None):
     case = get_case(actor, case_id, edit=True, lock=True)
     scope = scope or {}
-    if scope and scope.get("type") not in {"added", "reprocess", "instance_summaries"}:
+    if scope and scope.get("type") not in {
+        "added",
+        "reprocess",
+        "instance_summaries",
+        "failed_retries",
+    }:
         from core.analysis.import_checks import imported_sources
 
         if not imported_sources(case, scope)[1].exists():
@@ -243,6 +248,10 @@ def prepare_case_analysis_batch(batch_id):
                 from phone.instance_summaries import prepare_instance_summaries
 
                 has_more = prepare_instance_summaries(batch, case)
+            elif scope_type == "failed_retries":
+                from core.analysis.retries import prepare_failed_retries
+
+                has_more = prepare_failed_retries(batch, case)
             elif scope_type == "reprocess":
                 from core.analysis.reprocessing import prepare_reprocessing
 

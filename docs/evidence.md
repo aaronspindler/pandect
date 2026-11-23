@@ -80,8 +80,10 @@ files stay saved.
 
 **Filter evidence** matches titles, descriptions, source details/URLs, filenames, location
 addresses, and linked people/contacts, with type, explicit person, and Active/
-Archived/All filters. Person filters include person locations and communication
-sender/recipient links with role labels, never inferred name/contact matches.
+Archived/All filters. The filter controls appear directly above the list when
+there is room and under **Filters** in narrow layouts. Person filters include
+person locations and communication sender/recipient links with role labels,
+never inferred name/contact matches.
 Invalid/foreign person filters are rejected. Reader navigation retains filters;
 collections paginate at 25. The record title opens the original reader. Matches
 in extracted findings or supplied transcripts include a separate link to the
@@ -180,6 +182,13 @@ at a time, oldest first. Linked-message readers can load earlier messages upward
 without moving the current position. Unknown times sort last; UUID ties imply no
 event order. Earlier/later links work by keyboard, without JavaScript, or after
 loading failure. Every batch checks current access.
+
+Use **Search messages** on the **Messages** tab to find a word or exact phrase
+in the full conversation, including archived messages. Search ignores letter
+case and counts each matching timeline row once. **Previous match** and **Next
+match** jump between highlighted messages in the chronological transcript. You
+can read the surrounding messages and scroll to earlier or later pages as usual.
+**Clear search** keeps your place in the transcript.
 
 Use **Jump to date** on either tab to go to the first recorded message on that
 day in the reader's display timezone. In **Sessions & summaries**, Pandect opens

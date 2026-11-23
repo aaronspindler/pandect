@@ -20,7 +20,12 @@
   {% if source_error %}<p class="notice" role="alert">{{ source_error }}</p>{% endif %}
   {% if final and form.errors %}{% include 'ui/components/form_errors.html' with form=form %}{% endif %}
   {% if run.status == 'queued' or run.status == 'running' %}
-    <section aria-labelledby="import-progress-heading"><h2 id="import-progress-heading">{% if final %}Importing messages{% else %}Preparing message review{% endif %}</h2><p role="status">{{ run.get_status_display }}</p><progress class="work-progress" value="{{ run.progress }}" max="100" aria-label="Message import progress">{{ run.progress }}%</progress><p>You can return later while processing continues.</p></section>
+    <section aria-labelledby="import-progress-heading">
+      <h2 id="import-progress-heading">{% if final %}Importing messages{% else %}Preparing message review{% endif %}</h2>
+      <p role="status">{{ run.progress_label }}</p>
+      {% include 'core/analysis/run_progress.html' %}
+      <p>You can return later while processing continues.</p>
+    </section>
   {% elif run.status == 'failed' or run.status == 'cancelled' or run.status == 'unsupported' %}
     <p class="notice" role="alert">{{ processing_error|default:'This CSV could not be imported with the selected interpretation.' }} The original remains retained.</p>
     <p><a href="{{ processing_details_url }}">Open processing details and recovery</a></p>

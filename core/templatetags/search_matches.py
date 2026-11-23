@@ -9,6 +9,19 @@ register = template.Library()
 
 
 @register.filter
+def highlight_first_match(value, term):
+    """Mark one occurrence without expanding large originals into repeated markup."""
+    if not value or not term:
+        return value
+    match = re.search(re.escape(term), value, flags=re.IGNORECASE)
+    if match is None:
+        return value
+    return format_html(
+        "{}<mark>{}</mark>{}", value[: match.start()], match[0], value[match.end() :]
+    )
+
+
+@register.filter
 def highlight_matches(value, terms):
     if not value or not terms:
         return value

@@ -7,7 +7,30 @@ class AnalysisError(Exception):
         super().__init__(code)
 
 
+MODEL_CITATION_FAILURE = (
+    "The AI suggestions did not have verifiable source citations. "
+    "Try again or choose fewer sources."
+)
+
+MODEL_VALIDATION_MESSAGES = {
+    "model_content_limit": (
+        "The selected text exceeds the limit for this analysis. Choose fewer "
+        "or shorter sources."
+    ),
+    "model_result_structure": (
+        "The AI response did not have the expected format. Try again or choose "
+        "fewer sources."
+    ),
+    "model_suggestion_citations": MODEL_CITATION_FAILURE,
+    "model_citation_structure": MODEL_CITATION_FAILURE,
+    "model_citation_source": MODEL_CITATION_FAILURE,
+    "model_quote_offset_required": MODEL_CITATION_FAILURE,
+    "model_quote_mismatch": MODEL_CITATION_FAILURE,
+}
+
+
 ERROR_MESSAGES = {
+    **MODEL_VALIDATION_MESSAGES,
     "imessage_invalid_format": (
         "This file does not match a supported message CSV profile. "
         "Use an 18-column iMessage or 15-column WhatsApp UTF-8 CSV."
@@ -41,6 +64,11 @@ ERROR_MESSAGES = {
     "retry_approval_required": (
         "Ask the case owner to review external analysis in Case settings, "
         "then start another run."
+    ),
+    "original_route_unavailable": "The service for this run is unavailable.",
+    "retry_external_route_unavailable": (
+        "The external service is unavailable or needs current case approval. "
+        "Review External analysis in Case settings."
     ),
     "plate_image_required": "Choose one original JPEG or PNG image for plate search.",
     "plate_detector_unavailable": (

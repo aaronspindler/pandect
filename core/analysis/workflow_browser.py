@@ -3,6 +3,7 @@
 import re
 from datetime import UTC, datetime
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from django.test import override_settings
@@ -11,6 +12,7 @@ from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
 from core.analysis.sources import source_id
@@ -701,6 +703,68 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("heading", name="Sunday, 15 November 2026")
                 ).to_be_visible()
+
+    def test_retry_all_failed_checks_with_keyboard_and_no_javascript(self):
+        url = self.url("core:analysis:processing", case_id=self.case.pk)
+        for engine in self.engines:
+            prior, _ = start_run(
+                self.owner,
+                self.case.pk,
+                "entities",
+                [{"kind": "text", "id": str(self.note.pk)}],
+                batch=self.batch,
+            )
+            AnalysisRun.objects.filter(pk=prior.pk).update(
+                status=AnalysisRun.Status.FAILED
+            )
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page, self.viewer)
+                page.goto(url)
+                expect(
+                    page.get_by_role("link", name="Review failed checks")
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("button", name="Retry all failed checks")
+                ).to_have_count(0)
+
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                retry = page.get_by_role("button", name="Retry all failed checks")
+                self.sign_in(page)
+                page.goto(url + "?status=failed#processing-history")
+                attention = page.get_by_role("region", name="Needs attention")
+                self.capture_layouts(
+                    page, engine, "retry-failed-checks", section=attention
+                )
+                self.assertGreaterEqual(retry.bounding_box()["height"], 44)
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                retry.focus()
+                expect(retry).to_be_focused()
+                self.capture(page, engine, "retry-failed-checks-dark-focus")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "retry-failed-checks-forced-colors")
+                retry.press("Enter")
+                expect(
+                    page.get_by_text("Failed check retries requested.")
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("Retries are being queued", exact=True)
+                ).to_be_visible()
+                expect(retry).to_have_count(0)
+                batch_id = parse_qs(urlsplit(page.url).query)["batch"][0]
+                self.db(prepare_case_analysis_batch, UUID(batch_id))
+                page.reload()
+                expect(page.locator("#processing-history")).to_contain_text(
+                    "1 reviewed · 1 queued"
+                )
+                expect(retry).to_have_count(0)
+                retried = self.db(AnalysisRun.objects.get, previous_run=prior)
+                self.assertEqual(retried.batch_id, self.batch.pk)
 
     def test_processing_analysis_run_breakdown_without_javascript(self):
         saved_runs = {

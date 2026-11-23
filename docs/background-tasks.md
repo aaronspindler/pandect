@@ -32,10 +32,24 @@ the execution snapshot before each step.
 
 **Processing** separates active work/history and preparation/execution.
 **Checks queued** means preparation finished; runs/follow-ups may still be active.
+An individual check shows **Queued**, **Checking sources**, **Running analysis**,
+or **Saving results**. Running checks show their start time. The progress bar is
+indeterminate while the worker runs a method or saves its result. The outcome
+appears once publication commits. Imports and batch preparation show measured
+row, source, or check counts as they become available.
 **Needs attention** links to stopped preparation, vehicle imports, and current
 trip or address preparation failures. Batch details lead to a new request or the
 existing import review when one is available. Earlier attempts remain inspectable
 in history.
+
+**Retry all failed checks** lets a case owner or editor request new attempts
+across all pages of failed check history. Retry preparation runs in the background
+and reports how many checks were reviewed, queued, or could not be retried.
+Checks with a newer attempt are skipped. Each retry keeps its original selection
+and uses the current service for its original processing backend. Preparation
+rechecks edit access, source versions, and case approval. Resolve any blockers
+and use the same action to retry checks still in need of attention.
+
 New runs carry explicit parent-batch references, preserved through retries and
 follow-ups even when another authorized editor retries. Historical membership is
 never guessed. See the [Processing workflow](interface-design.md#case-tools-processing-and-additional-analysis)
@@ -111,9 +125,10 @@ docker compose logs --tail 100 worker
 
 Workers share web's image, configuration and private volume. After migrations/web
 readiness they run `python manage.py db_worker --no-reload`. Compose restarts
-unexpected exits and allows 30 seconds before forced shutdown. Rebuild/restart
-workers after source changes; they do not reload. Hosted deployments apply
-migrations once before starting web/workers.
+unexpected exits. Use [`make run`](development.md#first-run) to rebuild after source
+changes and let each worker finish its active task before replacement. A regular
+`docker compose stop` gives the default worker 30 seconds before forced shutdown.
+Hosted deployments apply migrations once before starting web/workers.
 
 `check_task_worker` enqueues `core.tasks.worker_probe` with a fresh nonce, waits
 for its matching result and prints the task UUID and `OK`. Failure, mismatch,
@@ -160,7 +175,7 @@ count explicit in later scaling commands.
 
 Message-import preparation queues each bounded page's runs before its continuation.
 Parallel workers shorten that wait, but the preparation count can still pause while
-those runs execute. Individual analysis progress remains at 10% until publication.
+those runs execute.
 Before reducing replicas or restarting workers, let active operations finish;
 forced shutdown can leave abandoned running work requiring the recovery below.
 
@@ -194,12 +209,13 @@ list(
 Private worker logs contain task IDs, paths and status. Failed analysis also logs
 its run UUID, known operation, safe error code, execution stage, exception class,
 and at most eight application code locations (module, function and line number).
-Model validation adds one of six fixed categories: result structure, suggestion
-citations, citation structure, citation source, required quotation offset, or
-quotation mismatch. Logs exclude exception messages, source lines, local variables,
-evidence text and model responses. PostgreSQL retains task arguments, results and
-uncaught task exceptions/tracebacks. Protect it and its backups; inspect those
-tracebacks only in trusted sessions and sanitize before sharing.
+Model validation adds a fixed category for input size, result structure,
+suggestion citations, citation structure, citation source, required quotation
+offset, or quotation mismatch. Logs exclude exception messages, source lines,
+local variables, evidence text and model responses. PostgreSQL retains task
+arguments, results and uncaught task exceptions/tracebacks. Protect the database
+and its backups. Inspect tracebacks only in trusted sessions and sanitize before
+sharing.
 
 Analysis tasks can return normally after recording a failed domain run. Use
 the trusted operator shell to compare the saved outcome with recent deliveries:
@@ -211,9 +227,10 @@ docker compose exec web python manage.py check_task_worker --analysis-run RUN_UU
 This read-only command shows the saved status and safe error code plus up to ten
 retained queue deliveries. A `SUCCESSFUL` delivery can accompany a failed
 analysis. `GatewayRequest` records external AI request status,
-byte counts and token usage without response bodies. When a completed request is
-followed by a generic `processing_failed` run, use the safe analysis log to locate
-the later validation or publication failure.
+byte counts and token usage without response bodies. Known model validation
+failures retain their safe error code. When a completed request is followed by
+a generic `processing_failed` run, use the safe analysis log to locate the later
+validation or publication failure.
 Older failures without these diagnostics may have no recoverable
 cause. Keep quotation validation strict. External retries require current case-owner approval for the destination.
 

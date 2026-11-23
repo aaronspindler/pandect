@@ -12,7 +12,14 @@ sync:
 	$(UV) sync --locked
 
 run:
-	docker compose up --build --wait
+	docker compose build
+	@services=$$(docker compose config --services) && \
+	set -- worker && \
+	if printf '%s\n' "$$services" | grep -qx instagram-worker; then \
+		set -- "$$@" instagram-worker; \
+	fi && \
+	docker compose stop --timeout -1 "$$@"
+	docker compose up --no-build --wait
 
 lint:
 	$(RUN) ruff check .

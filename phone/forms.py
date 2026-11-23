@@ -13,6 +13,15 @@ class ConversationDayForm(forms.Form):
     )
 
 
+class ConversationSearchForm(forms.Form):
+    q = forms.CharField(
+        label="Search messages",
+        max_length=200,
+        required=False,
+        widget=forms.SearchInput,
+    )
+
+
 class CommunicationEvidenceForm(EvidenceForm):
     def configure_original_fields(self, kind):
         if self.instance._state.adding:

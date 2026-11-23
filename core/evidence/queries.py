@@ -53,8 +53,10 @@ def duplicate_matches(case, sha256):
     )
 
 
-def get_evidence(case, kind, evidence_id, *, lock=False):
+def get_evidence(case, kind, evidence_id, *, lock=False, identity_only=False):
     queryset = scoped_evidence(case, kind)
+    if identity_only:
+        queryset = queryset.only("pk")
     if lock:
         queryset = queryset.select_for_update(of=("self",))
     try:

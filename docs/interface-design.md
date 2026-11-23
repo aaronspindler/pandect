@@ -37,8 +37,15 @@ their own lists. The case search is a
 GET form. With JavaScript, Ctrl/Cmd+K focuses it and two or more characters
 offer up to six quick matches. Use arrows and Enter to open a record, Escape
 to dismiss the suggestions, or submit the typed query for full results. Quick
-matches look up active records case-wide. The results page applies the submitted
-filters.
+matches look up active records case-wide. **Search all results** opens the full
+keyword search, including when there are no quick matches. The results page
+applies the submitted filters.
+
+All cases, Evidence, Images, Findings, People, and Vehicles filter after a 300 ms
+typing pause. The count, rows, pagination, and URL reflect the accepted query.
+Typing starts on the first page and retains the other applied filters. Filtering
+in a split evidence workspace keeps the selected original open. Search and
+pagination also work as ordinary navigation without JavaScript.
 
 Case search results link to the matching source, highlight literal terms, and
 label dates and source information. **Filters and sorting** provides a
@@ -64,7 +71,7 @@ error links focus the affected control or group.
 | --- | --- |
 | All cases | Searchable owned/shared cases with roles; **Create case**. |
 | Case Tools | Default case home; recent evidence and findings, supporting views, reports, and **Add evidence** for owners/editors. |
-| Evidence | Active records, search and disclosed filters; **Add evidence** for owners/editors. |
+| Evidence | Active records, search and responsive filters; **Add evidence** for owners/editors. |
 | Processing | Pending reviews, active work, retained outcomes, and owner/editor **Reprocess evidence**. |
 | Evidence reader | Original and Findings together; downloads, Info, and authorized More actions beside the title. |
 | Conversations | Reported participant pairs, a unified message history with findings, and saved sessions with summaries and expandable originals. |
@@ -159,9 +166,11 @@ selection and return navigation.
 Visible literal search accepts up to 200 characters across metadata, captured
 text/messages, supplied transcripts, and supported completed extraction. Excerpts
 link to originals/results; [analysis](analysis.md) owns extraction coverage.
-**Filters** holds type and Active/Archived/All with **Apply filters**; reopen
-non-default filters after navigation. Omit repeated ingestion dates from rows;
-retain exact dates in history.
+Show evidence type, related person, and state inline when the collection toolbar
+has room. Use the **Filters** disclosure in narrow panes and reopen it after
+navigation when those choices differ from their defaults. Keep **Apply filters**
+and **Clear filters** next to the fields. Omit repeated ingestion dates from rows
+and retain exact dates in history.
 
 One reader header holds title, concise type/source/collection metadata, archive
 state, and authorized download. Originals and source-linked Findings appear
@@ -282,6 +291,13 @@ for keyboard use, without JavaScript, and as full-page recovery after a failed
 request. Each request uses the same authorized, bounded page route. Browser Back
 preserves the selected record and page. Use ordinary page scrolling at every
 screen size. An empty **Sessions & summaries** view links back to **Messages**.
+
+**Search messages** on the Messages tab searches original message bodies across
+all pages. Show the current match number and **Previous match**, **Next match**,
+and **Clear search** at the target message. Highlight the matching text and keep
+the full chronological transcript available around it. Searches and match links
+work without JavaScript, and earlier/later pages retain the search terms.
+
 See [evidence](evidence.md#reading-conversations) for interpretation limits.
 
 ## Evidence creation and batch uploads
@@ -363,6 +379,8 @@ selected sources. Processing owns progress and recovery.
 
 Processing links directly to **Browse findings** and groups reviews and recovery
 under **Needs attention**, with queued and running work under **In progress**.
+**Retry all failed checks** is a case-wide action for owners and editors.
+The retry request shows preparation status and any checks it could not queue.
 Show up to three current failures for each of batch preparation, vehicle imports,
 and trip/address preparation, with links to recovery and more history.
 **Processing history** opens finished checks and filters for evidence type
@@ -378,15 +396,20 @@ that preparation has queued work. Owner/editor **Analysis actions** includes
 **Choose analysis** and **Reprocess evidence**. Reprocessing uses active evidence,
 preserves earlier results and shows preparation progress.
 
-While work is active, Processing, analysis results, evidence findings/history,
-message and vehicle import reviews, and vehicle trip summaries update their
-changing sections every five seconds with JavaScript. The original reader,
-navigation, filters, URL, and interactive map remain in place. Focused sections
-and edited forms wait for the investigator; open disclosures stay open. Polling
-pauses in hidden tabs and stops when work finishes. Requests time out after 15
-seconds; three consecutive failures pause updates with a manual retry. Session or
-access loss stops updates and offers All cases. **Refresh status** also works
-without JavaScript. Every fragment request repeats the page's current case checks.
+On case pages, the Processing link shows queued and running check counts, or
+**Active** for other background work. Visible tabs check case activity every 30
+seconds while idle, every five seconds with active work, and upon returning to the
+tab. Processing and open progress views refresh their changing sections when
+work changes, including jobs completed between checks. Running checks show
+their worker stage and start time. A determinate bar requires a measured total.
+
+Case Tools, Evidence, Images, Findings, People, and Vehicles offer **Refresh
+results** when their collections change. The investigator chooses when the lists
+update. Open disclosures, focused controls, edited forms, the selected original,
+and the interactive map keep their place during background refreshes. Requests
+time out after 15 seconds and three consecutive failures pause updates with a
+manual retry. Access loss stops updates and offers **All cases**. **Refresh
+status** opens the current page without JavaScript.
 
 **Reprocess evidence** opens a dedicated screen. Native checkboxes select
 multiple active evidence types with counts. Invalid submissions retain choices

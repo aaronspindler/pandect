@@ -728,23 +728,37 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 page.get_by_role("navigation", name="Investigation").get_by_role(
                     "link", name="Evidence", exact=True
                 ).press("Enter")
+                summary = page.locator(".evidence-filters > summary")
+                state = page.get_by_label("State", exact=True)
+                expect(state).to_be_hidden()
+                summary.press("Enter")
+                expect(state).to_be_visible()
+                state.select_option("all")
+                summary.press("Enter")
+                expect(state).to_be_hidden()
+
+                page.set_viewport_size({"width": 768, "height": 1024})
+                expect(summary).to_be_hidden()
+                expect(state).to_be_visible()
                 page.set_viewport_size({"width": 1440, "height": 900})
                 expect(
                     page.get_by_role("navigation", name="Investigation").get_by_role(
                         "link", name="Case Tools", exact=True
                     )
                 ).to_be_visible()
-                filters = page.locator(".evidence-filters")
-                expect(page.get_by_label("State", exact=True)).to_be_hidden()
-                filters.locator("summary").focus()
-                filters.locator("summary").press("Enter")
-                page.get_by_label("State", exact=True).select_option("all")
+                expect(summary).to_be_hidden()
+                expect(page.get_by_label("Evidence type", exact=True)).to_be_visible()
+                expect(page.get_by_label("Related person", exact=True)).to_be_visible()
+                expect(state).to_have_value("all")
                 page.get_by_role("button", name="Apply filters", exact=True).click()
-                expect(page.locator(".evidence-filters")).to_have_attribute("open", "")
-                expect(page.get_by_label("State", exact=True)).to_have_value("all")
-                page.locator(".evidence-filters > summary").press("Enter")
+                self.assertIn("state=all", page.url)
+                expect(state).to_have_value("all")
                 page.locator(".evidence-row").first.click()
                 self.assertIn("state=all", page.url)
+                expect(summary).to_be_visible()
+                expect(state).to_be_visible()
+                summary.press("Enter")
+                expect(state).to_be_hidden()
 
                 page.goto(
                     self.url("core:evidence:create", case_id=self.case.pk)

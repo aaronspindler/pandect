@@ -82,14 +82,16 @@
   document.addEventListener("scroll", (event) => { if (!tooltip.contains(event.target)) positionTooltip(); }, true);
   window.addEventListener("resize", positionTooltip);
   const disclosures = Array.from(document.querySelectorAll("[data-disclosure]"));
+  const isOpenDisclosure = (details) =>
+    details.open && details.querySelector(":scope > summary")?.getClientRects().length > 0;
   const closeDisclosure = (details, restoreFocus = false) => {
     details.open = false;
     if (restoreFocus) details.querySelector(":scope > summary")?.focus();
   };
   disclosures.forEach((details) => {
     details.addEventListener("toggle", () => {
-      if (details.open) disclosures.forEach((other) => {
-        if (other !== details) closeDisclosure(other);
+      if (isOpenDisclosure(details)) disclosures.forEach((other) => {
+        if (other !== details && isOpenDisclosure(other)) closeDisclosure(other);
       });
     });
     details.querySelectorAll("[data-close-disclosure]").forEach((button) => {
@@ -99,7 +101,7 @@
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    const open = disclosures.find((details) => details.open);
+    const open = disclosures.find(isOpenDisclosure);
     if (open) {
       event.preventDefault();
       closeDisclosure(open, true);
@@ -107,7 +109,7 @@
   });
   document.addEventListener("pointerdown", (event) => {
     disclosures.forEach((details) => {
-      if (details.open && !details.contains(event.target)) closeDisclosure(details);
+      if (!details.contains(event.target) && isOpenDisclosure(details)) closeDisclosure(details);
     });
   });
   document.querySelector("[data-error-summary]")?.focus();

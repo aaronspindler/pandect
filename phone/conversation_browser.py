@@ -523,6 +523,115 @@ class ConversationBrowserTests(BrowserTestCase):
                             page.evaluate("window.dateJumpDocument === document")
                         )
 
+    def test_search_messages_jumps_between_pages_with_surrounding_context(self):
+        phrase = "Meet at the north gate"
+        first, second = [
+            TextMessageEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.owner,
+                sender=self.alex,
+                recipient=self.blair,
+                occurred_at=self.messages[index].occurred_at + timedelta(seconds=30),
+                title="Synthetic search fixture",
+                body=f"{phrase} at {time}.",
+            )
+            for index, time in ((3, "noon"), (50, "dusk"))
+        ]
+        url = self.live_server_url + self.reader_path + "?list_page=2"
+        for engine in self.engines:
+            for javascript in (True, False):
+                with (
+                    self.subTest(engine=engine, javascript=javascript),
+                    self.browser_page(engine, java_script_enabled=javascript) as (
+                        _,
+                        page,
+                    ),
+                ):
+                    self.sign_in(page, self.viewer)
+                    page.goto(url)
+                    reader = page.get_by_role("region", name="Messages", exact=True)
+                    search = page.get_by_label("Search messages", exact=True)
+                    first_row = reader.locator(f"#message-{first.pk}")
+                    second_row = reader.locator(f"#message-{second.pk}")
+                    expect(second_row).to_have_count(0)
+
+                    search.fill(phrase.lower())
+                    search.press("Enter")
+                    expect(first_row).to_be_in_viewport()
+                    expect(search).to_have_value(phrase.lower())
+                    expect(
+                        page.get_by_text("Match 1 of 2", exact=True)
+                    ).to_be_in_viewport()
+                    page.get_by_role("link", name="Next match", exact=True).press(
+                        "Enter"
+                    )
+                    expect(second_row).to_be_in_viewport()
+                    expect(
+                        page.get_by_text("Match 2 of 2", exact=True)
+                    ).to_be_in_viewport()
+                    for neighbor in self.messages[50:52]:
+                        neighbor_row = reader.locator(f"#message-{neighbor.pk}")
+                        expect(neighbor_row).to_be_visible()
+                        expect(neighbor_row).to_contain_text(
+                            neighbor.body.splitlines()[0]
+                        )
+                    page.get_by_role("link", name="Previous match", exact=True).press(
+                        "Enter"
+                    )
+                    expect(first_row).to_be_in_viewport()
+                    page.go_back()
+                    expect(second_row).to_be_in_viewport()
+                    if javascript:
+                        status = page.get_by_text("Match 2 of 2", exact=True)
+                        for width, height in (
+                            (1440, 900),
+                            (1440, 1024),
+                            (768, 1024),
+                            (390, 844),
+                            (320, 844),
+                        ):
+                            page.set_viewport_size({"width": width, "height": height})
+                            status.scroll_into_view_if_needed()
+                            self.assert_reflow(page, width)
+                            if width in (1440, 390):
+                                self.capture(
+                                    page, engine, f"message-search-{width}-{height}"
+                                )
+                        for scheme, forced_colors in (
+                            ("dark", "none"),
+                            ("light", "active"),
+                        ):
+                            page.emulate_media(
+                                color_scheme=scheme,
+                                forced_colors=forced_colors,
+                                reduced_motion="reduce",
+                            )
+                            self.assert_reflow(page, 320)
+                            expect(status).to_be_in_viewport()
+                            expect(second_row.locator("mark")).to_be_in_viewport()
+                            self.capture(
+                                page,
+                                engine,
+                                f"message-search-320-{scheme}-{forced_colors}",
+                            )
+                        page.emulate_media(color_scheme="light", forced_colors="none")
+
+                    page.goto(url)
+                    search.fill("north gate at dusk")
+                    search.press("Enter")
+                    expect(second_row).to_be_in_viewport()
+                    expect(
+                        page.get_by_text("Match 1 of 1", exact=True)
+                    ).to_be_in_viewport()
+                    page.get_by_role("link", name="Clear search", exact=True).press(
+                        "Enter"
+                    )
+                    expect(search).to_have_value("")
+                    expect(second_row).to_be_in_viewport()
+                    self.assertEqual(
+                        parse_qs(urlsplit(page.url).query).get("list_page"), ["2"]
+                    )
+
     def test_instance_summaries_and_exact_members_without_javascript(self):
         grouped = self.messages[:52]
         self.save_sessions(grouped)

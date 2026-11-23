@@ -26,9 +26,15 @@
   <main id="main-content" class="main-content" tabindex="-1">
     {% if case %}
     <header class="case-header">
+      {% if case_activity_versions %}{{ case_activity_versions|json_script:'case-activity-versions' }}{% endif %}
       {% block case_context %}<a class="case-context" href="{% url 'core:analysis:index' case.pk %}"><span class="muted">Case</span> <span class="case-context-name">{{ case.name|default:case }}</span></a>{% endblock %}
       {% include 'ui/components/case_search.html' %}
     </header>
+    <div class="actions" data-activity-feedback hidden>
+      <span role="status" data-activity-message></span>
+      <button class="button button-secondary" type="button" data-activity-retry>Retry updates</button>
+      <a class="record-link" href="{% url 'cases:case_list' %}" data-activity-access hidden>All cases</a>
+    </div>
     {% endif %}
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}" {% if message.level >= 40 %}role="alert"{% else %}role="status"{% endif %}>{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block before_content %}{% endblock %}

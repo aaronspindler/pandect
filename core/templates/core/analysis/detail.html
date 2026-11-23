@@ -8,13 +8,13 @@
 {% if not focused_finding %}
 <header class="page-header analysis-result-header">
   <div><h1>{{ operation_label }}</h1></div>
-  {% if source_unavailable or run.status != 'complete' %}<span class="badge" role="status">{% if source_unavailable %}Result withheld{% else %}{{ run.get_status_display }}{% endif %}</span>{% endif %}
+  {% if source_unavailable %}<span class="badge" role="status">Result withheld</span>{% elif run.status != 'complete' and run.status != 'queued' and run.status != 'running' %}<span class="badge" role="status">{{ run.get_status_display }}</span>{% endif %}
 </header>
 {% endif %}
 {% if run.status == 'queued' or run.status == 'running' %}
 <section class="analysis-section">
-  <h2>Processing {{ run.progress }}%</h2>
-  <progress class="work-progress" value="{{ run.progress }}" max="100" aria-label="Analysis progress">{{ run.progress }}%</progress>
+  <div role="status"><h2>{{ run.progress_label }}</h2></div>
+  {% include 'core/analysis/run_progress.html' %}
   <p>Checks run in the background. You can leave and return to this result.</p>
   <div class="actions">
     {% if can_edit %}<form method="post" action="{% url 'core:analysis:cancel' case.pk run.pk %}{{ history_suffix }}">{% csrf_token %}<button class="button button-secondary" type="submit">Cancel processing</button></form>{% endif %}

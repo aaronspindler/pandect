@@ -39,6 +39,11 @@ class CaseAnalysisBatch(models.Model):
 
 
 class AnalysisRun(models.Model):
+    class Stage(models.TextChoices):
+        SOURCES = "sources", "Checking sources"
+        ANALYSIS = "analysis", "Running analysis"
+        PUBLICATION = "publication", "Saving results"
+
     class Status(models.TextChoices):
         QUEUED = "queued", "Queued"
         RUNNING = "running", "Running"
@@ -73,6 +78,10 @@ class AnalysisRun(models.Model):
     )
     external_processing = models.BooleanField(default=False)
     status = models.CharField(max_length=16, choices=Status, default=Status.QUEUED)
+    # Applies while running. Older workers can omit the field when creating runs.
+    stage = models.CharField(
+        max_length=16, choices=Stage, default=Stage.ANALYSIS, db_default=Stage.ANALYSIS
+    )
     progress = models.PositiveSmallIntegerField(default=0)
     attempts = models.PositiveSmallIntegerField(default=0)
     error_code = models.CharField(max_length=64, blank=True)
@@ -125,6 +134,12 @@ class AnalysisRun(models.Model):
             self.equivalence_key = equivalence_key(self)
             kwargs["force_insert"] = True
         return super().save(*args, **kwargs)
+
+    @property
+    def progress_label(self):
+        if self.status == self.Status.RUNNING:
+            return self.get_stage_display()
+        return self.get_status_display()
 
 
 class AnalysisResult(models.Model):

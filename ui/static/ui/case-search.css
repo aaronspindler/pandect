@@ -46,7 +46,7 @@
 @media(min-width:48rem) and (pointer:fine) {
   #case-search-query:placeholder-shown + .case-search-shortcut { display:block; }
 }
-#case-search-suggestions, #case-search-announcement:not(.visually-hidden) {
+#case-search-popup, #case-search-announcement:not(.visually-hidden) {
   position:absolute;
   z-index:35;
   inset:calc(100% + .25rem) 0 auto;
@@ -58,6 +58,8 @@
   box-shadow:0 .5rem 1rem rgb(0 0 0 / .12);
 }
 #case-search-announcement:not(.visually-hidden) { padding:.5rem .75rem; }
+#case-search-popup p { margin:0; padding:.5rem .75rem; }
+.case-search-full { border-top:1px solid var(--divider); }
 .case-search-option {
   display:flex;
   align-items:center;

@@ -18,10 +18,22 @@
   {% if import_reviews and not showing_import_reviews %}<h3>Vehicle imports ready for review</h3>
   {% for item in import_reviews %}{% include 'core/analysis/processing_import.html' %}{% endfor %}
   {% if more_import_reviews %}<p><a class="record-link" href="?imports=review#import-history">All pending vehicle import reviews</a></p>{% endif %}{% endif %}
-  {% if failed_checks %}<p><a class="record-link" href="?status=failed#processing-history">Review failed checks</a></p>{% endif %}
+  {% if failed_checks %}
+  <div class="actions">
+    {% if retry_submission %}
+    <form method="post" action="{% url 'core:analysis:retry_failed' case.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="submission_id" value="{{ retry_submission }}">
+      {% if retry_after %}<input type="hidden" name="after_batch" value="{{ retry_after }}">{% endif %}
+      <button class="button button-primary" type="submit">Retry all failed checks</button>
+    </form>
+    {% endif %}
+    <a class="record-link" href="?status=failed#processing-history">Review failed checks</a>
+  </div>
+  {% endif %}
   {% if failed_batches %}
     <h3>Stopped preparation</h3>
-    <ul class="source-list">{% for item in failed_batches %}<li><a href="?batch={{ item.pk }}#processing-history">{% if item.scope.type == 'instance_summaries' %}Review stopped session summaries{% elif item.scope.type == 'reprocess' %}Review stopped reprocessing{% elif item.scope.type == 'messages' %}Review stopped message analysis{% elif item.scope.analysis_version %}Review stopped evidence analysis{% else %}Review stopped local checks{% endif %}</a> · {{ item.created_at|date:'j M Y, H:i T' }}</li>{% endfor %}</ul>
+    <ul class="source-list">{% for item in failed_batches %}<li><a href="?batch={{ item.pk }}#processing-history">{% if item.scope.type == 'instance_summaries' %}Review stopped session summaries{% elif item.scope.type == 'failed_retries' %}Review stopped retries{% elif item.scope.type == 'reprocess' %}Review stopped reprocessing{% elif item.scope.type == 'messages' %}Review stopped message analysis{% elif item.scope.analysis_version %}Review stopped evidence analysis{% else %}Review stopped local checks{% endif %}</a> · {{ item.created_at|date:'j M Y, H:i T' }}</li>{% endfor %}</ul>
     {% if more_failed_batches %}<a class="record-link" href="?batches_page=1#batch-history">More in Preparation history</a>{% endif %}
   {% endif %}
   {% if failed_imports %}
@@ -42,7 +54,11 @@
   {% if active_batches.paginator.count %}
   <h3>Preparing checks</h3>
   {% for item in active_batches %}
+  {% if item.scope.type == 'failed_retries' %}
+  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>Preparing failed check retries</strong><p>{{ item.processed_sources }} reviewed · {{ item.queued_runs }} queued</p></div></a>
+  {% else %}
   <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'instance_summaries' %}<strong>Preparing session summaries</strong><p>{{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{% if item.scope.type == 'reprocess' %}Preparing selected checks{% elif item.scope.type == 'messages' %}Preparing message analysis{% elif item.scope.analysis_version %}Preparing evidence analysis{% else %}Preparing local checks{% endif %}</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p>{% endif %}</div></a>
+  {% endif %}
   {% endfor %}
   {% if active_batches.has_other_pages %}<nav class="pagination" aria-label="Preparation in progress pages">{% if active_batches.has_previous %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_batches.number }} of {{ active_batches.paginator.num_pages }}</span>{% if active_batches.has_next %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
   {% endif %}
@@ -60,7 +76,7 @@
   {% endif %}
   {% if running_monitors %}<p><a href="{% url 'instagram:list' case.pk %}">{{ running_monitors }} Instagram monitor check{{ running_monitors|pluralize }} running</a></p>{% endif %}
   {% if search_pending %}<p><a class="record-link" href="#case-search-index">{{ search_index.label }}</a></p>{% endif %}
-  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count and not search_pending and not running_monitors %}<p class="muted" role="status">{% if batch %}Checks for the selected batch appear below.{% elif history_filters.status == 'queued' or history_filters.status == 'running' %}Checks matching your status filter appear below.{% else %}Nothing is being processed right now.{% endif %}</p>{% endif %}
+  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count and not search_pending and not running_monitors %}<p class="muted" role="status">{% if batch and batch.scope.type != 'failed_retries' %}Checks for the selected batch appear below.{% elif history_filters.status == 'queued' or history_filters.status == 'running' %}Checks matching your status filter appear below.{% else %}Nothing is being processed right now.{% endif %}</p>{% endif %}
 </section>
 <details class="disclosure processing-disclosure" id="case-search-index"{% if search_pending or search_needs_attention %} open{% endif %}>
   <summary>Meaning-based search</summary>
@@ -72,7 +88,7 @@
 {% partialdef history inline %}
 <div id="processing-results" data-live-region data-live-poll="false">
 <details class="disclosure processing-disclosure" id="processing-history"{% if show_history %} open{% endif %}>
-  <summary>{% if batch %}Batch checks{% elif showing_message_reviews %}Pending message reviews{% else %}Processing history{% endif %}</summary>
+  <summary>{% if batch.scope.type == 'failed_retries' %}Failed check retries{% elif batch %}Batch checks{% elif showing_message_reviews %}Pending message reviews{% else %}Processing history{% endif %}</summary>
   {% if showing_message_reviews %}<a class="record-link" href="{% url 'core:analysis:processing' case.pk %}?history=1#processing-history">All processing history</a>{% endif %}
   {% if batch %}
   <div class="notice">
@@ -82,6 +98,26 @@
   {% if batch.status == 'queued' %}<p role="status">Summaries are being queued.</p>{% elif batch.status == 'failed' %}<p role="status">Preparation stopped. {{ batch_error_message }}</p>{% endif %}
   {% if batch.unavailable_sources %}<p>{{ batch.unavailable_sources }} session{{ batch.unavailable_sources|pluralize }} could not be queued. Reopen the conversation to review the available sessions.</p>{% endif %}
   <a class="record-link" href="{% url 'phone:conversation_detail' case.pk batch.scope.people.0 batch.scope.people.1 %}?tab=instances">Back to sessions &amp; summaries</a>
+  {% elif batch.scope.type == 'failed_retries' %}
+  <p role="status">
+    <strong>{% if batch.status == 'queued' %}Retries are being queued{% elif batch.status == 'failed' %}Retry preparation stopped{% else %}Retry preparation finished{% endif %}</strong>
+    · {{ batch.processed_sources }} reviewed · {{ batch.queued_runs }} queued
+  </p>
+  {% if batch.status == 'failed' %}
+  <p>{{ batch_error_message }}</p>
+  {% endif %}
+  {% if batch.unavailable_sources %}
+  <details>
+    <summary>{{ batch.unavailable_sources }} check{{ batch.unavailable_sources|pluralize }} could not be retried</summary>
+    {% if batch.unavailable_sources > batch_failures|length %}<p>Showing the first {{ batch_failures|length }} checks.</p>{% endif %}
+    <ul class="source-list">
+      {% for failure in batch_failures %}
+      <li><a href="{% url 'core:analysis:detail' case.pk failure.run_id %}?processing=1">{% firstof failure.operation_label 'Open failed check' %}</a> · {{ failure.message }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  <a class="record-link" href="?status=failed#processing-history">Review failed checks</a>
+  {% endif %}
   {% else %}
   <p><strong>Selected batch · {{ batch.get_status_display }}</strong></p><p>Requested {{ batch.created_at|date:'j M Y, H:i T' }} · {{ batch.processed_sources }} sources prepared · {{ batch.queued_runs }} initial checks queued.</p>
   {% if batch.scope.type == 'reprocess' %}<p>Reprocessing{% if reprocessing_mode %} · {{ reprocessing_mode }}{% endif %}. Earlier results are retained. Each comparison covers its selected sources.</p>{% endif %}
@@ -98,6 +134,7 @@
   {% endif %}
   <a class="record-link" href="{% url 'core:analysis:processing' case.pk %}?history=1#processing-history">All processing history</a></div>
   {% endif %}
+  {% if batch.scope.type != 'failed_retries' %}
   {% if not showing_message_reviews and page_obj.paginator.count or not showing_message_reviews and history_filters %}
   <details class="evidence-filters"{% if history_filters %} open{% endif %}>
     <summary>Filter history{% if history_filters %} · Applied{% endif %}</summary>
@@ -111,6 +148,7 @@
   {% endif %}
   {% for run in page_obj %}{% include 'core/analysis/processing_run.html' %}{% empty %}<p class="muted">{% if showing_message_reviews %}No message imports are waiting for review.{% elif history_filters %}No checks match these filters.{% else %}No individual checks to show yet. Supported checks start when eligible evidence is added.{% endif %}</p>{% endfor %}
   {% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Processing pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="{% querystring page=page_obj.previous_page_number %}#processing-history">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="{% querystring page=page_obj.next_page_number %}#processing-history">Next</a>{% endif %}</nav>{% endif %}
+  {% endif %}
 </details>
 
 {% if monitor_history.paginator.count %}
@@ -139,7 +177,7 @@
 {% if batches.paginator.count %}
 <details class="disclosure processing-disclosure" id="batch-history"{% if request.GET.batches_page %} open{% endif %}>
   <summary>Preparation history · {{ batches.paginator.count }}</summary>
-  {% for item in batches %}<a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'instance_summaries' %}<strong>Session summaries</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{{ item.get_status_display }}</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} sources · {{ item.queued_runs }} initial checks queued</p>{% endif %}</div></a>{% endfor %}
+  {% for item in batches %}<a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'instance_summaries' %}<strong>Session summaries</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% elif item.scope.type == 'failed_retries' %}<strong>Failed check retries · {% if item.status == 'complete' %}Preparation finished{% else %}{{ item.get_status_display }}{% endif %}</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{{ item.get_status_display }}</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} sources · {{ item.queued_runs }} initial checks queued</p>{% endif %}</div></a>{% endfor %}
   {% if batches.has_other_pages %}<nav class="pagination" aria-label="Batch pages">{% if batches.has_previous %}<a class="button button-secondary" href="{% querystring batches_page=batches.previous_page_number %}#batch-history">Previous</a>{% endif %}<span>Page {{ batches.number }} of {{ batches.paginator.num_pages }}</span>{% if batches.has_next %}<a class="button button-secondary" href="{% querystring batches_page=batches.next_page_number %}#batch-history">Next</a>{% endif %}</nav>{% endif %}
 </details>
 {% endif %}

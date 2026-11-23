@@ -215,9 +215,11 @@ addresses do not establish visits.
 outcomes: keywords remain useful without inferred topics; missing session content
 stays insufficient/partial. Topic response/quotation validation failures and
 inference service failures retain available keyword findings as a partial result,
-with a safe explanation and rerun guidance. No rejected topic suggestions are
-published; source/access changes and runtime/model identity drift still stop the
-run. Pending version 1 fails with
+with a safe explanation and rerun guidance. Topics and claims can also retain
+suggestions with exact source matches as a partial result when other citations
+fail validation. See [communication analysis](analysis-communications.md) for
+the text limits and citation rules. Source/access changes and runtime/model
+identity drift still stop the run. Pending version 1 fails with
 `processing_version_unavailable`; start a new run. Earlier results are retained.
 
 Single/bulk investigator uploads queue applicable native text extraction, image
@@ -237,7 +239,9 @@ Results covering a selection open with the full result and its citations.
 Failed and cancelled work retains its status and recovery details.
 
 **Processing** prioritizes reviews and recovery under **Needs attention** and
-queued or running checks under **In progress**. **Needs attention** includes
+queued or running checks under **In progress**. Owners and editors can select
+**Retry all failed checks** to request new attempts for eligible failures
+across the case. **Needs attention** also includes
 stopped preparation even if it queued zero checks, stopped vehicle imports, and
 current trip or address preparation failures. Each row leads to its recovery
 options. Pending message reviews require the current CSV review format, and

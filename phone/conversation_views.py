@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Max
+from django.db.models import Count, F, Max, Q
 from django.db.models.functions import Greatest, Least
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -28,7 +28,7 @@ from phone.conversations import (
     preceding_messages,
     timeline_messages,
 )
-from phone.forms import ConversationDayForm
+from phone.forms import ConversationDayForm, ConversationSearchForm
 from phone.instance_views import conversation_instances
 
 MESSAGES_PER_PAGE = 50
@@ -114,10 +114,18 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
     if request.GET.get("tab") == "instances":
         return conversation_instances(request, case, first, second, day_form, day)
 
+    search_form = ConversationSearchForm(request.GET if "q" in request.GET else None)
+    query = search_form.cleaned_data["q"] if search_form.is_valid() else ""
+
     messages = pair_messages(case, first, second)
     contexts = imported_contexts(case).filter(message__in=messages)
     groups = matching_copy_groups(contexts)
     timeline = timeline_messages(messages, contexts, groups)
+    visible_timeline = timeline.select_related("sender", "recipient")
+    if query:
+        match_body = Q(body__icontains=query)
+        hits = timeline.filter(match_body).only("occurred_at")
+        visible_timeline = visible_timeline.annotate(matches_search=match_body)
     selected = None
     selected_value = request.GET.get("message")
     target_value = selected_value or request.GET.get("focus")
@@ -131,11 +139,18 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         )
 
     day_message = None
+    match_page = None
+    match_message = None
     for _attempt in range(2):
-        paginator = Paginator(
-            timeline.select_related("sender", "recipient"), MESSAGES_PER_PAGE
-        )
+        anchor = None
+        paginator = Paginator(visible_timeline, MESSAGES_PER_PAGE)
         page_number = request.GET.get("page")
+        if query:
+            match_page = Paginator(hits, 1).get_page(request.GET.get("match", 1))
+            match_message = next(iter(match_page), None)
+        jump_to_match = match_message is not None and not (
+            selected or day is not None or page_number
+        )
         if selected:
             # Rank the logical row, even when the URL names another retained copy.
             native_id = contexts.filter(message=selected).values("native_message_id")
@@ -156,22 +171,21 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
             day_message = (
                 timeline.filter(occurred_at__date=day).only("occurred_at").first()
             )
-            if day_message is not None:
-                page_number = (
-                    preceding_messages(
-                        timeline, day_message, row_id=day_message.pk
-                    ).count()
-                    // MESSAGES_PER_PAGE
-                    + 1
-                )
+            anchor = day_message
+        elif jump_to_match:
+            anchor = match_message
+        if anchor is not None:
+            page_number = (
+                preceding_messages(timeline, anchor, row_id=anchor.pk).count()
+                // MESSAGES_PER_PAGE
+                + 1
+            )
         page = paginator.get_page(page_number)
         rows = list(page.object_list)
         for message in rows:
             message.timeline_id = message.pk
         if selected is None:
-            if day_message is not None and not any(
-                row.pk == day_message.pk for row in rows
-            ):
+            if anchor is not None and all(row.pk != anchor.pk for row in rows):
                 continue
             break
         target = next(
@@ -190,6 +204,8 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
                 if not current or current["representative"] != representative:
                     continue
                 selected.timeline_id = representative
+                if query:
+                    selected.matches_search = rows[target].matches_search
                 rows[target] = selected
             break
     else:
@@ -206,9 +222,11 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
     )
     group_sizes = {g["representative"]: g["copy_count"] for g in visible_groups}
     list_page = conversation_list_page(request.GET.get("list_page"))
-    page_params = {"list_page": list_page} if list_page > 1 else {}
+    search_params = {"list_page": list_page} if list_page > 1 else {}
     if request.GET.get("weak") == "1":
-        page_params["weak"] = "1"
+        search_params["weak"] = "1"
+    if query:
+        search_params.update(q=query, match=match_page.number)
     evidence_params = {"conversation_list_page": list_page} if list_page > 1 else {}
     for message in rows:
         message.copy_count = group_sizes.get(message.timeline_id, 1)
@@ -248,7 +266,10 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
 
     page.object_list = rows
     params = request.GET.copy()
-    if day_message is not None or (target_value and not selected_value):
+    params.pop("q", None)
+    params.pop("match", None)
+    params.update(search_params)
+    if anchor is not None or (target_value and not selected_value):
         params["page"] = page.number
     if not selected_value:
         selected = None
@@ -265,12 +286,19 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
         "day_form": day_form,
         "day_message": day_message,
         "day_not_found": day is not None and day_message is None and selected is None,
+        "search_form": search_form,
+        "search_query": query,
+        "search_params": search_params,
+        "match_page": match_page,
+        "match_message": match_message,
+        "match_in_page": match_message is not None
+        and any(row.timeline_id == match_message.pk for row in rows),
         "conversation_list_url": list_url,
         "list_page": list_page,
         "transcript_query": {
             key: params[key] for key in CONTEXT_PARAMETERS if params.get(key)
         },
-        "page_query": urlencode(page_params),
+        "page_query": urlencode(search_params),
         "nav_section": "analysis",
     }
     context.update(

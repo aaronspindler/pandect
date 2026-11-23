@@ -4,6 +4,8 @@
   if (!form) return;
   const input = form.elements.q;
   const list = document.getElementById("case-search-suggestions");
+  const popup = document.getElementById("case-search-popup");
+  const empty = popup.querySelector("[data-search-empty]");
   const announcement = document.getElementById("case-search-announcement");
   let timer;
   let request;
@@ -25,10 +27,30 @@
     selected = -1;
     input.removeAttribute("aria-activedescendant");
     input.setAttribute("aria-expanded", "false");
-    list.hidden = true;
+    popup.hidden = true;
     list.replaceChildren();
     announcement.textContent = "";
     announcement.classList.add("visually-hidden");
+  }
+
+  function addOption(destination, title, label) {
+    const option = document.createElement("a");
+    option.className = "case-search-option";
+    option.href = destination.href;
+    option.id = "case-search-option-" + list.children.length;
+    option.tabIndex = -1;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", "false");
+    const name = document.createElement("span");
+    name.textContent = title;
+    option.append(name);
+    if (label) {
+      const type = document.createElement("small");
+      type.textContent = label;
+      option.append(type);
+    }
+    list.append(option);
+    return option;
   }
 
   async function load(query) {
@@ -44,26 +66,17 @@
       if (!response.ok) throw Error("Quick matches unavailable");
       const {results} = await response.json();
       if (controller.signal.aborted || input.value.trim() !== query || document.activeElement !== input) return;
-      results.forEach(({url: path, title, label}) => {
+      for (const {url: path, title, label} of results) {
         const destination = new URL(path, location.origin);
-        if (destination.origin !== location.origin) return;
-        const option = document.createElement("a");
-        option.className = "case-search-option";
-        option.href = destination.href;
-        option.id = "case-search-option-" + list.children.length;
-        option.tabIndex = -1;
-        option.setAttribute("role", "option");
-        option.setAttribute("aria-selected", "false");
-        const name = document.createElement("span");
-        name.textContent = title;
-        const type = document.createElement("small");
-        type.textContent = label;
-        option.append(name, type);
-        list.append(option);
-      });
+        if (destination.origin === location.origin) addOption(destination, title, label);
+      }
       const count = list.children.length;
-      list.hidden = !count;
-      input.setAttribute("aria-expanded", String(Boolean(count)));
+      const fullSearch = new URL(form.action);
+      fullSearch.searchParams.set("q", query);
+      addOption(fullSearch, "Search all results").classList.add("case-search-full");
+      empty.hidden = Boolean(count);
+      popup.hidden = false;
+      input.setAttribute("aria-expanded", "true");
       announcement.textContent = count
         ? count + " quick " + (count === 1 ? "match" : "matches") + ". Use arrow keys to choose, or submit for all results."
         : "No quick matches. Submit for full results.";
@@ -87,13 +100,13 @@
   input.addEventListener("keydown", event => {
     if (event.isComposing) return;
     if (event.key === "Escape") {
-      if (!list.hidden || timer || request || !announcement.classList.contains("visually-hidden")) {
+      if (!popup.hidden || timer || request || !announcement.classList.contains("visually-hidden")) {
         event.preventDefault();
         dismiss();
       }
       return;
     }
-    if (list.hidden) return;
+    if (popup.hidden) return;
     if (event.key === "Enter" && selected >= 0) {
       event.preventDefault();
       list.children[selected].click();

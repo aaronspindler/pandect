@@ -1,6 +1,6 @@
-"""Select active evidence types for a bounded reprocessing batch."""
+"""Queue and recover case processing batches."""
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django import forms
 from django.contrib import messages
@@ -14,6 +14,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.bulk import resume_case_analysis
 from core.analysis.reprocessing import start_reprocessing
+from core.analysis.retries import start_failed_retries
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS
 
@@ -37,6 +38,40 @@ class ReprocessingForm(forms.Form):
         ]
         if not self.is_bound:
             self.initial |= {"evidence_types": active_types, "submission_id": uuid4()}
+
+
+@product_login_required
+@require_POST
+def retry_failed(request, case_id):
+    url = reverse("core:analysis:processing", args=[case_id])
+    try:
+        submission_id = UUID(request.POST.get("submission_id", ""))
+        after_batch = request.POST.get("after_batch")
+        after_batch_id = UUID(after_batch) if after_batch else None
+    except ValueError:
+        get_case(request.user, case_id, edit=True)
+        messages.error(request, "Reload Processing to try again.")
+        return redirect(url + "?status=failed#processing-history")
+    try:
+        batch, created = start_failed_retries(
+            request.user,
+            case_id,
+            submission_id=submission_id,
+            after_batch_id=after_batch_id,
+        )
+    except ValidationError, DatabaseError:
+        messages.error(request, "Retries could not be queued. Please try again.")
+    else:
+        if batch is not None:
+            messages.success(
+                request,
+                "Failed check retries requested."
+                if created
+                else "This retry request has already been queued.",
+            )
+            return redirect(url + f"?batch={batch.pk}#processing-history")
+        messages.info(request, "There are no failed checks to retry.")
+    return redirect(url + "?status=failed#processing-history")
 
 
 @product_login_required

@@ -104,21 +104,45 @@ def evidence_list(request, case_id):
     context = case_context(case, request.user) | _list_context(request, case)
     context["nav_section"] = "evidence"
     if context["selected_kind"] == "image" and request.GET.get("view") == "gallery":
-        return render(request, "image/gallery.html", context)
-    return render(request, "core/evidence/workspace.html", context)
+        return render_live(request, "image/gallery.html", context, collection=True)
+    return render_live(
+        request, "core/evidence/workspace.html", context, collection=True
+    )
 
 
 @product_login_required
 @require_safe
 def detail(request, case_id, kind, evidence_id):
     case = get_case(request.user, case_id)
-    item = get_evidence(case, kind, evidence_id)
+    item = get_evidence(
+        case,
+        kind,
+        evidence_id,
+        identity_only=request.headers.get("X-Pandect-Live") in {"1", "collection"},
+    )
     return render_detail(request, case, kind, item)
 
 
 def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
     """Render the complete reader for an already-authorized case and original."""
-    context = case_context(case, request.user) | _list_context(request, case)
+    context = case_context(case, request.user) | {"item": item, "kind": kind}
+    mode = (
+        request.headers.get("X-Pandect-Live")
+        if request.method in {"GET", "HEAD"}
+        else None
+    )
+    if mode != "1":
+        context.update(_list_context(request, case))
+    if mode == "collection":
+        return render_live(
+            request, "core/evidence/workspace.html", context, collection=True
+        )
+    context.update(
+        evidence_findings_context(case, kind, item, request.GET, form=analysis_form)
+    )
+    if mode == "1":
+        context["list_suffix"] = query_suffix(request)
+        return render_live(request, "core/evidence/workspace.html", context)
     technical = [
         (item._meta.get_field(name).verbose_name.capitalize(), getattr(item, name))
         for name in TYPE_FIELDS[kind]
@@ -126,8 +150,6 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
     ]
     context.update(
         {
-            "item": item,
-            "kind": kind,
             "kind_label": KIND_LABELS[kind],
             "reader_template": READER_TEMPLATES[kind],
             "technical_details": technical,
@@ -140,15 +162,6 @@ def render_detail(request, case, kind, item, *, analysis_form=None, status=200):
             or request.GET.get("section") == "details"
             or any(key in request.GET for key in ("thread_page", "reply_page")),
         }
-    )
-    context.update(
-        evidence_findings_context(
-            case,
-            kind,
-            item,
-            request.GET,
-            form=analysis_form,
-        )
     )
     if kind in COMMUNICATION_KINDS:
         from phone.conversations import conversation_list_page

@@ -107,6 +107,14 @@
   text-align:center;
 }
 
+.app-rail-activity {
+  color:var(--accent);
+  font-size:.8125rem;
+  line-height:1.25;
+  text-align:center;
+  overflow-wrap:anywhere;
+}
+
 .app-rail-link:hover {
   background:var(--selected);
 }
@@ -1502,6 +1510,9 @@ a.record-row:hover { background: var(--background); }
 select:not([multiple]):not([size]) { height: 2.75rem; }
 
 .work-progress { display: block; width: 100%; max-width: 42rem; margin-bottom: 1rem; accent-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .work-progress:indeterminate { display: none; }
+}
 audio { width: 100%; max-width: 42rem; }
 .document-page-form { margin-block:.75rem; }
 .document-page-form input { flex:0 1 4rem; }

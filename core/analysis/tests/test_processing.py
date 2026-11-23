@@ -306,6 +306,47 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(result.provenance["method_version"], run.method_version)
         self.assertEqual(result.data["items"][0]["text"], "source@example.test")
 
+    def test_worker_stages_track_source_checks_execution_and_publication(self):
+        run, _ = self.start()
+        self.assertEqual(run.progress_label, "Queued")
+        observed = []
+
+        def observe_stage():
+            run.refresh_from_db()
+            observed.append(
+                (run.progress_label, AnalysisResult.objects.filter(run=run).exists())
+            )
+
+        def observe_sources(*args, **kwargs):
+            observe_stage()
+            return resolve_inputs(*args, **kwargs)
+
+        def observe_analysis(sources, parameters):
+            observe_stage()
+            return extract_entities(sources, parameters)
+
+        with (
+            patch("core.analysis.services.resolve_inputs", side_effect=observe_sources),
+            patch(
+                "core.analysis.services.get_operation",
+                return_value=SimpleNamespace(
+                    function=observe_analysis, version=run.method_version
+                ),
+            ),
+        ):
+            process_run(run.pk)
+        self.assertEqual(
+            observed,
+            [
+                ("Checking sources", False),
+                ("Running analysis", False),
+                ("Saving results", False),
+            ],
+        )
+        run.refresh_from_db()
+        self.assertEqual(run.progress_label, "Complete")
+        self.assertTrue(AnalysisResult.objects.filter(run=run).exists())
+
     def test_cancellation_before_execution_and_before_publication_never_creates_result(
         self,
     ):
@@ -328,6 +369,8 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(process_run(str(second.pk)), "processing_cancelled")
         second.refresh_from_db()
         self.assertEqual(second.status, "cancelled")
+        self.assertEqual(second.stage, AnalysisRun.Stage.ANALYSIS)
+        self.assertEqual(second.progress_label, "Cancelled")
         self.assertFalse(AnalysisResult.objects.filter(run=second).exists())
 
     def test_membership_removal_during_calculation_prevents_publication(self):

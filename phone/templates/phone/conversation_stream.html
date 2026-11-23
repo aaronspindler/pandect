@@ -1,7 +1,11 @@
+{% load search_matches %}
 <ol class="conversation-messages" data-conversation-items data-page="{{ page_obj.number }}">
   {% for message in page_obj %}
   {% ifchanged message.occurred_at|date:'Y-m-d' %}<li class="conversation-date" data-conversation-day="{{ message.occurred_at|date:'Y-m-d'|default:'unknown' }}"{% if day_message.pk == message.pk %} id="conversation-day-result" tabindex="-1"{% endif %}>{% if message.occurred_at %}<h3>{{ message.occurred_at|date:'l, j F Y' }}</h3>{% else %}<h3>Time not recorded</h3>{% endif %}</li>{% endifchanged %}
   <li class="conversation-message{% if message.sender_id == second_person.pk and first_person.pk != second_person.pk %} conversation-message-second{% endif %}" id="message-{{ message.pk }}" data-message-key="{{ message.timeline_id }}" tabindex="-1" data-analysis-page="{{ message.analysis.page_obj.number|default:'' }}"{% if message.analysis.load_on_open %} data-load-panel-on-open{% endif %}{% if selected_message.pk == message.pk %} data-selected-message{% endif %}{% if message.session_tint %} data-session-tint="{{ message.session_tint }}"{% endif %}>
+    {% if match_message.pk == message.timeline_id %}
+    {% include 'phone/conversation_matches.html' %}
+    {% endif %}
     {% if message.session_marker %}<span class="conversation-session-marker">{{ message.session_marker }}{% if message.copy_count > 1 %} · Shown record{% endif %}</span>{% endif %}
     <article class="conversation-bubble" aria-labelledby="message-sender-{{ message.pk }}">
       <header class="conversation-message-header">
@@ -14,7 +18,7 @@
           {% include 'ui/components/icon.html' with name='chevron-right' %}
         </a>
       </header>
-      <div class="conversation-message-body">{{ message.body }}</div>
+      <div class="conversation-message-body">{% if message.matches_search %}{{ message.body|highlight_first_match:search_query }}{% else %}{{ message.body }}{% endif %}</div>
       <small class="conversation-message-source">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %}</small>
     </article>
     {% if message.copy_count > 1 %}

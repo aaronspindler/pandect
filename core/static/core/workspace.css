@@ -25,6 +25,7 @@
 }
 
 .workspace-page .evidence-list-toolbar {
+  container:evidence-toolbar / inline-size;
   padding:0 .75rem .5rem;
 }
 
@@ -87,14 +88,18 @@
   font-size:.875rem;
 }
 
-@media (max-width:32rem) {
+@container evidence-toolbar (max-width:32rem) {
   .evidence-search-field {
-    flex-wrap:wrap;
-    row-gap:0;
+    position:relative;
   }
   .evidence-query-label {
-    flex-basis:100%;
-    padding-top:.25rem;
+    position:absolute;
+    top:.125rem;
+    line-height:1;
+  }
+  .workspace-page .evidence-search .evidence-search-field input {
+    padding-top:1rem;
+    padding-bottom:0;
   }
 }
 
@@ -135,6 +140,77 @@
 
 .evidence-filter-panel select {
   margin-bottom:.75rem;
+}
+
+.evidence-filter-panel .filter-actions a {
+  display:inline-flex;
+  align-items:center;
+  min-height:44px;
+}
+
+/* Keep the native disclosure in narrow panes and browsers without ::details-content. */
+@supports selector(::details-content) {
+  @container evidence-toolbar (min-width:42rem) {
+    .workspace-page .evidence-search {
+      max-width:80rem;
+    }
+    .evidence-search-row {
+      flex-wrap:wrap;
+      align-items:flex-end;
+    }
+    .evidence-search-field {
+      flex:1 1 16rem;
+    }
+    .evidence-filters {
+      flex:2 1 41rem;
+      min-width:0;
+    }
+    .evidence-filters>summary {
+      display:none;
+    }
+    .evidence-filters::details-content {
+      content-visibility:visible;
+    }
+    .evidence-filter-panel {
+      position:static;
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr)) auto;
+      align-items:end;
+      gap:.5rem;
+      width:auto;
+      max-width:none;
+      max-height:none;
+      overflow:visible;
+      padding:0;
+      border:0;
+      background:transparent;
+      box-shadow:none;
+    }
+    .evidence-filter-panel select {
+      min-width:0;
+      margin:0;
+      padding:.5rem;
+      font-size:.875rem;
+    }
+    .evidence-filter-panel .filter-actions {
+      margin:0;
+    }
+  }
+  @container evidence-toolbar (min-width:80rem) {
+    .evidence-filter-panel {
+      grid-template-columns:repeat(2,minmax(0,1fr)) minmax(0,.75fr) auto;
+      column-gap:.75rem;
+    }
+    .evidence-filter-field {
+      display:flex;
+      align-items:center;
+      gap:.5rem;
+    }
+    .evidence-filter-field label {
+      flex:none;
+      margin:0;
+    }
+  }
 }
 
 .workspace-page .evidence-records {

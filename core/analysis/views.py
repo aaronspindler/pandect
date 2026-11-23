@@ -26,7 +26,6 @@ from core.analysis.artifacts import MAX_ARTIFACT_BYTES
 from core.analysis.automatic import start_evidence_reprocessing
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
-    available_executions,
     execution_destination,
     requires_inference,
 )
@@ -41,7 +40,7 @@ from core.analysis.forms import (
     analysis_form,
     report_form,
 )
-from core.analysis.manual import start_available_run, start_selected_analysis
+from core.analysis.manual import start_selected_analysis
 from core.analysis.navigation import (
     FINDINGS_PER_PAGE,
     evidence_return_url,
@@ -71,6 +70,7 @@ from core.analysis.readiness import (
 from core.analysis.reports import REPORT_NAMES, report
 from core.analysis.reprocessing import start_reprocessing
 from core.analysis.result_views import focused_finding_context, result_view
+from core.analysis.retries import retry_route, retry_run
 from core.analysis.services import (
     address_estimate,
     cancel_run,
@@ -154,7 +154,7 @@ def _processing_details(run):
 def index(request, case_id):
     case = get_case(request.user, case_id)
     evidence = collection_context(case, QueryDict())
-    return render(
+    return render_live(
         request,
         "core/analysis/index.html",
         _context(request, case)
@@ -186,6 +186,7 @@ def index(request, case_id):
                 ),
             ),
         },
+        collection=True,
     )
 
 
@@ -777,28 +778,6 @@ def _add_import_rows(case, item, source_map):
             source["import_row"] = rows.get(message_ids.get(source["id"]))
 
 
-def _retry_parameters(run):
-    parameters = run.parameters
-    if (
-        requires_inference(run.operation, parameters)
-        and "backend" not in parameters
-        and run.external_processing
-    ):
-        return parameters | {"backend": "gateway"}
-    return parameters
-
-
-def _retry_execution(case, run, parameters):
-    available = available_executions(case, run.operation, parameters)
-    if requires_inference(run.operation, parameters):
-        backend = parameters.get("backend", "local")
-    else:
-        backend = "external" if run.external_processing else "local"
-    if backend not in available:
-        raise AnalysisError("original_route_unavailable")
-    return available[backend]
-
-
 @product_login_required
 @require_safe
 def detail(request, case_id, run_id):
@@ -1122,7 +1101,7 @@ def detail(request, case_id, run_id):
     }
     if context["can_edit"] and context["can_retry"]:
         try:
-            _retry_execution(case, run, _retry_parameters(run))
+            retry_route(case, run)
         except AnalysisError:
             context["can_retry"] = False
             context["retry_blocked"] = "The service for this run is unavailable."
@@ -1164,18 +1143,6 @@ def retry(request, case_id, run_id):
             _url(case, prior)
             + analysis_query_suffix(result_navigation(request.GET, case_id))
         )
-    choices = [
-        {
-            "kind": x["kind"],
-            "id": x["evidence_id"],
-            **{
-                k: x[k]
-                for k in ("attachment_id", "result_id", "geocode_candidate")
-                if x.get(k) is not None
-            },
-        }
-        for x in prior.inputs
-    ]
     try:
         submission_id = (
             UUID(request.POST["submission_id"])
@@ -1193,15 +1160,10 @@ def retry(request, case_id, run_id):
                 _url(case, existing)
                 + analysis_query_suffix(result_navigation(request.GET, case_id))
             )
-        parameters = _retry_parameters(prior)
-        run, _ = start_available_run(
+        run, _ = retry_run(
             request.user,
             case,
-            prior.operation,
-            choices,
-            parameters,
-            _retry_execution(case, prior, parameters),
-            previous_run=prior,
+            prior,
             submission_id=submission_id,
         )
     except (ValueError, ValidationError, AnalysisError) as error:

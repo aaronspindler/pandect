@@ -1,0 +1,10 @@
+<nav class="conversation-matches" aria-label="Message search results" id="conversation-search-result" tabindex="-1">
+  {% if match_message %}
+  <strong>Match {{ match_page.number }} of {{ match_page.paginator.count }}</strong>
+  {% if match_page.has_previous %}<a class="record-link" href="{% querystring search_params match=match_page.previous_page_number %}#conversation-search-result">Previous match</a>{% endif %}
+  {% if match_page.has_next %}<a class="record-link" href="{% querystring search_params match=match_page.next_page_number %}#conversation-search-result">Next match</a>{% endif %}
+  {% else %}
+  <span role="status">No matching messages.</span>
+  {% endif %}
+  <a class="record-link" href="{{ request.path }}{% querystring search_params q=None match=None page=page_obj.number %}{% if message %}#message-{{ message.pk }}{% endif %}">Clear search</a>
+</nav>

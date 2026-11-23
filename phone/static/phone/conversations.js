@@ -130,6 +130,8 @@
           if (!incoming || incoming.dataset.page !== new URL(link.href).searchParams.get(pageParam)) {
             throw new Error("Page unavailable");
           }
+          // Keep the search controls from the current page when adding context.
+          incoming.querySelector("#conversation-search-result")?.remove();
           const next = incomingReader.querySelector(`:scope > [data-conversation-edge="${edge.dataset.conversationEdge}"] [data-conversation-page]`);
           const loadedKeys = new Set(Array.from(items.querySelectorAll("[data-message-key]"), row => row.dataset.messageKey));
           const rows = Array.from(incoming.children).filter(row => row.dataset.messageKey

@@ -276,6 +276,72 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
             self.client.get(self.reader_url(), {"day": "2026-11-11"}).status_code, 404
         )
 
+    def test_search_matches_literal_bodies_in_the_retained_timeline(self):
+        instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        query = "crate%_<b>"
+        metadata_only = self.message(title=query, occurred_at=instant)
+        wildcard_only = self.message(
+            body="crateXY<b>", occurred_at=instant + timedelta(minutes=1)
+        )
+        first = self.message(
+            id=UUID(int=1),
+            body="Load CRATE%_<b> beside crate%_<b>.",
+            occurred_at=instant + timedelta(minutes=2),
+        )
+        copy = self.message(
+            id=UUID(int=2), body=first.body, occurred_at=first.occurred_at
+        )
+        self.context(first, self.document(title="First export"))
+        self.context(copy, self.document(title="Second export"))
+        archived = self.message(
+            body="Retained crate%_<b>.",
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
+        self.message(recipient=self.third_person, body=query)
+        self.message(
+            case=self.other_case,
+            sender=self.foreign_person,
+            recipient=self.foreign_person,
+            uploaded_by=self.users["outsider"],
+            body=query,
+        )
+        self.login("viewer")
+
+        reader = self.reader_url()
+        first_match = self.client.get(reader, {"q": f"  {query}  "})
+        self.assertContains(first_match, "Match 1 of 2")
+        self.assertContains(first_match, "<mark>CRATE%_&lt;b&gt;</mark>")
+        self.assertNotContains(first_match, "<mark>CRATE%_<b></mark>")
+        self.assertContains(first_match, "<mark>", count=2)
+        self.assertIsNone(first_match.context["selected_message"])
+        self.assertEqual(
+            list(first_match.context["page_obj"]),
+            [metadata_only, wildcard_only, first, archived],
+        )
+        second_match = self.client.get(reader, {"q": query, "match": 2})
+        self.assertContains(second_match, "Match 2 of 2")
+        self.assertContains(second_match, "Archived")
+        self.assertContains(second_match, '#conversation-search-result"')
+        self.assertIsNone(second_match.context["selected_message"])
+
+        self.login("outsider")
+        self.assertEqual(self.client.get(reader, {"q": query}).status_code, 404)
+
+    def test_search_reports_no_matches_and_overlong_queries(self):
+        original = self.message(body="Unrelated original")
+        self.login("viewer")
+        reader = self.reader_url()
+        missing = self.client.get(reader, {"q": "missing phrase"})
+        self.assertContains(missing, "No matching messages.")
+        self.assertContains(missing, 'value="missing phrase"')
+        self.assertEqual(list(missing.context["page_obj"]), [original])
+
+        overlong = self.client.get(reader, {"q": "x" * 201})
+        self.assertContains(overlong, "at most 200 characters")
+        self.assertEqual(list(overlong.context["page_obj"]), [original])
+
     def test_time_order_ties_unknowns_and_deep_links_beyond_first_page(self):
         instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
         messages = [

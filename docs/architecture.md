@@ -148,10 +148,14 @@ owns vehicle-location calculations.
 The shared shell follows [DESIGN.md](../DESIGN.md). At wide desktop sizes,
 evidence uses case navigation, a dense record list, and a reading pane. Smaller
 screens use the same canonical list/detail URLs and full-page form workflows.
-JavaScript enhances batching and polls authorized Django template fragments for
-active work through `ui/live.py` and `ui/static/ui/live.js`. Existing page URLs
-serve fragments only for safe requests with `X-Pandect-Live: 1`, varying responses
-on that header. No additional service or frontend dependency is required. Core
+JavaScript enhances batching and checks the case activity endpoint for active
+counts and committed collection revisions. PostgreSQL maintains those revisions
+inside domain write transactions, including bulk writes. A new evidence or
+processing model registers the collections it affects in its migration. The case navigation
+and page content share a polling schedule. Authorized page URLs return Django
+template fragments for safe requests with `X-Pandect-Live: 1` for progress or
+`X-Pandect-Live: collection` for collection results. Responses vary on that
+header. No additional service or frontend dependency is required. Core
 record management and manual refresh work without JavaScript.
 
 Product entry points require an active account with a verified allauth email.

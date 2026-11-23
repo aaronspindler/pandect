@@ -3,7 +3,7 @@
 {% block title %}{% if item %}{{ display_title|default:item.title }}{% else %}Evidence{% endif %} · {{ case.name }}{% endblock %}
 {% block body_class %}workspace-page{% endblock %}
 {% block extra_head %}{% if item %}<link rel="stylesheet" href="{% static 'core/analysis-results.css' %}">{% endif %}<link rel="stylesheet" href="{% static 'core/workspace.css' %}">{% endblock %}
-{% block extra_js %}{% include 'core/evidence/assets.html' only %}{% endblock %}
+{% block extra_js %}{% include 'core/evidence/assets.html' only %}{% include 'ui/components/collection_script.html' %}{% endblock %}
 {% block content %}
 <div class="evidence-workspace{% if item %} has-selection{% endif %}">
   {% if item %}<a class="skip-link" href="#evidence-reader">Skip to selected evidence</a>{% endif %}
@@ -16,7 +16,7 @@
         {% if can_edit %}<div class="evidence-create-actions"><a class="button button-primary" href="{% url 'core:evidence:create' case_id=case.pk %}">Add<span class="visually-hidden"> evidence</span></a></div>{% endif %}
       </div>
       {% if checksum %}<p class="muted">Matching original checksum. <a href="{% url 'core:evidence:list' case.pk %}">Show all evidence</a></p>{% endif %}
-    <form method="get" action="{% url 'core:evidence:list' case_id=case.pk %}" class="evidence-search" role="search" aria-label="Evidence list filter">
+      <form data-collection-form method="get" action="{% url 'core:evidence:list' case_id=case.pk %}" class="evidence-search" role="search" aria-label="Evidence list filter">
         {% if selected_kind == 'image' and request.GET.view == 'gallery' %}<input type="hidden" name="view" value="gallery">{% endif %}
         {% if checksum %}<input type="hidden" name="checksum" value="{{ checksum }}">{% endif %}
         <div class="evidence-search-row">
@@ -24,19 +24,26 @@
           <details class="evidence-filters" data-disclosure{% if selected_kind and request.GET.view != 'gallery' or selected_person or state != 'active' %} open{% endif %}>
             <summary class="button button-secondary" aria-label="Filters{% if selected_kind or selected_person or state != 'active' %}, applied{% endif %}" title="Filters" data-tooltip="Filters">{% include 'ui/components/icon.html' with name='filter' %}<span>Filters</span></summary>
             <div class="evidence-filter-panel">
-              <label for="evidence-type">Evidence type</label>
-              <select name="type" id="evidence-type"><option value="">All types</option>{% for value,label in kind_choices %}<option value="{{ value }}"{% if selected_kind == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-              <label for="evidence-person">Related person</label>
-              <select name="person" id="evidence-person"><option value="">All people</option>{% for person in person_choices %}<option value="{{ person.pk }}"{% if selected_person.pk == person.pk %} selected{% endif %}>{{ person }}</option>{% endfor %}</select>
-              <label for="evidence-state">State</label>
-              <select name="state" id="evidence-state"><option value="active"{% if state == 'active' %} selected{% endif %}>Active</option><option value="archived"{% if state == 'archived' %} selected{% endif %}>Archived</option><option value="all"{% if state == 'all' %} selected{% endif %}>All evidence</option></select>
-              <div class="filter-actions"><button class="button button-secondary" type="submit">Apply filters</button>{% if query or selected_kind or selected_person or state != 'active' %}<a href="{% url 'core:evidence:list' case_id=case.pk %}">Clear filters</a>{% endif %}</div>
+              <div class="evidence-filter-field">
+                <label for="evidence-type">Evidence type</label>
+                <select name="type" id="evidence-type"><option value="">All types</option>{% for value,label in kind_choices %}<option value="{{ value }}"{% if selected_kind == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+              </div>
+              <div class="evidence-filter-field">
+                <label for="evidence-person">Related person</label>
+                <select name="person" id="evidence-person"><option value="">All people</option>{% for person in person_choices %}<option value="{{ person.pk }}"{% if selected_person.pk == person.pk %} selected{% endif %}>{{ person }}</option>{% endfor %}</select>
+              </div>
+              <div class="evidence-filter-field">
+                <label for="evidence-state">State</label>
+                <select name="state" id="evidence-state"><option value="active"{% if state == 'active' %} selected{% endif %}>Active</option><option value="archived"{% if state == 'archived' %} selected{% endif %}>Archived</option><option value="all"{% if state == 'all' %} selected{% endif %}>All evidence</option></select>
+              </div>
+              <div class="filter-actions"><button class="button button-secondary" type="submit">Apply filters</button><a data-collection-clear data-other-filters="{% if selected_kind or selected_person or state != 'active' %}true{% endif %}" href="{% url 'core:evidence:list' case_id=case.pk %}"{% if not query and not selected_kind and not selected_person and state == 'active' %} hidden{% endif %}>Clear filters</a></div>
             </div>
           </details>
         </div>
       </form>
     </div>
-    <div id="evidence-records" class="evidence-records" tabindex="0" role="region" aria-label="Evidence records">
+    {% partialdef collection inline %}
+    <div data-collection-kind="evidence" data-collection-count="{{ page_obj.paginator.count }}" id="evidence-records" class="evidence-records" tabindex="0" role="region" aria-label="Evidence records">
       {% for row in rows %}
       {% include 'core/evidence/row.html' %}
       {% empty %}
@@ -47,16 +54,17 @@
       </div>
       {% endfor %}
     </div>
-    <nav class="evidence-pagination" aria-label="Evidence pages">
+    <nav data-collection-pagination class="evidence-pagination" aria-label="Evidence pages">
       {% if pagination.previous %}<a class="button button-secondary icon-button" href="{{ pagination.previous }}" aria-label="Previous page" data-tooltip="Previous page" title="Previous page">{% include 'ui/components/icon.html' with name='chevron-left' %}</a>{% else %}<span class="pagination-placeholder"></span>{% endif %}
       <span aria-live="polite">{% if page_obj.paginator.count %}{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }}{% else %}0 records{% endif %}</span>
       {% if pagination.next %}<a class="button button-secondary icon-button" href="{{ pagination.next }}" aria-label="Next page" data-tooltip="Next page" title="Next page">{% include 'ui/components/icon.html' with name='chevron-right' %}</a>{% else %}<span class="pagination-placeholder"></span>{% endif %}
     </nav>
+    {% endpartialdef %}
   </section>
   {% if item %}
   <section class="evidence-reader" id="evidence-reader" tabindex="0" aria-label="Selected evidence">
     <div class="evidence-content">
-    {% if selected_kind == 'image' and request.GET.view == 'gallery' %}<a class="record-link" href="{{ list_url }}#image-{{ item.pk }}">Back to images</a>{% else %}<a class="back-link" href="{{ list_url }}">Back to evidence</a>{% endif %}
+    {% if selected_kind == 'image' and request.GET.view == 'gallery' %}<a data-collection-context class="record-link" href="{{ list_url }}#image-{{ item.pk }}">Back to images</a>{% else %}<a data-collection-context class="back-link" href="{{ list_url }}">Back to evidence</a>{% endif %}
     <header class="evidence-reader-header">
       <div><h1>{{ display_title|default:item.title }}</h1><p class="evidence-meta">{{ kind_label }}{% if item.source %} · {{ item.source }}{% endif %}{% if item.collected_at %} · Collected {{ item.collected_at|date:"d M Y" }}{% endif %}{% if item.is_archived %} · Archived{% endif %}</p></div>
       <div class="actions">
@@ -68,7 +76,7 @@
     <nav class="evidence-task-actions actions" aria-label="Evidence actions">
       {% partialdef findings_link inline %}<span id="evidence-findings-link" data-live-region data-live-poll="false"><a class="record-link" href="#evidence-findings-heading">Findings ({{ findings_page.paginator.count }})</a></span>{% endpartialdef %}
       {% if can_edit %}
-      <a class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
+      <a data-collection-context class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
       <details class="evidence-analyze" data-disclosure>
         <summary class="button button-secondary">Analyze evidence</summary>
         <div class="evidence-more-panel evidence-analysis-panel">

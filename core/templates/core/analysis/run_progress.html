@@ -1,0 +1,4 @@
+{% if run.status == 'running' %}
+  {% if run.started_at %}<p class="muted">{% include 'core/analysis/run_time.html' %}</p>{% endif %}
+  <progress class="work-progress" aria-label="{{ run.progress_label }}"></progress>
+{% endif %}

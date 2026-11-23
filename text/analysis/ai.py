@@ -157,8 +157,68 @@ def _has_finding_support(kind, text, citations, originals, *, target, scope, lin
     )
 
 
+def _quotation_start(text, quote, start, *, recover_unique):
+    if type(start) is int and start >= 0 and text.startswith(quote, start):
+        return start
+    if start is None or (recover_unique and type(start) is int and start >= 0):
+        exact = text.find(quote)
+        if exact >= 0:
+            if text.find(quote, exact + 1) == -1:
+                return exact
+            if start is None:
+                raise ValidationError(
+                    "A repeated model quotation needs an exact source offset.",
+                    code="model_quote_offset_required",
+                )
+    raise ValidationError(
+        "A model quotation does not match its source.", code="model_quote_mismatch"
+    )
+
+
+def _candidate_citations(candidate, by_id, *, recover_unique):
+    if (
+        not isinstance(candidate, dict)
+        or not isinstance(candidate.get("text"), str)
+        or not 1 <= len(candidate["text"]) <= 4000
+        or not isinstance(candidate.get("citations"), list)
+        or not 1 <= len(candidate["citations"]) <= 10
+    ):
+        raise ValidationError(
+            "A model suggestion lacks bounded source citations.",
+            code="model_suggestion_citations",
+        )
+    anchors = []
+    quotes = []
+    for citation in candidate["citations"]:
+        if not isinstance(citation, dict):
+            raise ValidationError(
+                "A model citation is invalid.", code="model_citation_structure"
+            )
+        source_id = citation.get("source_id")
+        source = by_id.get(source_id) if isinstance(source_id, str) else None
+        quote = citation.get("quote")
+        if source is None or not isinstance(quote, str) or not 1 <= len(quote) <= 4000:
+            raise ValidationError(
+                "A model citation refers to unavailable text.",
+                code="model_citation_source",
+            )
+        start = _quotation_start(
+            source.text, quote, citation.get("start"), recover_unique=recover_unique
+        )
+        anchors.append(source.anchor(start=start, end=start + len(quote)))
+        quotes.append((source_id, quote))
+    return anchors, quotes
+
+
 def cited_model_analysis(
-    sources, parameters, *, infer, purpose, finding_kinds=(), linked=False
+    sources,
+    parameters,
+    *,
+    infer,
+    purpose,
+    finding_kinds=(),
+    linked=False,
+    retain_verified=False,
 ):
     "One validated path for attributed model suggestions and summaries."
     sources = bounded_sources(sources)
@@ -173,10 +233,13 @@ def cited_model_analysis(
             "Model analysis needs a configured local or external AI runtime.",
             outcome="unsupported",
         )
-    if sum(len(s.text) for s in usable) > 64_000:
+    characters = sum(len(s.text) for s in usable)
+    character_limit = 128_000 if retain_verified else 64_000
+    if characters > character_limit:
         raise ValidationError(
-            "Model content analysis supports at most 64,000 "
-            "selected characters; select smaller sessions."
+            f"Model content analysis supports at most {character_limit:,} "
+            "selected characters. Choose fewer or shorter sources.",
+            code="model_content_limit",
         )
     schema = {
         "type": "object",
@@ -325,63 +388,18 @@ def cited_model_analysis(
     )
     items = []
     seen = set()
+    first_rejection = None
     for candidate in response["items"]:
-        if (
-            not isinstance(candidate, dict)
-            or not isinstance(candidate.get("text"), str)
-            or not 1 <= len(candidate["text"]) <= 4000
-            or not isinstance(candidate.get("citations"), list)
-            or not 1 <= len(candidate["citations"]) <= 10
-        ):
-            raise ValidationError(
-                "A model suggestion lacks bounded source citations.",
-                code="model_suggestion_citations",
+        try:
+            anchors, quotes = _candidate_citations(
+                candidate, by_id, recover_unique=retain_verified
             )
-        anchors = []
-        quotes = []
-        for citation in candidate["citations"]:
-            if not isinstance(citation, dict):
-                raise ValidationError(
-                    "A model citation is invalid.", code="model_citation_structure"
-                )
-            source = by_id.get(str(citation.get("source_id")))
-            quote = citation.get("quote")
-            if (
-                source is None
-                or not isinstance(quote, str)
-                or not quote
-                or len(quote) > 4000
-            ):
-                raise ValidationError(
-                    "A model citation refers to unavailable text.",
-                    code="model_citation_source",
-                )
-            start = citation.get("start")
-            if start is None:
-                occurrences = source.text.count(quote)
-                if not occurrences:
-                    raise ValidationError(
-                        "A model quotation does not match its source.",
-                        code="model_quote_mismatch",
-                    )
-                if occurrences > 1:
-                    raise ValidationError(
-                        "A repeated model quotation needs an exact source offset.",
-                        code="model_quote_offset_required",
-                    )
-                start = source.text.find(quote)
-            if (
-                isinstance(start, bool)
-                or not isinstance(start, int)
-                or start < 0
-                or source.text[start : start + len(quote)] != quote
-            ):
-                raise ValidationError(
-                    "A model quotation does not match its source.",
-                    code="model_quote_mismatch",
-                )
-            anchors.append(source.anchor(start=start, end=start + len(quote)))
-            quotes.append((str(source.id), quote))
+        except ValidationError as error:
+            if not retain_verified:
+                raise
+            if first_rejection is None:
+                first_rejection = error
+            continue
         label = str(candidate.get("kind", "Suggestion"))
         raw_status = candidate.get("status", "unresolved")
         status = str(raw_status)
@@ -431,16 +449,28 @@ def cited_model_analysis(
             else:
                 seen.add(fingerprint)
         items.append(item)
+    rejected = len(response["items"]) - len(items)
+    warnings = [CITED_SUGGESTION_WARNING]
+    outcome = "complete" if items else "empty"
+    if first_rejection is not None:
+        if not items:
+            raise first_rejection
+        outcome = "partial"
+        warnings.append(
+            "Some AI suggestions were omitted because their source citations "
+            "could not be verified."
+        )
     return output(
         "Source-cited model suggestions for investigator review.",
         items=items,
         metrics={
             "sources": len(usable),
-            "characters": sum(len(s.text) for s in usable),
-            "method": "cited-content-v1",
+            "characters": characters,
+            "method": "cited-content-v2" if retain_verified else "cited-content-v1",
+            **({"rejected_suggestions": rejected} if rejected else {}),
         },
-        warnings=[CITED_SUGGESTION_WARNING],
-        outcome="complete" if items else "empty",
+        warnings=warnings,
+        outcome=outcome,
     )
 
 
@@ -453,19 +483,22 @@ def text_topics(sources, parameters, *, infer=None):
             sources,
             parameters,
             infer=infer,
+            retain_verified=True,
             purpose=(
                 "Propose topic labels and brief source-cited summaries "
                 "of the selected material. Preserve qualifications, "
                 "mixed topics, conflicting statements and unknowns."
             ),
         )
-    except ValidationError:
+    except ValidationError as error:
         if not observed or not observed["items"]:
             raise
         result = output(
             "Keywords retained; topic suggestions were not published.",
             warnings=[
-                "Topic suggestions could not be validated for this selection. "
+                error_message("model_content_limit")
+                if getattr(error, "code", None) == "model_content_limit"
+                else "Topic suggestions could not be validated for this selection. "
                 "Keyword results are retained. Choose fewer sources or start "
                 "another run to try topic suggestions again."
             ],
@@ -507,6 +540,7 @@ def content_events(sources, parameters, *, infer=None):
         sources,
         parameters,
         infer=infer,
+        retain_verified=True,
         finding_kinds=CONTENT_FINDING_KINDS,
         purpose=(
             "Extract concrete, attributable factual claims, specific proposed "
