@@ -78,8 +78,13 @@ class AnalysisBrowserTests(BrowserTestCase):
             ):
                 self.sign_in(page, self.owner)
                 page.goto(settings_url)
+                text_destination = page.locator(
+                    "#external-analysis details dl > div"
+                ).filter(has_text="Text and source references")
                 expect(
-                    page.get_by_text(re.compile("Anthropic.*claude-haiku-5-5"))
+                    text_destination.get_by_text(
+                        "Anthropic · claude-haiku-5-5", exact=True
+                    )
                 ).to_be_visible()
                 self.assertNotIn("synthetic-claude-key", page.content())
                 approval = page.get_by_role(
@@ -187,10 +192,13 @@ class AnalysisBrowserTests(BrowserTestCase):
                 )
                 self.sign_in(page, self.owner)
                 page.goto(settings_url)
+                text_destinations = page.locator(
+                    "#external-analysis details dl > div"
+                ).filter(has_text="Text and source references")
                 expect(
-                    page.get_by_text(
-                        re.compile("OpenAI via Cloudflare AI Gateway")
-                    ).first
+                    text_destinations.get_by_text(
+                        re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6-luna")
+                    )
                 ).to_be_visible()
                 approval = page.get_by_role(
                     "button", name="Approve listed destinations"
@@ -227,9 +235,9 @@ class AnalysisBrowserTests(BrowserTestCase):
                         )
                     ).to_be_visible()
                     expect(
-                        page.get_by_text(
+                        text_destinations.get_by_text(
                             re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6-astra")
-                        ).first
+                        )
                     ).to_be_visible()
                     expect(approval).to_be_visible()
                 self.db(self.case.refresh_from_db)
@@ -270,7 +278,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 destination_details = page.locator("#external-analysis summary").filter(
                     has_text="Approved external destinations"
                 )
-                destination = page.get_by_text(
+                destination = text_destinations.get_by_text(
                     re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6.2-sol")
                 )
                 expect(destination).to_be_hidden()

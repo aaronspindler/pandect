@@ -148,6 +148,8 @@ class BrowserTestCase(StaticLiveServerTestCase):
         expect(
             page.get_by_role("heading", name="All cases", exact=True)
         ).to_be_visible()
+        # The heading can render before the deferred collection script binds inputs.
+        page.wait_for_load_state("domcontentloaded")
 
     def open_evidence_panel(self, page, name):
         """Open the record's native Info or More panel using the keyboard."""

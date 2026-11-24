@@ -184,7 +184,7 @@ jobs:
             uv.lock
           save-cache: false
       - name: Prefer Ubuntu's primary package mirrors
-        run: sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+        run: sudo sed -i -E '/(azure|us-east-2\.ec2)\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
       - name: Install local OCR
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
       - name: Install locked dependencies

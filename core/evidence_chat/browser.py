@@ -147,6 +147,8 @@ class ChatBrowserTests(BrowserTestCase):
                         page.get_by_text("Which pickup do you mean?", exact=True)
                     ).to_be_visible()
                     self.db(self._source, case)
+                    page.get_by_role("link", name="Jump to follow-up").press("Enter")
+                    page.wait_for_url("**/#follow-up")
                     page.get_by_role("textbox", name="Question", exact=True).fill(
                         "The harbour pickup."
                     )
@@ -156,7 +158,60 @@ class ChatBrowserTests(BrowserTestCase):
                     page.get_by_role("link", name="Refresh status").press("Enter")
                     cite = page.get_by_role("link", name="Reference 1:", exact=False)
                     expect(cite).to_be_visible()
+                    transcript = page.get_by_role("region", name="Conversation")
+                    first_turn = transcript.locator(".chat-turn").first
+                    question = first_turn.locator(".chat-question .chat-bubble")
+                    answer = first_turn.locator(".chat-reply .chat-bubble")
+                    expect(
+                        question.get_by_text("When was the pickup?", exact=True)
+                    ).to_be_visible()
+                    expect(
+                        answer.get_by_text("Which pickup do you mean?")
+                    ).to_be_visible()
+                    question_box = question.bounding_box()
+                    answer_box = answer.bounding_box()
+                    self.assertGreater(question_box["x"], answer_box["x"])
+                    self.assertGreaterEqual(
+                        answer_box["y"], question_box["y"] + question_box["height"]
+                    )
+                    composer = page.get_by_role("textbox", name="Question", exact=True)
+                    expect(composer).to_be_visible()
+                    self.assertGreater(
+                        composer.bounding_box()["y"],
+                        transcript.bounding_box()["y"]
+                        + transcript.bounding_box()["height"],
+                    )
                     self.capture(page, browser, "desktop-answer")
+                    for width, height in [
+                        (1440, 1024),
+                        (768, 1024),
+                        (390, 844),
+                        (320, 800),
+                    ]:
+                        page.set_viewport_size({"width": width, "height": height})
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"),
+                            page.evaluate("document.documentElement.clientWidth") + 1,
+                        )
+                        expect(composer).to_be_visible()
+                        if width == 390:
+                            composer.scroll_into_view_if_needed()
+                            self.capture(page, browser, "mobile-transcript")
+                    page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                    page.evaluate("document.documentElement.style.fontSize = '200%'")
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"),
+                        page.evaluate("document.documentElement.clientWidth") + 1,
+                    )
+                    page.emulate_media(forced_colors="active")
+                    expect(composer).to_be_visible()
+                    page.emulate_media(
+                        color_scheme="light",
+                        reduced_motion="no-preference",
+                        forced_colors="none",
+                    )
+                    page.evaluate("document.documentElement.style.fontSize = ''")
+                    page.set_viewport_size({"width": 1440, "height": 900})
                     cite.press("Enter")
                     expect(
                         page.get_by_role(

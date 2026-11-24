@@ -318,7 +318,8 @@ capacity in routine tests.
   metadata after static collection, so source/release changes retain earlier
   layers. Its uv cache mount is local to the builder and is not exported by the
   [GitHub Actions layer cache](https://docs.docker.com/build/ci/github-actions/cache/#cache-mounts).
-  Browser binaries and host apt packages are installed fresh; Playwright
+  Browser jobs install fresh binaries and get host packages from Ubuntu's public
+  APT mirrors. Playwright
   [does not recommend browser caching](https://playwright.dev/python/docs/ci#caching-browsers)
   because restore/download times are comparable and Linux dependencies still need
   installation.

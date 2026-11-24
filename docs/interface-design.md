@@ -370,13 +370,14 @@ Repeated identifiers, Sighting groups, and eligible Instagram monitors.
 **Reports** lists each report directly. These three groups share a row on
 wide screens and stack on narrow screens.
 
-**Evidence chat** opens the question form and saved conversations for this case.
+**Evidence chat** opens the question composer and saved chats for this case.
 Owners and editors ask questions. All current case members can read shared
-replies. Each new question starts with active evidence, with an **Include
-archived evidence** option for that question. A clarification appears beside
-the question and the investigator answers it in the follow-up form. Confirmed
-source quotations and links accompany the numbered references in each answer.
-An AI suggestion and any suggested next check carry their own labels.
+replies. The conversation places investigator questions and evidence replies on
+opposite sides, with the investigator's name, question time, and evidence scope
+visible. The follow-up composer sits below the latest reply on the page. Each
+question starts with active evidence and has an **Include archived evidence**
+option. Confirmed source quotations and links accompany numbered references.
+Clarifications, AI suggestions, and suggested next checks carry their own labels.
 
 Open a full-review reply for its paginated cited matches and coverage gaps.
 Refresh status works without JavaScript. **Mark important** saves a reference

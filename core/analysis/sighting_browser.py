@@ -295,10 +295,14 @@ class SightingBrowserTests(BrowserTestCase):
                 expect(page.get_by_text("Place proximity", exact=True)).to_be_visible()
                 self.capture(page, engine, "spatial-proposal-mobile")
                 proposal_url = page.url
-                page.get_by_role("link", name=locations[1].title, exact=True).press(
-                    "Enter"
+                location_link = page.get_by_role(
+                    "link", name=locations[1].title, exact=True
                 )
-                location_url = page.url
+                location_url = urljoin(
+                    proposal_url, location_link.get_attribute("href")
+                )
+                location_link.press("Enter")
+                expect(page).to_have_url(location_url)
                 self.open_evidence_panel(page, "more").get_by_role(
                     "button", name="Archive", exact=True
                 ).press("Enter")
