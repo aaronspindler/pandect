@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef, Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -19,7 +19,7 @@ from django.views.decorators.http import (
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.analysis.catalogue import raw_finding_item
+from core.analysis.catalogue import archived_finding_sources, raw_finding_item
 from core.analysis.important import finding_target
 from core.analysis.services import SourceResolutionCache
 from core.evidence.queries import get_evidence, scoped_evidence
@@ -48,7 +48,6 @@ def _evidence_target(case, kind, evidence, *, title=None):
     return {
         "title": title or evidence.title,
         "label": KIND_LABELS[kind],
-        "qualifiers": ["Archived"] if evidence.is_archived else [],
         "url": reverse("core:evidence:detail", args=[case.pk, kind, evidence.pk]),
     }
 
@@ -59,6 +58,8 @@ def _read_target(case, item):
     if item.finding_result_id:
         return finding_target(case, item.finding_result, item.item_index)
     evidence = get_evidence(case, item.evidence_kind, item.evidence_id)
+    if evidence.is_archived:
+        raise Http404("Restore this evidence to open its notes.")
     title = None
     if item.evidence_kind == "text-message":
         title = message_labels(case, [evidence.pk]).get(evidence.pk)
@@ -88,8 +89,8 @@ def _page_rows(case, page):
         (kind, record.pk): record
         for kind, ids in evidence_ids.items()
         for record in scoped_evidence(case, kind)
-        .filter(pk__in=ids)
-        .only("title", "is_archived")
+        .filter(pk__in=ids, is_archived=False)
+        .only("title")
     }
     message_titles = message_labels(case, evidence_ids.get("text-message", []))
     counts = dict(
@@ -108,7 +109,7 @@ def _page_rows(case, page):
                 if item.finding_result_id != cached_result_id:
                     # Avoid keeping full source text from several results in memory.
                     cached_result_id = item.finding_result_id
-                    source_cache = SourceResolutionCache(case)
+                    source_cache = SourceResolutionCache(case, active_only=True)
                 target = finding_target(
                     case,
                     item.finding_result,
@@ -150,8 +151,24 @@ def _page_rows(case, page):
 @require_safe
 def index(request, case_id):
     case = get_case(request.user, case_id)
+    archived = Q(pk__in=[])
+    for kind in KIND_LABELS:
+        archived |= Q(
+            evidence_kind=kind,
+            evidence_id__in=scoped_evidence(case, kind)
+            .filter(is_archived=True)
+            .values("pk"),
+        )
     items = (
         ImportantItem.objects.filter(case=case, marked_at__isnull=False)
+        .exclude(archived)
+        .filter(
+            ~Exists(
+                archived_finding_sources(case).filter(
+                    finding__result_id=OuterRef("finding_result_id"),
+                )
+            )
+        )
         .select_related("marked_by", "chat_turn__chat", RESULT_RELATION)
         .defer("finding_result__data", "finding_result__provenance")
         .annotate(raw_item=raw_finding_item("finding_result__data"))
@@ -194,7 +211,9 @@ def _apply_mark(request, case, target, source_url):
 @transaction.atomic
 def mark_evidence(request, case_id, kind, evidence_id):
     case = get_case(request.user, case_id, edit=True, lock=True)
-    evidence = get_evidence(case, kind, evidence_id, lock=True, identity_only=True)
+    evidence = get_evidence(case, kind, evidence_id, lock=True)
+    if evidence.is_archived:
+        raise Http404("Restore this evidence before changing its mark.")
     return _apply_mark(
         request,
         case,

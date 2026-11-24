@@ -16,8 +16,8 @@ existing imports after preparation.
 
 **Browse all findings** searches retained labels, text and measurements, with 25
 findings per page and filters for method, evidence type, specific evidence, and person.
-The evidence reader applies the exact-source filter directly. Archived
-sources and weak plate regions remain labelled. An empty catalogue links to
+The evidence reader applies the exact-source filter directly. The catalogue uses
+active sources and labels weak plate regions. An empty catalogue links to
 Processing. An empty search or filter selection offers to show all findings.
 
 Message timing reports, writing profile measurements and comparison intervals,
@@ -170,9 +170,11 @@ the original regions and observations, exact comparison versions, prior runs,
 and alternative proposals.
 
 Saving and reviewing groups use local database records and make no inference
-or geographic service requests. Archived or superseded inputs leave a proposal
-available as history with review closed. Missing or changed originals withhold
-the result and its download. To use newer comparisons, start a new proposal.
+or geographic service requests. Superseded inputs leave a proposal available
+as history with review closed. Archived, missing or changed originals withhold
+the result and its download. Restoring the archived originals makes the saved
+result available again if its sources can still be verified. To use newer
+comparisons, start a new proposal.
 
 Private uncached result/provenance/reference JSON downloads retain `.json` names
 and JSON bytes, using `application/octet-stream` plus attachment disposition for
@@ -183,26 +185,65 @@ The [roadmap](evidence-analysis-roadmap.md) separates future work from current g
 ## Evidence chat
 
 Open **Case Tools → Evidence chat**. Owners and editors ask questions and
-follow-ups. Current case members can read saved conversations and follow the
-numbered references. Each question starts with current active evidence. Select
-**Include archived evidence** to expand that question's scope. A follow-up can
-use evidence added since the previous reply. Earlier replies retain their dates,
-sources and quotations.
+follow-ups. Current case members can read saved conversations. On wide screens,
+recent chats appear beside the conversation. **All saved chats** opens the full
+list. New questions and follow-ups search active evidence, including evidence
+added since the previous reply. Earlier replies retain their dates, sources,
+quotations and evidence scope. A reply that depends on archived evidence is
+withheld until the sources are restored. Ask a fresh question to replace a stopped
+question submitted with archived evidence enabled or an older reply whose
+history sources could not be verified.
 
-Ordinary questions retrieve relevant passages and recorded details using
-PostgreSQL and an available private meaning index. Answers cite quotations or
+Ordinary questions use a case-scoped PostgreSQL index. Chat combines keyword
+matches, identifiers, eligible meaning-search passages and matches in document
+sections, saved conversations and their summaries. A summary can lead chat to
+the messages behind a statement. A document brief can lead it to the original
+page or transcript passage. Qualifying spelling variations in recorded names
+and places can also locate an original. A spelling match alone establishes no
+identity. Use filters such as `type:text-message`, `on:2026-01-15`,
+`from:2026-01-01` and `through:2026-01-31` to constrain a search or a full
+review. Dates use the investigator's selected time zone. Ask the question again
+if an older full review did not apply its filters or might have counted field
+labels as literal matches.
+
+For a harder question, chat can shortlist up to 32 distinct sources locally.
+It keeps strong keyword and meaning matches and reads up to ten excerpts per
+answer-model call. For questions about dates or uncertainty, it favors
+passages that put the date or qualifier near the action it describes. For
+example, the date a photo was taken can differ from the date it was sent.
+
+Chat can follow up to two search leads. Each lead identifies the missing fact
+and whether it requires an independent source. If a search adds nothing
+relevant, chat can return the already cited answer with its remaining
+uncertainty. It can report both accounts of a disputed event while leaving
+independent verification open.
+
+A follow-up can refer to an older topic or a numbered reply such as “answer
+3.” Chat searches completed turns in the same conversation, carries at most
+three prior turns and checks the original sources again. A saved follow-up
+retains references to sources used through earlier replies. Earlier questions
+and open leads help locate evidence. An answer based on selected
+excerpts describes what those sources establish. Answers cite quotations or
 field values from originals, supplied transcripts, saved extractions and
-source-linked findings. Source links lead to the evidence reader, message,
-attachment or retained result. Read the quotation in context to assess the AI's
+source-linked findings. Numbered references open the evidence reader, message,
+attachment or retained result. Expand **Sources** in the conversation or open a
+reply to read its quotations. Read the original in context to assess the AI's
 interpretation. A material ambiguity can prompt a clarifying question. Gaps and
 conflicting accounts can prompt a suggested next check. Investigator notes and
 chat replies are excluded from evidence retrieval. **Mark important** saves the
 whole reply and its references in the case's Important list.
 
-Asking for every match or a total starts a full review immediately. Processing
-and the reply show progress against a frozen set of source entries. One record
-may contribute several entries, such as a document and its OCR passages.
-Structured counts use recorded fields for supported questions. Interpretive
+Supported structured counts and recognized requests for every record containing
+literal wording start a full review directly. Other questions are routed using
+the question and available context. Chat can open a full review, ask for
+clarification, or answer from selected sources, such as a total printed on one receipt.
+Processing and the reply show progress against a frozen set of source entries.
+One record may contribute several entries, such as a document and its OCR passages.
+Structured counts use recorded fields for supported questions. A request such
+as “List every record that mentions Mica by name” or “Find all records that
+contain ‘north gate’” checks retained text and recorded field values and saves
+representative matching quotations for each distinct record. Additional
+conditions can require interpretation. Interpretive
 reviews count distinct records with cited matches and list the matching passages
 on the reply. Check the reported gaps for missing extractions, partial analyses
 and uncertain matches. Opening chat does not start OCR or transcription.
@@ -210,8 +251,10 @@ and uncertain matches. Opening chat does not start OCR or transcription.
 Chat uses the case's selected text AI. For external processing, the owner must
 approve the chat destination in Case Settings. Questions, relevant conversation
 context, excerpts and source references can be sent. A full review can make many
-provider requests. Hosted embedding approval is separate; chat uses private
-meaning search when available. See [worker recovery](background-tasks.md#evidence-chat-recovery).
+provider requests. Chat can use a private meaning index or the case owner's
+[separate approval for hosted chat searches](cases.md#hosted-meaning-search).
+Without an eligible index, chat can still search keywords and recorded fields.
+See [worker recovery](background-tasks.md#evidence-chat-recovery).
 
 ## Reports and search
 
@@ -220,14 +263,16 @@ completed/partial extraction passages. Call additions never multiply parent rows
 matches open the exact addition/extraction version. Case/type/archive/pagination
 boundaries apply; HTML-like content displays as text.
 
-One bounded excerpt query considers ten matching passages per current-page
+An extraction whose run selected archived evidence is excluded from results and
+counts. One bounded excerpt query considers ten matching passages per current-page
 record, validating source, checksum and attachment. Invalid newer runs can fall
 back to older candidates within that limit.
 
 Reports cover call counts/durations/timing, trips, observation coverage/receipt
-delays, speed/heading and exact byte duplicates. Trips process full histories in
+delays, speed/heading and exact byte duplicates. Reports use active evidence.
+Trips process active histories in
 background chunks and paginate complete trips. Other reports stream all matching
-case/archive/participant/vehicle/time rows in fetches of 500 or fewer. Source lists
+case, participant, vehicle and time rows in fetches of 500 or fewer. Source lists
 show 25/page; totals, exact medians, duplicate groups and adjacent comparisons
 remain complete. Participant pairs paginate separately. Duplicate occurrences
 retain full group counts across pages; CSV matches link to full paginated selections.
@@ -289,8 +334,10 @@ New uploads, manually added evidence, call additions and newly published CSV
 rows queue applicable analysis in bounded background batches. A duplicate
 submission recovers the existing evidence and batch. **Processing → Analysis
 actions → Reprocess evidence** uses the same methods for selected active evidence
-types, with all types selected initially. Originals and earlier results remain
-available. See [background tasks](background-tasks.md#investigator-progress-and-completed-imports).
+types, with all types selected initially. An identical scope with the same
+execution settings and approvals can have one active reprocessing request.
+Originals and earlier results remain available. See
+[background tasks](background-tasks.md#investigator-progress-and-completed-imports).
 
 Deterministic methods run once. Each model check uses the
 [case's selected AI backend](cases.md#ai-backend) when configured and approved
@@ -328,8 +375,9 @@ choose a compatible recording or retained extraction when the method requires on
 The picker shows 25 sources per page,
 including retained extraction versions/call additions. Cursor navigation avoids
 full-case counts/scans; paging/search preserves selections and permits removal
-from other pages. Execution allows 500 sources within parser/inference limits;
-only selected-operation settings are validated/saved.
+from other pages. Execution allows up to 500 sources and up to 16 MiB of loaded
+material. Pandect checks method-specific text limits before loading full bodies.
+Only the selected operation's settings are validated and saved.
 
 **Read inferred message sessions**, **Inspect message timing** and **Summarize
 message sessions** accept Text messages only. Call transcripts use **Inspect
@@ -344,9 +392,10 @@ inputs, bounds and interpretation.
 
 On-demand AI analysis uses the case's selected backend. Dedicated flows such
 as claim comparison use their specified private service.
-External AI and geographic services require the case owner's approval in
-[Case Settings](cases.md#external-analysis-approval). A private service failure
-cannot enqueue a new external request. [Map address lookup](maps.md#local-address-lookup)
+External AI and externally configured geographic services require the case
+owner's approval in [Case Settings](cases.md#external-analysis-approval).
+Explicitly private geocoding and geographic context use normal case edit access.
+Private service failures stay on their selected route. [Map address lookup](maps.md#local-address-lookup)
 uses its dedicated private service flow.
 
 Call/vehicle report rows and filters use user timezone, with explicit UTC-hour
@@ -410,8 +459,9 @@ Runs show 50 findings per page. Derived inputs link to the extraction and origin
 Owners and editors can select or clear an address estimate from its finding. Saved
 finding review reasons remain in the database for retention.
 
-**Download results** includes private result/source/provenance JSON. Missing/changed
-exact inputs withhold results/downloads. [Workers](background-tasks.md) execute
+**Download results** includes private result/source/provenance JSON. Archived,
+missing or changed exact inputs withhold results and downloads. Saved work remains
+in Processing history. [Workers](background-tasks.md) execute
 queued runs, distinguishing queued/running/complete/partial/no-findings/insufficient/
 unsupported/failed/cancelled. Progress and completed results update in place with
 JavaScript; **Refresh status** remains available without it. Runs retain checksums,
@@ -460,9 +510,8 @@ external fallback.
 
 ## External AI configuration
 
-Connect OpenAI or Anthropic directly with an API key for text analysis. Pandect
-also supports OpenAI and Workers AI through Cloudflare AI Gateway. External
-recording transcription uses Workers AI through Cloudflare.
+Connect OpenAI or Anthropic directly with an API key for text analysis, or use
+Cloudflare AI Gateway to select providers for text analysis and transcription.
 
 ### Connect OpenAI or Anthropic directly
 
@@ -501,21 +550,57 @@ The case owner reviews and approves configured destinations under
 
 ### Model choices for case owners
 
-Case owners can choose a model per external inference method in
-[Case Settings](cases.md#external-analysis-approval). Without a saved choice,
-the method uses its installation default. Both default and alternate models use
-the configured provider for their purpose.
+In [Case Settings](cases.md#external-analysis-approval), case owners can choose
+a different provider and model for each task. The installation default is shown
+beside its resolved model. Pandect ships a release snapshot of the
+[Cloudflare model catalog](https://developers.cloudflare.com/ai/models/).
+Opening settings and searching its model list work offline. Available choices
+depend on the task, supported request format and installation configuration.
+Account entitlement, quota and provider availability are checked by the service
+at request time.
+
+For a release refresh, check out the intended revision of
+[Cloudflare's documentation source](https://github.com/cloudflare/cloudflare-docs),
+then run `python scripts/update-cloudflare-models.py /path/to/cloudflare-docs`
+from Pandect. Review the generated catalog diff, including serving providers,
+model IDs and request formats. The bundled catalog records its source revision.
 
 | Environment variable | Additional model choices |
 | --- | --- |
 | `PANDECT_AI_TEXT_MODEL_CHOICES` | Comma-separated IDs for the configured external text provider, including direct providers. |
 | `PANDECT_AI_TRANSCRIPTION_MODEL_CHOICES` | Comma-separated IDs for external recording transcription through Workers AI. |
 
-Set the same choices in web and worker. Include only models qualified for the
-provider credentials, request format, and analysis purpose. Approval is a
-separate action that binds each method to its exact execution settings. If a
-saved choice becomes unavailable, the case owner can select an available model
-or return to the default and review the destination.
+Set the same configuration in web and worker. For custom model IDs, use models
+qualified for the configured provider and request format. If a saved model is
+retired, its task requires a new selection. Previously saved results retain
+their original model and execution details.
+Bundled Workers AI speech models use their supported audio adapter when selected
+or configured as an installation default or choice. Custom compatible models
+and the default Whisper Turbo route use the Workers AI JSON adapter.
+
+### Using additional Cloudflare providers
+
+Set the Cloudflare account, gateway ID and gateway token. For the account-level
+AI REST API, supply a token with **Account → Workers AI → Read** in
+`PANDECT_AI_WORKERS_TOKEN`. Choose how the installation authenticates to the
+actual serving provider.
+
+- For stored provider keys, configure the `default` alias on the gateway for
+  each additional provider, then list its serving-provider ID in
+  `PANDECT_AI_STORED_KEY_PROVIDERS` (for example, `anthropic,google-vertex-ai`).
+  The existing OpenAI provider-native connection supports a named key alias.
+- To allow Cloudflare credits, explicitly set `PANDECT_AI_UNIFIED_BILLING=true`
+  and configure the account's funding and limits in Cloudflare. This setting
+  allows billed routes. It does not fund the account. Cloudflare's credential
+  precedence applies when a default stored key exists. Key-only requests require
+  stored credentials and cannot fall through to credits.
+
+Pandect selects the configured gateway and serving provider on requests. The
+model author can differ from the service receiving the request. Case owners
+review the recipient and material before first use. A case may authorize text
+and source references while leaving recording transfers unapproved. Consult the
+[AI REST API](https://developers.cloudflare.com/ai-gateway/usage/rest-api/) and
+[Cloudflare billing and credential rules](https://developers.cloudflare.com/ai-gateway/features/unified-billing/).
 
 ### OpenAI with a key stored in Cloudflare
 
@@ -581,28 +666,33 @@ quality require live qualification. See [OpenAI JSON output](https://developers.
 | `PANDECT_AI_TEXT_PROVIDER` | `workers-ai` selects Cloudflare Workers AI. `openai` selects OpenAI through Cloudflare. Workers AI is the default when no direct keys or explicit provider are set. |
 | `PANDECT_AI_TEXT_MODEL` | Defaults to `auto`. OpenAI uses the task table above. Workers AI uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. An explicit model ID sets a single default for the selected text provider. |
 | `PANDECT_AI_OPENAI_KEY_ALIAS` | Stored OpenAI provider key alias; `default`. |
-| `PANDECT_AI_WORKERS_TOKEN` | Workers AI upstream credential; required only for Workers AI routes. |
-| `PANDECT_AI_TRANSCRIPTION_MODEL` | `@cf/openai/whisper-large-v3-turbo`; external transcription remains on Workers AI. |
+| `PANDECT_AI_WORKERS_TOKEN` | Account token for Workers AI and catalog routes using Cloudflare's account-level AI REST API. |
+| `PANDECT_AI_TRANSCRIPTION_MODEL` | Installation default for external transcription on Workers AI, initially `@cf/openai/whisper-large-v3-turbo`. |
 
 Workers AI uses `gateway.ai.cloudflare.com/v1/ACCOUNT/GATEWAY/workers-ai/MODEL`
 and sends its separate upstream token in `Authorization`. Text inference uses a
 4,096-token output allowance and temperature zero. OCR remains local Tesseract.
-For external recording transcription, set the Cloudflare account, gateway and
+For Workers AI recording transcription, set the Cloudflare account, gateway and
 gateway token plus `PANDECT_AI_WORKERS_TOKEN` in web and worker. Use a Cloudflare
 API token with the account's Workers AI Read permission. Pandect checks the
 transcription configuration before queueing a new attempt and again before
 sending audio. Once the configuration is available, reopen the failed run and
-approve a new attempt.
-There is no provider switching or fallback. See
+start a new attempt.
+Other speech routes accept the prepared WAV chunks in the format supported by
+their endpoint. Pandect keeps supplied segment timestamps. For word-timed
+replies, it groups speech into readable phrases at sentence endings, pauses
+and short intervals, using the original word times as anchors. Text-only
+replies retain the original chunk boundaries and show partial coverage. See
 [Gateway authentication](https://developers.cloudflare.com/ai-gateway/configuration/authentication/)
 and [Workers AI integration](https://developers.cloudflare.com/ai-gateway/usage/providers/workersai/).
 
 ### Limits, retention, and recovery
 
 Workers AI uses a 60-second client timeout. All external AI routes have an
-8 MiB request limit and 2 MiB response limit. Each HTTP attempt records case,
-run, model, and bytes. Missing token usage stays unknown. Provider rate and
-quota limits apply.
+8 MiB request limit and 2 MiB response limit. Each HTTP attempt records its case,
+model, bytes, and the associated analysis run, Evidence Chat turn, or meaning
+search operation. Missing token usage stays unknown. Provider rate and quota
+limits apply.
 
 Match web/worker configuration. Pandect retains the provider, API format, any
 stored-key alias, and inference settings without secrets. A changed execution
@@ -614,8 +704,9 @@ Review logging and retention with the provider and, if used, Cloudflare.
 `store=false` for OpenAI and the Cloudflare skip-cache/no-log headers are subject
 to each service's retention policies. Payloads, secrets and provider exception
 bodies stay out of routine telemetry. Authentication, quota, throttling, timeout,
-invalid output and missing configuration fail recoverably. HTTP 429/502/503/504
-and Anthropic HTTP 529 get one retry with renewed access and destination checks.
+invalid output and missing configuration fail recoverably. Throttling and
+transient HTTP 502/503/504 errors, including Anthropic HTTP 529, get one retry
+with renewed access and destination checks. Exhausted quota stops the attempt.
 Routine tests mock inference. Reports and deterministic checks need no AI
 credentials.
 

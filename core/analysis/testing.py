@@ -13,9 +13,21 @@ from PIL import Image, ImageDraw, PngImagePlugin
 from core.analysis.sources import Source
 
 
+def approve_case_execution(case, owner, executions):
+    """Seed an exact-route approval from before destination-scoped grants."""
+    from django.utils import timezone
+
+    case.external_analysis_approval = {
+        "revision": str(uuid4()),
+        "approved_by": str(owner.pk),
+        "approved_at": timezone.now().isoformat(),
+        "executions": executions,
+    }
+    case.save(update_fields=("external_analysis_approval",))
+
+
 def external_grant_kwargs(case, operation):
     """Approve a synthetic test configuration and bind one external execution."""
-    from core.analysis.approval import approve_case_execution
     from core.analysis.execution import configured_external_executions
 
     executions = configured_external_executions(case)

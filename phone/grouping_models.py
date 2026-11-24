@@ -7,6 +7,27 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 
+class ConversationPairRevision(models.Model):
+    """Transactional change marker for the original rows of one reported pair."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    first_person_id = models.UUIDField()
+    second_person_id = models.UUIDField()
+    revision = models.UUIDField(default=uuid4)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("case", "first_person_id", "second_person_id"),
+                name="phone_pair_revision_unique",
+            )
+        ]
+
+    def __str__(self):
+        return f"Conversation pair source revision {self.pk}"
+
+
 class ConversationGrouping(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)

@@ -2,6 +2,7 @@
 
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
+    case_grant_revision,
     inference_configured,
     snapshot_execution,
     validate_case_execution_grant,
@@ -15,9 +16,7 @@ OPERATION = "evidence_chat"
 def turn_execution(case):
     execution = snapshot_execution(OPERATION, {"backend": case.ai_backend}, case=case)
     validate_route = execution["location"] == "external"
-    revision = (
-        case.external_analysis_approval.get("revision", "") if validate_route else ""
-    )
+    revision = case_grant_revision(case, OPERATION, execution)
     if not inference_configured(execution):
         raise AnalysisError(
             "gateway_not_configured" if validate_route else "local_ai_not_configured"
@@ -43,5 +42,12 @@ def infer(turn, authorize, prompt, schema):
     if turn.execution["location"] == "external":
         client = GatewayClient(None, authorize, chat_turn=turn)
     else:
-        client = LocalClient(authorize, turn.execution)
+        # Check the frozen evidence before contacting the runtime, then use
+        # lightweight case and route checks for model metadata requests.
+        authorize()
+        client = LocalClient(
+            authorize,
+            turn.execution,
+            authorize_metadata=lambda: authorize(metadata=True),
+        )
     return client.infer(prompt, schema)

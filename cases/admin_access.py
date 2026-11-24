@@ -7,7 +7,18 @@ from .models import Case, CaseMembership
 from .permissions import accessible_cases
 
 
-class CaseScopedAdmin(admin.ModelAdmin):
+class AdminCascadeMixin:
+    def get_deleted_objects(self, objs, request):
+        # Preserve existing parent cascades when a dependent record gains a
+        # read-only admin. The flag only lives during Django's collection step.
+        request._pandect_admin_collecting_cascade = True
+        try:
+            return super().get_deleted_objects(objs, request)
+        finally:
+            del request._pandect_admin_collecting_cascade
+
+
+class CaseScopedAdmin(AdminCascadeMixin, admin.ModelAdmin):
     actions = None
 
     def get_queryset(self, request):
@@ -61,4 +72,59 @@ class CaseScopedAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return super().has_delete_permission(request, obj) and (
             obj is None or obj.case.owner_id == request.user.pk
+        )
+
+
+class CaseScopedReadOnlyAdmin(admin.ModelAdmin):
+    """Inspect explicit fields without exposing workflow-managed mutations."""
+
+    case_lookup = "case"
+    case_owner_only = False
+    actions = None
+    fields = ("id",)
+    list_display = ("id",)
+    search_fields = ("=id",)
+    show_full_result_count = False
+    view_on_site = False
+
+    def get_queryset(self, request):
+        cases = accessible_cases(request.user)
+        if self.case_owner_only:
+            cases = cases.filter(owner=request.user)
+        return (
+            super()
+            .get_queryset(request)
+            .select_related(self.case_lookup)
+            .filter(**{f"{self.case_lookup}__in": cases})
+        )
+
+    def get_readonly_fields(self, request, obj=None):
+        return self.fields
+
+    def lookup_allowed(self, lookup, value, request):
+        # Django also accepts arbitrary local field lookups by default. Hidden
+        # payloads and credentials must not be queryable through the list URL.
+        field, _, operator = lookup.partition("__")
+        return field in self.get_list_filter(request) and operator in (
+            "",
+            "exact",
+            "isnull",
+            "gte",
+            "lt",
+        )
+
+    def has_view_permission(self, request, obj=None):
+        return super().has_view_permission(request, obj) and (
+            obj is None or self.get_queryset(request).filter(pk=obj.pk).exists()
+        )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return obj is not None and getattr(
+            request, "_pandect_admin_collecting_cascade", False
         )

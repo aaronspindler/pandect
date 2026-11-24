@@ -9,8 +9,9 @@ available to current case members.
 ## Enable the offline pilot
 
 Use a test installation. Set the following in its private Compose environment.
-Generate a dedicated random key of at least 32 characters. Remove any legacy
-`PANDECT_INSTAGRAM_LIVE_*` settings before switching from the desktop pilot.
+Generate a dedicated random key of at least 32 characters. Legacy desktop
+settings can be retained temporarily for revoking an existing signed desktop
+connection. They have no effect on synthetic collection.
 
 ```dotenv
 PANDECT_INSTAGRAM_PILOT_URL=http://instagram-pilot:8080

@@ -1,0 +1,20 @@
+<section class="chat-history" id="saved-chats" tabindex="{% if thread %}0{% else %}-1{% endif %}" aria-labelledby="saved-chats-heading">
+  <h2 id="saved-chats-heading">Saved chats</h2>
+  {% if chats %}
+  <ul class="chat-history-list">
+    {% if thread and thread not in chats %}
+    <li><a href="{% url 'core:chat:detail' case.pk thread.pk %}" aria-current="page">{{ thread.title }}</a></li>
+    {% endif %}
+    {% for saved_chat in chats %}
+    <li>
+      <a href="{% url 'core:chat:detail' case.pk saved_chat.pk %}"{% if saved_chat.pk == thread.pk %} aria-current="page"{% endif %}>
+        <span>{{ saved_chat.title }}</span>
+        {% if not thread %}<time datetime="{{ saved_chat.last_asked_at|date:'c' }}">{{ saved_chat.last_asked_at|date:'j M Y, H:i T' }}</time>{% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if not thread %}{% include 'core/important/pagination.html' with page_label='Saved chat pages' %}{% endif %}
+  {% elif can_edit %}<p class="muted">No saved chats yet.</p>
+  {% else %}<p class="muted">No saved chats yet. You can read chats here when a case owner or editor asks a question.</p>{% endif %}
+</section>

@@ -11,6 +11,7 @@ from django.http import Http404
 from django.urls import reverse
 
 from core.analysis.errors import AnalysisError
+from core.analysis.execution import case_execution_grants
 from core.analysis.manual import start_available_run
 from core.analysis.operations import get_operation
 from core.analysis.presentation import participant_text
@@ -66,9 +67,14 @@ def checked_session_range(case, run, sources):
         or len(sources) > settings.PANDECT_ANALYSIS_MAX_SOURCES
     ):
         raise AnalysisError("source_changed")
+    if run.parameters.get("_search_generation") == "conversations":
+        from core.case_search.parents import active_sessions
+
+        sessions = active_sessions(case)
+    else:
+        sessions = valid_sessions(case)
     session = (
-        valid_sessions(case)
-        .filter(pk=session_id, message_count__gte=last)
+        sessions.filter(pk=session_id, message_count__gte=last)
         .select_related("grouping")
         .first()
     )
@@ -125,7 +131,7 @@ def session_reports(case, session):
     )
 
 
-def _reserved_ordinals(case, session, first, last, executions, grant):
+def _reserved_ordinals(case, session, first, last, executions):
     """Reserve individual originals across overlapping completed or pending runs."""
     reports = (
         session_reports(case, session)
@@ -144,15 +150,23 @@ def _reserved_ordinals(case, session, first, last, executions, grant):
         )
         .values_list("status", "parameters")
     )
+    grants = case_execution_grants(case, OPERATION, executions.get("gateway"))
     reserved = {key: set() for key in executions}
     for status, parameters in reports.iterator(chunk_size=50):
+        if (
+            status != "complete"
+            and parameters.get("_search_generation") == "conversations"
+        ):
+            policy = case.search_generation_policy.get("conversations", {})
+            if policy.get("revision") != parameters.get("_generation_revision"):
+                continue
         route = parameters.get("backend")
         if route not in executions or parameters.get("_execution") != executions[route]:
             continue
         if (
             status != "complete"
             and route == "gateway"
-            and parameters.get("_external_approval", {}).get("revision") != grant
+            and parameters.get("_external_approval", {}).get("revision") not in grants
         ):
             continue
         scope = parameters[RANGE_KEY]
@@ -170,14 +184,7 @@ def prepare_summary_range(batch, case, instance, executions):
     limit = min(
         session.message_count, first + settings.PANDECT_ANALYSIS_MAX_SOURCES - 1
     )
-    reserved = _reserved_ordinals(
-        case,
-        session,
-        first,
-        limit,
-        executions,
-        batch.scope.get("external_grant_revision"),
-    )
+    reserved = _reserved_ordinals(case, session, first, limit, executions)
     rows = summary_members(session, case).filter(ordinal__range=(first, limit))
     selected = []
     size = 0
@@ -215,8 +222,17 @@ def prepare_summary_range(batch, case, instance, executions):
                 case,
                 OPERATION,
                 selected,
-                {"backend": backend, RANGE_KEY: scope},
+                {"backend": backend, RANGE_KEY: scope}
+                | (
+                    {
+                        "_search_generation": "conversations",
+                        "_generation_revision": batch.scope["revision"],
+                    }
+                    if batch.scope.get("type") == "search_generation"
+                    else {}
+                ),
                 executions[backend],
+                external_grant_revision=batch.scope.get("external_grant_revision"),
                 submission_id=uuid5(batch.pk, f"{session.pk}:{first}:{last}:{backend}"),
                 batch=batch,
             )

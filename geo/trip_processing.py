@@ -25,8 +25,8 @@ from geo.trip_models import (
 )
 from vehicle.models import Vehicle
 
-METHOD_VERSION = "vehicle-trips.v1"
-EVIDENCE_STATES = ("active", "archived", "all")
+METHOD_VERSION = "vehicle-trips.v2"
+READABLE_METHODS = ("vehicle-trips.v1", METHOD_VERSION)
 
 
 def _verified_editor(actor, case):
@@ -48,7 +48,7 @@ def _vehicles(case, identifiers):
             raise Http404("Vehicle not found.") from None
     else:
         queryset = queryset.filter(
-            Q(location_evidence__isnull=False) | Q(vehicletripstate__isnull=False)
+            Q(location_evidence__is_archived=False) | Q(vehicletripstate__isnull=False)
         ).distinct()
     return queryset
 
@@ -69,11 +69,9 @@ def _enqueue(actor, state, *, previous=None):
         requested_by=actor,
         previous_generation=previous,
         attempts=attempts,
-        total_sources=scoped_evidence(state.case, "vehicle-location")
-        .filter(vehicle_id=state.vehicle_id)
-        .count(),
+        total_sources=_source_count(state),
         metrics={
-            name: {
+            "active": {
                 "observations": 0,
                 "missing_times": 0,
                 "conflicts": 0,
@@ -81,13 +79,20 @@ def _enqueue(actor, state, *, previous=None):
                 "trips": 0,
                 "gaps": 0,
             }
-            for name in EVIDENCE_STATES
         },
     )
     from geo.tasks import process_vehicle_trips
 
     process_vehicle_trips.enqueue(str(generation.pk), str(generation.token))
     return generation
+
+
+def _source_count(state):
+    return (
+        scoped_evidence(state.case, "vehicle-location")
+        .filter(vehicle_id=state.vehicle_id, is_archived=False)
+        .count()
+    )
 
 
 @transaction.atomic
@@ -114,13 +119,39 @@ def invalidate_vehicle_trips(actor, case, vehicle_ids):
         state.revision += 1
         state.current_generation = None
         state.save(update_fields=("revision", "current_generation"))
-        state.generations.filter(status__in=("queued", "running")).update(
-            status="superseded", finished_at=timezone.now()
+        pending = state.generations.filter(status__in=("queued", "running"))
+        waiting = (
+            pending.select_for_update()
+            .filter(
+                status="queued",
+                started_at__isnull=True,
+                processed_sources=0,
+                method_version=METHOD_VERSION,
+                attempts=1,
+            )
+            .first()
+            if can_process
+            else None
         )
+        if waiting is not None:
+            pending = pending.exclude(pk=waiting.pk)
+        pending.update(status="superseded", finished_at=timezone.now())
         state.generations.filter(
             status="complete", geocode_status__in=("pending", "queued", "running")
         ).update(geocode_status="superseded", token=uuid4())
-        if can_process:
+        if waiting is not None:
+            # No work or reviewed inputs exist yet. The queued token can claim
+            # the newest revision instead of adding a superseded delivery.
+            waiting.revision = state.revision
+            waiting.requested_by = actor
+            waiting.total_sources = _source_count(state)
+            state.generations.filter(pk=waiting.pk).update(
+                revision=waiting.revision,
+                requested_by=actor,
+                total_sources=waiting.total_sources,
+            )
+            generations.append(waiting)
+        elif can_process:
             generations.append(_enqueue(actor, state))
     return generations
 
@@ -208,6 +239,19 @@ def _queue_geocoding(actor, generation, *, retry=False, worker_stopped=False):
     prepare_trip_addresses.enqueue(str(generation.pk), str(generation.token))
 
 
+def _current_generation_states(case):
+    return VehicleTripGeneration.objects.filter(
+        case=case,
+        vehicle__case=case,
+        state__case=case,
+        state__vehicle_id=F("vehicle_id"),
+        state__current_generation_id=F("pk"),
+        state__revision=F("revision"),
+        status="complete",
+        method_version__in=READABLE_METHODS,
+    )
+
+
 def current_generations(case, *, vehicle_id=None):
     """Reject stale or corrupted inputs before exposing any saved interpretation."""
     valid_originals = scoped_evidence(case, "vehicle-location").values("pk")
@@ -224,16 +268,7 @@ def current_generations(case, *, vehicle_id=None):
         | ~Q(archived_snapshot=F("observation__is_archived"))
     )
     generations = (
-        VehicleTripGeneration.objects.filter(
-            case=case,
-            vehicle__case=case,
-            state__case=case,
-            state__vehicle_id=F("vehicle_id"),
-            state__current_generation_id=F("pk"),
-            state__revision=F("revision"),
-            status="complete",
-            method_version=METHOD_VERSION,
-        )
+        _current_generation_states(case)
         .annotate(invalid_inputs=Exists(invalid))
         .filter(invalid_inputs=False)
     )
@@ -264,7 +299,7 @@ def latest_generations(case, *, vehicle_id=None):
 
 def trip_readiness(case, *, vehicle_id=None):
     """Shared preparation/status decisions without writes or automatic retries."""
-    sources = scoped_evidence(case, "vehicle-location")
+    sources = scoped_evidence(case, "vehicle-location").filter(is_archived=False)
     if vehicle_id:
         sources = sources.filter(vehicle_id=vehicle_id)
     generations = latest_generations(case, vehicle_id=vehicle_id)
@@ -294,25 +329,36 @@ def trip_readiness(case, *, vehicle_id=None):
     }
 
 
-def saved_trips(
-    case, *, state="active", vehicle_id=None, start=None, end=None, kind="trip"
-):
+def _trips(case, generations, kind):
+    return VehicleTrip.objects.filter(
+        case=case,
+        vehicle__case=case,
+        evidence_state="active",
+        kind=kind,
+        generation__in=generations,
+        generation__vehicle_id=F("vehicle_id"),
+    ).select_related("vehicle", "generation")
+
+
+def geometry_trips(case):
+    """Select published trips whose geometry is checked one page at a time."""
+    return _trips(
+        case,
+        _current_generation_states(case).filter(method_version=METHOD_VERSION),
+        "trip",
+    )
+
+
+def saved_trips(case, *, vehicle_id=None, start=None, end=None, kind="trip"):
     """Select complete saved trips overlapping a period, without cutting samples."""
-    if state not in EVIDENCE_STATES or kind not in ("trip", "gap"):
+    if kind not in ("trip", "gap"):
         raise ValidationError("Choose a supported trip selection.")
     for value in (start, end):
         if value is not None and timezone.is_naive(value):
             raise ValidationError("Trip times require an explicit timezone.")
     if start is not None and end is not None and start > end:
         raise ValidationError("The period end must not precede its start.")
-    query = VehicleTrip.objects.filter(
-        case=case,
-        vehicle__case=case,
-        evidence_state=state,
-        kind=kind,
-        generation__in=current_generations(case, vehicle_id=vehicle_id),
-        generation__vehicle_id=F("vehicle_id"),
-    ).select_related("vehicle", "generation")
+    query = _trips(case, current_generations(case, vehicle_id=vehicle_id), kind)
     if start is not None:
         query = query.filter(end_at__gte=start)
     if end is not None:
@@ -322,7 +368,7 @@ def saved_trips(
 
 def observation_trip_url(case, observation):
     """Link one current trip that contains this exact version of the observation."""
-    if observation.case_id != case.pk:
+    if observation.case_id != case.pk or observation.is_archived:
         return ""
     membership = VehicleTripSource.objects.filter(
         case=case,
@@ -333,11 +379,7 @@ def observation_trip_url(case, observation):
         input__sha256=observation.sha256,
     )
     trips = list(
-        saved_trips(
-            case,
-            state="archived" if observation.is_archived else "active",
-            vehicle_id=observation.vehicle_id,
-        )
+        saved_trips(case, vehicle_id=observation.vehicle_id)
         .filter(Exists(membership))
         .values_list("pk", flat=True)[:2]
     )
@@ -347,11 +389,7 @@ def observation_trip_url(case, observation):
 
 
 def trip_sources(case, trip):
-    if (
-        not saved_trips(case, state=trip.evidence_state, kind=trip.kind)
-        .filter(pk=trip.pk)
-        .exists()
-    ):
+    if not saved_trips(case, kind=trip.kind).filter(pk=trip.pk).exists():
         raise Http404("Trip not found.")
     return _source_rows(case, trip)
 
@@ -365,16 +403,51 @@ def _source_rows(case, trip):
         or trip.generation.vehicle_id != trip.vehicle_id
     ):
         raise Http404("Trip not found.")
-    query = VehicleTripInput.objects.filter(
+    query = _trip_source_rows(case, trip)
+    if query.count() != trip.source_count:
+        raise Http404("Trip sources are unavailable.")
+    return query
+
+
+def _trip_source_rows(case, trip):
+    return VehicleTripInput.objects.filter(
         case=case,
         generation_id=trip.generation_id,
         memberships__case=case,
         memberships__trip=trip,
         memberships__trip__case=case,
+        observation__is_archived=False,
     ).order_by("memberships__ordinal")
-    if query.count() != trip.source_count:
+
+
+def geometry_source_page(case, trip, cursor, size):
+    """Revalidate only the requested contiguous slice of a current trip."""
+    if trip.generation.method_version != METHOD_VERSION:
+        return list(_source_rows(case, trip).filter(ordinal__gt=cursor)[:size])
+    memberships = trip.sources.filter(case=case).order_by("ordinal")
+    first = memberships.values_list("ordinal", flat=True).first()
+    last = memberships.values_list("ordinal", flat=True).last()
+    if first is None or last is None or last - first + 1 != trip.source_count:
         raise Http404("Trip sources are unavailable.")
-    return query
+    originals = scoped_evidence(case, "vehicle-location").filter(
+        vehicle_id=trip.vehicle_id, is_archived=False
+    )
+    rows = [
+        membership.input
+        for membership in memberships.filter(
+            ordinal__gt=cursor,
+            input__case=case,
+            input__generation_id=trip.generation_id,
+            input__ordinal=F("ordinal"),
+            input__observation__in=originals,
+            input__observation__sha256=F("input__sha256"),
+            input__snapshot__is_archived=False,
+        ).select_related("input")[:size]
+    ]
+    start = max(first, cursor + 1)
+    if [row.ordinal for row in rows] != list(range(start, min(start + size, last + 1))):
+        raise Http404("Trip sources are unavailable.")
+    return rows
 
 
 def format_source(case, source):
@@ -436,6 +509,7 @@ def format_trips(case, trips):
             trip__case=case,
             input__case=case,
             input__generation_id=F("trip__generation_id"),
+            input__observation__is_archived=False,
         )
         .annotate(
             total=Window(Count("pk"), partition_by="trip_id"),

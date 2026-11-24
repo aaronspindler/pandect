@@ -77,7 +77,7 @@ from core.analysis.services import (
     address_estimate,
     cancel_run,
     require_current_geocode_reviews,
-    resolve_inputs,
+    resolve_active_inputs,
     set_address_estimate,
 )
 from core.evidence.collection import collection_context
@@ -246,11 +246,8 @@ def current_report(request, case_id, name):
     case = get_case(request.user, case_id)
     if name not in REPORT_NAMES:
         raise Http404("Report not found.")
-    filter_data = request.GET.copy()
-    if filter_data:
-        filter_data.setdefault("state", "active")
-    form = report_form(filter_data or None, case=case, report_name=name)
-    filters_applied = request.GET.get("state", "active") != "active" or any(
+    form = report_form(request.GET or None, case=case, report_name=name)
+    filters_applied = any(
         request.GET.get(field)
         for field in (
             "start",
@@ -263,7 +260,7 @@ def current_report(request, case_id, name):
     )
     data = None
     if not form.is_bound or form.is_valid():
-        values = form.cleaned_data if form.is_bound else {"state": "active"}
+        values = form.cleaned_data if form.is_bound else {}
         try:
             data = report(
                 case,
@@ -379,15 +376,16 @@ def process_evidence(request, case_id, kind, evidence_id):
                 submission_id=form.cleaned_data["submission_id"],
             )
         except (ValidationError, AnalysisError) as error:
-            form.add_error(
-                None,
-                error
-                if isinstance(error, ValidationError)
-                else (
+            if isinstance(error, ValidationError):
+                form.add_error(None, error)
+            elif error.code == "source_archived":
+                form.add_error(None, error_message(error.code))
+            else:
+                form.add_error(
+                    None,
                     "A retained source is unavailable or changed. "
-                    "Review the original and try again."
-                ),
-            )
+                    "Review the original and try again.",
+                )
         else:
             messages.success(
                 request,
@@ -437,6 +435,8 @@ def create(request, case_id, kind=None, evidence_id=None):
         except ValueError, IndexError, ValidationError:
             raise Http404("Source not found.") from None
         evidence = (focused["kind"], item)
+    if evidence and evidence[1].is_archived:
+        raise Http404("Restore this evidence before analyzing it.")
     encoded = request.GET.get("return_collection")
     if encoded is not None and len(encoded) <= 3000:
         try:
@@ -862,7 +862,24 @@ def _add_import_rows(case, item, source_map):
 def detail(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
-    if run.operation == "sighting_group" and run.status == AnalysisRun.Status.COMPLETE:
+    source_error = None
+    source_review_changed = False
+    try:
+        sources = resolve_active_inputs(run, case, require_current_review=False)
+        try:
+            require_current_geocode_reviews(run, sources)
+        except AnalysisError as error:
+            if error.code != "geocode_review_required":
+                raise
+            source_review_changed = True
+    except (AnalysisError, Http404) as error:
+        source_error = error
+        sources = []
+    if (
+        source_error is None
+        and run.operation == "sighting_group"
+        and run.status == AnalysisRun.Status.COMPLETE
+    ):
         if request.headers.get("X-Pandect-Live") == "1":
             return render_live(
                 request, "core/analysis/sighting_ready.html", {"case": case, "run": run}
@@ -877,7 +894,8 @@ def detail(request, case_id, run_id):
         history.pop("batch", None)
     reader_url = evidence_return_url(case.pk, request.GET)
     if (
-        run.operation == "imessage_import"
+        source_error is None
+        and run.operation == "imessage_import"
         and not reader_url
         and request.GET.get("processing") != "1"
     ):
@@ -923,20 +941,12 @@ def detail(request, case_id, run_id):
         "retry_submission_id": uuid4(),
         "error_message": error_message(run.error_code),
         "processing": _processing_details(run),
+        "source_unavailable": source_error is not None,
+        "source_archived": isinstance(source_error, AnalysisError)
+        and source_error.code == "source_archived",
+        "source_review_changed": source_review_changed,
+        "sources": sources,
     }
-    try:
-        sources = resolve_inputs(run, case, require_current_review=False)
-        try:
-            require_current_geocode_reviews(run, sources)
-        except AnalysisError as error:
-            if error.code == "geocode_review_required":
-                context["source_review_changed"] = True
-            else:
-                raise
-    except AnalysisError, Http404:
-        context["source_unavailable"] = True
-        sources = []
-    context["sources"] = sources
     evidence_keys = {(source.kind, source.item.pk) for source in sources}
     if len(evidence_keys) == 1:
         kind, evidence_id = next(iter(evidence_keys))
@@ -1208,7 +1218,9 @@ def detail(request, case_id, run_id):
         "empty",
         "complete",
     }
-    if context["can_edit"] and context["can_retry"]:
+    if context["source_archived"]:
+        context["can_retry"] = False
+    elif context["can_edit"] and context["can_retry"]:
         try:
             retry_route(case, run)
         except AnalysisError:
@@ -1276,16 +1288,16 @@ def retry(request, case_id, run_id):
             submission_id=submission_id,
         )
     except (ValueError, ValidationError, AnalysisError) as error:
-        messages.error(
-            request,
-            "The service for this run is unavailable."
-            if isinstance(error, AnalysisError)
-            and error.code == "original_route_unavailable"
-            else (
-                "The inputs changed or are no longer available. Start a new analysis "
-                "and review its source selection."
-            ),
+        reason = (
+            "The inputs changed or are no longer available. Start a new analysis "
+            "and review its source selection."
         )
+        if isinstance(error, AnalysisError):
+            if error.code == "original_route_unavailable":
+                reason = "The service for this run is unavailable."
+            elif error.code == "source_archived":
+                reason = error_message(error.code)
+        messages.error(request, reason)
         return redirect(
             _url(case, prior)
             + analysis_query_suffix(result_navigation(request.GET, case_id))
@@ -1331,7 +1343,7 @@ def download(request, case_id, run_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
     try:
-        sources = resolve_inputs(run, case, require_current_review=False)
+        sources = resolve_active_inputs(run, case, require_current_review=False)
         result = AnalysisResult.objects.get(case=case, run=run)
     except AnalysisError, AnalysisResult.DoesNotExist:
         raise Http404("Result not found.") from None
@@ -1367,7 +1379,7 @@ def audio(request, case_id, run_id, source_id):
     try:
         source = next(
             x
-            for x in resolve_inputs(run, case, require_current_review=False)
+            for x in resolve_active_inputs(run, case, require_current_review=False)
             if x.id == str(source_id)
         )
     except AnalysisError, StopIteration:
@@ -1390,7 +1402,7 @@ def artifact(request, case_id, run_id, artifact_id):
     case = get_case(request.user, case_id)
     run = _run(case, run_id)
     try:
-        resolve_inputs(run, case, require_current_review=False)
+        resolve_active_inputs(run, case, require_current_review=False)
         retained = AnalysisArtifact.objects.get(
             pk=artifact_id, case=case, result__case=case, result__run=run
         )

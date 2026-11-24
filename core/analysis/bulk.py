@@ -7,7 +7,6 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from django.http import Http404
 
 from cases.permissions import get_case
@@ -15,7 +14,7 @@ from core.analysis.automatic import start_evidence_analysis
 from core.analysis.errors import AnalysisError, error_message
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KINDS
-from core.models import AnalysisRun, CaseAnalysisBatch
+from core.models import CaseAnalysisBatch
 from phone.models import CallEvidenceAttachment
 
 SOURCES_PER_STEP = 25
@@ -66,13 +65,15 @@ def resume_case_analysis(actor, case_id, batch_id):
 
 
 @transaction.atomic
-def start_case_analysis(actor, case_id, *, submission_id, scope=None):
+def start_case_analysis(actor, case_id, *, submission_id, scope):
     case = get_case(actor, case_id, edit=True, lock=True)
-    scope = scope or {}
-    if scope and scope.get("type") not in {
+    if not scope:
+        raise ValidationError("Choose an analysis scope.")
+    if scope.get("type") not in {
         "added",
         "reprocess",
         "instance_summaries",
+        "search_generation",
         "failed_retries",
         "conversation_grouping",
     }:
@@ -92,27 +93,6 @@ def start_case_analysis(actor, case_id, *, submission_id, scope=None):
                 "This submission was already used for another analysis."
             )
         return existing, False
-    if not scope:
-        # The case lock serializes fresh requests as well as preparation. Keep
-        # one case-wide run active until its prepared checks also finish.
-        active = (
-            CaseAnalysisBatch.objects.filter(case=case, scope={})
-            .filter(
-                Q(status=CaseAnalysisBatch.Status.QUEUED)
-                | Q(
-                    runs__status__in=(
-                        AnalysisRun.Status.QUEUED,
-                        AnalysisRun.Status.RUNNING,
-                    )
-                )
-            )
-            .exists()
-        )
-        if active:
-            raise ValidationError(
-                "Case-wide analysis is already in progress. "
-                "Follow its progress in Processing."
-            )
     try:
         with transaction.atomic():
             batch = CaseAnalysisBatch.objects.create(
@@ -143,6 +123,7 @@ def _next_sources(batch, case):
                 : min(500, settings.PANDECT_ANALYSIS_MAX_SOURCES)
             ]
         ]
+    # Previously queued local batches have no scope. Resume their original order.
     for kind in sorted(KINDS):
         if kind < batch.source_kind:
             continue
@@ -252,6 +233,10 @@ def prepare_case_analysis_batch(batch_id):
                 from phone.grouping_jobs import prepare_grouping_step
 
                 has_more = prepare_grouping_step(batch, case)
+            elif scope_type == "search_generation":
+                from core.case_search.generation import prepare_step
+
+                has_more = prepare_step(batch, case)
             elif scope_type == "instance_summaries":
                 from phone.instance_summaries import prepare_instance_summaries
 

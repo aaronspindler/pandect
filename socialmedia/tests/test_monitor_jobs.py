@@ -125,7 +125,7 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(InstagramCapture.objects.exists())
         self.assertEqual(DBTaskResult.objects.count(), 1)
 
-    def test_configured_live_pilot_cannot_pair_schedule_or_collect_in_product(self):
+    def test_legacy_live_monitor_cannot_schedule_or_collect(self):
         live_config = {
             "user_id": str(self.editor.pk),
             "case_id": str(self.case.pk),
@@ -138,28 +138,16 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
         self.monitor.source = self.conn.source = "instagram"
         self.monitor.save(update_fields=["source"])
         self.conn.save(update_fields=["source"])
-        with (
-            self.settings(PANDECT_INSTAGRAM_LIVE=live_config),
-            patch.object(connector, "start_pairing") as start,
-        ):
-            for operation in (
-                lambda: jobs.start_pairing(self.editor),
-                lambda: jobs.create_monitor(
-                    self.editor, self.case.pk, "demo.account", 6
-                ),
-                lambda: self.approve(self.case, self.users["owner"]),
-            ):
-                with self.assertRaisesMessage(
-                    ValidationError, jobs.check_message("not_configured")
-                ):
-                    operation()
+        with self.settings(PANDECT_INSTAGRAM_LEGACY_REVOCATION=live_config):
+            self.assertEqual(
+                jobs.start_pairing(self.editor)["id"]["source"], "synthetic"
+            )
             self.assertEqual(self.run_current(), "unavailable")
-            self.assertEqual(self.monitor.checks.get().error, "not_configured")
+            self.assertEqual(self.monitor.checks.get().error, "source_changed")
             with self.assertRaisesMessage(
-                ValidationError, jobs.check_message("not_configured")
+                ValidationError, jobs.check_message("source_changed")
             ):
                 jobs.resume_monitor(self.editor, self.case.pk, self.monitor.pk)
-        start.assert_not_called()
         self.collect.assert_not_called()
 
     def test_replacement_and_disconnect_revoke_only_the_replaced_live_binding(self):
@@ -252,8 +240,7 @@ class InstagramMonitorJobTests(EvidenceViewTestMixin, TestCase):
     ):
         pending = jobs.start_pairing(self.editor)["id"]
         with (
-            patch.object(connector, "available", return_value=True),
-            patch.object(connector, "current_source", return_value="instagram"),
+            self.settings(PANDECT_INSTAGRAM_PILOT_URL=""),
             patch.object(connector, "finish_pairing") as finish,
         ):
             for old in (pending, pending["token"]):

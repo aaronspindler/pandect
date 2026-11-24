@@ -30,7 +30,13 @@ class Case(models.Model):
     external_analysis_models = models.JSONField(
         default=dict, db_default={}, blank=True, editable=False
     )
+    search_generation_policy = models.JSONField(
+        default=dict, db_default={}, blank=True, editable=False
+    )
     search_embedding_approval = models.JSONField(
+        default=dict, db_default={}, blank=True, editable=False
+    )
+    search_rerank_approval = models.JSONField(
         default=dict, db_default={}, blank=True, editable=False
     )
     ai_backend = models.CharField(

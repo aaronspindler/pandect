@@ -108,16 +108,14 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG, PANDECT_LOCAL_AI=LOCAL)
     def test_intake_defaults_to_one_private_ai_run_with_external_approval(self):
-        approval = external_grant_kwargs(self.case, "content_events")
+        external_grant_kwargs(self.case, "content_events")
         self.login("editor")
         response = self.client.post(
             self.url("create"), self.payload(), HTTP_ACCEPT="application/json"
         )
         self.assertEqual(response.status_code, 201)
         batch = CaseAnalysisBatch.objects.get()
-        self.assertEqual(
-            batch.scope["external_grant_revision"], approval["external_grant_revision"]
-        )
+        self.assertEqual(batch.scope["external_grants"], {})
         with patch("core.analysis.gateway.GatewayClient.request") as gateway:
             self.prepare_added()
         gateway.assert_not_called()
@@ -495,7 +493,11 @@ class AutomaticAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(created)
         self.assertEqual(len(again), 3)
         self.assertEqual(AnalysisRun.objects.count(), 3)
-        self.assertEqual(DBTaskResult.objects.count(), 3)
+        self.assertCountEqual(
+            DBTaskResult.objects.values_list("task_path", flat=True),
+            ["core.analysis.tasks.process_analysis"] * 3
+            + ["core.case_search.parent_index.index_children"],
+        )
 
     def test_unsupported_document_keeps_visible_outcome_without_followup(self):
         runs, _ = self.start(self.document(b"\xff\xfe\x00\x00"), "document")

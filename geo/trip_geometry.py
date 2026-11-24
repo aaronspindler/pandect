@@ -9,6 +9,7 @@ from django.http import Http404
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 
+from cases.models import CaseActivity
 from core.analysis.navigation import finding_url
 from core.evidence.queries import scoped_evidence
 from core.models import AnalysisResult, AnalysisReview, AnalysisRun
@@ -22,8 +23,17 @@ MERCATOR_LATITUDE = 85.05112878
 
 def geometry_revision(case, trip, *, reported_only=False):
     """Identify the current geometry after the caller verifies trip sources."""
+    evidence = (
+        CaseActivity.objects.filter(case=case)
+        .values_list("evidence", flat=True)
+        .first()
+    )
+    if evidence is None:
+        raise Http404("Trip not found.")
     if reported_only:
-        return hashlib.sha256(f"{trip.generation_id}\n{trip.pk}".encode()).hexdigest()
+        return hashlib.sha256(
+            f"{trip.generation_id}\n{trip.pk}\n{evidence}".encode()
+        ).hexdigest()
 
     # Reviews and new lookups can change an estimate during a replay.
     changes = {
@@ -50,7 +60,8 @@ def geometry_revision(case, trip, *, reported_only=False):
     )
     if revision is None:
         raise Http404("Trip not found.")
-    return hashlib.sha256("\n".join(map(str, revision)).encode()).hexdigest()
+    scope = "\n".join(map(str, (*revision, evidence)))
+    return hashlib.sha256(scope.encode()).hexdigest()
 
 
 def _latest_local_lookup(case):

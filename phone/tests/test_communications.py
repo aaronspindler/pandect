@@ -350,6 +350,22 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertNotContains(detail, "<script>source</script>")
                 self.assertContains(detail, "&lt;script&gt;source&lt;/script&gt;")
 
+    def test_archiving_a_call_blocks_new_additions_and_preserves_downloads(self):
+        item = self.create_call(transcript="Retained transcript")
+        addition = item.attachments.get()
+        self.login("editor")
+        self.client.post(self.url("archive", item, kind="phone-call"))
+        detail = self.client.get(self.url("detail", item, kind="phone-call"))
+        self.assertNotContains(detail, "Add transcript or audio")
+        response = self.add(item)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "source_archived")
+        self.assertEqual(item.attachments.count(), 1)
+        self.assertEqual(
+            self.client.get(self.attachment_url(item, addition, "transcript")).content,
+            b"Retained transcript",
+        )
+
     def test_empty_attachment_post_is_bound_and_reports_required_fields(self):
         item = self.create_call()
         response = self.client.post(
@@ -430,6 +446,11 @@ class CommunicationViewTests(EvidenceViewTestMixin, TestCase):
         self.login("editor")
         submission = str(uuid4())
         self.assertEqual(self.add(item, submission_id=submission).status_code, 201)
+        changed = self.add(
+            item, submission_id=submission, transcript="Different synthetic material"
+        )
+        self.assertEqual(changed.status_code, 409)
+        self.assertEqual(changed.json()["code"], "submission_conflict")
         self.assertEqual(self.add(other, submission_id=submission).status_code, 409)
         self.login("owner")
         self.assertEqual(self.add(item, submission_id=submission).status_code, 409)

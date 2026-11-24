@@ -56,10 +56,10 @@ def evidence_counts_by_type(case, *, archived):
 
 
 def duplicate_matches(case, sha256):
-    """Find exact file/captured-text originals, including archived records."""
+    """Find exact file or captured-text matches among active originals."""
     queries = [
         scoped_evidence(case, kind)
-        .filter(sha256=sha256)
+        .filter(sha256=sha256, is_archived=False)
         .order_by()
         .annotate(kind=Value(kind, output_field=CharField()))
         .values("id", "title", "kind", "is_archived", "created_at")

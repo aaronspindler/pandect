@@ -40,6 +40,7 @@ def conversation_list(request, case_id):
     case = get_case(request.user, case_id)
     pairs = (
         scoped_evidence(case, "text-message")
+        .filter(is_archived=False)
         .order_by()
         .annotate(
             first_id=Least("sender_id", "recipient_id"),
@@ -252,10 +253,8 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
                     contexts.filter(
                         native_message_id__in=confirmed.values("native_message_id")
                     )
-                    .select_related("source_document", "message")
-                    .only(
-                        "source_document__title", "source_row", "message__is_archived"
-                    )
+                    .select_related("source_document")
+                    .only("source_document__title", "source_row", "message_id")
                     .order_by(
                         "source_document__title", "source_document_id", "source_row"
                     )

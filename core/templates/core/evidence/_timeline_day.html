@@ -13,7 +13,7 @@
         {% if row.duration != None and row.end_at %}<span>Calculated end {% timeline_time row.end_at display_timezone day %}</span>{% elif row.end_at and row.end_at != row.start_at %}<span>to {% timeline_time row.end_at display_timezone day %}</span>{% endif %}
       </div>
       <div class="day-entry">
-        <p class="day-kind">{{ row.label }}{% if row.archived %} · Archived{% endif %}{% if row.partial %} · Partial coverage{% endif %}{% if row.overlap %} · Multiple groupings{% endif %}</p>
+        <p class="day-kind">{{ row.label }}{% if row.partial %} · Partial coverage{% endif %}{% if row.overlap %} · Multiple groupings{% endif %}</p>
         <a data-workspace-link class="record-link" href="{{ row.url }}">{{ row.title }}</a>
         {% if row.detail %}<p>{{ row.detail }}</p>{% endif %}
         {% if row.clock_note %}<p>{{ row.clock_note }}</p>{% endif %}

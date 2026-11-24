@@ -1,24 +1,31 @@
 from django.urls import path
 
-from . import activity, views
+from cases.generation_views import update as search_generation
+
+from . import activity, rerank_views, views
 
 app_name = "cases"
 
 urlpatterns = [
     path("", views.case_list, name="case_list"),
+    path(
+        "<uuid:case_id>/settings/passage-ranking/",
+        rerank_views.change,
+        name="case_passage_ranking",
+    ),
     path("new/", views.case_create, name="case_create"),
     path("<uuid:case_id>/", views.case_detail, name="case_detail"),
     path("<uuid:case_id>/activity/", activity.status, name="activity"),
     path("<uuid:case_id>/settings/", views.case_settings, name="case_settings"),
     path(
-        "<uuid:case_id>/settings/ai-backend/",
-        views.case_ai_backend,
-        name="case_ai_backend",
+        "<uuid:case_id>/settings/search-preparation/",
+        search_generation,
+        name="search_generation",
     ),
     path(
-        "<uuid:case_id>/settings/external-models/",
-        views.case_external_models,
-        name="case_external_models",
+        "<uuid:case_id>/settings/ai-processing/",
+        views.case_ai_settings,
+        name="case_ai_settings",
     ),
     path(
         "<uuid:case_id>/settings/external-analysis/",

@@ -141,6 +141,9 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
         batch, _ = start_added_evidence_analysis(
             self.users["editor"], self.case.pk, "audio", audio.pk
         )
+        # Retained paired batches pinned a single revision for their external routes.
+        batch.scope.pop("external_grants")
+        batch.scope["external_grant_revision"] = grant["external_grant_revision"]
         batch.scope["executions"]["transcription:gateway"] = grant["approved_execution"]
         batch.save(update_fields=("scope",))
         for _ in range(4):
@@ -151,6 +154,10 @@ class AutomaticTranscriptTests(EvidenceViewTestMixin, TestCase):
         runs = batch.runs.filter(operation="transcription")
         private = runs.get(external_processing=False)
         external = runs.get(external_processing=True)
+        self.assertEqual(
+            external.parameters["_external_approval"]["revision"],
+            grant["external_grant_revision"],
+        )
         self.assertEqual(
             private.parameters["_transcript_group"],
             external.parameters["_transcript_group"],

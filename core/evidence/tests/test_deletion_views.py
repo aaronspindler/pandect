@@ -15,12 +15,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
+from core.case_search.parent_index import index_parent
 from core.evidence import deletion
 from core.evidence.types import CALL_KINDS, KINDS
 from core.models import (
     AnalysisArtifact,
     AnalysisResult,
     AnalysisRun,
+    GatewayRequest,
     ImportantItem,
     ImportantNote,
 )
@@ -568,16 +570,69 @@ class EvidenceDeletionViewTests(EvidenceTestMixin, TestCase):
         self.assertIn("q=retained", first.context["deletion_links"]["next"])
         self.assertIn("page=2", first.context["deletion_links"]["next"])
         self.assertEqual(first.context["deletion_page"].paginator.count, 125)
-        second = self.client.get(
-            self.url(source) + first.context["deletion_links"]["next"]
-        )
+        with patch("core.evidence.views.plan_deletion") as rebuild:
+            second = self.client.get(
+                self.url(source) + first.context["deletion_links"]["next"]
+            )
+        rebuild.assert_not_called()
         self.assertEqual(second.context["deletion_page"].number, 2)
+        self.assertEqual(len(second.context["deletion_page"]), 50)
         export = self.client.get(self.url(source) + "?download=manifest")
         inventory = json.loads(b"".join(export.streaming_content))
         self.assertEqual(len(inventory["entries"]), 125)
         ids = {row["id"] for row in inventory["entries"]}
         self.assertTrue({str(obj.pk) for obj in [*observations, *staged]} <= ids)
         self.assertIn("no-store", export["Cache-Control"])
+
+    def test_active_usage_change_restarts_paginated_review(self):
+        source, *_ = self.import_tree(count=60)
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.editor,
+            operation="extract_text",
+            method_version="1",
+            status=AnalysisRun.Status.RUNNING,
+            inputs=[{"kind": "document", "evidence_id": str(source.pk)}],
+        )
+        first = self.client.get(self.url(source))
+        GatewayRequest.objects.create(
+            case=self.case, run=run, model="synthetic", request_bytes=64
+        )
+        second = self.client.get(
+            self.url(source) + first.context["deletion_links"]["next"]
+        )
+        self.assertContains(second, "What will be removed has changed", status_code=409)
+        self.assertEqual(second.context["deletion_page"].number, 1)
+
+    def test_search_outline_publication_restarts_paginated_review(self):
+        source = self.create_evidence(body="Synthetic retained source. " * 100)
+        AnalysisRun.objects.bulk_create(
+            AnalysisRun(
+                case=self.case,
+                requested_by=self.editor,
+                operation="entities",
+                method_version="1",
+                inputs=[{"kind": "text", "evidence_id": str(source.pk)}],
+            )
+            for _ in range(55)
+        )
+        url = self.url(source)
+        first = self.client.get(url)
+        self.assertEqual(first.context["deletion_page"].paginator.count, 56)
+
+        def publish_before_cache_lookup(*args):
+            index_parent.call(
+                str(self.case.pk), str(self.editor.pk), "text", str(source.pk)
+            )
+            return deletion.load_deletion_review(*args)
+
+        with patch(
+            "core.evidence.views.load_deletion_review", publish_before_cache_lookup
+        ):
+            second = self.client.get(url + first.context["deletion_links"]["next"])
+        self.assertContains(second, "What will be removed has changed", status_code=409)
+        self.assertEqual(second.context["deletion_page"].number, 1)
+        self.assertGreater(second.context["deletion_page"].paginator.count, 56)
 
     def test_foreign_case_import_links_block_inventory_and_all_deletion(self):
         for part in ("batch", "observation", "context", "message"):

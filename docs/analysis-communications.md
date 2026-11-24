@@ -235,7 +235,8 @@ from the retained source. Source files preserve their bytes and historical
 provenance.
 
 Choose **Add evidence → Import records → Import message CSV** or a retained
-Document's **More** action. Upload or select one CSV and confirm its export timezone.
+Document's **More** action. Upload or select one active CSV and confirm its export
+timezone. If the source is archived during a review, restore it before continuing.
 When starting from a retained document, the form shows that CSV first. Open
 **Limit by date** to enter a **Start date**, an **End date**, or both. Both
 dates include the entire calendar day in the confirmed export timezone, including
@@ -291,13 +292,15 @@ Method 2 retains compact summaries/digests of reviewed interpretation and excerp
 from up to three initial rows. Ordinary review reads that retained summary;
 automatic updates read only authorized run progress and offer a link when review
 is ready. **Review excluded rows** and **Review all message rows** deliberately
-read the checksum-verified original and show 25 matching rows using the retained
-timezone, date bounds and text limits. Confirmation queues publication using
-the prepared summary. The publication worker rechecks the complete original and
-reviewed interpretation before publishing and reports errors on the import
-status page. Row review and confirmation share a limit of 10 per minute per
-user and 30 per minute per case across web processes. Excess requests return 429
-before reading the source or queueing publication.
+show 25 matching rows using the retained interpretation and any verified file
+checkpoints from the preview. Checkpoints require a stable local original.
+Earlier previews, changed files and other storage backends use whole-file
+verification. The worker stages verified local rows in private temporary storage
+before the case write lock. With other storage backends, it verifies the original
+and interpretation again during publication. Publication is atomic. Errors appear
+on the import status page. Row review and confirmation share a limit of 10 per
+minute per user and 30 per minute per case across web processes. Excess requests
+return 429 before reading the source or queueing publication.
 Summary pages and progress remain available. Eligibility/time changes need
 fresh review. Result item/byte ceilings never truncate imports: messages are not
 individual result items. Bounded publication groups share one transaction and
@@ -348,7 +351,8 @@ order with unknowns last. Older queued imports can use steps of 250. Text and
 model checks retain their own count and character limits. Selected reports list
 the exact inputs they cover. The separate local grouping job follows the
 complete active pair across pages and saves every membership before publishing
-the revision. A processing limit cannot start an inferred session.
+the revision. A transactional pair revision detects changes during review and
+publication. A processing limit cannot start an inferred session.
 
 Automatic comparisons can include active same-case material with matching
 participants or a retained native thread. Session timing and summary selections

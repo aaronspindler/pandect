@@ -28,12 +28,21 @@ def search_approval_context(case, actor):
     profile = semantic_model.profile() if external else ""
     destination = semantic_model.identity(semantic_model.execution()) if profile else {}
     scope = [str(case.pk), str(actor.pk), grant.get("revision", "")]
+    chat = grant.get("chat_queries", {})
+    chat_scope = [*scope, chat.get("revision", "")]
     return {
         "visible": bool(external or grant.get("profile")),
         "approved": search_approval_current(case),
         "saved_destination": grant.get("execution", {}),
         "profile": profile,
         "destination": destination,
+        "chat_queries_enabled": chat.get("enabled", False),
+        "enable_chat_confirmation": execution_confirmation(
+            "case.search.chat", [*chat_scope, "enable"], [profile, destination]
+        ),
+        "disable_chat_confirmation": execution_confirmation(
+            "case.search.chat", [*chat_scope, "disable"], {}
+        ),
         "approve_confirmation": execution_confirmation(
             "case.search.embedding", [*scope, "approve"], [profile, destination]
         ),
@@ -63,3 +72,15 @@ def revoke_case_search(case):
     CaseSearchIndex.objects.filter(case=case, profile=profile).update(
         status="failed", error_code="embedding_approval_required", token=uuid4()
     )
+
+
+def set_chat_queries(case, enabled):
+    """Rotate chat consent independently from the active indexing delivery."""
+    case.search_embedding_approval = case.search_embedding_approval | {
+        "chat_queries": {
+            "enabled": enabled,
+            "revision": str(uuid4()),
+            "changed_at": timezone.now().isoformat(),
+        }
+    }
+    case.save(update_fields=("search_embedding_approval",))

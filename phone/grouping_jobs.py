@@ -4,6 +4,7 @@ from datetime import datetime
 from hashlib import sha256
 from json import dumps
 from math import isfinite
+from uuid import uuid5
 
 from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -13,6 +14,7 @@ from django.utils import timezone
 
 from cases.permissions import get_case
 from core.analysis.errors import AnalysisError, error_message
+from people.models import Person
 from phone.grouping_sources import (
     active_pair_messages,
     checked_message,
@@ -20,8 +22,10 @@ from phone.grouping_sources import (
     unique_reply_target,
 )
 from phone.models import (
+    CommunicationContext,
     ConversationGrouping,
     ConversationGroupingRequest,
+    ConversationPairRevision,
     ConversationSession,
     ConversationSessionMember,
 )
@@ -56,8 +60,8 @@ def _extend_scope(digest, pk, checksum, context_id):
     ).digest()
 
 
-def grouping_scope(case, first, second):
-    """Bind review to ordered originals, their checksums and imported context."""
+def _legacy_scope(case, first, second):
+    """Keep the historical ordered digest for already queued revisions."""
     digest = b""
     count = 0
     keys = _originals(case, first, second).values_list(
@@ -67,6 +71,28 @@ def grouping_scope(case, first, second):
         digest = _extend_scope(digest, pk, checksum, context_id)
         count += 1
     return count, digest.hex()
+
+
+def _pair_revision(case, first, second):
+    first_id, second_id = sorted(
+        (getattr(first, "pk", first), getattr(second, "pk", second))
+    )
+    revision = (
+        ConversationPairRevision.objects.filter(
+            case=case, first_person_id=first_id, second_person_id=second_id
+        )
+        .values_list("revision", flat=True)
+        .first()
+    )
+    return (revision or uuid5(case.pk, f"{first_id}:{second_id}")).hex
+
+
+def grouping_scope(case, first, second):
+    """Bind the form to the transactionally tracked original selection."""
+    return (
+        _originals(case, first, second).order_by().count(),
+        _pair_revision(case, first, second),
+    )
 
 
 def _register(batch, case, pair, scope, gap_minutes):
@@ -283,16 +309,33 @@ def _prepare_revision(revision, case, batch):
     if batch.scope["type"] == "conversation_grouping":
         batch.processed_sources = revision.processed_count
     if len(rows) < PAGE_SIZE:
-        scope = (revision.source_count, revision.scope_digest)
-        # Check the exact reviewed ordering, including already-processed rows
-        # that may have been archived or had their source removed between steps.
-        if (
-            revision.processed_count,
-            revision.processed_digest,
-        ) != scope or grouping_scope(
-            case, revision.first_person_id, revision.second_person_id
-        ) != scope:
+        pair = (revision.first_person_id, revision.second_person_id)
+        if revision.processed_count != revision.source_count:
             raise AnalysisError("grouping_scope_changed")
+        if len(revision.scope_digest) == 64:
+            # Deliveries queued before source revisions used a complete digest.
+            if revision.processed_digest != revision.scope_digest or _legacy_scope(
+                case, *pair
+            ) != (revision.source_count, revision.scope_digest):
+                raise AnalysisError("grouping_scope_changed")
+        elif _pair_revision(
+            case, *pair
+        ) != revision.scope_digest or Person.objects.filter(
+            case=case, pk__in=pair
+        ).count() != len(set(pair)):
+            raise AnalysisError("grouping_scope_changed")
+        elif (
+            CommunicationContext.objects.filter(
+                message_id__in=originals.order_by().values("pk")
+            )
+            .exclude(
+                case=case,
+                source_document__case=case,
+                source_document__sha256=F("source_sha256"),
+            )
+            .exists()
+        ):
+            raise AnalysisError("source_changed")
         actor = batch.requested_by
         actor.refresh_from_db(fields=("is_active",))
         get_case(actor, case.pk, edit=True)

@@ -13,6 +13,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from cases.permissions import get_case
+from document.models import DocumentEvidence
 from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
@@ -31,6 +32,7 @@ ERROR_MESSAGES = {
     "source_unavailable": (
         "The retained CSV could not be read. Restore its original file and retry."
     ),
+    "source_archived": "Restore this CSV before importing vehicle locations.",
     "source_invalid": (
         "The CSV could not be verified or interpreted. Download the original "
         "to check its format and upload a corrected CSV."
@@ -77,6 +79,8 @@ def _locked_batch(actor, case_id, import_id):
 
 
 def _enqueue(batch, actor):
+    if batch.document.is_archived:
+        raise ValidationError(ERROR_MESSAGES["source_archived"])
     if batch.attempts >= 3:
         raise ValidationError(
             "This processing step has reached its three-attempt limit. "
@@ -176,6 +180,15 @@ def _authorize(batch, *, lock=False):
     case = get_case(actor, batch.case_id, edit=True, lock=lock)
     if not EmailAddress.objects.filter(user=actor, verified=True).exists():
         raise PermissionDenied("Verify your email before processing.")
+    archived = (
+        DocumentEvidence.objects.filter(pk=batch.document_id, case=case)
+        .values_list("is_archived", flat=True)
+        .first()
+    )
+    if archived is None:
+        raise ImportJobError("source_invalid")
+    if archived:
+        raise ImportJobError("source_archived")
     return case
 
 
@@ -417,8 +430,6 @@ def process_import(import_id, job_token):
     started = time.monotonic()
     try:
         _authorize(batch)
-        if batch.document.case_id != batch.case_id:
-            raise ImportJobError("source_invalid")
         if batch.parser_version not in SUPPORTED_PARSER_VERSIONS:
             raise ImportJobError("version_unavailable")
         if batch.phase == "prepare":

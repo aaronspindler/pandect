@@ -16,7 +16,6 @@ from core.analysis.reporting import (
     _period,
     _record_page,
     _source,
-    _state,
     _url,
 )
 from core.evidence.queries import scoped_evidence
@@ -25,11 +24,11 @@ GAP_SECONDS = 30 * 60
 HEADINGS = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
 
 
-def vehicle_report(
-    case, state, vehicle_id, start, end, page, page_size, duplicate_row=None
-):
-    queryset = _state(scoped_evidence(case, "vehicle-location"), state).select_related(
-        "vehicle", "import_batch__document"
+def vehicle_report(case, vehicle_id, start, end, page, page_size, duplicate_row=None):
+    queryset = (
+        scoped_evidence(case, "vehicle-location")
+        .filter(is_archived=False)
+        .select_related("vehicle", "import_batch__document")
     )
     if vehicle_id:
         queryset = queryset.filter(vehicle_id=vehicle_id)
@@ -41,6 +40,7 @@ def vehicle_report(
         try:
             duplicate = (
                 scoped_evidence(case, "vehicle-location")
+                .filter(is_archived=False)
                 .select_related(None)
                 .only("vehicle_id", "raw_row")
                 .get(pk=duplicate_row)
@@ -219,7 +219,7 @@ def vehicle_report(
             for pk, title in related[item.pk].items()
         ]
         if item.pk in duplicate_counts:
-            filters = {"state": state, "duplicate_row": item.pk}
+            filters = {"duplicate_row": item.pk}
             filters.update(
                 {
                     key: value.isoformat()
@@ -260,7 +260,7 @@ def vehicle_report(
             )
         items.append(entry)
     median_speed = _median([queryset], "speed_kmh")
-    metrics = _base_metrics(total, state, start, end, "Reported observation time")
+    metrics = _base_metrics(total, start, end, "Reported observation time")
     metrics.update(
         {
             "Vehicles in selection": vehicles,

@@ -6,14 +6,6 @@ from ui.forms import localize_datetime_labels
 
 
 class BaseReportForm(forms.Form):
-    state = forms.ChoiceField(
-        choices=(
-            ("active", "Active"),
-            ("archived", "Archived"),
-            ("all", "All evidence"),
-        ),
-        initial="active",
-    )
     start = forms.DateTimeField(
         required=False,
         label="From (UTC)",

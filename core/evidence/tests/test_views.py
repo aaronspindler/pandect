@@ -483,6 +483,23 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         item.refresh_from_db()
         self.assertTrue(item.is_archived)
 
+    def test_retry_rejects_changed_original(self):
+        self.login("editor")
+        data = self.payload()
+        first = self.client.post(
+            self.url("create"), data, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(first.status_code, 201)
+        changed = self.client.post(
+            self.url("create"),
+            data | {"body": "Different synthetic material"},
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(changed.status_code, 409)
+        self.assertEqual(changed.json()["code"], "submission_conflict")
+        item = TextEvidence.objects.get(pk=first.json()["id"])
+        self.assertEqual(item.body, data["body"])
+
     def test_identical_original_requires_review_then_retains_a_separate_record(self):
         self.login("owner")
         first = self.client.post(
@@ -681,12 +698,19 @@ class EvidenceViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(
             self.client.get(self.url("list"), {"state": "archived"}), "Interview notes"
         )
+        reader = self.client.get(self.url("detail", item), {"state": "archived"})
+        self.assertContains(reader, "Restore")
+        self.assertNotContains(reader, "Edit details")
+        self.assertNotContains(reader, "Analyze evidence")
+        self.assertEqual(self.client.get(self.url("edit", item)).status_code, 404)
+        self.assertEqual(self.client.post(self.url("edit", item)).status_code, 404)
         self.client.post(self.url("restore", item))
         item.refresh_from_db()
         self.assertFalse(item.is_archived)
         self.assertEqual(
             (item.body, item.sha256, item.created_at, item.uploaded_by_id), original
         )
+        self.assertContains(self.client.get(self.url("detail", item)), "Edit details")
 
     def test_edit_source_details_rejects_stale_data_and_preserves_original(self):
         item = self.text(description="Earlier investigator context")

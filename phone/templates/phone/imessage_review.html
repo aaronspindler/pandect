@@ -52,7 +52,7 @@
     </div>
   {% endif %}
   {% if published and document %}
-    {% if can_edit %}<p><a href="{% url 'phone:imessage_upload' case.pk %}?document={{ document.pk }}">Prepare another review from this CSV</a></p>{% endif %}
+    {% if can_edit and not document.is_archived %}<p><a href="{% url 'phone:imessage_upload' case.pk %}?document={{ document.pk }}">Prepare another review from this CSV</a></p>{% endif %}
   </details>
   {% endif %}
   {% if samples and not final and not show_rows %}<section aria-labelledby="imessage-preview-heading"><h2 id="imessage-preview-heading">Message preview</h2><p>Retained excerpts from the first {{ samples|length }} source row{{ samples|length|pluralize }}.</p><ol class="analysis-message-rows">{% for row in samples %}<li><p class="muted">Row {{ row.values.source_row }} · {{ row.values.direction }} · {% if row.values.unresolved_reason %}Excluded{% else %}Ready{% endif %} · {{ row.values.raw_timestamp|default:'Time not supplied' }} · {{ preview.parameters.timezone }}</p><div class="original-text analysis-finding-text">{{ row.text|truncatechars:240 }}</div>{% if row.values.unresolved_reason %}<p class="help-text">{{ row.values.unresolved_reason }}</p>{% endif %}</li>{% endfor %}</ol></section>{% endif %}
@@ -60,7 +60,7 @@
     {% if imported %}
     <details class="disclosure" id="imported-messages"{% if request.GET.messages_page %} open{% endif %}>
       <summary>{% if publication_version == 2 %}New messages{% else %}Retained messages{% endif %} · {{ imported.paginator.count }}</summary>
-      <ul class="import-results">{% for item in imported %}<li><a href="{% url 'core:evidence:detail' case.pk 'text-message' item.pk %}">{{ item.title }}</a></li>{% endfor %}</ul>
+      <ul class="import-results">{% for item in imported %}<li><a href="{% url 'core:evidence:detail' case.pk 'text-message' item.pk %}">{{ item.title }}</a>{% if item.is_archived %} · Archived{% endif %}</li>{% endfor %}</ul>
       {% if imported.has_other_pages %}<nav class="pagination" aria-label="Imported message pages">{% if imported.has_previous %}<a class="button button-secondary" href="{% querystring messages_page=imported.previous_page_number %}#imported-messages">Previous messages</a>{% endif %}<span>Messages page {{ imported.number }} of {{ imported.paginator.num_pages }}</span>{% if imported.has_next %}<a class="button button-secondary" href="{% querystring messages_page=imported.next_page_number %}#imported-messages">Next messages</a>{% endif %}</nav>{% endif %}
     </details>
     {% endif %}
@@ -80,6 +80,7 @@
       {% include 'ui/components/form_field.html' with field=form.confirm only %}
       <div class="actions"><button class="button button-primary" type="submit">Import messages</button><a class="button button-secondary" href="{% if processing_back_url %}{{ processing_back_url }}{% else %}{% url 'core:evidence:list' case.pk %}{% endif %}">Cancel</a></div>
     </form>
+  {% elif document.is_archived %}{% if not source_error %}<p class="notice">Restore this CSV before importing messages.</p>{% endif %}
   {% elif not can_edit and not final %}<p class="role-note">You have Viewer access. An owner or editor can complete this import.</p>
   {% elif legacy_preview and not final %}<p>This earlier CSV review is retained for inspection. Prepare another review from the retained CSV to import messages with the current format.</p>
   {% elif metrics.source_rows and not final %}<p>{% if preview.parameters.start_date or preview.parameters.end_date %}No messages are ready to import for these dates. Review the excluded rows or try a different date range with the retained CSV.{% else %}No messages are ready to import. Review the excluded rows and retain a corrected export.{% endif %}</p>{% endif %}
@@ -87,7 +88,7 @@
     {% for row in rows %}<details class="import-observation"><summary>Row {{ row.values.source_row }} · {{ row.values.direction }} · {% if row.values.unresolved_reason %}Excluded{% if excluded_only %} · {{ row.values.unresolved_reason }}{% endif %}{% else %}Ready{% endif %}</summary>{% if row.values.unresolved_reason and not excluded_only %}<p class="notice">{{ row.values.unresolved_reason }}</p>{% endif %}<p>{{ row.values.raw_timestamp|default:'Time not supplied' }} · {{ preview.parameters.timezone }}</p><div class="original-text">{{ row.text }}</div><dl class="metadata-grid">{% for label,value in row.values.source_context.raw_fields.items %}{% if value %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endif %}{% endfor %}</dl></details>{% endfor %}
   </details>{% endif %}
   {% if rows.has_other_pages %}<nav class="pagination" aria-label="Message review pages">{% if rows.has_previous %}<a class="button button-secondary" href="{% querystring page=rows.previous_page_number %}#imessage-message-rows">Previous</a>{% endif %}<span>Page {{ rows.number }} of {{ rows.paginator.num_pages }}</span>{% if rows.has_next %}<a class="button button-secondary" href="{% querystring page=rows.next_page_number %}#imessage-message-rows">Next</a>{% endif %}</nav>{% endif %}
-  {% if can_edit and document and not published %}<p><a href="{% url 'phone:imessage_upload' case.pk %}?document={{ document.pk }}">Prepare another review from this CSV</a></p>{% endif %}
+  {% if can_edit and document and not document.is_archived and not published %}<p><a href="{% url 'phone:imessage_upload' case.pk %}?document={{ document.pk }}">Prepare another review from this CSV</a></p>{% endif %}
 </div>
 {% endpartialdef %}
 {% endblock %}

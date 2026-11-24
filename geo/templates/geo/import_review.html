@@ -25,10 +25,11 @@
   <p class="muted">A reported association does not verify identity, ownership, or presence. Received Time is separate from observation and collection times. No coordinates or observation intervals are inferred.</p>
   </div></details>
   {% if error_message %}<p class="notice" role="alert">{{ error_message }}</p>{% endif %}
+  {% if batch.document.is_archived and not batch.completed_at and not error_message and batch.error_code != 'source_archived' %}<p class="notice">Restore this CSV before importing vehicle locations.</p>{% endif %}
   {% if batch.status == 'review' and batch.error_code %}<p class="notice" role="alert">{{ processing_error }}</p>{% endif %}
   {% if batch.status == 'pending' and not batch.completed_at %}
-    <p>Your saved CSV is ready to process.</p>
-    {% if can_edit %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="prepare"><button class="button button-primary" type="submit">Prepare import</button></form>{% endif %}
+    {% if not batch.document.is_archived %}<p>Your saved CSV is ready to process.</p>
+    {% if can_edit %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="prepare"><button class="button button-primary" type="submit">Prepare import</button></form>{% endif %}{% endif %}
   {% elif batch.status == 'queued' or batch.status == 'running' %}
     <section aria-labelledby="processing-heading">
       <h2 id="processing-heading">{% if batch.phase == 'publish' %}Importing observations{% else %}Preparing locations{% endif %}</h2>
@@ -39,7 +40,7 @@
     </section>
   {% elif batch.status == 'failed' %}
     <p class="notice" role="alert">{{ processing_error }} The original CSV remains retained. No partial import is published.</p>
-    {% if can_retry %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="retry"><button class="button button-primary" type="submit">Retry import</button></form>{% elif can_edit %}<p>This import has reached its retry limit. Review the source and upload a corrected CSV, or ask the operator for help.</p>{% endif %}
+    {% if can_retry %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="retry"><button class="button button-primary" type="submit">Retry import</button></form>{% elif can_edit and not batch.document.is_archived %}<p>This import has reached its retry limit. Review the source and upload a corrected CSV, or ask the operator for help.</p>{% endif %}
   {% endif %}
   {% if batch.completed_at %}
     {% if observations %}<details class="disclosure"{% if request.GET.page %} open{% endif %}><summary>Imported observations</summary>
@@ -58,7 +59,7 @@
       {% csrf_token %}{% include 'ui/components/form_fields.html' with form=form %}
       <div class="actions"><button class="button button-primary" type="submit">Import locations</button><a class="button button-secondary" href="{% url 'core:evidence:list' case_id=case.pk %}">Cancel</a></div>
     </form></section>
-    {% elif not can_edit and not invalid %}<p class="role-note">You have Viewer access. An owner or editor can complete this import.</p>{% endif %}
+    {% elif not can_edit and not invalid and not batch.document.is_archived %}<p class="role-note">You have Viewer access. An owner or editor can complete this import.</p>{% endif %}
     {% if rows %}
       {% if correction_only %}
       <section class="content-section" aria-labelledby="import-source-rows">

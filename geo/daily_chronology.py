@@ -39,7 +39,7 @@ def _complete_trips(case):
             last=OuterRef("end_at"),
         )
     )
-    return saved_trips(case, state="all").filter(Exists(complete))
+    return saved_trips(case).filter(Exists(complete))
 
 
 def daily_trip_covers(case, instant):
@@ -50,13 +50,10 @@ def daily_trip_covers(case, instant):
     )
 
 
-def _trip_rows(case, trips, start, end):
-    archived = _members(case).filter(
-        trip_id=OuterRef("pk"), input__observation__is_archived=True
+def _trip_rows(trips, start, end):
+    ordered = trips.annotate(day_at=Greatest("start_at", start)).order_by(
+        "day_at", "pk"
     )
-    ordered = trips.annotate(
-        day_at=Greatest("start_at", start), includes_archived=Exists(archived)
-    ).order_by("day_at", "pk")
     for trip in ordered.iterator(chunk_size=25):
         yield {
             "at": trip.day_at,
@@ -72,7 +69,7 @@ def _trip_rows(case, trips, start, end):
 
 def _observation_rows(case, kind, start, end, trips):
     records = scoped_evidence(case, kind).filter(
-        observed_at__gte=start, observed_at__lt=end
+        is_archived=False, observed_at__gte=start, observed_at__lt=end
     )
     fields = [
         "pk",
@@ -81,7 +78,6 @@ def _observation_rows(case, kind, start, end, trips):
         "address",
         "latitude",
         "longitude",
-        "is_archived",
     ]
     if kind == "person-location":
         records = records.select_related("person")
@@ -118,7 +114,6 @@ def _observation_rows(case, kind, start, end, trips):
             "id": record.pk,
             "title": record.title,
             "observation": record,
-            "archived": record.is_archived,
         }
 
 
@@ -128,7 +123,7 @@ def daily_location_rows(case, start, end):
         return iter(())
     trips = _complete_trips(case).filter(end_at__gte=start, start_at__lt=end)
     return merge(
-        _trip_rows(case, trips, start, end),
+        _trip_rows(trips, start, end),
         *(_observation_rows(case, kind, start, end, trips) for kind in LOCATION_KINDS),
         key=itemgetter("at", "kind", "id"),
     )
@@ -145,8 +140,6 @@ def attach_daily_location_details(case, rows):
                 f"{summary['start']['place']} → {summary['end']['place']} · "
                 f"{trip.source_count} observations"
             )
-            if trip.includes_archived:
-                detail += " · Includes archived evidence"
             row.update(title=summary["vehicle"], detail=detail, url=summary["trip_url"])
     for row in rows:
         if record := row.pop("observation", None):

@@ -106,6 +106,25 @@ class CallAttachmentForm(CallContentForm):
         return cleaned
 
 
+def call_content_matches(attachment, data):
+    from core.storage import file_integrity
+
+    transcript, original = data.get("transcript", ""), data.get("file")
+    if attachment is None:
+        return not (transcript or original)
+    if attachment.transcript != transcript or bool(attachment.file) != bool(original):
+        return False
+    if not original:
+        return True
+    metadata = file_integrity(CallEvidenceAttachment(file=original).file)
+    return (
+        attachment.audio_sha256 == metadata["sha256"]
+        and attachment.byte_size == metadata["byte_size"]
+        and attachment.original_filename == metadata["original_filename"]
+        and attachment.declared_content_type == metadata["declared_content_type"]
+    )
+
+
 def save_call_content(call, actor, data, submission_id):
     if not data.get("transcript") and not data.get("file"):
         return None

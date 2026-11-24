@@ -17,6 +17,8 @@ from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import (
     GEOGRAPHIC,
     available_executions,
+    batch_grant_revision,
+    case_grant_revision,
     requires_inference,
     selected_ai_executions,
     snapshot_execution,
@@ -27,56 +29,23 @@ from core.analysis.history import (
     location_selection,
     wording_selection,
 )
+from core.analysis.operations import OPERATIONS
 from core.analysis.services import snapshot_sources, start_run
 from core.analysis.sources import source_id
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, KINDS, LOCATION_KINDS
-from core.models import CaseAnalysisBatch
+from core.models import AnalysisRun, CaseAnalysisBatch
 from phone.models import CallEvidenceAttachment
 
-CONTEXT_REQUIRED_OPERATIONS = (
-    "claim_comparison",
-    "question_synthesis",
-    "sighting_group",
-    "style_change",
-    "proximity",
-    "location_conflicts",
-    "journey_claims",
-    "imessage_import",
-)
-REPROCESS_OPERATIONS = (
-    "native_text",
-    "image_metadata",
-    "audio_metadata",
-    "ocr",
-    "plate_ocr",
-    "transcription",
-    "entities",
-    "style_profiles",
-    "copied_text",
-    "text_topics",
-    "content_events",
-    "session_summaries",
-    "sessions",
-    "comm_patterns",
-    "conversation_link",
-    "normalize_addresses",
-    "location_quality",
-    "spatial_groups",
-    "geographic_context",
-    "candidate_visits",
-    "candidate_trips",
-    "movement_routines",
-    "colocation",
-    "travel_discrepancies",
-    "geocode_locations",
-)
 MODEL_PARAMETERS = {
     "transcription": {},
-    "text_topics": {"include_summary": True},
+    "text_topics": {OPERATIONS["text_topics"].optional_inference[0]: True},
     "content_events": {},
     "session_summaries": {"gap_minutes": 60},
-    "conversation_link": {"semantic_links": True, "time_window_minutes": 10},
+    "conversation_link": {
+        OPERATIONS["conversation_link"].optional_inference[0]: True,
+        "time_window_minutes": 10,
+    },
 }
 MODE_LABELS = {
     "local": "Local checks and private services",
@@ -132,7 +101,13 @@ def analysis_scope(case, kinds):
     return {
         "analysis_version": ANALYSIS_VERSION,
         "executions": executions,
-        "external_grant_revision": case.external_analysis_approval.get("revision", ""),
+        "external_grants": {
+            key.partition(":")[0]: case_grant_revision(
+                case, key.partition(":")[0], route
+            )
+            for key, route in executions.items()
+            if route and route["location"] == "external"
+        },
     }
 
 
@@ -163,6 +138,31 @@ def start_reprocessing(actor, case_id, *, submission_id, kinds):
             )
         return existing, False
     scope = {"type": "reprocess", "kinds": kinds} | analysis_scope(case, kinds)
+    if (
+        CaseAnalysisBatch.objects.filter(
+            case=case,
+            scope__type="reprocess",
+            scope__kinds=kinds,
+            scope__analysis_version=scope["analysis_version"],
+            scope__executions=scope["executions"],
+            scope__external_grants=scope["external_grants"],
+        )
+        .filter(
+            Q(status=CaseAnalysisBatch.Status.QUEUED)
+            | Q(
+                runs__case=case,
+                runs__status__in=(
+                    AnalysisRun.Status.QUEUED,
+                    AnalysisRun.Status.RUNNING,
+                ),
+            )
+        )
+        .exists()
+    ):
+        raise ValidationError(
+            "Reprocessing for these evidence types is already in progress. "
+            "Follow its progress in Processing."
+        )
     from core.analysis.bulk import start_case_analysis
 
     return start_case_analysis(actor, case.pk, submission_id=submission_id, scope=scope)
@@ -254,13 +254,13 @@ def _error(batch, kind, evidence_id, code, *, operation=""):
 def _queue(batch, operation, choices, parameters=None, *, marker="", previous_run=None):
     if not choices:
         return
+    if OPERATIONS[operation].context_required:
+        raise ValidationError("This analysis requires an explicit context selection.")
     parameters = parameters or {}
     purpose = requires_inference(operation, parameters)
     key = f"{operation}:{parameters.get('backend', 'local')}" if purpose else operation
     route = batch.scope["executions"].get(key)
-    if (
-        purpose or operation in {"geocode_locations", "geographic_context"}
-    ) and not route:
+    if (purpose or operation in GEOGRAPHIC) and not route:
         return
     versioned = batch.scope.get("analysis_version") == ANALYSIS_VERSION
     parameters = parameters | {
@@ -288,7 +288,7 @@ def _queue(batch, operation, choices, parameters=None, *, marker="", previous_ru
             batch=batch,
             previous_run=previous_run,
             approved_execution=route,
-            external_grant_revision=batch.scope.get("external_grant_revision"),
+            external_grant_revision=batch_grant_revision(batch.scope, operation),
         )
     except (AnalysisError, ValidationError, Http404) as error:
         _error(
@@ -306,10 +306,10 @@ def _model_checks(
     batch, operation, choices, parameters=None, *, marker="", previous_run=None
 ):
     parameters = parameters or {}
-    if batch.scope.get("analysis_version") == ANALYSIS_VERSION and operation in {
-        "text_topics",
-        "conversation_link",
-    }:
+    if (
+        batch.scope.get("analysis_version") == ANALYSIS_VERSION
+        and OPERATIONS[operation].optional_inference
+    ):
         parameters = parameters | {"_suggestions_only": True}
     for backend in ("local", "gateway"):
         _queue(
@@ -526,16 +526,17 @@ def prepare_added_evidence(batch, case):
     attachment_id = batch.scope.get("attachment_id")
     try:
         original = get_evidence(case, kind, evidence_id)
-        if original.is_archived and not batch.scope.get("reprocess"):
-            raise Http404
+        if original.is_archived:
+            raise AnalysisError("source_archived")
         if attachment_id:
             attachment = original.attachments.filter(
                 case=case, pk=attachment_id
             ).first()
             if attachment is None:
                 raise Http404
-    except Http404:
-        _error(batch, kind, evidence_id, "source_unavailable")
+    except (AnalysisError, Http404) as error:
+        code = error.code if isinstance(error, AnalysisError) else "source_unavailable"
+        _error(batch, kind, evidence_id, code)
     else:
         batch.source_kind = kind
         if batch.scope.get("reprocess") and kind in CALL_KINDS:

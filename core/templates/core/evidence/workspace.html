@@ -93,8 +93,8 @@
     </header>
     <nav class="evidence-task-actions actions" aria-label="Evidence actions">
       {% partialdef findings_link inline %}<span id="evidence-findings-link" data-live-region data-live-poll="false"><a class="record-link" href="#evidence-findings-heading">Findings ({{ findings_page.paginator.count }})</a></span>{% endpartialdef %}
-      {% include 'core/important/reader_actions.html' with important_status_only=True %}
-      {% if can_edit %}
+      {% if not item.is_archived %}{% include 'core/important/reader_actions.html' with important_status_only=True %}{% endif %}
+      {% if can_edit and not item.is_archived %}
       <a data-quick-form="Edit evidence details" data-collection-context class="button button-secondary" href="{% url 'core:evidence:edit' case_id=case.pk kind=kind evidence_id=item.pk %}{{ list_suffix }}">Edit details</a>
       <details class="evidence-analyze" data-disclosure>
         <summary class="button button-secondary">Analyze evidence</summary>

@@ -30,7 +30,8 @@ from socialmedia.tasks import check_instagram_monitor
 
 logger = logging.getLogger(__name__)
 
-RECOVERY_GRACE = timedelta(seconds=connector.LIVE_COLLECTION_SECONDS + 60)
+# Keep the historical recovery grace for already retained deliveries.
+RECOVERY_GRACE = timedelta(minutes=11)
 
 MESSAGES = {
     "access_removed": "The investigator no longer has verified case edit access.",
@@ -234,7 +235,7 @@ def _collection_error(
         return "not_configured"
     if not conn or conn.user_id != user_id or not conn.session:
         return "disconnected"
-    if conn.source != source or source != connector.current_source():
+    if conn.source != source or source != InstagramSource.SYNTHETIC:
         return "source_changed"
     if (
         not conn.observer_id_string

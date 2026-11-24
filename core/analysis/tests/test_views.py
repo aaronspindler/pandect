@@ -3,6 +3,7 @@
 import io
 import json
 import wave
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
@@ -16,6 +17,7 @@ from cases.models import CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.form_base import source_choices
+from core.analysis.operations import get_operation
 from core.analysis.services import process_run, start_run
 from core.analysis.testing import external_grant_kwargs, image_bytes
 from core.analysis.tests.test_gateway import CONFIG
@@ -691,35 +693,85 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(self.client.get(target).status_code, 404)
             self.assertEqual(self.client.post(target, self.payload()).status_code, 404)
 
-    def test_process_archived_evidence_queues_once_and_preserves_original(self):
+    def test_archived_evidence_is_excluded_from_new_analysis(self):
         self.login("editor")
-        self.assertEqual(
-            self.client.post(self.url("archive", self.note)).status_code, 302
-        )
-        self.note.refresh_from_db()
+        saved_run = self.analysis_run(actor="editor")
         original = (self.note.body, self.note.sha256)
+        self.client.post(self.url("archive", self.note))
         url = self.analysis_url(
             "process_evidence", kind="text", evidence_id=self.note.pk
         )
-        self.assertContains(self.client.get(self.url("detail", self.note)), "Archived")
-        payload = {"submission_id": str(uuid4())}
-        first = self.client.post(url, payload)
-        batch = CaseAnalysisBatch.objects.get()
-        self.assertIn(f"batch={batch.pk}", first.url)
-        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
-        first_ids = set(batch.runs.values_list("pk", flat=True))
-        self.assertTrue(first_ids)
-        repeated = self.client.post(url, payload)
-        self.assertEqual(first["Location"], repeated["Location"])
-        self.assertEqual(
-            set(AnalysisRun.objects.values_list("pk", flat=True)), first_ids
+        detail = self.client.get(self.url("detail", self.note))
+        self.assertContains(detail, "Archived")
+        self.assertNotContains(detail, "Run checks")
+        self.assertContains(
+            self.client.post(url, self.payload()),
+            "A selected source was archived",
+            status_code=400,
         )
-        run = AnalysisRun.objects.get(operation="entities")
-        process_run(run.pk)
-        run.refresh_from_db()
-        self.assertEqual(run.status, "complete", run.error_code)
+        chooser = self.analysis_url("create") + "?operation=entities"
+        source = f"text:{self.note.pk}"
+        self.assertNotContains(self.client.get(chooser), f'value="{source}"')
+        self.assertEqual(self.client.get(chooser, {"source": source}).status_code, 404)
+        self.assertEqual(
+            self.client.post(chooser, self.payload(sources=[source])).status_code, 200
+        )
+        saved_result = self.client.get(self.analysis_url("detail", run=saved_run))
+        self.assertContains(saved_result, "Result withheld")
+        self.assertNotContains(saved_result, "source@example.test")
+        self.assertTrue(AnalysisResult.objects.filter(run=saved_run).exists())
+        self.assertNotContains(saved_result, 'id="run-again"')
+        self.assertEqual(
+            self.client.get(self.analysis_url("download", run=saved_run)).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(self.analysis_url("retry", run=saved_run)).status_code,
+            302,
+        )
+        self.assertFalse(CaseAnalysisBatch.objects.exists())
+        self.assertEqual(list(AnalysisRun.objects.all()), [saved_run])
         self.note.refresh_from_db()
         self.assertEqual((self.note.body, self.note.sha256), original)
+
+    def test_archive_stops_queued_analysis_and_in_progress_publication(self):
+        self.login("editor")
+        operation = get_operation("entities")
+
+        def archive(source):
+            self.assertEqual(
+                self.client.post(self.url("archive", source)).status_code, 302
+            )
+
+        def analyze(sources, parameters):
+            archive(sources[0].item)
+            return operation.function(sources, parameters)
+
+        for stage in ("queued", "processing"):
+            with self.subTest(stage=stage):
+                source = self.text()
+                run, _ = start_run(
+                    self.users["editor"],
+                    self.case.pk,
+                    "entities",
+                    [{"kind": "text", "id": source.pk}],
+                )
+
+                if stage == "queued":
+                    archive(source)
+                with patch(
+                    "core.analysis.services.get_operation",
+                    return_value=replace(operation, function=analyze),
+                ) as resolve_operation:
+                    self.assertEqual(process_run(run.pk), "source_archived")
+                if stage == "queued":
+                    resolve_operation.assert_not_called()
+                else:
+                    resolve_operation.assert_called_once_with("entities")
+                run.refresh_from_db()
+                self.assertEqual(run.status, "failed")
+                self.assertEqual(run.error_code, "source_archived")
+                self.assertFalse(AnalysisResult.objects.filter(run=run).exists())
 
     def test_evidence_analysis_validation_csrf_and_history_are_scoped(self):
         self.login("owner")
@@ -1402,8 +1454,9 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "Real zero duration")
         self.assertNotContains(response, "Archived duration")
         response = self.client.get(url, {"state": "archived"})
-        self.assertContains(response, "Archived duration")
-        self.assertNotContains(response, "Real zero duration")
+        self.assertNotContains(response, "Archived duration")
+        self.assertContains(response, "Real zero duration")
+        self.assertNotContains(response, 'name="state"')
         response = self.client.get(url, {"state": "all", "start": "2026-10-28T00:00"})
         self.assertContains(response, "No records in this selection")
         response = self.client.get(
@@ -1469,6 +1522,8 @@ class AnalysisViewTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(
             any(value.endswith(str(addition.pk)) for value, label in choices)
         )
+        self.client.post(self.url("archive", call, kind="phone-call"))
+        self.assertEqual(self.client.get(url).status_code, 404)
 
     def test_retained_import_context_remains_private_and_escaped(self):
         account = "Account <unsafe>"

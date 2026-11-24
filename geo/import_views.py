@@ -1,7 +1,5 @@
 """Retain case CSVs, then review and publish them through background jobs."""
 
-import hashlib
-
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
@@ -12,7 +10,7 @@ from django.views.decorators.http import require_http_methods
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.storage import retain_uploaded_originals
+from core.storage import file_integrity, retain_uploaded_originals, staged_file_upload
 from document.models import DocumentEvidence
 from geo.import_forms import VehicleImportReviewForm, VehicleImportUploadForm
 from geo.models import VehicleLocationImport
@@ -51,7 +49,10 @@ def vehicle_import_upload(request, case_id):
             original = form.cleaned_data["file"]
             vehicle = form.cleaned_data["vehicle"]
             try:
-                with retain_uploaded_originals() as originals:
+                with (
+                    staged_file_upload(original, limit=MAX_BYTES),
+                    retain_uploaded_originals() as originals,
+                ):
                     case = get_case(request.user, case_id, edit=True, lock=True)
                     batch = (
                         VehicleLocationImport.objects.filter(
@@ -61,14 +62,12 @@ def vehicle_import_upload(request, case_id):
                         .first()
                     )
                     if batch:
-                        digest = hashlib.sha256()
-                        for chunk in original.chunks():
-                            digest.update(chunk)
+                        digest = file_integrity(DocumentEvidence(file=original).file)
                         if (
                             batch.case_id != case.pk
                             or batch.uploaded_by_id != request.user.pk
                             or batch.document.case_id != case.pk
-                            or batch.document.sha256 != digest.hexdigest()
+                            or batch.document.sha256 != digest["sha256"]
                             or batch.timezone != form.cleaned_data["timezone"]
                             or batch.selected_vehicle_id != getattr(vehicle, "pk", None)
                         ):
@@ -164,7 +163,12 @@ def vehicle_import_review(request, case_id, import_id):
                 "This import was already completed. No observations were added again.",
             )
             return redirect(review_url, case_id=case.pk, import_id=batch.pk)
-    if context["can_edit"] and batch.status == "review" and not batch.completed_at:
+    if (
+        context["can_edit"]
+        and batch.status == "review"
+        and not batch.completed_at
+        and not batch.document.is_archived
+    ):
         form = VehicleImportReviewForm(
             request.POST if request.method == "POST" else None,
             case=case,
@@ -176,6 +180,8 @@ def vehicle_import_review(request, case_id, import_id):
         )
     if request.method == "POST" and not batch.completed_at:
         try:
+            if batch.document.is_archived:
+                raise ValidationError(ERROR_MESSAGES["source_archived"])
             if request.POST.get("action") == "prepare":
                 enqueue_preparation(request.user, case.pk, batch.pk)
                 messages.success(
@@ -266,7 +272,7 @@ def vehicle_import_review(request, case_id, import_id):
         observations_page = Paginator(observations, 50).get_page(
             request.GET.get("page")
         )
-    elif batch.status == "review":
+    elif batch.status == "review" and not batch.document.is_archived:
         rows = batch.rows.order_by("number")
         if correction_only:
             rows = rows.exclude(errors=[])
@@ -295,7 +301,9 @@ def vehicle_import_review(request, case_id, import_id):
             "progress": min(100, batch.processed_rows * 100 // batch.row_count)
             if batch.row_count and batch.phase != "publish"
             else None,
-            "can_retry": context["can_edit"] and batch.attempts < 3,
+            "can_retry": context["can_edit"]
+            and not batch.document.is_archived
+            and batch.attempts < 3,
             "nav_section": "evidence",
         },
         status=status,

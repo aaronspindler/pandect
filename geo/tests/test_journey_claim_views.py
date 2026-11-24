@@ -436,20 +436,18 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
         from django.core.exceptions import ValidationError
 
         from core.analysis.services import snapshot_sources
+        from core.analysis.source_limits import check_material_size
         from core.models import AnalysisResult
-        from geo.journey_claim_checks import check_material_size
 
         choice = {"kind": "text", "id": str(self.source.pk)}
         snapshots = snapshot_sources(self.case, [choice])
         with self.settings(PANDECT_ANALYSIS_MAX_BYTES=8):
             with self.assertRaisesMessage(ValidationError, "input limit"):
                 check_material_size(self.case, snapshots)
-            with patch(
-                "geo.journey_claim_views.snapshot_and_resolve_sources"
-            ) as snapshot:
+            with patch("core.analysis.services.resolve_snapshots") as hydrate:
                 response = self.post(action="prepare", **self.picked)
                 self.assertContains(response, "input limit")
-                snapshot.assert_not_called()
+                hydrate.assert_not_called()
 
         # Resolving an extraction materializes its creator's other inputs too.
         extra = TextEvidence.objects.create(
@@ -566,7 +564,7 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
     def test_nullable_material_field_does_not_mask_large_message_body(self):
         from django.core.exceptions import ValidationError
 
-        from geo.journey_claim_checks import _payload_bytes, check_material_size
+        from core.analysis.source_limits import check_material_size, payload_bytes
         from phone.models import TextMessageEvidence
 
         body = "🔎" * 300
@@ -580,9 +578,7 @@ class JourneyClaimViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertIsNone(message.occurred_at)
         rows = TextMessageEvidence.objects.filter(pk=message.pk, case=self.case)
-        self.assertEqual(
-            _payload_bytes(rows, "body", "occurred_at"), len(body.encode())
-        )
+        self.assertEqual(payload_bytes(rows, "body", "occurred_at"), len(body.encode()))
         with self.settings(PANDECT_ANALYSIS_MAX_BYTES=1000):
             with self.assertRaisesMessage(ValidationError, "input limit"):
                 check_material_size(

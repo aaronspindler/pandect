@@ -34,13 +34,18 @@ REVIEW_ORDER = (
 )
 
 
-def _verified_matches(queryset, case):
+def _verified_matches(queryset, case, *, match_digests):
     # Files can disappear and source snapshots can change. Count only keys with
     # two different, currently readable originals and distinct content hashes.
     from core.analysis.catalogue import finding_queryset, finding_rows
 
-    digests = queryset.exclude(match_digest="").order_by().values("match_digest")
-    current = finding_queryset(case, {}).filter(match_digest__in=digests)
+    if match_digests is None:
+        match_digests = (
+            queryset.exclude(match_digest="").order_by().values("match_digest")
+        )
+    elif not match_digests:
+        return {}
+    current = finding_queryset(case, {}).filter(match_digest__in=match_digests)
     references = AnalysisFindingSource.objects.filter(case=case, finding__in=current)
     key_fields = (
         "finding__match_kind",
@@ -121,9 +126,11 @@ def _verified_matches(queryset, case):
     return verified
 
 
-def review_context(queryset, case):
+def review_context(queryset, case, *, match_digests=None):
     """Resolve current context once before building possibly correlated list queries."""
-    return _verified_matches(queryset, case), verified_estimate_uses(queryset, case)
+    return _verified_matches(
+        queryset, case, match_digests=match_digests
+    ), verified_estimate_uses(queryset, case)
 
 
 def rank_findings(queryset, case, *, context=None):

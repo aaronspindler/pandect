@@ -122,7 +122,6 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
             "q": "Synthetic",
             "page": "2",
             "poi_page": "1",
-            "state": "all",
             "sources_page": "2",
             "findings_page": "3",
             "view": "estimates",
@@ -188,7 +187,7 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
                 poi = PointOfInterest.objects.create(
                     person=person, created_by=user, kind="home", latitude=0, longitude=0
                 )
-                filters = {"q": "Synthetic", "state": "all"}
+                filters = {"q": "Synthetic"}
                 map_url = reverse(
                     "geo:case_map",
                     args=(case.pk,),
@@ -215,6 +214,24 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
                 self.assertRedirects(
                     self.client.post(delete_url, {"confirm": "on"}), map_url
                 )
+
+    def test_legacy_archive_filters_and_trip_links_do_not_expose_archived_data(self):
+        VehicleTripGeneration.objects.filter(pk=self.generation.pk).update(
+            method_version="vehicle-trips.v1"
+        )
+        archived, _ = self.add_trip(minute=60, state="archived")
+        self.client.force_login(self.owner)
+        response = self.client.get(self.url, {"state": "all"})
+        self.assertEqual(
+            [item["id"] for item in response.context["trips"]], [str(self.trip.pk)]
+        )
+        self.assertNotContains(response, 'name="state"')
+        self.assertEqual(
+            self.client.get(
+                reverse("geo:trip_detail", args=(self.case.pk, archived.pk))
+            ).status_code,
+            404,
+        )
 
     def test_summary_page_does_not_repeat_history_checks_for_every_trip(self):
         for minute in range(1, 26):
@@ -369,6 +386,27 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
             ).status_code,
             404,
         )
+
+    def test_geometry_checks_requested_memberships_without_full_generation_scan(self):
+        trip, _ = self.add_trip(count=505, minute=60)
+        url = reverse("geo:trip_detail", args=(self.case.pk, trip.pk))
+        self.client.force_login(self.viewer)
+        with patch(
+            "geo.trip_processing.current_generations",
+            side_effect=AssertionError("Geometry scans only the requested slice"),
+        ):
+            first = self.client.get(url, HTTP_ACCEPT="application/json").json()
+            self.assertEqual(len(first["positions"]), 500)
+            next_cursor = first["next_cursor"]
+            trip.sources.filter(ordinal=next_cursor + 1).delete()
+            self.assertEqual(
+                self.client.get(
+                    url,
+                    {"cursor": next_cursor, "revision": first["revision"]},
+                    HTTP_ACCEPT="application/json",
+                ).status_code,
+                404,
+            )
 
     def test_findings_match_exact_citations_across_all_trip_observation_pages(self):
         trip, records = self.add_trip(count=53, minute=30)

@@ -14,7 +14,14 @@ from django.utils import timezone
 
 from cases.admin import CaseAdmin
 from cases.models import Case, CaseInvitation, CaseMembership
-from core.analysis.execution import available_executions
+from core.analysis.errors import AnalysisError
+from core.analysis.execution import (
+    available_executions,
+    case_grant_revision,
+    configured_external_executions,
+    validate_case_execution_grant,
+)
+from core.analysis.testing import approve_case_execution
 from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
 from geo.models import PersonLocationEvidence
 from geo.testing import LOCAL_GEOCODER
@@ -172,216 +179,244 @@ class CaseInterfaceTests(TestCase):
         self.assertEqual(available_executions(self.case, "geocode_locations", {}), {})
         self.assertFalse(self.case.external_analysis_approval.get("executions"))
 
-    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
-    def test_case_owner_selects_ai_backend_with_current_approval(self):
-        settings = self.url("case_settings")
-        backend_action = self.url("case_ai_backend")
-        approval_action = self.url("case_external_analysis")
-        external = {"ai_backend": Case.AIBackend.GATEWAY}
+    def ai_draft(self, **changes):
+        form = self.client.get(self.url("case_settings")).context["ai_settings_form"]
+        return {
+            "confirmation": form["confirmation"].value(),
+            "ai_backend": "gateway",
+            **changes,
+        }
+
+    def ai_confirm(self, review, allowed=None, **changes):
+        data = dict(review.context["proposal"])
+        if allowed is None:
+            allowed = [item["scope_id"] for item in review.context["destinations"]]
+        return self.client.post(
+            self.url("case_ai_settings"),
+            data
+            | {
+                "action": "approve",
+                "review_confirmation": review.context["review_confirmation"],
+                "allow": allowed,
+            }
+            | changes,
+        )
+
+    @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
+    def test_first_use_requires_owner_review_and_model_switch_needs_only_save(self):
+        self.login()
+        action = self.url("case_ai_settings")
+        draft = self.ai_draft(content_events="gpt-6.2-sol")
+        review = self.client.post(action, draft)
+        self.assertContains(review, "Approve and save")
+        self.assertContains(review, "chat questions")
+        self.case.refresh_from_db()
+        self.assertFalse(self.case.external_analysis_approval)
+        self.assertEqual(self.case.ai_backend, "local")
+        self.assertEqual(self.case.external_analysis_models, {})
         for actor, status in (
             (self.viewer, 403),
             (self.editor, 403),
             (self.outsider, 404),
         ):
-            with self.subTest(actor=actor):
-                self.login(actor)
-                self.assertEqual(
-                    self.client.post(backend_action, external).status_code, status
-                )
-
+            self.login(actor)
+            self.assertEqual(self.client.post(action, draft).status_code, status)
+            self.assertEqual(self.ai_confirm(review).status_code, status)
         self.login()
-        self.assertEqual(self.client.get(backend_action).status_code, 405)
-        self.assertContains(
-            self.client.post(backend_action, external),
-            "Approve an external AI destination",
+        self.assertEqual(self.client.get(action).status_code, 405)
+        self.assertEqual(
+            self.ai_confirm(review, content_events="gpt-6.1-terra").status_code, 409
         )
+        self.assertEqual(self.ai_confirm(review).status_code, 302)
         self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
-
-        approval = self.client.get(settings).context["external_analysis"]
+        self.assertEqual(self.case.ai_backend, "gateway")
+        self.assertEqual(len(self.case.external_analysis_approval["grants"]), 1)
+        before = self.case.external_analysis_approval
+        self.assertFalse(self.other_case.external_analysis_approval)
         self.assertEqual(
             self.client.post(
-                approval_action,
-                {"action": "approve", "confirmation": approval["approve_confirmation"]},
+                action, self.ai_draft(content_events="gpt-6.1-terra")
             ).status_code,
             302,
         )
-        changed_gateway = OPENAI | {
-            "models": OPENAI["models"] | {"text": "gpt-6-astra"}
-        }
-        with self.settings(PANDECT_AI_GATEWAY=changed_gateway):
-            self.assertContains(
-                self.client.post(backend_action, external),
-                "Approve an external AI destination",
-            )
         self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
-
-        self.assertRedirects(
-            self.client.post(backend_action, external), f"{settings}#ai-processing"
-        )
-        self.case.refresh_from_db()
-        self.other_case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, Case.AIBackend.GATEWAY)
-        self.assertEqual(self.other_case.ai_backend, Case.AIBackend.LOCAL)
-
-        approval = self.client.get(settings).context["external_analysis"]
-        self.assertContains(
-            self.client.post(
-                approval_action,
-                {"action": "revoke", "confirmation": approval["revoke_confirmation"]},
-                follow=True,
-            ),
-            "External AI needs current approval.",
-        )
-        self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, Case.AIBackend.GATEWAY)
-        self.assertRedirects(
-            self.client.post(backend_action, {"ai_backend": Case.AIBackend.LOCAL}),
-            f"{settings}#ai-processing",
-        )
-        self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
-
-    @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
-    def test_only_owner_can_save_allowed_models_and_restore_defaults(self):
-        self.login()
-        settings = self.url("case_settings")
-        action = self.url("case_external_models")
-        initial = self.client.get(settings).context["external_models_form"]
-        selection = {
-            "confirmation": initial["confirmation"].value(),
-            "content_events": "gpt-6.2-sol",
-            "text_topics": "gpt-6.1-terra",
-            "claim_comparison": "gpt-6.2-sol",
-        }
-        for actor, status in (
-            (self.viewer, 403),
-            (self.editor, 403),
-            (self.outsider, 404),
-        ):
-            with self.subTest(actor=actor):
-                self.login(actor)
-                self.assertEqual(
-                    self.client.post(action, selection).status_code, status
-                )
-        self.login()
-        self.assertEqual(self.client.get(action).status_code, 405)
-        invalid = self.client.post(
-            action, selection | {"content_events": "gpt-unlisted"}
-        )
-        self.assertTrue(
-            invalid.context["external_models_form"].has_error(
-                "content_events", "invalid_choice"
-            )
+        route = available_executions(self.case, "content_events", {})["gateway"]
+        self.assertEqual(route["model"], "gpt-6.1-terra")
+        self.assertIn("gateway", available_executions(self.case, "evidence_chat", {}))
+        self.assertEqual(self.case.external_analysis_approval, before)
+        self.assertEqual(self.client.post(action, draft).status_code, 409)
+        self.assertEqual(
+            self.client.post(action, self.ai_draft(content_events="")).status_code, 302
         )
         self.case.refresh_from_db()
         self.assertEqual(self.case.external_analysis_models, {})
 
-        self.assertRedirects(
-            self.client.post(action, selection), f"{settings}#external-analysis"
-        )
-        self.case.refresh_from_db()
-        self.other_case.refresh_from_db()
-        models = {"content_events": "gpt-6.2-sol", "text_topics": "gpt-6.1-terra"}
-        self.assertEqual(self.case.external_analysis_models, models)
-        self.assertEqual(self.other_case.external_analysis_models, {})
-        self.assertFalse(self.case.external_analysis_approval)
-        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
-
-        self.assertEqual(
-            self.client.post(action, selection | {"content_events": ""}).status_code,
-            409,
-        )
-        self.case.refresh_from_db()
-        self.assertEqual(self.case.external_analysis_models, models)
-        current = self.client.get(settings).context["external_models_form"]
-        self.assertRedirects(
-            self.client.post(
-                action,
-                selection
-                | {
-                    "confirmation": current["confirmation"].value(),
-                    "content_events": "",
-                },
-            ),
-            f"{settings}#external-analysis",
-        )
-        self.case.refresh_from_db()
-        self.assertEqual(
-            self.case.external_analysis_models, {"text_topics": "gpt-6.1-terra"}
-        )
-
     @override_settings(PANDECT_AI_GATEWAY=AUTO_OPENAI)
-    def test_model_change_requires_review_of_the_exact_new_destination(self):
+    def test_local_preferences_unavailable_models_and_legacy_exact_grants(self):
         self.login()
-        settings = self.url("case_settings")
-        approval_action = self.url("case_external_analysis")
-        previous = self.client.get(settings).context["external_analysis"]
-        self.assertEqual(
-            self.client.post(
-                approval_action,
-                {"action": "approve", "confirmation": previous["approve_confirmation"]},
-            ).status_code,
-            302,
+        action = self.url("case_ai_settings")
+        self.assertTrue(
+            self.client.post(action, self.ai_draft(content_events="gpt-not-configured"))
+            .context["ai_settings_form"]
+            .has_error("content_events", "invalid_choice")
         )
-        saved = self.client.get(settings)
-        old_confirmation = saved.context["external_analysis"]["approve_confirmation"]
+        executions = configured_external_executions(self.case)
+        approve_case_execution(self.case, self.owner, executions)
+        old_approval = self.case.external_analysis_approval
+        self.assertEqual(self.client.post(action, self.ai_draft()).status_code, 302)
+        self.assertContains(
+            self.client.post(action, self.ai_draft(content_events="gpt-6.2-sol")),
+            "Approve and save",
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_approval, old_approval)
         self.assertEqual(
             self.client.post(
-                self.url("case_external_models"),
-                {
-                    "confirmation": saved.context["external_models_form"][
-                        "confirmation"
-                    ].value(),
-                    "content_events": "gpt-6.2-sol",
-                },
+                action, self.ai_draft(ai_backend="local", content_events="gpt-6.2-sol")
             ).status_code,
             302,
         )
         self.case.refresh_from_db()
+        self.assertEqual(self.case.ai_backend, "local")
         self.assertNotIn(
             "gateway", available_executions(self.case, "content_events", {})
         )
-        self.assertEqual(
-            available_executions(self.case, "text_topics", {})["gateway"]["model"],
-            "gpt-6-luna",
+        self.assertIn("gateway", available_executions(self.case, "text_topics", {}))
+        self.case.external_analysis_models = {"text_topics": "retired-model"}
+        self.case.save(update_fields=("external_analysis_models",))
+        settings = self.client.get(self.url("case_settings"))
+        self.assertContains(settings, "retired-model (unavailable)")
+        self.assertNotIn("gateway", available_executions(self.case, "text_topics", {}))
+
+    @override_settings(
+        PANDECT_AI_GATEWAY=AUTO_OPENAI | {"workers_token": "synthetic-workers-token"}
+    )
+    def test_separate_audio_scope_and_targeted_revocation(self):
+        self.login()
+        action = self.url("case_ai_settings")
+        review = self.client.post(action, self.ai_draft())
+        text_scope = [
+            row["scope_id"]
+            for row in review.context["destinations"]
+            if row["name"] == "OpenAI"
+        ]
+        self.assertEqual(len(review.context["destinations"]), 2)
+        self.assertContains(self.ai_confirm(review, []), "Select the destinations")
+        self.assertEqual(self.ai_confirm(review, text_scope).status_code, 302)
+        self.case.refresh_from_db()
+        route = available_executions(self.case, "content_events", {})["gateway"]
+        text_revision = case_grant_revision(self.case, "content_events", route)
+        saved_approval = self.case.external_analysis_approval
+        self.assertEqual(self.client.post(action, self.ai_draft()).status_code, 302)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.external_analysis_approval, saved_approval)
+        self.assertNotIn(
+            "gateway", available_executions(self.case, "transcription", {})
         )
-        self.assertContains(
-            self.client.post(
-                approval_action,
-                {"action": "approve", "confirmation": old_confirmation},
-                follow=True,
-            ),
-            "Settings changed. Review the current destinations.",
-        )
-        current = self.client.get(settings).context["external_analysis"]
-        self.assertTrue(current["can_approve"])
         self.assertEqual(
             self.client.post(
-                approval_action,
-                {"action": "approve", "confirmation": current["approve_confirmation"]},
+                action, self.ai_draft(content_events="gpt-6.2-sol")
+            ).status_code,
+            302,
+        )
+        audio_review = self.client.post(action, {"action": "review_current"})
+        self.assertEqual(len(audio_review.context["destinations"]), 1)
+        self.assertEqual(self.ai_confirm(audio_review).status_code, 302)
+        self.case.refresh_from_db()
+        audio = available_executions(self.case, "transcription", {})["gateway"]
+        audio_revision = case_grant_revision(self.case, "transcription", audio)
+
+        def revoke_audio():
+            current = self.client.get(self.url("case_settings")).context[
+                "external_analysis"
+            ]
+            row = next(
+                row
+                for row in current["destinations"]
+                if "recordings" in row["material"]
+            )
+            return self.client.post(
+                self.url("case_external_analysis"),
+                {
+                    "action": "revoke_destination",
+                    "confirmation": row["revoke_confirmation"],
+                },
+            )
+
+        self.assertEqual(revoke_audio().status_code, 302)
+        self.case.refresh_from_db()
+        self.assertNotIn(
+            "gateway", available_executions(self.case, "transcription", {})
+        )
+        self.assertEqual(
+            case_grant_revision(self.case, "content_events", route), text_revision
+        )
+        self.assertEqual(
+            self.ai_confirm(
+                self.client.post(action, {"action": "review_current"})
             ).status_code,
             302,
         )
         self.case.refresh_from_db()
-        self.assertEqual(
-            available_executions(self.case, "content_events", {})["gateway"]["model"],
-            "gpt-6.2-sol",
-        )
-        with self.settings(
-            PANDECT_AI_GATEWAY=AUTO_OPENAI
-            | {"models": AUTO_OPENAI["models"] | {"text": "gpt-6-luna"}}
+        with self.assertRaisesMessage(
+            AnalysisError, "external_processing_not_approved"
         ):
-            self.assertNotIn(
-                "gateway", available_executions(self.case, "content_events", {})
+            validate_case_execution_grant(
+                self.case, "transcription", audio, audio_revision
             )
-            unavailable = self.client.get(settings).context["external_models_form"]
-            self.assertEqual(unavailable["content_events"].value(), "gpt-6.2-sol")
-            self.assertIn(
-                ("gpt-6.2-sol", "gpt-6.2-sol (unavailable)"),
-                unavailable.fields["content_events"].choices,
+        validate_case_execution_grant(self.case, "content_events", route, text_revision)
+
+    @override_settings(
+        PANDECT_AI_GATEWAY=AUTO_OPENAI
+        | {"workers_token": "synthetic-workers-token", "unified_billing": True}
+    )
+    def test_switch_between_approved_providers_and_preserve_old_receipts(self):
+        self.login()
+        action = self.url("case_ai_settings")
+        review = self.client.post(action, self.ai_draft())
+        self.assertEqual(self.ai_confirm(review).status_code, 302)
+        self.case.refresh_from_db()
+        original = available_executions(self.case, "content_events", {})["gateway"]
+        revision = case_grant_revision(self.case, "content_events", original)
+        model = "anthropic/claude-sonnet-5.5"
+        review = self.client.post(action, self.ai_draft(evidence_chat=model))
+        self.assertEqual(
+            [row["name"] for row in review.context["destinations"]], ["Anthropic"]
+        )
+        self.assertEqual(self.ai_confirm(review).status_code, 302)
+        self.case.refresh_from_db()
+        validate_case_execution_grant(self.case, "content_events", original, revision)
+        self.assertEqual(self.case.external_analysis_models["evidence_chat"], model)
+        for choice, provider in (("gpt-6.1-terra", "openai"), (model, "anthropic")):
+            self.assertEqual(
+                self.client.post(
+                    action, self.ai_draft(content_events=choice)
+                ).status_code,
+                302,
             )
+            self.case.refresh_from_db()
+            route = available_executions(self.case, "content_events", {})["gateway"]
+            self.assertEqual(route["provider"], provider)
+        with self.settings(PANDECT_AI_GATEWAY=AUTO_OPENAI):
+            rejected = self.client.post(action, self.ai_draft(question_synthesis=model))
+            self.assertTrue(
+                rejected.context["ai_settings_form"].has_error("question_synthesis")
+            )
+            self.case.refresh_from_db()
+            self.assertNotIn("question_synthesis", self.case.external_analysis_models)
+
+    @override_settings(PANDECT_AI_GATEWAY=OPENAI)
+    def test_changed_account_or_alias_invalidates_review_without_saving(self):
+        self.login()
+        action = self.url("case_ai_settings")
+        review = self.client.post(action, self.ai_draft())
+        with self.settings(
+            PANDECT_AI_GATEWAY=OPENAI | {"openai_key_alias": "replacement"}
+        ):
+            self.assertEqual(self.ai_confirm(review).status_code, 409)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.ai_backend, "local")
+        self.assertFalse(self.case.external_analysis_approval)
 
     @override_settings(
         PANDECT_AI_GATEWAY={}, **(LOCAL_GEOCODER | {"PANDECT_GEOCODER_LOCAL": False})
@@ -402,13 +437,11 @@ class CaseInterfaceTests(TestCase):
             302,
         )
         self.assertContains(
-            self.client.post(
-                self.url("case_ai_backend"), {"ai_backend": Case.AIBackend.GATEWAY}
-            ),
-            "Approve an external AI destination",
+            self.client.post(self.url("case_ai_settings"), self.ai_draft()),
+            "External AI needs at least one configured model destination.",
         )
         self.case.refresh_from_db()
-        self.assertEqual(self.case.ai_backend, Case.AIBackend.LOCAL)
+        self.assertEqual(self.case.ai_backend, "local")
 
     def test_settings_keeps_actionable_invitations_outside_history(self):
         now = timezone.now()

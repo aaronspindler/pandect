@@ -305,8 +305,8 @@ capacity in routine tests.
   invalidate the cache. The static job seeds amd64 before its dependent jobs;
   only the arm64 check and the independent scheduled/manual audit additionally
   save caches. Downstream amd64 jobs restore only. Every job still installs or
-  audits the locked graph; a cache hit never skips validation. See
-  [setup-uv caching](https://github.com/astral-sh/setup-uv/blob/68559e99cc807c1eb7e9238fd43a15bba460eec2/docs/caching.md).
+  audits the locked graph. The current setup-uv pin and cache settings live in
+  the [CI workflow](../.github/workflows/ci.yml).
 - Native smoke builds and production publication reuse architecture-specific
   GitHub Actions BuildKit layer caches. Only upstream `main` CI smoke builds and
   CD builds export those caches; PR and manual CI runs restore only. Cache misses
@@ -421,7 +421,8 @@ and [GitHub secret scanning](https://docs.github.com/en/code-security/concepts/s
 
 ## Dependabot
 
-The weekly configuration uses the native `uv`, `docker`, and `github-actions`
+The [Dependabot configuration](../.github/dependabot.yml) schedules daily
+checks with the native `uv`, `docker`, and `github-actions`
 ecosystems. Each ecosystem groups version updates into one PR, retaining a limit
 of five open PRs per ecosystem. Native uv updates maintain both `pyproject.toml`
 and `uv.lock`, including the development group. Docker discovers the Dockerfile

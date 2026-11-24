@@ -10,7 +10,14 @@ from django.http import Http404
 from cases.permissions import get_case
 from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.execution import available_executions, requires_inference
+from core.analysis.execution import (
+    available_executions,
+    batch_grant_revision,
+    case_execution_grant,
+    case_grant_revision,
+    configured_external_executions,
+    requires_inference,
+)
 from core.analysis.manual import start_available_run
 from core.analysis.operations import OPERATIONS
 from core.models import AnalysisRun, CaseAnalysisBatch
@@ -101,13 +108,17 @@ def start_failed_retries(actor, case_id, *, submission_id, after_batch_id):
         raise ValidationError("Reload Processing to try again.")
     if not failed_checks(case).exists():
         return None, False
+    routes = configured_external_executions(case)
     return start_case_analysis(
         actor,
         case.pk,
         submission_id=submission_id,
         scope={
             "type": "failed_retries",
-            "external_grant_revision": case.external_analysis_approval.get("revision"),
+            "executions": routes,
+            "external_grants": {
+                op: case_grant_revision(case, op, route) for op, route in routes.items()
+            },
         },
     )
 
@@ -123,11 +134,18 @@ def prepare_failed_retries(batch, case):
     page = list(checks.order_by("pk")[: RETRIES_PER_STEP + 1])
     for prior in page[:RETRIES_PER_STEP]:
         try:
-            if prior.external_processing and (
-                batch.scope["external_grant_revision"]
-                != case.external_analysis_approval.get("revision")
-            ):
-                raise AnalysisError("retry_approval_required")
+            if prior.external_processing:
+                _, route = retry_route(case, prior)
+                revision = batch_grant_revision(batch.scope, prior.operation)
+                if not revision or not case_execution_grant(
+                    case, prior.operation, route, revision=revision
+                ):
+                    raise AnalysisError("retry_approval_required")
+                if (
+                    "executions" in batch.scope
+                    and batch.scope["executions"].get(prior.operation) != route
+                ):
+                    raise AnalysisError("execution_changed")
             _, created = retry_run(
                 batch.requested_by,
                 case,

@@ -9,6 +9,7 @@ from core.analysis.findings import finding_row
 from core.analysis.navigation import finding_url
 from core.analysis.projection import is_timing_only
 from core.analysis.services import (
+    SourceResolutionCache,
     require_current_geocode_reviews,
     resolve_inputs,
     validate_current_sighting,
@@ -59,10 +60,11 @@ def finding_target(case, result, item_index, *, finding=None, cache=None):
     ):
         raise Http404("Finding unavailable.")
     try:
+        cache = cache or SourceResolutionCache(case, active_only=True)
         if finding is None:
             finding = result.data["items"][item_index]
         if run.operation == "sighting_group":
-            _, sighting, sources = saved_group(case, run)
+            _, sighting, sources = saved_group(case, run, cache=cache)
         else:
             sources = resolve_inputs(
                 run, case, require_current_review=False, cache=cache
@@ -95,8 +97,6 @@ def finding_target(case, result, item_index, *, finding=None, cache=None):
         qualifiers.append("Weak plate region")
     if row["low_ocr_score"]:
         qualifiers.append("Low OCR score")
-    if any(source_map[key].item.is_archived for key in finding["source_ids"]):
-        qualifiers.append("Archived source")
     if run.operation == "sighting_group":
         title = f"Sighting group · {sighting['anchor']['title']}"
         label = "Saved proposal"

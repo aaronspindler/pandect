@@ -22,7 +22,7 @@ from instagram_pilot.live_roster import (
     _official_path,
     visible_observer,
 )
-from socialmedia.instagram_connector import LIVE_VERSION
+from socialmedia.instagram_rosters import LIVE_VERSION
 
 logger = logging.getLogger(__name__)
 

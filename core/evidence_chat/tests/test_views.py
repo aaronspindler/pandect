@@ -1,15 +1,19 @@
 """Case and source access for the shared chat and Important readers."""
 
+from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.db import connection
 from django.test import Client, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from cases.models import CaseMembership
 from core.analysis.errors import AnalysisError
 from core.evidence_chat import corpus
-from core.models import ChatSource, ChatTurn, ImportantItem
+from core.models import ChatSource, ChatTurn, EvidenceChat, ImportantItem
 from core.testing import EvidenceViewTestMixin
 
 LOCAL_AI = {
@@ -63,6 +67,71 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.client.get(url).status_code, 404)
         self.assertEqual(self.client.post(self.index, self.form_data).status_code, 404)
 
+    def test_new_questions_use_active_evidence_even_with_an_old_form(self):
+        self.assertNotContains(self.client.get(self.index), 'name="include_archived"')
+        stale_form = self.form_data | {"include_archived": "on"}
+        self.assertEqual(self.client.post(self.index, stale_form).status_code, 302)
+        first = ChatTurn.objects.get(submission_id=stale_form["submission_id"])
+        self.assertFalse(first.include_archived)
+
+        first.status = ChatTurn.Status.COMPLETE
+        first.include_archived = True
+        first.save(update_fields=("status", "include_archived"))
+        detail_url = reverse("core:chat:detail", args=[self.case.pk, first.chat_id])
+        detail = self.client.get(detail_url)
+        self.assertNotContains(detail, 'name="include_archived"')
+        self.assertContains(detail, "Active and archived evidence")
+        follow_up = stale_form | {
+            "submission_id": uuid4(),
+            "question": "Which source records the change?",
+        }
+        self.assertEqual(self.client.post(detail_url, follow_up).status_code, 302)
+        second = ChatTurn.objects.get(submission_id=follow_up["submission_id"])
+        self.assertEqual(second.chat_id, first.chat_id)
+        self.assertFalse(second.include_archived)
+
+    def test_detail_recent_chats_are_bounded_case_scoped_and_lazy(self):
+        in_case = EvidenceChat.objects.bulk_create(
+            EvidenceChat(
+                case=self.case, created_by=self.users["owner"], title=f"Chat {i}"
+            )
+            for i in range(11)
+        )
+        foreign = EvidenceChat.objects.create(
+            case=self.other_case,
+            created_by=self.users["outsider"],
+            title="Unrelated case chat",
+        )
+        turns = ChatTurn.objects.bulk_create(
+            ChatTurn(
+                case=chat.case,
+                chat=chat,
+                asked_by=chat.created_by,
+                ordinal=1,
+                question=chat.title,
+                submission_id=uuid4(),
+            )
+            for chat in [*in_case, foreign]
+        )
+        now = timezone.now()
+        for i, turn in enumerate(turns):
+            turn.created_at = now + timedelta(minutes=i)
+        ChatTurn.objects.bulk_update(turns, ["created_at"])
+
+        self.login("viewer")
+        url = reverse("core:chat:detail", args=[self.case.pk, in_case[-1].pk])
+        full = self.client.get(url)
+        self.assertEqual(
+            list(full.context["recent_chats"]), list(reversed(in_case[1:]))
+        )
+        older_url = reverse("core:chat:detail", args=[self.case.pk, in_case[0].pk])
+        older = self.client.get(older_url)
+        self.assertContains(older, f'href="{older_url}" aria-current="page"')
+        with CaptureQueriesContext(connection) as queries:
+            partial = self.client.get(url, headers={"X-Pandect-Live": "1"})
+        self.assertEqual(partial.headers["X-Pandect-Live"], "1")
+        self.assertFalse(any("last_asked_at" in query["sql"] for query in queries))
+
     def test_current_destination_and_form_errors_retain_question(self):
         with patch(
             "core.evidence_chat.ai.turn_execution",
@@ -82,6 +151,42 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
         csrf_client.force_login(self.users["owner"])
         self.assertEqual(csrf_client.post(self.index, self.form_data).status_code, 403)
 
+    def test_changed_embedding_destination_requires_a_newly_reviewed_form(self):
+        scope = {
+            "profile": "synthetic",
+            "revision": "base-grant",
+            "chat_revision": "chat-grant",
+            "destination": {"gateway": "case-search", "model": "test-embeddings"},
+        }
+        with patch(
+            "core.evidence_chat.retrieval_route.hosted_scope", return_value=scope
+        ):
+            stale = self.client.post(self.index, self.form_data)
+            self.assertContains(stale, "processing destination changed")
+            self.assertContains(stale, "case-search")
+            self.assertContains(stale, "test-embeddings")
+            self.assertFalse(ChatTurn.objects.exists())
+            self.form_data["route"] = stale.context["route_token"]
+            turn = self._ask()
+            self.assertEqual(turn.plan["hosted_search"], scope)
+
+    def test_pending_chat_status_is_case_scoped_and_contains_only_progress(self):
+        turn = self._ask()
+
+        def snapshot(case):
+            return self.client.get(
+                reverse("cases:activity", args=(case.pk,)),
+                {"chat": str(turn.chat_id)},
+            ).json()
+
+        self.login("owner")
+        self.assertEqual(
+            snapshot(self.case)["chat_progress"],
+            [str(turn.pk), "queued", "", 0, 0, 0],
+        )
+        self.login("outsider")
+        self.assertIsNone(snapshot(self.other_case)["chat_progress"])
+
     def test_marks_and_notes_validate_the_whole_reply(self):
         source = self.text()
         locator = next(
@@ -100,6 +205,7 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
             evidence_kind="text",
         )
         turn.status = "complete"
+        turn.include_archived = True
         turn.answer = {
             "claims": [
                 {
@@ -115,7 +221,7 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
                 }
             ]
         }
-        turn.save(update_fields=("status", "answer"))
+        turn.save(update_fields=("status", "include_archived", "answer"))
         reply = reverse("core:chat:reply", args=[self.case.pk, turn.chat_id, turn.pk])
         mark = reverse("core:important:mark_reply", args=[self.case.pk, turn.pk])
         important = reverse("core:important:list", args=[self.case.pk])
@@ -133,6 +239,14 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(self.client.get(important), "Evidence chat reply")
         self.assertContains(self.client.get(notes), "Private working annotation.")
         self.assertEqual(self.client.post(mark, {"action": "unmark"}).status_code, 403)
+        self.login("owner")
+        self.client.post(self.url("archive", source))
+        self.assertContains(self.client.get(reply), "Reply unavailable")
+        self.assertNotContains(self.client.get(reply), "A witness supplied")
+        self.assertEqual(self.client.get(notes).status_code, 404)
+        self.client.post(self.url("restore", source))
+        self.assertContains(self.client.get(reply), "Reference 1")
+        self.assertContains(self.client.get(notes), "Private working annotation.")
         source.__class__.objects.filter(pk=source.pk).update(
             body="Unavailable source version."
         )

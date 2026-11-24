@@ -2,17 +2,21 @@
 
 import hashlib
 import json
-from collections import Counter, defaultdict, deque
+from collections import Counter
 from dataclasses import dataclass, field
+from datetime import timedelta
+from itertools import batched, chain
 from pathlib import PurePosixPath
 
 from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db import connection, transaction
+from django.db.models import Exists, F, OuterRef, Q
 from django.db.models.deletion import Collector, ProtectedError
+from django.db.models.functions import JSONObject
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 
 from cases.permissions import get_case
 from core.analysis.operations import OPERATIONS
@@ -23,11 +27,13 @@ from core.models import (
     ChatMatch,
     ChatSource,
     ChatTurn,
+    DeletionReview,
     EvidenceChat,
     ImportantItem,
     ImportantNote,
     SavedSelection,
 )
+from core.tasks import expire_deletion_review
 from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
@@ -49,12 +55,14 @@ CHANGED = (
     "What will be removed has changed. Review the updated inventory and confirm again."
 )
 SALT = "core.evidence.deletion-inventory"
+REVIEW_PAGE_SIZE = 50
 MODEL_KINDS = {model: kind for kind, model in KINDS.items()}
 INVENTORY_LABELS = {
     "analysisfinding": "Searchable finding",
     "analysisfindingsource": "Finding source reference",
     "analysisartifact": "Generated file record",
     "extractedpassage": "Extracted text",
+    "searchparent": "Search outline",
     "gatewayrequest": "Processing usage",
     "communicationcontext": "Imported message source context",
     "callevidenceattachment": "Retained call material",
@@ -73,7 +81,7 @@ INVENTORY_LABELS = {
 class DeletionPlan:
     items: list
     kind: str
-    collector: Collector
+    collector: Collector | None
     entries: list = field(default_factory=list)
     counts: Counter = field(default_factory=Counter)
     fingerprint: str = ""
@@ -104,52 +112,77 @@ class DeletionPlan:
             return False
 
 
-def _analysis_runs(case_id, selections, generation_ids, session_ids):
-    # Scan retained selections once rather than issue one JSON query for every
-    # observation in a CSV (which can contain 100,000 rows).
-    runs = AnalysisRun.objects.filter(case_id=case_id)
-    result_ids = {}
-    dependents = defaultdict(set)
-    ids = set()
-    for run_id, operation, inputs, parameters, result_id in runs.values_list(
-        "pk", "operation", "inputs", "parameters", "result__pk"
-    ).iterator():
-        if result_id is not None:
-            result_ids[run_id] = str(result_id)
-        # Removing a generation also removes trips built from its other rows.
-        if (
-            generation_ids
-            and operation == "journey_claims"
-            and any(
-                isinstance(group, dict)
-                and group.get("origin") == "trip"
-                and isinstance(group.get("generation_id"), str)
-                and group.get("generation_id") in generation_ids
-                for group in parameters.get("groups", [])
+def _direct_run_ids(case_id, runs, selections, generation_ids, session_ids):
+    if len(selections) + len(generation_ids) + len(session_ids) <= 64:
+        match = Q(pk__in=[])
+        for kind, key in selections:
+            match |= Q(inputs__contains=[{"kind": kind, "evidence_id": key}])
+        for key in generation_ids:
+            match |= Q(
+                operation="journey_claims",
+                parameters__contains={
+                    "groups": [{"origin": "trip", "generation_id": key}]
+                },
             )
-        ):
-            ids.add(run_id)
-        summary_range = parameters.get("_saved_session_range")
-        if (
-            isinstance(summary_range, dict)
-            and summary_range.get("session") in session_ids
-        ):
-            ids.add(run_id)
-        for source in inputs:
-            if (source.get("kind"), source.get("evidence_id")) in selections:
-                ids.add(run_id)
-            if upstream := source.get("result_id"):
-                dependents[upstream].add(run_id)
-        for ref in parameters.get("finding_refs", []):
-            if isinstance(ref, dict) and (upstream := ref.get("result_id")):
-                dependents[upstream].add(run_id)
-    pending = deque(ids)
+        for key in session_ids:
+            match |= Q(parameters__contains={"_saved_session_range": {"session": key}})
+        return set(runs.filter(match).values_list("pk", flat=True))
+
+    # Large imports can contain 100,000 source IDs. Compare their typed keys in
+    # PostgreSQL without one containment predicate per key or loading run JSON.
+    kinds, keys = zip(*selections, strict=True) if selections else ([], [])
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            WITH selected(kind, key) AS (
+                SELECT * FROM unnest(%s::text[], %s::text[])
+            )
+            SELECT r.id
+            FROM core_analysisrun r
+            WHERE r.case_id = %s AND (
+                EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(r.inputs) AS source
+                    JOIN selected
+                      ON source->>'kind' = selected.kind
+                     AND source->>'evidence_id' = selected.key
+                )
+                OR (
+                    r.operation = 'journey_claims' AND EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(
+                            COALESCE(r.parameters->'groups', '[]'::jsonb)
+                        ) AS trip
+                        WHERE trip->>'origin' = 'trip'
+                          AND trip->>'generation_id' = ANY(%s::text[])
+                    )
+                )
+                OR r.parameters->'_saved_session_range'->>'session' = ANY(%s::text[])
+            )
+            """,
+            (list(kinds), list(keys), case_id, list(generation_ids), list(session_ids)),
+        )
+        return {run_id for (run_id,) in cursor}
+
+
+def _analysis_runs(case_id, selections, generation_ids, session_ids):
+    runs = AnalysisRun.objects.filter(case_id=case_id).order_by()
+    ids = _direct_run_ids(case_id, runs, selections, generation_ids, session_ids)
+    pending = ids.copy()
     while pending:
-        result_id = result_ids.get(pending.popleft())
-        for run_id in dependents.get(result_id, ()):
-            if run_id not in ids:
-                ids.add(run_id)
-                pending.append(run_id)
+        found = set()
+        for batch in batched(pending, 1000, strict=False):
+            results = runs.filter(pk__in=batch, result__isnull=False).values_list(
+                "result__pk", flat=True
+            )
+            for result_ids in batched(results.iterator(), 64, strict=False):
+                dependent = Q()
+                for result_id in result_ids:
+                    ref = {"result_id": str(result_id)}
+                    dependent |= Q(inputs__contains=[ref]) | Q(
+                        parameters__contains={"finding_refs": [ref]}
+                    )
+                found.update(runs.filter(dependent).values_list("pk", flat=True))
+        pending = found - ids
+        ids.update(pending)
     return runs.filter(pk__in=ids).only("id", "case_id", "operation", "status")
 
 
@@ -213,8 +246,10 @@ def _record_rows(model, objects):
             "item",
         }
     )
-    return model.objects.filter(pk__in=[obj.pk for obj in objects]).values(
-        "id", *wanted
+    return (
+        model.objects.filter(pk__in=[obj.pk for obj in objects])
+        .values("id", *wanted)
+        .iterator(chunk_size=1000)
     )
 
 
@@ -492,7 +527,7 @@ def plan_deletions(items, kind):
         key=lambda row: (row["action"], row["type"], row["id"], row["name"])
     )
     digest = hashlib.sha256()
-    for row in [*plan.entries, *sorted(private_files)]:
+    for row in chain(plan.entries, sorted(private_files)):
         digest.update(json.dumps(row, sort_keys=True, default=str).encode())
         digest.update(b"\n")
     plan.fingerprint = digest.hexdigest()
@@ -502,9 +537,10 @@ def plan_deletions(items, kind):
 @transaction.atomic
 def execute_deletion(plan, actor):
     """Remove the reviewed inventory and invalidate remaining vehicle history."""
-    if plan.blocker or not actor.is_superuser:
+    if plan.blocker or plan.collector is None or not actor.is_superuser:
         raise PermissionDenied
     case = get_case(actor, plan.item.case_id, lock=True)
+    DeletionReview.objects.filter(case=case).delete()
     plan.collector.delete()
     if plan.affected_vehicle_ids:
         from geo.trip_processing import invalidate_vehicle_trips
@@ -512,10 +548,106 @@ def execute_deletion(plan, actor):
         invalidate_vehicle_trips(actor, case, plan.affected_vehicle_ids)
 
 
+class ReviewedDeletionEntries:
+    def __init__(self, review):
+        self.review = review
+
+    def count(self):
+        return self.review.entry_count
+
+    def __getitem__(self, page_slice):
+        return self.review.page_entries
+
+
+def load_deletion_review(request, case, item, kind):
+    reviewed = request.GET.get("review_revision")
+    if not reviewed or not request.GET.get("review_page"):
+        return None
+    try:
+        page = int(request.GET["review_page"])
+    except ValueError:
+        return None
+    if not 1 <= page < 2**31 or _review_in_flight(case):
+        return None
+    review = (
+        DeletionReview.objects.filter(
+            case=case,
+            actor=request.user,
+            kind=kind,
+            evidence_id=item.pk,
+            expires_at__gt=timezone.now(),
+            versions=JSONObject(
+                **{
+                    name: F(f"case__activity__{name}")
+                    for name in case.activity.versions()
+                }
+            ),
+        )
+        .defer("pages")
+        .annotate(page_entries=F(f"pages__{page - 1}"))
+        .first()
+    )
+    if review and review.page_entries:
+        plan = DeletionPlan(
+            [item],
+            kind,
+            None,
+            entries=ReviewedDeletionEntries(review),
+            counts=review.counts,
+            fingerprint=review.fingerprint,
+            analysis_count=review.analysis_count,
+        )
+        if plan.matches(reviewed, request.user):
+            return plan
+    return None
+
+
+@transaction.atomic
+def save_deletion_review(case, actor, plan):
+    if plan.blocker or len(plan.entries) <= REVIEW_PAGE_SIZE:
+        return
+    versions = case.activity.versions()
+    current = get_case(actor, case.pk, lock=True)
+    # The joined activity row can have been read before waiting for the case lock.
+    current.activity.refresh_from_db()
+    if current.activity.versions() != versions or _review_in_flight(current):
+        return
+    now = timezone.now()
+    DeletionReview.objects.filter(case=case, expires_at__lte=now).delete()
+    expires_at = now + timedelta(minutes=10)
+    review, _ = DeletionReview.objects.update_or_create(
+        case=case,
+        actor=actor,
+        kind=plan.kind,
+        evidence_id=plan.item.pk,
+        defaults={
+            "fingerprint": plan.fingerprint,
+            "versions": versions,
+            "counts": dict(plan.counts),
+            "analysis_count": plan.analysis_count,
+            "entry_count": len(plan.entries),
+            "pages": [
+                list(page)
+                for page in batched(plan.entries, REVIEW_PAGE_SIZE, strict=False)
+            ],
+            "expires_at": expires_at,
+        },
+    )
+    expire_deletion_review.using(run_after=expires_at).enqueue(str(review.pk))
+
+
+def _review_in_flight(case):
+    # Gateway usage can be added while a run or chat turn is already active,
+    # without moving its activity revision again until the stage completes.
+    return AnalysisRun.objects.filter(case=case, status="running").exists() or (
+        ChatTurn.objects.filter(case=case, status="running").exists()
+    )
+
+
 def deletion_review_context(request, plan):
     reviewed = request.GET.get("review_revision")
     changed = bool(reviewed and not plan.matches(reviewed, request.user))
-    page = Paginator(plan.entries, 50).get_page(
+    page = Paginator(plan.entries, REVIEW_PAGE_SIZE).get_page(
         1 if changed else request.GET.get("review_page")
     )
     params = request.GET.copy()

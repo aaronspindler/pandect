@@ -25,7 +25,6 @@ def report(
     case,
     name,
     *,
-    state="active",
     vehicle_id=None,
     participant_id=None,
     other_participant_id=None,
@@ -43,8 +42,6 @@ def report(
     """
     if name not in REPORT_NAMES:
         raise ValidationError("Choose a supported report.")
-    if state not in {"active", "archived", "all"}:
-        raise ValidationError("Choose active, archived, or all evidence.")
     if (
         isinstance(page_size, bool)
         or not isinstance(page_size, int)
@@ -78,7 +75,6 @@ def report(
             raise ValidationError("A vehicle filter does not apply to call reports.")
         return call_report(
             case,
-            state,
             participant_id,
             other_participant_id,
             start,
@@ -94,13 +90,13 @@ def report(
             )
         if name == "vehicle-trips":
             return vehicle_trip_report(
-                case, state, vehicle_id, start, end, page_size, page, gap_page
+                case, vehicle_id, start, end, page_size, page, gap_page
             )
         return vehicle_report(
-            case, state, vehicle_id, start, end, page, page_size, duplicate_row
+            case, vehicle_id, start, end, page, page_size, duplicate_row
         )
     if vehicle_id or participant_id or other_participant_id:
         raise ValidationError(
             "Vehicle and participant filters do not apply to file-byte reports."
         )
-    return duplicate_report(case, state, start, end, page, page_size)
+    return duplicate_report(case, start, end, page, page_size)

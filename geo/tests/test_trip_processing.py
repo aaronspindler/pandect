@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django_tasks_db.models import DBTaskResult
 
 from core.analysis.services import process_run
 from core.models import AnalysisRun
@@ -24,6 +25,7 @@ from geo.trip_processing import (
     saved_trips,
     trip_sources,
 )
+from geo.trip_retention import retire_snapshots
 from vehicle.models import Vehicle
 
 INSTANT = datetime(2026, 11, 15, 12, tzinfo=UTC)
@@ -107,7 +109,7 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
         trip = saved_trips(self.case).get()
         self.assertEqual(trip.source_count, 1002)
 
-    def test_archive_variants_are_independent_and_time_filters_keep_whole_trips(self):
+    def test_archived_inputs_are_excluded_and_time_filters_keep_whole_trips(self):
         rows = self.observations(5)
         VehicleLocationEvidence.objects.filter(pk__in=[rows[1].pk, rows[3].pk]).update(
             is_archived=True,
@@ -116,14 +118,17 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
         )
         generation = self.drain(self.prepare())
         self.assertEqual(saved_trips(self.case).get().source_count, 3)
-        self.assertEqual(saved_trips(self.case, state="archived").get().source_count, 2)
-        self.assertEqual(saved_trips(self.case, state="all").get().source_count, 5)
+        self.assertEqual(generation.total_sources, 3)
+        self.assertEqual(
+            set(generation.inputs.values_list("observation_id", flat=True)),
+            {rows[0].pk, rows[2].pk, rows[4].pk},
+        )
         trip = saved_trips(
             self.case, start=rows[2].observed_at, end=rows[2].observed_at
         ).get()
         self.assertEqual(trip.start_at, rows[0].observed_at)
         self.assertEqual(trip.end_at, rows[-1].observed_at)
-        self.assertEqual(generation.metrics["archived"]["observations"], 2)
+        self.assertEqual(generation.metrics["active"]["observations"], 3)
 
     def test_daily_rows_collapse_only_exact_trip_members_and_keep_overnight_endpoints(
         self,
@@ -158,7 +163,7 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
             address="Other wharf",
         )
         self.drain(self.prepare())
-        trip = saved_trips(self.case, state="all").get()
+        trip = saved_trips(self.case).get()
         rows = list(daily_location_rows(self.case, midnight, next_day))
         attach_daily_location_details(self.case, rows)
         self.assertEqual(
@@ -175,8 +180,7 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(overnight["continues_before"])
         self.assertFalse(overnight["continues_after"])
         self.assertIn("1 Moving Street → 4 Moving Street", overnight["detail"])
-        self.assertIn("4 observations", overnight["detail"])
-        self.assertIn("archived", overnight["detail"])
+        self.assertIn("3 observations", overnight["detail"])
         self.assertEqual(
             overnight["url"], reverse("geo:trip_detail", args=(self.case.pk, trip.pk))
         )
@@ -191,7 +195,7 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
         midnight = INSTANT.replace(hour=0)
         samples = self.observations(3)
         self.drain(self.prepare())
-        trips = saved_trips(self.case, state="all")
+        trips = saved_trips(self.case)
         trip_id = trips.get().pk
         trips.update(source_count=4)
 
@@ -239,6 +243,113 @@ class SavedTripProcessingTests(EvidenceViewTestMixin, TestCase):
         generation.refresh_from_db()
         self.assertEqual(generation.status, "superseded")
         self.drain(replacement)
+
+    def test_changes_before_first_claim_reuse_the_pending_delivery(self):
+        self.observations(2)
+        generation = self.prepare()
+        self.observations(1, start=INSTANT + timedelta(minutes=2))
+        newest = invalidate_vehicle_trips(
+            self.users["editor"], self.case, [self.vehicle.pk]
+        )[0]
+        self.assertEqual(newest.pk, generation.pk)
+        self.assertEqual(newest.token, generation.token)
+        self.assertEqual(newest.total_sources, 3)
+        self.assertEqual(newest.requested_by, self.users["editor"])
+        self.assertEqual(self.drain(newest).inputs.count(), 3)
+
+    def test_retirement_preserves_cited_history_and_deletes_only_bounded_slices(self):
+        self.observations(2)
+        cited = self.drain(self.prepare())
+        AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="journey_claims",
+            method_version="1",
+            parameters={
+                "groups": [
+                    {"origin": "trip", "generation_id": str(cited.pk), "members": []}
+                ]
+            },
+        )
+        uncited = self.drain(
+            invalidate_vehicle_trips(self.users["owner"], self.case, [self.vehicle.pk])[
+                0
+            ]
+        )
+        current = self.drain(
+            invalidate_vehicle_trips(self.users["owner"], self.case, [self.vehicle.pk])[
+                0
+            ]
+        )
+        with patch("geo.trip_retention.CHUNK_SIZE", 1):
+            self.assertEqual(retire_snapshots(current.pk), "queued")
+        self.assertEqual(uncited.inputs.count(), 1)
+        self.assertEqual(cited.inputs.count(), 2)
+        self.assertEqual(current.inputs.count(), 2)
+        self.assertEqual(retire_snapshots(current.pk), "queued")
+        self.assertEqual(retire_snapshots(current.pk), "queued")
+        self.assertEqual(retire_snapshots(current.pk), "complete")
+        self.assertFalse(uncited.inputs.exists())
+        self.assertFalse(uncited.trips.exists())
+        self.assertTrue(VehicleTripGeneration.objects.filter(pk=uncited.pk).exists())
+        self.assertEqual(cited.inputs.count(), 2)
+        self.assertEqual(current.inputs.count(), 2)
+
+    def test_completed_retry_schedules_retirement_of_same_revision_staged_rows(self):
+        self.observations(2)
+        interrupted = self.prepare()
+        with patch("geo.trip_jobs.CHUNK_SIZE", 1):
+            self.assertEqual(
+                process_trips(interrupted.pk, str(interrupted.token)), "queued"
+            )
+        self.assertEqual(interrupted.inputs.count(), 1)
+        replacement = prepare_case_trips(self.users["owner"], self.case.pk, retry=True)[
+            0
+        ]
+        self.assertEqual(replacement.revision, interrupted.revision)
+        self.drain(replacement)
+        self.assertTrue(
+            DBTaskResult.objects.filter(
+                task_path="geo.tasks.retire_trip_snapshots",
+                args_kwargs={"args": [str(replacement.pk)], "kwargs": {}},
+            ).exists()
+        )
+        self.assertEqual(retire_snapshots(replacement.pk), "queued")
+        self.assertEqual(retire_snapshots(replacement.pk), "queued")
+        self.assertEqual(retire_snapshots(replacement.pk), "complete")
+        interrupted.refresh_from_db()
+        self.assertEqual(interrupted.status, "superseded")
+        self.assertFalse(interrupted.inputs.exists())
+        self.assertFalse(interrupted.trips.exists())
+        self.assertEqual(replacement.inputs.count(), 2)
+
+    def test_retirement_keeps_cited_same_revision_method_history(self):
+        self.observations(2)
+        with (
+            patch("geo.trip_processing.METHOD_VERSION", "vehicle-trips.v1"),
+            patch("geo.trip_jobs.METHOD_VERSION", "vehicle-trips.v1"),
+        ):
+            older_method = self.drain(self.prepare())
+        citation = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.users["owner"],
+            operation="journey_claims",
+            method_version="1",
+            parameters={
+                "groups": [{"origin": "trip", "generation_id": str(older_method.pk)}]
+            },
+        )
+        current = self.drain(self.prepare())
+        self.assertEqual(current.revision, older_method.revision)
+        self.assertEqual(retire_snapshots(current.pk), "complete")
+        self.assertEqual(older_method.inputs.count(), 2)
+        citation.delete()
+        self.assertEqual(retire_snapshots(current.pk), "queued")
+        self.assertEqual(retire_snapshots(current.pk), "queued")
+        self.assertEqual(retire_snapshots(current.pk), "complete")
+        self.assertFalse(older_method.inputs.exists())
+        self.assertFalse(older_method.trips.exists())
+        self.assertEqual(current.inputs.count(), 2)
 
     def test_explicit_queued_retry_replaces_lost_delivery_without_duplicate_results(
         self,

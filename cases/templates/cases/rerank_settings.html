@@ -1,0 +1,30 @@
+{% if rerank_approval.destination or rerank_approval.saved %}
+<section class="content-section" id="passage-ranking" aria-labelledby="passage-ranking-heading">
+  <h2 id="passage-ranking-heading">Hosted passage ranking</h2>
+  {% if rerank_approval.destination %}
+    <p class="prose">For difficult searches, Evidence chat and submitted related searches can send up to 200 characters of the question and up to 24 evidence excerpts of 900 characters each to Cloudflare Workers AI. The provider scores how closely each excerpt matches. Gateway payload logging and cache reuse are disabled.</p>
+    <dl class="metadata-grid">
+      <div><dt>Cloudflare account</dt><dd>{{ rerank_approval.destination.account }}</dd></div>
+      <div><dt>Gateway</dt><dd>{{ rerank_approval.destination.gateway }}</dd></div>
+      <div><dt>Ranking model</dt><dd>{{ rerank_approval.destination.model }}</dd></div>
+    </dl>
+    {% if rerank_approval.approved %}
+      <p>Passage ranking is approved for this case.</p>
+    {% else %}
+      <form method="post" action="{% url 'cases:case_passage_ranking' case.pk %}">
+        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ rerank_approval.approve }}">
+        <button class="button button-primary" name="action" value="approve">Approve hosted passage ranking</button>
+      </form>
+    {% endif %}
+  {% endif %}
+  {% if rerank_approval.saved %}
+    {% if not rerank_approval.approved %}
+      <p>The previous approval for {{ rerank_approval.saved.account }} / {{ rerank_approval.saved.gateway }} ({{ rerank_approval.saved.model }}) is inactive.</p>
+    {% endif %}
+    <form method="post" action="{% url 'cases:case_passage_ranking' case.pk %}">
+      {% csrf_token %}<input type="hidden" name="confirmation" value="{{ rerank_approval.revoke }}">
+      <button class="button button-secondary" name="action" value="revoke">Revoke hosted passage ranking</button>
+    </form>
+  {% endif %}
+</section>
+{% endif %}

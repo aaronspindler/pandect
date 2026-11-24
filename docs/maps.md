@@ -24,7 +24,7 @@ POIs. **Show on map** offers keyboard selection. Polar positions beyond display
 limits remain in the list without coordinate changes.
 
 Search covers labels, types, addresses, citations, and person names/contacts.
-Vehicle/date/evidence-state filters affect trips only. Independent URL-backed
+The vehicle and date filters affect trips only. Independent URL-backed
 `poi_page` lists at most 100 POIs per page; only that page is plotted alongside
 the selected complete trip. Person details list 25 POIs per page and preselect
 the person when adding.
@@ -59,7 +59,7 @@ Raw Location, Person location, and Vehicle
 location observations remain in Evidence rather than the map's main display.
 Editors can open vehicle CSV intake or add a vehicle observation from an empty map.
 
-Expand **Search and filters** to filter by vehicle, evidence state, and dates in
+Expand **Search and filters** to filter active trips by vehicle and dates in
 the displayed account/device timezone or to search POIs. Applied filters appear
 as a short summary. The form opens automatically when a filter needs correction.
 Dates select whole overlapping trips, never trim observations

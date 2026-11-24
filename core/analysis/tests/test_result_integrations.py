@@ -448,6 +448,10 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         self.login("outsider")
         self.assertEqual(self.client.get(url).status_code, 404)
         self.login("owner")
+        self.client.post(self.url("archive", original, kind="image"))
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.post(self.url("restore", original, kind="image"))
+        self.assertEqual(self.client.get(url).status_code, 200)
         ImageEvidence.objects.filter(pk=original.pk).update(sha256="f" * 64)
         self.assertEqual(self.client.get(url).status_code, 404)
 

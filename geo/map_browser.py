@@ -375,11 +375,13 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     "Reported speed 0 km/h"
                 )
                 page.get_by_role("link", name="Next observations").click()
+                page.wait_for_url(
+                    re.compile(r"\?sources_page=2#trip-list$"), wait_until="load"
+                )
                 expect(page.locator(".map-location-list > li").first).to_contain_text(
                     "50 Example Street"
                 )
-                page.locator(".map-location-list a").first.focus()
-                page.keyboard.press("Enter")
+                page.locator(".map-location-list a").first.press("Enter")
                 expect(
                     page.get_by_role(
                         "heading", name="Synthetic trip source 50", exact=True
@@ -572,7 +574,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 page.on(
                     "pageerror", lambda error, errors=errors: errors.append(str(error))
                 )
-                filters = "?q=Alex+Example&state=all"
+                filters = "?q=Alex+Example"
                 filtered_map = self.map_url + filters
                 filtered_trip = self.detail_url + filters
                 page.goto(filtered_trip)

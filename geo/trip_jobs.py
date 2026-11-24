@@ -20,7 +20,7 @@ from geo.trip_models import (
     VehicleTripInput,
     VehicleTripState,
 )
-from geo.trip_processing import EVIDENCE_STATES, METHOD_VERSION, _queue_geocoding
+from geo.trip_processing import METHOD_VERSION, READABLE_METHODS, _queue_geocoding
 
 
 class SupersededTrip(Exception):
@@ -67,14 +67,16 @@ def _current(generation, *, geocode=False):
         or not expected
     ):
         raise SupersededTrip
-    if current.method_version != METHOD_VERSION:
+    if current.method_version not in (
+        READABLE_METHODS if geocode else (METHOD_VERSION,)
+    ):
         raise ValueError("version_unavailable")
     return state, current
 
 
 def _next_sources(generation, case):
     queryset = scoped_evidence(case, "vehicle-location").filter(
-        vehicle_id=generation.vehicle_id
+        vehicle_id=generation.vehicle_id, is_archived=False
     )
     cursor = generation.cursor
     phase = cursor.get("phase", "timed")
@@ -156,11 +158,7 @@ def process_trips(generation_id, token):
                     "input_id": str(source.pk),
                     "ordinal": source.ordinal,
                 }
-                for name in EVIDENCE_STATES:
-                    if name == "all" or source.snapshot["is_archived"] == (
-                        name == "archived"
-                    ):
-                        segmenter.process(name, snapshot)
+                segmenter.process(snapshot)
             current.processed_sources += len(inputs)
             if complete:
                 segmenter.complete()
@@ -172,6 +170,12 @@ def process_trips(generation_id, token):
                 state.current_generation = current
                 state.save(update_fields=("current_generation",))
                 _queue_geocoding(generation.requested_by, current)
+                from geo.trip_retention import obsolete_generations_with_snapshots
+
+                if obsolete_generations_with_snapshots(current).exists():
+                    from geo.tasks import retire_trip_snapshots
+
+                    retire_trip_snapshots.enqueue(str(current.pk))
             else:
                 segmenter.flush()
                 current.status = "queued"
@@ -222,7 +226,10 @@ def prepare_addresses(generation_id, token):
                 return "disabled"
             query = (
                 current.inputs.filter(
-                    ordinal__gt=current.geocode_cursor, memberships__trip__kind="trip"
+                    ordinal__gt=current.geocode_cursor,
+                    memberships__trip__kind="trip",
+                    memberships__trip__evidence_state="active",
+                    observation__is_archived=False,
                 )
                 .distinct()
                 .order_by("ordinal")
@@ -259,9 +266,7 @@ def prepare_addresses(generation_id, token):
             queue_addresses(current.geocode_requested_by, case, rows)
             if handled:
                 current.geocode_cursor = handled[-1].ordinal
-            more = current.inputs.filter(
-                ordinal__gt=current.geocode_cursor, memberships__trip__kind="trip"
-            ).exists()
+            more = query.filter(ordinal__gt=current.geocode_cursor).exists()
             current.geocode_status = "queued" if more else "complete"
             if more:
                 current.token = uuid4()

@@ -352,6 +352,13 @@ PANDECT_AI_GATEWAY = {
     "gateway": os.environ.get("PANDECT_AI_GATEWAY_ID", ""),
     "gateway_token": os.environ.get("PANDECT_AI_GATEWAY_TOKEN", ""),
     "workers_token": os.environ.get("PANDECT_AI_WORKERS_TOKEN", ""),
+    "unified_billing": os.environ.get("PANDECT_AI_UNIFIED_BILLING", "false").lower()
+    == "true",
+    "stored_key_providers": tuple(
+        name.strip()
+        for name in os.environ.get("PANDECT_AI_STORED_KEY_PROVIDERS", "").split(",")
+        if name.strip()
+    ),
     "text_provider": os.environ.get("PANDECT_AI_TEXT_PROVIDER")
     or default_text_provider,
     "openai_key_alias": os.environ.get("PANDECT_AI_OPENAI_KEY_ALIAS", "default"),
@@ -409,6 +416,15 @@ PANDECT_PREFER_EXTERNAL_TRANSCRIPTION_PROFILE = os.environ.get(
 PANDECT_SEARCH_EMBEDDING_PROVIDER = os.environ.get(
     "PANDECT_SEARCH_EMBEDDING_PROVIDER", "local"
 )
+PANDECT_SEARCH_RERANK_PROVIDER = os.environ.get(
+    "PANDECT_SEARCH_RERANK_PROVIDER", "disabled"
+)
+PANDECT_LOCAL_RERANK = {
+    "url": os.environ.get("PANDECT_LOCAL_RERANK_URL", ""),
+    "revision": os.environ.get("PANDECT_LOCAL_RERANK_REVISION", ""),
+    "version": os.environ.get("PANDECT_LOCAL_RERANK_VERSION", ""),
+    "token": os.environ.get("PANDECT_LOCAL_RERANK_TOKEN", ""),
+}
 PANDECT_LOCAL_EMBEDDING = {
     "url": os.environ.get("PANDECT_LOCAL_EMBEDDING_URL", ""),
     "model": os.environ.get("PANDECT_LOCAL_EMBEDDING_MODEL", "all-minilm:22m"),
@@ -467,43 +483,28 @@ if PANDECT_INSTAGRAM_PILOT_URL:
             "dedicated pilot key of at least 32 characters."
         )
 
-# An optional single-investigator qualification on the local desktop. Loopback
-# avoids transmitting the private connector binding outside this machine.
-PANDECT_INSTAGRAM_LIVE = {}
+# Older signed desktop sessions can be disconnected from their original loopback
+# host. This configuration never selects a case collector or enables scheduling.
+PANDECT_INSTAGRAM_LEGACY_REVOCATION = {}
 if _live_url := os.environ.get("PANDECT_INSTAGRAM_LIVE_URL", ""):
     try:
         _live = urlsplit(_live_url)
-        _target_text = os.environ.get("PANDECT_INSTAGRAM_LIVE_TARGETS", "")
-        _targets = tuple(
-            dict.fromkeys(h.strip().lower() for h in _target_text.split(","))
-        )
-        _observer = (
-            os.environ.get("PANDECT_INSTAGRAM_LIVE_OBSERVER", "").strip().lower()
-        )
         _live_token = os.environ.get("PANDECT_INSTAGRAM_LIVE_TOKEN", "")
-        _minimum = int(os.environ.get("PANDECT_INSTAGRAM_LIVE_MIN_HOURS", "1"))
         if (
-            PANDECT_INSTAGRAM_PILOT_URL
-            or _live.scheme != "http"
+            _live.scheme != "http"
             or _live.hostname != "127.0.0.1"
             or not _live.port
             or _live_url != f"http://127.0.0.1:{_live.port}"
-            or _minimum not in (1, 6, 12, 24)
             or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", _live_token)
-            or (_observer and not re.fullmatch(r"[a-z0-9._]{1,30}", _observer))
-            or not all(re.fullmatch(r"[a-z0-9._]{1,30}", h) for h in _targets)
         ):
             raise ValueError
-        PANDECT_INSTAGRAM_LIVE = {
+        PANDECT_INSTAGRAM_LEGACY_REVOCATION = {
             "url": _live_url,
             "token": _live_token,
-            "targets": _targets,
-            "observer": _observer,
-            "min_hours": _minimum,
             "user_id": str(UUID(os.environ["PANDECT_INSTAGRAM_LIVE_USER"])),
             "case_id": str(UUID(os.environ["PANDECT_INSTAGRAM_LIVE_CASE"])),
         }
     except KeyError, ValueError:
         raise ImproperlyConfigured(
-            "Check the local Instagram pilot configuration."
+            "Check the legacy Instagram revocation configuration."
         ) from None

@@ -17,7 +17,9 @@ from django_tasks_db.models import DBTaskResult
 
 from cases.models import Case, CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch, start_case_analysis
+from core.analysis.reprocessing import start_reprocessing
 from core.analysis.services import process_run
+from core.analysis.tasks import prepare_case_analysis
 from core.evidence.types import CALL_KINDS, COMMUNICATION_KINDS, FILE_KINDS, KINDS
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
@@ -49,11 +51,19 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         return KINDS[kind].objects.create(**(values | overrides))
 
     def start(self, role="owner", submission_id=None, case=None):
-        return start_case_analysis(
+        return start_reprocessing(
             self.users[role],
             (case or self.case).pk,
             submission_id=submission_id or uuid4(),
+            kinds=["text"],
         )
+
+    def legacy_batch(self, role="owner"):
+        batch = CaseAnalysisBatch.objects.create(
+            case=self.case, requested_by=self.users[role], scope={}
+        )
+        prepare_case_analysis.enqueue(str(batch.pk))
+        return batch
 
     def drain(self, batch):
         for _ in range(100):
@@ -77,8 +87,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
                 transcript="Contact transcript@example.test",
                 **{parent: sources[kind]},
             )
-        batch, created = self.start(role="editor")
-        self.assertTrue(created)
+        batch = self.legacy_batch(role="editor")
         self.assertFalse(AnalysisRun.objects.exists())
         self.assertEqual(DBTaskResult.objects.count(), 1)
         self.drain(batch)
@@ -114,7 +123,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         original_result = AnalysisResult.objects.get(run=original_run)
         retained_data = original_result.data
         runs.exclude(pk=original_run.pk).update(status=AnalysisRun.Status.UNSUPPORTED)
-        later, _ = self.start()
+        later = self.legacy_batch()
         self.drain(later)
         original_result.refresh_from_db()
         self.assertEqual(original_result.data, retained_data)
@@ -134,7 +143,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
 
         self.drain(batch)
         runs = AnalysisRun.objects.filter(batch=batch)
-        self.assertEqual(runs.count(), 2)
+        self.assertTrue(runs.exists())
         for state in (AnalysisRun.Status.QUEUED, AnalysisRun.Status.RUNNING):
             runs.update(status=state)
             with self.assertRaisesMessage(ValidationError, "already in progress"):
@@ -145,11 +154,11 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(created)
         self.assertNotEqual(fresh.pk, batch.pk)
 
-    def test_scoped_batches_and_other_cases_do_not_block_case_wide_checks(self):
+    def test_other_scopes_and_cases_do_not_block_reprocessing(self):
         scoped = CaseAnalysisBatch.objects.create(
             case=self.case,
             requested_by=self.users["owner"],
-            scope={"type": "reprocess"},
+            scope={"type": "reprocess", "kinds": ["image"]},
         )
         self.start(role="outsider", case=self.other_case)
         full, created = self.start()
@@ -171,7 +180,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         KINDS["text-message"].objects.filter(pk=inconsistent.pk).update(
             sender=foreign_person
         )
-        batch, _ = self.start()
+        batch = self.legacy_batch()
         self.source("text")
         self.drain(batch)
         self.assertEqual(batch.processed_sources, 1)
@@ -192,7 +201,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
             )
             for index in range(52)
         ]
-        batch, _ = self.start()
+        batch = self.legacy_batch()
         prepare_case_analysis_batch(str(batch.pk))
         batch.refresh_from_db()
         self.assertEqual(batch.processed_sources, 25)
@@ -227,7 +236,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         missing = self.source("document")
         missing.file.storage.delete(missing.file.name)
         self.source("text")
-        batch, _ = self.start()
+        batch = self.legacy_batch()
         self.drain(batch)
         self.assertEqual(batch.unavailable_sources, 1)
         self.assertEqual(batch.processed_sources, 2)
@@ -247,7 +256,7 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
 
     def test_failed_continuation_rolls_back_page_and_allows_fresh_rerun(self):
         self.source("text")
-        batch, _ = self.start()
+        batch = self.legacy_batch()
         with patch(
             "core.analysis.tasks.prepare_case_analysis",
             **{"enqueue.side_effect": OperationalError},
@@ -259,14 +268,14 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(batch.processed_sources, 0)
         self.assertFalse(AnalysisRun.objects.exists())
         self.assertEqual(DBTaskResult.objects.count(), 1)
-        fresh, _ = self.start()
+        fresh = self.legacy_batch()
         self.drain(fresh)
         self.assertEqual(fresh.queued_runs, 2)
 
     def test_access_revocation_between_pages_stops_preparation_and_workers(self):
         for _ in range(26):
             self.source("text")
-        batch, _ = self.start(role="editor")
+        batch = self.legacy_batch(role="editor")
         prepare_case_analysis_batch(str(batch.pk))
         CaseMembership.objects.filter(
             case=self.case, user=self.users["editor"]
@@ -312,6 +321,8 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
                     ).status_code,
                     302,
                 )
+                batch.status = CaseAnalysisBatch.Status.COMPLETE
+                batch.save(update_fields=["status"])
         self.assertEqual(CaseAnalysisBatch.objects.count(), 2)
         self.assertEqual(DBTaskResult.objects.count(), 2)
         self.login("owner")
@@ -352,6 +363,13 @@ class CaseAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "Analysis could not be queued")
         self.assertNotContains(response, "Private connection details")
 
+    def test_previously_queued_empty_scopes_are_supported_but_not_created(self):
+        with self.assertRaisesMessage(ValidationError, "Choose an analysis scope"):
+            start_case_analysis(
+                self.users["owner"], self.case.pk, submission_id=uuid4(), scope={}
+            )
+        self.assertFalse(CaseAnalysisBatch.objects.exists())
+
 
 class ConcurrentCaseAnalysisTests(TransactionTestCase):
     def test_fresh_concurrent_requests_create_one_batch_and_task(self):
@@ -365,7 +383,9 @@ class ConcurrentCaseAnalysisTests(TransactionTestCase):
             close_old_connections()
             try:
                 ready.wait(timeout=10)
-                batch, _ = start_case_analysis(actor, case.pk, submission_id=uuid4())
+                batch, _ = start_reprocessing(
+                    actor, case.pk, submission_id=uuid4(), kinds=["text"]
+                )
                 return "created", batch.pk
             except ValidationError as error:
                 self.assertIn("already in progress", str(error))

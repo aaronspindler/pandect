@@ -217,20 +217,24 @@ use idempotent **Prepare trips** POSTs, automatically started by owners/editors
 opening the JavaScript map or through the normal form. Viewers inspect results;
 Processing shows progress, generations, safe failures and recovery.
 
-Background chunks read 500 observations from complete chronological histories,
-without a total-source cutoff. Generations retain every source/checksum and
-active/archived/all variants. Each chunk rechecks access/revision; only complete
+Background chunks read up to 500 active observations from chronological histories
+without a total-source cutoff. Queued rebuilds can absorb newer source changes
+before they start. The current generation and any generation cited by a saved or
+queued journey comparison retain their complete input snapshots. Superseded,
+uncited derived rows are retired in bounded steps while generation history remains.
+Cleanup includes replaced attempts and method versions at the same source revision.
+Each chunk rechecks access and revision. Only complete
 matching work publishes. Source changes supersede work; retries/duplicate delivery
 cannot publish partial trips. Confirm stopped workers before recovery, with at
 most three attempts per recovery phase. Startup/migrations never process evidence.
 
 Vehicle pages show five recent trips; map/report pages show 25. Date filters retain
 complete overlapping trips, without shortening input sequences. Times use account/
-device timezone, falling back to UTC. Archived observations are excluded by default.
+device timezone, falling back to UTC. Trips use active observations.
 Trip detail leads with the first and last recorded observations and the elapsed
 span. The source list exposes every observation and imported row provenance.
-An evidence reader links back when its exact observation belongs to one
-current possible trip in its active or archived selection.
+An evidence reader links back when its exact active observation belongs to one
+current possible trip.
 
 Vehicles segment independently using same-case observations and consistent import/
 document relationships. Untimed rows remain in coverage but cannot form trips.

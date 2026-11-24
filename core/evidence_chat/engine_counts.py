@@ -43,6 +43,63 @@ QUERY = re.compile(
 )
 DAYS = set("monday tuesday wednesday thursday friday saturday sunday".split())
 
+# Whole-question matching keeps qualifications, negation and unquoted concepts
+# on the interpretive route. A literal always fits inside the review overlap.
+LITERAL_QUERY = re.compile(
+    r"(?:please\s+)?(?:list|find|show|identify)\s+(?:me\s+)?(?:every|all(?:\s+the)?)\s+"
+    r"(?P<active>active\s+)?records?\s+(?:that\s+|which\s+)?(?:mention|contain)(?:s|ing)?\s+"
+    r'(?:"(?P<quoted>[^"\r\n]{1,80})"|“(?P<curly>[^”\r\n]{1,80})”|'
+    r"'(?P<single>[^'\r\n]{1,80})'|‘(?P<curly_single>[^’\r\n]{1,80})’|"
+    r"(?P<name>[^\W\d_][\w’'-]{0,79})\s+by\s+name)[.!?]?",
+    re.I,
+)
+
+
+def literal_question(turn):
+    match = LITERAL_QUERY.fullmatch(turn.question.strip())
+    if match and not (turn.include_archived and match["active"]):
+        literal = (
+            match["quoted"]
+            or match["curly"]
+            or match["single"]
+            or match["curly_single"]
+            or match["name"]
+        )
+        return literal if literal.strip() else ""
+    return ""
+
+
+def literal_outcomes(term, windows):
+    left = r"(?<!\w)" if re.match(r"\w", term[0]) else ""
+    right = r"(?!\w)" if re.match(r"\w", term[-1]) else ""
+    pattern = re.compile(left + re.escape(term) + right, re.I)
+    outcomes = []
+    for w in windows:
+        refs = []
+        for match in pattern.finditer(w.text):
+            if left and not match.start() and w.start:
+                continue
+            if (
+                right
+                and match.end() == len(w.text)
+                and w.start + match.end() < w.locator["length"]
+            ):
+                continue
+            start, end = w.start + match.start(), w.start + match.end()
+            if not any(
+                first <= start and end <= last for first, last in w.literal_ranges
+            ):
+                continue
+            refs.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "quote": match[0],
+                }
+            )
+        outcomes.append(("match" if refs else "miss", refs))
+    return outcomes
+
 
 def _people(case, value):
     value = value.strip().strip('"“”')

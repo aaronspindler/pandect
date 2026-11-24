@@ -3,6 +3,7 @@
 from uuid import uuid4
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -91,6 +92,18 @@ class AnalysisRun(models.Model):
 
     class Meta:
         ordering = ["-created_at", "id"]
+        indexes = [
+            GinIndex(
+                fields=["inputs"],
+                opclasses=["jsonb_path_ops"],
+                name="analysis_inputs_gin",
+            ),
+            GinIndex(
+                fields=["parameters"],
+                opclasses=["jsonb_path_ops"],
+                name="analysis_parameters_gin",
+            ),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=models.Q(progress__lte=100), name="analysis_progress_range"

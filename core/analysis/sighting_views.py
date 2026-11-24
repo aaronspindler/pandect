@@ -275,7 +275,7 @@ def create(request, case_id):
 
 
 def _group_rows(case, runs, *, hide_unavailable=False):
-    cache = SourceResolutionCache(case, with_content=False)
+    cache = SourceResolutionCache(case, with_content=False, active_only=True)
     rows = []
     for run in runs:
         result = getattr(run, "result", None)
@@ -334,7 +334,11 @@ def _detail(request, case, run, *, issue="", status=200):
     if not hasattr(run, "result") and run.status != AnalysisRun.Status.COMPLETE:
         return redirect("core:analysis:detail", case.pk, run.pk)
     try:
-        result, values, sources = saved_group(case, run)
+        result, values, sources = saved_group(
+            case,
+            run,
+            cache=SourceResolutionCache(case, with_content=False, active_only=True),
+        )
     except AnalysisError:
         context["unavailable"] = True
     else:

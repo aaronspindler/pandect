@@ -14,7 +14,6 @@ from geo.trip_processing import (
 def saved_trip_report(
     case,
     *,
-    state="active",
     vehicle_id=None,
     start=None,
     end=None,
@@ -22,24 +21,22 @@ def saved_trip_report(
     page_size=25,
     gap_page=1,
 ):
-    trips = saved_trips(case, state=state, vehicle_id=vehicle_id, start=start, end=end)
+    trips = saved_trips(case, vehicle_id=vehicle_id, start=start, end=end)
     page_obj = Paginator(trips, page_size).get_page(page)
     generations = current_generations(case, vehicle_id=vehicle_id)
     observations = missing_times = conflicts = incomparable = 0
     for metrics in generations.values_list("metrics", flat=True):
-        counts = metrics.get(state, {})
+        counts = metrics.get("active", {})
         observations += counts.get("observations", 0)
         missing_times += counts.get("missing_times", 0)
         conflicts += counts.get("conflicts", 0)
         incomparable += counts.get("incomparable", 0)
-    sources = scoped_evidence(case, "vehicle-location")
+    sources = scoped_evidence(case, "vehicle-location").filter(is_archived=False)
     if vehicle_id:
         sources = sources.filter(vehicle_id=vehicle_id)
     pending = sources.exclude(vehicle_id__in=generations.values("vehicle_id")).exists()
     readiness = trip_readiness(case, vehicle_id=vehicle_id)
-    gaps = saved_trips(
-        case, state=state, vehicle_id=vehicle_id, start=start, end=end, kind="gap"
-    )
+    gaps = saved_trips(case, vehicle_id=vehicle_id, start=start, end=end, kind="gap")
     gap_page_obj = Paginator(gaps, 25).get_page(gap_page)
     warnings = []
     if pending:

@@ -64,14 +64,14 @@ class Segmenter:
             VehicleTripSource.objects.bulk_create(self.pending, batch_size=CHUNK_SIZE)
             self.pending = []
 
-    def create(self, name, entry, source, *, kind="trip"):
+    def create(self, entry, source, *, kind="trip"):
         ordinal = entry.get("next_ordinal", 1)
         entry["next_ordinal"] = ordinal + 1
         return VehicleTrip.objects.create(
             case_id=self.generation.case_id,
             vehicle_id=self.generation.vehicle_id,
             generation=self.generation,
-            evidence_state=name,
+            evidence_state="active",
             kind=kind,
             ordinal=ordinal,
             start_at=_time(source),
@@ -89,12 +89,12 @@ class Segmenter:
             )
         )
 
-    def candidate(self, name, entry, source):
-        trip = self.create(name, entry, source)
+    def candidate(self, entry, source):
+        trip = self.create(entry, source)
         entry.update(trip_id=str(trip.pk), origin=source, first_movement=None)
         self.append(trip.pk, source)
 
-    def finish(self, name, entry, end):
+    def finish(self, entry, end):
         trip_id = entry.get("trip_id")
         if not trip_id:
             return
@@ -120,17 +120,17 @@ class Segmenter:
             trip.save(
                 update_fields=("end_at", "source_count", "largest_gap_seconds", "basis")
             )
-            self.generation.metrics[name]["trips"] += 1
+            self.generation.metrics["active"]["trips"] += 1
         entry["trip_id"] = None
 
-    def reset(self, name, entry, source):
+    def reset(self, entry, source):
         entry.update(
             previous=source,
             anchor=source,
             run_start=source,
             run_positive=_positive(source),
         )
-        self.candidate(name, entry, source)
+        self.candidate(entry, source)
 
     def stopped(self, entry):
         return (
@@ -139,15 +139,14 @@ class Segmenter:
             >= STOP_SECONDS
         )
 
-    def finish_block(self, name, entry):
+    def finish_block(self, entry):
         self.finish(
-            name,
             entry,
             entry["run_start"] if self.stopped(entry) else entry["previous"],
         )
 
-    def gap(self, name, entry, first, last, seconds):
-        trip = self.create(name, entry, first, kind="gap")
+    def gap(self, entry, first, last, seconds):
+        trip = self.create(entry, first, kind="gap")
         trip.end_at = _time(last)
         trip.source_count = 2
         trip.largest_gap_seconds = seconds
@@ -157,34 +156,34 @@ class Segmenter:
         )
         self.append(trip.pk, first)
         self.append(trip.pk, last, seconds)
-        self.generation.metrics[name]["gaps"] += 1
+        self.generation.metrics["active"]["gaps"] += 1
 
-    def process(self, name, source):
-        metrics = self.generation.metrics[name]
+    def process(self, source):
+        metrics = self.generation.metrics["active"]
         metrics["observations"] += 1
         if source["observed_at"] is None:
             metrics["missing_times"] += 1
             return
-        entry = self.generation.carry.setdefault(name, {})
+        entry = self.generation.carry
         previous = entry.get("previous")
         if previous is None:
-            self.reset(name, entry, source)
+            self.reset(entry, source)
             return
         seconds = (_time(source) - _time(previous)).total_seconds()
         same = _same(previous, source)
         if seconds > GAP_SECONDS or same is None or (seconds == 0 and same is False):
-            self.finish_block(name, entry)
+            self.finish_block(entry)
             if seconds > GAP_SECONDS:
-                self.gap(name, entry, previous, source, seconds)
+                self.gap(entry, previous, source, seconds)
             else:
                 metrics["incomparable"] += same is None
                 metrics["conflicts"] += seconds == 0 and same is False
-            self.reset(name, entry, source)
+            self.reset(entry, source)
             return
         same_run = _same(entry["anchor"], source) is True
         if not same_run and self.stopped(entry):
-            self.finish(name, entry, entry["run_start"])
-            self.candidate(name, entry, previous)
+            self.finish(entry, entry["run_start"])
+            self.candidate(entry, previous)
         self.append(entry["trip_id"], source, seconds)
         if entry["first_movement"] is None and _same(entry["origin"], source) is False:
             entry["first_movement"] = source["ordinal"]
@@ -197,20 +196,18 @@ class Segmenter:
         entry["previous"] = source
 
     def complete(self):
-        for name, entry in self.generation.carry.items():
-            if entry.get("previous"):
-                self.finish_block(name, entry)
+        if self.generation.carry.get("previous"):
+            self.finish_block(self.generation.carry)
         self.flush()
         self.generation.carry = {}
 
 
-def vehicle_trip_report(case, state, vehicle_id, start, end, limit, page=1, gap_page=1):
+def vehicle_trip_report(case, vehicle_id, start, end, limit, page=1, gap_page=1):
     """Page complete saved trips; observation history is never sliced here."""
     from geo.trip_reports import saved_trip_report
 
     return saved_trip_report(
         case,
-        state=state,
         vehicle_id=vehicle_id,
         start=start,
         end=end,

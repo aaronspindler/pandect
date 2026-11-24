@@ -30,7 +30,11 @@ from core.analysis.presentation import (
 )
 from core.analysis.projection import is_ai_suggestion, is_timing_only
 from core.analysis.ranking import rank_findings
-from core.analysis.services import SourceResolutionCache, resolve_inputs
+from core.analysis.services import (
+    SourceResolutionCache,
+    resolve_active_inputs,
+    resolve_inputs,
+)
 from core.analysis.sources import source_id
 from core.evidence.navigation import collection_params
 from core.models import AnalysisFinding, AnalysisResult, AnalysisRun, CaseAnalysisBatch
@@ -113,7 +117,7 @@ def _evidence_layout_url(case, kind, item, runs, selection):
             run,
             case,
             require_current_review=False,
-            cache=SourceResolutionCache(case, with_content=False),
+            cache=SourceResolutionCache(case, with_content=False, active_only=True),
         )
     except AnalysisError, Http404:
         return ""
@@ -230,7 +234,7 @@ def _evidence_outcomes(page, case, selection):
         .annotate(summary=Left(KeyTextTransform("summary", "data"), 241))
         .values_list("run_id", "summary")
     )
-    cache = SourceResolutionCache(case, with_content=False)
+    cache = SourceResolutionCache(case, with_content=False, active_only=True)
     history_query = {
         "return_evidence": urlencode(selection | {"results_page": page.number})
     }
@@ -392,14 +396,13 @@ def result_highlights(result, case, *, allowed, hidden_indices):
     run = result.run
     operation = run.operation
     try:
-        sources = resolve_inputs(run, case)
+        sources = resolve_active_inputs(run, case)
     except AnalysisError, Http404:
         return []
     selected_sources = {
         str(source.id): source
         for source in sources
-        if not source.item.is_archived
-        and (
+        if (
             run.operation,
             source.kind,
             str(source.item.pk),

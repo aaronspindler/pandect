@@ -1,13 +1,16 @@
 """Recoverable private passage preparation on the existing database queue."""
 
 import hashlib
+from collections import defaultdict
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Q
+from django.db.models.functions import Length
 from django.http import Http404
 from django.tasks import task
 from django.utils import timezone
@@ -27,7 +30,9 @@ from core.case_search.semantic_model import (
 from core.case_search.semantic_model import (
     identity as embedding_identity,
 )
-from core.case_search.semantic_sources import load_windows, source_queryset
+from core.case_search.semantic_sources import BODY_FIELDS, load_windows, source_queryset
+from core.evidence.queries import scoped_evidence
+from core.evidence.types import KINDS
 from core.models import CaseSearchIndex, SearchDocument, SearchPassage
 from core.models.search import SOURCE_FIELDS
 
@@ -38,6 +43,7 @@ TRANSIENT_ERRORS = {
     "gateway_unavailable",
     "local_ai_busy",
     "local_ai_unavailable",
+    "source_unavailable",
 }
 LABELS = {
     "disabled": "Meaning search is unavailable in this installation.",
@@ -49,6 +55,14 @@ LABELS = {
     "failed": "Meaning search indexing stopped.",
     "ready": "Meaning search is ready.",
 }
+
+
+def _active_documents(case):
+    eligible = Q(pk__in=[])
+    for source in SOURCE_FIELDS:
+        rows = source_queryset(case, source).order_by().values("pk")
+        eligible |= Q(**{f"{source}_id__in": rows})
+    return SearchDocument.objects.filter(eligible, case=case)
 
 
 def search_index_status(case, *, count_passages=True):
@@ -66,21 +80,24 @@ def search_index_status(case, *, count_passages=True):
             status = index.status if index.profile == identity else "changed"
             token = index.token
             if status != "changed":
+                active = _active_documents(case).filter(profile=identity)
                 indexed = SearchPassage.objects.filter(
                     case=case,
                     profile=identity,
-                    document__case=case,
-                    document__profile=identity,
+                    document__in=active,
                 )
                 if count_passages:
-                    documents = SearchDocument.objects.filter(
-                        case=case, profile=identity, complete=True
-                    ).count()
+                    documents = active.filter(complete=True).count()
                     passages = indexed.count()
                 else:
                     passages = int(indexed.filter(document__complete=True).exists())
                 if index.error_code:
-                    if status == "queued":
+                    if status == "queued" and index.error_code == "source_unavailable":
+                        reason = (
+                            "Some retained material cannot be read. "
+                            "An automatic retry is scheduled."
+                        )
+                    elif status == "queued":
                         reason = (
                             "The embedding service is busy or unavailable. "
                             "An automatic retry is scheduled."
@@ -113,6 +130,29 @@ def _enqueue(index, *, delay=0):
     delivery.enqueue(str(index.pk), str(index.token))
 
 
+def _record_failure(index, code):
+    index.failures += 1
+    index.error_code = code
+    if code in TRANSIENT_ERRORS and index.failures <= len(RETRY_DELAYS):
+        _enqueue(index, delay=RETRY_DELAYS[index.failures - 1])
+        return "queued"
+    index.status = "failed"
+    index.save(update_fields=("status", "failures", "error_code", "source_cursor"))
+    return "failed"
+
+
+def _resume_short_documents(case, identity):
+    """Repair older ready indexes that completed a missing source's empty read."""
+    unfinished = Q(pk__in=[])
+    for source, field in BODY_FIELDS.items():
+        unfinished |= Q(offset__lt=Length(f"{source}__{field}"))
+    return (
+        _active_documents(case)
+        .filter(unfinished, profile=identity, complete=True)
+        .update(complete=False)
+    )
+
+
 @transaction.atomic
 def prepare_case_search(case, user, *, retry=False, interrupted_token=None):
     case = get_case(user, case.pk, edit=True, lock=True)
@@ -133,12 +173,12 @@ def prepare_case_search(case, user, *, retry=False, interrupted_token=None):
         config["approval_revision"] = case.search_embedding_approval["revision"]
     if index:
         changed = index.profile != identity or index.execution != config
-        if (
-            not changed
-            and interrupted_token is None
-            and not (retry and index.status == "failed")
-        ):
-            return False
+        if not changed and interrupted_token is None:
+            if index.status == "ready":
+                if not _resume_short_documents(case, identity):
+                    return False
+            elif not (retry and index.status == "failed"):
+                return False
         if changed:
             index.source_type_index = 0
             index.source_cursor = None
@@ -172,7 +212,15 @@ def add_sources(case_id, source, ids):
     case = Case.objects.select_for_update().get(pk=case_id)
     if is_external() and not search_approval_current(case):
         return
-    _bulk_sources(case, source, ids)
+    eligible = list(
+        source_queryset(case, source)
+        .filter(pk__in=ids)
+        .order_by()
+        .values_list("pk", flat=True)
+    )
+    if not eligible:
+        return
+    _bulk_sources(case, source, eligible)
     index = CaseSearchIndex.objects.select_for_update().filter(case=case).first()
     if index is None:
         if EmailAddress.objects.filter(
@@ -184,7 +232,48 @@ def add_sources(case_id, source, ids):
         _enqueue(index)
 
 
+def evidence_archive_changed(case, actor, kind, item_id, *, archived):
+    """Refresh the current delivery and seed restored originals and derivatives."""
+    from .parent_index import archive_parent_sources
+
+    archive_parent_sources(case, actor, kind, item_id, archived=archived)
+    if not archived and case.search_generation_policy:
+        from .generation import published
+
+        published(case.pk, "briefs", f"restored:{kind}", item_id)
+        if kind in ("document", "text-message"):
+            published(case.pk, "conversations", f"restored:{kind}", item_id)
+    index = CaseSearchIndex.objects.select_for_update().filter(case=case).first()
+    if index is None:
+        if (
+            not archived
+            and EmailAddress.objects.filter(
+                user=case.owner, user__is_active=True, verified=True
+            ).exists()
+        ):
+            prepare_case_search(case, case.owner)
+        return
+    if not archived:
+        index.source_type_index = 0
+        index.source_cursor = None
+    if (
+        index.profile == profile()
+        and (not is_external() or search_approval_current(case))
+        and (index.status == "running" or (not archived and index.status == "ready"))
+    ):
+        _enqueue(index)
+    elif not archived:
+        index.save(update_fields=("source_type_index", "source_cursor"))
+
+
 def result_published(result):
+    from .parent_index import published_parent_sources
+
+    published_parent_sources(result)
+    if result.run.operation in {"native_text", "ocr", "plate_ocr", "transcription"}:
+        from .generation import published
+
+        published(result.case_id, "briefs", "result", result.pk)
     if result.run.operation == "sighting_group" or not profile():
         return
     from itertools import batched
@@ -267,6 +356,40 @@ def _batch(index, docs, windows):
     return pending, progress
 
 
+def _documents_with_archived_dependencies(case, documents):
+    """Distinguish scope exclusions even for older, unprojected run inputs."""
+    by_source = defaultdict(dict)
+    for document in documents:
+        source, key = document.source()
+        if source in ("extraction", "finding"):
+            by_source[source][key] = document.pk
+    referenced_by = defaultdict(set)
+    for source, sources in by_source.items():
+        selected = source_queryset(case, source).filter(pk__in=sources)
+        for key, inputs in selected.values_list("pk", "result__run__inputs"):
+            for item in inputs if isinstance(inputs, list) else ():
+                if not isinstance(item, dict) or item.get("kind") not in KINDS:
+                    continue
+                try:
+                    original = UUID(item.get("evidence_id"))
+                except ValueError, AttributeError, TypeError:
+                    continue
+                referenced_by[item["kind"], original].add(sources[key])
+    archived_docs = set()
+    for kind in {kind for kind, _ in referenced_by}:
+        archived = (
+            scoped_evidence(case, kind)
+            .filter(
+                is_archived=True,
+                pk__in=[key for candidate, key in referenced_by if candidate == kind],
+            )
+            .values_list("pk", flat=True)
+        )
+        for key in archived:
+            archived_docs.update(referenced_by[kind, key])
+    return archived_docs
+
+
 WINDOW = BATCH_SIZE * CHUNK_BYTES + 1
 
 
@@ -287,14 +410,22 @@ def index_case_passages(index_id, token):
             if index.source_type_index < len(SOURCE_FIELDS):
                 _seed(index, case)
                 return "queued"
-            docs = list(
-                SearchDocument.objects.filter(case=case)
-                .filter(complete=False)
-                .order_by("pk")[:BATCH_SIZE]
-            )
+            pending_documents = _active_documents(case).filter(complete=False)
+            ordered = pending_documents.order_by("pk")
+            if index.source_cursor:
+                # After seeding, this cursor passes a blocked pending slice.
+                docs = list(ordered.filter(pk__gt=index.source_cursor)[:BATCH_SIZE])
+                if not docs:
+                    index.source_cursor = None
+            if index.source_cursor is None:
+                docs = list(ordered[:BATCH_SIZE])
             if not docs:
                 index.status = "ready"
-                index.save(update_fields=("status",))
+                index.error_code = ""
+                index.failures = 0
+                index.save(
+                    update_fields=("status", "error_code", "failures", "source_cursor")
+                )
                 return "ready"
         requests = [(d, d.offset if d.profile == index.profile else 0) for d in docs]
         windows = load_windows(case, requests, WINDOW)
@@ -324,10 +455,30 @@ def index_case_passages(index_id, token):
                 for d, _, _ in progress
                 if d.pk in current and windows.get(d.source()) == live.get(d.source())
             }
+            unread = {
+                d.pk: d
+                for d, _, _ in progress
+                if d.pk in valid and d.source() not in windows
+            }
+            # Deletions drop the SearchDocument and scope changes can exclude a
+            # remaining row. A still-eligible unreadable source must stay pending.
+            excluded = set(unread) - set(
+                _active_documents(case)
+                .filter(pk__in=unread)
+                .values_list("pk", flat=True)
+            )
+            excluded.update(
+                _documents_with_archived_dependencies(
+                    case, [doc for pk, doc in unread.items() if pk not in excluded]
+                )
+            )
+            unavailable = set(unread) - excluded
+            valid.difference_update(unavailable)
             restarting = [
                 doc.pk
                 for doc, _, _ in progress
-                if doc.pk in valid and doc.profile and doc.profile != index.profile
+                if doc.pk in excluded
+                or (doc.pk in valid and doc.profile and doc.profile != index.profile)
             ]
             if restarting:
                 # A previous attempt may have partially built this same profile.
@@ -335,7 +486,10 @@ def index_case_passages(index_id, token):
                     document_id__in=restarting, profile=index.profile
                 ).delete()
             for doc, offset, complete in progress:
-                if doc.pk in valid:
+                if doc.pk in excluded:
+                    # A restore re-seeds documents excluded from the active scope.
+                    doc.profile, doc.offset, doc.complete = "", 0, True
+                elif doc.pk in valid:
                     doc.profile, doc.offset, doc.complete = (
                         index.profile,
                         offset,
@@ -361,12 +515,44 @@ def index_case_passages(index_id, token):
                 ]
             )
             finished = [
-                d.pk for d, _, complete in progress if complete and d.pk in valid
+                d.pk
+                for d, _, complete in progress
+                if complete and d.pk in valid and d.pk not in excluded
             ]
             if finished:
+                from core.models import SearchParent
+
+                from .parent_index import refresh_parent_vectors
+
+                finished_set = set(finished)
+                keys = [
+                    f"{kind}:{pk}"
+                    for doc, _, _ in progress
+                    if doc.pk in finished_set
+                    for kind, pk in (doc.source(),)
+                ]
+                if SearchParent.objects.filter(
+                    case=case, vector_sources__overlap=keys
+                ).exists():
+                    refresh_parent_vectors.enqueue(
+                        str(case.pk), str(index.requested_by_id), keys
+                    )
                 SearchPassage.objects.filter(document_id__in=finished).exclude(
                     profile=index.profile
                 ).delete()
+            if unavailable and all(
+                d.pk in unavailable or d.pk not in current for d, _, _ in progress
+            ):
+                # A wholly blocked slice must not use up retries ahead of other
+                # documents. Productive mixed slices continue at their current
+                # position so unfinished healthy sources keep moving.
+                after = max(unavailable)
+                if pending_documents.filter(pk__gt=after).exists():
+                    index.source_cursor = after
+                    _enqueue(index)
+                    return "queued"
+                index.source_cursor = None
+                return _record_failure(index, "source_unavailable")
             index.error_code = ""
             index.failures = 0
             _enqueue(index)
@@ -387,11 +573,4 @@ def index_case_passages(index_id, token):
         )
         if not current:
             return "superseded"
-        current.failures += 1
-        current.error_code = code
-        if code in TRANSIENT_ERRORS and current.failures <= len(RETRY_DELAYS):
-            _enqueue(current, delay=RETRY_DELAYS[current.failures - 1])
-            return "queued"
-        current.status = "failed"
-        current.save(update_fields=("status", "failures", "error_code"))
-    return "failed"
+        return _record_failure(current, code)

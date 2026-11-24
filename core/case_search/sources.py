@@ -64,11 +64,9 @@ class Source:
     identifiers: tuple = ()
 
 
-def sources(case, kind, state):
+def sources(case, kind):
     if kind in KINDS:
-        qs = scoped_evidence(case, kind)
-        if state != "all":
-            qs = qs.filter(is_archived=state == "archived")
+        qs = scoped_evidence(case, kind).filter(is_archived=False)
         dates = (("collected_at", "Collected"), ("created_at", "Added"))
         if kind in COMMUNICATION_KINDS:
             dates = (("occurred_at", "Occurred"), *dates)
@@ -81,9 +79,7 @@ def sources(case, kind, state):
         )
         return Source(qs, F("title"), dates, ids)
     if kind == "conversation":
-        qs = scoped_evidence(case, "text-message")
-        if state != "all":
-            qs = qs.filter(is_archived=state == "archived")
+        qs = scoped_evidence(case, "text-message").filter(is_archived=False)
         qs = qs.alias(
             pair_a=Least("sender_id", "recipient_id"),
             pair_b=Greatest("sender_id", "recipient_id"),
@@ -95,7 +91,7 @@ def sources(case, kind, state):
         )
     if kind == "trip":
         return Source(
-            saved_trips(case, state=state),
+            saved_trips(case),
             Concat(Value("Possible trip · "), vehicle_name("vehicle__")),
             (("start_at", "Trip started"),),
         )

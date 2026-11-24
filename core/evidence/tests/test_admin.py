@@ -1,5 +1,6 @@
 import hashlib
 import tempfile
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib import admin
@@ -9,10 +10,12 @@ from django.contrib.auth.models import Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from cases.models import Case, CaseMembership
 from core.evidence.form_registry import ORIGINAL_FIELDS
 from core.evidence.types import COMMUNICATION_KINDS, FILE_KINDS, KINDS, LOCATION_KINDS
+from core.models import CaseAnalysisBatch
 from geo.models import VehicleLocationImport
 from people.models import Person
 from phone.models import CallEvidenceAttachment, PhoneCallEvidence
@@ -216,6 +219,17 @@ class EvidenceAdminTests(TestCase):
                     self.assertNotEqual(item.sha256, "0" * 64)
                     self.assertIsNone(item.submission_id)
                     self.assertFalse(item.is_archived)
+                    self.assertTrue(
+                        CaseAnalysisBatch.objects.filter(
+                            case=self.case,
+                            requested_by=user,
+                            scope__contains={
+                                "type": "added",
+                                "kind": kind,
+                                "id": str(item.pk),
+                            },
+                        ).exists()
+                    )
                     if kind == "text":
                         self.assertEqual(item.body, self.original(kind)["body"])
                         self.assertEqual(
@@ -243,10 +257,12 @@ class EvidenceAdminTests(TestCase):
                     response.context["adminform"].form.fields["case"].queryset,
                     [self.case],
                 )
-                response = self.client.post(
-                    self.url(kind, "add"),
-                    self.data(**self.original(kind), case=self.other_case.pk),
-                )
+                with patch("core.storage._measure_file") as measure:
+                    response = self.client.post(
+                        self.url(kind, "add"),
+                        self.data(**self.original(kind), case=self.other_case.pk),
+                    )
+                measure.assert_not_called()
                 self.assertEqual(response.status_code, 200)
                 self.assertIn("case", response.context["adminform"].form.errors)
                 self.assertEqual(model.objects.count(), 2)
@@ -392,6 +408,7 @@ class EvidenceAdminTests(TestCase):
                     response = self.client.post(
                         self.url(kind, "change", item),
                         self.data(
+                            **{"initial-is_archived": str(item.is_archived)},
                             **({"is_archived": "on"} if archived else {}),
                             archive_changed_by=self.outsider.pk,
                             archive_changed_at="2000-01-01",
@@ -405,6 +422,25 @@ class EvidenceAdminTests(TestCase):
                         self.assertNotEqual(item.archive_changed_at, previous)
                     else:
                         self.assertEqual(item.archive_changed_at, previous)
+
+    def test_stale_admin_edit_does_not_restore_archived_evidence(self):
+        self.client.force_login(self.editor)
+        item = self.items["text"]
+        url = self.url("text", "change", item)
+        self.assertContains(self.client.get(url), 'name="initial-is_archived"')
+        item.is_archived = True
+        item.archive_changed_at = timezone.now()
+        item.archive_changed_by = self.owner
+        item.save()
+
+        response = self.client.post(
+            url, self.data(source="Reviewed source", **{"initial-is_archived": "False"})
+        )
+        self.assertRedirects(response, self.url("text"))
+        item.refresh_from_db()
+        self.assertTrue(item.is_archived)
+        self.assertEqual(item.archive_changed_by, self.owner)
+        self.assertEqual(item.source, "Reviewed source")
 
     def test_unrelated_users_cannot_access_direct_object_or_history_urls(self):
         for user in (self.outsider, self.superuser):

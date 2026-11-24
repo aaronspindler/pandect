@@ -36,7 +36,9 @@ from core.evidence.deletion import (
     deletion_review_context,
     execute_deletion,
     get_deletion_target,
+    load_deletion_review,
     plan_deletion,
+    save_deletion_review,
 )
 from core.evidence.form_registry import TYPE_FIELDS, evidence_form
 from core.evidence.forms import COMMON_FIELDS, SOURCE_FIELDS, EvidenceDeleteForm
@@ -56,10 +58,10 @@ from core.evidence.types import (
     READER_TEMPLATES,
 )
 from core.important.reader import reader_context as important_reader_context
-from core.storage import retain_uploaded_originals
+from core.storage import retain_uploaded_originals, staged_file_upload
 from geo.models import VehicleLocationImport
 from image.previews import image_preview
-from phone.forms import save_call_content
+from phone.forms import call_content_matches, save_call_content
 from ui.dialogs import form_saved, render_quick_form, render_record, wants_record
 from ui.live import render_live
 
@@ -314,7 +316,7 @@ def _duplicate_review(request, case, kind, item):
         "matches": matches[:10],
         "has_more": len(matches) > 10,
         "all_matches_url": reverse("core:evidence:list", args=(case.pk,))
-        + "?state=all&checksum="
+        + "?checksum="
         + item.sha256,
         "confirmation": signing.dumps(identity, salt="core.evidence.duplicate"),
     }
@@ -398,26 +400,28 @@ def create(request, case_id):
             submission_id = None
         item = None
         try:
-            with retain_uploaded_originals() as originals:
+            with (
+                staged_file_upload(
+                    request.FILES.get("file"), limit=settings.PANDECT_MAX_FILE_BYTES
+                ),
+                retain_uploaded_originals() as originals,
+            ):
                 case = get_case(request.user, case_id, edit=True, lock=True)
-                if submission_id:
-                    previous = (
-                        KINDS[kind].objects.filter(submission_id=submission_id).first()
+                previous = (
+                    KINDS[kind].objects.filter(submission_id=submission_id).first()
+                    if submission_id
+                    else None
+                )
+                if previous and (
+                    previous.case_id != case.pk
+                    or previous.uploaded_by_id != request.user.pk
+                ):
+                    return _error(
+                        request,
+                        "submission_conflict",
+                        "This submission cannot be reused.",
+                        409,
                     )
-                    if previous:
-                        if (
-                            previous.case_id != case.pk
-                            or previous.uploaded_by_id != request.user.pk
-                        ):
-                            return _error(
-                                request,
-                                "submission_conflict",
-                                "This submission cannot be reused.",
-                                409,
-                            )
-                        return _created_response(
-                            request, case, kind, previous, created=False
-                        )
                 instance = KINDS[kind](
                     case=case, uploaded_by=request.user, submission_id=submission_id
                 )
@@ -425,6 +429,25 @@ def create(request, case_id):
                     request.POST, request.FILES, kind=kind, instance=instance
                 )
                 if form.is_valid():
+                    if previous:
+                        same_content = previous.sha256 == form.instance.sha256
+                        if same_content and kind in CALL_KINDS:
+                            earlier_content = previous.attachments.filter(
+                                case=case, submission_id=submission_id
+                            ).first()
+                            same_content = call_content_matches(
+                                earlier_content, form.cleaned_data
+                            )
+                        if not same_content:
+                            return _error(
+                                request,
+                                "submission_conflict",
+                                "This submission belongs to different material.",
+                                409,
+                            )
+                        return _created_response(
+                            request, case, kind, previous, created=False
+                        )
                     duplicates = _duplicate_review(request, case, kind, form.instance)
                     if duplicates:
                         if wants_json(request):
@@ -476,7 +499,7 @@ def create(request, case_id):
             return _error(request, "not_found", "This case is unavailable.", 404)
         except OSError:
             message = "The original could not be saved. Keep your file and try again."
-            if wants_json(request):
+            if wants_json(request) or not form.is_bound:
                 return _error(request, "storage_unavailable", message, 503)
             form.add_error(None, message)
             status = 503
@@ -541,6 +564,8 @@ def edit(request, case_id, kind, evidence_id):
     with transaction.atomic():
         case = get_case(request.user, case_id, edit=True, lock=is_post)
         item = get_evidence(case, kind, evidence_id, lock=is_post)
+        if item.is_archived:
+            raise Http404("Restore this evidence before editing it.")
         saved_timestamp = item.edited_at
         latest_details = [
             (item._meta.get_field(name).verbose_name.capitalize(), getattr(item, name))
@@ -686,6 +711,11 @@ def _set_archive(request, case_id, kind, evidence_id, archived):
                     "archive_changed_by",
                 ]
             )
+            from core.case_search.indexing import evidence_archive_changed
+
+            evidence_archive_changed(
+                case, request.user, kind, item.pk, archived=archived
+            )
             if kind == "vehicle-location":
                 from geo.trip_processing import invalidate_vehicle_trips
 
@@ -707,7 +737,12 @@ def delete(request, case_id, kind, evidence_id):
         case, item = get_deletion_target(
             request.user, case_id, kind, evidence_id, lock=request.method == "POST"
         )
-        plan = plan_deletion(item, kind)
+        cached = (
+            load_deletion_review(request, case, item, kind)
+            if request.method == "GET" and not request.GET.get("download")
+            else None
+        )
+        plan = cached or plan_deletion(item, kind)
         if (
             request.method == "GET"
             and request.GET.get("download") == "manifest"
@@ -718,6 +753,8 @@ def delete(request, case_id, kind, evidence_id):
             )
         ):
             return deletion_manifest_response(plan)
+        if request.method == "GET" and cached is None:
+            save_deletion_review(case, request.user, plan)
         form = EvidenceDeleteForm(
             request.POST if request.method == "POST" else None,
             initial={"revision": plan.revision(request.user)},

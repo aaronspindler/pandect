@@ -3,7 +3,11 @@
 from uuid import uuid4
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector
 from django.db import models
+from django.db.models.fields.json import KT
+from django.db.models.functions import Left
 
 
 class EvidenceChat(models.Model):
@@ -15,6 +19,18 @@ class EvidenceChat(models.Model):
 
     def __str__(self):
         return self.title
+
+
+def chat_topic_vector():
+    """Search the compact part of a saved reply that can be recalled as context."""
+    return SearchVector(
+        Left("question", 300),
+        Left(KT("answer__clarification"), 400),
+        Left(KT("answer__lead"), 200),
+        Left(KT("answer__claims__0__text"), 400),
+        Left(KT("answer__claims__1__text"), 400),
+        config="simple",
+    )
 
 
 class ChatTurn(models.Model):
@@ -38,6 +54,7 @@ class ChatTurn(models.Model):
     mode = models.CharField(max_length=20, blank=True)
     execution = models.JSONField(default=dict)
     approval_revision = models.CharField(max_length=64, blank=True)
+    rerank_started_at = models.DateTimeField(null=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True)
     completed_at = models.DateTimeField(null=True)
@@ -60,7 +77,14 @@ class ChatTurn(models.Model):
                 name="chat_one_active_turn",
             ),
         ]
-        indexes = [models.Index(fields=("case", "status", "-created_at"))]
+        indexes = [
+            models.Index(fields=("case", "status", "-created_at")),
+            GinIndex(
+                chat_topic_vector(),
+                condition=models.Q(status="complete"),
+                name="chat_completed_topics",
+            ),
+        ]
 
     def __str__(self):
         return f"Chat reply {self.ordinal} · {self.pk}"
@@ -89,6 +113,10 @@ class ChatSource(models.Model):
         indexes = [
             models.Index(fields=("turn", "status", "id")),
             models.Index(fields=("turn", "record_key")),
+            models.Index(
+                fields=("evidence_kind", "evidence_id"), name="chat_source_evidence"
+            ),
+            models.Index(fields=("result_id",), name="chat_source_result"),
         ]
 
     def __str__(self):

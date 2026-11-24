@@ -8,6 +8,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from cases.permissions import get_case
+from core.analysis.errors import AnalysisError
 from core.analysis.services import start_run
 from core.evidence.queries import get_evidence
 from core.evidence.types import CALL_KINDS, LOCATION_KINDS
@@ -125,6 +126,8 @@ def start_evidence_reprocessing(actor, case_id, kind, evidence_id, *, submission
     ).first()
     if existing:
         return existing, False
+    if original.is_archived:
+        raise AnalysisError("source_archived")
     return start_case_analysis(
         actor,
         case.pk,

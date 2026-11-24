@@ -75,7 +75,7 @@ def vehicle_detail(request, case_id, vehicle_id):
         return render_record(request, "vehicle/detail.html", context)
     trip_report = report(case, "vehicle-trips", vehicle_id=vehicle.pk, page_size=5)
     observations = same_case_evidence(
-        vehicle.location_evidence.filter(case=case)
+        vehicle.location_evidence.filter(case=case, is_archived=False)
     ).order_by(F("observed_at").desc(nulls_last=True), "-created_at", "pk")
     return render_live(
         request,
@@ -103,10 +103,18 @@ def vehicle_create(request, case_id, import_id=None):
         review_url = ""
         if import_id is not None:
             batch = get_object_or_404(
-                VehicleLocationImport, pk=import_id, case=case, document__case=case
+                VehicleLocationImport.objects.select_related("document"),
+                pk=import_id,
+                case=case,
+                document__case=case,
             )
             review_url = reverse("geo:vehicle_import_review", args=[case.pk, batch.pk])
-            if batch.status != "review" or batch.completed_at or batch.invalid_count:
+            if (
+                batch.document.is_archived
+                or batch.status != "review"
+                or batch.completed_at
+                or batch.invalid_count
+            ):
                 return redirect(review_url)
             review_url += "#mapping-heading"
         vehicle = Vehicle(case=case)

@@ -7,10 +7,13 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
+from audio.models import AudioEvidence
+from core.analysis.catalogue import project_result
 from core.analysis.navigation import finding_url
 from core.analysis.search import derived_text_matches
-from core.analysis.services import resolve_inputs, start_run
+from core.analysis.services import resolve_active_inputs, start_run
 from core.analysis.sources import output
 from core.models import AnalysisResult, ExtractedPassage
 from core.testing import EvidenceViewTestMixin
@@ -73,15 +76,16 @@ class ExtractedSearchTests(EvidenceViewTestMixin, TestCase):
             with (
                 self.subTest(rows=len(selection)),
                 patch(
-                    "core.analysis.search.resolve_inputs", wraps=resolve_inputs
+                    "core.analysis.search.resolve_active_inputs",
+                    wraps=resolve_active_inputs,
                 ) as resolve,
                 CaptureQueriesContext(connection) as queries,
             ):
                 matches = self.matches(selection)
             self.assertEqual(len(matches), len(selection))
             self.assertEqual(resolve.call_count, 1)
-            # One bounded passage query and one batched original lookup.
-            self.assertEqual(len(queries), 2)
+            # One bounded passage query, one size preflight and one original lookup.
+            self.assertEqual(len(queries), 3)
             candidate_sql = queries[0]["sql"]
             self.assertNotIn(f'"{AnalysisResult._meta.db_table}"."data"', candidate_sql)
             self.assertNotIn(
@@ -110,7 +114,7 @@ class ExtractedSearchTests(EvidenceViewTestMixin, TestCase):
             self.passage(newest, original, index=index)
         missing.file.storage.delete(missing.file.name)
         with patch(
-            "core.analysis.search.resolve_inputs", wraps=resolve_inputs
+            "core.analysis.search.resolve_active_inputs", wraps=resolve_active_inputs
         ) as resolve:
             matches = self.matches([original, other])
         self.assertNotIn(("document", original.pk), matches)
@@ -131,6 +135,66 @@ class ExtractedSearchTests(EvidenceViewTestMixin, TestCase):
         self.assertTrue(
             all(row["content_match"] is None for row in response.context["rows"])
         )
+
+    def test_unprojected_archived_transcription_input_is_excluded_before_pagination(
+        self,
+    ):
+        def recording(name):
+            return AudioEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title=name,
+                file=SimpleUploadedFile(f"{name}.wav", b"Synthetic audio"),
+            )
+
+        original, peer = recording("recorder"), recording("second-recorder")
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "transcription",
+            [{"kind": "audio", "id": str(item.pk)} for item in (original, peer)],
+        )
+        run.status = "complete"
+        run.save(update_fields=["status"])
+        phrase = "Only in the transcript"
+        result = AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data=output(
+                "Synthetic transcription",
+                items=[
+                    {
+                        "label": "Coarse transcript candidate",
+                        "text": phrase,
+                        "source_ids": [run.inputs[0]["id"]],
+                    }
+                ],
+            ),
+        )
+        project_result(result)
+        ExtractedPassage.objects.create(
+            case=self.case,
+            result=result,
+            kind="audio",
+            evidence_id=original.pk,
+            evidence_sha256=original.sha256,
+            text=phrase,
+        )
+        self.login("viewer")
+        url = self.url("list")
+        response = self.client.get(url, {"q": phrase})
+        self.assertEqual(response.context["page_obj"].paginator.count, 1)
+        self.assertEqual(response.context["rows"][0]["id"], original.pk)
+        self.assertIn(phrase, response.context["rows"][0]["content_match"]["excerpt"])
+
+        AudioEvidence.objects.filter(pk=peer.pk).update(
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
+        response = self.client.get(url, {"q": phrase})
+        self.assertEqual(response.context["page_obj"].paginator.count, 0)
+        self.assertEqual(response.context["rows"], [])
 
     def test_passage_attachment_must_match_the_validated_call_source(self):
         call = PhoneCallEvidence.objects.create(

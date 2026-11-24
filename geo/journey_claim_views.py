@@ -28,7 +28,6 @@ from geo.analysis.deterministic.journey_claims import (
 )
 from geo.journey_claim_checks import (
     COMPARISON_EXTRACTIONS,
-    check_material_size,
     check_source_integrity,
 )
 from geo.journey_claim_forms import STATUSES, InterpretationForm
@@ -153,7 +152,6 @@ def _selection(case, picked):
                     "Choose fewer sources or a smaller trip. All members must fit."
                 )
     chosen = list(selections.values())
-    check_material_size(case, chosen)
     try:
         snapshots, sources = snapshot_and_resolve_sources(case, chosen)
     except Http404:

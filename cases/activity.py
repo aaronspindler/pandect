@@ -1,5 +1,7 @@
 """Compact status for the case navigation and live collection refreshes."""
 
+from uuid import UUID
+
 from django.db.models import Count, Exists
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_safe
@@ -63,13 +65,23 @@ def status(request, case_id):
                 )
             )
         active = Case.objects.filter(pending, pk=case.pk).exists()
-    response = JsonResponse(
-        {
-            "queued": counts.get("queued", 0),
-            "running": counts.get("running", 0),
-            "active": active,
-            "versions": case.activity.versions(),
-        }
-    )
+    snapshot = {
+        "queued": counts.get("queued", 0),
+        "running": counts.get("running", 0),
+        "active": active,
+        "versions": case.activity.versions(),
+    }
+    if chat := request.GET.get("chat"):
+        try:
+            chat_id = UUID(chat)
+        except ValueError:
+            chat_id = None
+        snapshot["chat_progress"] = (
+            ChatTurn.objects.filter(case=case, chat__case=case, chat_id=chat_id)
+            .order_by("-ordinal")
+            .values_list("pk", "status", "mode", "reviewed", "total", "gaps")
+            .first()
+        )
+    response = JsonResponse(snapshot)
     response["Cache-Control"] = "private, no-store"
     return response

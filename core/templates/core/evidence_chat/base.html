@@ -2,7 +2,7 @@
 {% load static %}
 {% block extra_head %}{{ block.super }}<link rel="stylesheet" href="{% static 'core/evidence-chat.css' %}">{% endblock %}
 {% block content %}
-<div class="evidence-chat">
+<div class="evidence-chat"{% if thread %} data-live-chat="{{ thread.pk }}"{% endif %}>
   {% block chat_content %}{% endblock %}
 </div>
 {% endblock %}

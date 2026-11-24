@@ -79,14 +79,13 @@ class VehicleReportTests(EvidenceViewTestMixin, TestCase):
             raw_row=raw,
             observed_at=INSTANT,
             received_at=INSTANT + timedelta(seconds=5),
-            is_archived=True,
         )
+        archived = self.observation(observed_at=INSTANT, speed_kmh=80, is_archived=True)
         originals = list(VehicleLocationEvidence.objects.values_list("pk", "sha256"))
-        result = report(
-            self.case, "vehicle-coverage", state="all", vehicle_id=self.vehicle.pk
-        )
+        result = report(self.case, "vehicle-coverage", vehicle_id=self.vehicle.pk)
         metrics = result["metrics"]
         self.assertEqual(metrics["Selected records"], 5)
+        self.assertNotIn(str(archived.pk), str(result["items"]))
         self.assertEqual(metrics["Missing observation time in selection"], 1)
         self.assertEqual(metrics["Zero reported speeds"], 1)
         self.assertEqual(metrics["Unknown reported speeds"], 3)

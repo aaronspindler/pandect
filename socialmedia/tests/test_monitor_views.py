@@ -9,10 +9,10 @@ from cases.models import CaseMembership
 from core.testing import EvidenceViewTestMixin
 from socialmedia import monitor_jobs
 from socialmedia.instagram_connector import (
-    LIVE_VERSION,
     PILOT_TARGET_ID,
     ConnectorError,
 )
+from socialmedia.instagram_rosters import LIVE_VERSION
 from socialmedia.models import InstagramCheck, InstagramConnection, InstagramMonitor
 from socialmedia.monitor_evidence import publish_captures
 
@@ -109,7 +109,8 @@ class InstagramMonitorViewTests(EvidenceViewTestMixin, TestCase):
         }
         self.login("owner")
         with self.settings(
-            PANDECT_INSTAGRAM_LIVE=live_config, PANDECT_INSTAGRAM_PILOT_URL=""
+            PANDECT_INSTAGRAM_LEGACY_REVOCATION=live_config,
+            PANDECT_INSTAGRAM_PILOT_URL="",
         ):
             account_url = reverse("account_instagram")
             response = self.client.get(account_url)

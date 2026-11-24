@@ -226,7 +226,6 @@ class ExistingFieldReportTests(EvidenceViewTestMixin, TestCase):
     def test_invalid_report_options_are_rejected(self):
         for values in (
             {"name": "unknown"},
-            {"state": "unknown"},
             {"page_size": 0},
             {"page_size": 26},
             {"page_size": True},

@@ -11,7 +11,11 @@ from django.http import Http404
 
 from core.analysis.bulk import retained_cursor_time, start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.execution import requires_inference, snapshot_execution
+from core.analysis.execution import (
+    batch_grant_revision,
+    requires_inference,
+    snapshot_execution,
+)
 from core.analysis.gateway import gateway_configured
 from core.analysis.history import (
     communication_selection,
@@ -215,7 +219,7 @@ def prepare_import_analysis(batch, case, messages):
                 ),
                 batch=batch,
                 approved_execution=route,
-                external_grant_revision=batch.scope.get("external_grant_revision"),
+                external_grant_revision=batch_grant_revision(batch.scope, operation),
             )
         except (AnalysisError, ValidationError, Http404) as failure:
             if not versioned and not (route and route["location"] == "external"):

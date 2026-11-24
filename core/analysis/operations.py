@@ -24,6 +24,9 @@ from text.analysis import ai as text_ai
 from text.analysis import deterministic as text
 from text.analysis import workflows as text_workflows
 from text.analysis.claim_comparison import COMPARISON_KINDS, compare_claim
+from text.analysis.claim_comparison import MAX_CHARACTERS as CLAIM_CHARACTERS
+from text.analysis.shared import MAX_TEXT_CHARS
+from text.analysis.synthesis import MAX_CHARACTERS as SYNTHESIS_CHARACTERS
 from text.analysis.synthesis import synthesize
 
 
@@ -34,6 +37,13 @@ class Operation:
     kinds: tuple
     additional_on_evidence: bool = False
     version: str = "1"
+    inference: str | None = None
+    optional_inference: tuple[str, bool] | None = None
+    private_inference: bool = False
+    geographic: tuple[str, str] | None = None
+    authorize_worker: bool = False
+    context_required: bool = False
+    max_text_characters: int | None = None
 
 
 TEXT = ("text", "text-message", "document", "image", "audio", "phone-call", "facetime")
@@ -97,11 +107,26 @@ INPUT_GUIDANCE = {
 }
 
 OPERATIONS = {
-    "sighting_group": Operation("Sighting group", build_sighting_group, tuple(KINDS)),
-    "question_synthesis": Operation(
-        "Answer a question from selected material", synthesize, (*TEXT, *LOCATIONS)
+    "sighting_group": Operation(
+        "Sighting group", build_sighting_group, tuple(KINDS), context_required=True
     ),
-    "claim_comparison": Operation("Compare a claim", compare_claim, COMPARISON_KINDS),
+    "question_synthesis": Operation(
+        "Answer a question from selected material",
+        synthesize,
+        (*TEXT, *LOCATIONS),
+        inference="text",
+        context_required=True,
+        max_text_characters=SYNTHESIS_CHARACTERS,
+    ),
+    "claim_comparison": Operation(
+        "Compare a claim",
+        compare_claim,
+        COMPARISON_KINDS,
+        inference="text",
+        private_inference=True,
+        context_required=True,
+        max_text_characters=CLAIM_CHARACTERS,
+    ),
     "native_text": Operation(
         "Extract document text", documents.native_text, ("document",), version="2"
     ),
@@ -115,7 +140,11 @@ OPERATIONS = {
         version="2",
     ),
     "ocr": Operation(
-        "Read text in images", image_ai.ocr, ("image", "document"), version="6"
+        "Read text in images",
+        image_ai.ocr,
+        ("image", "document"),
+        version="6",
+        authorize_worker=True,
     ),
     "plate_ocr": Operation(
         "Find vehicle plates",
@@ -123,6 +152,7 @@ OPERATIONS = {
         ("image",),
         additional_on_evidence=True,
         version="2",
+        authorize_worker=True,
     ),
     "transcription": Operation(
         "Transcribe recordings",
@@ -130,33 +160,51 @@ OPERATIONS = {
         ("audio", "phone-call", "facetime"),
         additional_on_evidence=True,
         version="2",
+        inference="transcription",
     ),
     "entities": Operation(
-        "Extract identifiers and dates", text.extract_entities, TEXT, version="2"
+        "Extract identifiers and dates",
+        text.extract_entities,
+        TEXT,
+        version="2",
+        max_text_characters=MAX_TEXT_CHARS,
     ),
     "style_profiles": Operation(
         "Describe writing style",
         text.style_profile,
         ("text", "text-message"),
+        max_text_characters=MAX_TEXT_CHARS,
     ),
     "style_change": Operation(
         "Compare writing over time",
         text.style_changes,
         ("text", "text-message"),
+        context_required=True,
+        max_text_characters=MAX_TEXT_CHARS,
     ),
-    "copied_text": Operation("Find repeated wording", text.copied_text, TEXT),
+    "copied_text": Operation(
+        "Find repeated wording",
+        text.copied_text,
+        TEXT,
+        max_text_characters=MAX_TEXT_CHARS,
+    ),
     "text_topics": Operation(
         "Inspect keywords and topics",
         text_workflows.text_topics,
         TEXT,
         additional_on_evidence=True,
         version="2",
+        inference="text",
+        optional_inference=("include_summary", True),
+        max_text_characters=MAX_TEXT_CHARS,
     ),
     "content_events": Operation(
         "Suggest claims and commitments",
         text_ai.content_events,
         TEXT,
         additional_on_evidence=True,
+        inference="text",
+        max_text_characters=MAX_TEXT_CHARS,
     ),
     "session_summaries": Operation(
         "Summarize message sessions",
@@ -164,26 +212,37 @@ OPERATIONS = {
         ("text-message",),
         additional_on_evidence=True,
         version="3",
+        inference="text",
+        max_text_characters=MAX_TEXT_CHARS,
     ),
     "sessions": Operation(
         "Read inferred message sessions",
         conversations.conversation_sessions,
         ("text-message",),
         version="2",
+        max_text_characters=MAX_TEXT_CHARS,
     ),
     "comm_patterns": Operation(
         "Inspect message timing",
         conversations.interaction_patterns,
         ("text-message",),
         version="2",
+        max_text_characters=MAX_TEXT_CHARS,
     ),
     "conversation_link": Operation(
         "Compare exchanges across channels",
         phone_workflows.cross_channel_links,
         COMMUNICATIONS,
+        inference="text",
+        optional_inference=("semantic_links", False),
+        max_text_characters=MAX_TEXT_CHARS,
     ),
     "imessage_import": Operation(
-        "Import message CSV", imessage.prepare_import, ("document",), version="2"
+        "Import message CSV",
+        imessage.prepare_import,
+        ("document",),
+        version="2",
+        context_required=True,
     ),
     "normalize_addresses": Operation(
         "Compare recorded addresses",
@@ -201,9 +260,13 @@ OPERATIONS = {
         geographic_context.geographic_context,
         LOCATIONS,
         additional_on_evidence=True,
+        geographic=("MAP_CONTEXT", "map_context"),
     ),
     "proximity": Operation(
-        "Find observations in an area", locations.proximity, LOCATIONS
+        "Find observations in an area",
+        locations.proximity,
+        LOCATIONS,
+        context_required=True,
     ),
     "candidate_visits": Operation(
         "Inspect candidate visits and frequent places",
@@ -232,9 +295,13 @@ OPERATIONS = {
         "Compare reported location conflicts",
         locations.location_conflicts,
         LOCATIONS,
+        context_required=True,
     ),
     "journey_claims": Operation(
-        "Compare plans with locations", journey_claims.compare_plans, TEXT + LOCATIONS
+        "Compare plans with locations",
+        journey_claims.compare_plans,
+        TEXT + LOCATIONS,
+        context_required=True,
     ),
     "geocode_locations": Operation(
         "Look up geographic coordinates or addresses",
@@ -242,6 +309,7 @@ OPERATIONS = {
         LOCATIONS,
         version="2",
         additional_on_evidence=True,
+        geographic=("GEOCODER", "geocode"),
     ),
 }
 

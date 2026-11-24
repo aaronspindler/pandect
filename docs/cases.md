@@ -51,14 +51,27 @@ again restores the list entry.
 Notes are investigator annotations. They are separate from evidence, findings,
 and review decisions. Evidence chat excludes them from retrieval and model prompts.
 
-Archiving evidence or replacing a finding in current results keeps the mark on
-the saved item. If a finding's sources become unavailable, the finding and
-its notes are withheld. A reply with unavailable sources follows the same rule.
+Archiving evidence retains its Important mark and notes for restoration. It hides
+the evidence and its notes from Important, and withholds findings and replies
+that depend on archived sources. Replacing a finding in current results keeps the
+mark on the saved item. Findings and replies with unavailable sources are withheld.
 Permanent evidence deletion removes affected marks and
 notes as part of the reviewed inventory. Deleting the case also removes its
 marks and notes.
 
 ## Case settings
+
+Under **Prepare conversations and documents for search**, the owner can review
+estimated work before separately enabling conversation summaries and document or
+transcript briefs. The estimate counts eligible saved conversations, messages,
+sources and sections. Background preparation queues missing work against the
+selected AI service. New groupings and retained text or extractions are checked
+as they arrive. **Check for missing work** also revisits recoverable failures.
+An external service requires a current case approval for its destination.
+Workers recheck the selected destination, model and standing approval. A changed
+service requires a fresh owner review to use it for generation. Disabling generation stops subsequent requests and publication.
+Previously completed suggestions retain their history. Search can use them while
+their exact underlying originals remain accessible.
 
 Settings leads with collaborators and invitations. Owners open **Rename case**
 to edit the name. Stale edits reopen the form and show the draft beside newer
@@ -73,10 +86,10 @@ and backup limits.
 The case owner chooses **Local AI** (the default) or **External AI** under
 **Case settings → AI processing**. The selection applies to new automatic checks,
 evidence reprocessing, and on-demand AI checks without a dedicated service.
-Each check uses the selected backend when available. For External AI, approve
-the destination before selecting it. A missing service or approval leaves the
-AI check unavailable. Built-in checks and geographic services have their own
-requirements.
+Each check uses the selected backend when available. Choose the processing
+location and models together, then use **Save changes**. Pandect opens a review
+when the selection enables a new external destination. Built-in checks and
+geographic services have their own requirements.
 
 Changing the selection applies to new requests. Queued requests and saved
 results keep their original service. Revoke external approval to stop subsequent
@@ -84,19 +97,25 @@ requests to approved external destinations, including requests from queued work.
 
 ## External analysis approval
 
-Under **Case settings → AI processing → External analysis**, the case owner can
-see the model for each external AI method. Where alternatives are available,
-choose a model for the method or use the installation default, then save the
-choices. The operator configures the available external models, private AI
-models, and the embedding profile for Meaning search.
+Under **Case settings → AI processing**, choose a model for each task or
+keep its installation default. **Save changes** applies all assignments together.
+On first use of a destination, review the provider that receives the material,
+the gateway where applicable, and the transfer and retention details.
+**Approve and save** applies the reviewed settings. Cancelling keeps the
+previous settings.
 
-Review and approve the destinations in **External analysis** before sending
-evidence to a newly selected model. The review lists each destination and the
-data it receives. Analysis can include newly added evidence, selected material,
-and relevant active case history. Approval applies to this case and the displayed
-destinations. Queued work whose model has changed stops and can be retried after
-approval. Revocation stops subsequent requests. Provider retention still applies
-to requests already sent.
+Text approval covers the six listed text tasks, including Evidence chat
+questions, necessary follow-up context, relevant evidence excerpts and source
+references. Sharing recording chunks requires its own approval. Switch models
+freely within an approved destination and data scope. A change to the receiving
+service, gateway identity or transfer terms opens a new review. Earlier
+model-specific approvals continue to cover the settings originally reviewed.
+
+Use **Manage** beside the approval summary to inspect or revoke access. Each
+outbound request rechecks permission. A queued check whose model has changed
+stops before its next send. Start another attempt to use the new assignment.
+Revocation stops subsequent transfers. Provider retention applies to requests
+already sent.
 
 New cases start without external approval. Owners and editors can start
 **Reprocess evidence** for retained material.
@@ -105,15 +124,39 @@ New cases start without external approval. Owners and editors can start
 
 Under **Case settings → Meaning search**, the verified owner reviews the Cloudflare
 account and gateway, OpenAI key alias and embedding model. **Approve and start
-indexing** queues existing eligible passages and covers future additions. This
-includes archived material and the text of queries that case members explicitly
-submit with **Search by meaning**. Keyword searches stay in Pandect.
+indexing** queues eligible active passages and covers future additions and
+restorations. The service also receives the text of queries that case members
+explicitly submit with **Search by meaning**. Keyword searches stay in Pandect.
 
 **Processing → Meaning-based search** shows indexing progress and how to resume stopped
 work. Changing the embedding destination requires a fresh approval. **Revoke
 meaning search approval** stops subsequent transfers, including queued work.
 Revocation preserves retained evidence. Search approval is independent of the
 case’s AI backend and external analysis approval.
+
+With a current meaning-search approval, the owner can also enable hosted
+meaning searches for Evidence Chat. The composer identifies the embedding
+destination. Chat can send a short search query derived from the question and
+relevant context, including terms from a source or earlier turn used to
+resolve a follow-up. Search queries use the existing passage index. Turning
+this permission off stops subsequent hosted chat searches and leaves the
+case's ordinary meaning-search and indexing approval in place. Earlier
+turns keep the transfer scope they had at submission.
+
+## Hosted passage ranking
+
+Under **Case settings → Hosted passage ranking**, the owner can approve the
+displayed Cloudflare account, gateway and Workers AI ranking model. Difficult
+chat questions and explicitly submitted related searches can send up to 200
+characters of a question and 24 candidate excerpts of up to 900 characters
+each. Excerpts may contain personal or sensitive case information. The scores
+order the originals. Gateway payload logging and cache reuse are disabled.
+Review provider retention and configure the gateway accordingly.
+
+This approval is independent of meaning search, background summaries and
+the answer model. Revoking or changing the destination prevents subsequent
+ranking transfers under the old grant, including queued turns.
+[Reranking configuration](local-analysis.md#optional-passage-ranking)
 
 ## Account settings
 
@@ -221,6 +264,35 @@ Existing case details are read-only in admin. To rename a case, use
 changes roles, or removes members subject to model permissions.
 Memberships have no standalone admin. Viewers/editors cannot mutate cases or
 memberships even with global permissions.
+
+### Read-only inspection
+
+Staff with the model's view or change permission can search and inspect records
+in their accessible cases. Invitation and Instagram approval inspection also
+requires case ownership. Read-only records have no add, save, or delete actions.
+Use the case workflow for approvals, retries, edits, and current evidence.
+
+| Admin section | Records available for inspection |
+| --- | --- |
+| Cases | Activity revisions and owner-only invitation status |
+| Core | Analysis batches, runs, results, findings, sources, reviews, request accounting, artifacts, and extraction metadata. Evidence chat, Important items, retained selections, and case search index metadata. |
+| Geo | Import batches, points of interest, and saved trip processing and provenance |
+| Phone | Communication context, conversation grouping, requests, and saved sessions. Call attachments appear on the associated call. |
+| Social media | Reported accounts, approved Instagram targets, monitors, checks, captures, and comparisons |
+
+These pages show status, identifiers, dates, and provenance where applicable.
+Open import rows, trip observations, and session messages in the linked case
+workflow. Read file contents, transcripts, and findings in their case readers.
+Invitation digests, private storage keys, Instagram sessions, model payloads, and
+search vectors are omitted from inspection. Personal Instagram connections are
+managed from account settings. Conversation pair revisions are internal processing
+state.
+
+Run the [worker diagnostics](background-tasks.md#failure-inspection-and-recovery)
+or [file cleanup recovery](evidence.md#private-storage-and-deletion) for operational issues.
+Queue records, pending file cleanup, and temporary evidence deletion reviews
+have no admin lists. Read-only records can still be removed by an authorized
+parent deletion when the existing lifecycle rules call for it.
 
 ## Scope and migration
 

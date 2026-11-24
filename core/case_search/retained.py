@@ -4,11 +4,15 @@ from itertools import batched
 from uuid import uuid4
 
 from django.db import connection
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Case, Exists, F, OuterRef, Q, Value, When
 from django.db.models.expressions import RawSQL
 from django.http import Http404
 
-from core.analysis.catalogue import finding_queryset, finding_rows
+from core.analysis.catalogue import (
+    archived_finding_sources,
+    finding_queryset,
+    finding_rows,
+)
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url
 from core.analysis.services import SourceResolutionCache, resolve_inputs
@@ -38,7 +42,14 @@ def retained_passages(case, kind="", *, originals=None):
                 pk=OuterRef("evidence_id"), sha256=OuterRef("evidence_sha256")
             )
             eligible |= Q(kind=candidate) & Exists(current)
-        queryset = queryset.filter(eligible)
+        queryset = queryset.filter(
+            eligible,
+            ~Exists(
+                archived_finding_sources(case).filter(
+                    finding__result_id=OuterRef("result_id")
+                )
+            ),
+        )
     return queryset
 
 
@@ -59,10 +70,12 @@ class RetainedMatches:
                     f"CREATE TEMP TABLE {self.name} (kind text, term int, record uuid, "
                     "source uuid, PRIMARY KEY(kind, term, record)) ON COMMIT DROP"
                 )
-            cursor.executemany(
-                f"INSERT INTO pg_temp.{self.name} VALUES (%s, %s, %s, %s) "
+            cursor.execute(
+                f"INSERT INTO pg_temp.{self.name} "
+                "SELECT * FROM unnest("
+                "%s::text[], %s::integer[], %s::uuid[], %s::uuid[]) "
                 "ON CONFLICT DO NOTHING",
-                rows,
+                [list(column) for column in zip(*rows, strict=True)],
             )
         self.present.update((kind, term) for kind, term, _, _ in rows)
 
@@ -75,13 +88,11 @@ class RetainedMatches:
             (kind, index),
         )
 
-    def index_passages(self, case, kind, state, start, end):
+    def index_passages(self, case, kind, start, end):
         def dated_originals(candidate):
-            return dated(sources(case, candidate, state), start, end, candidate)
+            return dated(sources(case, candidate), start, end, candidate)
 
-        base = retained_passages(
-            case, kind, originals=dated_originals if start or end else None
-        )
+        base = retained_passages(case, kind, originals=dated_originals)
         base = (
             searchable(base, FIELDS["passage"])
             .select_related("result__run")
@@ -96,40 +107,45 @@ class RetainedMatches:
                 "result__run__status",
             )
         )
-        for index, term in enumerate(self.terms):
-            # Prefer recent retained versions when several versions match.
-            candidates = base.filter(term_condition(term)).order_by(
-                "-result__created_at", "result_id", "pk"
+        terms = tuple(term_condition(term) for term in self.terms)
+        fields = [f"matched_{index}" for index in range(len(terms))]
+        # Match candidates using indexed predicates, but stream a result and
+        # validate its inputs once regardless of the number of matching terms.
+        candidates = (
+            base.filter(Q(*terms, _connector=Q.OR))
+            .annotate(
+                **{
+                    field: Case(When(term, then=Value(True)), default=Value(False))
+                    for field, term in zip(fields, terms, strict=True)
+                }
             )
-            last_run = None
-            for chunk in batched(
-                candidates.iterator(chunk_size=100), 100, strict=False
-            ):
-                matched = []
-                for passage in chunk:
-                    run = passage.result.run
-                    if last_run != run.pk:
-                        current_inputs = valid_sources(run, case, state)
-                        last_run = run.pk
-                    if passage_identity(passage) in current_inputs:
-                        matched.append(
-                            (passage.kind, index, passage.evidence_id, passage.pk)
-                        )
-                self.store(matched)
+            .order_by("-result__created_at", "result_id", "pk")
+        )
+        last_run = None
+        for chunk in batched(candidates.iterator(chunk_size=100), 100, strict=False):
+            matched = []
+            for passage in chunk:
+                run = passage.result.run
+                if last_run != run.pk:
+                    current_inputs = valid_sources(run, case)
+                    last_run = run.pk
+                if passage_identity(passage) in current_inputs:
+                    matched.extend(
+                        (passage.kind, index, passage.evidence_id, passage.pk)
+                        for index, field in enumerate(fields)
+                        if getattr(passage, field)
+                    )
+            self.store(matched)
 
-    def index_findings(self, case, candidates, state):
+    def index_findings(self, case, candidates):
         candidates = finding_values(candidates, F("preview"))
         for chunk in batched(candidates.iterator(chunk_size=100), 100, strict=False):
             rows = finding_rows(case, chunk)
             self.store(
-                [
-                    ("finding", -1, r["id"], r["id"])
-                    for r in rows
-                    if visible_finding(r, state)
-                ]
+                [("finding", -1, r["id"], r["id"]) for r in rows if visible_finding(r)]
             )
 
-    def page(self, case, candidates, state, parsed):
+    def page(self, case, candidates, parsed):
         """Resolve current-page excerpts and links, and retain their version labels."""
         passages = {}
         findings = {}
@@ -149,13 +165,14 @@ class RetainedMatches:
                 content_excerpt("search_text", parsed.terms[0]),
             )
             for row in finding_rows(case, items):
-                if visible_finding(row, state):
+                if visible_finding(row):
                     findings[row["id"]] = {
                         "title": row["label"],
                         "url": row["url"],
                         "excerpt": row["excerpt"] or row["preview"],
                         "badges": finding_badges(row),
                     }
+        current_inputs = {}
         for index, term in enumerate(self.terms):
             if term.negated:
                 continue
@@ -180,7 +197,9 @@ class RetainedMatches:
             )
             for passage in items:
                 run = passage.result.run
-                if passage_identity(passage) not in valid_sources(run, case, state):
+                if run.pk not in current_inputs:
+                    current_inputs[run.pk] = valid_sources(run, case)
+                if passage_identity(passage) not in current_inputs[run.pk]:
                     continue
                 passages.setdefault((term.text, passage.kind), {})[
                     passage.evidence_id
@@ -198,10 +217,13 @@ class RetainedMatches:
                 cursor.execute(f"DROP TABLE pg_temp.{self.name}")
 
 
-def valid_sources(run, case, state, cache=None):
+def valid_sources(run, case, cache=None):
     try:
         inputs = resolve_inputs(
-            run, case, cache=cache or SourceResolutionCache(case, with_content=False)
+            run,
+            case,
+            cache=cache
+            or SourceResolutionCache(case, with_content=False, active_only=True),
         )
     except AnalysisError, Http404:
         inputs = ()
@@ -213,7 +235,6 @@ def valid_sources(run, case, state, cache=None):
             src.attachment.pk if src.attachment else None,
         ): src.item
         for src in inputs
-        if state == "all" or src.item.is_archived == (state == "archived")
     }
 
 
@@ -234,10 +255,9 @@ def finding_values(qs, excerpt):
     )
 
 
-def visible_finding(row, state):
-    archived = any(source["archived"] for source in row["sources"])
-    return not row["unavailable"] and (
-        state == "all" or archived == (state == "archived")
+def visible_finding(row):
+    return not row["unavailable"] and not any(
+        source["archived"] for source in row["sources"]
     )
 
 
@@ -247,6 +267,4 @@ def finding_badges(row):
         badges.append("AI suggestion")
     if row["partial"]:
         badges.append("Partial coverage")
-    if any(source["archived"] for source in row["sources"]):
-        badges.append("Archived source")
     return badges + [value for value in (row["weak_label"], row["warning"]) if value]

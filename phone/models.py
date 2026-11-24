@@ -26,6 +26,9 @@ from phone.grouping_models import (
     ConversationGroupingRequest as ConversationGroupingRequest,
 )
 from phone.grouping_models import (
+    ConversationPairRevision as ConversationPairRevision,
+)
+from phone.grouping_models import (
     ConversationSession as ConversationSession,
 )
 from phone.grouping_models import (

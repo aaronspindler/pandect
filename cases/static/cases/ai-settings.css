@@ -1,0 +1,129 @@
+.ai-settings > h2 { font-size: 2rem; margin-bottom: 1rem; }
+.ai-backend { border: 0; margin: 0; padding: 0; }
+.ai-backend-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 19rem;
+  max-width: 100%;
+  border: 1px solid var(--boundary);
+  border-radius: var(--radius);
+}
+.ai-backend-options label { position: relative; cursor: pointer; }
+.ai-backend-options input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.ai-backend-options span {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: .5rem 1.5rem;
+  color: var(--secondary);
+  font-weight: 500;
+}
+.ai-backend-options label:first-child span { border-radius: calc(var(--radius) - 1px) 0 0 calc(var(--radius) - 1px); }
+.ai-backend-options label:last-child span { border-radius: 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0; }
+.ai-backend-options input:checked + span { background: var(--accent); color: var(--accent-ink); font-weight: 650; }
+.ai-backend-options input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.ai-destinations {
+  margin: 1rem 0 1.5rem;
+  border-bottom: 1px solid var(--divider);
+  padding-bottom: .5rem;
+}
+.ai-destinations > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .25rem .75rem;
+  list-style: none;
+}
+.ai-destinations > summary::-webkit-details-marker { display: none; }
+.ai-destinations summary > .icon, .meaning-search-status .icon { width: 1.25rem; height: 1.25rem; }
+.ai-destinations .muted { overflow-wrap: anywhere; }
+.ai-manage { margin-inline-start: auto; color: var(--accent); font-weight: 600; }
+.ai-destinations summary:hover .ai-manage { text-decoration: underline; }
+.ai-destination-details {
+  padding: .25rem 0 1rem;
+  max-width: 68ch;
+}
+.ai-destination { border-top: 1px solid var(--divider); padding: 1rem 0; overflow-wrap: anywhere; }
+.ai-destination h3, .ai-geography h3 { margin: 0 0 .25rem; }
+.ai-destination p, .ai-geography p { margin: .25rem 0; }
+.ai-destination > strong { display: block; margin-top: .25rem; font-size: .875rem; }
+.ai-destination > button { margin-top: .5rem; }
+.ai-geography { margin-bottom: 1rem; }
+
+.ai-models { margin-bottom: 1.5rem; }
+.ai-settings:has(.ai-backend input[value="gateway"]:checked) .ai-local-hint { display: none; }
+.ai-models h3, .meaning-settings h2 { font-size: 1.5rem; margin-bottom: .5rem; }
+.ai-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: center;
+  gap: 1rem;
+  padding-block: .375rem;
+  border-bottom: 1px solid var(--divider);
+  overflow-wrap: anywhere;
+}
+.ai-model-row > label { font-weight: 500; }
+.ai-settings > form > .button-primary { min-width: min(10rem, 100%); min-height: 48px; font-size: 1rem; }
+.ai-model-control { min-width: 0; }
+.ai-model-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .5rem .75rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--boundary);
+  border-radius: var(--radius);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.ai-model-trigger:hover { background: var(--background); }
+.ai-model-trigger .icon { width: 1rem; height: 1rem; }
+.ai-model-row.field-error .ai-model-trigger { border-color: var(--danger); }
+#ai-model-picker h2 { margin-bottom: 1.25rem; }
+#ai-model-picker .field { margin-bottom: .75rem; }
+#model-options { height: 14rem; padding: .25rem; }
+#model-options option, #model-options optgroup { padding: .125rem .25rem; }
+#ai-model-picker [data-picker-status] { margin: .5rem 0 1rem; font-size: .875rem; }
+.meaning-search-status { display: flex; gap: .5rem 1rem; align-items: center; flex-wrap: wrap; }
+.meaning-search-status strong { display: inline-flex; align-items: center; gap: .5rem; }
+.meaning-search-status a { border-inline-start: 1px solid var(--divider); padding-inline-start: 1rem; }
+.meaning-settings > .disclosure { margin-block: 1rem; }
+.ai-scope-review { border: 0; margin: 1.5rem 0 .5rem; padding: 0; }
+.ai-scope-review legend { font-size: 1.25rem; font-weight: 600; margin-bottom: .5rem; }
+.ai-scope-choice { display: flex; align-items: center; gap: .5rem; min-height: 44px; cursor: pointer; }
+.ai-scope-choice input { margin: 0; }
+
+@media (max-width: 47.999rem) {
+  .ai-settings > h2 { font-size: 1.5rem; }
+  .ai-model-row { grid-template-columns: minmax(0, 1fr); gap: .25rem; padding-block: .75rem; }
+  .ai-destinations > summary {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: start;
+    column-gap: .5rem;
+  }
+  .ai-destinations summary > .icon { margin-top: .125rem; }
+  .ai-destinations summary .muted { grid-column: 2 / -1; grid-row: 2; }
+  .ai-destinations .ai-manage { grid-column: 3; grid-row: 1; }
+  .meaning-search-status a { border: 0; padding-inline-start: 0; }
+}
+@media (forced-colors: active) {
+  .ai-backend-options input:checked + span {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    text-decoration: underline;
+  }
+  .ai-backend-options input:focus-visible + span { outline: 3px solid Highlight; outline-offset: 2px; }
+}

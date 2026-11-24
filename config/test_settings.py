@@ -14,6 +14,8 @@ PANDECT_AI_GATEWAY = PANDECT_AI_GATEWAY | {
     "gateway": "",
     "gateway_token": "",
     "workers_token": "",
+    "unified_billing": False,
+    "stored_key_providers": (),
     "text_provider": "workers-ai",
     "openai_key_alias": "default",
     "model_choices": {},
@@ -31,6 +33,8 @@ STORAGES = {
 PANDECT_LOCAL_AI = {}
 PANDECT_SEARCH_EMBEDDING_PROVIDER = "local"
 PANDECT_LOCAL_EMBEDDING = {}
+PANDECT_SEARCH_RERANK_PROVIDER = "disabled"
+PANDECT_LOCAL_RERANK = {}
 PANDECT_GEOCODER_URL = ""
 PANDECT_GEOCODER_LOCAL = False
 PANDECT_MAP_CONTEXT_URL = ""
@@ -41,4 +45,4 @@ PANDECT_MAP_TILE_ORIGIN = ""
 PANDECT_INSTAGRAM_PILOT_URL = ""
 PANDECT_INSTAGRAM_PILOT_KEY = ""
 
-PANDECT_INSTAGRAM_LIVE = {}
+PANDECT_INSTAGRAM_LEGACY_REVOCATION = {}

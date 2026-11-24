@@ -23,7 +23,9 @@ def _interval(item, sources):
     if not isinstance(item, dict) or item.get("label") != "Candidate journey":
         return None
     if len(sources) < 2 or any(
-        source.kind not in SUBJECT_FIELDS or source.item.observed_at is None
+        source.kind not in SUBJECT_FIELDS
+        or source.item.is_archived
+        or source.item.observed_at is None
         for source in sources
     ):
         return None
@@ -57,7 +59,6 @@ def _interval(item, sources):
         "end_at": times[-1],
         "largest_gap": largest_gap,
         "samples": len(times),
-        "archived": any(source.item.is_archived for source in ordered),
     }
 
 

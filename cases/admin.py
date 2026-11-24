@@ -1,9 +1,11 @@
 from django.contrib import admin
 from django.forms.models import BaseInlineFormSet
+from django.urls import reverse
 
 from core.evidence.types import KINDS
 
-from .models import Case, CaseMembership
+from .admin_access import AdminCascadeMixin, CaseScopedReadOnlyAdmin
+from .models import Case, CaseActivity, CaseInvitation, CaseMembership
 from .permissions import accessible_cases
 
 
@@ -42,13 +44,17 @@ class CaseMembershipInline(admin.StackedInline):
 
 
 @admin.register(Case)
-class CaseAdmin(admin.ModelAdmin):
+class CaseAdmin(AdminCascadeMixin, admin.ModelAdmin):
     list_display = ("__str__", "owner", "created_at")
     list_select_related = ("owner",)
+    search_fields = ("name", "=id")
     ordering = ("-created_at", "-pk")
     readonly_fields = ("owner", "created_at")
     inlines = (CaseMembershipInline,)
     actions = None
+
+    def lookup_allowed(self, lookup, value, request):
+        return False
 
     def get_inlines(self, request, obj=None):
         if obj is not None and obj.owner_id == request.user.pk:
@@ -112,3 +118,46 @@ class CaseAdmin(admin.ModelAdmin):
             if request.user.has_perm(f"{opts.app_label}.delete_{opts.model_name}"):
                 permissions.discard(opts.verbose_name)
         return deleted, counts, permissions, protected
+
+
+@admin.register(CaseActivity)
+class CaseActivityAdmin(CaseScopedReadOnlyAdmin):
+    list_display = ("case", "work", "evidence", "findings", "important")
+    search_fields = ("=id", "=case__id", "case__name")
+    fields = (
+        "id",
+        "case",
+        "work",
+        "evidence",
+        "images",
+        "findings",
+        "people",
+        "vehicles",
+        "important",
+    )
+
+
+@admin.register(CaseInvitation)
+class CaseInvitationAdmin(CaseScopedReadOnlyAdmin):
+    case_owner_only = True
+    list_display = ("email", "case", "role", "status", "created_at", "expires_at")
+    list_filter = ("role", "delivery_failed")
+    search_fields = ("email", "=id", "=case__id", "case__name")
+    fields = (
+        "id",
+        "case",
+        "email",
+        "role",
+        "status",
+        "invited_by",
+        "created_at",
+        "expires_at",
+        "last_sent_at",
+        "delivery_failed",
+        "accepted_at",
+        "accepted_by",
+        "revoked_at",
+    )
+
+    def view_on_site(self, obj):
+        return reverse("cases:case_settings", args=[obj.case_id])

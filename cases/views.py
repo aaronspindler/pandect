@@ -2,6 +2,7 @@
 
 import hashlib
 import secrets
+from copy import copy
 from datetime import timedelta
 
 from allauth.account.models import EmailAddress
@@ -22,16 +23,20 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from config.access import product_login_required
 from core.analysis.approval import (
-    approve_case_execution,
+    approve_scopes,
     case_approval_confirmation,
     case_approval_context,
+    pending_scopes,
     revoke_case_execution,
+    revoke_destination,
+    scope_description,
 )
-from core.analysis.execution import configured_external_executions
+from core.analysis.execution import GEOGRAPHIC, configured_external_executions
 from core.case_search.approval import (
     approve_case_search,
     revoke_case_search,
     search_approval_context,
+    set_chat_queries,
 )
 from core.case_search.indexing import prepare_case_search
 from core.evidence.types import KINDS
@@ -42,8 +47,8 @@ from socialmedia.models import SocialAccount
 from ui.live import render_live
 
 from .forms import (
-    CaseAIBackendForm,
-    CaseExternalModelsForm,
+    ANALYSIS_MODEL_LABELS,
+    CaseAISettingsForm,
     CaseForm,
     ConfirmForm,
     InvitationForm,
@@ -52,6 +57,7 @@ from .forms import (
 )
 from .models import Case, CaseInvitation, CaseMembership
 from .permissions import accessible_cases, case_context, get_case
+from .rerank_views import approval_context as rerank_approval_context
 
 
 def _render_case(request, template, case, *, status=200, **context):
@@ -192,9 +198,11 @@ def _render_case_settings(
     status=200,
     form=None,
     latest_details=None,
-    ai_backend_form=None,
-    external_models_form=None,
+    ai_settings_form=None,
 ):
+    from core.case_search.generation import settings_rows
+
+    review_search = request.GET.get("review_search") == "1"
     invitations = list(case.invitations.all())
     return _render_case(
         request,
@@ -202,22 +210,20 @@ def _render_case_settings(
         case,
         status=status,
         form=form if form is not None else CaseForm(instance=case),
-        ai_backend_form=(
-            ai_backend_form
-            if ai_backend_form is not None
-            else CaseAIBackendForm(case=case)
-        ),
-        external_models_form=(
-            external_models_form
-            if external_models_form is not None
-            else CaseExternalModelsForm(case=case)
-        ),
+        ai_settings_form=ai_settings_form
+        if ai_settings_form is not None
+        else CaseAISettingsForm(case=case),
         latest_details=latest_details,
         memberships=case.memberships.select_related("user").order_by("user__username"),
         pending_invitations=[item for item in invitations if item.is_pending],
         invitation_history=[item for item in invitations if not item.is_pending],
         external_analysis=case_approval_context(case, request.user),
         search_approval=search_approval_context(case, request.user),
+        search_backlog_review=review_search,
+        search_generation=settings_rows(case, request.user, estimate=True)
+        if review_search
+        else (),
+        rerank_approval=rerank_approval_context(case, request.user),
         instagram_scheduling_available=instagram_connector.scheduling_available(),
         instagram_target_approved=monitor_jobs.target_approved(case.pk),
         instagram_target=instagram_connector.PILOT_TARGET,
@@ -226,47 +232,110 @@ def _render_case_settings(
 
 @product_login_required
 @require_POST
-def case_ai_backend(request, case_id):
-    with transaction.atomic():
-        case = get_case(request.user, case_id, owner=True, lock=True)
-        form = CaseAIBackendForm(request.POST, case=case)
-        if form.is_valid():
-            backend = form.cleaned_data["ai_backend"]
-            if case.ai_backend != backend:
-                case.ai_backend = backend
-                case.save(update_fields=("ai_backend",))
-            messages.success(request, "AI backend saved.")
-            return redirect(
-                reverse(
-                    "cases:case_settings", args=(case.pk,), fragment="ai-processing"
-                )
+@transaction.atomic
+def case_ai_settings(request, case_id):
+    case = get_case(request.user, case_id, owner=True, lock=True)
+    action = request.POST.get("action", "save")
+    if action not in {"save", "review_current", "approve"}:
+        raise Http404("Case action not found.")
+    if action == "review_current":
+        initial = CaseAISettingsForm(case=case)
+        form = CaseAISettingsForm(initial.initial, case=case)
+    else:
+        form = CaseAISettingsForm(request.POST, case=case)
+    if not form.is_valid():
+        return _render_case_settings(
+            request, case, status=409 if form.stale else 200, ai_settings_form=form
+        )
+    backend = form.cleaned_data["ai_backend"]
+    models = form.proposed_models()
+    proposed = copy(case)
+    proposed.external_analysis_models = models
+    routes = {}
+    if backend == Case.AIBackend.GATEWAY:
+        routes = {
+            op: route
+            for op, route in configured_external_executions(proposed).items()
+            if op in ANALYSIS_MODEL_LABELS
+        }
+        if not routes:
+            form.add_error(
+                "ai_backend",
+                "External AI needs at least one configured model destination.",
             )
-    return _render_case_settings(request, case, ai_backend_form=form)
-
-
-@product_login_required
-@require_POST
-def case_external_models(request, case_id):
-    with transaction.atomic():
-        case = get_case(request.user, case_id, owner=True, lock=True)
-        form = CaseExternalModelsForm(request.POST, case=case)
-        if form.is_valid():
-            models = {
-                field.name: form.cleaned_data[field.name]
-                for field in form.visible_fields()
-                if form.cleaned_data[field.name]
+            return _render_case_settings(request, case, ai_settings_form=form)
+    changed = {
+        op
+        for op in ANALYSIS_MODEL_LABELS
+        if op in form.data and form.cleaned_data[op] != form.initial[op]
+    }
+    # Manage can review declined destinations even when every assignment is unchanged.
+    if backend == case.ai_backend and (changed or action == "save"):
+        routes = {op: route for op, route in routes.items() if op in changed}
+    scopes = pending_scopes(case, routes)
+    if action == "review_current" and not scopes:
+        return redirect(
+            reverse(
+                "cases:case_settings", args=(case.pk,), fragment="external-analysis"
+            )
+        )
+    confirmation = case_approval_confirmation(
+        case,
+        request.user,
+        "save",
+        [form.expected_confirmation, backend, models, scopes],
+    )
+    if action == "approve" or scopes:
+        error = ""
+        selected = set(request.POST.getlist("allow"))
+        ids = {str(i) for i in range(len(scopes))}
+        if action == "approve":
+            if not constant_time_compare(
+                request.POST.get("review_confirmation", ""), confirmation
+            ):
+                form.add_error(
+                    None, "The review changed. Check your settings and save again."
+                )
+                return _render_case_settings(
+                    request, case, status=409, ai_settings_form=form
+                )
+            if not selected or not selected <= ids:
+                error = "Select the destinations you want to approve."
+        if action != "approve" or error:
+            proposal = {
+                "ai_backend": backend,
+                "confirmation": form.expected_confirmation,
             }
-            if case.external_analysis_models != models:
-                case.external_analysis_models = models
-                case.save(update_fields=("external_analysis_models",))
-            messages.success(request, "Analysis models saved.")
-            return redirect(
-                reverse(
-                    "cases:case_settings", args=(case.pk,), fragment="external-analysis"
-                )
+            proposal.update(
+                {
+                    op: form.cleaned_data[op] if op in form.data else form.initial[op]
+                    for op in ANALYSIS_MODEL_LABELS
+                }
             )
-    return _render_case_settings(
-        request, case, status=409 if form.stale else 200, external_models_form=form
+            return _render_case(
+                request,
+                "cases/ai_review.html",
+                case,
+                destinations=[
+                    scope_description(scope) | {"scope_id": str(i)}
+                    for i, scope in enumerate(scopes)
+                ],
+                proposal=proposal.items(),
+                review_confirmation=confirmation,
+                error=error,
+                selected_scope_ids=selected,
+            )
+        approve_scopes(
+            case,
+            request.user,
+            [scope for i, scope in enumerate(scopes) if str(i) in selected],
+        )
+    case.ai_backend = backend
+    case.external_analysis_models = models
+    case.save(update_fields=("ai_backend", "external_analysis_models"))
+    messages.success(request, "AI processing settings saved.")
+    return redirect(
+        reverse("cases:case_settings", args=(case.pk,), fragment="ai-processing")
     )
 
 
@@ -276,24 +345,43 @@ def case_external_models(request, case_id):
 def case_external_analysis(request, case_id):
     case = get_case(request.user, case_id, owner=True, lock=True)
     action = request.POST.get("action")
-    if action not in {"approve", "revoke"}:
+    confirmation = request.POST.get("confirmation", "")
+    if action == "revoke_destination":
+        if revoke_destination(case, request.user, confirmation):
+            messages.success(request, "Destination approval revoked for this case.")
+        else:
+            messages.error(
+                request, "Settings changed. Review the current destinations."
+            )
+    elif action in {"approve", "revoke"}:
+        executions = (
+            {
+                op: route
+                for op, route in configured_external_executions(case=case).items()
+                if op in GEOGRAPHIC
+            }
+            if action == "approve"
+            else {}
+        )
+        if not constant_time_compare(
+            confirmation,
+            case_approval_confirmation(case, request.user, action, executions),
+        ):
+            messages.error(
+                request, "Settings changed. Review the current destinations."
+            )
+        elif action == "revoke":
+            revoke_case_execution(case)
+            messages.success(
+                request, "External analysis approval revoked for this case."
+            )
+        elif scopes := pending_scopes(case, executions):
+            approve_scopes(case, request.user, scopes)
+            messages.success(request, "Geographic destinations approved for this case.")
+    else:
         raise Http404("Case action not found.")
-    executions = (
-        configured_external_executions(case=case) if action == "approve" else {}
-    )
-    if not constant_time_compare(
-        request.POST.get("confirmation", ""),
-        case_approval_confirmation(case, request.user, action, executions),
-    ):
-        messages.error(request, "Settings changed. Review the current destinations.")
-    elif action == "revoke" and case.external_analysis_approval.get("executions"):
-        revoke_case_execution(case)
-        messages.success(request, "External analysis approval revoked for this case.")
-    elif executions and case.external_analysis_approval.get("executions") != executions:
-        approve_case_execution(case, request.user, executions)
-        messages.success(request, "External analysis approved for this case.")
     return redirect(
-        reverse("cases:case_settings", args=(case.pk,), fragment="external-analysis")
+        reverse("cases:case_settings", args=(case.pk,), fragment="ai-processing")
     )
 
 
@@ -303,7 +391,7 @@ def case_external_analysis(request, case_id):
 def case_search_approval(request, case_id):
     case = get_case(request.user, case_id, owner=True, lock=True)
     action = request.POST.get("action")
-    if action not in {"approve", "revoke"}:
+    if action not in {"approve", "revoke", "enable_chat", "disable_chat"}:
         raise Http404("Case action not found.")
     review = search_approval_context(case, request.user)
     if not constant_time_compare(
@@ -315,6 +403,18 @@ def case_search_approval(request, case_id):
     elif action == "revoke" and review["saved_destination"]:
         revoke_case_search(case)
         messages.success(request, "Meaning search approval revoked for this case.")
+    elif (
+        action == "enable_chat"
+        and review["approved"]
+        and not review["chat_queries_enabled"]
+    ):
+        set_chat_queries(case, enabled=True)
+        messages.success(
+            request, "Hosted meaning search enabled for new chat questions."
+        )
+    elif action == "disable_chat" and review["chat_queries_enabled"]:
+        set_chat_queries(case, enabled=False)
+        messages.success(request, "Hosted meaning search disabled for Evidence chat.")
     elif action == "approve" and review["destination"] and not review["approved"]:
         try:
             with transaction.atomic():

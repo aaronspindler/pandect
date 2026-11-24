@@ -94,6 +94,37 @@ class OllamaTests(SimpleTestCase):
         )
         self.cloud.assert_not_called()
 
+    def test_only_metadata_probes_can_use_the_lightweight_authorization(self):
+        observed = []
+
+        def check(gate):
+            observed.append((gate, len(self.requests)))
+
+        client = LocalClient(
+            lambda: check("evidence"),
+            dict(EXECUTION),
+            authorize_metadata=lambda: check("metadata"),
+        )
+        self.assertEqual(client.infer("Synthetic source", {}), {"items": []})
+        self.assertEqual(
+            observed,
+            [
+                (gate, boundary)
+                for index, gate in enumerate(
+                    [
+                        "metadata",
+                        "metadata",
+                        "metadata",
+                        "evidence",
+                        "metadata",
+                        "evidence",
+                        "metadata",
+                    ]
+                )
+                for boundary in (index, index + 1)
+            ],
+        )
+
     def test_changed_or_missing_model_is_refused_before_sending_evidence(self):
         for tags in (
             {"models": []},

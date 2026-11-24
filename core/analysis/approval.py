@@ -1,82 +1,199 @@
-"""Bind a case owner's external approval to the destinations they reviewed."""
+"""Case-owner review of recipients, disclosed material, and prior exact approvals."""
 
 from uuid import uuid4
 
 from django.utils import timezone
+from django.utils.crypto import constant_time_compare
 
 from core.analysis.execution import (
+    GEOGRAPHIC,
+    case_execution_grant,
     configured_external_executions,
     execution_confirmation,
     execution_destination,
+    transfer_scope,
 )
+from core.analysis.model_catalog import PROVIDER_NAMES
 
 TRANSFER_CONTENT = {
-    "text": "text and source references",
-    "transcription": "recordings",
-    "geocode": "addresses or coordinates",
-    "map_context": "coordinates and search areas",
+    "text": (
+        "Text and source references for summaries, claims, links, synthesis and "
+        "Evidence chat. This includes relevant case history, chat questions, "
+        "necessary conversation context and evidence excerpts."
+    ),
+    "transcription": "Audio chunks from retained recordings for transcription.",
+    "geocode": "Addresses or coordinates",
+    "map_context": "Coordinates and search areas",
 }
 
 
-def case_approval_confirmation(case, actor, action, executions):
+def case_approval_confirmation(case, actor, action, proposal):
     return execution_confirmation(
         "analysis.case.execution",
-        [
-            str(case.pk),
-            str(actor.pk),
-            action,
-            case.external_analysis_approval.get("revision", ""),
-        ],
-        executions,
+        [str(case.pk), str(actor.pk), action, case.external_analysis_approval],
+        proposal,
     )
+
+
+def scope_description(scope):
+    if "operation" in scope:
+        execution = scope["execution"]
+        return {
+            "name": execution["name"],
+            "details": f"{execution_destination(execution)} · {execution['version']}",
+            "material": TRANSFER_CONTENT[execution["purpose"]],
+            "retention": "The destination’s retention policy applies.",
+        }
+    name = PROVIDER_NAMES.get(scope["provider"], scope["provider"])
+    if scope["url"]:
+        details = f"Direct connection · {scope['url']}"
+    else:
+        details = f"Cloudflare AI Gateway · {scope['account']} / {scope['gateway']}"
+    if scope["key_alias"]:
+        details += f" · Stored key {scope['key_alias']}"
+    elif scope["billing"] == "gateway-credits":
+        details += " · Cloudflare credits enabled"
+    return {
+        "name": name,
+        "details": details,
+        "material": TRANSFER_CONTENT[scope["purpose"]],
+        "retention": (
+            "The provider’s retention policy applies."
+            if scope["retention"] == "provider-policy"
+            else scope["retention"]
+        ),
+    }
+
+
+def pending_scopes(case, executions):
+    scopes = []
+    for operation, execution in executions.items():
+        scope = transfer_scope(operation, execution)
+        if (
+            scope
+            and scope not in scopes
+            and not case_execution_grant(case, operation, execution)
+        ):
+            scopes.append(scope)
+    return scopes
+
+
+def _saved_scopes(case):
+    approval = case.external_analysis_approval
+    if approval.get("approved_by") != str(case.owner_id):
+        return []
+    scopes = [grant["scope"] for grant in approval.get("grants", [])]
+    for operation, execution in approval.get("executions", {}).items():
+        scope = transfer_scope(operation, execution)
+        if scope and scope not in scopes:
+            scopes.append(scope)
+    return scopes
 
 
 def case_approval_context(case, actor):
     executions = configured_external_executions(case=case)
+    geographic = {op: route for op, route in executions.items() if op in GEOGRAPHIC}
     approval = case.external_analysis_approval
-    approved = approval.get("executions", {})
-    destinations = {}
-    for operation, execution in executions.items():
-        name = execution_destination(execution)
-        if execution.get("key_alias"):
-            name += f" · Key alias {execution['key_alias']}"
-        if execution.get("name"):
-            name = f"{execution['name']} · {name} · {execution['version']}"
-        material = (
-            "Chat questions, necessary follow-up context and case evidence excerpts"
-            if operation == "evidence_chat"
-            else TRANSFER_CONTENT[execution["purpose"]].capitalize()
-        )
-        key = material, name
-        destinations[key] = destinations.get(key, True) and execution == approved.get(
-            operation
+    destinations = []
+    approved_names = set()
+    saved = _saved_scopes(case)
+    for scope in saved:
+        row = scope_description(scope)
+        if scope not in [grant["scope"] for grant in approval.get("grants", [])]:
+            legacy = [
+                (op, route)
+                for op, route in approval.get("executions", {}).items()
+                if transfer_scope(op, route) == scope
+            ]
+            if "purpose" in scope:
+                row["material"] = (
+                    "Previously approved for specific models and tasks only."
+                )
+                row["details"] += " · " + ", ".join(
+                    f"{op.replace('_', ' ')} ({route['model']})" for op, route in legacy
+                )
+        if "purpose" in scope:
+            approved_names.add(row["name"])
+        destinations.append(
+            row
+            | {
+                "approved": True,
+                "revoke_confirmation": case_approval_confirmation(
+                    case, actor, "revoke_destination", scope
+                ),
+            }
         )
     return {
-        "destinations": [
-            {"material": material, "name": name, "approved": is_approved}
-            for (material, name), is_approved in destinations.items()
+        "destinations": destinations,
+        "approved_names": sorted(approved_names),
+        "gateway_summary": bool(approved_names)
+        and all(scope.get("gateway") for scope in saved if "purpose" in scope),
+        "pending_ai": any(
+            not case_execution_grant(case, op, route)
+            for op, route in executions.items()
+            if op not in GEOGRAPHIC
+        ),
+        "active": bool(destinations),
+        "geographic_destinations": [
+            scope_description(scope) for scope in pending_scopes(case, geographic)
         ],
-        "active": bool(approved),
-        "can_approve": bool(executions and approved != executions),
         "approve_confirmation": case_approval_confirmation(
-            case, actor, "approve", executions
+            case, actor, "approve", geographic
         ),
         "revoke_confirmation": case_approval_confirmation(case, actor, "revoke", {}),
     }
 
 
-def approve_case_execution(case, owner, executions):
-    """Record the request's locked, verified case-owner approval."""
-    case.external_analysis_approval = {
-        "revision": str(uuid4()),
-        "approved_by": str(owner.pk),
-        "approved_at": timezone.now().isoformat(),
-        "executions": executions,
-    }
+def approve_scopes(case, owner, scopes):
+    """Append reviewed grants, retaining each earlier receipt on pending work."""
+    approval = case.external_analysis_approval.copy()
+    timestamp = timezone.now().isoformat()
+    if approval.get("approved_by") != str(owner.pk):
+        approval = {
+            "revision": str(uuid4()),
+            "approved_at": timestamp,
+            "approved_by": str(owner.pk),
+        }
+    grants = list(approval.get("grants", []))
+    for scope in scopes:
+        if any(grant["scope"] == scope for grant in grants):
+            continue
+        grants.append(
+            {
+                "scope": scope,
+                "revision": str(uuid4()),
+                "approved_by": str(owner.pk),
+                "approved_at": timestamp,
+            }
+        )
+    case.external_analysis_approval = approval | {"grants": grants}
     case.save(update_fields=("external_analysis_approval",))
 
 
+def revoke_destination(case, actor, confirmation):
+    for scope in _saved_scopes(case):
+        if constant_time_compare(
+            case_approval_confirmation(case, actor, "revoke_destination", scope),
+            confirmation,
+        ):
+            approval = case.external_analysis_approval
+            case.external_analysis_approval = approval | {
+                "grants": [
+                    grant
+                    for grant in approval.get("grants", [])
+                    if grant["scope"] != scope
+                ],
+                "executions": {
+                    op: route
+                    for op, route in approval.get("executions", {}).items()
+                    if transfer_scope(op, route) != scope
+                },
+            }
+            case.save(update_fields=("external_analysis_approval",))
+            return True
+    return False
+
+
 def revoke_case_execution(case):
-    """Replace the revision even when approval returns to the inactive state."""
     case.external_analysis_approval = {"revision": str(uuid4())}
     case.save(update_fields=("external_analysis_approval",))

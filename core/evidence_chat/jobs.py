@@ -1,12 +1,15 @@
 """Checkpoint case chat reviews and publish only validated, complete answers."""
 
 import logging
+import re
+from functools import partial
 from hashlib import sha256
 from itertools import batched
 from uuid import uuid4
 
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
+from django.db.models import Count
 from django.http import Http404
 from django.utils import timezone
 
@@ -14,9 +17,11 @@ from cases.models import CaseActivity
 from core.analysis.errors import AnalysisError
 from core.analysis.inference_payloads import encode_json
 from core.case_search.indexing import authorize
+from core.case_search.parents import current_parent_ids
 from core.models import ChatMatch, ChatSource, ChatTurn
 
 from . import ai, corpus, engine, engine_counts
+from .search_scope import question_filters
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +29,24 @@ WINDOW = 900
 OVERLAP = 120
 REVIEW_BATCH = 4
 STRUCTURED_BATCH = 64
+ANSWER_WINDOWS = 10
+COMPLEX_SEARCH = re.compile(
+    r"\b(compare|comparison|contradict\w*|disput\w*|conflict\w*|timeline|chronolog\w*|disagree\w*|sequence|reconcil\w*)\b",
+    re.I,
+)
+LITERAL_CITATIONS_PER_RECORD = 4
+PENDING_REVIEW = ("pending", "pending_hit")
+FULL_REVIEW_VERSION = 1
+
+
+def review_restart_code(turn):
+    if turn.mode != "full" or turn.plan.get("review_version") == FULL_REVIEW_VERSION:
+        return ""
+    if question_filters(turn):
+        return "chat_review_scope_retired"
+    if turn.plan.get("literal"):
+        return "chat_literal_review_retired"
+    return ""
 
 
 def enqueue_turn(turn):
@@ -32,7 +55,7 @@ def enqueue_turn(turn):
     process_chat_turn.enqueue(str(turn.pk), str(turn.delivery_token))
 
 
-def _authorize(turn, windows=(), *, lock=False):
+def _authorize(turn, windows=(), *, lock=False, metadata=False, review=False):
     case = authorize(turn.asked_by_id, turn.case_id, edit=True, lock=lock)
     if not ChatTurn.objects.filter(
         pk=turn.pk,
@@ -42,10 +65,44 @@ def _authorize(turn, windows=(), *, lock=False):
         status="running",
     ).exists():
         raise AnalysisError("processing_cancelled")
+    if turn.include_archived:
+        raise AnalysisError("chat_archive_scope_retired")
+    if code := review_restart_code(turn):
+        raise AnalysisError(code)
     ai.check_execution(turn, case)
+    if metadata:
+        return case
     if digest := turn.plan.get("history_digest"):
         if sha256(encode_json(_history(turn))).hexdigest() != digest:
             raise AnalysisError("source_changed")
+    if versions := turn.plan.get("review_question_sources"):
+        # A resolved follow-up can contain evidence from a different review
+        # batch. Its sources must still be available whenever that wording is used.
+        locators = dict(
+            turn.sources.filter(case=case, key__in=versions).values_list(
+                "key", "locator"
+            )
+        )
+        read = partial(_read_context_window, turn)
+        if locators.keys() != versions.keys() or any(
+            locator["version"] != versions[key]
+            or read(
+                case,
+                locator,
+                0,
+                1,
+                include_archived=turn.include_archived,
+            )
+            is None
+            for key, locator in locators.items()
+        ):
+            raise AnalysisError("source_changed")
+    parents = {p for w in windows for p in w.locator.get("search_parents", ())}
+    if (
+        parents
+        and current_parent_ids(case, parents, through=turn.started_at) != parents
+    ):
+        raise AnalysisError("source_changed")
     for window in windows:
         current = corpus.read_window(
             case,
@@ -53,6 +110,7 @@ def _authorize(turn, windows=(), *, lock=False):
             window.start,
             max(1, len(window.text)),
             include_archived=turn.include_archived,
+            review=review,
         )
         if current is None or current["text"] != window.text:
             raise AnalysisError("source_changed")
@@ -75,93 +133,208 @@ def _claim(turn_id, token):
     return turn
 
 
-def _full_reply_context(previous, turn):
+def _full_reply_context(previous, turn, hints, read, dependencies):
     """Resolve a small sample in the same order as the exhaustive match list."""
-    sources = previous.sources.filter(case_id=turn.case_id, status="match").order_by(
-        "record_key", "key"
-    )[:6]
+    from .history import recalled_sources_available
+
+    if review_restart_code(previous) or not recalled_sources_available(previous, read):
+        return ""
+    hits = (
+        previous.hits.filter(
+            case_id=turn.case_id,
+            source__turn=previous,
+            source__case_id=turn.case_id,
+            source__status="match",
+        )
+        .select_related("source")
+        .order_by("source__record_key", "source__key", "start", "end")[:6]
+    )
     excerpts = []
-    position = 0
-    for source in sources:
-        hits = source.hits.filter(turn=previous, case_id=turn.case_id).order_by(
-            "start", "end"
-        )[: 6 - position]
-        for hit in hits:
-            position += 1
-            ref = corpus.cite(
-                turn.case,
-                source.locator,
-                hit.start,
-                hit.quote,
-                include_archived=turn.include_archived,
+    for position, hit in enumerate(hits, 1):
+        ref = corpus.cite(
+            turn.case,
+            hit.source.locator,
+            hit.start,
+            hit.quote,
+            include_archived=turn.include_archived,
+            read=read,
+        )
+        if ref:
+            dependencies.append(hit.source_id)
+            if hints is not None:
+                hints.append((hit.source.locator, hit.start))
+            excerpts.append(
+                f"Match {position} · {ref['label'][:100]} · {ref['quote'][:150]}"
             )
-            if ref:
-                excerpts.append(
-                    f"Match {position} · {ref['label'][:100]} · {ref['quote'][:150]}"
-                )
-        if position == 6:
-            break
     return "\n".join(excerpts)[:600]
 
 
-def _history(turn):
+def _read_context_window(turn, case, locator, start, size, *, include_archived=False):
+    """Keep refreshed context stamps on the active turn's checkpoint."""
+    key = f"{locator['key']}@{locator['version']}"
+    recorded = locator.get("verified_body")
+    checkpoint = turn.plan.get("context_bodies", {}).get(key)
+    if checkpoint and (not recorded or checkpoint["revision"] > recorded["revision"]):
+        locator = locator | {"verified_body": checkpoint}
+    window = corpus.read_window(
+        case, locator, start, size, include_archived=include_archived, review=True
+    )
+    if window and (stamp := window.get("verified_body")) and stamp != recorded:
+        turn.plan.setdefault("context_bodies", {})[key] = stamp
+    return window
+
+
+def _ordinary_reply_context(previous, turn, hints, read, *, recalled):
     from .services import inspect_turn
 
-    rows = ChatTurn.objects.filter(
-        chat=turn.chat_id,
-        case=turn.case_id,
-        ordinal__lt=turn.ordinal,
-        status="complete",
-    ).order_by("-ordinal")[:3]
-    history = []
-    for previous in reversed(list(rows)):
-        if previous.mode == "full":
-            history.append(
-                {
-                    "question": previous.question[:300],
-                    "reply_context": _full_reply_context(previous, turn),
-                }
-            )
-            continue
-        answer = inspect_turn(previous)
-        if answer is None:
-            continue
-        topic = answer.get("clarification") or " ".join(
-            x["text"] for x in answer.get("claims", [])[:2]
-        )
-        # Respect the new question's archive scope before reusing old wording.
-        if (
-            topic
-            and not turn.include_archived
-            and any(
-                corpus.read_window(turn.case, source.locator, 0, 1) is None
-                for source in previous.sources.filter(case=turn.case).iterator()
-            )
-        ):
-            topic = ""
-        history.append(
-            {"question": previous.question[:300], "reply_context": topic[:400]}
-        )
-    return history
-
-
-def _rank(turn, query, limit):
-    found = corpus.rank(
-        turn.case,
-        query,
-        user=turn.asked_by,
-        include_archived=turn.include_archived,
-        limit=limit,
-        through=turn.started_at,
+    answer = inspect_turn(previous, read=read)
+    if answer is None:
+        return None
+    topic = answer.get("clarification") or " ".join(
+        x["text"] for x in answer.get("claims", [])[:2]
     )
-    windows = []
-    for locator, start in found:
-        row = corpus.read_window(
-            turn.case, locator, start, WINDOW, include_archived=turn.include_archived
+    if recalled and answer.get("lead"):
+        topic = f"{topic[:220]} Suggested next check: {answer['lead'][:150]}".strip()
+    if topic and any(
+        read(turn.case, source.locator, 0, 1) is None
+        for source in previous.sources.filter(case=turn.case).iterator()
+    ):
+        return ""
+    if topic and hints is not None:
+        refs = [
+            ref
+            for claim in previous.answer.get("claims", [])[:2]
+            for ref in claim["citations"][:2]
+        ]
+        locators = dict(
+            previous.sources.filter(
+                case=turn.case, key__in=[r["key"] for r in refs]
+            ).values_list("key", "locator")
         )
-        if row and row["text"]:
-            windows.append(engine.Window(locator, start, row["text"]))
-    return windows
+        hints.extend(
+            (locators[r["key"]], r["start"]) for r in refs if r["key"] in locators
+        )
+    return topic[:400]
+
+
+def _history(turn, *, hints=None):
+    from .history import MAX_DEPENDENCIES, history_turns
+
+    turns = history_turns(turn, select=hints is not None)
+    history = {}
+    source_ids = set()
+    read = partial(_read_context_window, turn)
+    recalled_turn = turn.plan.get("recalled_turn")
+    # Give explicitly recalled and recent context first use of the source budget.
+    for previous in sorted(
+        turns, key=lambda row: (str(row.pk) == recalled_turn, row.ordinal), reverse=True
+    ):
+        recalled = str(previous.pk) == recalled_turn
+        # Hold hints until we know all dependencies of the topic fit the budget.
+        pointers = (
+            [] if hints is not None and (recalled or previous == turns[-1]) else None
+        )
+        dependencies = []
+        if previous.mode == "full":
+            topic = _full_reply_context(previous, turn, pointers, read, dependencies)
+            if recalled and not topic:
+                continue
+        else:
+            topic = _ordinary_reply_context(
+                previous, turn, pointers, read, recalled=recalled
+            )
+            if topic is None:
+                continue
+            if topic:
+                dependencies.extend(
+                    previous.sources.filter(case_id=turn.case_id).values_list(
+                        "pk", flat=True
+                    )[: MAX_DEPENDENCIES + 1]
+                )
+        if topic:
+            dependencies.extend(previous.plan.get("recalled_sources", ()))
+
+        combined = source_ids.union(str(pk) for pk in dependencies)
+        if len(combined) > MAX_DEPENDENCIES:
+            continue
+        source_ids = combined
+        entry = {"question": previous.question[:300], "reply_context": topic}
+        if recalled:
+            entry["earlier_turn"] = previous.ordinal
+        history[previous.ordinal] = entry
+        if pointers:
+            hints.extend(pointers)
+    # Pin the sources of all reused reply context, including inherited sources.
+    if source_ids or "recalled_sources" in turn.plan:
+        ids = sorted(source_ids)
+        if turn.plan.setdefault("recalled_sources", ids) != ids:
+            raise AnalysisError("source_changed")
+    if history:
+        turn.plan["history_sources_pinned"] = True
+    return [history[ordinal] for ordinal in sorted(history)]
+
+
+def _rank(turn, query, semantic_query, hints, prior):
+    from core.case_search.rerank import rerank_order
+
+    from .retrieval_route import related_for_turn
+
+    filters = question_filters(turn)
+    scope = turn.plan.get("rerank_scope")
+    rerank = (
+        scope and not turn.rerank_started_at and (prior or COMPLEX_SEARCH.search(query))
+    )
+    semantic_hints = set() if turn.plan.get("refinement") else None
+    with engine.timed(turn, "retrieval"):
+        found = corpus.rank(
+            turn.case,
+            query,
+            user=turn.asked_by,
+            include_archived=turn.include_archived,
+            limit=24 if rerank else ANSWER_WINDOWS,
+            through=turn.started_at,
+            hints=hints,
+            filters=filters,
+            semantic_hints=semantic_hints,
+            stamp_body=True,
+            related=lambda _: related_for_turn(
+                turn, semantic_query, lambda: _authorize(turn, prior), filters=filters
+            ),
+        )
+        windows = []
+        for locator, start in found:
+            row = corpus.read_window(
+                turn.case,
+                locator,
+                start,
+                WINDOW,
+                include_archived=turn.include_archived,
+                review=True,
+            )
+            if row and row["text"]:
+                if "verified_body" in row:
+                    locator["verified_body"] = row["verified_body"]
+                windows.append(
+                    engine.Window(
+                        locator,
+                        start,
+                        row["text"],
+                        semantic_match=bool(
+                            semantic_hints and (locator["key"], start) in semantic_hints
+                        ),
+                    )
+                )
+        if rerank and len(windows) > 1:
+            order = rerank_order(
+                turn.case,
+                semantic_query,
+                [w.text for w in windows],
+                scope=scope,
+                authorize=lambda: _authorize(turn, [*prior, *windows]),
+                chat_turn=turn,
+            )
+            windows = [windows[n] for n in order]
+    return windows[:ANSWER_WINDOWS]
 
 
 def _row(turn, locator, status):
@@ -186,6 +359,7 @@ def _store_context(turn, windows):
 
 
 def _complete(turn, result):
+    turn.plan.pop("context_bodies", None)
     turn.answer = result
     turn.status = "complete"
     turn.completed_at = timezone.now()
@@ -233,9 +407,10 @@ def _continue(turn):
     enqueue_turn(turn)
 
 
-def _freeze(turn, question, filters, context=(), *, narrative=False):
+def _freeze(turn, question, filters, context=(), *, narrative=False, literal=""):
     # Persist one consistent database snapshot, streaming only identities and
     # digests into the manifest. Later tasks resolve bounded content windows.
+    explicit_scope = question_filters(turn)
     nested = connection.in_atomic_block
     with transaction.atomic():
         if not nested:
@@ -250,6 +425,8 @@ def _freeze(turn, question, filters, context=(), *, narrative=False):
                 turn.include_archived,
                 through=turn.started_at,
                 original_kinds=filters.get("kinds"),
+                review=True,
+                filters=explicit_scope,
             )
         )
         for batch in batched(rows, 200, strict=False):
@@ -259,6 +436,10 @@ def _freeze(turn, question, filters, context=(), *, narrative=False):
                 update_fields=("status", "locator", "gap", "result_id"),
                 unique_fields=("turn", "key"),
             )
+        if context and question != turn.question:
+            turn.plan["review_question_sources"] = {
+                w.locator["key"]: w.locator["version"] for w in context
+            }
         # This shares the publication lock with evidence deletion. The repeatable
         # read transaction must retry if another writer advanced the case activity
         # row after our snapshot, including a deletion whose inventory missed us.
@@ -267,11 +448,14 @@ def _freeze(turn, question, filters, context=(), *, narrative=False):
         turn.mode = "full"
         turn.plan = turn.plan | {
             "stage": "review",
+            "review_version": FULL_REVIEW_VERSION,
             "question": question,
             "filters": filters,
             "narrative": narrative,
             "review_kind": "structured" if filters else "interpretive",
         }
+        if literal:
+            turn.plan.update(review_kind="literal", literal=literal)
         turn.total = turn.sources.filter(case=case, status="pending").count()
         _continue(turn)
 
@@ -284,35 +468,184 @@ def _decide(turn):
     if filters:
         _freeze(turn, turn.question, filters)
         return
-    history = _history(turn)
+    if literal := engine_counts.literal_question(turn):
+        _freeze(turn, turn.question, {}, literal=literal)
+        return
+    hints = []
+    history = _history(turn, hints=hints)
     search = turn.question
     if history:
         turn.plan["history_digest"] = sha256(encode_json(history)).hexdigest()
-        search += " " + history[-1]["question"] + " " + history[-1]["reply_context"]
-    preview = _rank(turn, search, 4)
+        context = next(
+            (entry for entry in history if "earlier_turn" in entry), history[-1]
+        )
+        search += " " + context["question"] + " " + context["reply_context"]
+    windows = _rank(turn, search, turn.question, hints, [])
+    _respond(turn, history, windows)
 
-    def authorize_context(windows, **kwargs):
-        return _authorize(turn, windows, **kwargs)
 
-    action, question, preview = engine.resolve_question(
-        turn, authorize_context, history, preview
-    )
-    if action == "ask":
-        _publish_answer(turn, engine.empty_answer(clarification=question), preview)
-    elif action in ("review", "review_answer"):
-        # Only exact investigator wording may qualify for a deterministic total.
-        _freeze(turn, question, {}, preview, narrative=action == "review_answer")
+def _respond(turn, history, windows, *, prior=(), refined=False):
+    def with_prior(fragments):
+        return [w for w in prior if w not in fragments] + list(fragments)
+
+    def authorize_context(fragments, **kwargs):
+        return _authorize(turn, with_prior(fragments), **kwargs)
+
+    previous_queries = turn.plan.get("search_queries", ())
+    target = turn.plan.get("refinement")
+    if refined and target and not _advances(target, windows, prior):
+        # Citations in this provisional answer were validated on the last model
+        # call. _publish_answer rechecks those originals under the case lock.
+        action, result, used = "answer", target["answer"], []
+    elif refined and not windows and not prior:
+        action, result, used = "answer", engine.no_sources_answer(), []
     else:
-        windows = _rank(turn, question, 10)
-        result, used = engine.answer(turn, authorize_context, question, windows)
-        _publish_answer(turn, result, preview + used)
+        # The third pass is useful only when the second actually found a
+        # new source window. The investigator never pays for repeated queries.
+        new_material = any(w not in prior for w in windows)
+        remaining = (
+            2 if not refined else int(new_material and len(previous_queries) < 2)
+        )
+        action, result, used = engine.decide(
+            turn,
+            authorize_context,
+            history,
+            windows,
+            refined=refined,
+            remaining=remaining,
+        )
+        if action == "refine" and result["query"].casefold().split() in [
+            q.casefold().split() for q in [turn.question, *previous_queries]
+        ]:
+            action, result = "answer", result["answer"]
+    context = with_prior(used)
+    if action == "refine":
+        # Checkpoint the exact context that informed the model's query. A retry
+        # must continue this search and recheck its sources before any transfer.
+        with transaction.atomic():
+            _authorize(turn, context, lock=True)
+            _store_context(turn, context)
+            turn.plan.update(
+                stage="refine",
+                refinement=result,
+                search_queries=[*previous_queries, result["query"]],
+                refine_windows=[[w.locator["key"], w.start] for w in context],
+            )
+            _continue(turn)
+        return
+    for key in ("refinement", "refine_query", "refine_windows", "search_queries"):
+        turn.plan.pop(key, None)
+    if action in ("review", "review_answer"):
+        _freeze(turn, result, {}, context, narrative=action == "review_answer")
+    else:
+        turn.plan["stage"] = "complete"
+        _publish_answer(turn, result, context)
 
 
-def _checked_review(turn, windows):
+def _advances(target, windows, prior):
+    """A new search must add material bearing on its outstanding question."""
+    from .corpus_search import terms_for
+
+    query_terms = set(terms_for(target["query"]))
+    missing_terms = set(terms_for(target["missing_fact"])) - query_terms
+    cited = {
+        ref["key"] for claim in target["answer"]["claims"] for ref in claim["citations"]
+    }
+    known_origins = {
+        origin
+        for old in prior
+        if not cited or old.locator["key"] in cited
+        for origin in corpus.original_keys(old.locator)
+    }
+    previous = sorted(prior, key=lambda w: w.start)
+    for window in windows:
+        origins = corpus.original_keys(window.locator)
+        same_origin = [
+            old for old in previous if origins & corpus.original_keys(old.locator)
+        ]
+        if same_origin and (
+            window.locator["surface"] == "finding"
+            or any(window.text in old.text for old in same_origin)
+        ):
+            continue
+        if target["independent_source"] and (
+            window.locator["surface"] == "finding" or known_origins & origins
+        ):
+            continue
+        # A shifted window can contain the same search term in its overlap.
+        # Test the newly read text, even when several earlier windows cover it.
+        start, end = window.start, window.start + len(window.text)
+        pos = start
+        fresh = []
+        for old in same_origin:
+            if old.locator["key"] != window.locator["key"]:
+                continue
+            left, right = max(start, old.start), min(end, old.start + len(old.text))
+            if right <= left:
+                continue
+            if left > pos:
+                fresh.append(window.text[pos - start : left - start])
+            pos = max(pos, right)
+        if pos < end:
+            fresh.append(window.text[pos - start :])
+        text = " ".join(fresh)
+        if not text.strip():
+            continue
+        whole_window = text == window.text
+        # Outline leads and partially repeated windows still need a relevant
+        # new passage; only a qualified direct match can bypass the word check.
+        if whole_window and window.semantic_match:
+            return True
+        # The title can identify a newly retrieved original, but mustn't turn a
+        # few extra unrelated words from an old original into a new lead.
+        if whole_window:
+            text += " " + window.locator["label"]
+        words = set(re.findall(r"[^\W_]+(?:[-@.][^\W_]+)*", text.casefold()))
+        hits = query_terms & words
+        if hits and (
+            len(hits) >= min(2, len(query_terms))
+            or any(re.search(r"\d", word) for word in hits)
+            or bool(missing_terms & words)
+        ):
+            return True
+    return False
+
+
+def _refine(turn):
+    locators = dict(
+        turn.sources.filter(case=turn.case, status="context").values_list(
+            "key", "locator"
+        )
+    )
+    prior = []
+    hints = []
+    for key, start in turn.plan["refine_windows"]:
+        locator = locators.get(key)
+        row = corpus.read_window(
+            turn.case, locator, start, WINDOW, include_archived=turn.include_archived
+        )
+        if row is None:
+            raise AnalysisError("source_changed")
+        prior.append(engine.Window(locator, start, row["text"]))
+        hints.append((locator, start))
+    # Earlier running jobs saved only the query. Let them finish with a
+    # model decision since they have no validated answer to publish yet.
+    target = turn.plan.get("refinement")
+    query = target["query"] if target else turn.plan["refine_query"]
+    turn.plan.setdefault("search_queries", [query])
+    windows = _rank(turn, query, query, hints, prior)
+    # Budget room for the original clues that led to a new source, so a
+    # multi-step answer can cite both ends of the chain in the same prompt.
+    missing = [w for w in prior if w not in windows]
+    windows = (windows[:6] + missing[:2] + windows[6:] + missing[2:])[:ANSWER_WINDOWS]
+    _respond(turn, _history(turn), windows, prior=prior, refined=True)
+
+
+def _checked_review(turn, windows, spans):
     try:
         return engine.review(
             turn,
-            lambda fragments, **kw: _authorize(turn, fragments, **kw),
+            lambda _, **kw: _authorize(turn, spans, review=True, **kw),
             turn.plan["question"],
             windows,
         )
@@ -327,47 +660,83 @@ def _checked_review(turn, windows):
         if len(windows) == 1:
             return [("uncertain", [])]
         split = len(windows) // 2
-        return _checked_review(turn, windows[:split]) + _checked_review(
-            turn, windows[split:]
+        return _checked_review(turn, windows[:split], spans) + _checked_review(
+            turn, windows[split:], spans
         )
 
 
-def _review_batch(turn):
-    filters = turn.plan["filters"]
-    pending = list(
-        turn.sources.filter(case=turn.case_id, status="pending").order_by("pk")[
-            : STRUCTURED_BATCH if filters else REVIEW_BATCH
-        ]
-    )
-    if not pending:
-        if turn.plan.get("narrative"):
-            _draft_review(turn)
-        _verify_batch(turn)
-        return
+def _read_review_spans(turn, pending, filters, *, literal=False):
+    """Read nearby excerpts once and retain their shared verification span."""
     work = []
     readable = []
+    spans = []
     for source in pending:
+        slots = REVIEW_BATCH - len(readable)
+        if not filters and not slots:
+            break
         gap = "" if filters else source.gap
         start = source.locator.get("metadata_start", 0) if filters else source.cursor
         piece = corpus.read_window(
             turn.case,
             source.locator,
             start,
-            1200 if filters else WINDOW,
+            1200 if filters else WINDOW + (slots - 1) * (WINDOW - OVERLAP),
             include_archived=turn.include_archived,
+            review=True,
+            literal=literal,
         )
-        window = None
-        if piece and piece["text"]:
-            window = engine.Window(source.locator, start, piece["text"])
-            readable.append(window)
-        elif piece is None:
+        windows = []
+        if piece is None:
             gap = "This source version could no longer be read."
-        work.append((source, window, gap))
+        elif text := piece["text"]:
+            if "verified_body" in piece:
+                source.locator["verified_body"] = piece["verified_body"]
+            span = engine.Window(source.locator, start, text)
+            spans.append(span)
+            if filters:
+                windows.append(span)
+            else:
+                # Read and hash one contiguous span per source while retaining
+                # the provider's existing excerpt size and overlap.
+                for offset in range(0, len(text), WINDOW - OVERLAP):
+                    excerpt = text[offset : offset + WINDOW]
+                    windows.append(
+                        engine.Window(
+                            source.locator,
+                            start + offset,
+                            excerpt,
+                            literal_ranges=piece.get("literal_ranges", ()),
+                        )
+                    )
+                    if offset + len(excerpt) == len(text):
+                        break
+            readable.extend(windows)
+        work.append((source, windows, gap))
+    return work, readable, spans
+
+
+def _review_batch(turn):
+    filters = turn.plan["filters"]
+    literal = turn.plan.get("literal")
+    pending = list(
+        turn.sources.filter(case=turn.case_id, status__in=PENDING_REVIEW).order_by(
+            "pk"
+        )[: STRUCTURED_BATCH if filters else REVIEW_BATCH]
+    )
+    if not pending:
+        if turn.plan.get("narrative"):
+            _draft_review(turn)
+        _verify_batch(turn)
+        return
+    work, readable, spans = _read_review_spans(
+        turn, pending, filters, literal=bool(literal)
+    )
     outcomes = []
     if filters:
         evaluated = engine_counts.evaluate(turn.case, pending, filters)
-        for source, w, _ in work:
-            if w:
+        for source, windows, _ in work:
+            if windows:
+                w = windows[0]
                 outcome = evaluated.get(source.evidence_id, "miss")
                 citations = []
                 if outcome == "match":
@@ -379,39 +748,57 @@ def _review_batch(turn):
                         }
                     )
                 outcomes.append((outcome, citations))
+    elif literal:
+        outcomes = engine_counts.literal_outcomes(literal, readable)
     elif readable:
-        outcomes = _checked_review(turn, readable)
+        outcomes = _checked_review(turn, readable, spans)
 
     with transaction.atomic():
         # Permission and every excerpt are rechecked under the case lock;
         # stale deliveries cannot advance a cursor or publish any match.
-        case = _authorize(turn, readable, lock=True)
+        case = _authorize(turn, spans, lock=True, review=True)
+        counts, seen = _literal_citations(turn, work) if literal else ({}, set())
         verified = iter(outcomes)
         hits = []
-        for source, w, gap in work:
-            outcome, refs = next(verified) if w else ("miss", [])
-            if outcome == "uncertain":
-                gap = "Some material could not be interpreted for this question."
-            source.gap = gap
-            for ref in refs:
-                hits.append(
-                    ChatMatch(
-                        case=case,
-                        turn=turn,
-                        source=source,
-                        start=ref["start"],
-                        end=ref["end"],
-                        quote=ref["quote"],
+        for source, windows, gap in work:
+            matched = source.status == "pending_hit"
+            for _ in windows:
+                outcome, refs = next(verified)
+                matched |= outcome == "match"
+                if outcome == "uncertain":
+                    gap = "Some material could not be interpreted for this question."
+                for ref in refs:
+                    if literal:
+                        key = source.pk, ref["start"], ref["end"]
+                        count = counts.get(source.record_key, 0)
+                        if count >= LITERAL_CITATIONS_PER_RECORD or key in seen:
+                            continue
+                        counts[source.record_key] = count + 1
+                        seen.add(key)
+                    hits.append(
+                        ChatMatch(
+                            case=case,
+                            turn=turn,
+                            source=source,
+                            start=ref["start"],
+                            end=ref["end"],
+                            quote=ref["quote"],
+                        )
                     )
-                )
-            consumed = source.cursor + len(w.text) if w else source.cursor
-            if not filters and w and consumed < source.locator["length"]:
+            source.gap = gap
+            consumed = source.cursor
+            if windows:
+                last = windows[-1]
+                consumed = (source.cursor if filters else last.start) + len(last.text)
+            if not filters and windows and consumed < source.locator["length"]:
                 source.cursor = max(source.cursor + 1, consumed - OVERLAP)
+                if literal and matched:
+                    source.status = "pending_hit"
             else:
                 source.cursor = consumed
                 source.status = (
                     "match"
-                    if refs or source.hits.exists()
+                    if matched or source.hits.filter(case=case, turn=turn).exists()
                     else "gap"
                     if gap
                     else "miss"
@@ -419,8 +806,28 @@ def _review_batch(turn):
                 turn.reviewed += 1
                 turn.gaps += bool(gap)
         ChatMatch.objects.bulk_create(hits, ignore_conflicts=True)
-        ChatSource.objects.bulk_update(pending, ("status", "gap", "cursor"))
+        ChatSource.objects.bulk_update(
+            [source for source, _, _ in work], ("status", "gap", "cursor", "locator")
+        )
         _continue(turn)
+
+
+def _literal_citations(turn, work):
+    """Keep one shared citation budget across all surfaces of a record."""
+    hits = turn.hits.filter(
+        case_id=turn.case_id,
+        source__case_id=turn.case_id,
+        source__turn=turn,
+        source__record_key__in={source.record_key for source, _, _ in work},
+    )
+    counts = dict(hits.values_list("source__record_key").annotate(Count("pk")))
+    room = [
+        source.pk
+        for source, _, _ in work
+        if counts.get(source.record_key, 0) < LITERAL_CITATIONS_PER_RECORD
+    ]
+    seen = set(hits.filter(source_id__in=room).values_list("source_id", "start", "end"))
+    return counts, seen
 
 
 def _draft_review(turn):
@@ -441,12 +848,11 @@ def _draft_review(turn):
         def authorize_examples(fragments, **kwargs):
             return _authorize(turn, fragments, **kwargs)
 
-        draft, used = engine.answer(
+        draft, used = engine.representative_answer(
             turn,
             authorize_examples,
             turn.plan["question"],
             windows,
-            representative=True,
         )
         _authorize(turn, used)
         turn.plan["draft"] = draft
@@ -493,7 +899,10 @@ def _verify_batch(turn):
 
 
 def _finish_review(turn, accounted):
-    if turn.reviewed != turn.total or accounted.filter(status="pending").exists():
+    if (
+        turn.reviewed != turn.total
+        or accounted.filter(status__in=PENDING_REVIEW).exists()
+    ):
         raise AnalysisError("source_changed")
     records = accounted.filter(status="match").values("record_key").distinct().count()
     turn.plan["matched_records"] = records
@@ -523,11 +932,13 @@ def process_turn(turn_id, token):
         return
     active_token = turn.delivery_token
     try:
-        _authorize(turn)
+        _authorize(turn, review=turn.plan.get("stage") == "review")
         if turn.plan.get("stage") == "verify":
             _verify_batch(turn)
         elif turn.plan.get("stage") == "review":
             _review_batch(turn)
+        elif turn.plan.get("stage") == "refine":
+            _refine(turn)
         else:
             _decide(turn)
     except Http404, PermissionDenied:

@@ -14,8 +14,8 @@
   <li>
     <p>{{ member.continuation_reason }} The reply came {{ member.elapsed_minutes|floatformat:"-1" }} minutes later.</p>
     <div class="actions">
-    {% if member.parent_available %}<a class="record-link" href="{% url 'core:evidence:detail' case.pk 'text-message' member.parent_message_id %}?state=all">Earlier message</a>{% endif %}
-    <a class="record-link" href="{% url 'core:evidence:detail' case.pk 'text-message' member.message_id %}?state=all">Reply · message {{ member.ordinal }}</a>
+    {% if member.parent_available %}<a class="record-link" href="{% url 'core:evidence:detail' case.pk 'text-message' member.parent_message_id %}">Earlier message</a>{% endif %}
+    <a class="record-link" href="{% url 'core:evidence:detail' case.pk 'text-message' member.message_id %}">Reply · message {{ member.ordinal }}</a>
     </div>
   </li>
   {% endfor %}

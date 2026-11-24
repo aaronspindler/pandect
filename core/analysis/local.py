@@ -73,8 +73,9 @@ def validate_local_configuration(config):
 class LocalClient:
     """Use the run's retained execution identity, with no external fallback."""
 
-    def __init__(self, authorize, execution):
+    def __init__(self, authorize, execution, *, authorize_metadata=None):
         self.authorize = authorize
+        self.authorize_metadata = authorize_metadata or authorize
         self.execution = execution
         self.usage = {
             "request_count": 0,
@@ -89,7 +90,9 @@ class LocalClient:
     def _validate_configuration(self):
         validate_local_configuration(self.execution)
 
-    def _request(self, path, payload=None, *, content_type="application/json"):
+    def _request(
+        self, path, payload=None, *, content_type="application/json", metadata=False
+    ):
         config = self.execution
         try:
             body = payload if isinstance(payload, bytes) else encode_json(payload)
@@ -116,7 +119,10 @@ class LocalClient:
             headers=headers,
             method="GET" if body is None else "POST",
         )
-        self.authorize()
+        authorize = (
+            self.authorize_metadata if metadata or body is None else self.authorize
+        )
+        authorize()
         started = time.monotonic()
         self.usage["request_count"] += 1
         self.usage["request_bytes"] += len(body or b"")
@@ -156,7 +162,7 @@ class LocalClient:
             self.usage["elapsed_seconds"] = round(
                 self.usage["elapsed_seconds"] + time.monotonic() - started, 3
             )
-            self.authorize()
+            authorize()
 
     def _expected_identity(self):
         purpose = self.execution["purpose"]

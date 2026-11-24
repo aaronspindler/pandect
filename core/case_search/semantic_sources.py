@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 
+from django.contrib.postgres.search import SearchVector
 from django.db.models import Case, F, Q, Value, When
 from django.db.models.functions import Substr
 from django.urls import reverse
@@ -9,9 +10,7 @@ from django.urls import reverse
 from core.analysis.catalogue import finding_rows
 from core.analysis.navigation import finding_url
 from core.analysis.services import SourceResolutionCache
-from core.evidence.queries import scoped_evidence
-from core.evidence.types import KIND_LABELS, KINDS
-from core.models import AnalysisFindingSource
+from core.evidence.types import KIND_LABELS
 from phone.conversations import conversation_url
 from phone.models import CallEvidenceAttachment
 
@@ -39,16 +38,20 @@ def source_queryset(
     source,
     *,
     record_type="",
-    state="all",
     start=None,
     end=None,
     exclusions=(),
     related=None,
+    title_words=None,
 ):
     def evidence(kind):
-        queryset = dated(sources(case, kind, state), start, end, kind)
+        queryset = dated(sources(case, kind), start, end, kind)
         if record_type and record_type != kind:
             return queryset.none()
+        if title_words is not None:
+            queryset = queryset.alias(
+                title_vector=SearchVector("title", config="simple")
+            ).filter(title_vector=title_words)
         if exclusions:
             queryset = searchable(queryset, FIELDS[kind])
             for term in exclusions:
@@ -67,28 +70,11 @@ def source_queryset(
     elif source == "extraction":
         queryset = retained_passages(case, record_type, originals=evidence)
     else:
-        queryset = dated(
-            sources(case, "finding", state), start, end, "finding"
-        ).exclude(Q(preview="") | Q(result__run__operation="sighting_group"))
+        queryset = dated(sources(case, "finding"), start, end, "finding").exclude(
+            Q(preview="") | Q(result__run__operation="sighting_group")
+        )
         if record_type and record_type != "finding":
             return queryset.none()
-        if state != "all":
-            archived = Q(pk__in=[])
-            for kind in KINDS:
-                archived |= Q(
-                    kind=kind,
-                    evidence_id__in=scoped_evidence(case, kind)
-                    .filter(is_archived=True)
-                    .values("pk"),
-                )
-            refs = AnalysisFindingSource.objects.filter(archived, case=case).values(
-                "finding_id"
-            )
-            queryset = (
-                queryset.filter(pk__in=refs)
-                if state == "archived"
-                else queryset.exclude(pk__in=refs)
-            )
     if exclusions and source == "finding":
         queryset = searchable(queryset, FIELDS["finding"])
         for term in exclusions:
@@ -106,7 +92,7 @@ def _evidence_row(case, kind, item):
     if observed := getattr(item, "observed_at", None):
         date, date_label = observed, "Observed"
     url = reverse("core:evidence:detail", args=(case.pk, kind, item.pk))
-    if kind == "text-message" and not item.is_archived:
+    if kind == "text-message":
         url = conversation_url(case, item)
     return {
         "id": item.pk,
@@ -116,14 +102,21 @@ def _evidence_row(case, kind, item):
         "date": date,
         "date_label": date_label,
         "url": url,
-        "badges": ["Archived"] if item.is_archived else [],
+        "badges": [],
         "terms": (),
     }
 
 
-def read_sources(case, source, offsets, window, **filters):
+def read_sources(case, source, offsets, window, *, through=None, **filters):
     """Read one bounded window per source, with source links and current validity."""
     queryset = source_queryset(case, source, **filters).filter(pk__in=offsets)
+    if through:
+        field = (
+            "result__created_at"
+            if source in ("extraction", "finding")
+            else "created_at"
+        )
+        queryset = queryset.filter(**{f"{field}__lte": through})
     position = Case(
         *(When(pk=pk, then=Value(start + 1)) for pk, start in offsets.items())
     )
@@ -159,18 +152,16 @@ def read_sources(case, source, offsets, window, **filters):
                 },
             )
             for item, row in zip(items, rows, strict=True)
-            if visible_finding(row, filters.get("state", "all"))
+            if visible_finding(row)
         }
     result = {}
     resolved = {}
-    cache = SourceResolutionCache(case, with_content=False)
+    cache = SourceResolutionCache(case, with_content=False, active_only=True)
     for item in items:
         if source == "extraction":
             run = item.result.run
             if run.pk not in resolved:
-                resolved[run.pk] = valid_sources(
-                    run, case, filters.get("state", "all"), cache
-                )
+                resolved[run.pk] = valid_sources(run, case, cache)
             original = resolved[run.pk].get(passage_identity(item))
             if original is None:
                 continue

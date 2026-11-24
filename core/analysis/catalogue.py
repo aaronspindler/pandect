@@ -241,6 +241,28 @@ class CatalogueForm(FindingScopeForm):
         ]
 
 
+def archived_finding_sources(case):
+    matches = Q(pk__in=[])
+    for kind in KINDS:
+        matches |= Q(
+            kind=kind,
+            evidence_id__in=scoped_evidence(case, kind)
+            .filter(is_archived=True)
+            .values("pk"),
+        )
+    return AnalysisFindingSource.objects.filter(matches, case=case)
+
+
+def exclude_archived_findings(queryset, case):
+    return queryset.filter(
+        ~Exists(
+            archived_finding_sources(case).filter(
+                finding__result_id=OuterRef("result_id")
+            )
+        )
+    )
+
+
 def finding_queryset(case, filters, *, person=None, labels=None):
     """Return filtered items before pagination."""
     queryset = (
@@ -299,7 +321,7 @@ def finding_queryset(case, filters, *, person=None, labels=None):
                 )
             sources = sources.filter(related)
         queryset = queryset.filter(Exists(sources))
-    return queryset.order_by(
+    return exclude_archived_findings(queryset, case).order_by(
         "-result__run__created_at", "-result__run_id", "item_index", "pk"
     )
 
@@ -328,12 +350,12 @@ def resolved_findings(case, findings, *, with_content=False):
             "created_at",
         )
     }
-    cache = SourceResolutionCache(case, with_content=with_content)
+    cache = SourceResolutionCache(case, with_content=with_content, active_only=True)
     try:
         cache.prepare([source for run in runs.values() for source in run.inputs])
     except Http404, ValueError, TypeError, KeyError, forms.ValidationError:
         # A corrupt historical reference must not prevent valid neighbouring rows.
-        cache = SourceResolutionCache(case, with_content=with_content)
+        cache = SourceResolutionCache(case, with_content=with_content, active_only=True)
     references = {}
     for reference in AnalysisFindingSource.objects.filter(
         case=case, finding__in=findings

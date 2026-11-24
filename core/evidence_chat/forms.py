@@ -11,6 +11,3 @@ class QuestionForm(forms.Form):
         label="Question",
         widget=forms.Textarea(attrs={"rows": 3}),
     )
-    include_archived = forms.BooleanField(
-        label="Include archived evidence", required=False
-    )

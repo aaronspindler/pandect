@@ -10,7 +10,7 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url, result_navigation
-from core.analysis.services import resolve_inputs
+from core.analysis.services import resolve_active_inputs
 from core.evidence.types import COMMUNICATION_KINDS
 from core.models import AnalysisResult
 from geo.trip_processing import saved_trips
@@ -74,7 +74,7 @@ def _published_comparison(request, case_id, run_id):
         run__operation="journey_claims",
     )
     try:
-        sources = resolve_inputs(result.run, case, require_current_review=False)
+        sources = resolve_active_inputs(result.run, case, require_current_review=False)
     except AnalysisError as error:
         raise Http404("Comparison sources are unavailable.") from error
     return case, result, {source.id: source for source in sources}
@@ -148,7 +148,7 @@ def group(request, case_id, run_id, index):
     current_url = ""
     if selected["origin"] == "trip":
         if (
-            saved_trips(case, state=selected["evidence_state"])
+            saved_trips(case)
             .filter(pk=selected["trip_id"], generation_id=selected["generation_id"])
             .exists()
         ):

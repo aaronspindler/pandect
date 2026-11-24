@@ -17,7 +17,6 @@ from core.analysis.reporting import (
     _period,
     _record_page,
     _source,
-    _state,
 )
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KIND_LABELS
@@ -46,7 +45,6 @@ def _pairs(queries):
 
 def call_report(
     case,
-    state,
     participant_id,
     other_participant_id,
     start,
@@ -58,8 +56,10 @@ def call_report(
     queries = []
     missing_times = 0
     for kind in CALL_KINDS:
-        queryset = _state(scoped_evidence(case, kind), state).select_related(
-            "sender", "recipient"
+        queryset = (
+            scoped_evidence(case, kind)
+            .filter(is_archived=False)
+            .select_related("sender", "recipient")
         )
         if other_participant_id:
             queryset = queryset.filter(
@@ -148,7 +148,7 @@ def call_report(
         "duration",
         value=lambda duration: duration.total_seconds(),
     )
-    metrics = _base_metrics(total, state, start, end, "Recorded call time")
+    metrics = _base_metrics(total, start, end, "Recorded call time")
     metrics.update(
         {
             "Participant filter": str(participant_id)

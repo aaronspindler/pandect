@@ -45,6 +45,8 @@
     const changedSaved = new Set();
     let refreshSaved = false;
     const localWork = () => regions().some(region => (waiting.get(region) || region).dataset.livePoll === "true");
+    const chatId = document.querySelector("[data-live-chat]")?.dataset.liveChat;
+    let chatProgress;
     const discoversWork = Boolean(document.querySelector("#processing-activity, #evidence-findings"));
     const initial = document.getElementById("case-activity-versions");
     let versions = initial ? JSON.parse(initial.textContent) : null;
@@ -98,7 +100,8 @@
     function schedule() {
       clearTimeout(timer);
       if (!stopped && !document.hidden) {
-        const delay = caseBusy || localWork() ? 5000 : 30000;
+        const pending = localWork();
+        const delay = pending && chatId ? 1000 : (caseBusy || pending ? 5000 : 30000);
         if (forceNext || snapshotDue || failures || !source || source.readyState !== EventSource.OPEN) {
           timer = setTimeout(refresh, forceNext ? 0 : snapshotDue && !failures ? 100 : delay * 2 ** failures);
         }
@@ -177,7 +180,10 @@
       const timeout = setTimeout(() => controller?.abort(), 15000);
       const options = {credentials: "same-origin", cache: "no-store", redirect: "manual", signal: controller.signal};
       try {
-        const response = await fetch(activity.dataset.caseActivityUrl, {...options, headers: {Accept: "application/json"}});
+        const statusUrl = new URL(activity.dataset.caseActivityUrl, location.href);
+        const pendingChat = chatId && localWork();
+        if (pendingChat) statusUrl.searchParams.set("chat", chatId);
+        const response = await fetch(statusUrl, {...options, headers: {Accept: "application/json"}});
         if (!checkAccess(response)) return;
         const snapshot = await response.json();
         if (stopped) return;
@@ -186,7 +192,8 @@
         caseBusy = snapshot.active;
         updateBadge(snapshot);
         // Use the page URL including current filters and pagination.
-        const progressChanged = changed && (discoversWork || localWork());
+        const currentChat = pendingChat ? JSON.stringify(snapshot.chat_progress) : undefined;
+        const progressChanged = pendingChat ? chatProgress !== currentChat : changed && (discoversWork || localWork());
         if ((controls || discoversWork) && (forced || fragmentDue || progressChanged)) {
           fragmentDue = true;
           const requestedUrl = location.href;
@@ -223,6 +230,7 @@
           applyWaiting();
           fragmentDue = false;
         }
+        chatProgress = currentChat;
         versions = snapshot.versions;
         displayed ??= versions;
         showCollectionChange();

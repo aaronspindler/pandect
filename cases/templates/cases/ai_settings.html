@@ -1,82 +1,124 @@
-<section class="content-section" id="ai-processing" aria-labelledby="ai-processing-heading">
+<section class="content-section ai-settings" id="ai-processing" aria-labelledby="ai-processing-heading" data-workspace-document>
   <h2 id="ai-processing-heading">AI processing</h2>
-  {% if case.ai_backend == 'gateway' and not ai_backend_form.external_ai_available %}
-    <p class="notice">External AI needs current approval. Review <a href="#external-analysis">External analysis</a> or choose Local AI.</p>
-  {% endif %}
-  <form class="form-panel" method="post" action="{% url 'cases:case_ai_backend' case.pk %}">
+  <form method="post" action="{% url 'cases:case_ai_settings' case.pk %}" data-unsaved-form>
     {% csrf_token %}
-    {% include 'ui/components/form_errors.html' with form=ai_backend_form %}
-    <div class="filter-bar">
-      {% include 'ui/components/form_field.html' with field=ai_backend_form.ai_backend only %}
-      <button class="button button-secondary" type="submit">Save AI backend</button>
-    </div>
-  </form>
-  <section id="external-analysis" aria-labelledby="external-analysis-heading">
-    <h3 id="external-analysis-heading">External analysis</h3>
-    {% if external_models_form.rows or external_models_form.errors %}
-      <form class="form-panel" method="post" action="{% url 'cases:case_external_models' case.pk %}">
-        {% csrf_token %}
-        {% include 'ui/components/form_errors.html' with form=external_models_form %}
-        {{ external_models_form.confirmation }}
-        {% if external_models_form.stale %}
-          <div class="notice">
-            <h4>Saved models</h4>
-            <dl class="metadata-grid">
-              {% for label, model, field in external_models_form.rows %}
-                <div><dt>{{ label }}</dt><dd>{{ model }}</dd></div>
-              {% endfor %}
-            </dl>
-          </div>
-        {% endif %}
-        {% if external_models_form.editable %}
-          <p class="muted">Choose models for new checks that use External AI.</p>
-        {% endif %}
-        <div class="field-grid">
-          {% for label, model, field in external_models_form.rows %}
-            {% if field %}
-              <div class="field{% if field.errors %} field-error{% endif %}">
-                <label for="{{ field.id_for_label }}">{{ label }}</label>
-                {{ field }}
-                {{ field.errors }}
-              </div>
-            {% else %}
-              <dl class="field"><dt>{{ label }}</dt><dd>{{ model }}</dd></dl>
-            {% endif %}
+    {% include 'ui/components/form_errors.html' with form=ai_settings_form %}
+    {{ ai_settings_form.confirmation }}
+    <fieldset id="{{ ai_settings_form.ai_backend.auto_id }}_group" class="ai-backend" tabindex="-1">
+      <legend class="visually-hidden">Processing location</legend>
+      <div class="ai-backend-options">
+        {% for choice in ai_settings_form.ai_backend %}
+          <label>{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>
+        {% endfor %}
+      </div>
+      {{ ai_settings_form.ai_backend.errors }}
+    </fieldset>
+
+    <details class="ai-destinations" id="external-analysis">
+      <summary>
+        {% include 'ui/components/icon.html' with name='shield' only %}
+        <strong>Approved destinations</strong>
+        <span class="muted">{% if external_analysis.approved_names %}{% if external_analysis.gateway_summary %}Cloudflare AI Gateway · {% endif %}{{ external_analysis.approved_names|join:", " }}{% else %}None approved{% endif %}</span>
+        <span class="ai-manage">{% if external_analysis.pending_ai and case.ai_backend == 'gateway' %}Review pending{% else %}Manage{% endif %}</span>
+      </summary>
+      <div class="ai-destination-details">
+        {% if external_analysis.destinations %}
+          {% for destination in external_analysis.destinations %}
+            <div class="ai-destination">
+              <h3>{{ destination.name }}</h3>
+              <p>{{ destination.material }}</p>
+              <p class="muted">{{ destination.details }}{% if destination.details and destination.retention %} · {% endif %}{{ destination.retention }}</p>
+              <strong>{% if destination.approved %}Approved{% else %}Approval required{% endif %}</strong>
+              {% if destination.revoke_confirmation %}
+                <button class="button" form="revoke-destination" type="submit" name="confirmation" value="{{ destination.revoke_confirmation }}" aria-label="Revoke approval for {{ destination.name }} · {{ destination.material }}">Revoke approval</button>
+              {% endif %}
+            </div>
           {% endfor %}
-        </div>
-        {% if external_models_form.editable %}
-          <div class="actions">
-            <button class="button button-secondary" type="submit">Save models</button>
-          </div>
+        {% else %}
+          <p>Choose your models and save with External AI selected to review where case material can be sent.</p>
         {% endif %}
-      </form>
-    {% endif %}
-    {% if external_analysis.destinations %}
-      <details class="disclosure"{% if external_analysis.can_approve %} open{% endif %}>
-        <summary>{% if external_analysis.can_approve %}Review external data and destinations{% else %}Approved external destinations{% endif %}</summary>
-        <div class="disclosure-body">
-          <p class="prose">Approval allows Pandect to send the material listed below for analysis in this case. This can include relevant case history. The providers’ retention policies apply.</p>
-          <dl class="metadata-grid">
-            {% for destination in external_analysis.destinations %}
-              <div><dt>{{ destination.material }}</dt><dd>{{ destination.name }}{% if destination.approved %} · Approved{% endif %}</dd></div>
+        {% if external_analysis.pending_ai and case.ai_backend == 'gateway' %}
+          <button form="review-pending-ai" type="submit" class="button">Review pending destinations</button>
+        {% endif %}
+        {% if external_analysis.geographic_destinations %}
+          <section class="ai-geography" aria-labelledby="geographic-approval-heading">
+            <h3 id="geographic-approval-heading">Geographic lookups</h3>
+            {% for destination in external_analysis.geographic_destinations %}
+              <p>{{ destination.material }} · {{ destination.name }}{% if destination.details %} · {{ destination.details }}{% endif %}</p>
             {% endfor %}
+            <button form="approve-geography" class="button" type="submit" name="action" value="approve">Approve geographic destinations</button>
+          </section>
+        {% endif %}
+        {% if external_analysis.active %}
+          <button form="revoke-external" class="button" type="submit" name="action" value="revoke">Revoke external analysis approval</button>
+        {% endif %}
+      </div>
+    </details>
+
+    <section class="ai-models" aria-labelledby="ai-models-heading">
+      <h3 id="ai-models-heading">Models by task</h3>
+      <p class="muted ai-local-hint">These assignments apply when you choose External AI.</p>
+      {% if ai_settings_form.stale %}
+        <div class="notice">
+          <h4>Latest saved models</h4>
+          <dl class="metadata-grid">
+            {% for label, model, field in ai_settings_form.rows %}<div><dt>{{ label }}</dt><dd>{{ model }}</dd></div>{% endfor %}
           </dl>
-          {% if external_analysis.can_approve %}
-            <form method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
-              {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.approve_confirmation }}">
-              <button class="button button-primary" type="submit" name="action" value="approve">Approve listed destinations</button>
-            </form>
+        </div>
+      {% endif %}
+      {% for label, model, field in ai_settings_form.rows %}
+        <div class="ai-model-row{% if field.errors %} field-error{% endif %}">
+          {% if field %}
+            <label for="{{ field.id_for_label }}">{{ label }}</label>
+            <div class="ai-model-control">
+              {{ field }}
+              <button class="ai-model-trigger" type="button" aria-haspopup="dialog" hidden>
+                <span data-model-label></span>
+                {% include 'ui/components/icon.html' with name='chevron-down' only %}
+              </button>
+              {{ field.errors }}
+            </div>
+          {% else %}
+            <span>{{ label }}</span><span class="muted">{{ model }}</span>
           {% endif %}
         </div>
-      </details>
-    {% else %}
-      <p class="muted">No external analysis destinations are available. Ask the operator to check the service configuration.</p>
-    {% endif %}
-    {% if external_analysis.active %}
-      <form method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
-        {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.revoke_confirmation }}">
-        <button class="button button-secondary" type="submit" name="action" value="revoke">Revoke external analysis approval</button>
-      </form>
-    {% endif %}
-  </section>
+      {% empty %}
+        <p class="muted">External models are available when the operator configures a provider.</p>
+      {% endfor %}
+    </section>
+    <button class="button button-primary" type="submit">Save changes</button>
+  </form>
+
+  {% if external_analysis.pending_ai and case.ai_backend == 'gateway' %}
+    <form id="review-pending-ai" method="post" action="{% url 'cases:case_ai_settings' case.pk %}">
+      {% csrf_token %}<input type="hidden" name="action" value="review_current">
+    </form>
+  {% endif %}
+  {% if external_analysis.geographic_destinations %}
+    <form id="approve-geography" method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
+      {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.approve_confirmation }}">
+    </form>
+  {% endif %}
+  {% if external_analysis.active %}
+    <form id="revoke-destination" method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
+      {% csrf_token %}<input type="hidden" name="action" value="revoke_destination">
+    </form>
+    <form id="revoke-external" method="post" action="{% url 'cases:case_external_analysis' case.pk %}">
+      {% csrf_token %}<input type="hidden" name="confirmation" value="{{ external_analysis.revoke_confirmation }}">
+    </form>
+  {% endif %}
+  <dialog id="ai-model-picker" class="quick-dialog" aria-labelledby="model-picker-title">
+    <h2 id="model-picker-title"></h2>
+    <div class="field">
+      <label for="model-filter">Search models or providers</label>
+      <input id="model-filter" type="search" autocomplete="off" autofocus>
+    </div>
+    <label class="visually-hidden" for="model-options">Matching models</label>
+    <select id="model-options" size="8"></select>
+    <p class="muted" role="status" data-picker-status></p>
+    <div class="actions">
+      <button class="button button-primary" type="button" data-use-model>Use model</button>
+      <button class="button" type="button" data-close-picker>Cancel</button>
+    </div>
+  </dialog>
 </section>

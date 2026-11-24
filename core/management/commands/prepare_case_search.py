@@ -7,6 +7,7 @@ from django.http import Http404
 
 from cases.models import Case
 from core.case_search.indexing import prepare_case_search, search_index_status
+from core.case_search.parent_index import prepare_parents
 from core.case_search.semantic_model import profile
 
 
@@ -51,15 +52,17 @@ class Command(BaseCommand):
                 if state["status"] in {"queued", "running"}:
                     self.stdout.write(f"Delivery token: {state['token']}")
                 return
-        if not profile() and not confirm_interrupted:
-            self.stdout.write("Meaning search is not configured.")
-            return
         owners = EmailAddress.objects.filter(
             verified=True, user__is_active=True
         ).values("user_id")
         queued = 0
+        parent_scans = 0
         for case in cases.filter(owner__in=owners).iterator(chunk_size=250):
             try:
+                if not confirm_interrupted:
+                    parent_scans += prepare_parents(case, case.owner, retry=retry)
+                if not profile() and not confirm_interrupted:
+                    continue
                 queued += prepare_case_search(
                     case, case.owner, retry=retry, interrupted_token=confirm_interrupted
                 )
@@ -69,4 +72,7 @@ class Command(BaseCommand):
             raise CommandError(
                 "The delivery token is stale or the case is ineligible for recovery."
             )
-        self.stdout.write(f"Queued {queued} case search indexes.")
+        self.stdout.write(
+            f"Queued {queued} case search indexes. "
+            f"Queued {parent_scans} local outline scans."
+        )

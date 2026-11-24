@@ -90,11 +90,22 @@ work or disable external services. Older workers cannot enforce case approval.
 ## Evidence chat recovery
 
 Evidence chat uses the default queue. Each delivery rechecks the investigator's
-access and selected execution settings. A full review saves its source versions,
-window positions, matches and progress before queuing its continuation. A
+access and selected execution settings. When an ordinary answer needs a
+targeted follow-up search, the worker checkpoints the missing fact, search
+terms, cited provisional answer and its original references. A retry resumes
+from that checkpoint and rechecks sources used from earlier turns. If the
+search finds no relevant new material, the worker verifies the provisional
+citations again and publishes the qualified answer.
+A full review saves its source versions, window positions, matches and progress
+before queuing its continuation. The worker reads adjacent windows together
+and reuses a verified body digest while the case evidence revision matches.
+It verifies each complete source again before publishing the review. A
 duplicate delivery cannot publish a second reply. Open the question from
 **Processing** or **Evidence chat** to inspect progress or retry a stopped turn.
-If its AI destination or grant changed, ask a new question using current settings.
+Ask a new question if its AI destination or grant changed, or if the stopped
+turn was submitted with archived evidence enabled. An older full review also
+requires a new question when its checkpoint may contain out-of-scope records or
+literal matches on field labels.
 
 To inspect a suspected interruption, run
 `python manage.py recover_evidence_chat TURN_UUID` in the configured environment.
@@ -111,14 +122,29 @@ transcript. A source becomes searchable once its final passage commits. When an
 index stops, Processing shows the cause and a recovery action.
 Correct the reported configuration or access issue, then choose **Resume
 indexing**. Already queued or running work keeps its delivery and checkpoint.
-Temporary service and rate-limit failures get two delayed retries. A failed
-batch leaves previously published documents available under the active profile.
+Temporary service and rate-limit failures get two delayed retries. An active
+source whose original is temporarily unreadable stays incomplete while indexing
+continues through available sources. Restore the original and resume indexing
+if automatic retries have finished. A failed batch leaves previously published
+documents available under the active profile.
+
+Preparation also builds local conversation and document outlines in bounded
+background jobs. Saved conversation summaries, section headings and
+source-linked document briefs can direct a search to current original
+passages. Title searches use the current title. Brief generation tracks retained
+source text, so metadata edits reuse completed briefs. The worker builds outlines
+locally and pools compatible child passage embeddings when available. New and
+restored sources trigger preparation. The `prepare_case_search --retry` command
+also revisits the local outline scan. To rebuild version 1 outlines from a
+development build, run `python manage.py prepare_case_search --case CASE_UUID`.
+Case owners manage optional generation of missing summaries and briefs in
+[Case Settings](cases.md).
 
 The worker and the host command `python manage.py prepare_case_search` prepare
 eligible case indexes. Hosted search requires the owner's current grant to the
 [configured destination](local-analysis.md#case-search-embeddings). A revoked
-worker or superseded delivery cannot publish. New material and eligible retained
-archives are included. To inspect or resume one case from the command line, use
+worker or superseded delivery cannot publish. The index uses eligible active
+material, including restored evidence. To inspect or resume a case, use
 `python manage.py prepare_case_search --case CASE_UUID --status` or
 `--case CASE_UUID --retry`. After **confirming the delivery was interrupted**
 in the worker, use `--case CASE_UUID --confirm-interrupted TOKEN` with the
@@ -141,8 +167,8 @@ case-scoped recovery. Live scheduling requires a qualified roster source.
 `geo` owns vehicle trip state, generations, retained inputs and ordered membership.
 Authorized evidence/import/archive changes invalidate the revision and atomically
 queue rebuilding. Each task handles 500 observations at most, committing staged
-output, cursor/token and continuation together. Active/archived/all variants share
-a generation. Processing rechecks verified edit access, source relationships and
+output, cursor/token and continuation together. Trips use active observations.
+Processing rechecks verified edit access, source relationships and
 revision; only complete current generations publish. Failed/superseded work stays
 unpublished. Total history has no 100/500-observation cutoff.
 
@@ -285,8 +311,9 @@ validation or publication failure.
 Older failures without these diagnostics may have no recoverable
 cause. Keep quotation validation strict. External retries require current case-owner approval for the destination.
 
-No automatic retries or stale-task reclamation exist. `READY` tasks wait for
-workers; crashes can leave `RUNNING` tasks with some effects completed. Elapsed
+The queue framework leaves retries and stale-task recovery to each operation.
+See [meaning search indexing](#meaning-search-indexing) for its retry schedule.
+`READY` tasks wait for workers. Crashes can leave `RUNNING` tasks with some effects completed. Elapsed
 time alone does not establish that a worker stopped. Confirm the original worker stopped, review effects
 and follow operation-specific idempotent recovery before replacement. Never
 blindly reset rows or add generic retry loops. Correct problems and rerun harmless

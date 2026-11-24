@@ -1,6 +1,7 @@
 """The search worker publishes complete, current, source-linked local embeddings."""
 
 import hashlib
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -133,6 +134,90 @@ class SemanticSearchTests(EvidenceViewTestMixin, TestCase):
             [row["id"] for row in self.hits(keyword_urls={first["url"]})], [other.pk]
         )
 
+    def test_chat_expands_distinct_source_limit_for_difficult_searches(self):
+        for i in range(35):
+            self.source(f"Synthetic harbour account {i}. " * 12)
+        self.finish()
+        with patch("core.case_search.semantic.parent_results", return_value=[]):
+            narrow = self.hits("harbour", for_chat=True, include_source=True)
+            wide = self.hits(
+                "harbour departure timeline", for_chat=True, include_source=True
+            )
+            refined = self.hits(
+                "harbour",
+                chat_turn=SimpleNamespace(plan={"stage": "refine"}),
+                include_source=True,
+            )
+        for found, count in ((narrow, 24), (wide, 32), (refined, 32)):
+            self.assertEqual(len({row["id"] for row in found}), count)
+            # Secondary windows follow the unique originals within this local shortlist.
+            self.assertEqual(len({row["id"] for row in found[:count]}), count)
+            self.assertLessEqual(len(found), 2 * count)
+
+    def test_public_search_checks_action_and_date_before_display_limit(self):
+        for i in range(8):
+            self.source(f"Photo {i} was taken Thursday and shared Monday.")
+        matched = self.source("The photo was taken Monday and shared Thursday.")
+        self.finish()
+        SearchPassage.objects.filter(document__text=matched).update(
+            embedding=[0.9, 0.4] + [0.0] * 382
+        )
+        self.assertNotIn(matched.pk, [r["id"] for r in self.hits("photograph")])
+        results = self.hits("photo taken Monday and shared Thursday")
+        self.assertEqual(len(results), 6)
+        self.assertEqual(results[0]["id"], matched.pk)
+        self.assertIn(matched.body, results[0]["excerpt"])
+
+    def test_public_date_search_prefers_second_dated_passage_of_same_original(self):
+        first = "The first photo was taken Thursday and shared Monday."
+        correct = "The second photo was taken Monday and shared Thursday."
+        album = self.source(first.ljust(CHUNK_BYTES) + correct)
+        for i in range(23):
+            self.source(f"Synthetic album catalog entry {i}.")
+        self.finish()
+        SearchPassage.objects.exclude(document__text=album).update(
+            embedding=[0.8, 0.6] + [0.0] * 382
+        )
+        second = SearchPassage.objects.get(document__text=album, start=CHUNK_BYTES)
+        second.embedding = [0.95, 0.2] + [0.0] * 382
+        second.save(update_fields=["embedding"])
+        results = self.hits("photo taken Monday and shared Thursday")
+        self.assertEqual(len(results), 6)
+        row = next(r for r in results if r["id"] == album.pk)
+        self.assertEqual(row["excerpt"], correct)
+
+    def test_chat_ranks_dated_direct_passages_before_parent_sources_fill_shortlist(
+        self,
+    ):
+        for i in range(26):
+            self.source(f"Photo {i} was taken Thursday and shared Monday.")
+        matched = self.source("The photo was taken Monday and shared Thursday.")
+        self.finish()
+        SearchPassage.objects.filter(document__text=matched).update(
+            embedding=[0.9, 0.4] + [0.0] * 382
+        )
+        parents = []
+        for i in range(12):
+            source = self.source(f"Outline lead {i}")
+            parents.append(
+                {
+                    "id": source.pk,
+                    "kind": "text",
+                    "source": ("text", source.pk),
+                    "start": 0,
+                    "excerpt": source.body,
+                    "url": str(source.pk),
+                }
+            )
+        options = {"for_chat": True, "include_source": True}
+        with patch("core.case_search.semantic.parent_results", return_value=parents):
+            plain = self.hits("pale compact picture", **options)
+            dated = self.hits("photo taken Monday and shared Thursday", **options)
+        self.assertNotIn(matched.pk, {r["id"] for r in plain})
+        row = next(r for r in dated if r["id"] == matched.pk)
+        self.assertEqual(row["direct_rank"], 26)
+        self.assertEqual(len({r["id"] for r in dated}), 32)
+
     def test_failed_batch_is_recoverable_without_duplicate_or_partial_publication(self):
         self.source("The appointment moved. " * 2500)
         self.index = CaseSearchIndex.objects.get(case=self.case)
@@ -262,7 +347,9 @@ class EmbeddingProtocolTests(SimpleTestCase):
             responses = normal | overrides
             with patch(
                 "core.analysis.local.LocalClient._request",
-                side_effect=lambda path, payload=None: responses[path],
+                side_effect=lambda path, payload=None, *, metadata=False: responses[
+                    path
+                ],
             ) as request:
                 result = embed(["Synthetic text."], lambda: None)
             payload = next(

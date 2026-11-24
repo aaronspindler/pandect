@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models, router
 from django.utils import timezone
@@ -145,7 +146,7 @@ class Evidence(models.Model):
         super().clean()
         using = router.db_for_write(type(self), instance=self)
         self._check_original(using)
-        if self._state.adding:
+        if self._state.adding and self.case_id:
             self._prepare_original()
 
 
@@ -193,3 +194,43 @@ class FileEvidence(Evidence):
             self.file, self.declared_content_type
         ).items():
             setattr(self, name, value)
+
+
+class PendingFileDeletion(models.Model):
+    """Private default-storage work that survives deletion of its parent case."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    storage_key = models.CharField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_attempted_at = models.DateTimeField(null=True)
+
+    def __str__(self):
+        return f"Pending file deletion {self.pk}"
+
+
+class DeletionReview(models.Model):
+    """Short-lived private pages from a fully checked deletion inventory."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    kind = models.CharField(max_length=32)
+    evidence_id = models.UUIDField()
+    fingerprint = models.CharField(max_length=64)
+    versions = models.JSONField()
+    counts = models.JSONField()
+    analysis_count = models.PositiveIntegerField()
+    entry_count = models.PositiveIntegerField()
+    pages = ArrayField(models.JSONField())
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("case", "actor", "kind", "evidence_id"),
+                name="unique_evidence_deletion_review",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Deletion review {self.pk}"

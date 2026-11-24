@@ -16,9 +16,10 @@ from core.analysis.reprocessing import start_reprocessing
 from core.evidence.deletion import plan_deletion
 from core.testing import EvidenceViewTestMixin
 from people.models import Person
-from phone.grouping_jobs import grouping_scope, start_grouping
+from phone.grouping_jobs import _legacy_scope, grouping_scope, start_grouping
 from phone.models import (
     ConversationGrouping,
+    ConversationPairRevision,
     ConversationSessionMember,
     TextMessageEvidence,
 )
@@ -75,6 +76,46 @@ class GroupingJobTests(EvidenceViewTestMixin, TestCase):
                 session.members.order_by("ordinal").values_list("message_id", flat=True)
             ),
             [m.pk for m in messages],
+        )
+
+    def test_new_grouping_uses_pair_revisions_across_bulk_writes(self):
+        first = self.messages(1)[0]
+        scope = grouping_scope(self.case, self.person, self.person)
+        TextMessageEvidence.objects.filter(pk=first.pk).update(title="Edited title")
+        self.assertEqual(grouping_scope(self.case, self.person, self.person), scope)
+        # A bulk content edit changes the selection marker even when its count
+        # and the stored checksum have been left untouched.
+        TextMessageEvidence.objects.filter(pk=first.pk).update(body="Changed")
+        self.assertNotEqual(grouping_scope(self.case, self.person, self.person), scope)
+        TextMessageEvidence.objects.filter(pk=first.pk).update(body=first.body)
+        with patch(
+            "phone.grouping_jobs._legacy_scope",
+            side_effect=AssertionError("Revision-backed grouping must not rescan"),
+        ):
+            batch, _ = self.request_grouping()
+            self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+
+    def test_grouping_from_before_revision_tracking_keeps_its_exact_scope(self):
+        self.messages(2)
+        batch, _ = self.request_grouping()
+        _, previous_digest = _legacy_scope(self.case, self.person, self.person)
+        ConversationGrouping.objects.filter(batch=batch).update(
+            scope_digest=previous_digest
+        )
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        grouping = batch.conversation_groupings.get()
+        self.assertEqual(grouping.processed_digest, previous_digest)
+        self.assertIsNotNone(grouping.published_at)
+
+    def test_case_deletion_does_not_recreate_pair_revisions(self):
+        self.messages(1)
+        case_id = self.case.pk
+        self.assertTrue(
+            ConversationPairRevision.objects.filter(case_id=case_id).exists()
+        )
+        self.case.delete()
+        self.assertFalse(
+            ConversationPairRevision.objects.filter(case_id=case_id).exists()
         )
 
     def test_automatic_requests_share_work_when_the_first_requester_loses_access(self):

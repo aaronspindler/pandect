@@ -8,28 +8,26 @@ from django.db import IntegrityError, transaction
 from cases.permissions import get_case
 from core.analysis.execution import (
     available_executions,
+    case_grant_revision,
     requires_inference,
     selected_ai_executions,
 )
+from core.analysis.operations import get_operation
 from core.analysis.services import start_run
 from core.models import CaseAnalysisBatch
-
-OPTIONAL_AI_PARAMETERS = {
-    "text_topics": "include_summary",
-    "conversation_link": "semantic_links",
-}
 
 
 def selected_analysis_variants(case, operation, parameters):
     """Use separate deterministic and model results when a method has both."""
-    optional = OPTIONAL_AI_PARAMETERS.get(operation)
-    if optional:
+    specification = get_operation(operation)
+    if specification.optional_inference:
+        optional, _ = specification.optional_inference
         yield parameters | {optional: False}, None
         parameters = parameters | {optional: True, "_suggestions_only": True}
     ai = requires_inference(operation, parameters)
     executions = (
         selected_ai_executions(case, operation, parameters)
-        if ai and operation != "claim_comparison"
+        if ai and not specification.private_inference
         else available_executions(case, operation, parameters)
     )
     for backend, execution in executions.items():
@@ -40,14 +38,19 @@ def selected_analysis_variants(case, operation, parameters):
 
 
 def start_available_run(
-    actor, case, operation, sources, parameters, execution, **kwargs
+    actor,
+    case,
+    operation,
+    sources,
+    parameters,
+    execution,
+    *,
+    external_grant_revision=None,
+    **kwargs,
 ):
     """Only server-selected routes receive a standing-grant revision."""
-    grant = (
-        case.external_analysis_approval.get("revision")
-        if execution and execution["location"] == "external"
-        else None
-    )
+    if external_grant_revision is None:
+        external_grant_revision = case_grant_revision(case, operation, execution)
     return start_run(
         actor,
         case.pk,
@@ -55,7 +58,7 @@ def start_available_run(
         sources,
         parameters=parameters,
         approved_execution=execution,
-        external_grant_revision=grant,
+        external_grant_revision=external_grant_revision,
         require_configured_inference=True,
         **kwargs,
     )
@@ -93,7 +96,7 @@ def start_selected_analysis(
     if (
         len(choices) == 1
         and choices[0][1] is None
-        and operation not in OPTIONAL_AI_PARAMETERS
+        and not get_operation(operation).optional_inference
     ):
         run, created = start_available_run(
             actor, case, operation, sources, *choices[0], submission_id=submission_id

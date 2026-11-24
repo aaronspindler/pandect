@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.core.signing import Signer
 from django.test import SimpleTestCase, override_settings
 
 from socialmedia import instagram_connector as connector
@@ -14,10 +15,44 @@ from socialmedia import instagram_connector as connector
     PANDECT_INSTAGRAM_PILOT_KEY="synthetic-unit-test-pilot-key-material",
 )
 class ConnectorTests(SimpleTestCase):
+    def test_legacy_revocation_checks_the_original_binding(self):
+        url = "http://127.0.0.1:8765"
+        case, user = str(uuid4()), str(uuid4())
+        config = {
+            "url": url,
+            "case_id": case,
+            "user_id": user,
+            "token": "synthetic-legacy-disconnect-token",
+        }
+        token = "a" * 48
+        session = Signer(
+            key=config["token"],
+            fallback_keys=[],
+            salt=f"instagram-session:{url}:{user}:{case}",
+        ).sign(token)
+        with patch.object(connector, "build_opener") as opener:
+            call = opener.return_value.open
+            with self.settings(PANDECT_INSTAGRAM_LEGACY_REVOCATION=config):
+                connector.revoke_live(session)
+            request = call.call_args.args[0]
+            self.assertEqual(request.full_url, url + "/disconnect")
+            self.assertEqual(json.loads(request.data), {"session": token})
+            with (
+                self.settings(
+                    PANDECT_INSTAGRAM_LEGACY_REVOCATION=config
+                    | {"case_id": str(uuid4())}
+                ),
+                self.assertRaisesMessage(connector.ConnectorError, "disconnected"),
+            ):
+                connector.revoke_live(session)
+            call.assert_called_once()
+
     def test_signed_in_website_configuration_does_not_enable_scheduling(self):
         self.assertTrue(connector.scheduling_available())
-        with self.settings(PANDECT_INSTAGRAM_LIVE={"url": "http://127.0.0.1:8765"}):
-            self.assertFalse(connector.scheduling_available())
+        with self.settings(
+            PANDECT_INSTAGRAM_LEGACY_REVOCATION={"url": "http://127.0.0.1:8765"}
+        ):
+            self.assertTrue(connector.scheduling_available())
         with self.settings(PANDECT_INSTAGRAM_PILOT_URL=""):
             self.assertFalse(connector.scheduling_available())
 
@@ -79,6 +114,6 @@ class ConnectorTests(SimpleTestCase):
                 ):
                     connector.collect(pair["session"], connector.PILOT_TARGET)
         with self.settings(PANDECT_INSTAGRAM_PILOT_KEY=""):
-            self.assertFalse(connector.available())
+            self.assertFalse(connector.scheduling_available())
             with self.assertRaisesMessage(connector.ConnectorError, "not_configured"):
                 connector.collect(pair["session"], connector.PILOT_TARGET)

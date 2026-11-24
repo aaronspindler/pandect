@@ -307,24 +307,34 @@ class SightingBrowserTests(BrowserTestCase):
                     "button", name="Archive", exact=True
                 ).press("Enter")
                 try:
+                    expect(
+                        page.get_by_role("status").filter(
+                            has_text="Evidence archived. Its original is retained."
+                        )
+                    ).to_be_visible()
                     page.goto(proposal_url)
                     expect(
                         page.get_by_role("button", name="Accept for review")
                     ).to_have_count(0)
                     expect(
-                        page.get_by_text(re.compile(r"archived", re.I)).first
+                        page.get_by_text("Proposal unavailable.", exact=False)
                     ).to_be_visible()
                     expect(
                         page.get_by_role(
                             "link", name=locations[0].title, exact=True
                         ).first
-                    ).to_be_visible()
+                    ).to_have_count(0)
                     self.capture(page, engine, "archived-proposal-mobile")
                 finally:
                     page.goto(location_url)
                     self.open_evidence_panel(page, "more").get_by_role(
                         "button", name="Restore", exact=True
                     ).press("Enter")
+                    expect(
+                        page.get_by_role("status").filter(
+                            has_text="Evidence restored to the active collection."
+                        )
+                    ).to_be_visible()
                 page.goto(proposal_url)
                 expect(
                     page.get_by_role("button", name="Accept for review", exact=True)

@@ -33,11 +33,9 @@ class DuplicateUploadTests(EvidenceViewTestMixin, TestCase):
             **values,
         )
 
-    def test_owner_and_editor_review_active_and_archived_matches_across_categories(
-        self,
-    ):
+    def test_owner_and_editor_review_only_active_matches_across_categories(self):
         first = self.document(model=ImageEvidence)
-        archived = self.document(
+        self.document(
             model=AudioEvidence,
             is_archived=True,
             archive_changed_by=self.users["owner"],
@@ -50,14 +48,7 @@ class DuplicateUploadTests(EvidenceViewTestMixin, TestCase):
                 response = self.upload()
                 self.assertEqual(response.status_code, 409)
                 matches = response.json()["matches"]
-                self.assertEqual(
-                    {row["id"] for row in matches}, {str(first.pk), str(archived.pk)}
-                )
-                self.assertTrue(
-                    next(row for row in matches if row["id"] == str(archived.pk))[
-                        "is_archived"
-                    ]
-                )
+                self.assertEqual([row["id"] for row in matches], [str(first.pk)])
                 self.assertIn("private", response["Cache-Control"])
                 self.assertIn("no-store", response["Cache-Control"])
                 self.assertEqual(DocumentEvidence.objects.count(), 0)

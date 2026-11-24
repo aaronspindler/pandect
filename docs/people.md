@@ -33,8 +33,8 @@ observations](evidence.md#location-observations). Product users need no staff ac
 
 Details show 25 related evidence records and 25 findings per page, paginated
 independently of POIs and People. **Findings** beside the person's name jumps to
-the findings section when results are available. Browse links retain the person filter. Archived
-evidence is included. Sender, Recipient, Both, and Location labels describe
+the findings section when results are available. Browse links retain the person filter.
+The detail view uses active evidence. Sender, Recipient, Both, and Location labels describe
 explicit text-message, phone-call, FaceTime, or person-location relationships.
 Self-messages appear once; call additions/extractions retain their parent
 association and exact source links.

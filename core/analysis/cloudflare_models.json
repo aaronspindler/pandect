@@ -1,0 +1,615 @@
+{
+  "revision": "857b749ccd051d2a1e771223e7dcf9384ccdd3dc",
+  "models": {
+    "@cf/deepgram/nova-3": {
+      "label": "nova-3",
+      "provider": "workers-ai",
+      "api": "nova-3"
+    },
+    "@cf/deepseek-ai/deepseek-v4.1-flash-1017": {
+      "label": "deepseek-v4.1-flash-1017",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/google/gemma-4-26b-a4b-it": {
+      "label": "gemma-4-26b-a4b-it",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/ibm-granite/granite-4.0-h-micro": {
+      "label": "granite-4.0-h-micro",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/meta/llama-3.2-11b-vision-instruct": {
+      "label": "llama-3.2-11b-vision-instruct",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/meta/llama-3.3-70b-instruct-fp8-fast": {
+      "label": "llama-3.3-70b-instruct-fp8-fast",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/meta/llama-4-scout-17b-16e-instruct": {
+      "label": "llama-4-scout-17b-16e-instruct",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/mistralai/mistral-small-3.1-24b-instruct": {
+      "label": "mistral-small-3.1-24b-instruct",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/openai/gpt-oss-120b": {
+      "label": "gpt-oss-120b",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/openai/gpt-oss-20b": {
+      "label": "gpt-oss-20b",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/openai/whisper": {
+      "label": "whisper",
+      "provider": "workers-ai",
+      "api": "whisper-wav"
+    },
+    "@cf/openai/whisper-large-v3-turbo": {
+      "label": "whisper-large-v3-turbo",
+      "provider": "workers-ai",
+      "api": "workers-ai"
+    },
+    "@cf/qwen/qwen2.5-coder-32b-instruct": {
+      "label": "qwen2.5-coder-32b-instruct",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/qwen/qwen3.8-27b": {
+      "label": "qwen3.8-27b",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/zai-org/glm-4.7-flash": {
+      "label": "glm-4.7-flash",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "@cf/zai-org/glm-5.3": {
+      "label": "glm-5.3",
+      "provider": "workers-ai",
+      "api": "chat-completions"
+    },
+    "alibaba/qwen3-max": {
+      "label": "Qwen 3 Max",
+      "provider": "alibaba",
+      "api": "chat-completions"
+    },
+    "alibaba/qwen3.5-397b-a17b": {
+      "label": "Qwen 3.5 397B A17B",
+      "provider": "alibaba",
+      "api": "chat-completions"
+    },
+    "alibaba/qwen3.7-max": {
+      "label": "Qwen 3.7 Max",
+      "provider": "alibaba",
+      "api": "chat-completions"
+    },
+    "alibaba/qwen3.7-plus": {
+      "label": "Qwen 3.7 Plus",
+      "provider": "alibaba",
+      "api": "chat-completions"
+    },
+    "alibaba/qwen3.8-max": {
+      "label": "Qwen 3.8 Max",
+      "provider": "alibaba",
+      "api": "chat-completions"
+    },
+    "anthropic/claude-fable-5": {
+      "label": "Claude Fable 5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-fable-5.1": {
+      "label": "Claude Fable 5.1",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-fable-5.2": {
+      "label": "Claude Fable 5.2",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-haiku-4.5": {
+      "label": "Claude Haiku 4.5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 8192
+    },
+    "anthropic/claude-haiku-5.5": {
+      "label": "Claude Haiku 5.5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-opus-4.5": {
+      "label": "Claude Opus 4.5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 32000
+    },
+    "anthropic/claude-opus-4.6": {
+      "label": "Claude Opus 4.6",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-opus-4.7": {
+      "label": "Claude Opus 4.7",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-opus-4.8": {
+      "label": "Claude Opus 4.8",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-opus-5": {
+      "label": "Claude Opus 5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-opus-5.5": {
+      "label": "Claude Opus 5.5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-sonnet-4.5": {
+      "label": "Claude Sonnet 4.5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 8192
+    },
+    "anthropic/claude-sonnet-4.6": {
+      "label": "Claude Sonnet 4.6",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-sonnet-5": {
+      "label": "Claude Sonnet 5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "anthropic/claude-sonnet-5.5": {
+      "label": "Claude Sonnet 5.5",
+      "provider": "anthropic",
+      "api": "messages",
+      "max_tokens": 128000
+    },
+    "deepseek-ai/deepseek-v4.1-flash-1017": {
+      "label": "DeepSeek V4.1 Flash",
+      "provider": "subconscious",
+      "api": "chat-completions"
+    },
+    "deepseek/deepseek-v4-pro": {
+      "label": "DeepSeek V4 Pro",
+      "provider": "fireworks",
+      "api": "chat-completions"
+    },
+    "elevenlabs/scribe-v3": {
+      "label": "Scribe v3",
+      "provider": "elevenlabs",
+      "api": "audio-run"
+    },
+    "fireworks/ember-1": {
+      "label": "Ember-1",
+      "provider": "fireworks",
+      "api": "chat-completions"
+    },
+    "google/gemini-2.5-flash": {
+      "label": "Gemini 2.5 Flash",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 8192
+    },
+    "google/gemini-2.5-flash-lite": {
+      "label": "Gemini 2.5 Flash Lite",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 8192
+    },
+    "google/gemini-2.5-pro": {
+      "label": "Gemini 2.5 Pro",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-3-flash": {
+      "label": "Gemini 3 Flash",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 8192
+    },
+    "google/gemini-3.1-flash-lite": {
+      "label": "Gemini 3.1 Flash Lite",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 8192
+    },
+    "google/gemini-3.1-pro": {
+      "label": "Gemini 3.1 Pro",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-3.5-flash": {
+      "label": "Gemini 3.5 Flash",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-3.5-flash-lite": {
+      "label": "Gemini 3.5 Flash-Lite",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-3.6-flash": {
+      "label": "Gemini 3.6 Flash",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-3.7-flash": {
+      "label": "Gemini 3.7 Flash",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-3.8-flash": {
+      "label": "Gemini 3.8 Flash",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-4-argon": {
+      "label": "Gemini 4 Argon",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-4-carbon": {
+      "label": "Gemini 4 Carbon",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "google/gemini-4-hydrogen": {
+      "label": "Gemini 4 Hydrogen",
+      "provider": "google-vertex-ai",
+      "api": "chat-completions",
+      "max_tokens": 65536
+    },
+    "meta/muse-ember-1.0": {
+      "label": "Muse Ember 1.0",
+      "provider": "meta",
+      "api": "chat-completions"
+    },
+    "meta/muse-spark-1.1": {
+      "label": "Muse Spark 1.1",
+      "provider": "meta",
+      "api": "responses"
+    },
+    "meta/muse-spark-1.2": {
+      "label": "Muse Spark 1.2",
+      "provider": "meta",
+      "api": "responses"
+    },
+    "meta/muse-spark-1.3": {
+      "label": "Muse Spark 1.3",
+      "provider": "meta",
+      "api": "responses"
+    },
+    "meta/muse-spark-open": {
+      "label": "Muse Spark Open",
+      "provider": "fireworks",
+      "api": "chat-completions"
+    },
+    "meta/muse-wonder-1.0": {
+      "label": "Muse Wonder 1.0",
+      "provider": "meta",
+      "api": "responses"
+    },
+    "minimax/m2.7": {
+      "label": "MiniMax M2.7",
+      "provider": "minimax",
+      "api": "chat-completions",
+      "max_tokens": 4096
+    },
+    "minimax/m3": {
+      "label": "MiniMax M3",
+      "provider": "minimax",
+      "api": "chat-completions",
+      "max_tokens": 4096
+    },
+    "minimax/m3.1-flash": {
+      "label": "MiniMax M3.1 Flash",
+      "provider": "minimax",
+      "api": "chat-completions",
+      "max_tokens": 131072
+    },
+    "moonshotai/kimi-k3": {
+      "label": "Kimi K3",
+      "provider": "moonshot",
+      "api": "chat-completions",
+      "max_tokens": 1048576
+    },
+    "moonshotai/kimi-k3.1-pro": {
+      "label": "Kimi K3.1 Pro",
+      "provider": "moonshot",
+      "api": "chat-completions",
+      "max_tokens": 1048576
+    },
+    "moonshotai/kimi-k3.1-pro-highspeed": {
+      "label": "Kimi K3.1 Pro Highspeed",
+      "provider": "moonshot",
+      "api": "chat-completions",
+      "max_tokens": 1048576
+    },
+    "openai/gpt-4.1": {
+      "label": "GPT-4.1",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 32768
+    },
+    "openai/gpt-4.1-mini": {
+      "label": "GPT-4.1 mini",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 32768
+    },
+    "openai/gpt-4.1-nano": {
+      "label": "GPT-4.1 nano",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 32768
+    },
+    "openai/gpt-4o": {
+      "label": "GPT-4o",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-4o-mini": {
+      "label": "GPT-4o mini",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-4o-transcribe": {
+      "label": "GPT-4o Transcribe",
+      "provider": "openai",
+      "api": "audio-run"
+    },
+    "openai/gpt-5": {
+      "label": "GPT-5",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5-mini": {
+      "label": "GPT-5 mini",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5-nano": {
+      "label": "GPT-5 nano",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5.1": {
+      "label": "GPT-5.1",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5.4": {
+      "label": "GPT-5.4",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5.4-mini": {
+      "label": "GPT-5.4 mini",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5.4-nano": {
+      "label": "GPT-5.4 nano",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5.4-pro": {
+      "label": "GPT-5.4 pro",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5.5": {
+      "label": "GPT-5.5",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5.5-pro": {
+      "label": "GPT-5.5 pro",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 16384
+    },
+    "openai/gpt-5.6-luna": {
+      "label": "GPT-5.6 Luna",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-5.6-sol": {
+      "label": "GPT-5.6 Sol",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-5.6-terra": {
+      "label": "GPT-5.6 Terra",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-6-astra": {
+      "label": "GPT-6 Astra",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-6-luna": {
+      "label": "GPT-6 Luna",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-6-sol": {
+      "label": "GPT-6 Sol",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-6.1-sol": {
+      "label": "GPT-6.1 Sol",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-6.1-terra": {
+      "label": "GPT-6.1 Terra",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-6.2-astra": {
+      "label": "GPT-6.2 Astra",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-6.2-sol": {
+      "label": "GPT-6.2 Sol",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 128000
+    },
+    "openai/gpt-transcribe": {
+      "label": "GPT Transcribe",
+      "provider": "openai",
+      "api": "audio-transcriptions"
+    },
+    "openai/o3": {
+      "label": "o3",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 100000
+    },
+    "openai/o3-mini": {
+      "label": "o3-mini",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 100000
+    },
+    "openai/o4-mini": {
+      "label": "o4-mini",
+      "provider": "openai",
+      "api": "responses",
+      "max_tokens": 100000
+    },
+    "particle/particle-1": {
+      "label": "Particle-1",
+      "provider": "particle",
+      "api": "chat-completions",
+      "max_tokens": 131072
+    },
+    "reflection-ai/beam-1.0-501b-a23b": {
+      "label": "Beam 1.0 501B A23B",
+      "provider": "reflection-ai",
+      "api": "chat-completions",
+      "max_tokens": 131072
+    },
+    "thinkingmachines/inkling": {
+      "label": "Inkling",
+      "provider": "thinkingmachines",
+      "api": "messages"
+    },
+    "thinkingmachines/inkling-256k": {
+      "label": "Inkling 256K",
+      "provider": "thinkingmachines",
+      "api": "messages"
+    },
+    "xai/grok-4.20-0309-non-reasoning": {
+      "label": "Grok 4.20 Non-Reasoning",
+      "provider": "xai",
+      "api": "chat-completions"
+    },
+    "xai/grok-4.20-0309-reasoning": {
+      "label": "Grok 4.20 Reasoning",
+      "provider": "xai",
+      "api": "chat-completions"
+    },
+    "xai/grok-4.20-multi-agent-0309": {
+      "label": "Grok 4.20 Multi-Agent",
+      "provider": "xai",
+      "api": "responses"
+    },
+    "xai/grok-4.3": {
+      "label": "Grok 4.3",
+      "provider": "xai",
+      "api": "chat-completions"
+    },
+    "xai/grok-4.5": {
+      "label": "Grok 4.5",
+      "provider": "xai",
+      "api": "chat-completions"
+    },
+    "xai/grok-4.6": {
+      "label": "Grok 4.6",
+      "provider": "xai",
+      "api": "chat-completions"
+    },
+    "xai/grok-4.7": {
+      "label": "Grok 4.7",
+      "provider": "xai",
+      "api": "chat-completions"
+    },
+    "xai/grok-stt": {
+      "label": "Grok STT",
+      "provider": "xai",
+      "api": "audio-run"
+    },
+    "xiaomi/mimo-v2.6-pro": {
+      "label": "MiMo-V2.6-Pro",
+      "provider": "primalabs",
+      "api": "chat-completions"
+    }
+  }
+}

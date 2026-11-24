@@ -9,11 +9,12 @@ import hashlib
 import json
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.auth.models import Permission
@@ -23,6 +24,7 @@ from django.template.defaultfilters import filesizeformat
 from django.test import override_settings
 from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
 from django.urls import reverse
+from django.utils import timezone
 from playwright.sync_api import expect
 
 from audio.models import AudioEvidence
@@ -1823,6 +1825,60 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     )
                 )
 
+    def test_read_only_admin_invitation_journey(self):
+        self.owner.is_staff = True
+        self.owner.save(update_fields=["is_staff"])
+        self.owner.user_permissions.set(
+            Permission.objects.filter(codename="view_caseinvitation")
+        )
+        invitation = CaseInvitation.objects.create(
+            case=self.case,
+            email="synthetic-invitee@example.com",
+            invited_by=self.owner,
+            expires_at=timezone.now() + timedelta(days=1),
+            token_digest=uuid4().hex * 2,
+        )
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.sign_in(page)
+                page.goto(self.url("admin:cases_caseinvitation_changelist"))
+                search = page.get_by_role("textbox", name="Search", exact=True)
+                search.fill(invitation.email)
+                search.press("Enter")
+                item = page.get_by_role("link", name=invitation.email, exact=True)
+                item.focus()
+                expect(item).to_be_focused()
+                item.press("Enter")
+                settings = page.get_by_role("link", name="View on site", exact=True)
+                expect(settings).to_be_visible()
+                expect(
+                    page.get_by_role("button", name="Save", exact=True)
+                ).to_have_count(0)
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"invitation-admin-{width}-{height}")
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                expect(settings).to_be_visible()
+                self.capture(page, engine, "invitation-admin-large-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "invitation-admin-dark")
+                page.emulate_media(color_scheme="light", forced_colors="active")
+                self.capture(page, engine, "invitation-admin-forced-colors")
+                settings.press("Enter")
+                expect(page).to_have_url(
+                    self.url("cases:case_settings", case_id=self.case.pk)
+                )
+
     def test_evidence_admin_journey(self):
         self.owner.is_staff = True
         self.owner.save(update_fields=["is_staff"])
@@ -2186,10 +2242,20 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("button", name="Restore", exact=True)
                 ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Edit details", exact=True)
+                ).to_have_count(0)
+                expect(page.get_by_text("Analyze evidence", exact=True)).to_have_count(
+                    0
+                )
+                expect(page.locator(".original-text")).to_have_text(original)
                 page.get_by_role("button", name="Restore", exact=True).click()
                 self.open_evidence_panel(page, "more")
                 expect(
                     page.get_by_role("button", name="Archive", exact=True)
+                ).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="Edit details", exact=True)
                 ).to_be_visible()
                 page.locator(".evidence-more > summary").press("Enter")
                 page.locator(".original-text").scroll_into_view_if_needed()
@@ -2476,10 +2542,6 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 title="Earlier <untrusted> source " + "with a long title " * 8,
                 file=SimpleUploadedFile("source.png", original),
             )
-            retained.is_archived = True
-            retained.archive_changed_at = retained.created_at
-            retained.archive_changed_by = self.owner
-            retained.save()
             with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
                 self.sign_in(page)
                 page.goto(self.url("core:evidence:create", case_id=self.case.pk))
@@ -2503,7 +2565,6 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                 expect(page.locator('.upload-entry[data-state="added"]')).to_have_count(
                     1
                 )
-                expect(duplicate.locator(".notice")).to_contain_text("Archived")
                 expect(duplicate.locator(".notice a")).to_have_count(1)
                 self.assertEqual(
                     self.db(

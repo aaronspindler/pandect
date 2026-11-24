@@ -20,7 +20,7 @@
 {% if form %}
 {% if filters_applied and not form.errors %}
 <p class="muted map-scope">
-  {% if trip_filters_applied %}Trips · {{ filtered_vehicle|default:'All vehicles' }}{% if state == 'archived' %} · Archived evidence{% elif state == 'all' %} · All evidence{% endif %}{% if trip_filters.start %} · From {{ trip_filters.start|date:'j M Y, H:i T' }}{% endif %}{% if trip_filters.end %} · Through {{ trip_filters.end|date:'j M Y, H:i T' }}{% endif %}{% endif %}
+  {% if trip_filters_applied %}Trips · {{ filtered_vehicle|default:'All vehicles' }}{% if trip_filters.start %} · From {{ trip_filters.start|date:'j M Y, H:i T' }}{% endif %}{% if trip_filters.end %} · Through {{ trip_filters.end|date:'j M Y, H:i T' }}{% endif %}{% endif %}
   {% if query %}{% if trip_filters_applied %} · {% endif %}POIs matching “{{ query }}”{% endif %}
 </p>
 {% endif %}

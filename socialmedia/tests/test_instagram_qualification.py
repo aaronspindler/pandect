@@ -6,11 +6,11 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from hashlib import sha256
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from instagram_pilot import qualify
 from instagram_pilot.live_roster import LiveBrowserError
-from socialmedia.instagram_connector import LIVE_VERSION
+from socialmedia.instagram_rosters import LIVE_VERSION
 
 
 class LocalQualificationTests(unittest.TestCase):
@@ -27,45 +27,39 @@ class LocalQualificationTests(unittest.TestCase):
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
 
     def test_reconfirms_pending_sign_in_and_publishes_private_partial_capture(self):
-        confirmed = []
-        self.confirm.side_effect = lambda browser: confirmed.append(True)
-        operations = []
-
-        def operation(path, data):
-            operations.append(path)
-            if path == "/pair/start":
-                return {"id": "private-pair"}
-            self.assertTrue(confirmed)
-            if path == "/pair/finish":
-                if len(confirmed) == 1:
-                    raise LiveBrowserError("pairing_pending")
-                return {"session": "private-ticket", "observer": "private.observer"}
-            self.assertEqual(
-                data, {"session": "private-ticket", "target": "test.account"}
-            )
-            return {
-                "observer": "private.observer",
-                "target": "test.account",
-                "followers": {
-                    "members": [{"handle": "only.in.file"}],
-                    "complete": True,
-                    "reason": "",
-                    "page_count": 1,
-                    "expected_count": 1,
-                },
-                "following": {
-                    "members": [],
-                    "complete": False,
-                    "reason": "time_limit",
-                    "page_count": 0,
-                    "expected_count": None,
-                },
-            }
-
-        self.browser.operation.side_effect = operation
+        self.browser.confirm_sign_in.side_effect = [
+            LiveBrowserError("pairing_pending"),
+            "private.observer",
+        ]
+        self.browser.collect.return_value = {
+            "observer": "private.observer",
+            "target": "test.account",
+            "followers": {
+                "members": [{"handle": "only.in.file"}],
+                "complete": True,
+                "reason": "",
+                "page_count": 1,
+                "expected_count": 1,
+            },
+            "following": {
+                "members": [],
+                "complete": False,
+                "reason": "time_limit",
+                "page_count": 0,
+                "expected_count": None,
+            },
+        }
         self.assertEqual(qualify.main(self.args), 3)
+        self.assertEqual(self.confirm.call_count, 2)
         self.assertEqual(
-            operations, ["/pair/start", "/pair/finish", "/pair/finish", "/collect"]
+            self.browser.method_calls,
+            [
+                call.start_sign_in(),
+                call.confirm_sign_in(),
+                call.confirm_sign_in(),
+                call.collect(),
+                call.close(),
+            ],
         )
         self.assertEqual(stat.S_IMODE(self.output.stat().st_mode), 0o600)
         capture = json.loads(self.output.read_text())
@@ -86,7 +80,6 @@ class LocalQualificationTests(unittest.TestCase):
         self.playwright.assert_not_called()
 
     def test_interrupt_or_expiry_publishes_nothing_and_closes_browser(self):
-        self.browser.operation.return_value = {"id": "private-pair"}
         for error, status in (
             (KeyboardInterrupt(), 130),
             (LiveBrowserError("pairing_expired"), 1),
@@ -95,7 +88,9 @@ class LocalQualificationTests(unittest.TestCase):
                 self.confirm.side_effect = error
                 self.assertEqual(qualify.main(self.args), status)
                 self.assertEqual(list(Path(self.directory).iterdir()), [])
-                self.assertEqual(self.browser.operation.call_count, 1)
+                self.browser.start_sign_in.assert_called_once()
+                self.browser.confirm_sign_in.assert_not_called()
+                self.browser.collect.assert_not_called()
                 self.browser.close.assert_called_once()
                 self.browser.reset_mock()
 
@@ -142,11 +137,8 @@ class LocalQualificationTests(unittest.TestCase):
         return baseline
 
     def _supply_observation(self, observation, *, observer="test.observer"):
-        self.browser.operation.side_effect = [
-            {"id": "private-pair"},
-            {"observer": observer, "session": "private-ticket"},
-            observation,
-        ]
+        self.browser.confirm_sign_in.return_value = observer
+        self.browser.collect.return_value = observation
 
     def test_compares_mismatched_captures_and_retains_the_prior_file(self):
         baseline = self._write_baseline()
@@ -199,7 +191,9 @@ class LocalQualificationTests(unittest.TestCase):
         self._supply_observation({}, observer="different.account")
 
         self.assertEqual(qualify.main(self.args), 1)
-        self.assertEqual(self.browser.operation.call_count, 2)
+        self.browser.start_sign_in.assert_called_once()
+        self.browser.confirm_sign_in.assert_called_once()
+        self.browser.collect.assert_not_called()
         self.assertFalse(self.output.exists())
 
     def test_different_numeric_target_id_refuses_comparison(self):

@@ -9,30 +9,11 @@ from django.http import Http404
 
 from core.analysis.errors import AnalysisError
 from core.analysis.gateway import endpoint_and_headers
-from core.analysis.http import NoRedirect
+from core.analysis.http import NoRedirect, provider_failure_status
 from core.analysis.inference_payloads import decode_json, encode_json
 from core.models import GatewayRequest
 
 from .semantic_model import CHUNK_BYTES, HOSTED_DIMENSIONS, valid_vector
-
-
-def _http_failure(code, body):
-    if code == 429:
-        try:
-            value = decode_json(body)
-        except ValueError, RecursionError:
-            value = None
-        error = value.get("error") if isinstance(value, dict) else None
-        if isinstance(error, dict) and error.get("code") == "insufficient_quota":
-            return "quota"
-        return "rate_limit"
-    if code in (401, 403):
-        return "authentication"
-    if code == 402:
-        return "quota"
-    if code == 408 or 500 <= code < 600:
-        return "unavailable"
-    return "provider_failure"
 
 
 def _vectors(result, count, model):
@@ -55,7 +36,7 @@ def _vectors(result, count, model):
     return vectors
 
 
-def request_embeddings(texts, config, authorize, case, purpose):
+def request_embeddings(texts, config, authorize, case, purpose, chat_turn=None):
     if purpose not in ("index", "query"):
         raise AnalysisError("gateway_invalid_input")
     if (
@@ -81,7 +62,10 @@ def request_embeddings(texts, config, authorize, case, purpose):
     authorize()
     usage = GatewayRequest.objects.create(
         case=case,
-        operation=f"search_{purpose}",
+        chat_turn=chat_turn,
+        operation=GatewayRequest.Operation.EVIDENCE_CHAT
+        if chat_turn
+        else f"search_{purpose}",
         model=config["model"],
         request_bytes=len(body),
     )
@@ -94,10 +78,10 @@ def request_embeddings(texts, config, authorize, case, purpose):
             ) as response:
                 raw = response.read(config["max_response_bytes"] + 1)
         except HTTPError as exc:
-            with exc:
-                raw = exc.read(8192)
-            update["response_bytes"] = len(raw)
-            raise AnalysisError("gateway_" + _http_failure(exc.code, raw)) from None
+            status, update["response_bytes"] = provider_failure_status(exc)
+            if exc.code == 408 or 500 <= exc.code < 600:
+                status = "unavailable"
+            raise AnalysisError("gateway_" + status) from None
         update["response_bytes"] = len(raw)
         if len(raw) > config["max_response_bytes"]:
             raise AnalysisError("gateway_output_limit")

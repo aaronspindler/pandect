@@ -244,22 +244,27 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
         self.assertNotIn("review", page["form"].fields)
         self.assertNotIn("review", page["rows"][0])
 
-    def test_literal_search_archived_sources_and_escaped_output(self):
+    def test_literal_search_excludes_archived_sources_and_escapes_output(self):
         self.publish()
-        TextEvidence.objects.filter(pk=self.note.pk).update(
-            is_archived=True,
-            archive_changed_at=timezone.now(),
-            archive_changed_by=self.users["owner"],
-        )
         self.login("viewer")
         response = self.client.get(self.url, {"q": "100% _ <script>"})
-        self.assertContains(response, "Archived")
         self.assertContains(response, "&lt;script&gt;")
         self.assertNotContains(response, "<script>")
         self.assertEqual(
             self.page(q="detail: Source value")["page_obj"].paginator.count, 1
         )
         self.assertEqual(self.page(q="100XYZ")["page_obj"].paginator.count, 0)
+
+        TextEvidence.objects.filter(pk=self.note.pk).update(
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
+        response = self.client.get(self.url, {"q": "100% _ <script>"})
+        self.assertContains(response, "No matching findings")
+        self.assertEqual(
+            self.page(q="detail: Source value")["page_obj"].paginator.count, 0
+        )
 
     def test_person_filter_uses_only_each_findings_citations(self):
         other = Person.objects.create(case=self.case, first_name="Other person")

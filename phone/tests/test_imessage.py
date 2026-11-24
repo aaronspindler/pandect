@@ -5,7 +5,7 @@ import io
 import json
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, TemporaryFile
 from threading import Barrier
 from unittest.mock import patch
 from uuid import uuid4, uuid5
@@ -34,6 +34,7 @@ from phone.analysis.deterministic.imessage import (
     iter_import_rows,
     prepare_import,
     read_import_page,
+    stage_import,
 )
 from phone.models import CommunicationContext, TextMessageEvidence
 
@@ -384,6 +385,31 @@ class IMessageImportTests(EvidenceViewTestMixin, TestCase):
             read_import_page(source, parameters, page=1)
         self.assertEqual(raised.exception.code, "imessage_source_changed")
 
+    def test_retained_checkpoints_seek_to_the_verified_multiline_page(self):
+        import phone.analysis.deterministic.imessage as message_import
+
+        source = self.source(
+            b"\xef\xbb\xbf"
+            + csv_content(*({"Text": f"é {i}\r\nnext "} for i in range(55)))
+        )
+        parameters = {"phase": "preview", "timezone": "UTC"}
+        with patch.object(message_import, "REVIEW_STEP_BYTES", 1):
+            retained = prepare_import([source], parameters)
+        summary = retained["imessage"]
+        parameters |= {
+            "_imessage_text_limit_bytes": summary["text_limit_bytes"],
+            "_imessage_interpretation_sha256": summary["interpretation_sha256"],
+        }
+        expected = read_import_page(source, parameters, page=2)
+        with patch.object(
+            message_import, "_raw_rows", wraps=message_import._raw_rows
+        ) as read:
+            self.assertEqual(
+                read_import_page(source, parameters, page=2, retained=retained),
+                expected,
+            )
+            self.assertEqual(read.call_args.kwargs["checkpoint"][2], 26)
+
     def test_summary_contact_labels_are_bounded_and_raw_rows_remain_complete(self):
         names = [f"Name {number} " + "x" * 300 for number in range(7)]
         source = self.source(csv_content(*({"Sender Name": name} for name in names)))
@@ -505,21 +531,78 @@ class IMessageImportTests(EvidenceViewTestMixin, TestCase):
         source = self.source(csv_content({}, {"Text": "Fail publication"}))
         run, data = self.confirmed(source, create=True)
         before = Person.objects.count()
-        original_save = TextMessageEvidence.save
-
-        def save(message, *args, **kwargs):
-            if message.body == "Fail publication":
-                raise RuntimeError("Synthetic publication failure")
-            return original_save(message, *args, **kwargs)
-
         with (
-            patch.object(TextMessageEvidence, "save", save),
+            patch.object(
+                CommunicationContext.objects,
+                "bulk_create",
+                side_effect=RuntimeError("Synthetic publication failure"),
+            ),
             self.assertRaises(RuntimeError),
         ):
             self.publish(run, data, source)
         self.assertEqual(Person.objects.count(), before)
         self.assertFalse(TextMessageEvidence.objects.exists())
         self.assertFalse(CommunicationContext.objects.exists())
+
+    def test_worker_staging_reads_once_and_rechecks_file_before_publication(self):
+        source = self.source(csv_content(Text="Verified bytes"))
+        run, _ = self.confirmed(source, create=True)
+        data, spool, marker = stage_import([source], run.parameters)
+        self.assertIsNotNone(marker)
+        with spool:
+            with (
+                patch(
+                    "phone.analysis.deterministic.imessage._raw_rows",
+                    side_effect=AssertionError("Publication must use staged rows"),
+                ),
+                transaction.atomic(),
+            ):
+                self.assertEqual(
+                    apply_import(
+                        run, data, [source], publication=spool, source_marker=marker
+                    ),
+                    1,
+                )
+            self.assertEqual(TextMessageEvidence.objects.get().body, "Verified bytes")
+            with source.item.file.storage.open(source.item.file.name, "wb") as original:
+                original.write(csv_content(Text="Changed bytes"))
+            with transaction.atomic(), self.assertRaises(AnalysisError) as error:
+                apply_import(
+                    run, data, [source], publication=spool, source_marker=marker
+                )
+            self.assertEqual(error.exception.code, "imessage_source_changed")
+
+    def test_temporary_storage_copies_use_checksum_verified_publication(self):
+        content = csv_content(Text="Verified temporary copy")
+        source = self.source(content)
+
+        def temporary_copy(_mode):
+            opened = TemporaryFile()
+            opened.write(content)
+            opened.seek(0)
+            return opened
+
+        with (
+            patch.object(
+                source.item.file.storage, "path", side_effect=NotImplementedError
+            ),
+            patch.object(source.item.file, "open", side_effect=temporary_copy),
+        ):
+            preview = self.preview(source)
+            self.assertNotIn("review", preview.result.data["imessage"])
+            run = self.import_run(source, self.parameters(preview))
+            data, spool, marker = stage_import([source], run.parameters)
+            self.assertIsNone(spool)
+            self.assertIsNone(marker)
+            self.assertEqual(self.publish(run, data, source), 1)
+
+            content = csv_content(Text="Changed temporary copy")
+            with self.assertRaises(AnalysisError) as raised:
+                self.publish(run, data, source)
+            self.assertEqual(raised.exception.code, "imessage_source_changed")
+        self.assertEqual(
+            TextMessageEvidence.objects.get().body, "Verified temporary copy"
+        )
 
     def test_all_excluded_rows_do_not_create_people(self):
         source = self.source(csv_content(Text=""))

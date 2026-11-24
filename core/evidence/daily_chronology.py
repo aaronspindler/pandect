@@ -97,7 +97,9 @@ def _nearest_recorded_day(case, *, boundary=None, forward=False):
     branches = []
     for kind in KINDS:
         for field, _ in timestamp_fields(kind, "all"):
-            query = scoped_evidence(case, kind).filter(**{field + "__isnull": False})
+            query = scoped_evidence(case, kind).filter(
+                is_archived=False, **{field + "__isnull": False}
+            )
             if field == "occurred_at" and kind == "text-message":
                 query = query.exclude(pk__in=date_only_messages(case))
             if boundary is not None:
@@ -130,10 +132,10 @@ def _adjacent_populated_day(case, day, boundary, *, forward=False):
 def _collected(case, start, end):
     queries = [
         scoped_evidence(case, kind)
-        .filter(collected_at__gte=start, collected_at__lt=end)
+        .filter(is_archived=False, collected_at__gte=start, collected_at__lt=end)
         .annotate(source_kind=Value(kind))
         .order_by()
-        .values("id", "collected_at", "source_kind", "title", "is_archived")
+        .values("id", "collected_at", "source_kind", "title")
         for kind in KINDS
     ]
     for row in (
@@ -150,14 +152,13 @@ def _collected(case, start, end):
             "source_kind": source_kind,
             "title": row["title"],
             "detail": KIND_LABELS[source_kind],
-            "archived": row["is_archived"],
         }
 
 
 def _calls(case, kind, start, end):
     calls = (
         scoped_evidence(case, kind)
-        .filter(occurred_at__gte=start, occurred_at__lt=end)
+        .filter(is_archived=False, occurred_at__gte=start, occurred_at__lt=end)
         .select_related("sender", "recipient")
         .order_by("occurred_at", "pk")
     )
@@ -167,7 +168,6 @@ def _calls(case, kind, start, end):
             "kind": kind,
             "id": call.pk,
             "call": call,
-            "archived": call.is_archived,
         }
 
 
@@ -199,7 +199,6 @@ def _day_page(case, start, end, number):
             row["url"] = reverse(
                 "core:evidence:detail",
                 args=(case.pk, row.get("source_kind", row["kind"]), row["id"]),
-                query={"state": "all"},
             )
     return rows, more
 

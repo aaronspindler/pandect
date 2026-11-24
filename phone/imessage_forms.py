@@ -56,7 +56,7 @@ class IMessageUploadForm(forms.Form):
 
     def __init__(self, *args, case, **kwargs):
         super().__init__(*args, **kwargs)
-        documents = DocumentEvidence.objects.filter(case=case)
+        documents = DocumentEvidence.objects.filter(case=case, is_archived=False)
         self.fields["document"].queryset = documents
         self.has_retained_documents = documents.exists()
         self.fields["file"].required = not self.has_retained_documents

@@ -112,6 +112,35 @@ class CaseSearchViewTests(EvidenceViewTestMixin, TestCase):
                 404,
             )
 
+    def test_hosted_reranking_requires_a_post_bound_to_the_query_and_grant(self):
+        self.login("viewer")
+        scope = {"provider": "workers-ai", "revision": "synthetic"}
+        url = self.route("results") + "?q=dispatch"
+        with (
+            patch("core.case_search.views.rerank_scope", return_value=scope),
+            patch(
+                "core.case_search.views.related_results", return_value=([], "")
+            ) as retrieve,
+        ):
+            response = self.client.get(url)
+            token = response.context["search_token"]
+            retrieve.assert_not_called()
+            self.client.post(url, {"meaning": "1", "search_token": token})
+            self.assertEqual(retrieve.call_args.kwargs["rank_scope"], scope)
+            self.client.post(
+                self.route("results") + "?q=altered",
+                {"meaning": "1", "search_token": token},
+            )
+            self.assertFalse(retrieve.call_args.kwargs["rank_scope"])
+            self.client.get(url + "&meaning=1")
+            self.assertFalse(retrieve.call_args.kwargs["rank_scope"])
+            with patch(
+                "core.case_search.views.rerank_scope",
+                return_value={**scope, "revision": "rotated"},
+            ):
+                self.client.post(url, {"meaning": "1", "search_token": token})
+                self.assertFalse(retrieve.call_args.kwargs["rank_scope"])
+
     def test_display_semantic_coverage_and_source_passages(self):
         self.login("viewer")
         item = TextEvidence.objects.create(

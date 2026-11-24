@@ -124,6 +124,28 @@ class SearchApprovalTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(self.case.search_embedding_approval, {})
         self.assertFalse(CaseSearchIndex.objects.exists())
 
+    def test_owner_can_change_chat_queries_without_restarting_indexing(self):
+        self.client.post(self.approval_url, self.form("approve"))
+        self.case.refresh_from_db()
+        index = CaseSearchIndex.objects.get(case=self.case)
+        token = index.token
+        revision = self.case.search_embedding_approval["revision"]
+        enable = self.form("enable_chat")
+        self.assertNotIn("chat_queries", self.case.search_embedding_approval)
+        self.login("editor")
+        self.assertEqual(self.client.post(self.approval_url, enable).status_code, 403)
+        self.login("owner")
+        self.client.post(self.approval_url, enable)
+        self.case.refresh_from_db()
+        self.assertTrue(self.case.search_embedding_approval["chat_queries"]["enabled"])
+        self.client.post(self.approval_url, self.form("disable_chat"))
+        self.client.post(self.approval_url, enable)
+        self.case.refresh_from_db()
+        self.assertFalse(self.case.search_embedding_approval["chat_queries"]["enabled"])
+        self.assertTrue(search_approval_current(self.case, revision=revision))
+        index.refresh_from_db()
+        self.assertEqual(index.token, token)
+
     def test_unavailable_profile_during_enqueue_rolls_back_owner_approval(self):
         approve = self.form("approve")
         with patch("core.case_search.indexing.profile", return_value=""):

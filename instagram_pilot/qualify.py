@@ -11,21 +11,21 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from time import monotonic
-from uuid import uuid4
 
 from playwright.sync_api import Error as BrowserError
 from playwright.sync_api import sync_playwright
 
 from instagram_pilot.live_host import LiveBrowser
 from instagram_pilot.live_roster import LiveBrowserError, _handle
-from socialmedia.instagram_connector import LIVE_VERSION, MAX_RESPONSE
 from socialmedia.instagram_rosters import (
+    LIVE_VERSION,
     normalize_members,
     roster_additions,
     validate_endpoint_coverage,
 )
 
 DIRECTIONS = ("followers", "following")
+MAX_CAPTURE_BYTES = 8 * 1024 * 1024
 
 
 class BaselineError(ValueError):
@@ -69,8 +69,8 @@ def _read_baseline(path, target):
             raise ValueError
         with path.open("rb") as source:
             # A standalone capture may also contain additions from an earlier run.
-            raw = source.read(2 * MAX_RESPONSE + 1)
-        if len(raw) > 2 * MAX_RESPONSE:
+            raw = source.read(MAX_CAPTURE_BYTES + 1)
+        if len(raw) > MAX_CAPTURE_BYTES:
             raise ValueError
         capture = json.loads(raw)
         details = _capture_details(capture, target)
@@ -125,16 +125,13 @@ def _confirm(browser):
 
 
 def _collect(driver, target, *, expected_observer=None):
-    user_id = str(uuid4())
-    browser = LiveBrowser(driver, user_id, (target,))
+    browser = LiveBrowser(driver, target)
     try:
-        pair = browser.operation("/pair/start", {"user_id": user_id})
+        browser.start_sign_in()
         while True:
             _confirm(browser)
             try:
-                account = browser.operation(
-                    "/pair/finish", {"user_id": user_id, "id": pair["id"]}
-                )
+                observer = browser.confirm_sign_in()
                 break
             except LiveBrowserError as error:
                 if error.code != "pairing_pending":
@@ -143,14 +140,12 @@ def _collect(driver, target, *, expected_observer=None):
                     "The signed-in profile could not yet be identified.",
                     file=sys.stderr,
                 )
-        if expected_observer and account["observer"].lower() != expected_observer:
+        if expected_observer and observer.lower() != expected_observer:
             raise BaselineError(
                 "Sign in with the observer used for the earlier capture."
             )
         started = datetime.now(UTC)
-        observation = browser.operation(
-            "/collect", {"target": target, "session": account["session"]}
-        )
+        observation = browser.collect()
         return {
             **observation,
             "started_at": started.isoformat(),

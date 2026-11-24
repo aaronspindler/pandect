@@ -33,10 +33,11 @@ from core.analysis.execution import (
     validate_case_execution_grant,
     validate_execution,
 )
-from core.analysis.operations import get_operation
+from core.analysis.operations import OPERATIONS, get_operation
+from core.analysis.source_limits import check_material_size
 from core.analysis.sources import Source, source_id
 from core.analysis.transcripts import follow_up_transcription, transcript_group
-from core.evidence.queries import get_evidence, scoped_evidence
+from core.evidence.queries import scoped_evidence
 from core.evidence.types import CALL_KINDS, KINDS
 from core.models import (
     AnalysisArtifact,
@@ -67,7 +68,7 @@ def _attachment(case, kind, item, attachment_id):
         raise Http404("Source not found.")
     parent = "phone_call" if kind == "phone-call" else "facetime"
     try:
-        return CallEvidenceAttachment.objects.get(
+        return CallEvidenceAttachment.objects.only("pk", "sha256").get(
             case=case, pk=attachment_id, **{parent: item}
         )
     except CallEvidenceAttachment.DoesNotExist:
@@ -77,9 +78,10 @@ def _attachment(case, kind, item, attachment_id):
 class SourceResolutionCache:
     """Request-local source lookups; display readers need no complete text bodies."""
 
-    def __init__(self, case, *, with_content=True):
+    def __init__(self, case, *, with_content=True, active_only=False):
         self.case = case
         self.with_content = with_content
+        self.active_only = active_only
         self.originals = {}
         self.attachments = {}
         self.prior_results = {}
@@ -145,6 +147,8 @@ class SourceResolutionCache:
         item = self.originals.get((selected["kind"], selected["evidence_id"]))
         if item is None:
             raise Http404("Source not found.")
+        if self.active_only and item.is_archived:
+            raise AnalysisError("source_archived")
         attachment_id = selected.get("attachment_id")
         if not attachment_id:
             return item, None
@@ -158,16 +162,35 @@ class SourceResolutionCache:
 
 
 def resolve_inputs(
-    run, case, *, require_current_review=True, cache=None, finding_depth=0
+    run,
+    case,
+    *,
+    require_current_review=True,
+    cache=None,
+    finding_depth=0,
+    material_checked=False,
 ):
-    cache = cache or SourceResolutionCache(case)
-    if run.operation == "journey_claims" and cache.with_content:
-        from geo.journey_claim_checks import check_material_size
+    if (
+        run.operation == "text_topics"
+        and run.parameters.get("_search_generation") == "briefs"
+        and (cache is None or cache.with_content)
+    ):
+        from core.case_search.generation_briefs import resolve_brief
 
+        return resolve_brief(run, case)
+    cache = cache or SourceResolutionCache(case)
+    if run.inputs and cache.with_content and not material_checked and not finding_depth:
         try:
-            check_material_size(case, run.inputs)
+            parameters = run.parameters if run.operation == "question_synthesis" else {}
+            _check_source_limits(case, run.operation, parameters, run.inputs)
         except ValidationError as error:
-            raise AnalysisError("source_unavailable") from error
+            if run._state.adding:
+                raise
+            raise AnalysisError(
+                "source_material_limit"
+                if getattr(error, "code", "") == "source_material_limit"
+                else "source_unavailable"
+            ) from error
     sources = resolve_snapshots(
         run.inputs,
         case,
@@ -195,6 +218,18 @@ def resolve_inputs(
     return sources
 
 
+def resolve_active_inputs(
+    run, case, *, require_current_review=True, material_checked=False
+):
+    return resolve_inputs(
+        run,
+        case,
+        require_current_review=require_current_review,
+        cache=SourceResolutionCache(case, active_only=True),
+        material_checked=material_checked,
+    )
+
+
 def resolve_snapshots(
     inputs, case, *, run_id=None, require_current_review=True, cache=None
 ):
@@ -214,10 +249,12 @@ def resolve_snapshots(
     for selected in inputs:
         try:
             item, attachment = original(selected)
+            source_identifier = selected["id"]
+            stored_checksum = selected["sha256"]
         except Http404, ValueError, KeyError, ValidationError:
             raise AnalysisError("source_unavailable") from None
         checksum = attachment.sha256 if attachment else item.sha256
-        if checksum != selected["sha256"]:
+        if checksum != stored_checksum:
             raise AnalysisError("source_changed")
         identity = (
             selected["kind"],
@@ -357,7 +394,7 @@ def resolve_snapshots(
                 coordinates = (float(values["latitude"]), float(values["longitude"]))
         sources.append(
             Source(
-                selected["id"],
+                source_identifier,
                 selected["kind"],
                 item,
                 attachment,
@@ -452,44 +489,36 @@ def _authorize_run(run, *, lock=False):
     case = get_case(actor, run.case_id, edit=True, lock=lock)
     if not EmailAddress.objects.filter(user=actor, verified=True).exists():
         raise PermissionDenied("Verify your email before processing.")
+    if feature := run.parameters.get("_search_generation"):
+        from core.case_search.generation import approved_policy
+
+        if actor.pk != case.owner_id:
+            raise AnalysisError("access_removed")
+        approved_policy(case, feature, run.parameters.get("_generation_revision"))
     current = AnalysisRun.objects.get(pk=run.pk)
     if current.status in FINISHED:
         raise AnalysisError("processing_cancelled")
     return case
 
 
-def authorize_run(run, *, lock=False):
+def authorize_run(run, *, lock=False, check_sources=True):
     case = _authorize_run(run, lock=lock)
     _authorize_execution(run, case)
-    _processing_inputs(run, case)
+    if check_sources:
+        _processing_inputs(run, case)
     return case
 
 
-def _processing_inputs(run, case):
-    if run.operation == "sighting_group":
-        sources = resolve_inputs(run, case, require_current_review=False)
+def _processing_inputs(run, case, *, material_checked=False):
+    sighting = run.operation == "sighting_group"
+    sources = resolve_active_inputs(
+        run,
+        case,
+        require_current_review=not sighting,
+        material_checked=material_checked,
+    )
+    if sighting:
         validate_current_sighting(run, case, sources)
-        return sources
-    sources = resolve_inputs(run, case)
-    if (
-        run.operation == "session_summaries"
-        and "_saved_session_range" in run.parameters
-        and any(source.item.is_archived for source in sources)
-    ):
-        raise AnalysisError("source_archived")
-    scope = run.batch.scope if run.batch_id else {}
-    if scope.get("analysis_version"):
-        comparison = run.parameters.get("_comparison")
-        anchors = set(comparison["anchors"]) if comparison else None
-        if any(
-            source.item.is_archived
-            and (
-                not scope.get("reprocess")
-                or (anchors is not None and source.id not in anchors)
-            )
-            for source in sources
-        ):
-            raise AnalysisError("source_archived")
     return sources
 
 
@@ -505,8 +534,30 @@ def _authorize_execution(run, case):
     return execution
 
 
-def snapshot_and_resolve_sources(case, selections, *, allowed_kinds=None):
-    """Freeze a bounded selection and return its verified source versions."""
+def _check_source_limits(case, operation, parameters, selections):
+    if operation == "text_topics" and parameters.get("_search_generation") == "briefs":
+        # The section reader bounds its substring and verifies one source.
+        if len(selections) != 1:
+            raise ValidationError("A document brief section requires one original.")
+        return
+    specification = OPERATIONS.get(operation)
+    text_ids = (
+        parameters.get("text_source_ids", [])
+        if operation == "question_synthesis"
+        else None
+    )
+    check_material_size(
+        case,
+        selections,
+        text_limit=specification.max_text_characters if specification else None,
+        text_source_ids=[str(value) for value in text_ids]
+        if isinstance(text_ids, list)
+        else None,
+    )
+
+
+def _source_snapshots(case, selections, *, allowed_kinds=None, active_only=True):
+    """Freeze source identities without fetching retained bodies or transcripts."""
     if not 1 <= len(selections) <= settings.PANDECT_ANALYSIS_MAX_SOURCES:
         raise ValidationError("Select between 1 and 500 retained sources.")
     snapshots = []
@@ -517,7 +568,16 @@ def snapshot_and_resolve_sources(case, selections, *, allowed_kinds=None):
             raise ValidationError(
                 "This evidence type is not supported by the selected analysis."
             )
-        item = get_evidence(case, kind, _uuid(choice["id"]))
+        try:
+            item = (
+                scoped_evidence(case, kind)
+                .only("pk", "is_archived", "sha256")
+                .get(pk=_uuid(choice["id"]))
+            )
+        except KINDS[kind].DoesNotExist:
+            raise Http404("Evidence not found.") from None
+        if active_only and item.is_archived:
+            raise AnalysisError("source_archived")
         attachment_id = (
             _uuid(choice["attachment_id"]) if choice.get("attachment_id") else None
         )
@@ -532,6 +592,7 @@ def snapshot_and_resolve_sources(case, selections, *, allowed_kinds=None):
             prior = (
                 AnalysisResult.objects.filter(pk=result_id, case=case, run__case=case)
                 .select_related("run")
+                .defer("data", "provenance")
                 .first()
             )
             if prior is None:
@@ -576,13 +637,26 @@ def snapshot_and_resolve_sources(case, selections, *, allowed_kinds=None):
                 "sha256": attachment.sha256 if attachment else item.sha256,
             }
         )
-    return snapshots, resolve_snapshots(snapshots, case)
+    return snapshots
+
+
+def snapshot_and_resolve_sources(
+    case, selections, *, allowed_kinds=None, active_only=True
+):
+    """Freeze a bounded selection and return its verified source versions."""
+    check_material_size(case, selections)
+    snapshots = _source_snapshots(
+        case, selections, allowed_kinds=allowed_kinds, active_only=active_only
+    )
+    return snapshots, resolve_snapshots(
+        snapshots, case, cache=SourceResolutionCache(case, active_only=active_only)
+    )
 
 
 def snapshot_sources(case, selections, *, allowed_kinds=None):
     """Validate and freeze a bounded selection for runs or saved collections."""
     snapshots, _ = snapshot_and_resolve_sources(
-        case, selections, allowed_kinds=allowed_kinds
+        case, selections, allowed_kinds=allowed_kinds, active_only=False
     )
     return snapshots
 
@@ -639,21 +713,18 @@ def start_run(
     if external:
         if approved_execution is None:
             raise AnalysisError("external_processing_not_approved")
-        validate_case_execution_grant(
+        approval = validate_case_execution_grant(
             case, operation, execution, external_grant_revision
         )
-    if operation == "journey_claims":
-        from geo.journey_claim_checks import check_material_size
-
-        check_material_size(case, selections)
-    elif operation == "claim_comparison":
+    if operation == "claim_comparison":
         from text.analysis.claim_comparison import MAX_SOURCES, validate_selection
 
         if not 2 <= len(selections) <= MAX_SOURCES:
             raise ValidationError(
                 "Select one claim source and one to five other sources."
             )
-    snapshots = snapshot_sources(case, selections, allowed_kinds=specification.kinds)
+    _check_source_limits(case, operation, parameters, selections)
+    snapshots = _source_snapshots(case, selections, allowed_kinds=specification.kinds)
     if (
         previous_run
         and (
@@ -688,6 +759,15 @@ def start_run(
             raise ValidationError(
                 "This submission was already used for different analysis settings."
             )
+        if (
+            parameters.get("_search_generation") == "briefs"
+            and operation == "text_topics"
+        ):
+            _processing_inputs(existing, case)
+        else:
+            resolve_snapshots(
+                snapshots, case, cache=SourceResolutionCache(case, active_only=True)
+            )
         return existing, False
     if (
         (require_configured_inference or (operation == "transcription" and external))
@@ -702,7 +782,6 @@ def start_run(
     if execution is not None:
         parameters = parameters | {"_execution": execution}
     if external:
-        approval = case.external_analysis_approval
         parameters["_external_approval"] = {
             key: approval[key] for key in ("revision", "approved_by", "approved_at")
         }
@@ -722,9 +801,7 @@ def start_run(
         previous_run=previous_run,
         batch=batch,
     )
-    resolved = _processing_inputs(run, case)
-    if require_retained_inputs and any(source.item.is_archived for source in resolved):
-        raise AnalysisError("source_archived")
+    resolved = _processing_inputs(run, case, material_checked=True)
     if operation == "claim_comparison":
         validate_selection(resolved, run.parameters)
     elif operation == "question_synthesis":
@@ -871,6 +948,7 @@ def process_run(run_id):
         run.stage = AnalysisRun.Stage.SOURCES
         run.save(update_fields=["status", "attempts", "started_at", "stage"])
     stored_files = []
+    import_rows = import_source_marker = None
     publication_finished = False
     stage = "authorization"
     try:
@@ -894,16 +972,16 @@ def process_run(run_id):
         if purpose and execution is not None and execution["backend"] == "local":
             from core.analysis.local import LocalClient
 
-            client = LocalClient(authorize, execution)
+            client = LocalClient(
+                authorize,
+                execution,
+                authorize_metadata=lambda: authorize_run(run, check_sources=False),
+            )
         kwargs = {}
-        if run.operation == "transcription":
+        specification = OPERATIONS[run.operation]
+        if specification.inference == "transcription":
             kwargs["client"] = client
-        if run.operation in {
-            "ocr",
-            "plate_ocr",
-            "geocode_locations",
-            "geographic_context",
-        }:
+        if specification.authorize_worker or specification.geographic:
             kwargs["authorize"] = authorize
         if purpose == "text" and (
             run.external_processing
@@ -911,7 +989,7 @@ def process_run(run_id):
         ):
             kwargs["infer"] = client.infer
         parameters = dict(run.parameters)
-        if run.operation in {"geocode_locations", "geographic_context"}:
+        if specification.geographic:
             parameters["external_processing"] = run.external_processing
         stage = "analysis"
         running = AnalysisRun.objects.filter(
@@ -919,7 +997,12 @@ def process_run(run_id):
         )
         if not running.update(stage=AnalysisRun.Stage.ANALYSIS):
             raise AnalysisError("processing_cancelled")
-        data = operation.function(sources, parameters, **kwargs)
+        if run.operation == "imessage_import" and parameters.get("phase") == "import":
+            from phone.analysis.deterministic.imessage import stage_import
+
+            data, import_rows, import_source_marker = stage_import(sources, parameters)
+        else:
+            data = operation.function(sources, parameters, **kwargs)
         stage = "validation"
         if not isinstance(data, dict):
             raise AnalysisError("invalid_result")
@@ -951,11 +1034,15 @@ def process_run(run_id):
                 run.operation == "imessage_import"
                 and run.parameters.get("phase") == "import"
             ):
-                from core.case_search.index_hooks import collect_import_messages
                 from phone.analysis.deterministic.imessage import apply_import
 
-                with collect_import_messages(case.pk):
-                    apply_import(run, data, sources)
+                apply_import(
+                    run,
+                    data,
+                    sources,
+                    publication=import_rows,
+                    source_marker=import_source_marker,
+                )
                 # Publication adds exact message membership; it shares the result bound.
                 data = validate_output(data, sources)
             result = AnalysisResult.objects.create(
@@ -1061,6 +1148,9 @@ def process_run(run_id):
         # Parser/provider strings can contain private source contents.
         code = model_validation_code(error) or "processing_failed"
         log_analysis_failure(run, error, code, stage)
+    finally:
+        if import_rows is not None:
+            import_rows.close()
     from core.storage import delete_original
 
     # A failed COMMIT acknowledgement or on_commit callback can follow a durable
@@ -1121,7 +1211,7 @@ def set_address_estimate(actor, case_id, run_id, item_index, *, use):
     items = result.data.get("items", [])
     if not 0 <= item_index < len(items) or address_estimate(items[item_index]) is None:
         raise Http404("Address estimate not found.")
-    resolve_inputs(result.run, case, require_current_review=False)
+    resolve_active_inputs(result.run, case, require_current_review=False)
     latest = result.reviews.filter(case=case, item_index=item_index).first()
     in_use = latest is not None and latest.decision == AnalysisReview.Decision.ACCEPTED
     if use != in_use:

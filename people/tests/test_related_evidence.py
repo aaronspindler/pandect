@@ -111,7 +111,7 @@ class RelatedEvidenceTests(EvidenceViewTestMixin, TestCase):
                 404,
             )
 
-    def test_person_detail_includes_archived_and_paginates_independently(self):
+    def test_person_detail_excludes_archived_and_paginates_independently(self):
         for index in range(27):
             self.communication(title=f"Communication {index:02}")
         archived = TextMessageEvidence.objects.order_by("created_at").first()
@@ -126,10 +126,10 @@ class RelatedEvidenceTests(EvidenceViewTestMixin, TestCase):
         )
         self.assertEqual(response.status_code, 200)
         related = response.context["related_evidence"]
-        self.assertEqual(related["page_obj"].paginator.count, 27)
+        self.assertEqual(related["page_obj"].paginator.count, 26)
         self.assertEqual(related["page_obj"].number, 2)
-        self.assertEqual(len(related["rows"]), 2)
-        self.assertContains(response, "Archived")
+        self.assertEqual(len(related["rows"]), 1)
+        self.assertNotEqual(related["rows"][0]["id"], archived.pk)
         self.assertContains(response, "poi_page=3")
         self.assertContains(response, "page=4")
         self.assertContains(response, "Related findings")

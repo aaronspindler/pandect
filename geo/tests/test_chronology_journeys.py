@@ -60,11 +60,6 @@ class JourneyChronologyTests(EvidenceViewTestMixin, TestCase):
     def test_saved_intervals_on_filtered_sources_keep_endpoints_and_alternatives(self):
         run = self.journey()
         alternate = self.journey(distance_m=300)
-        PersonLocationEvidence.objects.filter(pk=self.locations[0].pk).update(
-            is_archived=True,
-            archive_changed_by=self.users["owner"],
-            archive_changed_at=self.locations[0].observed_at,
-        )
         self.login("viewer")
         url = reverse("core:evidence:chronology", args=[self.case.pk])
         response = self.client.get(url, {"start": "2026-10-20", "end": "2026-10-20"})
@@ -80,13 +75,18 @@ class JourneyChronologyTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(journey["end_at"], self.locations[-1].observed_at)
         self.assertEqual(journey["largest_gap"], timedelta(minutes=10))
         self.assertEqual(journey["version"], alternate.method_version)
-        self.assertTrue(journey["archived"])
         self.assertContains(
             response, "Browse all journey findings for this observation"
         )
         self.assertNotContains(
             self.client.get(url, {"category": "acquired"}), "Candidate journey"
         )
+        PersonLocationEvidence.objects.filter(pk=self.locations[0].pk).update(
+            is_archived=True,
+            archive_changed_by=self.users["owner"],
+            archive_changed_at=self.locations[0].observed_at,
+        )
+        self.assertEqual(self.previews(), [])
 
     def test_corrupt_anchor_or_cross_case_reference_suppresses_entire_interval(self):
         run = self.journey()

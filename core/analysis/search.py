@@ -1,26 +1,60 @@
 """Search projections of exact retained extraction versions."""
 
-from django.db.models import Exists, F, OuterRef, Q, Window
-from django.db.models.functions import RowNumber
+from django.db.models import (
+    CharField,
+    Exists,
+    F,
+    Func,
+    JSONField,
+    OuterRef,
+    Q,
+    Value,
+    Window,
+)
+from django.db.models.fields.json import DataContains
+from django.db.models.functions import Cast, JSONObject, RowNumber
 from django.http import Http404
 
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url
-from core.analysis.services import resolve_inputs
+from core.analysis.services import resolve_active_inputs
+from core.evidence.queries import scoped_evidence
 from core.evidence.search import content_excerpt
+from core.evidence.types import CALL_KINDS, FILE_KINDS, KINDS
 from core.models import ExtractedPassage
 
 
-def derived_content_condition(queryset, *, case, kind, query):
-    passages = ExtractedPassage.objects.filter(
+def _active_passages(case, query):
+    # The complete run selection includes inputs without finding projections,
+    # such as recordings with only ordinary transcript segments.
+    archived_input = Q(pk__in=[])
+    for kind in KINDS:
+        reference = Func(
+            JSONObject(kind=Value(kind), evidence_id=Cast("pk", CharField())),
+            function="jsonb_build_array",
+            output_field=JSONField(),
+        )
+        archived_input |= Exists(
+            scoped_evidence(case, kind).filter(
+                DataContains(OuterRef("result__run__inputs"), reference),
+                is_archived=True,
+            )
+        )
+    return ExtractedPassage.objects.filter(
+        ~archived_input,
         case=case,
         result__case=case,
         result__run__case=case,
         result__run__status__in=("complete", "partial"),
-        kind=kind,
-        evidence_id=OuterRef("pk"),
-        evidence_sha256=OuterRef("sha256"),
         text__icontains=query,
+    )
+
+
+def derived_content_condition(queryset, *, case, kind, query):
+    if kind not in (*FILE_KINDS, *CALL_KINDS):
+        return queryset, Q(pk__in=[])
+    passages = _active_passages(case, query).filter(
+        kind=kind, evidence_id=OuterRef("pk"), evidence_sha256=OuterRef("sha256")
     )
     return queryset.alias(matching_extraction=Exists(passages)), Q(
         matching_extraction=True
@@ -36,14 +70,8 @@ def derived_text_matches(*, case, rows, query):
             kind=row["kind"], evidence_id=row["id"], evidence_sha256=row["sha256"]
         )
     passages = (
-        ExtractedPassage.objects.filter(
-            identities,
-            case=case,
-            result__case=case,
-            result__run__case=case,
-            result__run__status__in=("complete", "partial"),
-            text__icontains=query,
-        )
+        _active_passages(case, query)
+        .filter(identities)
         .annotate(
             candidate_number=Window(
                 RowNumber(),
@@ -75,7 +103,7 @@ def derived_text_matches(*, case, rows, query):
         run = passage.result.run
         if run.pk not in validated_runs:
             try:
-                sources = resolve_inputs(run, case)
+                sources = resolve_active_inputs(run, case)
             except AnalysisError, Http404:
                 validated_runs[run.pk] = set()
             else:

@@ -11,7 +11,6 @@ from core.analysis.reporting import (
     _base_metrics,
     _instant,
     _period,
-    _state,
     _url,
 )
 from core.evidence.queries import scoped_evidence
@@ -46,19 +45,22 @@ def _occurrences(kind, queryset, checksum):
         yield kind, item
 
 
-def duplicate_report(case, state, start, end, page, page_size):
+def duplicate_report(case, start, end, page, page_size):
     queries = [
         (
             kind,
             _period(
-                _state(scoped_evidence(case, kind), state), "created_at", start, end
+                scoped_evidence(case, kind).filter(is_archived=False),
+                "created_at",
+                start,
+                end,
             ).annotate(report_checksum=F("sha256")),
         )
         for kind in FILE_KINDS
     ]
     for kind in CALL_KINDS:
         parent = "phone_call" if kind == "phone-call" else "facetime"
-        parents = _state(scoped_evidence(case, kind), state)
+        parents = scoped_evidence(case, kind).filter(is_archived=False)
         attachments = CallEvidenceAttachment.objects.filter(
             case=case, **{f"{parent}__in": parents}
         ).exclude(audio_sha256="")
@@ -114,13 +116,12 @@ def duplicate_report(case, state, start, end, page, page_size):
                         else KIND_LABELS[kind],
                         "Source ID": str(item.pk),
                         "Byte size": item.byte_size,
-                        "Archived parent": parent.is_archived,
                         "Uploaded at (UTC)": _instant(item.created_at),
                     },
                 }
             )
         offset += count
-    metrics = _base_metrics(total, state, start, end, "File/addition upload time")
+    metrics = _base_metrics(total, start, end, "File/addition upload time")
     metrics.update(
         {
             "Duplicate byte groups": group_count,

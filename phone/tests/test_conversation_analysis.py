@@ -724,24 +724,26 @@ class ConversationAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.login("outsider")
         self.assertEqual(self.client.get(self.reader_url()).status_code, 404)
 
-    def test_archived_sources_remain_visible_and_finding_output_is_escaped(self):
+    def test_archived_sources_withhold_findings_and_active_output_is_escaped(self):
         self.publish(
             items=lambda inputs: [
                 self.item(inputs, "<script>alert('untrusted')</script>", 0)
             ]
         )
+        response = self.client.get(self.reader_url())
+        self.assertEqual(self.analysis(response, self.first)["count"], 1)
+        self.assertContains(
+            response, "&lt;script&gt;alert(&#x27;untrusted&#x27;)&lt;/script&gt;"
+        )
+        self.assertNotContains(response, "<script>alert('untrusted')</script>")
         TextMessageEvidence.objects.filter(pk=self.first.pk).update(
             is_archived=True,
             archive_changed_at=timezone.now(),
             archive_changed_by=self.users["owner"],
         )
         response = self.client.get(self.reader_url())
-        self.assertEqual(self.analysis(response, self.first)["count"], 1)
-        self.assertContains(response, "Archived")
-        self.assertContains(
-            response, "&lt;script&gt;alert(&#x27;untrusted&#x27;)&lt;/script&gt;"
-        )
-        self.assertNotContains(response, "<script>alert('untrusted')</script>")
+        self.assertNotIn(self.first, response.context["page_obj"])
+        self.assertNotContains(response, "&lt;script&gt;alert")
 
     def test_long_finding_text_and_shared_citations_have_bounded_previews(self):
         messages = [self.first, self.second] + [self.message() for _number in range(3)]

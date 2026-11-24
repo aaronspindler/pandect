@@ -6,18 +6,19 @@ from allauth.account.models import EmailAddress
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from cases.permissions import get_case
+from core.analysis.catalogue import archived_finding_sources
 from core.analysis.errors import AnalysisError
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KINDS
 from core.models import AnalysisResult, ChatMatch, ChatTurn, EvidenceChat
 
-from . import ai, corpus, jobs
+from . import ai, corpus, jobs, retrieval_route
 
 
 def _edit_case(actor, case_id):
@@ -27,8 +28,21 @@ def _edit_case(actor, case_id):
     return case
 
 
-def _route(case, expected):
-    selected = ai.turn_execution(case)
+def submission_route(case, *, turn=None):
+    execution, revision = ai.turn_execution(case)
+    search = retrieval_route.hosted_scope(case)
+    if turn and turn.plan.get("hosted_search") != search:
+        search = {}
+    from core.case_search.rerank import rerank_scope
+
+    ranking = rerank_scope(case)
+    if turn and turn.plan.get("rerank_scope") != ranking:
+        ranking = {}
+    return execution, revision, search, ranking
+
+
+def _route(case, expected, *, turn=None):
+    selected = submission_route(case, turn=turn)
     if expected is not None and selected != expected:
         raise AnalysisError("execution_changed")
     return selected
@@ -47,7 +61,6 @@ def submit_turn(
     *,
     submission_id,
     chat_id=None,
-    include_archived=False,
     expected_route=None,
 ):
     case = _edit_case(actor, case_id)
@@ -68,11 +81,10 @@ def submit_turn(
             and existing.asked_by_id == actor.pk
             and correct_chat
             and existing.question == question
-            and existing.include_archived == include_archived
         ):
             return existing
         raise ValidationError("This submission reference has already been used.")
-    execution, revision = _route(case, expected_route)
+    execution, revision, search, ranking = _route(case, expected_route)
     if chat_id:
         chat = get_object_or_404(EvidenceChat, pk=chat_id, case=case)
         _require_idle(chat)
@@ -94,9 +106,12 @@ def submit_turn(
                 asked_by=actor,
                 question=question,
                 submission_id=submission_id,
-                include_archived=include_archived,
                 execution=execution,
-                plan={"timezone": timezone.get_current_timezone_name()},
+                plan={
+                    "timezone": timezone.get_current_timezone_name(),
+                    "hosted_search": search,
+                    "rerank_scope": ranking,
+                },
                 approval_revision=revision,
             )
     except IntegrityError:
@@ -121,10 +136,17 @@ def retry_turn(actor, case_id, chat_id, turn_id, *, expected_route=None):
     )
     if turn.status != "failed":
         return turn
+    if turn.include_archived:
+        raise ValidationError("Ask a new question to use active evidence.")
+    if code := jobs.review_restart_code(turn):
+        raise AnalysisError(code)
     if turn.chat.turns.filter(ordinal__gt=turn.ordinal).exists():
         raise ValidationError("Ask the question again at the end of this chat.")
     _require_idle(turn.chat)
-    if _route(case, expected_route) != (turn.execution, turn.approval_revision):
+    if _route(case, expected_route, turn=turn)[:2] != (
+        turn.execution,
+        turn.approval_revision,
+    ):
         raise ValidationError(
             "AI settings changed. Ask a new question using the current settings."
         )
@@ -145,7 +167,7 @@ def retry_turn(actor, case_id, chat_id, turn_id, *, expected_route=None):
     return turn
 
 
-def _citation(case, source, ref):
+def _citation(case, source, ref, *, read=None):
     if not isinstance(ref, dict) or source is None:
         return None
     start, end, quote = ref.get("start"), ref.get("end"), ref.get("quote")
@@ -157,14 +179,18 @@ def _citation(case, source, ref):
         or end != start + len(quote)
     ):
         return None
-    return corpus.cite(case, source.locator, start, quote, include_archived=True)
+    return corpus.cite(case, source.locator, start, quote, read=read)
 
 
-def inspect_turn(turn):
-    """Resolve source links server-side, including later-archived originals."""
+def inspect_turn(turn, *, read=None):
+    """Resolve source links against active evidence without changing saved replies."""
+    from .history import recalled_sources_available
+
     if turn.status != "complete":
         return {}
-    if turn.chat.case_id != turn.case_id:
+    if turn.chat.case_id != turn.case_id or jobs.review_restart_code(turn):
+        return None
+    if not recalled_sources_available(turn, read or corpus.read_window):
         return None
     if turn.mode == "full":
         # Aggregates depend on misses as well as matches. Check membership in
@@ -175,7 +201,9 @@ def inspect_turn(turn):
         for kind in KINDS:
             originals |= Q(
                 evidence_kind=kind,
-                evidence_id__in=scoped_evidence(turn.case, kind).values("pk"),
+                evidence_id__in=scoped_evidence(turn.case, kind)
+                .filter(is_archived=False)
+                .values("pk"),
             )
         results = AnalysisResult.objects.filter(case=turn.case, run__case=turn.case)
         available = (
@@ -183,7 +211,10 @@ def inspect_turn(turn):
             & originals
             & (Q(result_id__isnull=True) | Q(result_id__in=results.values("pk")))
         )
-        if turn.sources.exclude(available).exists():
+        archived_dependencies = archived_finding_sources(turn.case).filter(
+            finding__result_id=OuterRef("result_id")
+        )
+        if turn.sources.exclude(available & ~Exists(archived_dependencies)).exists():
             return None
     answer = turn.answer
     resolved = []
@@ -198,15 +229,12 @@ def inspect_turn(turn):
     for source in turn.sources.filter(status="context").exclude(key__in=keys):
         if (
             source.case_id != turn.case_id
-            or corpus.read_window(
-                turn.case, source.locator, 0, 1, include_archived=True
-            )
-            is None
+            or (read or corpus.read_window)(turn.case, source.locator, 0, 1) is None
         ):
             return None
     for claim in claims:
         citations = [
-            _citation(turn.case, sources.get(ref["key"]), ref)
+            _citation(turn.case, sources.get(ref["key"]), ref, read=read)
             for ref in claim["citations"]
         ]
         if not citations or any(c is None for c in citations):
@@ -268,9 +296,7 @@ def gap_page(turn, page):
     result = Paginator(sources, 25).get_page(page)
     rows = []
     for source in result:
-        window = corpus.read_window(
-            turn.case, source.locator, 0, 1, include_archived=True
-        )
+        window = corpus.read_window(turn.case, source.locator, 0, 1)
         rows.append(
             {
                 "label": window["label"] if window else "Unavailable source",

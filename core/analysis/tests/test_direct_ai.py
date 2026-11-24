@@ -216,27 +216,36 @@ class DirectAITests(EvidenceViewTestMixin, TestCase):
         self.login("owner")
         url = reverse("core:analysis:create", args=[self.case.pk])
         settings_url = reverse("cases:case_settings", args=[self.case.pk])
-        approval_url = reverse("cases:case_external_analysis", args=[self.case.pk])
-        openai_page = self.client.get(settings_url)
-        self.assertContains(openai_page, "OpenAI")
-        self.assertContains(openai_page, DIRECT_AI["openai_model"])
-        self.assertNotContains(openai_page, DIRECT_AI["openai_api_key"])
-        self.assertEqual(
-            self.client.post(
-                approval_url,
-                {
-                    "action": "approve",
-                    "confirmation": openai_page.context["external_analysis"][
-                        "approve_confirmation"
-                    ],
-                },
-            ).status_code,
-            302,
-        )
-        backend_url = reverse("cases:case_ai_backend", args=[self.case.pk])
-        self.assertEqual(
-            self.client.post(backend_url, {"ai_backend": "gateway"}).status_code, 302
-        )
+        action = reverse("cases:case_ai_settings", args=[self.case.pk])
+
+        def approve_current():
+            page = self.client.get(settings_url)
+            form = page.context["ai_settings_form"]
+            draft = {
+                "confirmation": form.expected_confirmation,
+                "ai_backend": "gateway",
+            }
+            if form.initial["ai_backend"] == "gateway":
+                draft = {"action": "review_current"}
+            review = self.client.post(action, draft)
+            self.assertNotContains(review, DIRECT_AI["openai_api_key"])
+            self.assertNotContains(review, DIRECT_AI["anthropic_api_key"])
+            self.assertEqual(
+                self.client.post(
+                    action,
+                    dict(review.context["proposal"])
+                    | {
+                        "action": "approve",
+                        "allow": [
+                            row["scope_id"] for row in review.context["destinations"]
+                        ],
+                        "review_confirmation": review.context["review_confirmation"],
+                    },
+                ).status_code,
+                302,
+            )
+
+        approve_current()
         form = self.client.get(url, {"operation": "content_events"}).context["form"]
         self.assertNotIn("backend", form.fields)
         data = {
@@ -248,18 +257,7 @@ class DirectAITests(EvidenceViewTestMixin, TestCase):
             rejected = self.client.post(url, data)
             self.assertNotEqual(rejected.status_code, 302)
             self.assertFalse(AnalysisRun.objects.exists())
-            anthropic_page = self.client.get(settings_url)
-            self.assertContains(anthropic_page, DIRECT_AI["anthropic_model"])
-            self.assertNotContains(anthropic_page, DIRECT_AI["anthropic_api_key"])
-            self.client.post(
-                approval_url,
-                {
-                    "action": "approve",
-                    "confirmation": anthropic_page.context["external_analysis"][
-                        "approve_confirmation"
-                    ],
-                },
-            )
+            approve_current()
             self.assertEqual(self.client.post(url, data).status_code, 302)
         reviewed = AnalysisRun.objects.get().parameters["_execution"]
         self.assertEqual(reviewed["model"], DIRECT_AI["anthropic_model"])

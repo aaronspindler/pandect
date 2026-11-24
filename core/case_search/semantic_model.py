@@ -110,7 +110,7 @@ def valid_vector(vector, dimensions):
     )
 
 
-def embed(texts, authorize, *, case=None, purpose="index"):
+def embed(texts, authorize, *, case=None, purpose="index", chat_turn=None):
     config = execution()
     if config.get("backend") == "gateway":
         from .hosted_embeddings import request_embeddings
@@ -127,7 +127,7 @@ def embed(texts, authorize, *, case=None, purpose="index"):
             if config != execution() or not _configured_profile(config):
                 raise AnalysisError("execution_changed")
 
-        return request_embeddings(texts, config, check_access, case, purpose)
+        return request_embeddings(texts, config, check_access, case, purpose, chat_turn)
     if not config:
         raise AnalysisError("local_ai_not_configured")
     if not 0 < len(texts) <= BATCH_SIZE:

@@ -76,7 +76,7 @@ def person_detail(request, case_id, person_id):
     if wants_record(request):
         return render_record(request, "people/detail.html", context)
     evidence_params = QueryDict(mutable=True)
-    evidence_params.update({"person": str(person.pk), "state": "all"})
+    evidence_params["person"] = str(person.pk)
     evidence_url = (
         reverse("core:evidence:list", args=[case.pk])
         + "?"

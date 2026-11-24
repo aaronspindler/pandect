@@ -401,7 +401,7 @@ class VehicleInterfaceTests(TestCase):
         )
         self.assertContains(response, "Undated evidence")
         self.assertIsNone(response.context["latest_observation"])
-        archived = VehicleLocationEvidence.objects.create(
+        VehicleLocationEvidence.objects.create(
             **observation,
             title="Dated archived evidence",
             address="20 Example Street",
@@ -410,11 +410,17 @@ class VehicleInterfaceTests(TestCase):
             archive_changed_by=self.owner,
             archive_changed_at=datetime(2026, 9, 17, tzinfo=UTC),
         )
+        dated = VehicleLocationEvidence.objects.create(
+            **observation,
+            title="Dated active evidence",
+            address="15 Example Street",
+            observed_at=datetime(2026, 9, 15, tzinfo=UTC),
+        )
         response = self.client.get(detail_url)
-        self.assertEqual(response.context["latest_observation"], archived)
-        self.assertEqual(list(response.context["locations"]), [archived, undated])
-        self.assertContains(response, "20 Example Street")
-        self.assertContains(response, "Archived")
+        self.assertEqual(response.context["latest_observation"], dated)
+        self.assertEqual(list(response.context["locations"]), [dated, undated])
+        self.assertContains(response, "15 Example Street")
+        self.assertNotContains(response, "20 Example Street")
         self.assertLess(
             response.content.index(b'id="locations-heading"'),
             response.content.index(b'id="trips-heading"'),

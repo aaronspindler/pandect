@@ -539,3 +539,26 @@ class ConversationInstanceTests(EvidenceViewTestMixin, TestCase):
         rows = list(daily_message_rows(self.case, start, start + timedelta(days=1)))
         self.assertEqual([r["id"] for r in rows], [first.pk, second.pk])
         self.assertEqual([r["kind"] for r in rows], ["message", "message"])
+
+    def test_archived_member_withholds_saved_session_and_legacy_group(self):
+        early, archived, last = [self.message(i) for i in (1, 2, 3)]
+        originals = [early, archived, last]
+        (legacy,) = self.publish_groups(originals)
+        session = self.group_pair().sessions.get()
+        self.publish_report(originals, [(1, [0, 1, 2], "Saved group summary")])
+        TextMessageEvidence.objects.filter(pk=archived.pk).update(
+            is_archived=True,
+            archive_changed_at=archived.created_at,
+            archive_changed_by=self.case.owner,
+        )
+        self.assertEqual(instance_page(self.case, self.messages).paginator.count, 0)
+        for instance in (legacy, session):
+            with self.assertRaises(Http404):
+                instance_page(self.case, self.messages, instance_id=instance.pk)
+        attach_session_groups(self.case, [early, last])
+        self.assertFalse(early.session_groups)
+        self.assertFalse(last.session_groups)
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        rows = list(daily_message_rows(self.case, start, start + timedelta(days=1)))
+        self.assertEqual([row["id"] for row in rows], [early.pk, last.pk])
+        self.assertEqual([row["kind"] for row in rows], ["message", "message"])

@@ -305,8 +305,7 @@ class InvestigationWorkflowBrowserTests(BrowserTestCase):
                     },
                 )
                 message_link = page.locator(
-                    f'a.evidence-row[href="{message_path}'
-                    f'?person={self.person.pk}&state=all"]'
+                    f'a.evidence-row[href="{message_path}?person={self.person.pk}"]'
                 )
                 expect(message_link).to_be_visible()
                 expect(message_link).to_contain_text("person-00@example.test")

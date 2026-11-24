@@ -32,7 +32,7 @@
     <h2 id="undated-heading" tabindex="-1">Originals without a known time of day ({{ originals.paginator.count }})</h2>
     <p class="help-text">Listed by title. A source may record a calendar date or a collection time while its occurrence time is unknown.</p>
     <ul class="record-list">
-      {% for row in originals %}<li class="record-row"><div><a class="record-link" href="{{ row.url }}">{{ row.title }}</a><p>{{ row.label }}{% if row.is_archived %} · Archived{% endif %}</p>
+      {% for row in originals %}<li class="record-row"><div><a class="record-link" href="{{ row.url }}">{{ row.title }}</a><p>{{ row.label }}</p>
         {% if row.source_date %}
           <p>Calendar date only · <time datetime="{{ row.source_date|date:'Y-m-d' }}">{{ row.source_date|date:'d M Y' }}</time> · {{ row.source_zone }}</p>
           <details class="disclosure"><summary>Source clock details</summary>
@@ -60,7 +60,7 @@
         {% if claim.uses_ai and claim.text %}<p>{{ claim.text }}</p>{% endif %}
         {% for citation in claim.citations %}
           <blockquote>{{ citation.quote }}</blockquote>
-          <a class="record-link" href="{{ citation.url }}">{{ citation.title }}</a>{% if citation.archived %} · Archived{% endif %}
+          <a class="record-link" href="{{ citation.url }}">{{ citation.title }}</a>
         {% endfor %}
         <p class="muted">{{ claim.method }} · Version {{ claim.method_version }}{% if claim.partial %} · Partial coverage{% endif %}</p>
         {% endif %}

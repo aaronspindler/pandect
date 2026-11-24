@@ -221,11 +221,12 @@ class SightingWorkflowTests(EvidenceViewTestMixin, TestCase):
             ).status_code,
             302,
         )
+        self.assertNotContains(self.client.get(urls[0]), "Saved proposal")
+        self.assertEqual(self.client.get(urls[1]).status_code, 404)
+        self.assertTrue(result.reviews.filter(decision="rejected").exists())
+        self.client.post(self.url("restore", second, "person-location"))
         for url in urls:
-            response = self.client.get(url)
-            self.assertContains(response, "Historical proposal")
-            self.assertContains(response, "Rejected")
-            self.assertContains(response, "Archived source")
+            self.assertContains(self.client.get(url), "Saved proposal · Rejected")
 
     def test_publication_rechecks_revocation_after_computing_the_group(self):
         first = self.observation("First observation", associated=True)

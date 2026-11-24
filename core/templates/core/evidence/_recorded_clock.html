@@ -1,5 +1,5 @@
 {% load chronology_times %}
-<p>{{ row.clock_label }} {% timeline_time row.event_at display_timezone %} · {{ row.label }}{% if row.is_archived %} · Archived{% endif %}</p>
+<p>{{ row.clock_label }} {% timeline_time row.event_at display_timezone %} · {{ row.label }}</p>
 {% if row.end_at %}<p>Calculated end {% timeline_time row.end_at display_timezone %} · Duration {{ row.duration }}</p>{% elif row.end_out_of_range %}<p>Duration {{ row.duration }} · Calculated end outside the supported range.</p>{% endif %}
 {% if row.clock_note %}<p>{{ row.clock_note }}</p>{% endif %}
 <details class="disclosure"><summary>Source clock details</summary>

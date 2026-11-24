@@ -140,7 +140,7 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
         self.login("outsider")
         self.assertEqual(self.client.get(self.chronology_url()).status_code, 404)
 
-    def test_pagination_and_archived_timestamps(self):
+    def test_pagination_excludes_archived_timestamps(self):
         instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
         for index in range(27):
             self.message(
@@ -154,9 +154,10 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
         )
         self.login("viewer")
         response = self.client.get(self.chronology_url(), {"page": 2})
-        self.assertEqual(response.context["page_obj"].paginator.count, 27)
-        self.assertEqual(len(response.context["rows"]), 2)
-        self.assertContains(response, "Archived")
+        self.assertEqual(response.context["page_obj"].paginator.count, 26)
+        self.assertEqual(len(response.context["rows"]), 1)
+        self.assertContains(response, "Message 25")
+        self.assertNotContains(response, "Message 26")
         self.assertContains(response, '?view=references"')
 
     def test_ambiguous_date_strings_remain_unplaced_and_source_linked(self):
@@ -190,6 +191,13 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
         for i in range(26):
             self.message(title=f"Undated {i:02}", collected_at=collected)
         archived = self.message(title="Z archived", body="The appointment is tomorrow.")
+        run, _ = start_run(
+            self.users["owner"],
+            self.case.pk,
+            "entities",
+            [{"kind": "text-message", "id": str(archived.pk)}],
+        )
+        process_run(run.pk)
         TextMessageEvidence.objects.filter(pk=archived.pk).update(
             is_archived=True,
             archive_changed_at=collected,
@@ -200,13 +208,6 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
         invalid = self.message(title="Inconsistent communication")
         foreign = Person.objects.create(case=self.other_case, first_name="Foreign")
         TextMessageEvidence.objects.filter(pk=invalid.pk).update(recipient=foreign)
-        run, _ = start_run(
-            self.users["owner"],
-            self.case.pk,
-            "entities",
-            [{"kind": "text-message", "id": str(archived.pk)}],
-        )
-        process_run(run.pk)
         query = {
             "view": "unplaced",
             "person": self.person.pk,
@@ -214,12 +215,11 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
             "start": "2099-01-01",
         }
         response = self.client.get(self.chronology_url(), query)
-        self.assertEqual(response.context["originals"].paginator.count, 27)
-        self.assertEqual(response.context["claims"].number, 1)
+        self.assertEqual(response.context["originals"].paginator.count, 26)
+        self.assertEqual(response.context["claims"].paginator.count, 0)
         self.assertContains(response, "Undated 25")
-        self.assertContains(response, "Z archived")
-        self.assertContains(response, "Archived")
-        self.assertContains(response, "tomorrow")
+        self.assertNotContains(response, "Z archived")
+        self.assertNotContains(response, "tomorrow")
         self.assertNotContains(response, "Dated communication")
         self.assertNotContains(response, "Unconnected observation")
         self.assertNotContains(response, "Inconsistent communication")

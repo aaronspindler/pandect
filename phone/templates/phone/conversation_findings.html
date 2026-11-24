@@ -20,7 +20,7 @@
     {% if detailed and item.text_truncated and not item.message_count %}<p class="muted">Excerpt · Open the finding for the complete text.</p>{% endif %}
     {% if item.warning %}<p>{{ item.warning }}</p>{% endif %}
     {% if shared %}
-    {% if item.message_sources %}<ul class="conversation-finding-sources">{% for source in item.message_sources %}{% if forloop.first or detailed %}<li><a data-workspace-link class="record-link" href="{{ source.url }}">Show message<span class="sr-only">: {{ source.title }}</span></a> · {{ source.title }}{% if source.archived %} · Archived{% endif %}</li>{% endif %}{% endfor %}</ul>{% endif %}
+    {% if item.message_sources %}<ul class="conversation-finding-sources">{% for source in item.message_sources %}{% if forloop.first or detailed %}<li><a data-workspace-link class="record-link" href="{{ source.url }}">Show message<span class="sr-only">: {{ source.title }}</span></a> · {{ source.title }}</li>{% endif %}{% endfor %}</ul>{% endif %}
     {% if detailed and item.additional_message_sources %}<p class="muted">{{ item.additional_message_sources }} more cited message{{ item.additional_message_sources|pluralize }} · Open the finding for all sources.</p>{% endif %}
     {% if item.outside_sources %}<p class="muted">Also cites sources outside this view.</p>{% endif %}
     {% endif %}

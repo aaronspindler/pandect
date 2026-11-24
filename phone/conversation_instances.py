@@ -126,8 +126,10 @@ def _validated_instances(case, candidates):
 
 def instances_touching_messages(case, message_ids, *, exclude_saved=None):
     """Valid pair instances ordered by their first time among the given originals."""
-    messages = scoped_evidence(case, "text-message").exclude(
-        pk__in=date_only_messages(case)
+    messages = (
+        scoped_evidence(case, "text-message")
+        .filter(is_archived=False)
+        .exclude(pk__in=date_only_messages(case))
     )
     candidates = _candidates(case, messages, touching=message_ids)
     if exclude_saved is not None:
@@ -135,9 +137,9 @@ def instances_touching_messages(case, message_ids, *, exclude_saved=None):
     instances = _validated_instances(case, candidates)
     for batch in batched(instances, INSTANCES_PER_PAGE, strict=False):
         member_ids = {pk for group in batch for pk in group["member_ids"]}
-        originals = messages.only(
-            "sender_id", "recipient_id", "occurred_at", "is_archived"
-        ).in_bulk(member_ids)
+        originals = messages.only("sender_id", "recipient_id", "occurred_at").in_bulk(
+            member_ids
+        )
         for group in batch:
             members = [originals[pk] for pk in group["member_ids"] if pk in originals]
             pairs = {frozenset((m.sender_id, m.recipient_id)) for m in members}

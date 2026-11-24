@@ -19,6 +19,38 @@ from text.models import TextEvidence
 class CaseSearchBrowserTests(BrowserTestCase):
     artifact_subdirectory = "case-search"
 
+    @override_settings(
+        PANDECT_SEARCH_RERANK_PROVIDER="workers-ai", PANDECT_AI_GATEWAY=CONFIG
+    )
+    def test_owner_can_review_approve_and_revoke_hosted_ranking(self):
+        for engine, javascript in product(self.engines, (True, False)):
+            with (
+                self.subTest(engine=engine, javascript=javascript),
+                self.browser_page(engine, java_script_enabled=javascript) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("cases:case_settings", case_id=self.case.pk))
+                panel = page.get_by_role("region", name="Hosted passage ranking")
+                approve = panel.get_by_role(
+                    "button", name="Approve hosted passage ranking"
+                )
+                if javascript:
+                    page.set_viewport_size({"width": 320, "height": 844})
+                    page.evaluate("document.documentElement.style.fontSize = '200%'")
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), 321
+                    )
+                    approve.focus()
+                    expect(approve).to_be_focused()
+                    self.capture(page, engine, "hosted-rerank-approval")
+                approve.click()
+                revoke = panel.get_by_role(
+                    "button", name="Revoke hosted passage ranking"
+                )
+                expect(revoke).to_be_visible()
+                revoke.click()
+                expect(approve).to_be_visible()
+
     def setUp(self):
         super().setUp()
         self.owner = self.make_user("case-search-owner")
@@ -84,6 +116,16 @@ class CaseSearchBrowserTests(BrowserTestCase):
                 expect(embedding_model).to_be_visible()
                 details.press("Enter")
                 expect(embedding_model).to_be_hidden()
+                enable_chat = section.get_by_role(
+                    "button", name="Allow hosted search in chat"
+                )
+                enable_chat.press("Enter")
+                disable_chat = section.get_by_role(
+                    "button", name="Disable hosted search in chat"
+                )
+                expect(disable_chat).to_be_visible()
+                disable_chat.press("Enter")
+                expect(enable_chat).to_be_visible()
                 if javascript:
                     self.capture(page, engine, "hosted-approval-saved")
                 page.goto(processing_url)

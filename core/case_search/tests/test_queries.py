@@ -9,6 +9,7 @@ from core.analysis.catalogue import project_result
 from core.analysis.services import snapshot_sources
 from core.case_search import retained
 from core.case_search.queries import parse_query, search, suggest
+from core.case_search.semantic_sources import read_sources, source_queryset
 from core.models import AnalysisResult, AnalysisRun, ExtractedPassage
 from core.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
@@ -43,6 +44,13 @@ class SearchTests(EvidenceTestMixin, TestCase):
         )
         self.create_evidence(body="The bridge meeting was cancelled.")
         self.create_evidence(body="7zzA-8 only")
+        self.create_evidence(
+            title="Archived bridge meeting",
+            body="Deadline was extended. 7%_A-8",
+            is_archived=True,
+            archive_changed_at=now,
+            archive_changed_by=self.owner,
+        )
         self.create_evidence(
             case=self.other_case, title="Bridge meeting", body="Other private material"
         )
@@ -245,7 +253,77 @@ class SearchTests(EvidenceTestMixin, TestCase):
             )
             self.assertEqual([row["id"] for row in current], [doc.pk])
             resolve.assert_called()
+            resolve.reset_mock()
+            both = search(self.case, query="archways notes", record_type="document")
+            self.assertEqual(both.paginator.count, 1)
+            self.assertEqual([row["id"] for row in both], [doc.pk])
+            # One validation of the matching run before paging and one before
+            # displaying its excerpts, independent of the number of terms.
+            self.assertEqual(resolve.call_count, 2)
         doc.file.storage.delete(doc.file.name)
         page = search(self.case, query="archways")
         self.assertEqual(page.paginator.count, 0)
         self.assertFalse(page.object_list)
+
+    def test_mixed_extraction_does_not_match_through_an_active_original(self):
+        active = self.create_evidence(DocumentEvidence, title="Open statements")
+        other = self.create_evidence(DocumentEvidence, title="Additional statements")
+        inputs = snapshot_sources(
+            self.case,
+            [{"kind": "document", "id": item.pk} for item in (active, other)],
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.owner,
+            operation="native_text",
+            method_version="1",
+            inputs=inputs,
+            status="complete",
+        )
+        text = "Synthetic lighthouse correspondence"
+        result = AnalysisResult.objects.create(
+            case=self.case,
+            run=run,
+            data={
+                "items": [
+                    {
+                        "label": "Combined extract",
+                        "text": text,
+                        "source_ids": [source["id"] for source in inputs],
+                    }
+                ]
+            },
+        )
+        passage = ExtractedPassage.objects.create(
+            case=self.case,
+            result=result,
+            kind="document",
+            evidence_id=active.pk,
+            evidence_sha256=active.sha256,
+            text=text,
+            item_index=0,
+        )
+
+        def keyword():
+            return search(self.case, query="lighthouse", record_type="document")
+
+        def passage_windows():
+            return read_sources(self.case, "extraction", {passage.pk: 0}, len(text))
+
+        self.assertEqual([row["id"] for row in keyword()], [active.pk])
+        self.assertIn(passage.pk, passage_windows())
+        DocumentEvidence.objects.filter(pk=other.pk).update(
+            is_archived=True,
+            archive_changed_by=self.owner,
+            archive_changed_at=timezone.now(),
+        )
+        self.assertFalse(list(keyword()))
+        self.assertEqual(passage_windows(), {})
+
+        project_result(result)
+        eligible = source_queryset(self.case, "extraction").filter(pk=passage.pk)
+        self.assertFalse(eligible.exists())
+        DocumentEvidence.objects.filter(pk=other.pk).update(is_archived=False)
+        self.assertTrue(eligible.exists())
+        self.assertEqual([row["id"] for row in keyword()], [active.pk])
+        self.assertIn(passage.pk, passage_windows())

@@ -129,17 +129,21 @@ documents, and WAV or AAC-in-M4A recordings. See that guide for format limits,
 what a preview failure means, and how previews and downloads check integrity.
 
 Duplicate warnings show a preview and **Review all matches**, a private paginated
-checksum-filtered list including archived originals, without resubmitting uploads.
+checksum-filtered list of active originals, without resubmitting uploads.
 
 **Edit details** corrects metadata; stale drafts appear beside newer values
-and require **Save reviewed changes**. **Archive/Restore** retains original access.
+and require **Save reviewed changes**. Archiving removes an item from ordinary case
+work and stops new processing that would use it. Open **Evidence → Filters → Archived**
+to inspect or download the retained original. Owners and editors can choose
+**More → Restore** to return it to active work. Archiving a source document leaves
+previously imported rows in their own evidence state.
 Individual deletion requires a superuser with current case access and [confirmation](#permanent-deletion);
 ordinary investigators retain evidence until owner-confirmed whole-case deletion.
 
 ### Duplicate checks
 
-Document, Image, Audio, and captured Text intake compares SHA-256 against same-case
-file/text originals, including archived records. Identical bytes match across
+Document, Image, Audio, and captured Text intake compares SHA-256 against active
+file and text originals in the same case. Identical bytes match across
 categories, filenames, and metadata. Captured text uses exact received UTF-8,
 including whitespace/line endings, subject to browser normalization. This detects
 exact copies, not similarity, re-encoding, revision, or meaning; it proves neither
@@ -154,8 +158,9 @@ editable. Nothing is automatically merged/deleted.
 Single forms support no-JavaScript review, preserving details but requiring file
 reselection. Confirmation binds checksum, category, case, and uploader; changed
 originals require renewed duplicate review. Confirmation rechecks edit access.
-Retries resolve already-saved submissions before duplicate checks, including after
-interrupted confirmation.
+Retries resolve already-saved submissions before duplicate checks when the
+original matches the saved checksum, including after interrupted confirmation.
+Changed originals require a new submission.
 
 Checks cover single/mixed-file intake only. Locations, communications, call
 attachments, CSV imports, admin, and trusted model callers keep existing behavior.
@@ -213,7 +218,7 @@ your place. Earlier and later links work by keyboard, without JavaScript, and
 after a loading failure. Every page request checks current access.
 
 Use **Search messages** on the **Messages** tab to find a word or exact phrase
-in the full conversation, including archived messages. Search ignores letter
+in the active messages in the conversation. Search ignores letter
 case and counts each matching timeline row once. **Previous match** and **Next
 match** jump between highlighted messages in the chronological transcript. You
 can read the surrounding messages and scroll to earlier or later pages as usual.
@@ -231,14 +236,14 @@ supply an unambiguous matching native message ID and the same original wording,
 reported sender, recipient, and known time. Conflicting service identifiers,
 matching IDs across WhatsApp and other export formats, and ambiguous repeats
 remain separate. Use **Show retained copies** to inspect each original's export,
-row, archive state, and findings. Mixed-source transcripts include a short
+row and findings. Mixed-source transcripts include a short
 source reference per message. The reported participants alone do not establish
 native thread identity or a complete exchange.
 
 Select a message to open **Message details** beside the transcript. On a narrow
 screen the details fill the reader. Close the panel to return to the message.
-The panel starts with the original, reported participants and time, and marks
-archived messages. Expand **Message source** to find the retained export and row
+The panel starts with the original, reported participants and time.
+Expand **Message source** to find the retained export and row
 or recorded collection information. **View source metadata** opens evidence Info
 with native references and source-supplied fields such as reactions, status and
 attachment references. The attachments themselves are never fetched. With
@@ -297,7 +302,8 @@ Owners/editors later **Add transcript or audio** as a new `CallEvidenceAttachmen
 case, UUID, uploader, creation time, unique submission ID, checksum, exactly one
 phone-call/FaceTime parent, and transcript/audio/both. Attachments cannot be edited,
 replaced, archived, or deleted individually. Corrections append material; earlier
-content remains. Archived calls retain additions and permit more. Viewers inspect/download.
+content remains. Archived calls retain their additions. Restore the call before
+appending more material. Viewers can inspect and download retained material.
 
 Transcripts preserve received text without trimming, subject to browser line endings;
 they are supplied material, not verification/automatic transcription. Requests
@@ -390,7 +396,12 @@ Database deletion is atomic; unplanned ORM deletion still meets model `RESTRICT`
 
 The case lock serializes deletion and analysis/import publication. Removed queued
 jobs become no-ops; running jobs cannot recreate sources/publish derivatives.
-Files are cleaned after commit; rollback retains them. Failures need [manual recovery](#private-storage-and-deletion).
+Files are cleaned after commit, and rollback retains them. Larger review pages
+can use the investigator's short-lived reviewed inventory while the case activity
+revision remains current and no analysis or chat turn is running. Adding or
+removing search outlines advances that revision. The worker expires these
+review pages. The final confirmation always rebuilds the complete
+inventory under the case lock. See [file cleanup recovery](#private-storage-and-deletion).
 Deletion does not remove backups or external-provider retention.
 
 ## Django admin
@@ -401,7 +412,8 @@ People, vehicles, import batches, and source documents must match the evidence
 case. Admin/product exclude inconsistent maintenance-created records. Owner-only
 case deletion counts all case evidence without exposing inconsistent source details.
 
-Creation assigns the operator as uploader. Forms share file/text limits and preserve
+Creation assigns the operator as uploader and queues the usual checks for the
+new original. Forms share file/text limits and preserve
 untrimmed originals/addresses. Existing originals, case, uploader, integrity,
 imported values, and saved descriptions are read-only. Declared technical metadata
 remains editable. **Is archived** records real transitions' operator/time; admin
@@ -503,31 +515,27 @@ permission, and ORM is a trusted backend boundary.
 
 Trusted ORM deletion removes rows, while ordinary users have no individual path;
 superusers use confirmed workflows. Case deletion cascades active/archived evidence.
-File apps register `post_delete` through `core.storage.schedule_original_deletion`,
-using storage APIs after commit even for queryset/cascade deletion. Rollback retains
-rows/files; text/location originals disappear with rows. Other cases' files remain.
+File apps register `post_delete` through `core.storage.schedule_original_deletion`.
+The deletion transaction records each pending storage key, including for queryset
+and cascade deletion. After commit, storage cleanup removes the file and closes
+the pending record. Rollback retains rows and files.
 
-Storage failure neither undoes committed deletion nor stops other cleanup.
-`core.storage` logs generated keys without filenames, content, or backend exception
-text. There is no retry queue. Restore storage, then retry the exact logged key
-in the application's management shell:
+Restore storage access before retrying pending cleanup. The command processes a
+bounded number of committed keys and reports how many remain. Run it with the
+same default storage configuration used when deleting the records.
 
-```python
-from django.core.files.storage import default_storage
-
-default_storage.delete(
-    "evidence/cases/CASE_UUID/documentevidence/GENERATED_KEY_FROM_LOG"
-)
+```sh
+docker compose exec web python manage.py retry_file_cleanup --dry-run
+docker compose exec web python manage.py retry_file_cleanup --limit 1000
 ```
 
 Database/storage writes are not atomic. Failed new evidence/call-audio saves roll
 back the database before removing the new file. Failed metadata saves retain
 originals; cleanup failure preserves the save error and logs its key. Callers own
 later outer-transaction rollback (CSV import handles its own). Uncertain commit
-outcomes retain files because rows may have committed. These cases/crashes can
-leave orphans or interrupt cleanup. Retain restricted recovery logs and reconcile
-storage against database references before removing suspected orphans. An upload/
-transaction error alone never justifies file deletion.
+outcomes retain files because rows may have committed. Upload-side failures can
+still leave orphans. Retain restricted recovery logs and reconcile storage against
+database references before removing suspected orphans.
 
 ## Migration and backup
 

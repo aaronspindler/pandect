@@ -13,8 +13,8 @@ selected local day.
 ## Reading a day
 
 Entries run earliest first, with 25 per page after grouping. Each links to its
-original or the saved grouping and supporting records. Archived sources are
-labelled. A **Collected** entry dates acquisition. Its original also appears under
+original or the saved grouping and supporting records. The timeline uses active
+evidence. A **Collected** entry dates acquisition. Its original also appears under
 **Unplaced evidence and time claims** when its event time is unknown.
 
 | Entry | How to read it |
@@ -81,8 +81,8 @@ can both appear. An investigator can inspect each one independently.
 keep their original method and coverage. Any later run follows the normal
 processing workflow.
 
-The lists use the latest eligible equivalent result, label partial coverage and
-archived sources, and link to the exact finding and retained original. Missing
+The lists use the latest eligible equivalent result, label partial coverage,
+and link to the exact finding and active original. Missing
 or invalid citations withhold the interpretation. Every timeline, finding and
 source request requires current case access. Reading a timeline starts no
 processing and sends no evidence to an external service.

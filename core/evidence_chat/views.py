@@ -20,20 +20,36 @@ from core.important.reader import reader_context
 from core.models.chat import ChatTurn, EvidenceChat
 from ui.live import render_live
 
-from . import ai, services
+from . import services
 from .forms import QuestionForm
+from .jobs import review_restart_code
 
 
-def _route_context(case):
+def _route_context(case, *, turn=None):
+    if turn is not None and turn.include_archived:
+        return {
+            "unavailable": error_message("chat_archive_scope_retired"),
+            "route_token": "",
+        }
+    if turn is not None and (code := review_restart_code(turn)):
+        return {
+            "unavailable": error_message(code),
+            "route_token": "",
+        }
     try:
-        execution, revision = ai.turn_execution(case)
+        selected = services.submission_route(case, turn=turn)
     except AnalysisError as exc:
         return {"unavailable": error_message(exc.code), "route_token": ""}
+    execution, revision, search, ranking = selected
     return {
-        "selected_route": (execution, revision),
+        "selected_route": selected,
         "route_token": execution_confirmation(
-            "chat.submit", [str(case.pk), revision], execution
+            "chat.submit", [str(case.pk), revision, search, ranking], execution
         ),
+        "ranking_destination": ranking
+        if ranking.get("provider") == "workers-ai"
+        else {},
+        "embedding_destination": search.get("destination"),
         "external_destination": execution_destination(execution)
         if execution["location"] == "external"
         else "",
@@ -49,7 +65,12 @@ def _row(request, case, turn):
         return row
     answer = services.inspect_turn(turn)
     if answer is None:
-        return row | {"withheld": True}
+        code = review_restart_code(turn)
+        return row | {
+            "withheld": error_message(code)
+            if code
+            else "Reply unavailable because its sources could not be verified."
+        }
     references = []
     claims = []
     for claim in answer.get("claims", ()):
@@ -97,7 +118,6 @@ def chat(request, case_id, chat_id=None):
                     form.cleaned_data["question"],
                     submission_id=form.cleaned_data["submission_id"],
                     chat_id=chat_id,
-                    include_archived=form.cleaned_data["include_archived"],
                     expected_route=context["selected_route"],
                 )
             except (AnalysisError, ValidationError) as exc:
@@ -118,12 +138,12 @@ def chat(request, case_id, chat_id=None):
             form.data = form.data.copy()
             form.data["route"] = context["route_token"]
         context["form"] = form
+    chats = (
+        EvidenceChat.objects.filter(case=case)
+        .annotate(last_asked_at=Max("turns__created_at"))
+        .order_by("-last_asked_at", "-pk")
+    )
     if thread is None:
-        chats = (
-            EvidenceChat.objects.filter(case=case)
-            .annotate(last_asked_at=Max("turns__created_at"))
-            .order_by("-last_asked_at", "-pk")
-        )
         context["page_obj"] = Paginator(chats, 25).get_page(request.GET.get("page"))
         return render(request, "core/evidence_chat/index.html", context)
     turns = (
@@ -136,6 +156,7 @@ def chat(request, case_id, chat_id=None):
         thread=thread,
         rows=rows,
         page_obj=page,
+        recent_chats=chats[:10],
         pending=turns.filter(
             status__in=(ChatTurn.Status.QUEUED, ChatTurn.Status.RUNNING)
         ).exists(),
@@ -175,7 +196,7 @@ def reply(request, case_id, chat_id, turn_id):
                 turn, request.GET.get("gaps_page", 1)
             )
     if context["can_edit"] and turn.status == ChatTurn.Status.FAILED:
-        context.update(_route_context(case))
+        context.update(_route_context(case, turn=turn))
     return render_live(request, "core/evidence_chat/reply.html", context)
 
 
@@ -184,7 +205,7 @@ def reply(request, case_id, chat_id, turn_id):
 def retry(request, case_id, chat_id, turn_id):
     case = get_case(request.user, case_id, edit=True)
     turn = _get_turn(case, chat_id, turn_id)
-    route = _route_context(case)
+    route = _route_context(case, turn=turn)
     try:
         if (
             not route["route_token"]

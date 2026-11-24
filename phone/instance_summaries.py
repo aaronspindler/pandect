@@ -9,7 +9,7 @@ from django.db.models.functions import Length
 from django.http import Http404
 
 from core.analysis.errors import AnalysisError
-from core.analysis.execution import available_executions
+from core.analysis.execution import available_executions, case_execution_grants
 from core.analysis.manual import start_available_run
 from core.analysis.operations import OPERATIONS
 from core.models import AnalysisRun
@@ -102,7 +102,7 @@ def pending_summaries(case, instances, executions):
             inputs__contains=[{"kind": "text-message", "evidence_id": first_id}]
         )
     pending = {}
-    grant = case.external_analysis_approval.get("revision")
+    grants = case_execution_grants(case, OPERATION, executions.get("gateway"))
     for run in (
         AnalysisRun.objects.filter(
             candidates,
@@ -133,7 +133,8 @@ def pending_summaries(case, instances, executions):
             and run.parameters.get("_execution") == executions[backend]
             and (
                 backend != "gateway"
-                or run.parameters.get("_external_approval", {}).get("revision") == grant
+                or run.parameters.get("_external_approval", {}).get("revision")
+                in grants
             )
             and grouping is not None
             and grouping == _grouping_key(run.parameters)
@@ -154,6 +155,9 @@ def queue_summary(
         execution,
         submission_id=submission_id,
         batch=batch,
+        external_grant_revision=batch.scope.get("external_grant_revision")
+        if batch
+        else None,
     )
 
 
@@ -165,15 +169,12 @@ def prepare_instance_summaries(batch, case):
         # Work queued before standing approval retains its original private route.
         executions = {scope["backend"]: scope["execution"]}
     available = available_executions(case, OPERATION, {})
-    grant = case.external_analysis_approval.get("revision")
+    grants = case_execution_grants(case, OPERATION, executions.get("gateway"))
     eligible = {
         backend: execution
         for backend, execution in executions.items()
         if available.get(backend) == execution
-        and (
-            backend != "gateway"
-            or (grant and grant == scope.get("external_grant_revision"))
-        )
+        and (backend != "gateway" or scope.get("external_grant_revision") in grants)
     }
     if not eligible:
         raise AnalysisError("execution_changed")

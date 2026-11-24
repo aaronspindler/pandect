@@ -5,19 +5,14 @@ from uuid import UUID
 from django.http import Http404
 
 from geo.trip_models import VehicleTrip
-from geo.trip_processing import saved_trips
+from geo.trip_processing import geometry_trips, saved_trips
 
 
-def current_map_trip(case, trip_id):
-    state = (
-        VehicleTrip.objects.filter(case=case, vehicle__case=case, pk=trip_id)
-        .values_list("evidence_state", flat=True)
-        .first()
-    )
-    if not state:
-        raise Http404("Trip not found.")
+def current_map_trip(case, trip_id, *, geometry=False):
+    if geometry and (trip := geometry_trips(case).filter(pk=trip_id).first()):
+        return trip
     try:
-        return saved_trips(case, state=state).get(pk=trip_id)
+        return saved_trips(case).get(pk=trip_id)
     except VehicleTrip.DoesNotExist as error:
         raise Http404(
             "This trip changed. Open the map to see the current trips."
@@ -37,8 +32,6 @@ def poi_list_query(values):
 
 def map_query(values):
     params = poi_list_query(values)
-    if (state := values.get("state")) in {"active", "archived", "all"}:
-        params["state"] = state
     vehicle_id = values.get("vehicle_id", "")
     if len(vehicle_id) == 36:
         try:

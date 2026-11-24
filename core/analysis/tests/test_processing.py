@@ -26,6 +26,8 @@ from core.analysis.services import (
     process_run,
     require_current_geocode_reviews,
     resolve_inputs,
+    resolve_snapshots,
+    snapshot_sources,
     start_run,
     validate_output,
 )
@@ -194,6 +196,42 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
                 self.users["owner"], self.case.pk, "entities", [self.selection()] * 501
             )
         self.assertEqual(AnalysisRun.objects.count(), 0)
+
+    def test_analysis_rejects_excess_original_text_before_hydrating_sources(self):
+        texts = [
+            TextEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.users["owner"],
+                title=f"Synthetic large text {index}",
+                body="é" * 600_000,
+            )
+            for index in range(2)
+        ]
+        selections = [self.selection(item) for item in texts]
+        patch_target = "core.analysis.services.resolve_snapshots"
+        with (
+            patch(patch_target) as hydrate,
+            self.assertRaisesMessage(ValidationError, "exceed 1,000,000 characters"),
+        ):
+            start_run(self.users["owner"], self.case.pk, "entities", selections)
+        hydrate.assert_not_called()
+        self.assertFalse(AnalysisRun.objects.exists())
+
+        # A queued version may predate admission checks. It still fails safely.
+        run, _ = self.start()
+        retained = snapshot_sources(self.case, selections)
+        AnalysisRun.objects.filter(pk=run.pk).update(inputs=retained)
+        with patch(patch_target) as hydrate:
+            self.assertEqual(process_run(run.pk), "source_material_limit")
+        hydrate.assert_not_called()
+        self.assertFalse(AnalysisResult.objects.exists())
+
+    def test_submission_resolves_content_once(self):
+        with patch(
+            "core.analysis.services.resolve_snapshots", wraps=resolve_snapshots
+        ) as hydrate:
+            self.start()
+        self.assertEqual(hydrate.call_count, 1)
 
     def test_append_only_call_attachment_source_is_bound_to_exact_parent_case_and_hash(
         self,
@@ -497,8 +535,9 @@ class ProcessingTests(EvidenceViewTestMixin, TestCase):
             case=self.case,
             inputs=[entry | {"result_id": result_id} for entry in prior.inputs],
         )
-        # Original records are loaded together; the retained result is loaded once.
-        with self.assertNumQueries(2):
+        # Three preflight queries measure the material, then original and result
+        # content are each loaded once.
+        with self.assertNumQueries(5):
             resolved = resolve_inputs(current, self.case)
         self.assertEqual(len(resolved), len(originals))
         self.assertTrue(all(source.extracted_text for source in resolved))
@@ -1057,9 +1096,9 @@ class QueuePublicationTests(TransactionTestCase):
         submission_id = uuid4()
         both_checked_submission = Barrier(2)
 
-        def resolve_after_both_checks(run, case):
+        def resolve_after_both_checks(run, case, **kwargs):
             both_checked_submission.wait(timeout=10)
-            return resolve_inputs(run, case)
+            return resolve_inputs(run, case, **kwargs)
 
         def submit(evidence):
             close_old_connections()

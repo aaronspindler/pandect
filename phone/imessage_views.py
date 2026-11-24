@@ -83,9 +83,11 @@ def imessage_analysis_status(request, case_id, batch_id):
         except AnalysisError, Http404:
             pass
         else:
-            first_message = published_messages.order_by(
-                "communication_context__source_row"
-            ).first()
+            first_message = (
+                published_messages.filter(is_archived=False)
+                .order_by("communication_context__source_row")
+                .first()
+            )
     page = Paginator(runs, 25).get_page(request.GET.get("page"))
     for run in page:
         operation = OPERATIONS.get(run.operation)
@@ -129,7 +131,10 @@ def imessage_upload(request, case_id):
             document_id = UUID(request.GET["document"])
         except ValueError:
             raise Http404("Document not found.") from None
-        initial["document"] = get_evidence(case, "document", document_id).pk
+        document = get_evidence(case, "document", document_id)
+        if document.is_archived:
+            raise Http404("Restore this CSV before importing messages.")
+        initial["document"] = document.pk
     form = IMessageUploadForm(
         request.POST if request.method == "POST" else None,
         request.FILES if request.method == "POST" else None,
@@ -190,6 +195,7 @@ def _first_reused_message(messages, case, document, run):
     messages = messages.filter(
         Q(sender_id=account_id, recipient_id=correspondent_id)
         | Q(sender_id=correspondent_id, recipient_id=account_id),
+        is_archived=False,
         communication_context__case=case,
         communication_context__source_document=document,
         communication_context__source_sha256=document.sha256,
@@ -257,8 +263,7 @@ def imessage_review(request, case_id, run_id):
         request.method in {"GET", "HEAD"}
         and request.headers.get("X-Pandect-Live") == "1"
     ):
-        # Poll only authorized run state. Reading rows deliberately revalidates
-        # the entire CSV, so it must never run on an automatic refresh.
+        # Poll only authorized run state and leave row navigation to the reader.
         return render_live(
             request,
             "phone/imessage_progress.html",
@@ -288,7 +293,12 @@ def imessage_review(request, case_id, run_id):
     ):
         source_error = error_message("source_unavailable")
     data = (
-        preview.result.data if not source_error and hasattr(preview, "result") else {}
+        preview.result.data
+        if not source_error
+        and document
+        and not document.is_archived
+        and hasattr(preview, "result")
+        else {}
     )
     legacy_preview = preview.method_version != OPERATIONS["imessage_import"].version
     samples = data.get("imessage_samples", data.get("items", [])[:3])
@@ -313,6 +323,7 @@ def imessage_review(request, case_id, run_id):
                 page=rows.number,
                 per_page=25,
                 excluded_only=excluded_only,
+                retained=data,
             )
             if actual_total != total:
                 raise AnalysisError("imessage_source_changed")
@@ -326,6 +337,7 @@ def imessage_review(request, case_id, run_id):
         not source_error
         and not legacy_preview
         and document
+        and not document.is_archived
         and preview.status in ("complete", "partial")
         and metrics.get("ready_rows", 0) > 0
     )
@@ -391,6 +403,11 @@ def imessage_review(request, case_id, run_id):
         source_error = (
             source_error
             or (
+                "Restore this CSV before importing messages."
+                if document and document.is_archived
+                else ""
+            )
+            or (
                 "Prepare another review from the retained CSV before importing "
                 "this earlier format."
                 if legacy_preview
@@ -412,7 +429,7 @@ def imessage_review(request, case_id, run_id):
             communication_context__source_sha256=document.sha256,
             communication_context__import_run=current,
         ).order_by("communication_context__source_row")
-        first_message = imported.first()
+        first_message = imported.filter(is_archived=False).first()
         if first_message is None and result_data.get("metrics", {}).get("reused_rows"):
             first_message = _first_reused_message(
                 retained_messages, case, document, current
@@ -424,7 +441,7 @@ def imessage_review(request, case_id, run_id):
             if row.get("values", {}).get("message_id")
         ]
         imported = retained_messages.filter(pk__in=message_ids)
-        first_message = imported.first()
+        first_message = imported.filter(is_archived=False).first()
     imported = Paginator(imported, 25).get_page(request.GET.get("messages_page"))
     summary = data.get("imessage", {})
     return render_live(

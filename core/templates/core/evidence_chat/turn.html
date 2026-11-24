@@ -7,7 +7,7 @@
 
   <div class="chat-reply">
     <p class="chat-meta"><strong>Evidence reply</strong></p>
-    <div class="chat-bubble">
+    <div class="chat-reply-body">
       {% if row.turn.status == 'queued' or row.turn.status == 'running' %}
         <p><strong>{{ row.turn.get_status_display }}</strong>{% if row.turn.total %} · Reviewed {{ row.turn.reviewed }} of {{ row.turn.total }} source entries{% endif %}</p>
       {% elif row.error %}
@@ -19,10 +19,10 @@
             {% include 'core/evidence_chat/transfer.html' %}
             <button class="button button-secondary" type="submit">Retry question</button>
           </form>
-          {% elif unavailable %}<p>{{ unavailable }}</p>{% endif %}
+          {% elif unavailable and unavailable != row.error %}<p>{{ unavailable }}</p>{% endif %}
         {% endif %}
       {% elif row.withheld %}
-        <p>Reply unavailable because its sources could not be verified.</p>
+        <p>{{ row.withheld }}</p>
       {% else %}
         {% if row.answer.clarification %}
           <p><strong>Clarification requested</strong></p><p class="chat-answer">{{ row.answer.clarification }}</p>
@@ -33,13 +33,23 @@
           <p class="chat-answer">{{ claim.text }} {% for ref in claim.references %}<a href="{{ ref.citation.url }}" aria-label="Reference {{ ref.number }}: {{ ref.citation.label }}">[{{ ref.number }}]</a>{% if not forloop.last %} {% endif %}{% endfor %}</p>
           {% endfor %}
           {% if row.references %}
-          <h3>References</h3>
+          {% partialdef source_quotes %}
           <ol class="chat-references">
           {% for reference in row.references %}<li>
             <a href="{{ reference.url }}">{{ reference.label }}</a>
             <blockquote>{{ reference.quote }}</blockquote>
           </li>{% endfor %}
           </ol>
+          {% endpartialdef %}
+          {% if single %}
+          <h3>Sources</h3>
+          {% partial source_quotes %}
+          {% else %}
+          <details class="chat-sources" id="sources-{{ row.turn.pk }}">
+            <summary>Sources ({{ row.references|length }})</summary>
+            {% partial source_quotes %}
+          </details>
+          {% endif %}
           {% endif %}
           {% if row.answer.lead %}<h3>Suggested next check</h3><p class="chat-answer">{{ row.answer.lead }}</p>{% endif %}
         {% endif %}

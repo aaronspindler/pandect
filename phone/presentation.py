@@ -62,9 +62,10 @@ def reader_context(
         context["display_title"] = message_evidence_label(
             item.body, item.sender, item.occurred_at
         )
-        context["conversation_url"] = conversation_url(
-            case, item, list_page=conversation_list_page
-        )
+        if not item.is_archived:
+            context["conversation_url"] = conversation_url(
+                case, item, list_page=conversation_list_page
+            )
         context["communication_context"] = (
             CommunicationContext.objects.filter(
                 case=case, message=item, source_document__case=case

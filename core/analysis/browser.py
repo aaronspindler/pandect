@@ -78,46 +78,20 @@ class AnalysisBrowserTests(BrowserTestCase):
             ):
                 self.sign_in(page, self.owner)
                 page.goto(settings_url)
-                text_destination = page.locator(
-                    "#external-analysis details dl > div"
-                ).filter(has_text="Text and source references")
+                ai = page.locator("#ai-processing")
+                expect(ai.get_by_role("radio", name="Local AI")).to_be_checked()
+                ai.get_by_role("radio", name="External AI").press("Space")
+                ai.get_by_role("button", name="Save changes").press("Enter")
                 expect(
-                    text_destination.get_by_text(
-                        "Anthropic · claude-haiku-5-5", exact=True
-                    )
+                    page.get_by_role("heading", name="Review external AI destinations")
+                ).to_be_visible()
+                expect(page.get_by_role("checkbox", name="Anthropic")).to_be_checked()
+                expect(
+                    page.get_by_text("Direct connection", exact=False)
                 ).to_be_visible()
                 self.assertNotIn("synthetic-claude-key", page.content())
-                approval = page.get_by_role(
-                    "button", name="Approve listed destinations"
-                )
-                backend = page.get_by_label("AI backend", exact=True)
-                expect(backend).to_have_value(Case.AIBackend.LOCAL)
-                backend.focus()
-                expect(backend).to_be_focused()
-                for width, height in (
-                    (1440, 900),
-                    (1440, 1024),
-                    (768, 1024),
-                    (390, 844),
-                    (320, 844),
-                ):
-                    page.set_viewport_size({"width": width, "height": height})
-                    backend.scroll_into_view_if_needed()
-                    self._assert_reflow(page)
-                    self.capture(page, engine, f"direct-ai-{width}-{height}")
-                page.emulate_media(color_scheme="dark")
-                self.capture(page, engine, "direct-ai-dark")
-                page.emulate_media(forced_colors="active", reduced_motion="reduce")
-                self.capture(page, engine, "direct-ai-forced-colors")
-                approval.press("Enter")
-                expect(
-                    page.get_by_text("External analysis approved for this case.")
-                ).to_be_visible()
-                backend.select_option(Case.AIBackend.GATEWAY)
-                save_backend = page.get_by_role("button", name="Save AI backend")
-                save_backend.press("Enter")
-                expect(page.get_by_text("AI backend saved.")).to_be_visible()
-                expect(backend).to_have_value(Case.AIBackend.GATEWAY)
+                page.get_by_role("button", name="Approve and save").press("Enter")
+                expect(ai.get_by_role("radio", name="External AI")).to_be_checked()
                 page.goto(analysis_url)
                 expect(
                     page.get_by_label("Processing location", exact=True)
@@ -158,21 +132,17 @@ class AnalysisBrowserTests(BrowserTestCase):
                     )
                 )
                 page.goto(settings_url)
-                page.get_by_role(
+                ai.locator("summary").press("Enter")
+                ai.get_by_role(
                     "button", name="Revoke external analysis approval"
-                ).click()
-                expect(approval).to_be_visible()
-                expect(
-                    page.get_by_text("External AI needs current approval.", exact=False)
-                ).to_be_visible()
-                expect(backend).to_have_value(Case.AIBackend.GATEWAY)
-                backend.select_option(Case.AIBackend.LOCAL)
-                save_backend.press("Enter")
-                expect(page.get_by_text("AI backend saved.")).to_be_visible()
-                expect(backend).to_have_value(Case.AIBackend.LOCAL)
+                ).press("Enter")
+                expect(ai.locator("summary")).to_contain_text("None approved")
+                ai.get_by_role("radio", name="Local AI").press("Space")
+                ai.get_by_role("button", name="Save changes").press("Enter")
+                expect(ai.get_by_role("radio", name="Local AI")).to_be_checked()
 
     @override_settings(
-        PANDECT_AI_GATEWAY=REVIEWED_OPENAI,
+        PANDECT_AI_GATEWAY=REVIEWED_OPENAI | {"unified_billing": True},
         PANDECT_LOCAL_AI=LOCAL,
         PANDECT_SEARCH_EMBEDDING_PROVIDER="openai-gateway",
     )
@@ -192,106 +162,53 @@ class AnalysisBrowserTests(BrowserTestCase):
                 )
                 self.sign_in(page, self.owner)
                 page.goto(settings_url)
-                text_destinations = page.locator(
-                    "#external-analysis details dl > div"
-                ).filter(has_text="Text and source references")
+                ai = page.locator("#ai-processing")
+                save = ai.get_by_role("button", name="Save changes")
+                external = ai.get_by_role("radio", name="External AI")
+                external.press("Space")
+                save.press("Enter")
+                approve = page.get_by_role("button", name="Approve and save")
+                expect(approve).to_be_visible()
+                expect(page.get_by_text("Audio chunks", exact=False)).to_be_visible()
+                page.get_by_role("link", name="Cancel", exact=True).click()
+                expect(ai.get_by_role("radio", name="Local AI")).to_be_checked()
+                external.press("Space")
+                save.press("Enter")
+                page.get_by_role("checkbox", name="Cloudflare Workers AI").uncheck()
+                approve.press("Enter")
+                expect(external).to_be_checked()
+                save.press("Enter")
                 expect(
-                    text_destinations.get_by_text(
-                        re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6-luna")
-                    )
+                    page.get_by_text("AI processing settings saved.")
                 ).to_be_visible()
-                approval = page.get_by_role(
-                    "button", name="Approve listed destinations"
-                )
-                approval.focus()
-                expect(approval).to_be_focused()
-                for width, height in (
-                    (1440, 900),
-                    (1440, 1024),
-                    (768, 1024),
-                    (390, 844),
-                    (320, 844),
-                ):
-                    page.set_viewport_size({"width": width, "height": height})
-                    approval.scroll_into_view_if_needed()
-                    self._assert_reflow(page)
-                    self.capture(page, engine, f"openai-initial-{width}-{height}")
-                page.emulate_media(color_scheme="dark")
-                self.capture(page, engine, "openai-initial-dark")
-                page.emulate_media(
-                    color_scheme="light",
-                    forced_colors="active",
-                    reduced_motion="reduce",
-                )
-                self.capture(page, engine, "openai-initial-forced-colors")
-                with self.settings(
-                    PANDECT_AI_GATEWAY=REVIEWED_OPENAI
-                    | {"models": REVIEWED_OPENAI["models"] | {"text": "gpt-6-astra"}}
-                ):
-                    approval.press("Enter")
-                    expect(
-                        page.get_by_text(
-                            "Settings changed. Review the current destinations."
-                        )
-                    ).to_be_visible()
-                    expect(
-                        text_destinations.get_by_text(
-                            re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6-astra")
-                        )
-                    ).to_be_visible()
-                    expect(approval).to_be_visible()
-                self.db(self.case.refresh_from_db)
-                self.assertFalse(self.case.external_analysis_approval)
+                expect(approve).to_have_count(0)
 
-                page.emulate_media(color_scheme="dark", forced_colors="none")
-                page.reload()
-                approval.press("Enter")
-                expect(
-                    page.get_by_text("External analysis approved for this case.")
-                ).to_be_visible()
-                claims_model = page.get_by_label("Claims and commitments", exact=True)
-                expect(claims_model).to_have_value("")
-                claims_model.focus()
-                expect(claims_model).to_be_focused()
+                claims_model = ai.get_by_label("Claims and commitments", exact=True)
                 claims_model.select_option("gpt-6.2-sol")
-                page.get_by_role("button", name="Save models").press("Enter")
-                expect(page.get_by_text("Analysis models saved.")).to_be_visible()
-                expect(claims_model).to_have_value("gpt-6.2-sol")
-                expect(approval).to_be_visible()
-                self.db(self.case.refresh_from_db)
-                self.assertEqual(
-                    self.case.external_analysis_models,
-                    {"content_events": "gpt-6.2-sol"},
-                )
-                self.assertEqual(
-                    self.case.external_analysis_approval["executions"][
-                        "content_events"
-                    ]["model"],
-                    "gpt-6-luna",
-                )
-                approval.press("Enter")
+                save.press("Enter")
                 expect(
-                    page.get_by_text("External analysis approved for this case.")
+                    page.get_by_text("AI processing settings saved.")
                 ).to_be_visible()
-                expect(approval).to_have_count(0)
                 expect(claims_model).to_have_value("gpt-6.2-sol")
-                destination_details = page.locator("#external-analysis summary").filter(
-                    has_text="Approved external destinations"
+                ai.locator("summary").press("Enter")
+                ai.get_by_role("button", name="Review pending destinations").press(
+                    "Enter"
                 )
-                destination = text_destinations.get_by_text(
-                    re.compile("OpenAI via Cloudflare AI Gateway.*gpt-6.2-sol")
-                )
-                expect(destination).to_be_hidden()
-                destination_details.press("Enter")
-                expect(destination).to_be_visible()
-                destination_details.press("Enter")
-                expect(destination).to_be_hidden()
+                expect(page.get_by_role("checkbox")).to_have_count(1)
+                expect(page.get_by_text("Audio chunks", exact=False)).to_be_visible()
+                approve.press("Enter")
 
-                page.get_by_label("AI backend", exact=True).select_option(
-                    Case.AIBackend.GATEWAY
-                )
-                page.get_by_role("button", name="Save AI backend").press("Enter")
-                expect(page.get_by_text("AI backend saved.")).to_be_visible()
+                chat_model = ai.get_by_label("Evidence chat", exact=True)
+                chat_model.select_option("anthropic/claude-sonnet-5.5")
+                save.press("Enter")
+                expect(page.get_by_role("checkbox")).to_have_count(1)
+                expect(page.get_by_text("Evidence chat.", exact=False)).to_be_visible()
+                approve.press("Enter")
+                expect(chat_model).to_have_value("anthropic/claude-sonnet-5.5")
+                chat_model.select_option("gpt-6.2-sol")
+                save.press("Enter")
+                expect(chat_model).to_have_value("gpt-6.2-sol")
+                expect(approve).to_have_count(0)
                 page.get_by_role("button", name="Approve and start indexing").press(
                     "Enter"
                 )
@@ -300,6 +217,63 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_role("link", name="View indexing progress")
                 ).to_be_visible()
+
+    @override_settings(
+        PANDECT_AI_GATEWAY=REVIEWED_OPENAI | {"unified_billing": True},
+        PANDECT_SEARCH_EMBEDDING_PROVIDER="openai-gateway",
+    )
+    def test_searchable_model_picker_and_settings_layout(self):
+        settings_url = self.url("cases:case_settings", case_id=self.case.pk)
+        for engine in self.engines:
+            with self.subTest(engine=engine), self.browser_page(engine) as (_, page):
+                self.db(
+                    Case.objects.filter(pk=self.case.pk).update,
+                    ai_backend=Case.AIBackend.LOCAL,
+                    external_analysis_models={
+                        "question_synthesis": "google/gemini-4-argon"
+                    },
+                    external_analysis_approval={},
+                    search_embedding_approval={},
+                )
+                self.sign_in(page, self.owner)
+                page.goto(settings_url)
+                ai = page.locator("#ai-processing")
+                chat = ai.get_by_role("button", name=re.compile("^Evidence chat:"))
+                chat.press("Enter")
+                picker = page.get_by_role("dialog", name="Model for Evidence chat")
+                search = picker.get_by_label("Search models or providers")
+                models = picker.get_by_label("Matching models")
+                expect(search).to_be_focused()
+                search.fill("no such model")
+                expect(picker.get_by_text("No matching models.")).to_be_visible()
+                expect(models.locator("optgroup")).to_have_count(0)
+                expect(picker.get_by_role("button", name="Use model")).to_be_disabled()
+                search.press("Escape")
+                # Search inputs can consume the first Escape to clear their text.
+                if picker.is_visible():
+                    search.press("Escape")
+                expect(chat).to_be_focused()
+                chat.press("Enter")
+                search.fill("Vertex")
+                expect(
+                    models.locator('option[value="google/gemini-4-argon"]')
+                ).to_have_count(1)
+                search.fill("anthropic")
+                models.select_option("anthropic/claude-sonnet-5.5")
+                self.capture(page, engine, "ai-model-picker")
+                picker.get_by_role("button", name="Use model").press("Enter")
+                expect(chat).to_contain_text("Claude Sonnet 5.5")
+                expect(chat).to_be_focused()
+                ai.get_by_role("radio", name="External AI").press("Space")
+                ai.get_by_role("button", name="Save changes").press("Enter")
+                self.capture(page, engine, "ai-destination-review")
+                page.get_by_role("button", name="Approve and save").press("Enter")
+                expect(chat).to_contain_text("Claude Sonnet 5.5")
+                page.get_by_role("button", name="Approve and start indexing").press(
+                    "Enter"
+                )
+                page.wait_for_url("**/processing/#case-search-index")
+                page.goto(settings_url + "#ai-processing")
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -308,13 +282,20 @@ class AnalysisBrowserTests(BrowserTestCase):
                     (320, 844),
                 ):
                     page.set_viewport_size({"width": width, "height": height})
-                    page.locator("#ai-processing").evaluate(
-                        "section => section.scrollIntoView()"
-                    )
-                    self._assert_reflow(page)
-                    self.capture(
-                        page, engine, f"openai-models-approved-{width}-{height}"
-                    )
+                    for theme in ("light", "dark"):
+                        page.emulate_media(color_scheme=theme)
+                        ai.evaluate("section => section.scrollIntoView()")
+                        self._assert_reflow(page)
+                        self.capture(
+                            page, engine, f"ai-settings-{theme}-{width}-{height}"
+                        )
+                page.emulate_media(forced_colors="active", reduced_motion="reduce")
+                ai.get_by_role("radio", name="External AI").focus()
+                expect(ai.get_by_role("radio", name="External AI")).to_be_focused()
+                self.capture(page, engine, "ai-settings-forced-colors")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self._assert_reflow(page)
 
     def setUp(self):
         super().setUp()
@@ -1501,6 +1482,15 @@ class AnalysisBrowserTests(BrowserTestCase):
             title="Synthetic recorder",
             file=ContentFile(content, name="recorder.wav"),
         )
+        AudioEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Archived recorder copy",
+            file=ContentFile(content, name="archived-copy.wav"),
+            is_archived=True,
+            archive_changed_at=datetime.now(UTC),
+            archive_changed_by=self.owner,
+        )
         call = PhoneCallEvidence.objects.get(case=self.case)
         addition = CallEvidenceAttachment.objects.create(
             case=self.case,
@@ -1588,13 +1578,16 @@ class AnalysisBrowserTests(BrowserTestCase):
                             expect(
                                 table.get_by_role("link", name=filename)
                             ).to_be_visible()
+                        expect(
+                            table.get_by_role("link", name="archived-copy.wav")
+                        ).to_have_count(0)
                         details = table.locator("summary").first
                         details.press("Enter")
                         expect(
                             table.get_by_text("Source type", exact=True).first
                         ).to_be_visible()
                         expect(
-                            table.get_by_text("No", exact=True).first
+                            table.get_by_text("Byte size", exact=True).first
                         ).to_be_visible()
                         details.press("Enter")
                     if name == "vehicle-coverage":
@@ -1957,6 +1950,16 @@ class AnalysisBrowserTests(BrowserTestCase):
 
     def test_viewer_reports_sources_and_access_removal_without_javascript(self):
         person = Person.objects.get(case=self.case)
+        PhoneCallEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic archived call",
+            sender=person,
+            recipient=person,
+            is_archived=True,
+            archive_changed_at=datetime.now(UTC),
+            archive_changed_by=self.owner,
+        )
         for engine in self.engines:
             # Each browser engine receives fresh viewer membership after the prior
             # engine's revocation has been checked.
@@ -1990,16 +1993,15 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(
                     page.get_by_text("Reported duration (seconds)", exact=True).first
                 ).to_be_visible()
-                expect(page.get_by_label("State", exact=True)).to_be_hidden()
+                participant = page.get_by_label("Participant", exact=True)
+                expect(participant).to_be_hidden()
                 self.capture(page, engine, "analysis-report-default")
                 report_filters = page.locator(".report-filters > summary")
                 report_filters.focus()
                 report_filters.press("Enter")
-                expect(page.get_by_label("State", exact=True)).to_be_visible()
-                page.get_by_label("State", exact=True).select_option("all")
-                page.get_by_label("Participant", exact=True).select_option(
-                    str(person.pk)
-                )
+                expect(participant).to_be_visible()
+                expect(page.get_by_label("State", exact=True)).to_have_count(0)
+                participant.select_option(str(person.pk))
                 page.get_by_role("button", name="Update report", exact=True).click()
                 expect(
                     page.get_by_role(
@@ -2011,7 +2013,12 @@ class AnalysisBrowserTests(BrowserTestCase):
                 expect(page.locator(".report-filters")).not_to_have_attribute(
                     "open", ""
                 )
-                expect(report_filters).to_contain_text(f"All evidence · {person}")
+                expect(report_filters).to_contain_text(str(person))
+                expect(
+                    page.get_by_role(
+                        "link", name="Phone call · Synthetic archived call", exact=True
+                    )
+                ).to_have_count(0)
                 details = page.locator("details").filter(
                     has=page.locator("summary", has_text="About this report")
                 )

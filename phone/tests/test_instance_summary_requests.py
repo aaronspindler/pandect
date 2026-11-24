@@ -9,10 +9,15 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from cases.models import CaseMembership
+from core.analysis.approval import approve_scopes
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import project_result
 from core.analysis.errors import AnalysisError
-from core.analysis.execution import snapshot_execution
+from core.analysis.execution import (
+    case_grant_revision,
+    snapshot_execution,
+    transfer_scope,
+)
 from core.analysis.operations import get_operation
 from core.analysis.services import (
     process_run,
@@ -153,6 +158,38 @@ class InstanceSummaryRequestTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(
             AnalysisRun.objects.filter(operation="session_summaries").count(), 2
         )
+
+    def test_pending_exact_grant_survives_approval_for_the_same_destination(self):
+        url = self.session(self.message(1))
+        self.select_external_ai()
+        self.login("editor")
+        payload = self.summary_payload(self.client.get(url))
+        submitted = self.client.post(url, payload)
+        batch = CaseAnalysisBatch.objects.get()
+        execution = batch.scope["executions"]["gateway"]
+        pinned_revision = batch.scope["external_grant_revision"]
+        approve_scopes(
+            self.case, self.case.owner, [transfer_scope("session_summaries", execution)]
+        )
+        self.assertNotEqual(
+            case_grant_revision(self.case, "session_summaries", execution),
+            pinned_revision,
+        )
+        self.assertRedirects(
+            self.client.get(url), submitted.url, fetch_redirect_response=False
+        )
+        self.assertEqual(prepare_case_analysis_batch(batch.pk), "complete")
+        run = batch.runs.get()
+        self.assertEqual(
+            run.parameters["_external_approval"]["revision"], pinned_revision
+        )
+        detail = reverse("core:analysis:detail", args=(self.case.pk, run.pk))
+        self.assertRedirects(
+            self.client.post(url, payload | {"submission_id": uuid4()}),
+            detail,
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(CaseAnalysisBatch.objects.count(), 1)
 
     def test_queued_private_summary_retains_its_route_after_case_changes(self):
         url = self.session(self.message(1))

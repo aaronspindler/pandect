@@ -7,15 +7,17 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.admin.widgets import AdminTextareaWidget
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import StreamingHttpResponse
+from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils import timezone
 
 from cases.admin_access import CaseScopedAdmin
 from cases.permissions import get_case
+from core.analysis.automatic import start_added_evidence_analysis
 from core.evidence.deletion import (
     CHANGED,
     deletion_manifest_response,
@@ -27,6 +29,7 @@ from core.evidence.deletion import (
 )
 from core.evidence.forms import BaseEvidenceForm
 from core.evidence.queries import same_case_evidence
+from core.storage import retain_uploaded_originals, staged_file_upload
 
 
 class EvidenceAdmin(CaseScopedAdmin):
@@ -85,7 +88,10 @@ class EvidenceAdmin(CaseScopedAdmin):
             kwargs["strip"] = False
         if db_field.name == "source_description":
             kwargs["widget"] = AdminTextareaWidget(attrs={"rows": 3})
-        return super().formfield_for_dbfield(db_field, request, **kwargs)
+        field = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == "is_archived" and field is not None:
+            field.show_hidden_initial = True
+        return field
 
     def get_readonly_fields(self, request, obj=None):
         fields = super().get_readonly_fields(request, obj)
@@ -362,13 +368,68 @@ class EvidenceAdmin(CaseScopedAdmin):
     def delete_model(self, request, obj):
         execute_deletion(request.evidence_deletion_plan, request.user)
 
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        if (
+            request.method != "POST"
+            or object_id is not None
+            or not self.has_add_permission(request)
+        ):
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        upload = request.FILES.get("file") if self.file_evidence else None
+        if upload:
+            try:
+                permitted = (
+                    self.get_editable_cases(request)
+                    .filter(pk=request.POST.get("case"))
+                    .exists()
+                )
+            except ValidationError:
+                permitted = False
+            if not permitted:
+                # Let the normal scoped model form reject the submitted case.
+                upload = None
+        with (
+            staged_file_upload(upload, limit=settings.PANDECT_MAX_FILE_BYTES),
+            retain_uploaded_originals() as originals,
+        ):
+            request.evidence_admin_originals = originals
+            return super().changeform_view(request, object_id, form_url, extra_context)
+
     def save_model(self, request, obj, form, change):
+        case = get_case(request.user, obj.case_id, edit=True, lock=True)
+        archive_changed = False
         if not change:
             obj.uploaded_by = request.user
-        elif obj.is_archived != form.initial["is_archived"]:
-            obj.archive_changed_at = timezone.now()
-            obj.archive_changed_by = request.user
+        else:
+            current = get_object_or_404(
+                self.model.objects.only(
+                    "is_archived", "archive_changed_at", "archive_changed_by_id"
+                ),
+                case=case,
+                pk=obj.pk,
+            )
+            archive_changed = (
+                "is_archived" in form.changed_data
+                and obj.is_archived != current.is_archived
+            )
+            if archive_changed:
+                obj.archive_changed_at = timezone.now()
+                obj.archive_changed_by = request.user
+            else:
+                obj.is_archived = current.is_archived
+                obj.archive_changed_at = current.archive_changed_at
+                obj.archive_changed_by_id = current.archive_changed_by_id
         super().save_model(request, obj, form, change)
+        if not change:
+            if self.file_evidence:
+                request.evidence_admin_originals.append(obj.file)
+            start_added_evidence_analysis(request.user, case.pk, self.kind, obj.pk)
+        if archive_changed:
+            from core.case_search.indexing import evidence_archive_changed
+
+            evidence_archive_changed(
+                case, request.user, self.kind, obj.pk, archived=obj.is_archived
+            )
 
 
 def deletion_summary(plans):

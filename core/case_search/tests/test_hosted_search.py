@@ -1,16 +1,28 @@
 """Paid query embedding requires an explicit, approved, case-scoped submission."""
 
 import hashlib
+import json
 import math
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from core.analysis.errors import AnalysisError
+from core.analysis.tests.test_gateway import response
 from core.case_search.approval import search_approval_context
 from core.case_search.semantic_model import HOSTED_DIMENSIONS, profile
-from core.models import CaseSearchIndex, SearchDocument, SearchPassage
+from core.case_search.tests.test_hosted_embeddings import OPENER, UNIT, reply
+from core.evidence_chat.retrieval_route import hosted_scope, related_for_turn
+from core.models import (
+    CaseSearchIndex,
+    ChatTurn,
+    EvidenceChat,
+    SearchDocument,
+    SearchPassage,
+)
 from core.testing import EvidenceViewTestMixin
 from text.models import TextEvidence
 
@@ -72,18 +84,24 @@ class HostedSearchTests(EvidenceViewTestMixin, TestCase):
         return item
 
     def submit(self, **params):
+        params = self.params | params
+        shown = self.client.get(self.url, params)
         token = self.client.cookies["csrftoken"].value
         return self.client.post(
             self.url,
-            {"meaning": "1", "csrfmiddlewaretoken": token},
-            query_params=self.params | params,
+            {
+                "meaning": "1",
+                "csrfmiddlewaretoken": token,
+                "search_token": shown.context.get("search_token", ""),
+            },
+            query_params=params,
         )
 
-    def test_explicit_submission_threshold_width_state_and_csrf(self):
+    def test_explicit_submission_excludes_archived_vectors_and_enforces_csrf(self):
         active = self.passage("Harbour log", 0.489)
         self.passage("Weaker match", 0.488)
         self.passage("Other width", 1.0, width=384)
-        archived = self.passage("Earlier log", 0.9, archived=True)
+        self.passage("Earlier log", 0.9, archived=True)
         CaseSearchIndex.objects.filter(case=self.case).update(status="ready")
         with patch(
             "core.case_search.semantic.embed", return_value=[[1.0] + [0.0] * 1535]
@@ -102,16 +120,14 @@ class HostedSearchTests(EvidenceViewTestMixin, TestCase):
                 403,
             )
             embed.assert_not_called()
-            for state, expected in (
-                ("active", [active.pk]),
-                ("archived", [archived.pk]),
-                ("all", [archived.pk, active.pk]),
-            ):
+            for state in ("active", "archived", "all"):
                 response = self.submit(state=state)
                 self.assertEqual(
-                    [r["id"] for r in response.context["related"]], expected
+                    [r["id"] for r in response.context["related"]], [active.pk]
                 )
                 self.assertContains(response, "The ferry moved out of port.")
+                self.assertNotContains(response, "Earlier log")
+                self.assertNotContains(response, 'name="state"')
             self.assertEqual(embed.call_count, 3)
             self.change_approval("revoke")
             self.assertNotContains(
@@ -135,3 +151,86 @@ class HostedSearchTests(EvidenceViewTestMixin, TestCase):
         ) as embed:
             self.assertFalse(self.submit().context["related"])
             embed.assert_called_once()
+
+    def test_old_form_cannot_transfer_a_question_after_grant_rotation(self):
+        self.passage("Synthetic", 0.9)
+        shown = self.client.get(self.url, self.params)
+        self.change_approval("revoke")
+        self.change_approval("approve")
+        with patch("core.case_search.semantic.embed") as embed:
+            response = self.client.post(
+                self.url,
+                {
+                    "meaning": "1",
+                    "search_token": shown.context["search_token"],
+                    "csrfmiddlewaretoken": self.client.cookies["csrftoken"].value,
+                },
+                query_params=self.params,
+            )
+        embed.assert_not_called()
+        self.assertContains(response, "Submit again")
+
+    def test_chat_sends_a_bounded_query_only_under_its_submitted_scope(self):
+        source = self.passage("Harbour log", 0.9)
+        editor = self.users["editor"]
+        turn = ChatTurn.objects.create(
+            case=self.case,
+            chat=EvidenceChat.objects.create(case=self.case, created_by=editor),
+            asked_by=editor,
+            ordinal=1,
+            question="A synthetic question",
+            submission_id=uuid4(),
+        )
+
+        def authorize():
+            self.case.refresh_from_db()
+            return self.case
+
+        query = (
+            "Which ferry sailed out of the harbour after the captain "
+            "had checked the crate and signed the receipt"
+        )
+        with patch(OPENER) as http:
+            self.change_approval("enable_chat")
+            self.assertFalse(related_for_turn(turn, query, authorize)[0])
+            http.assert_not_called()
+            turn.plan["hosted_search"] = hosted_scope(self.case)
+            http.return_value.open.return_value = response(reply(UNIT))
+            rows, _ = related_for_turn(turn, query, authorize)
+            self.assertEqual([row["id"] for row in rows], [source.pk])
+            posted = json.loads(http.return_value.open.call_args.args[0].data)
+            words = posted["input"][0].split()
+            self.assertLessEqual(len(words), 16)
+            self.assertIn("receipt", words)
+            self.assertTrue(set(words) <= set(query.lower().split()))
+            usage = turn.gateway_requests.get()
+            self.assertEqual(
+                (usage.operation, usage.model, usage.status),
+                ("evidence_chat", "text-embedding-3-large", "complete"),
+            )
+            self.change_approval("disable_chat")
+            self.change_approval("enable_chat")
+            self.assertFalse(related_for_turn(turn, query, authorize)[0])
+            self.assertEqual(http.return_value.open.call_count, 1)
+
+            turn.plan["hosted_search"] = hosted_scope(self.case)
+
+            def revoke_during_request(*args, **kwargs):
+                self.change_approval("disable_chat")
+                return response(reply(UNIT))
+
+            http.return_value.open.side_effect = revoke_during_request
+            self.assertFalse(related_for_turn(turn, query, authorize)[0])
+            self.assertEqual(
+                turn.gateway_requests.latest("created_at").status, "cancelled"
+            )
+            self.change_approval("enable_chat")
+            turn.plan["hosted_search"] = hosted_scope(self.case)
+            with (
+                patch(
+                    "core.case_search.semantic.embed",
+                    side_effect=AnalysisError("source_changed"),
+                ),
+                self.assertRaisesMessage(AnalysisError, "source_changed"),
+            ):
+                related_for_turn(turn, query, authorize)

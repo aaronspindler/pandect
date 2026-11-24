@@ -1,25 +1,15 @@
 """Verify the case entities and exact retained producers used by a comparison."""
 
 import hashlib
-from collections import defaultdict
 from copy import copy
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db.models import (
-    Func,
-    IntegerField,
-    Prefetch,
-    Sum,
-    TextField,
-    prefetch_related_objects,
-)
-from django.db.models.functions import Cast
+from django.db.models import Prefetch, prefetch_related_objects
 
 from core.analysis.errors import AnalysisError
-from core.evidence.queries import scoped_evidence
-from core.evidence.types import COMMUNICATION_KINDS, FILE_KINDS, KINDS, LOCATION_KINDS
-from core.models import AnalysisResult
+from core.analysis.source_limits import payload_bytes
+from core.evidence.types import COMMUNICATION_KINDS, FILE_KINDS, LOCATION_KINDS
 from geo.analysis.deterministic.journey_claims import (
     claimed_subjects,
     validate_comparison,
@@ -73,21 +63,6 @@ def check_comparison_inputs(run, sources, case, cache, depth):
         raise AnalysisError("source_unavailable") from error
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
         raise AnalysisError("invalid_source_chain") from error
-
-
-def _payload_bytes(rows, *fields):
-    """Measure uncompressed payloads in PostgreSQL before loading any into Python."""
-    lengths = [
-        Func(
-            Cast(field, TextField()),
-            function="octet_length",
-            output_field=IntegerField(),
-        )
-        for field in fields
-    ]
-    return rows.aggregate(total=sum(Sum(length, default=0) for length in lengths))[
-        "total"
-    ]
 
 
 def _check_private_key(case, record):
@@ -169,7 +144,7 @@ def check_source_integrity(case, sources):
         }
         if deferred:
             values = model.objects.filter(case=case, pk__in=deferred)
-            remaining -= _payload_bytes(values, field)
+            remaining -= payload_bytes(values, field)
             if remaining < 0:
                 raise AnalysisError("source_unavailable")
             for pk, body in values.values_list("pk", field).iterator(chunk_size=25):
@@ -187,76 +162,3 @@ def check_source_integrity(case, sources):
 def _check_manifest(record):
     if hashlib.sha256(record.original_bytes()).hexdigest() != record.sha256:
         raise AnalysisError("source_changed")
-
-
-def check_material_size(case, selections):
-    """Budget bodies, transcripts and retained result JSON that resolution loads."""
-    if not 1 <= len(selections) <= settings.PANDECT_ANALYSIS_MAX_SOURCES:
-        raise ValidationError("Choose between 1 and 500 retained sources.")
-    by_kind = defaultdict(set)
-    attachments = set()
-
-    # Before snapshotting, "id" identifies the original. On a frozen snapshot
-    # it identifies a virtual source and "evidence_id" identifies the original.
-    def collect(entries):
-        for entry in entries:
-            kind = entry["kind"]
-            if kind not in KINDS:
-                raise ValidationError("Choose available sources in this case.")
-            by_kind[kind].add(entry.get("evidence_id") or entry["id"])
-            if addition := entry.get("attachment_id"):
-                attachments.add(addition)
-        if (
-            max(sum(map(len, by_kind.values())), len(attachments))
-            > settings.PANDECT_ANALYSIS_MAX_SOURCES
-        ):
-            raise ValidationError(
-                "Too many contributing originals. Choose fewer source versions."
-            )
-
-    limit = settings.PANDECT_ANALYSIS_MAX_BYTES
-
-    def check(total):
-        if total > limit:
-            raise ValidationError(
-                "The retained material exceeds the input limit. Choose fewer sources."
-            )
-
-    collect(selections)
-    result_ids = {entry["result_id"] for entry in selections if entry.get("result_id")}
-    total = 0
-    if result_ids:
-        results = AnalysisResult.objects.filter(
-            case=case, run__case=case, pk__in=result_ids
-        )
-        total = _payload_bytes(results, "data", "run__inputs", "run__parameters")
-        check(total)
-        for entries in results.values_list("run__inputs", flat=True).iterator(
-            chunk_size=25
-        ):
-            collect(entries)
-    if attachments:
-        total += _payload_bytes(
-            CallEvidenceAttachment.objects.filter(case=case, pk__in=attachments),
-            "transcript",
-        )
-        check(total)
-    for kind, ids in by_kind.items():
-        fields = ["description", "source_description"]
-        if kind in ("text", "text-message"):
-            fields.append("body")
-        if kind in COMMUNICATION_KINDS:
-            fields.extend(
-                (
-                    "sender__notes",
-                    "recipient__notes",
-                    "sender__address",
-                    "recipient__address",
-                )
-            )
-        if kind in LOCATION_KINDS:
-            fields.append("address")
-        if kind == "vehicle-location":
-            fields.append("raw_row")
-        total += _payload_bytes(scoped_evidence(case, kind).filter(pk__in=ids), *fields)
-        check(total)

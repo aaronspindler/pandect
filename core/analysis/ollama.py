@@ -31,7 +31,7 @@ def pinned_model(client, *, capability, families):
     # The immutable digest prevents a tag replacement between preflight and
     # dispatch. :local makes Ollama reject cloud-backed manifests server-side.
     model = f"sha256:{config['sha256']}:local"
-    info = client._request("/api/show", {"model": model})
+    info = client._request("/api/show", {"model": model}, metadata=True)
     details = info.get("details")
     capabilities = info.get("capabilities")
     if (

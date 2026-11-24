@@ -104,6 +104,8 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
                 repeated = self.client.post(self.reprocess_url(), payload)
                 self.assertRedirects(repeated, target, fetch_redirect_response=False)
                 self.assertEqual(DBTaskResult.objects.count(), tasks)
+                batch.status = CaseAnalysisBatch.Status.COMPLETE
+                batch.save(update_fields=["status"])
         self.assertFalse(AnalysisRun.objects.exists())
 
     @override_settings(PANDECT_AI_GATEWAY=CONFIG)
@@ -119,6 +121,8 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(accepted.status_code, 302)
         first = CaseAnalysisBatch.objects.get(pk=payload["submission_id"])
         self.assertNotIn("content_events:gateway", first.scope["executions"])
+        first.status = CaseAnalysisBatch.Status.COMPLETE
+        first.save(update_fields=["status"])
 
         approval = external_grant_kwargs(self.case, "content_events")
         next_payload = self.selection("editor", evidence_types=["text"])
@@ -139,7 +143,8 @@ class ReprocessingViewTests(EvidenceViewTestMixin, TestCase):
             approval["approved_execution"],
         )
         self.assertEqual(
-            batch.scope["external_grant_revision"], approval["external_grant_revision"]
+            batch.scope["external_grants"]["content_events"],
+            approval["external_grant_revision"],
         )
 
     def test_invalid_selection_is_retained_without_queuing(self):

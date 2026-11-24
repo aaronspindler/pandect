@@ -26,9 +26,18 @@ from core.evidence.views import (
     _error,
     _file_download,
 )
-from core.storage import retain_uploaded_originals
-from phone.forms import CallAttachmentForm, save_call_content
+from core.storage import retain_uploaded_originals, staged_file_upload
+from phone.forms import CallAttachmentForm, call_content_matches, save_call_content
 from phone.models import CallEvidenceAttachment
+
+
+def _archived_call(request):
+    return _error(
+        request,
+        "source_archived",
+        "Restore this call before adding transcript or audio.",
+        409,
+    )
 
 
 @product_login_required
@@ -40,23 +49,36 @@ def add_attachment(request, case_id, kind, evidence_id):
     form = attachment = None
     is_post = request.method == "POST"
     try:
-        with retain_uploaded_originals() as originals:
+        files = None
+        if is_post:
+            case = get_case(request.user, case_id, edit=True)
+            item = get_evidence(case, kind, evidence_id)
+            if item.is_archived:
+                return _archived_call(request)
+            files = request.FILES
+            if getattr(request, "evidence_upload_too_large", False):
+                return _error(
+                    request,
+                    "file_too_large",
+                    "The file exceeds the configured upload limit.",
+                    413,
+                )
+            if sum(len(files.getlist(key)) for key in files) > 1:
+                return _error(request, "too_many_files", "Send one file at a time.")
+        with (
+            staged_file_upload(
+                files.get("file") if files is not None else None,
+                limit=settings.PANDECT_MAX_FILE_BYTES,
+            ),
+            retain_uploaded_originals() as originals,
+        ):
             case = get_case(request.user, case_id, edit=True, lock=is_post)
             item = get_evidence(case, kind, evidence_id, lock=is_post)
+            if item.is_archived:
+                return _archived_call(request)
             reader_url = _detail_url(case, kind, item) + query_suffix(request)
-            form = CallAttachmentForm(
-                request.POST if is_post else None, request.FILES if is_post else None
-            )
+            form = CallAttachmentForm(request.POST if is_post else None, files)
             if is_post:
-                if getattr(request, "evidence_upload_too_large", False):
-                    return _error(
-                        request,
-                        "file_too_large",
-                        "The file exceeds the configured upload limit.",
-                        413,
-                    )
-                if sum(len(request.FILES.getlist(key)) for key in request.FILES) > 1:
-                    return _error(request, "too_many_files", "Send one file at a time.")
                 if form.is_valid():
                     submission_id = form.cleaned_data["submission_id"]
                     previous = CallEvidenceAttachment.objects.filter(
@@ -69,6 +91,7 @@ def add_attachment(request, case_id, kind, evidence_id):
                         != (item.pk if kind == "phone-call" else None)
                         or previous.facetime_id
                         != (item.pk if kind == "facetime" else None)
+                        or not call_content_matches(previous, form.cleaned_data)
                     ):
                         return _error(
                             request,
@@ -94,7 +117,12 @@ def add_attachment(request, case_id, kind, evidence_id):
                     status = 400
     except OSError:
         if form is None or not form.is_bound:
-            raise
+            return _error(
+                request,
+                "storage_unavailable",
+                "The original could not be read. Keep your file and try again.",
+                503,
+            )
         form.add_error(
             None, "The original could not be saved. Keep your file and try again."
         )

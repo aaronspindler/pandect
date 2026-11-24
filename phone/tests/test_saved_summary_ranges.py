@@ -7,10 +7,14 @@ from uuid import uuid4
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from core.analysis.approval import approve_scopes
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
+from core.analysis.execution import transfer_scope
 from core.analysis.services import process_run, resolve_inputs
+from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
+from core.analysis.tests.test_gateway import TRANSCRIPTION_CONFIG
 from core.models import CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from phone.grouping_jobs import grouping_scope, start_grouping
@@ -44,8 +48,8 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(prepare_case_analysis_batch(group.pk), "complete")
         return ConversationSession.objects.get(grouping__batch=group)
 
-    def request_summary(self, session):
-        url = reverse(
+    def request_summary(self, session, *, url=None):
+        url = url or reverse(
             "phone:instance_summary",
             args=(self.case.pk, self.person.pk, self.person.pk, session.pk),
         )
@@ -131,6 +135,33 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
         with self.assertRaises(AnalysisError):
             resolve_inputs(first, self.case)
 
+    @override_settings(PANDECT_AI_GATEWAY=TRANSCRIPTION_CONFIG)
+    def test_overlapping_request_preserves_ranges_queued_under_an_exact_grant(self):
+        session = self.make_session(["First", "Second", "Third"])
+        self.login("owner")
+        external_grant_kwargs(self.case, "session_summaries")
+        self.case.ai_backend = "gateway"
+        self.case.save(update_fields=["ai_backend"])
+        first = self.request_summary(session)
+        execution = first.scope["executions"]["gateway"]
+        approve_scopes(
+            self.case, self.case.owner, [transfer_scope("session_summaries", execution)]
+        )
+        # A new request can cover the failed range while the first is still queued.
+        pending, failed = first.runs.order_by("created_at")
+        failed.status = "failed"
+        failed.save(update_fields=["status"])
+        bulk = reverse(
+            "phone:instance_summaries",
+            args=(self.case.pk, self.person.pk, self.person.pk),
+        )
+        retry = self.request_summary(session, url=bulk).runs.get()
+        self.assertEqual(retry.inputs, failed.inputs)
+        self.assertNotEqual(
+            retry.parameters["_external_approval"]["revision"],
+            pending.parameters["_external_approval"]["revision"],
+        )
+
     def test_request_retries_only_uncovered_ranges(self):
         session = self.make_session(["Start", "Continue", "Finish"])
         self.login("editor")
@@ -180,7 +211,9 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(process_run(run.pk), "source_archived")
         infer.assert_not_called()
 
-    def test_new_range_size_and_archived_original_do_not_resend_covered_messages(self):
+    def test_restored_session_with_new_range_size_does_not_resend_covered_messages(
+        self,
+    ):
         session = self.make_session(["One", "Two", "Three", "Four", "Five"])
         self.login("owner")
         first, middle, last = self.request_summary(session).runs.order_by("created_at")
@@ -194,11 +227,23 @@ class SavedSummaryRangeTests(EvidenceViewTestMixin, TestCase):
             ),
         ):
             self.assertEqual(process_run(middle.pk), "local_ai_unavailable")
-        archive = reverse(
-            "core:evidence:archive",
-            args=(self.case.pk, "text-message", first.inputs[0]["evidence_id"]),
+        source = (self.case.pk, "text-message", first.inputs[0]["evidence_id"])
+        self.assertEqual(
+            self.client.post(reverse("core:evidence:archive", args=source)).status_code,
+            302,
         )
-        self.assertEqual(self.client.post(archive).status_code, 302)
+        review_url = reverse(
+            "phone:instance_summary",
+            args=(self.case.pk, self.person.pk, self.person.pk, session.pk),
+        )
+        self.assertEqual(self.client.get(review_url).status_code, 404)
+        self.assertEqual(
+            self.client.get(coverage_url(self.case, session)).status_code, 404
+        )
+        self.assertEqual(
+            self.client.post(reverse("core:evidence:restore", args=source)).status_code,
+            302,
+        )
         with self.settings(PANDECT_ANALYSIS_MAX_SOURCES=5):
             retry = self.request_summary(session).runs.get()
         self.assertEqual(retry.inputs, middle.inputs)

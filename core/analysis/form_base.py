@@ -105,8 +105,10 @@ def _source_choices(
             else (kinds.index(kind) < kinds.index(parts[0]))
         ):
             continue
-        queryset = scoped_evidence(case, kind).only(
-            "id", "title", "is_archived", "created_at"
+        queryset = (
+            scoped_evidence(case, kind)
+            .filter(is_archived=False)
+            .only("id", "title", "created_at")
         )
         if evidence is not None:
             queryset = queryset.filter(pk=evidence[1].pk)
@@ -134,9 +136,7 @@ def _source_choices(
                 if at_cursor
                 else None
             )
-            caption = f"{KIND_LABELS[kind]} · {item.title}" + (
-                " · Archived" if item.is_archived else ""
-            )
+            caption = f"{KIND_LABELS[kind]} · {item.title}"
             for phase in (2, 1, 0) if reverse else (0, 1, 2):
                 if cursor_phase is not None and (
                     (phase > cursor_phase) if reverse else (phase < cursor_phase)

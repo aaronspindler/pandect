@@ -15,7 +15,8 @@ from phone.models import CommunicationContext
 def pair_messages(case, first_person, second_person):
     return scoped_evidence(case, "text-message").filter(
         Q(sender=first_person, recipient=second_person)
-        | Q(sender=second_person, recipient=first_person)
+        | Q(sender=second_person, recipient=first_person),
+        is_archived=False,
     )
 
 

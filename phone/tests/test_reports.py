@@ -50,9 +50,14 @@ class CallReportTests(EvidenceViewTestMixin, TestCase):
             FaceTimeEvidence,
             duration=timedelta(seconds=90),
             occurred_at=INSTANT.astimezone(timezone(timedelta(hours=-4))),
+        )
+        archived = self.call(
+            FaceTimeEvidence,
+            duration=timedelta(seconds=600),
+            occurred_at=INSTANT,
             is_archived=True,
         )
-        result = report(self.case, "calls", state="all")
+        result = report(self.case, "calls")
         metrics = result["metrics"]
         self.assertEqual(metrics["Selected records"], 3)
         self.assertEqual(metrics["Phone calls"], 2)
@@ -72,8 +77,8 @@ class CallReportTests(EvidenceViewTestMixin, TestCase):
             0,
         )
         self.assertIn(str(video.pk), str(result["items"]))
-        self.assertEqual(report(self.case, "calls")["metrics"]["Selected records"], 2)
-        selected = report(self.case, "calls", state="all", start=INSTANT, end=INSTANT)
+        self.assertNotIn(str(archived.pk), str(result["items"]))
+        selected = report(self.case, "calls", start=INSTANT, end=INSTANT)
         self.assertEqual(selected["metrics"]["Selected records"], 2)
         self.assertEqual(
             selected["metrics"]["Missing event time before period filter"], 1

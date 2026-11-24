@@ -9,16 +9,15 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_tasks_db.models import DBTaskResult
 
-from core.analysis.approval import approve_case_execution
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
     configured_external_executions,
-    external_model_choices,
+    external_model_options,
     gateway_execution,
     snapshot_execution,
 )
 from core.analysis.services import authorize_run, process_run, start_run
-from core.analysis.testing import external_grant_kwargs
+from core.analysis.testing import approve_case_execution, external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
 from core.analysis.tests.test_gateway import CONFIG, error, response
 from core.models import AnalysisRun, GatewayRequest
@@ -132,14 +131,24 @@ class OpenAIGatewayTests(EvidenceViewTestMixin, TestCase):
         }
     )
     def test_transcription_model_choices_are_distinct_from_text_models(self):
+        def available(operation):
+            return tuple(
+                o["value"] for o in external_model_options(operation) if o["available"]
+            )
+
+        speech = available("transcription")
+        text = available("content_events")
         self.assertEqual(
-            external_model_choices("transcription"),
+            speech[:2],
             ("@cf/openai/whisper-large-v3-turbo", "@cf/test/synthetic-transcriber"),
         )
-        self.assertEqual(
-            external_model_choices("content_events"), ("gpt-6.2-sol", "gpt-6-luna")
-        )
-        self.assertEqual(external_model_choices("claim_comparison"), ())
+        self.assertIn("openai/gpt-transcribe", speech)
+        self.assertIn("@cf/deepgram/nova-3", speech)
+        self.assertNotIn("@cf/../unsafe", speech)
+        self.assertEqual(text[:2], ("gpt-6.2-sol", "gpt-6-luna"))
+        self.assertIn("openai/gpt-6.2-astra", text)
+        self.assertFalse(set(text).intersection(speech))
+        self.assertEqual(external_model_options("claim_comparison"), ())
         self.case.external_analysis_models = {
             "transcription": "@cf/test/synthetic-transcriber"
         }

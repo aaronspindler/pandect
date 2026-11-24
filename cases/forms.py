@@ -4,14 +4,15 @@ from django.contrib.auth import get_user_model
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
-from django.utils.functional import cached_property
 
 from core.analysis.execution import (
-    INFERENCE_OPERATIONS,
-    available_executions,
     execution_confirmation,
-    external_model_choices,
+    external_model_options,
+    gateway_execution,
+    model_form_value,
+    pin_model_choice,
 )
+from core.analysis.gateway import gateway_route_configured
 
 from .models import Case, CaseInvitation, CaseMembership
 
@@ -20,13 +21,13 @@ CASE_ACCESS_HELP = (
     "and archive or restore evidence."
 )
 ANALYSIS_MODEL_LABELS = {
-    "transcription": "Recording transcription",
     "text_topics": "Topic summaries",
     "content_events": "Claims and commitments",
     "session_summaries": "Message-session summaries",
     "conversation_link": "Semantic conversation links",
     "question_synthesis": "Question-driven synthesis",
     "evidence_chat": "Evidence chat",
+    "transcription": "Recording transcription",
 }
 
 
@@ -49,78 +50,80 @@ class ConfirmForm(forms.Form):
     confirm = forms.BooleanField(label="I understand and want to continue.")
 
 
-class CaseAIBackendForm(forms.Form):
+class ModelSelect(forms.Select):
+    def __init__(self, unavailable):
+        super().__init__()
+        self.unavailable = unavailable
+
+    def create_option(self, name, value, *args, **kwargs):
+        option = super().create_option(name, value, *args, **kwargs)
+        if value in self.unavailable:
+            option["attrs"]["disabled"] = True
+        return option
+
+
+class CaseAISettingsForm(forms.Form):
     ai_backend = forms.ChoiceField(
         choices=Case.AIBackend.choices,
-        label="AI backend",
+        widget=forms.RadioSelect,
+        label="Processing location",
     )
-
-    def __init__(self, *args, case, **kwargs):
-        self.case = case
-        super().__init__(*args, initial={"ai_backend": case.ai_backend}, **kwargs)
-
-    @cached_property
-    def external_ai_available(self):
-        return any(
-            Case.AIBackend.GATEWAY
-            in available_executions(
-                self.case, operation, {"include_summary": True, "semantic_links": True}
-            )
-            for operation in INFERENCE_OPERATIONS
-        )
-
-    def clean_ai_backend(self):
-        backend = self.cleaned_data["ai_backend"]
-        if backend == Case.AIBackend.GATEWAY and not self.external_ai_available:
-            raise forms.ValidationError(
-                "Approve an external AI destination before choosing External AI."
-            )
-        return backend
-
-
-class CaseExternalModelsForm(forms.Form):
     confirmation = forms.CharField(widget=forms.HiddenInput)
 
     def __init__(self, *args, case, **kwargs):
+        self.case = case
         saved = case.external_analysis_models
-        options = {
-            operation: external_model_choices(operation)
-            for operation in ANALYSIS_MODEL_LABELS
-        }
-        self.expected_confirmation = execution_confirmation(
-            "analysis.case.models", [str(case.pk)], [saved, options]
-        )
         self.stale = False
         super().__init__(
-            *args,
-            initial={**saved, "confirmation": self.expected_confirmation},
-            **kwargs,
+            *args, initial={**saved, "ai_backend": case.ai_backend}, **kwargs
         )
         self.rows = []
+        inventory = {}
+        self.available = {}
         for operation, label in ANALYSIS_MODEL_LABELS.items():
-            models, selected = options[operation], saved.get(operation)
-            if not models and not selected:
-                continue
-            default = next(iter(models), "Unavailable")
-            field = None
-            if len(models) > 1 or selected:
-                choices = [("", f"Default · {default}")]
-                choices.extend(
-                    (model, model)
-                    for model in models
-                    if model != default or model == selected
-                )
-                if selected and selected not in models:
-                    choices.append((selected, f"{selected} (unavailable)"))
-                self.fields[operation] = forms.ChoiceField(
-                    label=label, choices=choices, required=False
-                )
-                field = self[operation]
-            self.rows.append((label, selected or default, field))
-
-    @property
-    def editable(self):
-        return bool(self.visible_fields())
+            purpose = "transcription" if operation == "transcription" else "text"
+            default = gateway_execution(purpose, operation)
+            options = external_model_options(operation)
+            inventory[operation] = [default, options]
+            selected = model_form_value(operation, saved.get(operation, ""), case=case)
+            self.initial[operation] = selected
+            groups = {}
+            names = {}
+            available = set()
+            for option in options:
+                value = option["value"]
+                name = option["label"]
+                names[value] = name
+                if option["available"]:
+                    available.add(value)
+                else:
+                    name += " (setup required)"
+                groups.setdefault(option["group"], []).append((value, name))
+            default_label = (
+                names.get(default["model"], default["model"]) or "Unavailable"
+            )
+            if not gateway_route_configured(purpose, default):
+                default_label += " (setup required)"
+            choices = [("", f"Default · {default_label}"), *groups.items()]
+            if selected and selected not in names:
+                choices.append((selected, f"{selected} (unavailable)"))
+            unavailable = names.keys() - available - {selected}
+            self.fields[operation] = forms.ChoiceField(
+                label=label,
+                choices=choices,
+                widget=ModelSelect(unavailable),
+                required=False,
+            )
+            self.available[operation] = available
+            self.rows.append(
+                (label, names.get(selected, selected) or default_label, self[operation])
+            )
+        self.expected_confirmation = execution_confirmation(
+            "analysis.case.settings",
+            [str(case.pk), case.ai_backend, saved, case.external_analysis_approval],
+            inventory,
+        )
+        self.initial["confirmation"] = self.expected_confirmation
 
     def clean(self):
         values = super().clean()
@@ -131,9 +134,31 @@ class CaseExternalModelsForm(forms.Form):
             self.data = self.data.copy()
             self.data["confirmation"] = self.expected_confirmation
             raise forms.ValidationError(
-                "Compare your choices with the latest saved models, then save again."
+                "Settings changed. Compare your choices with the latest saved "
+                "settings, then save again."
             )
+        for operation, allowed in self.available.items():
+            value = values.get(operation)
+            if value and value not in allowed and self.initial[operation] != value:
+                self.add_error(
+                    operation,
+                    "This model needs operator setup before it can be selected.",
+                )
         return values
+
+    def proposed_models(self):
+        models = self.case.external_analysis_models.copy()
+        for operation in ANALYSIS_MODEL_LABELS:
+            value = (
+                self.cleaned_data[operation]
+                if operation in self.data
+                else self.initial[operation]
+            )
+            if not value:
+                models.pop(operation, None)
+            elif value in self.available[operation]:
+                models[operation] = pin_model_choice(operation, value)
+        return models
 
 
 class MembershipRoleForm(forms.ModelForm):

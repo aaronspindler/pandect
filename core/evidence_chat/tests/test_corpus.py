@@ -1,13 +1,17 @@
 """Chat windows resolve current same-case versions and quote the exact material."""
 
 from unittest.mock import patch
+from uuid import UUID
 
 from allauth.account.models import EmailAddress
+from django.db.models import Value
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from core.analysis.catalogue import project_result
 from core.analysis.services import snapshot_sources
+from core.evidence_chat import corpus
 from core.evidence_chat.corpus import cite, discover, rank, read_window
 from core.models import AnalysisResult, AnalysisRun, ExtractedPassage
 from core.testing import EvidenceTestMixin
@@ -17,6 +21,46 @@ from phone.models import TextMessageEvidence
 
 
 class CorpusTests(EvidenceTestMixin, TestCase):
+    def test_review_body_stamp_is_reused_only_in_the_same_evidence_revision(self):
+        message = self.create_evidence(TextMessageEvidence, body="Mica left the port.")
+        (locator,) = discover(self.case, False, review=True)
+        legacy = {
+            key: value for key, value in locator.items() if key != "verified_body"
+        }
+        self.assertEqual(
+            read_window(self.case, legacy, 0, 4, review=True)["text"], "Mica"
+        )
+
+        # Another case's write leaves the stored version reusable. Forcing an
+        # invalid fallback digest proves whether PostgreSQL chose that branch.
+        self.create_evidence(case=self.other_case)
+        with patch.object(corpus, "_body_digest", return_value=Value("invalid")):
+            self.assertEqual(
+                read_window(self.case, locator, 0, 4, review=True)["text"], "Mica"
+            )
+            self.assertIsNone(read_window(self.case, locator, 0, 4))
+            self.assertIsNone(read_window(self.case, legacy, 0, 4, review=True))
+            self.create_evidence()
+            self.assertIsNone(read_window(self.case, locator, 0, 4, review=True))
+
+        current = read_window(self.case, locator, 0, 4, review=True)
+        self.assertEqual(current["text"], "Mica")
+        self.assertGreater(
+            current["verified_body"]["revision"], locator["verified_body"]["revision"]
+        )
+        locator["verified_body"] = current["verified_body"]
+        with patch.object(corpus, "_body_digest", return_value=Value("invalid")):
+            self.assertEqual(
+                read_window(self.case, locator, 0, 4, review=True)["text"], "Mica"
+            )
+
+        # A direct same-length edit outside the requested excerpt also
+        # advances the evidence revision and invalidates the frozen locator.
+        TextMessageEvidence.objects.filter(pk=message.pk).update(
+            body="Mica left the pond."
+        )
+        self.assertIsNone(read_window(self.case, locator, 0, 4, review=True))
+
     def test_late_match_notes_and_scope(self):
         target = "Café Quayside"
         long_body = "earlier entries\n" * 500 + target
@@ -59,14 +103,23 @@ class CorpusTests(EvidenceTestMixin, TestCase):
         )
 
     def test_cited_text_range_opens_exact_repeated_wording_with_escaping(self):
-        item = self.create_evidence(body="café <em> café <em>")
+        item = self.create_evidence(
+            id=UUID("caf00000-0000-4000-8000-000000000001"), body="café <em> café <em>"
+        )
         before_addition = timezone.now()
         self.create_evidence(body="New material")
         (loc,) = discover(self.case, False, through=before_addition)
         quote = "café <em>"
         ref = cite(self.case, loc, item.body.rindex(quote), quote)
-        self.assertIn("?passage=10-19#cited-passage", ref["url"])
-        self.assertNotIn("caf", ref["url"])
+        self.assertEqual(
+            ref["url"],
+            reverse(
+                "core:evidence:detail",
+                args=(self.case.pk, "text", item.pk),
+                query={"passage": "10-19"},
+                fragment="cited-passage",
+            ),
+        )
         self.client.force_login(self.owner)
         EmailAddress.objects.create(
             user=self.owner, email="owner@example.test", verified=True

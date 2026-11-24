@@ -39,3 +39,4 @@
 !scripts/docker-entrypoint-worker.sh
 **/__pycache__/
 **/*.py[cod]
+**/tests/

@@ -162,14 +162,14 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
             "q": "Home",
             "page": "2",
             "poi_page": "3",
-            "state": "all",
             "vehicle_id": str(self.vehicle.pk),
             "start": "2026-11-01T09:00",
             "end": "2026-11-02T09:00",
         }
         map_page = self.client.get(
             self.url_for_map(),
-            filters | {"next": "https://example.test/", "from_person": "1"},
+            filters
+            | {"state": "all", "next": "https://example.test/", "from_person": "1"},
         )
         point_url = map_page.context["points"][0]["url"]
         self.assertContains(map_page, f'href="{escape(point_url)}"')
@@ -219,16 +219,16 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
 
     def test_filtered_map_round_trip_through_invalid_add_save_and_delete(self):
         self.client.force_login(self.editor)
-        filters = {"q": "Synthetic", "page": "2", "poi_page": "3", "state": "all"}
+        filters = {"q": "Synthetic", "page": "2", "poi_page": "3"}
         origin = {"from_map": "1"} | filters
         back = reverse(
             "geo:case_map", args=(self.case.pk,), query=filters, fragment="map-heading"
         )
-        map_page = self.client.get(self.url_for_map(), filters)
+        map_page = self.client.get(self.url_for_map(), filters | {"state": "all"})
         create_url = reverse("geo:poi_create", args=(self.case.pk,), query=origin)
         self.assertContains(map_page, f'href="{escape(create_url)}">Add POI')
         self.assertContains(map_page, f'data-poi-create-url="{escape(create_url)}"')
-        create_url += "&latitude=43.64&longitude=-79.38"
+        create_url += "&state=archived&latitude=43.64&longitude=-79.38"
         response = self.client.post(create_url, self.data(latitude=""))
         self.assertContains(response, f'href="{escape(back)}">Cancel', status_code=400)
         response = self.client.post(create_url, self.data())

@@ -153,9 +153,7 @@ class VehicleTripTests(EvidenceViewTestMixin, TestCase):
         )
         invalidate_vehicle_trips(self.users["owner"], self.case, [self.vehicle.pk])
         self.assertEqual(self.trips()["items"][0]["end"]["time"], latest.observed_at)
-        self.assertEqual(
-            self.trips(state="all")["items"][0]["end"]["time"], next_item.observed_at
-        )
+        self.assertEqual(self.trips()["metrics"]["Matching records"], 3)
 
     def test_cross_case_vehicles_and_corrupt_import_provenance_are_excluded(self):
         other = Vehicle.objects.create(case=self.other_case, model="Private vehicle")

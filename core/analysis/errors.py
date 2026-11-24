@@ -222,12 +222,23 @@ ERROR_MESSAGES = {
         "A selected source differs from the retained processing input. Review "
         "the source and start a new selection."
     ),
+    "source_material_limit": (
+        "The retained material exceeds this analysis's input limit. "
+        "Choose fewer or shorter sources and start a new run."
+    ),
     "source_unavailable": (
         "A selected original or exact extraction version cannot be read. "
         "Review its availability before retrying."
     ),
     "source_archived": (
         "A selected source was archived. Start a new analysis with active evidence."
+    ),
+    "chat_archive_scope_retired": "Ask a new question to use active evidence.",
+    "chat_review_scope_retired": (
+        "This review did not apply the requested filters. Ask the question again."
+    ),
+    "chat_literal_review_retired": (
+        "This review may have counted field labels. Ask the question again."
     ),
     "sighting_comparison_superseded": (
         "A newer result replaced a selected comparison. Review the current "

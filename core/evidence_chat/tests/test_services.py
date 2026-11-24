@@ -57,8 +57,28 @@ class ChatServiceTests(EvidenceViewTestMixin, TestCase):
             )
         first.status = "complete"
         first.save(update_fields=["status"])
-        following = self.ask("editor", chat_id=first.chat_id, include_archived=True)
-        self.assertEqual((following.ordinal, following.include_archived), (2, True))
+        following = self.ask("editor", chat_id=first.chat_id)
+        self.assertEqual(following.ordinal, 2)
+        self.assertFalse(following.include_archived)
+
+    def test_legacy_archived_question_cannot_resume_processing(self):
+        turn = self.ask()
+        turn.include_archived = True
+        turn.status = ChatTurn.Status.FAILED
+        turn.save(update_fields=["include_archived", "status"])
+
+        duplicate = self.ask(submission_id=turn.submission_id)
+        self.assertEqual(duplicate.pk, turn.pk)
+        self.assertTrue(duplicate.include_archived)
+        self.enqueue.assert_called_once()
+
+        with self.assertRaisesMessage(ValidationError, "active evidence"):
+            services.retry_turn(
+                self.users["owner"], self.case.pk, turn.chat_id, turn.pk
+            )
+        turn.refresh_from_db()
+        self.assertEqual(turn.status, ChatTurn.Status.FAILED)
+        self.enqueue.assert_called_once()
 
     def test_source_deletion_inventory_includes_chat_followups_marks_and_notes(self):
         item = self.text()

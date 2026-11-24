@@ -189,21 +189,30 @@ class ImportantItemTests(EvidenceViewTestMixin, TestCase):
         saved.refresh_from_db()
         self.assertIsNotNone(saved.marked_at)
 
-    def test_archive_preserves_mark_and_note_validation_preserves_form(self):
+    def test_archive_hides_mark_and_notes_until_restored(self):
         saved = self.mark_evidence()
+        self.assertEqual(self.add_note(saved, "Retained annotation.").status_code, 302)
         response = self.client.post(self.url("archive", self.source), {"confirm": "on"})
         self.assertEqual(response.status_code, 302)
         self.source.refresh_from_db()
         self.assertTrue(self.source.is_archived)
         response = self.client.get(self.important_url("list"))
-        self.assertContains(response, self.source.title)
-        self.assertContains(response, "Archived")
+        self.assertNotContains(response, self.source.title)
+        self.assertEqual(self.add_note(saved, "Archive edit denied.").status_code, 404)
+        self.assertEqual(
+            self.client.post(self.url("restore", self.source)).status_code, 302
+        )
+        self.assertContains(
+            self.client.get(self.important_url("list")), self.source.title
+        )
         for body in ("\n \t", "Evidence " * 501):
             with self.subTest(length=len(body)):
                 response = self.add_note(saved, body)
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.context["form"]["body"].errors)
-        self.assertFalse(ImportantNote.objects.filter(item=saved).exists())
+        self.assertEqual(
+            list(saved.notes.values_list("body", flat=True)), ["Retained annotation."]
+        )
 
     def test_short_finding_value_retains_its_candidate_label(self):
         source = TextEvidence.objects.create(

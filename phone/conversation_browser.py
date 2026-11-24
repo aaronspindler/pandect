@@ -618,12 +618,8 @@ class ConversationBrowserTests(BrowserTestCase):
                 ).to_be_visible()
                 earlier = page.get_by_role("link", name="Earlier message")
                 answer = page.get_by_role("link", name="Reply · message 55")
-                expect(earlier).to_have_attribute(
-                    "href", self.evidence_path(parent) + "?state=all"
-                )
-                expect(answer).to_have_attribute(
-                    "href", self.evidence_path(reply) + "?state=all"
-                )
+                expect(earlier).to_have_attribute("href", self.evidence_path(parent))
+                expect(answer).to_have_attribute("href", self.evidence_path(reply))
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),

@@ -65,7 +65,7 @@
     {% include 'phone/conversation_findings.html' with analysis=conversation_analysis shared=True %}
   </details>
   {% endif %}
-  <div class="section-header conversation-section-header"><h2 id="conversation-messages-heading">Messages</h2><p class="muted">{{ page_obj.paginator.count }} message{{ page_obj.paginator.count|pluralize }} · Includes archived</p></div>
+  <div class="section-header conversation-section-header"><h2 id="conversation-messages-heading">Messages</h2><p class="muted">{{ page_obj.paginator.count }} message{{ page_obj.paginator.count|pluralize }}</p></div>
   {% include 'phone/conversation_paging.html' with direction='previous' %}
   <div class="conversation-stream">
     {% include 'phone/conversation_stream.html' %}
@@ -78,6 +78,6 @@
 </div>
 
 {% else %}
-<section class="empty-state"><h2>No messages</h2><p>There are no retained messages between these people in this case.</p></section>
+<section class="empty-state"><h2>No messages</h2><p>There are no active messages between these people in this case.</p></section>
 {% endif %}
 {% endblock %}

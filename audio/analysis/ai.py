@@ -20,6 +20,28 @@ def _number(value):
     )
 
 
+def _phrases(words):
+    """Make readable passages from validated words, anchored to their timestamps."""
+    phrases = []
+    tokens = []
+    start = end = 0
+    for word in words:
+        if tokens and (
+            word["start"] - end >= 1
+            or word["end"] - start > 12
+            or tokens[-1].rstrip().endswith((".", "?", "!"))
+        ):
+            phrases.append({"start": start, "end": end, "text": " ".join(tokens)})
+            tokens = []
+        if not tokens:
+            start, end = word["start"], word["end"]
+        tokens.append(word["text"])
+        end = max(end, word["end"])
+    if tokens:
+        phrases.append({"start": start, "end": end, "text": " ".join(tokens)})
+    return phrases
+
+
 def _segments(response, duration, *, tail_rounding=0):
     text = response.get("text")
     if not isinstance(text, str) or len(text.encode()) > MAX_TEXT:
@@ -49,7 +71,7 @@ def _segments(response, duration, *, tail_rounding=0):
         if "no_speech_prob" in segment and not 0 <= segment["no_speech_prob"] <= 1:
             raise AnalysisError("gateway_invalid_response")
         previous = start
-    return text, segments
+    return text, _phrases(segments) if response.get("word_timing") is True else segments
 
 
 def transcription(sources, parameters, *, client):

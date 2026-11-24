@@ -68,8 +68,12 @@ On eligible first-page searches, **Search by meaning** requests up to six
 additional source passages. Hosted query embedding requires the case owner's
 current approval and an explicit submission. The form names its destination
 and works without JavaScript. Opening, filtering or paging through keyword
-results sends no hosted embedding request. **Related passages** links to
-inspectable excerpts and reports incomplete or unavailable indexing.
+results sends no hosted embedding request. Local matches in prepared
+conversation summaries and document sections can appear on the first page.
+**Related passages** identifies how each original excerpt was found and
+reports incomplete or unavailable indexing. If the case owner has approved
+hosted passage ranking, the submission identifies its separate destination
+and the excerpts it can receive.
 **Search tips** describes phrases, alternatives and exclusions.
 
 Cases, People, Vehicles, and Evidence use shared whole-row links with readable
@@ -177,12 +181,13 @@ Filtered empty states keep the search and one **Clear filters** action. Case
 settings leads with collaboration and discloses the rename form. Only owners
 edit the name or collaborators. Saved descriptions remain read-only.
 
-AI processing shows the saved backend and external models by analysis method.
-The case owner saves model choices and reviews external destinations in separate
-actions. Approval status and the next available action stay visible. Transfer
-details appear beside approval, with technical destination details available
-in a disclosure after approval. Meaning search has its own approval and shows
-an indexing progress link once approved.
+AI processing places the Local AI and External AI choices above the approved
+destinations summary. Each text task and recording transcription has an aligned
+model row. Show the resolved installation default, group choices by provider,
+and stack the labels and fields on narrow screens. The owner saves assignments
+together. A first-use review identifies the recipient, data scope and transfer
+terms before applying changes. **Manage** opens the saved approvals. Meaning
+search has its own approval and indexing progress link.
 
 Person details show reported social accounts and POIs. Owners/editors manage
 accounts with confirmed removal; viewers inspect. Search includes platforms and
@@ -266,8 +271,9 @@ never change originals; changed originals become new evidence.
 
 Archive/restore are explicit owner/editor POSTs. Archiving keeps the selected
 detail visible, with Archived and **More → Restore**, while removing it from
-the Active list. Current members can still inspect/download archived material. Individual
-permanent deletion is reserved for superusers with current case access; show
+ordinary case views and new processing. Current members can inspect and download
+the original from Evidence. Editing and analysis controls return after restoration.
+Individual permanent deletion is reserved for superusers with current case access. Show
 originals, imported derivatives, analysis, and retained files in a complete,
 paginated inventory with a full download. Bind confirmation to that inventory
 and require another review if it changes. Cancellation preserves list context;
@@ -288,8 +294,8 @@ without JavaScript. **View in conversation** returns to the exact message and
 page, opens details, and marks the target beyond color.
 
 Tint saved session members and label the first and last cited messages,
-including single-message sessions. Keep the archive state, selected message,
-and session boundaries distinguishable without color. A page edge cannot create
+including single-message sessions. Keep the selected message and session boundaries
+distinguishable without color. A page edge cannot create
 a session boundary. Omit the conversation findings disclosure when there are no
 conversation-wide findings and preserve a separate page position for each list.
 
@@ -371,18 +377,28 @@ Repeated identifiers, Sighting groups, and eligible Instagram monitors.
 wide screens and stack on narrow screens.
 
 **Evidence chat** opens the question composer and saved chats for this case.
-Owners and editors ask questions. All current case members can read shared
-replies. The conversation places investigator questions and evidence replies on
-opposite sides, with the investigator's name, question time, and evidence scope
-visible. The follow-up composer sits below the latest reply on the page. Each
-question starts with active evidence and has an **Include archived evidence**
-option. Confirmed source quotations and links accompany numbered references.
-Clarifications, AI suggestions, and suggested next checks carry their own labels.
+Owners and editors can start chats and ask follow-ups. All current case members
+can read shared replies. A wide conversation shows the 10 most recent saved
+chats alongside the transcript and highlights the open chat, including when it
+was opened from older history.
+**All saved chats** opens the paginated list, including from narrow screens.
+
+Investigator questions appear in right-aligned bubbles with the investigator's
+name, question time, and evidence scope. Evidence replies use an open reading
+column. Numbered references open the exact sources, with expandable quotations
+under **Sources** in the conversation and visible quotations on the reply page.
+On wide, tall screens the follow-up composer stays below the separately
+scrollable transcript. On narrow or short screens it follows the transcript in
+the page flow. New questions and follow-ups search active evidence. Saved replies
+and retries retain their original evidence scope.
 
 Open a full-review reply for its paginated cited matches and coverage gaps.
-Refresh status works without JavaScript. **Mark important** saves a reference
-to the whole reply. The shared Important notes workflow is available on the
-marked reply. Chat excludes investigator notes from retrieval and AI requests.
+Clarifications, AI suggestions, and suggested next checks carry their own labels.
+Pending replies update on case events. With the event stream unavailable, a
+visible pending chat checks status every second and backs off after failures.
+Refresh status works without JavaScript. **Mark important** saves a reference to
+the whole reply. The shared Important notes workflow is available on the marked
+reply. Chat excludes investigator notes from retrieval and AI requests.
 
 **Latest records** interleaves up to three active evidence records and three
 eligible source-linked findings, ordered by when the evidence was added or
@@ -434,9 +450,11 @@ that preparation has queued work. Owner/editor **Analysis actions** includes
 preserves earlier results and shows preparation progress.
 
 On case pages, the Processing link shows queued and running check counts, or
-**Active** for other background work. Visible tabs check case activity every 30
-seconds while idle, every five seconds with active work, and upon returning to the
-tab. Processing and open progress views refresh their changing sections when
+**Active** for other background work. Visible tabs use the case event stream and
+check current state when returning to the tab. If the stream is unavailable,
+status checks run every 30 seconds while idle and every five seconds with active
+work, with the faster fallback described above for pending chat. Processing and
+open progress views refresh their changing sections when
 work changes, including jobs completed between checks. Running checks show
 their worker stage and start time. A determinate bar requires a measured total.
 Message and vehicle import progress announces the outcome when the page moves

@@ -8,7 +8,7 @@
   <div><h1>Conversations</h1><p class="muted">Read messages grouped by their reported participants.</p></div>
 </header>
 {% if page_obj.object_list %}
-<p class="result-count secondary">{{ page_obj.paginator.count }} conversation{{ page_obj.paginator.count|pluralize }} · Includes archived messages.</p>
+<p class="result-count secondary">{{ page_obj.paginator.count }} conversation{{ page_obj.paginator.count|pluralize }}</p>
 <section data-conversation-scroll data-scroll-label="conversations" aria-label="Conversations in {{ case }}">
   {% include 'phone/conversation_paging.html' with direction='previous' %}
 <div class="record-list" data-conversation-items data-page="{{ page_obj.number }}">
@@ -17,7 +17,7 @@
     {% include 'ui/components/icon.html' with name='message' %}
     <span class="collection-row-content">
       <strong class="collection-row-title">{{ conversation.first_person }}{% if conversation.first_person.pk != conversation.second_person.pk %} and {{ conversation.second_person }}{% endif %}</strong>
-      <span class="collection-row-meta">{{ conversation.message_count }} retained message{{ conversation.message_count|pluralize }} · {% if conversation.last_recorded_at %}Latest recorded <time datetime="{{ conversation.last_recorded_at|date:'c' }}">{{ conversation.last_recorded_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</span>
+      <span class="collection-row-meta">{{ conversation.message_count }} message{{ conversation.message_count|pluralize }} · {% if conversation.last_recorded_at %}Latest recorded <time datetime="{{ conversation.last_recorded_at|date:'c' }}">{{ conversation.last_recorded_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</span>
     </span>
     {% include 'ui/components/icon.html' with name='chevron-right' %}
   </a>

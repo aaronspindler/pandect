@@ -45,6 +45,7 @@ def trusted_contexts(case):
     return imported_contexts(case).filter(
         Q(import_run__isnull=True) | Q(import_run__case=case),
         source_sha256=F("source_document__sha256"),
+        source_document__is_archived=False,
     )
 
 
@@ -192,7 +193,6 @@ def search(
     *,
     query,
     record_type="",
-    state="active",
     start=None,
     end=None,
     sort="relevance",
@@ -201,20 +201,17 @@ def search(
     parsed = parse_query(query)
     if not parsed.groups or record_type and record_type not in LABELS:
         return Paginator([], 25).get_page(1)
-    state = state if state in {"active", "archived", "all"} else "active"
     types = [record_type] if record_type else LABELS
     retained = RetainedMatches(parsed)
     if not record_type or record_type in KINDS:
-        retained.index_passages(case, record_type, state, start, end)
+        retained.index_passages(case, record_type, start, end)
     related = RelatedMatches(case, retained)
     queries = []
     phrases = [
         " ".join(t.text for t in group if not t.negated) for group in parsed.groups
     ]
     for kind in types:
-        if state == "archived" and kind in {"person", "vehicle", "poi"}:
-            continue
-        source = sources(case, kind, state)
+        source = sources(case, kind)
         qs = dated(source, start, end, kind)
         if kind != "conversation":
             qs = searchable(qs, FIELDS[kind])
@@ -240,13 +237,13 @@ def search(
             )
             qs = dated(source, start, end, kind).filter(pk__in=ids)
         elif kind == "finding":
-            retained.index_findings(case, qs, state)
+            retained.index_findings(case, qs)
             qs = qs.filter(pk__in=retained.ids("finding"))
         queries.append(rank_rows(qs, source, kind, phrases))
     result = Paginator(combined(queries, sort), 25).get_page(page)
     candidates = list(result.object_list)
-    passages, findings = retained.page(case, candidates, state, parsed)
-    result.object_list = hydrate(case, candidates, parsed, state, passages, findings)
+    passages, findings = retained.page(case, candidates, parsed)
+    result.object_list = hydrate(case, candidates, parsed, passages, findings)
     retained.close()
     return result
 
@@ -271,15 +268,13 @@ def matched_excerpt(kind, parsed):
     return Case(*choices, default=Value(""), output_field=TextField())
 
 
-def hydrate(case, candidates, parsed, state, passages, findings, *, quick=False):
+def hydrate(case, candidates, parsed, passages, findings, *, quick=False):
     rows = {}
     for kind in dict.fromkeys(r["hit_kind"] for r in candidates):
-        source = sources(case, kind, state)
+        source = sources(case, kind)
         ids = [r["pk"] for r in candidates if r["hit_kind"] == kind]
         qs = dated(source, None, None, kind).filter(pk__in=ids)
         fields = ["pk", "hit_title", "hit_date", "hit_date_label"]
-        if kind in KINDS:
-            fields.append("is_archived")
         if kind in ("text-message", "conversation"):
             fields.extend(("sender_id", "recipient_id"))
         if not quick and kind not in ("conversation", "finding"):
@@ -295,7 +290,7 @@ def hydrate(case, candidates, parsed, state, passages, findings, *, quick=False)
                 "title": obj["hit_title"],
                 "date": obj["hit_date"],
                 "date_label": obj["hit_date_label"],
-                "badges": ["Archived"] if obj.get("is_archived") else [],
+                "badges": [],
                 "terms": parsed.terms,
                 "excerpt": obj.get("hit_excerpt", ""),
             }
@@ -398,7 +393,7 @@ def suggest(case, query, *, spelling=True):
     phrase = " ".join(parsed.terms)
     queries = []
     for kind in (*KINDS, "person", "vehicle", "poi"):
-        source = sources(case, kind, "active")
+        source = sources(case, kind)
         qs = dated(source, None, None, kind)
         predicate = any_field(
             ("hit_title", *source.identifiers), "istartswith", phrase
@@ -411,12 +406,12 @@ def suggest(case, query, *, spelling=True):
         queries.append(rank_rows(qs.filter(predicate), source, kind, (phrase,)))
     candidates = list(combined(queries, "relevance")[:6])
     if candidates:
-        return hydrate(case, candidates, parsed, "active", {}, {}, quick=True), ""
+        return hydrate(case, candidates, parsed, {}, {}, quick=True), ""
     if not spelling or len(phrase) < 3 or any(r.literal for r in parsed.groups[0]):
         return [], ""
     alternatives = []
     for kind in (*KINDS, "person", "vehicle", "poi"):
-        source = sources(case, kind, "active")
+        source = sources(case, kind)
         qs = dated(source, None, None, kind).alias(upper_title=Upper("hit_title"))
         alternatives.append(
             qs.filter(TrigramSimilar(F("upper_title"), Value(phrase.upper())))

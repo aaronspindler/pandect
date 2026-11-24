@@ -32,7 +32,7 @@ case, people, other vehicles, and login accounts;
 whole-case deletion removes vehicles and observations together. Product users
 need no staff permissions.
 
-Details paginate all locations, including archived evidence, at 25 per page.
+Details paginate active locations at 25 per page.
 Owners/editors have **Add a location** and **Import vehicle locations** beside
 **Edit vehicle** in the header, including before any trips exist. Both actions
 suggest the current case vehicle. Imports review an Asset Location CSV and
@@ -73,8 +73,8 @@ Person/vehicle relationships, external lookups, and public APIs remain planned.
 
 ## Automatic trips
 
-Details show the latest dated reported location, its time and archive status,
-and a link to the evidence. **Show observations** lists all reported locations,
+Details show the latest dated active location, its time, and a link to the
+evidence. **Show observations** lists active reported locations,
 including undated records. Below the locations, up to five recent possible trips
 use the same complete processed histories as Map and Vehicle trips.
 **See all trips** opens the paginated report, and **Choose dates** opens the report

@@ -11,7 +11,6 @@
       <header class="conversation-message-header">
         <strong id="message-sender-{{ message.pk }}">{{ message.sender }}</strong>
         {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'H:i:s T' }}</time>{% else %}<span>Time not recorded</span>{% endif %}
-        {% if message.is_archived %}<span class="conversation-archived">Archived</span>{% endif %}
         <span class="conversation-selected-label">Selected</span>
         <a data-workspace-link class="conversation-select" data-message-select data-tooltip="Message details" title="Message details" href="{% querystring transcript_query message=message.pk page=None analysis_page=message.analysis.page_obj.number|default:None %}#message-{{ message.pk }}"{% if selected_message.pk == message.pk %} aria-current="true"{% endif %}>
           <span class="sr-only">Message details for {{ message.sender }}{% if message.occurred_at %}, {{ message.occurred_at|date:'j M Y, H:i:s T' }}{% else %}, {{ message.title }}{% endif %}</span>
@@ -26,7 +25,7 @@
       {% if message.copy_page %}
       <a class="record-link" id="copies-{{ message.timeline_id }}" aria-expanded="true" href="{% querystring transcript_query message=None analysis_page=None page=page_obj.number %}#copies-{{ message.timeline_id }}">Hide {{ message.copy_count }} retained copies</a>
       <ul class="record-list">
-        {% for copy in message.copy_page %}<li><a class="record-link" href="{% querystring transcript_query message=copy.message_id analysis_page=None page=None %}#message-{{ copy.message_id }}">{{ copy.source_document.title }} · Row {{ copy.source_row }}{% if copy.message.is_archived %} · Archived{% endif %}</a></li>{% endfor %}
+        {% for copy in message.copy_page %}<li><a class="record-link" href="{% querystring transcript_query message=copy.message_id analysis_page=None page=None %}#message-{{ copy.message_id }}">{{ copy.source_document.title }} · Row {{ copy.source_row }}</a></li>{% endfor %}
       </ul>
       {% with copies=message.copy_page %}{% if copies.has_other_pages %}
       <nav class="pagination" aria-label="Retained copy pages">

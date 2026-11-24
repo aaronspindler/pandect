@@ -8,10 +8,17 @@ from django.core.exceptions import ValidationError
 from django.utils.crypto import salted_hmac
 
 from core.analysis.errors import AnalysisError
+from core.analysis.model_catalog import (
+    MODELS,
+    PROVIDER_NAMES,
+    catalog_execution,
+    model_group,
+    model_purpose,
+)
+from core.analysis.operations import OPERATIONS
 
 GEOGRAPHIC = {
-    "geocode_locations": ("GEOCODER", "geocode"),
-    "geographic_context": ("MAP_CONTEXT", "map_context"),
+    name: spec.geographic for name, spec in OPERATIONS.items() if spec.geographic
 }
 
 OPENAI_TEXT_MODELS = {
@@ -33,12 +40,11 @@ DIRECT_AI_ENDPOINTS = {
 }
 
 INFERENCE_OPERATIONS = (
-    "transcription",
-    "text_topics",
-    "content_events",
-    "session_summaries",
-    "conversation_link",
-    "question_synthesis",
+    *(
+        name
+        for name, spec in OPERATIONS.items()
+        if spec.inference and not spec.private_inference
+    ),
     "evidence_chat",
 )
 
@@ -47,10 +53,33 @@ def gateway_execution(purpose, operation, *, case=None):
     """Retain the selected provider and method, never its credentials."""
     execution = _default_gateway_execution(purpose, operation)
     model = case.external_analysis_models.get(operation) if case is not None else None
-    if model:
-        # A retired choice blocks the method until the owner picks a current one.
-        execution["model"] = model if model in external_model_choices(operation) else ""
-    return execution
+    if not model:
+        return _installation_execution(purpose, execution, execution["model"])
+    if not isinstance(model, str):
+        return execution | {"model": ""}
+    model = model_form_value(operation, model, case=case)
+    # An unrecognized pin is intentionally unavailable after provider changes.
+    if model in _installation_models(purpose, execution):
+        return _installation_execution(purpose, execution, model)
+    record = MODELS.get(model)
+    if record and model_purpose(record) == purpose:
+        return catalog_execution(model)
+    return execution | {"model": ""}
+
+
+def _installation_execution(purpose, default, model):
+    if (
+        purpose == "transcription"
+        and isinstance(model, str)
+        and model.startswith("@cf/")
+        and (record := MODELS.get(model))
+    ):
+        if model_purpose(record) != purpose:
+            return default | {"model": ""}
+        # Keep the established JSON adapter for compatible Workers AI models.
+        if record["api"] != "workers-ai":
+            return catalog_execution(model)
+    return default | {"model": model}
 
 
 def _default_gateway_execution(purpose, operation):
@@ -120,16 +149,7 @@ def _default_gateway_execution(purpose, operation):
     return execution
 
 
-def external_model_choices(operation):
-    """List the installation default followed by eligible explicit choices."""
-    from core.analysis.gateway import gateway_route_configured
-
-    if operation not in INFERENCE_OPERATIONS:
-        return ()
-    purpose = "transcription" if operation == "transcription" else "text"
-    execution = _default_gateway_execution(purpose, operation)
-    if not gateway_route_configured(purpose, execution):
-        return ()
+def _installation_models(purpose, execution):
     config = settings.PANDECT_AI_GATEWAY
     models = [execution["model"]]
     if (
@@ -140,19 +160,96 @@ def external_model_choices(operation):
     ):
         models.extend(OPENAI_TEXT_MODELS.values())
     models.extend(config.get("model_choices", {}).get(purpose, ()))
-    return tuple(
-        model
-        for model in dict.fromkeys(models)
-        if gateway_route_configured(purpose, execution | {"model": model})
-    )
+    return tuple(dict.fromkeys(models))
+
+
+def _installation_provider(operation):
+    if operation == "transcription":
+        return "workers-ai"
+    return settings.PANDECT_AI_GATEWAY.get("text_provider", "workers-ai")
+
+
+def pin_model_choice(operation, value):
+    """Persist the configured route for the original provider's custom IDs."""
+    purpose = "transcription" if operation == "transcription" else "text"
+    default = _default_gateway_execution(purpose, operation)
+    if value and value in _installation_models(purpose, default):
+        return f"{_installation_provider(operation)}:{value}"
+    return value
+
+
+def model_form_value(operation, saved, *, case):
+    """Unpack matching installation pins and recover exact legacy recipients."""
+    current = _installation_provider(operation)
+    if ":" in saved:
+        provider, model = saved.split(":", 1)
+        purpose = "transcription" if operation == "transcription" else "text"
+        if provider == current and model in _installation_models(
+            purpose, _default_gateway_execution(purpose, operation)
+        ):
+            return model
+        return saved
+    if "/" not in saved or saved.startswith("@cf/"):
+        old = case.external_analysis_approval.get("executions", {}).get(operation, {})
+        if old.get("model") == saved:
+            old_provider = old["provider"] + ("-direct" if old.get("url") else "")
+            if old_provider != current:
+                return f"{old_provider}:{saved}"
+    return saved
+
+
+def external_model_options(operation):
+    """Display all compatible models, including those awaiting operator setup."""
+    from core.analysis.gateway import gateway_route_configured
+
+    if operation not in INFERENCE_OPERATIONS:
+        return ()
+    purpose = "transcription" if operation == "transcription" else "text"
+    default = _default_gateway_execution(purpose, operation)
+    rows = []
+    covered = set()
+    for model in _installation_models(purpose, default):
+        route = _installation_execution(purpose, default, model)
+        if not model or not gateway_route_configured(purpose, route):
+            continue
+        provider = route["provider"]
+        canonical = model if model.startswith("@cf/") else f"{provider}/{model}"
+        record = MODELS.get(canonical)
+        group = model_group(canonical, provider)
+        if default.get("url"):
+            group += " (direct)"
+        else:
+            covered.add(canonical)
+        rows.append(
+            {
+                "value": model,
+                "label": record["label"] if record else model,
+                "group": group,
+                "available": True,
+            }
+        )
+    for model, record in MODELS.items():
+        if model in covered or model_purpose(record) != purpose:
+            continue
+        route = catalog_execution(model)
+        rows.append(
+            {
+                "value": model,
+                "label": record["label"],
+                "group": model_group(model, route["provider"]),
+                "available": gateway_route_configured(purpose, route),
+            }
+        )
+    return tuple(rows)
 
 
 def external_ai_destination(execution):
-    provider = {
-        "openai": "OpenAI",
-        "anthropic": "Anthropic",
-        "workers-ai": "Workers AI",
-    }.get(execution.get("provider", "workers-ai"))
+    provider_id = execution.get("provider", "workers-ai")
+    provider = (
+        "Workers AI"
+        if provider_id == "workers-ai"
+        else PROVIDER_NAMES.get(provider_id, provider_id)
+    )
     if not provider:
         return "an external AI service the operator must select"
     model = execution.get("model") or "model not configured"
@@ -199,31 +296,23 @@ def execution_confirmation(salt, scope, execution):
 
 
 def requires_inference(operation, parameters):
-    if operation == "transcription":
-        return "transcription"
-    if (
-        operation
-        in {
-            "claim_comparison",
-            "content_events",
-            "session_summaries",
-            "question_synthesis",
-            "evidence_chat",
-        }
-        or (operation == "text_topics" and parameters.get("include_summary", True))
-        or (
-            operation == "conversation_link" and parameters.get("semantic_links", False)
-        )
-    ):
+    if operation == "evidence_chat":
         return "text"
-    return None
+    spec = OPERATIONS.get(operation)
+    if spec is None:
+        return None
+    if spec.optional_inference:
+        flag, default = spec.optional_inference
+        if not parameters.get(flag, default):
+            return None
+    return spec.inference
 
 
 def processing_external(operation, parameters, backend="local"):
     if requires_inference(operation, parameters):
         if backend not in {"local", "gateway"}:
             raise ValidationError("Choose local or external AI processing.")
-        if operation == "claim_comparison" and backend != "local":
+        if operation not in INFERENCE_OPERATIONS and backend != "local":
             raise ValidationError("Claim comparison uses private processing.")
         return backend == "gateway"
     if operation in GEOGRAPHIC:
@@ -313,7 +402,7 @@ def configured_executions(operation, parameters, *, case=None):
     if requires_inference(operation, parameters):
         routes = {}
         backends = (
-            ("local",) if operation == "claim_comparison" else ("local", "gateway")
+            ("local", "gateway") if operation in INFERENCE_OPERATIONS else ("local",)
         )
         for backend in backends:
             execution = snapshot_execution(
@@ -341,9 +430,11 @@ def configured_external_executions(case=None):
     """Return the full external inventory for one case owner's review."""
     executions = {}
     for operation in (*INFERENCE_OPERATIONS, *GEOGRAPHIC):
-        routes = configured_executions(
-            operation, {"include_summary": True, "semantic_links": True}, case=case
-        )
+        specification = OPERATIONS.get(operation)
+        parameters = {}
+        if specification and specification.optional_inference:
+            parameters[specification.optional_inference[0]] = True
+        routes = configured_executions(operation, parameters, case=case)
         external = routes.get("gateway") or routes.get("external")
         if external is not None:
             executions[operation] = external
@@ -351,8 +442,7 @@ def configured_external_executions(case=None):
 
 
 def available_executions(case, operation, parameters):
-    """Include external work only when this case approved the exact route."""
-    revision = case.external_analysis_approval.get("revision")
+    """Include external work only within a current case-owner approval."""
     return {
         backend: execution
         for backend, execution in configured_executions(
@@ -360,7 +450,7 @@ def available_executions(case, operation, parameters):
         ).items()
         if execution is None
         or execution["location"] == "local"
-        or _case_execution_granted(case, operation, execution, revision)
+        or case_execution_grant(case, operation, execution)
     }
 
 
@@ -371,21 +461,76 @@ def selected_ai_executions(case, operation, parameters):
     return {backend: available[backend]} if backend in available else {}
 
 
-def _case_execution_granted(case, operation, execution, revision):
+def transfer_scope(operation, execution):
+    """The recipient and material covered by an owner review."""
+    if operation in GEOGRAPHIC:
+        return {"operation": operation, "execution": execution}
+    if operation not in INFERENCE_OPERATIONS or execution.get("backend") != "gateway":
+        return None
+    provider = execution["provider"]
+    default_billing = (
+        "direct"
+        if execution.get("url")
+        else ("workers-ai" if provider == "workers-ai" else "byok")
+    )
+    return {
+        "disclosure": 1,
+        "purpose": execution["purpose"],
+        "provider": provider,
+        "account": execution.get("account", ""),
+        "gateway": execution.get("gateway", ""),
+        "url": execution.get("url", ""),
+        "key_alias": execution.get("key_alias", ""),
+        "billing": execution.get("billing", default_billing),
+        "retention": execution.get("retention", "provider-policy"),
+    }
+
+
+def case_execution_grants(case, operation, execution):
+    """Return every valid receipt for this execution, preferred receipt first."""
     approval = case.external_analysis_approval
+    if (
+        not execution
+        or execution["location"] != "external"
+        or approval.get("approved_by") != str(case.owner_id)
+    ):
+        return {}
+    scope = transfer_scope(operation, execution)
+    grants = {
+        grant["revision"]: grant
+        for grant in approval.get("grants", [])
+        if grant["scope"] == scope
+    }
+    # Queued work may retain an earlier exact-model receipt for this operation.
+    if approval.get("executions", {}).get(operation) == execution:
+        grants[approval["revision"]] = approval
+    return grants
+
+
+def case_execution_grant(case, operation, execution, *, revision=None):
+    grants = case_execution_grants(case, operation, execution)
     return (
-        bool(revision)
-        and revision == approval.get("revision")
-        and approval.get("approved_by") == str(case.owner_id)
-        and execution is not None
-        and execution["location"] == "external"
-        and approval.get("executions", {}).get(operation) == execution
+        next(iter(grants.values()), None) if revision is None else grants.get(revision)
     )
 
 
+def case_grant_revision(case, operation, execution):
+    grant = case_execution_grant(case, operation, execution)
+    return grant["revision"] if grant else ""
+
+
+def batch_grant_revision(scope, operation):
+    # Old batches pinned one exact-approval revision for all their operations.
+    if "external_grants" in scope:
+        return scope["external_grants"].get(operation)
+    return scope.get("external_grant_revision")
+
+
 def validate_case_execution_grant(case, operation, execution, revision):
-    if not _case_execution_granted(case, operation, execution, revision):
+    grant = case_execution_grant(case, operation, execution, revision=revision)
+    if not revision or not grant:
         raise AnalysisError("external_processing_not_approved")
+    return grant
 
 
 def validate_execution(run, case):

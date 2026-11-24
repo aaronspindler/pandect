@@ -122,20 +122,24 @@ def conversation_analysis_context(
     ).alias(message_id=F("sources__evidence_id"))
     # An unopened message may reuse a pooled preview only when every visible
     # identifier fits its lookup budget. Otherwise its link loads its own ranking.
-    visible_keys = (
+    # Reuse the keys collected here so matching need not replay the finding scope.
+    visible_keys = list(
         visible_inline.exclude(match_digest="")
         .order_by()
-        .values("match_kind", "match_version", "match_digest")
-        .distinct()
+        .values_list("match_kind", "match_version", "match_digest")
+        .distinct()[: ranking.MAX_MATCH_KEYS + 1]
     )
-    load_panels_on_open = visible_keys[ranking.MAX_MATCH_KEYS :].exists()
+    load_panels_on_open = len(visible_keys) > ranking.MAX_MATCH_KEYS
     if load_panels_on_open:
         visible_inline = (
             visible_inline.filter(message_id=selected.pk)
             if selected is not None
             else visible_inline.none()
         )
-    context = ranking.review_context(visible_inline, case)
+        match_digests = None
+    else:
+        match_digests = {digest for _, _, digest in visible_keys}
+    context = ranking.review_context(visible_inline, case, match_digests=match_digests)
 
     def message_findings(message_id):
         eligible = visible_inline.filter(message_id=message_id)
@@ -212,7 +216,11 @@ def conversation_analysis_context(
     row_by_id = {}
     for finding, row in zip(displayed, rows, strict=True):
         raw = finding.raw_item
-        if not isinstance(raw, dict) or not isinstance(raw.get("values", {}), dict):
+        if (
+            not isinstance(raw, dict)
+            or not isinstance(raw.get("values", {}), dict)
+            or any(source["archived"] for source in row["sources"])
+        ):
             row.update(
                 unavailable=True,
                 label="Finding unavailable",
@@ -243,7 +251,6 @@ def conversation_analysis_context(
                     message=str(item["id"]),
                     analysis_page="",
                 ),
-                "archived": item["archived"],
             }
             for item in row["sources"]
             if item["kind"] == KIND_LABELS["text-message"]

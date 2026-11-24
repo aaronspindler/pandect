@@ -62,7 +62,7 @@ class DailyChronologyTests(EvidenceViewTestMixin, TestCase):
             process_trips(str(generation.pk), str(generation.token))
             generation.refresh_from_db()
         self.assertEqual(generation.status, "complete", generation.error_code)
-        trip = saved_trips(self.case, state="all").get()
+        trip = saved_trips(self.case).get()
         sighting = PersonLocationEvidence.objects.create(
             **common,
             person=other,
@@ -183,7 +183,7 @@ class DailyChronologyTests(EvidenceViewTestMixin, TestCase):
                 process_trips(str(generation.pk), str(generation.token))
                 generation.refresh_from_db()
         self.assertEqual(generation.status, "complete", generation.error_code)
-        trip = saved_trips(self.case, state="all").get()
+        trip = saved_trips(self.case).get()
 
         self.login("viewer")
         self.assertEqual(self.day("2026-07-03").context["next_day"], date(2026, 7, 4))
@@ -229,19 +229,26 @@ class DailyChronologyTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(last.context["previous_day"], date(2006, 10, 28))
         self.assertIsNone(last.context["next_day"])
 
-    def test_archive_paging_and_stable_timestamp_ties(self):
+    def test_archive_excludes_rows_and_days_without_active_evidence(self):
         at = datetime(2026, 7, 3, 12, tzinfo=UTC)
         items = [self.text(collected_at=at) for _ in range(27)]
         ids = sorted(item.pk for item in items)
         TextEvidence.objects.filter(pk=ids[-1]).update(
             is_archived=True, archive_changed_at=at, archive_changed_by=self.case.owner
         )
+        self.text(
+            collected_at=at + timedelta(days=1),
+            is_archived=True,
+            archive_changed_at=at,
+            archive_changed_by=self.case.owner,
+        )
         self.login("viewer")
         first = self.day("2026-07-03")
         second = self.day("2026-07-03", page=2)
         self.assertEqual([row["id"] for row in first.context["rows"]], ids[:25])
-        self.assertEqual([row["id"] for row in second.context["rows"]], ids[25:])
-        self.assertContains(second, "Archived")
+        self.assertEqual([row["id"] for row in second.context["rows"]], ids[25:-1])
+        self.assertIsNone(first.context["next_day"])
+        self.assertEqual(self.day().context["day"], date(2026, 7, 3))
 
     def test_deep_page_formats_only_visible_trip(self):
         start = datetime(2026, 7, 3, 8, tzinfo=UTC)
@@ -260,7 +267,7 @@ class DailyChronologyTests(EvidenceViewTestMixin, TestCase):
             process_trips(str(generation.pk), str(generation.token))
             generation.refresh_from_db()
         self.assertEqual(generation.status, "complete", generation.error_code)
-        earlier, later = saved_trips(self.case, state="all").order_by("start_at")
+        earlier, later = saved_trips(self.case).order_by("start_at")
         body = "Synthetic collected text"
         digest = sha256(body.encode()).hexdigest()
         TextEvidence.objects.bulk_create(

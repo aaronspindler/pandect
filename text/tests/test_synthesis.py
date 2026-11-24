@@ -221,10 +221,14 @@ class SynthesisTests(EvidenceViewTestMixin, TestCase):
     def test_oversized_text_selection_is_rejected_without_truncation_or_queueing(self):
         note = self.make_text(body="x" * 64001)
         choice = {"kind": "text", "id": str(note.pk)}
-        with self.assertRaisesMessage(ValidationError, "content is not truncated"):
+        with (
+            patch("core.analysis.services.resolve_snapshots") as hydrate,
+            self.assertRaisesMessage(ValidationError, "64,000 characters"),
+        ):
             self.start(
                 self.parameters | {"text_source_ids": [source_id(choice)]}, [choice]
             )
+        hydrate.assert_not_called()
         self.assertFalse(
             AnalysisRun.objects.filter(operation="question_synthesis").exists()
         )
@@ -294,7 +298,8 @@ class SynthesisDependencyTests(EvidenceViewTestMixin, TestCase):
             ) as resolved,
         ):
             resolve_inputs(root.run, self.case)
-        self.assertEqual(len(queries), 33)  # One source + two queries per ancestor.
+        # One source preflight, one source lookup and two queries per ancestor.
+        self.assertEqual(len(queries), 34)
         self.assertCountEqual(
             [call.kwargs["run_id"] for call in resolved.call_args_list],
             [result.run_id for result in results],
@@ -307,7 +312,7 @@ class SynthesisDependencyTests(EvidenceViewTestMixin, TestCase):
         prior = self.retained(operation="entities", count=100)
         root = self.retained([(prior, index) for index in range(100)])
         with (
-            self.assertNumQueries(3),
+            self.assertNumQueries(4),  # One size preflight plus three lookups.
             patch(
                 "core.analysis.services.resolve_snapshots", wraps=resolve_snapshots
             ) as resolved,

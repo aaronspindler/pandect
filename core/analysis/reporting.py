@@ -23,12 +23,6 @@ def _instant(value):
     return value.astimezone(UTC).isoformat() if value is not None else "Unknown"
 
 
-def _state(queryset, state):
-    if state == "all":
-        return queryset
-    return queryset.filter(is_archived=state == "archived")
-
-
 def _period(queryset, field, start, end):
     if start is not None:
         queryset = queryset.filter(**{f"{field}__gte": start})
@@ -97,11 +91,10 @@ def _group_page(groups, page):
     return page_obj
 
 
-def _base_metrics(total, state, start, end, time_field):
+def _base_metrics(total, start, end, time_field):
     return {
         "Matching records": total,
         "Selected records": total,
-        "Archive filter": state,
         "Period field": time_field,
         "Period start (UTC, inclusive)": _instant(start)
         if start
@@ -116,7 +109,6 @@ def _source(case, kind, item, values, *, kind_label, text=""):
         "text": text,
         "url": _url(case, kind, item),
         "values": {
-            "Archived": item.is_archived,
             "Collected at (UTC)": _instant(item.collected_at),
             "Uploaded at (UTC)": _instant(item.created_at),
             **values,

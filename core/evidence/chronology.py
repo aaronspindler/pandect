@@ -84,7 +84,7 @@ def _filtered_sources(case, filters):
     for kind in KINDS:
         if filters.get("type") and kind != filters["type"]:
             continue
-        queryset = scoped_evidence(case, kind)
+        queryset = scoped_evidence(case, kind).filter(is_archived=False)
         if filters.get("person"):
             queryset = person_evidence(queryset, filters["person"])
         if filters.get("vehicle"):
@@ -112,7 +112,7 @@ def chronology_records(case, filters):
                 events = events.filter(event_at__date__lte=filters["end"])
             queries.append(
                 events.order_by().values(
-                    "id", "title", "is_archived", "kind", "event_at", "event_label"
+                    "id", "title", "kind", "event_at", "event_label"
                 )
             )
     if not queries:
@@ -133,17 +133,13 @@ def _undated_originals(case, filters):
                 unplaced |= Q(pk__in=date_only_messages(case))
             queryset = queryset.filter(unplaced)
         queries.append(
-            queryset.order_by()
-            .annotate(kind=Value(kind))
-            .values("id", "title", "kind", "is_archived")
+            queryset.order_by().annotate(kind=Value(kind)).values("id", "title", "kind")
         )
     return queries[0].union(*queries[1:], all=True).order_by("title", "kind", "id")
 
 
 def _link_originals(case, rows, person):
-    params = {"state": "all"}
-    if person:
-        params["person"] = person.pk
+    params = {"person": person.pk} if person else None
     for row in rows:
         row["label"] = KIND_LABELS[row["kind"]]
         row["url"] = reverse(

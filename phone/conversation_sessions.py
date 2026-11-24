@@ -8,6 +8,7 @@ from django.db.models.functions import Cast
 from django.urls import reverse
 
 from core.analysis.catalogue import PER_PAGE, finding_queryset, finding_rows
+from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS
 from core.models import AnalysisFindingSource
 from phone.models import ConversationSessionMember
@@ -21,7 +22,11 @@ from phone.saved_sessions import (
 
 def ordered_members(finding, row):
     """Only a complete, validated set of citations can establish the endpoints."""
-    if row["unavailable"] or not isinstance(finding.source_order, list):
+    if (
+        row["unavailable"]
+        or not isinstance(finding.source_order, list)
+        or any(source["archived"] for source in row["sources"])
+    ):
         return []
     by_source = {
         source["source_id"]: source["id"]
@@ -110,7 +115,9 @@ def attach_session_groups(case, messages):
             message.session_tint = tint
             message.session_marker = marker
 
-    saved = valid_sessions(case).filter(
+    saved = valid_sessions(
+        case, scoped_evidence(case, "text-message").filter(is_archived=False)
+    ).filter(
         Exists(
             ConversationSessionMember.objects.filter(
                 session_id=OuterRef("pk"), message_id__in=visible

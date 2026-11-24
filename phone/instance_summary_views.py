@@ -16,7 +16,12 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.bulk import start_case_analysis
 from core.analysis.errors import AnalysisError, error_message
-from core.analysis.execution import execution_confirmation, selected_ai_executions
+from core.analysis.execution import (
+    case_execution_grants,
+    case_grant_revision,
+    execution_confirmation,
+    selected_ai_executions,
+)
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.readiness import configuration_readiness
 from core.models import AnalysisRun, CaseAnalysisBatch
@@ -45,7 +50,7 @@ def _batch_url(batch):
 
 def _review_confirmation(case, ids, executions):
     grant = (
-        case.external_analysis_approval.get("revision")
+        case_grant_revision(case, OPERATION, executions.get("gateway"))
         if "gateway" in executions
         else None
     )
@@ -68,7 +73,9 @@ def _request_summaries(
             "single": single,
             "executions": executions,
             "reviewed_scope": _review_confirmation(case, ids, executions),
-            "external_grant_revision": case.external_analysis_approval.get("revision"),
+            "external_grant_revision": case_grant_revision(
+                case, OPERATION, executions.get("gateway")
+            ),
         },
     )
 
@@ -83,8 +90,8 @@ def _active_batch_redirect(request, case, people, executions, instance_id=None):
     matching = Q(**{f"scope__executions__{backend}": execution})
     if backend == "gateway":
         matching &= Q(
-            scope__external_grant_revision=case.external_analysis_approval.get(
-                "revision"
+            scope__external_grant_revision__in=list(
+                case_execution_grants(case, OPERATION, execution)
             )
         )
     else:

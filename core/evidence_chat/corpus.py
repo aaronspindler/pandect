@@ -6,11 +6,12 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.db.models import CharField, Exists, F, Func, OuterRef, Value
+from django.db.models import Case, CharField, Exists, F, Func, OuterRef, Value, When
 from django.db.models.functions import Length, Substr
 from django.http import Http404
 from django.urls import reverse
 
+from cases.permissions import get_case
 from core.analysis.catalogue import finding_queryset, raw_finding_item
 from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url
@@ -98,19 +99,43 @@ def rows(case, surface, kind, include_archived, through=None, *, retained=False)
     return qs.order_by("pk")
 
 
-def clipped(queryset, field, start=0, size=0):
-    """Read length, content digest and only the requested characters from PostgreSQL."""
-    if not field:
-        return queryset
-    digest = Func(
+def _body_digest(field):
+    return Func(
         Func(Func(F(field), Value("UTF8"), function="convert_to"), function="sha256"),
         Value("hex"),
         function="encode",
         output_field=CharField(),
     )
-    queryset = queryset.defer(field).annotate(
-        body_length=Length(field), body_digest=digest
-    )
+
+
+def clipped(queryset, field, start=0, size=0, *, review=False, verified_body=None):
+    """Read the digest, length, and bounded excerpt in the same SQL snapshot."""
+    if not field:
+        return queryset
+    digest = _body_digest(field)
+    length = Length(field)
+    if review:
+        # The evidence triggers advance this revision on any INSERT, UPDATE,
+        # or DELETE of these body tables, including bulk and direct SQL edits.
+        # Match the stamp in the same statement that reads the current excerpt.
+        queryset = queryset.annotate(body_revision=F("case__activity__evidence"))
+        if (
+            isinstance(verified_body, dict)
+            and type(verified_body.get("revision")) is int
+            and isinstance(verified_body.get("digest"), str)
+            and type(verified_body.get("length")) is int
+        ):
+            revision = verified_body["revision"]
+            digest = Case(
+                When(body_revision=revision, then=Value(verified_body["digest"])),
+                default=digest,
+                output_field=CharField(),
+            )
+            length = Case(
+                When(body_revision=revision, then=Value(verified_body["length"])),
+                default=length,
+            )
+    queryset = queryset.defer(field).annotate(body_length=length, body_digest=digest)
     if size:
         queryset = queryset.annotate(body_window=Substr(field, start + 1, size))
     return queryset
@@ -120,19 +145,35 @@ def dependency(kind, key):
     return {"kind": kind, "id": str(key)}
 
 
+def original_keys(locator):
+    """Original evidence identities represented by this excerpt, for provenance."""
+    if locator["evidence_id"]:
+        return {locator["record_key"]}
+    if "cited_originals" in locator:
+        return set(locator["cited_originals"])
+    return {f"{dep['kind']}:{dep['id']}" for dep in locator["dependencies"]}
+
+
 def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def lines(fields):
-    return "\n".join(
-        f"{name}: {value}"
-        for name, value in fields
-        if value is not None and value != ""
-    )
+def lines(fields, *, value_ranges=None):
+    rendered = []
+    offset = 0
+    for name, value in fields:
+        if value is None or value == "":
+            continue
+        prefix = f"{name}: "
+        line = f"{prefix}{value}"
+        if value_ranges is not None and name != "Type":
+            value_ranges.append((offset + len(prefix), offset + len(line)))
+        rendered.append(line)
+        offset += len(line) + 1  # Newline separating the fields.
+    return "\n".join(rendered)
 
 
-def original_metadata(item, kind):
+def original_metadata(item, kind, *, value_ranges=None):
     fields = [
         ("Type", KIND_LABELS[kind]),
         ("Title", item.title),
@@ -215,7 +256,7 @@ def original_metadata(item, kind):
                 fields.append(
                     (field.replace("_", " ").capitalize(), getattr(item, field))
                 )
-    return lines(fields), detail, deps
+    return lines(fields, value_ranges=value_ranges), detail, deps
 
 
 def available_file(item):
@@ -231,6 +272,7 @@ class Material:
     locator: dict
     url: str
     text: str
+    literal_ranges: tuple[tuple[int, int], ...] = ()
 
 
 def _make_material(
@@ -247,9 +289,11 @@ def _make_material(
     gap="",
     start,
     size,
+    value_ranges=None,
 ):
     """Use the same citation text at discovery, reading and verification."""
     body_length = getattr(item, "body_length", 0)
+    value_offset = body_length + int(bool(body_length and suffix))
     if body_length and suffix:
         suffix = "\n" + suffix
     version = digest(
@@ -271,24 +315,39 @@ def _make_material(
         "gap": gap,
         "label": label,
     }
+    if getattr(item, "body_revision", None) is not None:
+        locator["verified_body"] = {
+            "revision": item.body_revision,
+            "digest": item.body_digest,
+            "length": body_length,
+        }
     if surface in ("finding", "passage"):
         locator["result_id"] = str(item.result_id)
     if surface == "original":
-        locator["metadata_start"] = body_length + int(bool(body_length and suffix))
+        locator["metadata_start"] = value_offset
     text = (
         getattr(item, "body_window", "")
         + suffix[max(0, start - body_length) : max(0, start + size - body_length)]
     )
-    return Material(locator, url, text)
+    literal_ranges = []
+    if value_ranges is not None:
+        if body_length:
+            literal_ranges.append((0, body_length))
+        literal_ranges.extend(
+            (value_offset + first, value_offset + last) for first, last in value_ranges
+        )
+    return Material(locator, url, text, tuple(literal_ranges))
 
 
 def _original_material(
-    case, surface, kind, item, start, size, include_archived, through
+    case, surface, kind, item, start, size, include_archived, through, value_ranges
 ):
     gap = ""
     if surface == "original":
         original = item
-        suffix, detail, deps = original_metadata(original, kind)
+        suffix, detail, deps = original_metadata(
+            original, kind, value_ranges=value_ranges
+        )
         if kind == "text" and item.body_digest != item.sha256:
             gap = "Original text failed its integrity check."
             if size:
@@ -300,7 +359,8 @@ def _original_material(
         original = item.call
         deps = [dependency(kind, original.pk)]
         suffix = lines(
-            (("Recording", item.original_filename), ("Bytes", item.byte_size))
+            (("Recording", item.original_filename), ("Bytes", item.byte_size)),
+            value_ranges=value_ranges,
         )
         heading = "Supplied transcript" if item.body_length else "Recording"
         label = f"{heading} · {original.title}"
@@ -345,6 +405,7 @@ def _original_material(
         gap=gap,
         start=start,
         size=size,
+        value_ranges=value_ranges,
     )
 
 
@@ -423,10 +484,20 @@ def material(
     *,
     sources=None,
     through=None,
+    literal=False,
 ):
+    value_ranges = [] if literal else None
     if surface in ("original", "attachment"):
         return _original_material(
-            case, surface, kind, item, start, size, include_archived, through
+            case,
+            surface,
+            kind,
+            item,
+            start,
+            size,
+            include_archived,
+            through,
+            value_ranges,
         )
     if sources is None:
         sources = _result_sources(case, item, include_archived)
@@ -463,7 +534,12 @@ def material(
         )
         label = f"{attribution} · {stored['label']}"
         suffix = finding_text(stored)
-    return _make_material(
+        if value_ranges is not None and (finding_body := stored.get("text")):
+            # Keep the saved citation offsets while excluding generated labels
+            # and the JSON used to present structured method output.
+            first = len(stored["label"]) + 1
+            value_ranges.append((first, first + len(finding_body)))
+    found = _make_material(
         surface,
         kind,
         evidence_id,
@@ -478,23 +554,44 @@ def material(
         suffix=suffix,
         start=start,
         size=size,
+        value_ranges=value_ranges,
     )
+    if surface == "finding" and evidence_id is None:
+        found.locator["cited_originals"] = sorted(f"{k}:{pk}" for k, pk in origins)
+    return found
 
 
-def discover(case, include_archived, *, through=None, original_kinds=None):
+def discover(
+    case,
+    include_archived,
+    *,
+    through=None,
+    original_kinds=None,
+    review=False,
+    filters=None,
+):
     """Stream the evidence inventory without loading whole text bodies or recordings."""
+    from .search_scope import scope_rows
+
     for surface, kind in surfaces():
         if original_kinds is not None and (
             surface != "original" or kind not in original_kinds
         ):
             continue
-        queryset = rows(case, surface, kind, include_archived, through)
+        queryset = scope_rows(
+            rows(case, surface, kind, include_archived, through),
+            case,
+            surface,
+            kind,
+            filters,
+            include_recordings=True,
+        )
         sources, last_result = None, None
         if surface in ("passage", "finding"):
             queryset = queryset.order_by("result_id", "item_index", "pk")
-        for item in clipped(queryset, body_field(surface, kind)).iterator(
-            chunk_size=50
-        ):
+        for item in clipped(
+            queryset, body_field(surface, kind), review=review
+        ).iterator(chunk_size=50):
             if getattr(item, "result_id", None) != last_result:
                 last_result = item.result_id
                 sources = _result_sources(case, item, include_archived)
@@ -511,7 +608,16 @@ def discover(case, include_archived, *, through=None, original_kinds=None):
                 yield found.locator
 
 
-def read_window(case, locator, start=0, size=1600, *, include_archived=False):
+def read_window(
+    case,
+    locator,
+    start=0,
+    size=1600,
+    *,
+    include_archived=False,
+    review=False,
+    literal=False,
+):
     if (
         not isinstance(locator, dict)
         or type(locator.get("length")) is not int
@@ -530,10 +636,19 @@ def read_window(case, locator, start=0, size=1600, *, include_archived=False):
     except ValueError, KeyError, AttributeError, TypeError:
         return None
     queryset = rows(case, surface, kind, include_archived, retained=True).filter(pk=pk)
-    item = clipped(queryset, body_field(surface, kind), start, size).first()
+    item = clipped(
+        queryset,
+        body_field(surface, kind),
+        start,
+        size,
+        review=review,
+        verified_body=locator.get("verified_body"),
+    ).first()
     if item is None:
         return None
-    found = material(case, surface, kind, item, include_archived, start, size)
+    found = material(
+        case, surface, kind, item, include_archived, start, size, literal=literal
+    )
     if found is None or any(
         found.locator[k] != locator.get(k)
         for k in (
@@ -550,19 +665,28 @@ def read_window(case, locator, start=0, size=1600, *, include_archived=False):
         if k in found.locator
     ):
         return None
-    return {
+    result = {
         "text": found.text,
         "start": start,
         "url": found.url,
         "label": found.locator["label"],
     }
+    if "verified_body" in found.locator:
+        result["verified_body"] = found.locator["verified_body"]
+    if literal:
+        result["literal_ranges"] = found.literal_ranges
+    return result
 
 
-def cite(case, locator, start, quote, *, include_archived=False):
+def cite(case, locator, start, quote, *, include_archived=False, read=None):
     if not isinstance(quote, str) or not quote.strip() or len(quote) > MAX_WINDOW:
         return None
-    window = read_window(
-        case, locator, start, len(quote), include_archived=include_archived
+    window = (read or read_window)(
+        case,
+        locator,
+        start,
+        len(quote),
+        include_archived=include_archived,
     )
     if window is None or window["text"] != quote:
         return None
@@ -588,7 +712,32 @@ def cite(case, locator, start, quote, *, include_archived=False):
     }
 
 
-def rank(case, question, *, user, include_archived=False, limit=12, through=None):
+def rank(
+    case,
+    question,
+    *,
+    user,
+    include_archived=False,
+    limit=10,
+    through=None,
+    related=None,
+    hints=(),
+    filters=None,
+    stamp_body=False,
+    semantic_hints=None,
+):
     from .corpus_search import ranked_windows
 
-    return ranked_windows(case, question, user, include_archived, limit, through)
+    return ranked_windows(
+        get_case(user, case.pk),
+        question,
+        user,
+        include_archived,
+        limit,
+        through,
+        related=related,
+        hints=hints,
+        filters=filters,
+        stamp_body=stamp_body,
+        semantic_hints=semantic_hints,
+    )

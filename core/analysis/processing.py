@@ -4,7 +4,9 @@ from collections import Counter
 from uuid import UUID, uuid4
 
 from django.core.paginator import Paginator
-from django.db.models import Count, Exists, F, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q, TextField
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast
 from django.http import Http404
 from django.views.decorators.http import require_safe
 
@@ -150,14 +152,24 @@ def index(request, case_id):
         active = active.exclude(pk__in=runs.values("pk"))
     active_runs = Paginator(active, 10).get_page(request.GET.get("active_page"))
     followups = case_runs.filter(previous_run=OuterRef("pk"))
-    ready_messages = all_runs.filter(
-        operation="imessage_import",
-        method_version=OPERATIONS["imessage_import"].version,
-        parameters__phase="preview",
-        status__in=("complete", "partial"),
-        result__case=case,
-        result__data__metrics__ready_rows__gt=0,
-    ).filter(~Exists(followups))
+    active_documents = (
+        scoped_evidence(case, "document")
+        .filter(is_archived=False)
+        .annotate(document_key=Cast("pk", TextField()))
+        .values("document_key")
+    )
+    ready_messages = (
+        all_runs.filter(
+            operation="imessage_import",
+            method_version=OPERATIONS["imessage_import"].version,
+            parameters__phase="preview",
+            status__in=("complete", "partial"),
+            result__case=case,
+            result__data__metrics__ready_rows__gt=0,
+        )
+        .alias(document_key=KeyTextTransform.from_lookup("inputs__0__evidence_id"))
+        .filter(~Exists(followups), document_key__in=active_documents)
+    )
     showing_message_reviews = request.GET.get("reviews") == "messages" and not batch
     if showing_message_reviews:
         runs = ready_messages
@@ -177,7 +189,8 @@ def index(request, case_id):
                         run.first_evidence
                         for run in displayed_runs
                         if run.first_kind == kind
-                    ]
+                    ],
+                    is_archived=False,
                 )
                 .values_list("pk", "title")
             }
@@ -239,6 +252,7 @@ def index(request, case_id):
     imports = imports.only(
         "id",
         "document__title",
+        "document__is_archived",
         "status",
         "phase",
         "created_at",
@@ -249,14 +263,21 @@ def index(request, case_id):
     active_imports = Paginator(imports_in_progress, 10).get_page(
         request.GET.get("active_imports_page")
     )
-    imports_awaiting_action = imports.filter(status__in=IMPORTS_AWAITING_ACTION)
+    actionable_import = Q(
+        status__in=IMPORTS_AWAITING_ACTION, document__is_archived=False
+    )
+    imports_awaiting_action = imports.filter(actionable_import)
     import_reviews = list(imports_awaiting_action[:6])
-    failed_imports = list(imports.filter(status="failed")[: NEEDS_ATTENTION_LIMIT + 1])
+    failed_imports = list(
+        imports.filter(status="failed", document__is_archived=False)[
+            : NEEDS_ATTENTION_LIMIT + 1
+        ]
+    )
     showing_import_reviews = request.GET.get("imports") == "review"
     import_history = Paginator(
         imports_awaiting_action
         if showing_import_reviews
-        else imports.exclude(status__in=(*ACTIVE_IMPORTS, *IMPORTS_AWAITING_ACTION)),
+        else imports.exclude(Q(status__in=ACTIVE_IMPORTS) | actionable_import),
         25,
     ).get_page(request.GET.get("imports_page"))
     trip_generations = (

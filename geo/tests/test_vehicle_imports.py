@@ -28,7 +28,7 @@ from document.models import DocumentEvidence
 from geo.models import VehicleLocationEvidence, VehicleLocationImport
 from geo.testing import csv_content, parse_csv
 from geo.vehicle_import_jobs import enqueue_completion, process_import
-from geo.vehicle_imports import iter_csv
+from geo.vehicle_imports import iter_csv, iter_import
 from vehicle.models import Vehicle
 
 
@@ -663,6 +663,53 @@ class VehicleImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(batch.uploaded_by, self.users["editor"])
         process_import(str(batch.pk), str(batch.job_token))
         self.assertEqual(batch.observations.count(), 1)
+
+    def test_archived_vehicle_csv_cannot_confirm_or_publish_observations(self):
+        batch = self.new_batch()
+        archive_url = self.url("archive", batch.document, kind="document")
+        processing = reverse("core:analysis:processing", args=[self.case.pk])
+        self.assertContains(
+            self.client.get(processing), "Vehicle imports to prepare or review"
+        )
+        self.client.post(archive_url)
+        history = self.client.get(processing)
+        self.assertNotContains(history, "Vehicle imports to prepare or review")
+        self.assertContains(history, "Restore the source before continuing this import")
+        create_vehicle = reverse(
+            "vehicle:create_for_import", args=[self.case.pk, batch.pk]
+        )
+        self.assertRedirects(self.client.get(create_vehicle), self.review_url(batch))
+        self.assertRedirects(
+            self.client.post(create_vehicle, {"make": "Blocked vehicle"}),
+            self.review_url(batch),
+        )
+        self.assertFalse(
+            Vehicle.objects.filter(case=self.case, make="Blocked vehicle").exists()
+        )
+        self.assertNotContains(
+            self.client.get(self.review_url(batch)), "Import locations"
+        )
+        self.assertContains(
+            self.complete(batch, process=False),
+            "Restore this CSV before importing vehicle locations.",
+            status_code=400,
+        )
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "review")
+        self.client.post(self.url("restore", batch.document, kind="document"))
+        self.assertEqual(self.complete(batch, process=False).status_code, 302)
+
+        def archive_after_reading(source):
+            yield from iter_import(source)
+            self.assertEqual(self.client.post(archive_url).status_code, 302)
+
+        with patch(
+            "geo.vehicle_import_jobs.iter_import", side_effect=archive_after_reading
+        ):
+            self.assertEqual(self.run_job(batch), "failed")
+        self.assertEqual(batch.error_code, "source_archived")
+        self.assertIsNone(batch.completed_at)
+        self.assertFalse(batch.observations.exists())
 
     def test_revoked_confirmation_actor_cannot_publish_queued_observations(self):
         batch = self.new_batch()

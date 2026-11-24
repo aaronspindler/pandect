@@ -14,7 +14,8 @@ from core.analysis.form_base import selection
 from core.analysis.forms import analysis_form
 from core.analysis.import_checks import imported_sources
 from core.analysis.operations import OPERATIONS
-from core.analysis.services import process_run, start_run
+from core.analysis.reprocessing import start_reprocessing
+from core.analysis.services import process_run, snapshot_sources, start_run
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, CaseSearchIndex
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
@@ -39,8 +40,8 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
 
     def test_batch_completion_tracks_followups_separately_from_preparation(self):
         self.document()
-        batch, _ = start_case_analysis(
-            self.users["owner"], self.case.pk, submission_id=uuid4()
+        batch, _ = start_reprocessing(
+            self.users["owner"], self.case.pk, submission_id=uuid4(), kinds=["document"]
         )
         while batch.status == "queued":
             prepare_case_analysis_batch(batch.pk)
@@ -75,8 +76,8 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
     def test_preparation_retains_bounded_safe_failure_details(self):
         document = self.document()
         document.file.storage.delete(document.file.name)
-        batch, _ = start_case_analysis(
-            self.users["owner"], self.case.pk, submission_id=uuid4()
+        batch, _ = start_reprocessing(
+            self.users["owner"], self.case.pk, submission_id=uuid4(), kinds=["document"]
         )
         prepare_case_analysis_batch(batch.pk)
         batch.refresh_from_db()
@@ -86,8 +87,8 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
 
     def test_editor_retry_and_extraction_followups_keep_parent_batch(self):
         self.document()
-        batch, _ = start_case_analysis(
-            self.users["owner"], self.case.pk, submission_id=uuid4()
+        batch, _ = start_reprocessing(
+            self.users["owner"], self.case.pk, submission_id=uuid4(), kinds=["document"]
         )
         prepare_case_analysis_batch(batch.pk)
         prior = batch.runs.get()
@@ -229,7 +230,7 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
             "requested_by": source.case.owner,
             "operation": "native_text" if kind == "document" else "entities",
             "method_version": "synthetic-test.v1",
-            "inputs": [{"kind": kind, "evidence_id": str(source.pk)}],
+            "inputs": snapshot_sources(source.case, [{"kind": kind, "id": source.pk}]),
             "status": "complete",
         }
         return AnalysisRun.objects.create(**(values | overrides))

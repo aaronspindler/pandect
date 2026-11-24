@@ -589,6 +589,11 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         receipt = self.client.get(self.review_url(final))
         self.assertContains(receipt, f"?focus={message.pk}#message-{message.pk}")
         self.assertContains(receipt, "1 new message added")
+        self.client.post(self.url("archive", message, kind="text-message"))
+        receipt = self.client.get(self.review_url(final))
+        self.assertNotContains(receipt, "View conversation")
+        self.assertContains(receipt, self.url("detail", message, kind="text-message"))
+        self.assertContains(receipt, "Archived")
 
     def test_reused_import_opens_message_within_reviewed_export_dates(self):
         preview = self.prepare(
@@ -628,6 +633,10 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(receipt, f"?focus={message.pk}#message-{message.pk}")
         self.assertContains(receipt, "0 new messages added · 1 already retained")
         self.assertEqual(TextMessageEvidence.objects.count(), 3)
+        self.client.post(self.url("archive", message, kind="text-message"))
+        self.assertNotContains(
+            self.client.get(self.review_url(final)), "View conversation"
+        )
 
     def test_retained_csv_with_no_matching_dates_cannot_be_confirmed(self):
         self.login("owner")
@@ -1056,6 +1065,41 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
                 self.assertContains(response, "The original remains retained.")
                 AnalysisRun.objects.all().delete()
                 DocumentEvidence.objects.all().delete()
+
+    def test_archived_csv_cannot_start_confirm_or_publish_a_message_import(self):
+        preview = self.prepare()
+        document = DocumentEvidence.objects.get(pk=preview.inputs[0]["evidence_id"])
+        processing = reverse("core:analysis:processing", args=[self.case.pk])
+        self.assertContains(
+            self.client.get(processing), "Message imports ready for review"
+        )
+        self.client.post(self.url("archive", document, kind="document"))
+        history = self.client.get(processing)
+        self.assertNotContains(history, "Message imports ready for review")
+        self.assertContains(history, "Prepare message review")
+        review_url = self.review_url(preview)
+        self.assertNotContains(self.client.get(review_url), ">Import messages</button>")
+        self.assertContains(
+            self.client.post(review_url, self.new_people()),
+            "Restore this CSV before importing messages.",
+            status_code=409,
+        )
+        self.assertNotContains(self.client.get(self.upload_url()), str(document.pk))
+        self.assertFalse(
+            AnalysisRun.objects.filter(parameters__phase="import").exists()
+        )
+        self.client.post(self.url("restore", document, kind="document"))
+        self.assertEqual(
+            self.client.post(review_url, self.new_people()).status_code, 302
+        )
+        final = AnalysisRun.objects.get(parameters__phase="import")
+        self.client.post(self.url("archive", document, kind="document"))
+        self.assertEqual(process_run(final.pk), "source_archived")
+        final.refresh_from_db()
+        self.assertEqual(final.status, "failed")
+        self.assertEqual(final.error_code, "source_archived")
+        self.assertFalse(TextMessageEvidence.objects.exists())
+        self.assertFalse(AnalysisResult.objects.filter(run=final).exists())
 
     def test_progress_rechecks_case_access(self):
         preview = self.prepare()

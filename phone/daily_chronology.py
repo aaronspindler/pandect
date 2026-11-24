@@ -29,7 +29,6 @@ def _message_row(message):
         "kind": "message",
         "id": message.pk,
         "sort_id": message.pk,
-        "archived": message.is_archived,
     }
 
 
@@ -48,26 +47,21 @@ def _instance_row(instance, members, start, end, batch_ids):
         first_id,
         dated[-1][0],
         len(dated),
-        sum(m.is_archived for m in members),
     )
 
 
-def _group_row(instance, first_at, first_id, last_at, day_count, archived):
+def _group_row(instance, first_at, first_id, last_at, day_count):
     count = instance["count"]
     quantity = f"{count} message{'s' if count != 1 else ''}"
     if day_count < count:
         quantity = f"{day_count} of {quantity} on this day"
-    detail = f"Inferred session · {quantity}"
-    if 0 < archived < count:
-        detail += " · Includes archived messages"
     return {
         "at": first_at,
         "end_at": last_at,
         "sort_id": first_id,
         "kind": "conversation",
         "id": instance["id"],
-        "detail": detail,
-        "archived": archived == count,
+        "detail": f"Inferred session · {quantity}",
         "partial": instance["partial"],
         "instance": instance,
     }
@@ -96,7 +90,6 @@ def _saved_day_rows(sessions, start, end):
                     members__message__occurred_at__lt=end,
                 ),
             ),
-            archived=Count("members", filter=Q(members__message__is_archived=True)),
         )
         .order_by("day_start", "first_id", "pk")
         .iterator(chunk_size=50)
@@ -107,7 +100,6 @@ def _saved_day_rows(sessions, start, end):
             session.first_id,
             session.day_end,
             session.day_count,
-            session.archived,
         )
 
 
@@ -131,12 +123,10 @@ def _legacy_day_rows(case, batch, ids, start, end, covered, saved):
 
 def daily_message_rows(case, start, end):
     """Stream groups once at their first exact original on the selected day."""
-    timed = scoped_evidence(case, "text-message").exclude(
-        pk__in=date_only_messages(case)
-    )
+    timed = _active_timed_messages(case)
     messages = (
         timed.filter(occurred_at__gte=start, occurred_at__lt=end)
-        .only("occurred_at", "is_archived")
+        .only("occurred_at")
         .order_by("occurred_at", "pk")
     )
     # Eligibility is evaluated for the day independently of message pagination.
@@ -185,6 +175,14 @@ def daily_message_rows(case, start, end):
     )
 
 
+def _active_timed_messages(case):
+    return (
+        scoped_evidence(case, "text-message")
+        .filter(is_archived=False)
+        .exclude(pk__in=date_only_messages(case))
+    )
+
+
 def attach_daily_message_previews(case, rows):
     """Load names, excerpts, exact summaries and overlapping groups for one page."""
     phone_rows = [row for row in rows if row["kind"] in {"message", "conversation"}]
@@ -192,6 +190,7 @@ def attach_daily_message_previews(case, rows):
         return
     originals = (
         scoped_evidence(case, "text-message")
+        .filter(is_archived=False)
         .select_related("sender", "recipient")
         .only(
             "sender__first_name",
@@ -208,10 +207,7 @@ def attach_daily_message_previews(case, rows):
     )
     groups = [row["instance"] for row in phone_rows if row["kind"] == "conversation"]
     attach_instance_summaries(case, groups, preview_only=True)
-    timed = scoped_evidence(case, "text-message").exclude(
-        pk__in=date_only_messages(case)
-    )
-    published = valid_sessions(case, timed)
+    published = valid_sessions(case, _active_timed_messages(case))
     for row in phone_rows:
         first = originals.get(row["sort_id"])
         if first is None:

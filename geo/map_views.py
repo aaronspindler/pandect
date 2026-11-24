@@ -20,12 +20,13 @@ from geo.models import PointOfInterest
 from geo.report_forms import VehicleReportForm
 from geo.trip_geometry import GEOMETRY_CHUNK_SIZE, geometry_revision, source_positions
 from geo.trip_processing import (
+    _source_rows,
     format_trip,
     format_trips,
+    geometry_source_page,
     prepare_case_trips,
     saved_trips,
     trip_readiness,
-    trip_sources,
 )
 from ui.live import render_live
 
@@ -76,8 +77,6 @@ def _map_context(request, case, *, trip=None):
         return_query = {"from_map": "1"} | map_query(request.GET)
     else:
         return_query = {"from_trip": trip.pk} | trip_query(request.GET)
-        if trip.evidence_state != "active":
-            return_query.setdefault("state", trip.evidence_state)
     poi_page, points = poi_map_data(request, case, query, return_query)
     return {
         **case_context(case, request.user),
@@ -100,11 +99,8 @@ def _map_context(request, case, *, trip=None):
 @require_GET
 def case_map(request, case_id):
     case = get_case(request.user, case_id)
-    data = request.GET.copy()
-    if data:
-        data.setdefault("state", "active")
-    form = TripMapForm(data or None, case=case)
-    filters = {"state": "active"}
+    form = TripMapForm(request.GET or None, case=case)
+    filters = {}
     trips = saved_trips(case)
     if form.is_bound:
         if form.is_valid():
@@ -118,9 +114,7 @@ def case_map(request, case_id):
             trips = trips.none()
     page = Paginator(trips, 25).get_page(request.GET.get("page"))
     context = _map_context(request, case) | trip_readiness(case)
-    trip_filters_applied = filters["state"] != "active" or any(
-        filters.get(key) for key in ("vehicle_id", "start", "end")
-    )
+    trip_filters_applied = any(filters.values())
     summaries = format_trips(case, page)
     for summary in summaries:
         summary["detail_url"] = summary["trip_url"]
@@ -139,7 +133,6 @@ def case_map(request, case_id):
         filtered_vehicle=dict(form.fields["vehicle_id"].choices).get(
             filters.get("vehicle_id")
         ),
-        state=filters["state"],
     )
     if wants_json(request):
         return JsonResponse(
@@ -175,9 +168,9 @@ def _trip_findings(case, sources, page_number):
 @require_GET
 def trip_detail(request, case_id, trip_id):
     case = get_case(request.user, case_id)
-    trip = current_map_trip(case, trip_id)
-    sources = trip_sources(case, trip)
-    if wants_json(request):
+    geometry = wants_json(request)
+    trip = current_map_trip(case, trip_id, geometry=geometry)
+    if geometry:
         cursor = request.GET.get("cursor", "0")
         if not cursor.isascii() or not cursor.isdecimal() or len(cursor) > 18:
             return JsonResponse(
@@ -185,15 +178,16 @@ def trip_detail(request, case_id, trip_id):
             )
         cursor = int(cursor)
         recheck = request.GET.get("recheck") == "1"
+        if recheck and trip.source_count > GEOMETRY_CHUNK_SIZE:
+            return JsonResponse({"message": "Load current trip positions."}, status=409)
+        inputs = geometry_source_page(
+            case, trip, 0 if recheck else cursor, GEOMETRY_CHUNK_SIZE + 1
+        )
         if recheck:
-            if (
-                trip.source_count > GEOMETRY_CHUNK_SIZE
-                or sources.filter(
-                    Q(snapshot__latitude=None)
-                    | Q(snapshot__longitude=None)
-                    | Q(snapshot__latitude__isnull=True)
-                    | Q(snapshot__longitude__isnull=True)
-                ).exists()
+            if any(
+                item.snapshot.get("latitude") is None
+                or item.snapshot.get("longitude") is None
+                for item in inputs
             ):
                 return JsonResponse(
                     {"message": "Load current trip positions."}, status=409
@@ -205,7 +199,6 @@ def trip_detail(request, case_id, trip_id):
                     {"message": "Trip positions changed. Reload the trip."}, status=409
                 )
             return HttpResponse(status=204)
-        inputs = list(sources.filter(ordinal__gt=cursor)[: GEOMETRY_CHUNK_SIZE + 1])
         has_next = len(inputs) > GEOMETRY_CHUNK_SIZE
         can_reuse = (
             cursor == 0
@@ -246,6 +239,7 @@ def trip_detail(request, case_id, trip_id):
                 "source_count": trip.source_count,
             }
         )
+    sources = _source_rows(case, trip)
     address_sources = sources.filter(snapshot__latitude=None)
     review_estimates = request.GET.get("view") == "estimates"
     page = Paginator(address_sources if review_estimates else sources, 50).get_page(
@@ -253,8 +247,6 @@ def trip_detail(request, case_id, trip_id):
     )
     context = _map_context(request, case, trip=trip)
     back_params = map_query(request.GET)
-    if trip.evidence_state != "active":
-        back_params.setdefault("state", trip.evidence_state)
     context.update(
         back_url=reverse("geo:case_map", args=(case.pk,), query=back_params),
         selected_trip=format_trip(case, trip),

@@ -27,7 +27,6 @@ def _export(row, case, document_id, source_row, zone, version):
     row["export_url"] = reverse(
         "core:evidence:detail",
         args=(case.pk, "document", document_id),
-        query={"state": "all"},
     )
     row["source_row"] = source_row
     row["clock_fields"].extend((("Export timezone", zone), ("Import parser", version)))

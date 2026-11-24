@@ -2,12 +2,14 @@
 
 import json
 from copy import deepcopy
+from http.client import IncompleteRead
 from io import BytesIO
 from unittest.mock import MagicMock, Mock, patch
 from urllib.error import HTTPError, URLError
 
 from django.core.exceptions import PermissionDenied
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from core.analysis.approval import revoke_case_execution
 from core.analysis.errors import AnalysisError
@@ -41,13 +43,13 @@ def response(value):
     return result
 
 
-def error(status):
+def error(status, body=b"Private response"):
     return HTTPError(
         "https://gateway.ai.cloudflare.com/synthetic",
         status,
         "Synthetic private provider detail",
         {},
-        BytesIO(b"Private response"),
+        BytesIO(body),
     )
 
 
@@ -260,6 +262,24 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
         build.return_value.open.assert_called_once()
         self.assertEqual(GatewayRequest.objects.get().status, "rate_limit")
 
+    def test_archiving_source_stops_rate_limit_retry_before_another_send(self):
+        def archive_source(_):
+            TextEvidence.objects.filter(pk=self.original.pk).update(
+                is_archived=True,
+                archive_changed_at=timezone.now(),
+                archive_changed_by=self.users["owner"],
+            )
+
+        with (
+            patch("core.analysis.gateway.build_opener") as build,
+            patch("core.analysis.gateway.time.sleep", side_effect=archive_source),
+        ):
+            build.return_value.open.side_effect = error(429)
+            with self.assertRaisesMessage(AnalysisError, "source_archived"):
+                self.client.request("text", {})
+        build.return_value.open.assert_called_once()
+        self.assertEqual(GatewayRequest.objects.get().status, "rate_limit")
+
     def test_authentication_quota_and_provider_failures_have_safe_distinct_codes(self):
         for status, expected in (
             (401, "authentication"),
@@ -296,11 +316,22 @@ class GatewayTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(build.return_value.open.call_count, 2)
         self.assertEqual(GatewayRequest.objects.count(), 2)
 
+    def test_http_rate_limit_status_with_quota_body_does_not_retry(self):
+        body = b'{"error":{"code":"insufficient_quota"}}'
+        with patch("core.analysis.gateway.build_opener") as build:
+            build.return_value.open.side_effect = error(429, body)
+            with self.assertRaisesMessage(AnalysisError, "gateway_quota"):
+                self.client.request("text", {})
+            self.assertEqual(build.return_value.open.call_count, 1)
+        request = GatewayRequest.objects.get()
+        self.assertEqual((request.status, request.response_bytes), ("quota", len(body)))
+
     def test_transport_failures_do_not_leak_upstream_exception_or_retry(self):
         for failure in (
             URLError("Synthetic secret endpoint"),
             TimeoutError("Synthetic private timeout"),
             OSError("Synthetic private OS error"),
+            IncompleteRead(b"Synthetic private response"),
         ):
             with (
                 self.subTest(failure=type(failure)),

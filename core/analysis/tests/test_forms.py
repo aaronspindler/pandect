@@ -312,4 +312,4 @@ class AnalysisSelectionFormTests(EvidenceViewTestMixin, TestCase):
                     {"state": "active"}, case=self.case, report_name=report_name
                 )
                 self.assertTrue(form.is_valid(), form.errors)
-                self.assertEqual(set(form.fields), {"state", "start", "end"} | filters)
+                self.assertEqual(set(form.fields), {"start", "end"} | filters)

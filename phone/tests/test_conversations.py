@@ -117,9 +117,7 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         for url in (self.list_url(), self.reader_url()):
             self.assertEqual(self.client.get(url).status_code, 404)
 
-    def test_unordered_pairs_self_messages_archives_and_source_overlap_remain_visible(
-        self,
-    ):
+    def test_unordered_pairs_and_self_messages_exclude_archives(self):
         instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
         first = self.message(occurred_at=instant)
         second = self.message(
@@ -136,25 +134,25 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.login("viewer")
         response = self.client.get(self.list_url())
         pairs = list(response.context["page_obj"])
-        self.assertEqual(sorted(row["message_count"] for row in pairs), [1, 2])
+        self.assertEqual(sorted(row["message_count"] for row in pairs), [1, 1])
         response = self.client.get(self.reader_url())
-        self.assertEqual(
-            [row.pk for row in response.context["page_obj"]], [first.pk, second.pk]
-        )
-        self.assertContains(response, "Archived")
+        self.assertEqual([row.pk for row in response.context["page_obj"]], [first.pk])
         self.assertContains(response, "First export")
-        self.assertContains(response, "Overlapping export")
+        self.assertNotContains(response, "Overlapping export")
         self.assertNotContains(response, own.title)
         self.assertIsNone(response.context["selected_message"])
+        self.assertEqual(
+            self.client.get(self.reader_url(), {"message": second.pk}).status_code,
+            404,
+        )
+        archived_url = self.url("detail", second, kind="text-message")
+        self.assertNotContains(self.client.get(archived_url), "View in conversation")
 
     def test_message_inspector_preloads_details_and_deep_links_to_one_message(self):
         export = self.document()
         first = self.message(
             title="First retained message",
             occurred_at=datetime(2026, 11, 10, 12, tzinfo=UTC),
-            is_archived=True,
-            archive_changed_at=timezone.now(),
-            archive_changed_by=self.users["owner"],
         )
         second = self.message(title="Second retained message")
         self.context(
@@ -186,7 +184,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
             "Reported sender",
             "Reported recipient",
             "Sent at",
-            "Archived",
             "Open evidence",
             "Message source",
             "View source metadata",
@@ -293,7 +290,7 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         )
         self.context(first, self.document(title="First export"))
         self.context(copy, self.document(title="Second export"))
-        archived = self.message(
+        self.message(
             body="Retained crate%_<b>.",
             is_archived=True,
             archive_changed_at=timezone.now(),
@@ -311,20 +308,17 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
 
         reader = self.reader_url()
         first_match = self.client.get(reader, {"q": f"  {query}  "})
-        self.assertContains(first_match, "Match 1 of 2")
+        self.assertContains(first_match, "Match 1 of 1")
         self.assertContains(first_match, "<mark>CRATE%_&lt;b&gt;</mark>")
         self.assertNotContains(first_match, "<mark>CRATE%_<b></mark>")
-        self.assertContains(first_match, "<mark>", count=2)
+        self.assertContains(first_match, "<mark>", count=1)
         self.assertIsNone(first_match.context["selected_message"])
         self.assertEqual(
             list(first_match.context["page_obj"]),
-            [metadata_only, wildcard_only, first, archived],
+            [metadata_only, wildcard_only, first],
         )
-        second_match = self.client.get(reader, {"q": query, "match": 2})
-        self.assertContains(second_match, "Match 2 of 2")
-        self.assertContains(second_match, "Archived")
-        self.assertContains(second_match, '#conversation-search-result"')
-        self.assertIsNone(second_match.context["selected_message"])
+        self.assertNotContains(first_match, "Retained crate")
+        self.assertContains(first_match, '#conversation-search-result"')
 
         self.login("outsider")
         self.assertEqual(self.client.get(reader, {"q": query}).status_code, 404)
@@ -477,9 +471,6 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         other = self.message(
             id=UUID(int=2),
             occurred_at=instant,
-            is_archived=True,
-            archive_changed_by=self.users["owner"],
-            archive_changed_at=timezone.now(),
         )
         self.context(first, left, row=3, native_message_id="copied-id")
         self.context(other, right, row=7, native_message_id="copied-id")
@@ -494,7 +485,7 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         expanded = self.client.get(reader, {"page": 2, "copies": first.pk})
         self.assertContains(expanded, "Hide 2 retained copies")
         self.assertContains(expanded, "First export · Row 3")
-        self.assertContains(expanded, "Second export · Row 7 · Archived")
+        self.assertContains(expanded, "Second export · Row 7")
         selected = self.client.get(reader, {"message": other.pk})
         actual = selected.context["selected_message"]
         self.assertEqual((actual.pk, actual.timeline_id), (other.pk, first.pk))
@@ -503,6 +494,17 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(selected, f'data-message-key="{first.pk}"')
         self.assertContains(selected, self.url("detail", other, kind="text-message"))
         self.assertContains(selected, "Row 7")
+        TextMessageEvidence.objects.filter(pk=other.pk).update(
+            is_archived=True,
+            archive_changed_by=self.users["owner"],
+            archive_changed_at=timezone.now(),
+        )
+        archived = self.client.get(reader, {"page": 2, "copies": first.pk})
+        self.assertNotContains(archived, "Second export · Row 7")
+        self.assertNotContains(archived, "retained copies")
+        self.assertEqual(
+            self.client.get(reader, {"message": other.pk}).status_code, 404
+        )
 
     def test_long_copy_disclosure_paginates_each_source_record(self):
         instant = datetime(2026, 11, 10, 12, tzinfo=UTC)

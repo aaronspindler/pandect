@@ -1,8 +1,12 @@
 """Meaning search recovery, approval checkpoints, and mixed-width publication."""
 
+import hashlib
 from io import StringIO
 from unittest.mock import patch
+from uuid import UUID
 
+from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
@@ -12,6 +16,7 @@ from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
 from core.analysis.errors import AnalysisError
+from core.analysis.services import snapshot_sources
 from core.case_search.approval import (
     approve_case_search,
     revoke_case_search,
@@ -24,8 +29,16 @@ from core.case_search.indexing import (
 )
 from core.case_search.semantic_model import profile
 from core.case_search.tests.test_semantic import EMBEDDING, vectors
-from core.models import CaseSearchIndex, SearchDocument, SearchPassage
+from core.models import (
+    AnalysisResult,
+    AnalysisRun,
+    CaseSearchIndex,
+    ExtractedPassage,
+    SearchDocument,
+    SearchPassage,
+)
 from core.testing import EvidenceViewTestMixin
+from document.models import DocumentEvidence
 from text.models import TextEvidence
 
 
@@ -140,7 +153,7 @@ class SearchRecoveryTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(page, "Resume indexing")
         self.assertContains(page, "0 completed sources")
 
-    def test_archived_backfill_new_originals_and_revocation_during_request(self):
+    def test_archived_sources_skip_backfill_and_resume_after_restore(self):
         archived = self.source(
             is_archived=True,
             archive_changed_at=timezone.now(),
@@ -152,9 +165,11 @@ class SearchRecoveryTests(EvidenceViewTestMixin, TestCase):
         added = self.source()
         self.assertTrue(SearchDocument.objects.filter(text=added).exists())
         self.seed()
-        self.assertTrue(SearchDocument.objects.filter(text=archived).exists())
+        self.assertFalse(SearchDocument.objects.filter(text=archived).exists())
+        archived_doc = SearchDocument.objects.create(case=self.case, text=archived)
 
         def revoke(texts, authorize, **kwargs):
+            self.assertEqual(texts, [added.body])
             result = self.hosted_vectors(texts, authorize, **kwargs)
             revoke_case_search(self.case)
             return result
@@ -170,7 +185,235 @@ class SearchRecoveryTests(EvidenceViewTestMixin, TestCase):
             self.assertEqual(self.step(), "queued")
             self.assertEqual(self.step(), "ready")
         state = search_index_status(self.case)
+        self.assertEqual((state["documents"], state["passages"]), (2, 2))
+        self.assertFalse(SearchPassage.objects.filter(document=archived_doc).exists())
+
+        self.login("owner")
+        self.assertEqual(
+            self.client.post(self.url("restore", archived)).status_code, 302
+        )
+        self.seed()
+        with patch(
+            "core.case_search.indexing.embed", side_effect=self.hosted_vectors
+        ) as embed:
+            self.assertEqual(self.step(), "queued")
+            self.assertEqual(self.step(), "ready")
+            self.assertEqual(embed.call_args.args[0], [archived.body])
+        state = search_index_status(self.case)
         self.assertEqual((state["documents"], state["passages"]), (3, 3))
+
+    def test_archiving_before_transfer_supersedes_the_embedding_delivery(self):
+        self.approve()
+        item = self.source()
+        self.seed()
+        self.login("owner")
+
+        def archive(texts, authorize, **kwargs):
+            self.assertEqual(texts, [item.body])
+            self.assertEqual(
+                self.client.post(self.url("archive", item)).status_code, 302
+            )
+            return self.hosted_vectors(texts, authorize, **kwargs)
+
+        with patch("core.case_search.indexing.embed", side_effect=archive) as embed:
+            self.assertEqual(self.step(), "superseded")
+            self.assertEqual(self.step(), "ready")
+            embed.assert_called_once()
+        self.assertFalse(SearchPassage.objects.filter(case=self.case).exists())
+
+    def test_restore_restarts_partial_index_for_unprojected_archived_dependency(self):
+        self.approve()
+        active, archived = [
+            DocumentEvidence.objects.create(
+                case=self.case,
+                uploaded_by=self.case.owner,
+                title=title,
+                file=SimpleUploadedFile("source.txt", title.encode()),
+            )
+            for title in ("Primary document", "Another document")
+        ]
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.case.owner,
+            operation="native_text",
+            method_version="1",
+            inputs=snapshot_sources(
+                self.case,
+                [{"kind": "document", "id": item.pk} for item in (active, archived)],
+            ),
+            status="complete",
+        )
+        result = AnalysisResult.objects.create(case=self.case, run=run)
+        text = "Synthetic extract"
+        passage = ExtractedPassage.objects.create(
+            case=self.case,
+            result=result,
+            kind="document",
+            evidence_id=active.pk,
+            evidence_sha256=active.sha256,
+            text=text,
+            item_index=0,
+        )
+        document = SearchDocument.objects.create(
+            case=self.case, extraction=passage, offset=1, profile=profile()
+        )
+        SearchPassage.objects.create(
+            case=self.case,
+            document=document,
+            start=0,
+            length=1,
+            profile=profile(),
+            digest=hashlib.sha256(text[:1].encode()).hexdigest(),
+            embedding=[1.0] + [0.0] * 1535,
+        )
+        self.login("owner")
+        self.assertEqual(
+            self.client.post(
+                self.url("archive", archived, kind="document")
+            ).status_code,
+            302,
+        )
+        self.seed()
+        with patch(
+            "core.case_search.indexing.embed", side_effect=self.hosted_vectors
+        ) as embed:
+            self.assertEqual(self.step(), "queued")
+            self.assertEqual(self.step(), "ready")
+            embed.assert_not_called()
+        document.refresh_from_db()
+        self.assertEqual(
+            (document.profile, document.offset, document.complete), ("", 0, True)
+        )
+        self.assertFalse(SearchPassage.objects.filter(document=document).exists())
+
+        self.assertEqual(
+            self.client.post(
+                self.url("restore", archived, kind="document")
+            ).status_code,
+            302,
+        )
+        self.seed()
+        with patch(
+            "core.case_search.indexing.embed", side_effect=self.hosted_vectors
+        ) as embed:
+            self.assertEqual(self.step(), "queued")
+            self.assertEqual(self.step(), "ready")
+            self.assertEqual(embed.call_args.args[0], [text])
+        document.refresh_from_db()
+        self.assertTrue(document.complete)
+        self.assertEqual(document.offset, len(text))
+        self.assertEqual(SearchPassage.objects.get(document=document).start, 0)
+
+    def test_unreadable_active_original_can_resume_after_file_recovery(self):
+        self.approve()
+        original = b"Synthetic original"
+        item = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.case.owner,
+            title="Document",
+            file=SimpleUploadedFile("source.txt", original),
+        )
+        run = AnalysisRun.objects.create(
+            case=self.case,
+            requested_by=self.case.owner,
+            operation="native_text",
+            method_version="1",
+            inputs=snapshot_sources(self.case, [{"kind": "document", "id": item.pk}]),
+            status="complete",
+        )
+        result = AnalysisResult.objects.create(case=self.case, run=run)
+        text = "Retained synthetic extraction"
+        passage = ExtractedPassage.objects.create(
+            case=self.case,
+            result=result,
+            kind="document",
+            evidence_id=item.pk,
+            evidence_sha256=item.sha256,
+            text=text,
+            item_index=0,
+        )
+        item.file.storage.delete(item.file.name)
+        self.seed()
+        document = SearchDocument.objects.get(extraction=passage)
+        SearchDocument.objects.filter(pk=document.pk).update(id=UUID(int=1))
+        document.pk = UUID(int=1)
+        healthy = self.source("Later healthy source")
+        healthy_doc = SearchDocument.objects.get(text=healthy)
+        with (
+            patch("core.case_search.indexing.BATCH_SIZE", 1),
+            patch(
+                "core.case_search.indexing.embed", side_effect=self.hosted_vectors
+            ) as embed,
+        ):
+            self.assertEqual(self.step(), "queued")
+            self.index.refresh_from_db()
+            self.assertEqual(self.index.failures, 0)
+            embed.assert_not_called()
+
+            self.assertEqual(self.step(), "queued")
+            healthy_doc.refresh_from_db()
+            self.assertTrue(healthy_doc.complete)
+            self.assertEqual(embed.call_args.args[0], [healthy.body])
+            self.assertEqual(search_index_status(self.case)["documents"], 1)
+
+            for delay in (15, 60):
+                self.assertEqual(self.step(), "queued")
+                queue = DBTaskResult.objects.latest("enqueued_at")
+                self.assertAlmostEqual(
+                    (queue.run_after - queue.enqueued_at).total_seconds(),
+                    delay,
+                    delta=2,
+                )
+            self.assertEqual(self.step(), "failed")
+            embed.assert_called_once()
+        document.refresh_from_db()
+        self.assertFalse(document.complete)
+        self.index.refresh_from_db()
+        self.assertEqual(self.index.error_code, "source_unavailable")
+        self.assertTrue(search_index_status(self.case)["can_retry"])
+
+        self.assertEqual(
+            item.file.storage.save(item.file.name, ContentFile(original)),
+            item.file.name,
+        )
+        self.assertTrue(prepare_case_search(self.case, self.case.owner, retry=True))
+        with patch(
+            "core.case_search.indexing.embed", side_effect=self.hosted_vectors
+        ) as embed:
+            self.assertEqual(self.step(), "queued")
+            self.assertEqual(self.step(), "ready")
+            self.assertEqual(embed.call_args.args[0], [text])
+        document.refresh_from_db()
+        self.assertTrue(document.complete)
+        self.assertEqual(document.offset, len(text))
+        self.assertFalse(prepare_case_search(self.case, self.case.owner, retry=True))
+
+        # Older workers could mark an unreadable extraction complete at offset 0.
+        SearchPassage.objects.filter(document=document).delete()
+        SearchDocument.objects.filter(pk=document.pk).update(offset=0)
+        self.assertTrue(prepare_case_search(self.case, self.case.owner))
+        document.refresh_from_db()
+        self.assertFalse(document.complete)
+        with patch(
+            "core.case_search.indexing.embed", side_effect=self.hosted_vectors
+        ) as embed:
+            self.assertEqual(self.step(), "queued")
+            self.assertEqual(self.step(), "ready")
+            self.assertEqual(embed.call_args.args[0], [text])
+
+    def test_removal_during_retry_clears_the_prior_failure(self):
+        self.approve()
+        item = self.source()
+        self.seed()
+        with patch(
+            "core.case_search.indexing.embed",
+            side_effect=AnalysisError("gateway_unavailable"),
+        ):
+            self.assertEqual(self.step(), "queued")
+        item.delete()
+        self.assertEqual(self.step(), "ready")
+        self.index.refresh_from_db()
+        self.assertEqual((self.index.error_code, self.index.failures), ("", 0))
 
     def test_rebuild_keeps_existing_vectors_until_long_source_is_complete(self):
         with override_settings(

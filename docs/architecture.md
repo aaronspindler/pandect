@@ -90,6 +90,10 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   conversations, source versions, coverage, and cited matches. Apply it before
   starting the matching worker and web versions. Chat replies can be marked
   Important, and external gateway usage links to the exact turn.
+  Migrations `core.0018` through `core.0022` add durable file cleanup, short-lived
+  deletion reviews, and concurrent dependency indexes. If an index build is
+  interrupted, inspect its named index for invalid state before retrying the
+  migration. The indexes build in separate migrations.
   Core also owns the synthetic probe, bounded `check_task_worker` diagnostic, and
   disabled global queue admin: operational task records have no case authorization.
 - `text/`, `image/`, `audio/`, and `document/` own their concrete evidence models,
@@ -100,7 +104,8 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   communication context, message imports, and conversation analysis. Migration
   `phone.0005_conversation_grouping` adds grouping revisions, sessions and
   ordered membership rows. Apply it before serving the updated reader or worker.
-  Existing finding-backed sessions keep their source links.
+  Migration `phone.0006_conversation_pair_revision` adds change tracking for
+  active pair originals. Existing finding-backed sessions keep their source links.
 - `people/` and `vehicle/` own case-scoped person and vehicle records. These are
   investigator-maintained entities, not evidence subclasses. `socialmedia/` owns
   social accounts linked to people and [case-bound Instagram monitors](instagram-monitors.md). `video/` is a registered placeholder only.
@@ -137,6 +142,22 @@ form, storage, and parser contracts do not import domain registries. Explicit
 registries compose domain models/forms/readers and processing callables at the
 application layer; there is no plugin autodiscovery. Shared file cleanup runs
 only after transaction commit, with receivers registered by the owning apps.
+
+Migration `core.0024_chat_completed_topics` adds a partial PostgreSQL GIN
+index over bounded question, claim, clarification and follow-up text on
+completed chat turns. It builds concurrently and includes existing chats.
+The chat worker uses the index within the current case and conversation to
+recall an earlier topic and reopen its cited originals.
+Migration `core.0025_search_parent_inventory` advances the case activity
+revision when search outlines enter or leave a deletion inventory.
+
+Case Search and Evidence chat share the case-scoped passage and outline
+indexes in `core.case_search`. An outline stores its version, coverage,
+original source references, offsets and excerpt digests. Query-time checks
+resolve those references to active originals. The optional passage reranker
+and optional background generation use independently configured routes.
+[Background tasks](background-tasks.md#meaning-search-indexing) describes
+index preparation and recovery.
 
 The core parser runner uses isolated Python subprocesses, resource limits,
 bounded input/output, and a fixed dispatch allowlist. Domain parsers are Django-free

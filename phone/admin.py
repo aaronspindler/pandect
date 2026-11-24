@@ -3,8 +3,11 @@ from django.db.models import F, Q
 from django.urls import reverse
 from django.utils.html import format_html
 
+from cases.admin_access import CaseScopedReadOnlyAdmin
 from cases.permissions import accessible_cases
 from core.evidence.admin import EvidenceAdmin
+from phone.conversation_instances import instance_url
+from phone.conversations import pair_messages
 from phone.forms import (
     FaceTimeEvidenceForm,
     PhoneCallEvidenceForm,
@@ -12,10 +15,15 @@ from phone.forms import (
 )
 from phone.models import (
     CallEvidenceAttachment,
+    CommunicationContext,
+    ConversationGrouping,
+    ConversationGroupingRequest,
+    ConversationSession,
     FaceTimeEvidence,
     PhoneCallEvidence,
     TextMessageEvidence,
 )
+from phone.saved_sessions import valid_sessions
 
 
 class CallAttachmentInline(admin.StackedInline):
@@ -131,3 +139,187 @@ class FaceTimeEvidenceAdmin(EvidenceAdmin):
             if obj is not None and obj.attachments.exists()
             else ()
         )
+
+
+@admin.register(CommunicationContext)
+class CommunicationContextAdmin(CaseScopedReadOnlyAdmin):
+    list_display = ("message", "case", "source_document", "source_row", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("=id", "=message__id", "source_document__title", "case__name")
+    fields = (
+        "id",
+        "case",
+        "message",
+        "source_document",
+        "import_run",
+        "source_row",
+        "source_start",
+        "source_end",
+        "source_sha256",
+        "parser_version",
+        "timezone",
+        "created_at",
+        "message_link",
+    )
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .filter(
+                message__case_id=F("case_id"),
+                message__sender__case_id=F("case_id"),
+                message__recipient__case_id=F("case_id"),
+                source_document__case_id=F("case_id"),
+                source_document__sha256=F("source_sha256"),
+            )
+            .filter(Q(import_run__isnull=True) | Q(import_run__case_id=F("case_id")))
+            .select_related("message", "source_document", "import_run")
+            .defer(
+                "participants",
+                "account_identifiers",
+                "attachments",
+                "source_context",
+                "message__body",
+                "import_run__inputs",
+                "import_run__parameters",
+            )
+        )
+
+    @admin.display(description="Investigation workflow")
+    def message_link(self, obj):
+        url = reverse(
+            "core:evidence:detail",
+            args=(obj.case_id, "text-message", obj.message_id),
+        )
+        return format_html('<a href="{}">Open retained message</a>', url)
+
+
+def _same_case_groupings(queryset):
+    return queryset.filter(
+        batch__case_id=F("case_id"),
+        first_person__case_id=F("case_id"),
+        second_person__case_id=F("case_id"),
+    )
+
+
+@admin.register(ConversationGrouping)
+class ConversationGroupingAdmin(CaseScopedReadOnlyAdmin):
+    list_display = (
+        "first_person",
+        "second_person",
+        "case",
+        "source_count",
+        "processed_count",
+        "published_at",
+    )
+    list_filter = ("published_at",)
+    search_fields = (
+        "=id",
+        "=batch__id",
+        "case__name",
+        "first_person__first_name",
+        "first_person__last_name",
+        "second_person__first_name",
+        "second_person__last_name",
+    )
+    fields = (
+        "id",
+        "case",
+        "batch",
+        "first_person",
+        "second_person",
+        "method_version",
+        "source_count",
+        "processed_count",
+        "published_at",
+        "published_by",
+        "sessions_link",
+    )
+
+    def get_queryset(self, request):
+        return (
+            _same_case_groupings(super().get_queryset(request))
+            .select_related("batch", "first_person", "second_person", "published_by")
+            .defer("parameters", "cursor", "batch__scope", "batch__preparation_errors")
+        )
+
+    @admin.display(description="Investigation workflow")
+    def sessions_link(self, obj):
+        url = reverse(
+            "phone:conversation_detail",
+            args=(obj.case_id, obj.first_person_id, obj.second_person_id),
+            query={"tab": "instances"},
+        )
+        return format_html('<a href="{}">Open sessions and summaries</a>', url)
+
+
+@admin.register(ConversationGroupingRequest)
+class ConversationGroupingRequestAdmin(CaseScopedReadOnlyAdmin):
+    list_display = ("grouping", "case", "batch", "error_code")
+    search_fields = ("=id", "=grouping__id", "=batch__id", "case__name", "error_code")
+    fields = ("id", "case", "grouping", "batch", "error_code")
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .filter(
+                batch__case_id=F("case_id"),
+                grouping__case_id=F("case_id"),
+                grouping__in=_same_case_groupings(ConversationGrouping.objects.all()),
+            )
+            .select_related("grouping", "batch")
+            .defer(
+                "grouping__parameters",
+                "grouping__cursor",
+                "batch__scope",
+                "batch__preparation_errors",
+            )
+        )
+
+
+@admin.register(ConversationSession)
+class ConversationSessionAdmin(CaseScopedReadOnlyAdmin):
+    list_display = ("grouping", "case", "first_at", "last_at", "message_count")
+    list_filter = ("first_at",)
+    search_fields = ("=id", "=grouping__id", "case__name")
+    fields = (
+        "id",
+        "case",
+        "grouping",
+        "first_at",
+        "last_at",
+        "message_count",
+        "boundary_reason",
+        "session_link",
+    )
+    ordering = ("-first_at", "pk")
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .filter(
+                grouping__case_id=F("case_id"),
+                grouping__published_at__isnull=False,
+                grouping__in=_same_case_groupings(ConversationGrouping.objects.all()),
+            )
+            .select_related("grouping")
+            .defer("grouping__parameters", "grouping__cursor")
+        )
+
+    @admin.display(description="Investigation workflow")
+    def session_link(self, obj):
+        grouping = obj.grouping
+        pair = (grouping.first_person_id, grouping.second_person_id)
+        messages = pair_messages(obj.case, *pair)
+        if valid_sessions(obj.case, messages).filter(pk=obj.pk).exists():
+            url = instance_url(obj.case, pair, obj.pk)
+            return format_html('<a href="{}">Open saved session and messages</a>', url)
+        url = reverse(
+            "phone:conversation_detail",
+            args=(obj.case_id, *pair),
+            query={"tab": "instances"},
+        )
+        return format_html('<a href="{}">Open available sessions</a>', url)

@@ -135,8 +135,11 @@ with every setting, including `disabled`.
 With `openai-gateway`, Pandect requests 1,536 dimensions from OpenAI
 `text-embedding-3-large` through the configured Cloudflare gateway. Vectors stay
 in the case database. An owner selects **Approve and start** under **Meaning
-search** in Case settings to approve indexing of eligible active, archived and
-future sources and explicit query submissions. Changing the approved
+search** in Case settings to approve indexing of eligible active sources,
+including future additions and restored evidence, and explicit query submissions.
+The owner can separately
+enable [hosted queries from Evidence Chat](cases.md#hosted-meaning-search).
+Changing the approved
 destination or model profile requires a fresh approval. The gateway request
 disables Cloudflare payload logging and cache reuse. Configure the provider's
 retention separately. Each outbound attempt records its case, operation, model,
@@ -165,6 +168,43 @@ and the installed model's manifest digest in `/api/tags`.
 The client validates the digest-addressed local model and its runtime. See
 [index recovery](background-tasks.md#meaning-search-indexing) and the
 [upgrade procedure](operations.md#switch-the-meaning-search-provider).
+
+## Optional passage ranking
+
+Set `PANDECT_SEARCH_RERANK_PROVIDER` on web and workers. The default
+`disabled` uses the combined search ranking. `local` uses a private Text
+Embeddings Inference (TEI) service. `workers-ai` uses the configured
+Cloudflare account, gateway and Workers AI credential with a
+[separate case-owner approval](cases.md#hosted-passage-ranking).
+An unavailable reranker leaves the existing search order usable.
+
+For local use, run a pinned TEI image on a private operator-controlled origin.
+The tested ARM64 CPU image is
+`ghcr.io/huggingface/text-embeddings-inference@sha256:798cd7615e060a72ccbdf19aa0ada52289c6a0147490195bafaece6ce04d70f1`.
+Start the server with model ID `BAAI/bge-reranker-base` and revision
+`2cfc18c9415c912f9d8155881c133215df768a70` using the `--model-id` and
+`--revision` options. Provision its model cache before serving traffic.
+For other platforms use a reviewed, digest-pinned TEI image for the
+corresponding architecture. [TEI supported hardware](https://huggingface.co/docs/text-embeddings-inference/main/en/supported_models)
+
+| Local setting | Value |
+| --- | --- |
+| `PANDECT_LOCAL_RERANK_URL` | Private TEI origin reachable by web and worker. |
+| `PANDECT_LOCAL_RERANK_REVISION` | Full 40-character BGE model revision from the reviewed deployment. |
+| `PANDECT_LOCAL_RERANK_VERSION` | Exact TEI version returned by `/info`. The tested image reports `1.9.4`. |
+| `PANDECT_LOCAL_RERANK_TOKEN` | Optional TEI API token, kept server-side. |
+
+When several candidates closely resemble the leading passage, the selected
+reranker orders those competing excerpts within their original result slots.
+Independent sources keep their positions. Pandect skips the provider call when
+it finds no close alternatives.
+
+Pandect checks the model type, ID, revision and TEI version before and after
+each local ranking. Hosted ranking uses `@cf/baai/bge-reranker-base` and
+records the actual model, case, operation, transfer sizes and outcome. A chat
+turn reserves one ranking attempt across retries. A timeout, malformed score
+list or revoked ranking permission leaves the original ranking in place.
+Source and case permissions are rechecked before transferring passages.
 
 ## Start optional CPU transcription
 
@@ -246,12 +286,13 @@ restricting access to Pandect workers. Never expose runtimes to untrusted networ
 | `PANDECT_LOCAL_TEXT_RUNTIME`, `PANDECT_LOCAL_TRANSCRIPTION_RUNTIME` | Text defaults empty and requires `ollama@<exact reviewed server version>`; transcription defaults to the pinned Whisper revision above. Change deliberately with a reviewed runtime update. |
 | `PANDECT_LOCAL_AI_TOKEN` | Required bearer token for bundled Whisper; optional proxy token for Ollama. Never retained in run parameters. |
 
-Local inference uses a 600-second request deadline, 8 MiB request and 2 MiB
+Local inference uses a 600-second client socket timeout, 8 MiB request and 2 MiB
 response limits, and a 4,096-token output allowance. Ollama text has a
 16,384-token context, including the complete rendered prompt and output allowance.
 These bounded defaults live in `config/settings.py`, rather than environment
 variables. The bundled Whisper front door uses the same request/response limits
-and deadline, with four native threads.
+and a separate 600-second execution deadline that starts after reading the body,
+with four native threads.
 
 Compose limits Whisper to four CPUs and `4g` memory. These are resource ceilings,
 not host minimum checks, and do not configure Ollama. For a measured hardware

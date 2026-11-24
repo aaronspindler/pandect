@@ -53,7 +53,7 @@
         <ol class="instance-message-list" start="{{ instance.messages.start_index }}" data-conversation-items data-page="{{ instance.messages.number }}">
           {% for message in instance.messages %}
           <li id="instance-message-{{ instance.id }}-{{ message.pk }}" tabindex="-1">
-            <div class="instance-message-meta"{% if instance.day_message == message.pk %} id="conversation-day-result" tabindex="-1"{% endif %}><strong>{{ message.sender }}</strong> · {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}{% if message.is_archived %} · Archived{% endif %}</div>
+            <div class="instance-message-meta"{% if instance.day_message == message.pk %} id="conversation-day-result" tabindex="-1"{% endif %}><strong>{{ message.sender }}</strong> · {% if message.occurred_at %}<time datetime="{{ message.occurred_at|date:'c' }}">{{ message.occurred_at|date:'j M Y, H:i:s T' }}</time>{% else %}Time not recorded{% endif %}</div>
             <div class="conversation-message-body">{{ message.body }}</div>
             <div class="instance-message-meta">{% if message.imported_source %}{{ message.imported_source.source_document.title }} · Row {{ message.imported_source.source_row }}{% else %}{{ message.source|default:'Individually retained message' }}{% endif %} · <a data-workspace-link href="{{ message.transcript_url }}">Message details</a></div>
           </li>

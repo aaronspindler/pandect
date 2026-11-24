@@ -10,7 +10,6 @@
 </header>
 <details class="disclosure report-filters"{% if form.errors or name == 'vehicle-trips' and request.GET.filters == 'dates' %} open{% endif %}>
   <summary id="report-filters">Report filters{% if filters_applied and not form.errors %}
-    {% if form.cleaned_data.state == 'all' %} · All evidence{% elif form.cleaned_data.state == 'archived' %} · Archived only{% endif %}
     {% for name in selected_names %} · {{ name }}{% endfor %}
     {% if form.cleaned_data.start %} · From {{ form.cleaned_data.start|date:'j M Y H:i T' }}{% endif %}
     {% if form.cleaned_data.end %} · Through {{ form.cleaned_data.end|date:'j M Y H:i T' }}{% endif %}
@@ -53,7 +52,7 @@
 {% else %}
   <div class="empty-state">
     <h2>{% if name == 'duplicates' %}No exact file duplicates in this selection{% else %}No records in this selection{% endif %}</h2>
-    {% if filters_applied %}<a class="button button-secondary" href="{{ request.path }}">Show report with default filters</a>{% else %}<p>Use Report filters to include archived evidence.</p>{% endif %}
+    {% if filters_applied %}<a class="button button-secondary" href="{{ request.path }}">Show report with default filters</a>{% endif %}
   </div>
 {% endif %}
 <details class="analysis-section disclosure">

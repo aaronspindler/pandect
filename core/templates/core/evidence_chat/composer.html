@@ -2,16 +2,19 @@
   <p role="status">{{ unavailable }}{% if is_owner %} <a href="{% url 'cases:case_settings' case.pk %}">Open Case settings</a>.{% endif %}</p>
 {% endif %}
 {% if route_token or form.is_bound %}
-<form method="post" aria-label="{% if thread %}Ask a follow-up{% else %}Ask the evidence{% endif %}">
+<form class="chat-composer" method="post" aria-label="{% if thread %}Ask a follow-up{% else %}Ask the evidence{% endif %}">
   {% csrf_token %}
   {% include 'ui/components/form_errors.html' with form=form %}
   {% for field in form.hidden_fields %}{{ field }}{% endfor %}
-  {% include 'ui/components/form_field.html' with field=form.question only %}
-  <p class="help-text">Your question and reply are shared with current case collaborators.</p>
-  {% include 'core/evidence_chat/transfer.html' %}
-  <div class="chat-composer-controls">
-    {% include 'ui/components/form_field.html' with field=form.include_archived only %}
-    <button class="button button-primary" type="submit"{% if not route_token %} disabled{% endif %}>{% if thread %}Ask follow-up{% else %}Ask question{% endif %}</button>
+  <div class="chat-compose-box">
+    {% include 'ui/components/form_field.html' with field=form.question only %}
+    <div class="chat-composer-controls">
+      <div class="chat-disclosures">
+        <p class="help-text">Your question and reply are shared with current case collaborators.</p>
+        {% include 'core/evidence_chat/transfer.html' %}
+      </div>
+      <button class="button button-primary" type="submit"{% if not route_token %} disabled{% endif %}>{% if thread %}Ask follow-up{% else %}Ask question{% endif %}</button>
+    </div>
   </div>
 </form>
 {% endif %}

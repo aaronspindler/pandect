@@ -111,24 +111,30 @@ class UnplacedTimeClaimTests(EvidenceViewTestMixin, TestCase):
                 detail.context["items"][0]["sources"][0]["excerpt"],
                 row["citations"][0]["quote"],
             )
+        self.publish(inputs, [], status="failed")
+        self.assertEqual(time_claims_page(self.case, {}, 1).paginator.count, 5)
         TextMessageEvidence.objects.filter(pk=message.pk).update(
             is_archived=True,
             archive_changed_at=message.occurred_at,
             archive_changed_by=self.users["owner"],
         )
-        self.assertTrue(
-            all(
-                r["citations"][0]["archived"]
-                for r in time_claims_page(self.case, {}, 1)
-            )
+        self.assertEqual(time_claims_page(self.case, {}, 1).paginator.count, 0)
+        self.assertEqual(
+            time_claims_page(self.case, {}, 1, dates_only=True).paginator.count, 0
         )
-        self.publish(inputs, [], status="failed")
+        prior_url = finding_url(self.case.pk, result.run_id, 0)
+        archived = self.client.get(prior_url)
+        self.assertContains(archived, "Restore the evidence")
+        self.assertNotContains(archived, first)
+        self.login("editor")
+        restore = reverse(
+            "core:evidence:restore", args=(self.case.pk, "text-message", message.pk)
+        )
+        self.assertEqual(self.client.post(restore).status_code, 302)
         self.assertEqual(time_claims_page(self.case, {}, 1).paginator.count, 5)
         self.publish(inputs, [], status="empty")
         self.assertEqual(time_claims_page(self.case, {}, 1).paginator.count, 3)
-        self.assertContains(
-            self.client.get(finding_url(self.case.pk, result.run_id, 0)), first
-        )
+        self.assertContains(self.client.get(prior_url), first)
 
     def test_malformed_or_foreign_claims_withhold_quotations_and_interpretations(self):
         message = self.message("Tomorrow we will close the synthetic office.")

@@ -15,11 +15,7 @@ from cases.models import Case, CaseMembership
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.execution import requires_inference
 from core.analysis.operations import OPERATIONS
-from core.analysis.reprocessing import (
-    CONTEXT_REQUIRED_OPERATIONS,
-    REPROCESS_OPERATIONS,
-    start_reprocessing,
-)
+from core.analysis.reprocessing import start_reprocessing
 from core.analysis.services import process_run
 from core.analysis.testing import external_grant_kwargs
 from core.analysis.tests.test_execution import LOCAL
@@ -32,12 +28,20 @@ from text.models import TextEvidence
 
 @override_settings(PANDECT_LOCAL_AI=LOCAL, PANDECT_AI_GATEWAY=CONFIG)
 class ReprocessingTests(EvidenceViewTestMixin, TestCase):
-    def test_every_available_operation_has_an_explicit_bulk_or_context_path(self):
+    def test_investigator_context_methods_are_not_automatic(self):
         self.assertEqual(
-            set(OPERATIONS),
-            set(REPROCESS_OPERATIONS) | set(CONTEXT_REQUIRED_OPERATIONS),
+            {name for name, spec in OPERATIONS.items() if spec.context_required},
+            {
+                "claim_comparison",
+                "question_synthesis",
+                "sighting_group",
+                "style_change",
+                "proximity",
+                "location_conflicts",
+                "journey_claims",
+                "imessage_import",
+            },
         )
-        self.assertFalse(set(REPROCESS_OPERATIONS) & set(CONTEXT_REQUIRED_OPERATIONS))
 
     def start(self, *, role="owner", kinds=("text",), approved=False, **kwargs):
         if approved:
@@ -137,6 +141,9 @@ class ReprocessingTests(EvidenceViewTestMixin, TestCase):
         identifiers.refresh_from_db()
         self.assertEqual(batch.runs.count(), initial_count)
         original_result_id = identifiers.result.pk
+        batch.runs.exclude(pk=identifiers.pk).update(
+            status=AnalysisRun.Status.CANCELLED
+        )
         later, _ = self.start()
         self.drain(later)
         identifiers.refresh_from_db()

@@ -81,6 +81,7 @@ def _claim_row(case, finding, run, sources):
     item = finding.raw_item
     if (
         not sources
+        or any(source.item.is_archived for source in sources)
         or not isinstance(item, dict)
         or item.get("label") != finding.label
         or item.get("report_only")
@@ -116,7 +117,6 @@ def _claim_row(case, finding, run, sources):
                 "quote": quote,
                 "title": source.item.title,
                 "url": source.original_url,
-                "archived": source.item.is_archived,
             }
             for source, quote in citations
         ],

@@ -1,19 +1,39 @@
 """Rank evidence windows using case record fields and the private passage index."""
 
 import re
-from functools import reduce
-from itertools import zip_longest
+from collections import defaultdict
+from functools import cache, reduce
+from itertools import islice, zip_longest
 from operator import or_
 
 from django.conf import settings
 from django.db.models import Case, Q, TextField, Value, When
-from django.db.models.functions import Cast, Lower, StrIndex
+from django.db.models.functions import Cast, Lower, StrIndex, Substr
 
-from core.case_search.semantic import related_results
+from core.case_search.documents import FIELDS, searchable, term_condition
+from core.case_search.grammar import Term
+from core.case_search.queries import id_match
+from core.case_search.semantic import (
+    CANDIDATE_LIMIT,
+    CHAT_SOURCE_LIMIT,
+    related_results,
+)
 from core.evidence.types import COMMUNICATION_KINDS, FILE_KINDS
 from text.analysis.synthesis import finding_text
 
-from .corpus import body_field, clipped, material, rows, surfaces
+from .corpus import (
+    body_field,
+    clipped,
+    material,
+    original_keys,
+    read_window,
+    rows,
+    surfaces,
+)
+from .corpus_navigation import nearby_sources
+from .passage_windows import WINDOW, lexical_spans, promote_relations, window_offsets
+from .search_scope import scope_rows
+from .spelling import alternatives, original_span
 
 STOPWORDS = frozenset(
     "a an and any are as at about across all be by can case could did do does "
@@ -25,9 +45,25 @@ STOPWORDS = frozenset(
 )
 
 
-def terms_for(question):
+# A direct request for a record UUID is satisfied by indexed primary-key reads.
+# Questions about relationships involving that UUID still use the hybrid search.
+RECORD_LOOKUP = re.compile(
+    r"(?:please\s+)?(?:(?:show|find|open|locate)\s+(?:me\s+)?)?(?:the\s+)?"
+    r"(?:(?:record|evidence|item)\s+)?"
+    r"([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})[.?!]?",
+    re.I,
+)
+
+
+def terms_for(question, *, extra_stopwords=()):
     words = re.findall(r"[^\W_]+(?:[-@.][^\W_]+)*", question.lower())
-    return list(dict.fromkeys(word for word in words if word not in STOPWORDS))[:8]
+    return list(
+        dict.fromkeys(
+            word
+            for word in words
+            if word not in STOPWORDS and word not in extra_stopwords
+        )
+    )[:8]
 
 
 def fields_for(surface, kind):
@@ -73,14 +109,34 @@ def fields_for(surface, kind):
     return fields
 
 
-def matching_rows(queryset, fields, terms, content, limit):
-    conditions = [
-        reduce(or_, (Q(**{f"{field}__icontains": term}) for field in fields))
-        for term in terms
-    ]
+def matching_rows(queryset, surface, kind, terms, content, limit):
+    index_fields = FIELDS[kind if surface == "original" else surface]
+    queryset = searchable(queryset, index_fields)
+    fields = fields_for(surface, kind)
+    extra = [f for f in fields if f not in index_fields]
+    conditions = []
+    weights = []
+    for word in terms:
+        term = Term(word, False, False)
+        # Use the same indexed expression as Case Search. Confirm matches
+        # against the chat-visible fields before loading any original window.
+        native = term_condition(term)
+        if set(index_fields) - set(fields):
+            native &= reduce(
+                or_,
+                (Q(**{f"{f}__icontains": word}) for f in fields if f in index_fields),
+            )
+        condition = native | id_match(word)
+        for field in extra:
+            if field.endswith("_at") and not term.literal:
+                continue
+            condition |= Q(**{field + "__icontains": word})
+        conditions.append(condition)
+        weights.append(3 if term.literal else 1)
     if conditions:
         score = sum(
-            Case(When(condition, then=1), default=0) for condition in conditions
+            Case(When(condition, then=weight), default=0)
+            for condition, weight in zip(conditions, weights, strict=True)
         )
         queryset = queryset.filter(reduce(or_, conditions)).annotate(score=score)
     else:
@@ -95,22 +151,73 @@ def matching_rows(queryset, fields, terms, content, limit):
     return queryset.order_by("-score", "pk")[:limit]
 
 
-def meaning_windows(case, question, user, include_archived, through):
-    # Hosted meaning search has its own explicit submission contract. Chat never
-    # sends a question or conversation to the hosted embedding service.
-    if settings.PANDECT_SEARCH_EMBEDDING_PROVIDER != "local":
-        return
-    query = " ".join(re.findall(r"\w+", question)[:16])[:200]
-    if not query:
-        return
-    results, _ = related_results(
-        case,
-        user=user,
-        query=query,
-        state="all" if include_archived else "active",
-        include_source=True,
+LEXICAL_LIMIT = 10
+RRF_K = 15
+
+
+def _lexical(case, terms, include_archived, through, filters):
+    groups = []
+    for surface, kind in surfaces():
+        field = body_field(surface, kind)
+        kind_words = set(kind.split("-")) if surface == "original" else set()
+        keywords = [t for t in terms if t.removesuffix("s") not in kind_words]
+        matches = matching_rows(
+            scope_rows(
+                rows(case, surface, kind, include_archived, through),
+                case,
+                surface,
+                kind,
+                filters,
+            ),
+            surface,
+            kind,
+            keywords,
+            field,
+            2 * LEXICAL_LIMIT,
+        )
+        offsets = [f"match_{i}" for i in range(len(keywords))] if field else []
+        group = [
+            (
+                score + (len(keywords) < len(terms)),
+                (surface, kind, str(pk)),
+                tuple(
+                    (term, n - 1)
+                    for term, n in zip(keywords, positions, strict=False)
+                    if n
+                ),
+            )
+            for pk, score, *positions in matches.values_list("pk", "score", *offsets)
+        ]
+        groups.append(group)
+    if not terms:
+        return [hit for group in zip_longest(*groups) for hit in group if hit]
+    return sorted(
+        (hit for group in groups for hit in group),
+        key=lambda hit: (-hit[0], hit[1][0] != "original", hit[1]),
     )
-    for result in results:
+
+
+def _meaning(case, question, user, related, through, filters):
+    if related is not None:
+        results, _ = related(question)
+    else:
+        # Direct corpus callers can use the private index. Hosted dispatch always
+        # goes through the turn's submitted destination and query authorization.
+        if settings.PANDECT_SEARCH_EMBEDDING_PROVIDER != "local":
+            return
+        query = " ".join(re.findall(r"\w+", question)[:16])[:200]
+        if not query:
+            return
+        results, _ = related_results(
+            case,
+            user=user,
+            query=query,
+            include_source=True,
+            for_chat=True,
+            through=through,
+            **(filters or {}),
+        )
+    for result in islice(results, 2 * CHAT_SOURCE_LIMIT):
         source, pk = result["source"]
         if source == "finding":
             surface, kind = "finding", ""
@@ -120,83 +227,284 @@ def meaning_windows(case, question, user, include_archived, through):
             surface, kind = "attachment", result["kind"]
         else:
             surface, kind = "original", result["kind"]
-        queryset = rows(case, surface, kind, include_archived, through).filter(pk=pk)
-        item = clipped(queryset, body_field(surface, kind)).first()
-        found = (
-            material(case, surface, kind, item, include_archived, through=through)
-            if item
-            else None
-        )
-        if found:
-            offset = result["start"]
-            if surface == "finding":
-                offset = max(
-                    0, finding_text(item.canonical_item).find(result["excerpt"])
-                )
-            yield found.locator, max(0, offset - 100)
+        yield (surface, kind, str(pk)), result
 
 
-def ranked_windows(case, question, user, include_archived, limit, through):
-    """Score across kinds and retain each distinct surface once."""
+def ranked_windows(
+    case,
+    question,
+    user,
+    include_archived,
+    limit,
+    through,
+    *,
+    related=None,
+    hints=(),
+    stamp_body=False,
+    filters=None,
+    semantic_hints=None,
+):
+    limit = min(limit, CANDIDATE_LIMIT)
+    if limit <= 0:
+        return []
     terms = terms_for(question)
-    candidates = []
-    samples = []
-    for surface, kind in surfaces():
-        content = body_field(surface, kind)
-        type_terms = (
-            {word for word in terms if word.removesuffix("s") in kind.split("-")}
-            if surface == "original"
-            else set()
-        )
-        keywords = [word for word in terms if word not in type_terms]
-        qs = rows(case, surface, kind, include_archived, through)
-        qs = clipped(qs, content)
-        group = []
-        for item in matching_rows(
-            qs, fields_for(surface, kind), keywords, content, limit
-        ):
-            found = material(
-                case, surface, kind, item, include_archived, through=through
+    allowed = set(surfaces())
+
+    if direct_id := RECORD_LOOKUP.fullmatch(question.strip()):
+        found = []
+        for surface, kind in surfaces():
+            qs = scope_rows(
+                rows(case, surface, kind, include_archived, through),
+                case,
+                surface,
+                kind,
+                filters,
             )
-            if found is None:
-                continue
-            offsets = [getattr(item, f"match_{i}", 0) for i in range(len(keywords))]
-            first = min((offset - 1 for offset in offsets if offset > 0), default=0)
-            # A hit only on a recorded participant or date is in the metadata
-            # after the original message. Include the evidence for that match.
-            if content and keywords and not any(offsets):
-                first = getattr(item, "body_length", 0)
-            elif surface == "finding":
-                body = finding_text(item.canonical_item).lower()
-                first = min(
-                    (n for word in keywords if (n := body.find(word)) >= 0), default=0
+            item = clipped(
+                qs.filter(pk=direct_id[1]), body_field(surface, kind), review=stamp_body
+            ).first()
+            if item is not None:
+                hit = material(
+                    case, surface, kind, item, include_archived, through=through
                 )
-            entry = (item.score + bool(type_terms), found.locator, max(0, first - 100))
-            group.append(entry)
-        candidates.extend(group)
-        if group:
-            samples.append(group)
-    if terms:
-        candidates.sort(
-            key=lambda entry: (
-                -entry[0],
-                entry[1]["surface"] != "original",
-                entry[1]["key"],
-            )
+                if hit and read_window(
+                    case, hit.locator, 0, 1, include_archived=include_archived
+                ):
+                    found.append((hit.locator, 0))
+                    if len(found) >= limit:
+                        break
+        return found
+    meaning = list(_meaning(case, question, user, related, through, filters))
+    # Retrieve each group of shortlisted originals in one scoped query. Keep
+    # only the requested substrings, lengths and hashes of long text bodies.
+    candidate_rows = {}
+    candidate_starts = defaultdict(dict)
+    for (surface, kind, pk), hit in meaning:
+        if surface == "original" and kind in ("text", "text-message"):
+            candidate_starts[kind].setdefault(pk, hit["start"])
+    for kind, positions in candidate_starts.items():
+        queryset = scope_rows(
+            rows(case, "original", kind, include_archived, through),
+            case,
+            "original",
+            kind,
+            filters,
         )
-    else:
-        # An overview should show several source types even when one dominates.
-        candidates = [
-            entry for round_ in zip_longest(*samples) for entry in round_ if entry
+        offsets = Case(
+            *(When(pk=pk, then=Value(start + 1)) for pk, start in positions.items()),
+            default=1,
+        )
+        for item in clipped(
+            queryset.filter(pk__in=positions), "body", review=stamp_body
+        ).annotate(indexed_excerpt=Substr("body", offsets, WINDOW)):
+            candidate_rows[("original", kind, str(item.pk))] = item
+
+    @cache
+    def load(key):
+        surface, kind, pk = key
+        if (surface, kind) not in allowed:
+            return None
+        if key in candidate_rows:
+            item = candidate_rows[key]
+        else:
+            qs = scope_rows(
+                rows(case, surface, kind, include_archived, through),
+                case,
+                surface,
+                kind,
+                filters,
+            ).filter(pk=pk)
+            item = clipped(qs, body_field(surface, kind), review=stamp_body).first()
+        if item is None:
+            return None
+        found = material(case, surface, kind, item, include_archived, through=through)
+        if not found or found.locator["gap"] in {
+            "Original file is unavailable.",
+            "Original text failed its integrity check.",
+        }:
+            return None
+        return item, found.locator
+
+    # Score a source once per lane. Keep each lane's offset when the lanes agree
+    # about the source but point to different statements in a long original.
+    scores = defaultdict(float)
+    spans = defaultdict(list)
+    for _, key, positions in _lexical(case, terms, include_archived, through, filters):
+        if not (source := load(key)):
+            continue
+        item, loc = source
+        if key[0] == "finding":
+            body = finding_text(item.canonical_item).lower()
+            positions = [(t, body.find(t)) for t in terms]
+        offset = loc.get("metadata_start", 0) if terms else 0
+        spans[key] = lexical_spans(item, body_field(*key[:2]), terms, positions) or [
+            (offset, offset + 1)
         ]
-    lexical = [(loc, offset) for _, loc, offset in candidates]
-    semantic = list(meaning_windows(case, question, user, include_archived, through))
-    # Give the private meaning index room to surface paraphrases in a large case.
-    available = {}
-    for locator, offset in (
-        lexical[: max(1, limit - min(len(semantic), limit // 2))] + semantic + lexical
-    ):
-        available.setdefault(locator["key"], (locator, offset))
-        if len(available) == limit:
+        scores[key] = 1 / (RRF_K + len(scores) + 1)
+        if len(scores) == LEXICAL_LIMIT:
             break
-    return list(available.values())
+    lexical_order = list(scores)
+    direct_ranks = {}
+    strong_spans = defaultdict(list)
+    seen_meaning = set()
+    for key, result in meaning:
+        if not (source := load(key)):
+            continue
+        item, loc = source
+        offset = result["start"]
+        if key[0] == "finding":
+            offset = finding_text(item.canonical_item).find(result["excerpt"])
+        excerpt = result["excerpt"]
+        if (
+            not isinstance(excerpt, str)
+            or not excerpt
+            or not 0 <= offset < loc["length"]
+        ):
+            continue
+        sample_start = (
+            candidate_starts[key[1]].get(key[2]) if key in candidate_rows else None
+        )
+        relative = offset - sample_start if sample_start is not None else -1
+        if relative >= 0 and relative + len(excerpt) <= len(item.indexed_excerpt):
+            if not item.indexed_excerpt.startswith(excerpt, relative):
+                continue
+        else:
+            current = read_window(
+                case, loc, offset, len(excerpt), include_archived=include_archived
+            )
+            if current is None or current["text"] != excerpt:
+                continue
+        # A generated outline can lead to an original only while its own
+        # dependencies remain current. Carry that dependency across worker retries.
+        if parent := result.get("via_id"):
+            leads = loc.setdefault("search_parents", [])
+            if parent not in leads:
+                leads.append(parent)
+        else:
+            direct_ranks.setdefault(key, result.get("direct_rank", len(direct_ranks)))
+            # An outline can introduce a candidate but a model-free relevance
+            # decision needs a qualified score on the verified child itself.
+            if semantic_hints is not None and result.get("strong_match"):
+                strong_spans[key].append((offset, offset + len(excerpt)))
+        if key not in seen_meaning:
+            weight = 1.5 if result.get("strong_match") else 1
+            scores[key] += weight / (RRF_K + len(seen_meaning) + 1)
+            seen_meaning.add(key)
+            spans[key].insert(0, (offset, offset + len(excerpt)))
+        else:
+            spans[key].append((offset, offset + len(excerpt)))
+
+    if variants := alternatives(case, question, terms, through):
+        added = 0
+        for _, key, positions in islice(
+            _lexical(case, variants, include_archived, through, filters), 12
+        ):
+            if key[0] == "finding" or not (source := load(key)):
+                continue
+            if span := original_span(
+                case, *source, positions, variants, include_archived
+            ):
+                added += 1
+                spans[key].append(span)
+                scores[key] += 1 / (RRF_K + 3 + added)
+                if added == 3:
+                    break
+
+    starts = {key: window_offsets(value) for key, value in spans.items()}
+    ranked = sorted(scores, key=lambda k: -scores[k])
+    if len(ranked) > CHAT_SOURCE_LIMIT:
+        originals, repeats, covered = [], [], set()
+        for key in ranked:
+            origins = original_keys(load(key)[1])
+            if origins - covered:
+                originals.append(key)
+                covered.update(origins)
+            else:
+                repeats.append(key)
+        ranked = (originals + repeats)[:CHAT_SOURCE_LIMIT]
+    ranked, starts = promote_relations(
+        case, question, ranked, starts, load, include_archived
+    )
+    suggestions = []
+    for hint, start in islice(hints, 4):
+        surface = hint["surface"]
+        kind = hint["kind"] if surface in ("original", "attachment") else ""
+        key = (surface, kind, hint["pk"])
+        if (
+            (source := load(key))
+            and source[1]["version"] == hint["version"]
+            and 0 <= start < source[1]["length"]
+            and read_window(case, hint, start, 1, include_archived=include_archived)
+        ):
+            suggestions.append((key, start))
+    primaries = [(key, starts[key][0]) for key in ranked]
+    # Immediately read a cited original or a definite reply when one of the best
+    # hits points there. Neighbours are search leads and retain their own labels.
+    neighbours = []
+    cited_primaries = []
+    for key, _ in (suggestions + primaries)[:2]:
+        item, loc = load(key)
+        for neighbour in nearby_sources(
+            case, question, item, loc, include_archived, through
+        ):
+            if neighbour != key and load(neighbour):
+                choice = neighbour, starts.get(neighbour, [0])[0]
+                if choice in neighbours:
+                    continue
+                neighbours.append(choice)
+                if key[0] == "finding":
+                    cited_primaries.append(choice)
+                if len(neighbours) == 2:
+                    break
+        if len(neighbours) == 2:
+            break
+
+    choices = (
+        primaries[:1] + suggestions[:2] + primaries[1:2] + neighbours + primaries[2:]
+    )
+    independent, rest = [], []
+    covered = set()
+    for choice in [*cited_primaries, *choices]:
+        # Prefer a finding's cited original when independent accounts fill the
+        # budget. The derived interpretation can still use a spare slot.
+        origins = original_keys(load(choice[0])[1])
+        if origins - covered:
+            independent.append(choice)
+            covered.update(origins)
+        else:
+            rest.append(choice)
+    # A second distant hit in the strongest text may contain a correction or the
+    # answer itself. Preserve room for additional independent sources.
+    second = [
+        (key, pos)
+        for key in ranked
+        for pos in starts[key][1:]
+        if abs(pos - starts[key][0]) >= WINDOW
+    ]
+    # Give each lane representation when overlap elsewhere inflates fused
+    # scores. Keep the fused leaders, including citations and verified links.
+    direct_order = sorted(direct_ranks, key=direct_ranks.get)
+    heads = set(lexical_order[:2] + direct_order[:5])
+    protected = [choice for choice in independent if choice[0] in heads]
+    leaders = set(lexical_order[:1] + direct_order[:1])
+    protected.sort(key=lambda choice: choice[0] not in leaders)
+    choices = (
+        independent[:4] + second[:1] + protected + independent[4:] + rest + second[1:]
+    )
+    selected = []
+    used = defaultdict(list)
+    for key, start in choices:
+        if len(used[key]) >= 2 or any(abs(start - n) < WINDOW for n in used[key]):
+            continue
+        loc = load(key)[1]
+        if read_window(case, loc, start, 1, include_archived=include_archived) is None:
+            continue
+        used[key].append(start)
+        selected.append((loc, start))
+        if semantic_hints is not None and any(
+            left < start + WINDOW and right > start for left, right in strong_spans[key]
+        ):
+            semantic_hints.add((loc["key"], start))
+        if len(selected) == limit:
+            break
+    return selected

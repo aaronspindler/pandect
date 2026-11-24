@@ -157,4 +157,5 @@ class BulkEvidenceAdminBrowserTests(BrowserTestCase):
                 page.get_by_role(
                     "button", name="Permanently delete evidence", exact=True
                 ).click()
+                expect(page).to_have_url(url)
                 self.assertEqual(self.db(DocumentEvidence.objects.count), 0)

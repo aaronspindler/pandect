@@ -153,9 +153,7 @@ def source_readiness(case, operation, choices):
     selected = {value: selection(value) for value, _ in choices}
     records = {}
     for kind in {x["kind"] for x in selected.values()}:
-        fields = ["pk", "sha256"]
-        if operation == "claim_comparison":
-            fields.append("is_archived")
+        fields = ["pk", "sha256", "is_archived"]
         queryset = scoped_evidence(case, kind)
         if kind in {"text", "text-message"}:
             queryset = queryset.annotate(has_text=Q(body__regex=r"\S"))
@@ -260,7 +258,7 @@ def source_readiness(case, operation, choices):
         state, url, action_label, blocking = "Ready", "", "Prepare source", False
         if item is None or not valid_attachment:
             state, blocking = "Source unavailable", True
-        elif operation == "claim_comparison" and item.is_archived:
+        elif item.is_archived:
             state, blocking = "Archived source", True
         elif operation in TEXT_OPERATIONS:
             identity = (kind, entry["id"], entry.get("attachment_id"))

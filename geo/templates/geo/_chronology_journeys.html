@@ -9,7 +9,7 @@
       <li>
         <a class="record-link" href="{{ journey.url }}">Candidate journey</a>
         <p>{% timeline_time journey.start_at display_timezone %} to {% timeline_time journey.end_at display_timezone %}</p>
-        <p>{{ journey.samples }} observations · Longest sampling gap {{ journey.largest_gap }} · Method {{ journey.version }}{% if journey.partial %} · Partial coverage{% endif %}{% if journey.archived %} · Includes archived evidence{% endif %}</p>
+        <p>{{ journey.samples }} observations · Longest sampling gap {{ journey.largest_gap }} · Method {{ journey.version }}{% if journey.partial %} · Partial coverage{% endif %}</p>
         {% if journey.warning %}<p>{{ journey.warning }}</p>{% endif %}
       </li>
       {% endfor %}

@@ -1,0 +1,37 @@
+{% extends 'ui/base.html' %}
+{% load static %}
+{% block title %}Review external AI destinations · {{ case.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'cases/ai-settings.css' %}">{% endblock %}
+{% block content %}
+<div class="form-layout ai-review">
+  <header class="page-header"><div><h1>Review external AI destinations</h1></div></header>
+  <p>Allow the following providers to receive the listed material for this case. You can then switch between models using the same approved destination and data.</p>
+  <form method="post" action="{% url 'cases:case_ai_settings' case.pk %}">
+    {% csrf_token %}
+    {% for name,value in proposal %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <input type="hidden" name="review_confirmation" value="{{ review_confirmation }}">
+    {% if error %}<p class="error-summary" role="alert" tabindex="-1" data-error-summary>{{ error }}</p>{% endif %}
+    <fieldset class="ai-scope-review">
+      <legend>Destinations to approve</legend>
+      {% for destination in destinations %}
+        <div class="ai-destination">
+          <label class="ai-scope-choice" for="approve-{{ forloop.counter }}">
+            <input type="checkbox" id="approve-{{ forloop.counter }}" name="allow" value="{{ destination.scope_id }}"{% if not error or destination.scope_id in selected_scope_ids %} checked{% endif %} aria-describedby="scope-{{ forloop.counter }}">
+            <strong>{{ destination.name }}</strong>
+          </label>
+          <div id="scope-{{ forloop.counter }}">
+            <p>{{ destination.material }}</p>
+            {% if destination.details %}<p class="muted">{{ destination.details }}</p>{% endif %}
+            {% if destination.retention %}<p>{{ destination.retention }}</p>{% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </fieldset>
+    <p class="muted">Unchecked destinations stay unavailable for the material listed.</p>
+    <div class="actions form-actions">
+      <button class="button button-primary" name="action" value="approve" type="submit">Approve and save</button>
+      <a class="button" href="{% url 'cases:case_settings' case.pk %}#ai-processing">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

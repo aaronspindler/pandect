@@ -1,3 +1,9 @@
 {% if external_destination %}
 <p class="help-text">Asking sends your question, relevant chat context, and evidence excerpts to <strong>{{ external_destination }}</strong>. A full review can send multiple requests.</p>
 {% endif %}
+{% if embedding_destination %}
+<p class="help-text">Meaning search sends short search terms from your question and relevant context to OpenAI through Cloudflare gateway <strong>{{ embedding_destination.gateway }}</strong> using {{ embedding_destination.model }}.</p>
+{% endif %}
+{% if ranking_destination %}
+<p class="help-text">For questions that need a broader search, reranking can send your question and up to 24 evidence excerpts to {{ ranking_destination.model }} through Cloudflare gateway <strong>{{ ranking_destination.gateway }}</strong>.</p>
+{% endif %}
