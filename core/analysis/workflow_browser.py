@@ -11,7 +11,7 @@ from django.urls import reverse
 from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
-from config.tests.browser_base import BrowserTestCase
+from config.tests.browser_base import BrowserTestCase, DrainableBrowserLiveServerThread
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.operations import OPERATIONS
 from core.analysis.services import process_run, start_run
@@ -29,6 +29,11 @@ from vehicle.models import Vehicle
 
 class InvestigationWorkflowBrowserTests(BrowserTestCase):
     artifact_subdirectory = "investigation-workflows"
+    server_thread_class = DrainableBrowserLiveServerThread
+
+    def _fixture_teardown(self):
+        with self.server_thread.httpd.drained_connections():
+            super()._fixture_teardown()
 
     def setUp(self):
         super().setUp()

@@ -569,6 +569,8 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                         )
 
                 context.route("**/*", serve)
+                # The WSGI fixture exercises the map with polling.
+                context.add_init_script("window.EventSource = undefined;")
                 page = context.new_page()
                 errors = []
                 page.on(
@@ -621,6 +623,8 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 page.get_by_label("Custom label", exact=True).fill(
                     f"Meeting place {engine}"
                 )
+                latitude_field = page.get_by_label("Latitude", exact=True)
+                longitude_field = page.get_by_label("Longitude", exact=True)
                 for width, height in (
                     (1440, 900),
                     (1440, 1024),
@@ -629,13 +633,19 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     (320, 844),
                 ):
                     page.set_viewport_size({"width": width, "height": height})
+                    page.wait_for_function(
+                        "width => window.innerWidth === width", arg=width
+                    )
                     self.assertLessEqual(
                         page.evaluate("document.documentElement.scrollWidth"), width
                     )
-                    latitude = page.get_by_label("Latitude", exact=True).bounding_box()
-                    longitude = page.get_by_label(
-                        "Longitude", exact=True
-                    ).bounding_box()
+                    expect(latitude_field).to_be_visible()
+                    expect(longitude_field).to_be_visible()
+                    # Sample one layout so WebKit scrolling cannot shift just one box.
+                    latitude, longitude = latitude_field.evaluate("""latitude => [
+                        latitude.getBoundingClientRect().toJSON(),
+                        latitude.form.elements.longitude.getBoundingClientRect().toJSON(),
+                    ]""")
                     if width >= 768:
                         self.assertEqual(latitude["y"], longitude["y"])
                         self.assertLess(latitude["x"], longitude["x"])

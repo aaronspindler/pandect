@@ -5,17 +5,62 @@ import re
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
+from threading import Condition
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.core.servers.basehttp import ThreadedWSGIServer
 from django.db import connections
 from django.test import override_settings
+from django.test.testcases import LiveServerThread
 from django.urls import reverse
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 
 from config.tests.browser_artifacts import artifact_directory
+
+
+class _DrainableBrowserServer(ThreadedWSGIServer):
+    def __init__(self, *args, **kwargs):
+        self.connection_state = Condition()
+        self.active_connections = 0
+        self.draining = False
+        super().__init__(*args, **kwargs)
+
+    def process_request_thread(self, request, client_address):
+        with self.connection_state:
+            if self.draining:
+                self.shutdown_request(request)
+                return
+            self.active_connections += 1
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            with self.connection_state:
+                self.active_connections -= 1
+                self.connection_state.notify_all()
+
+    @contextmanager
+    def drained_connections(self):
+        # Closing the browser can cancel fetches while the server still owns
+        # their database locks. Keep new handlers out until the flush finishes.
+        try:
+            with self.connection_state:
+                self.draining = True
+                drained = self.connection_state.wait_for(
+                    lambda: self.active_connections == 0, timeout=15
+                )
+            if not drained:
+                raise TimeoutError("Browser server connections did not drain.")
+            yield
+        finally:
+            with self.connection_state:
+                self.draining = False
+
+
+class DrainableBrowserLiveServerThread(LiveServerThread):
+    server_class = _DrainableBrowserServer
 
 
 @override_settings(
