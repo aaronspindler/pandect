@@ -105,19 +105,27 @@ def endpoint_and_headers(execution):
 
 
 class GatewayClient:
-    def __init__(self, run, authorize):
+    def __init__(self, run, authorize, *, chat_turn=None):
         self.run = run
         self.authorize = authorize
+        self.chat_turn = chat_turn
 
     def _execution(self, purpose):
+        if self.chat_turn is not None:
+            return self.chat_turn.execution
         return self.run.parameters.get("_execution") or gateway_execution(
             purpose, self.run.operation
         )
 
     def request(self, purpose, payload):
-        if not self.run.external_processing:
-            raise AnalysisError("external_processing_not_approved")
         execution = self._execution(purpose)
+        external = (
+            execution.get("location") == "external"
+            if self.chat_turn is not None
+            else self.run.external_processing
+        )
+        if not external:
+            raise AnalysisError("external_processing_not_approved")
         if execution.get("purpose", purpose) != purpose or not gateway_route_configured(
             purpose, execution
         ):
@@ -136,7 +144,15 @@ class GatewayClient:
             with transaction.atomic():
                 case = self.authorize(lock=True)
                 usage = GatewayRequest.objects.create(
-                    case=case, run=self.run, model=model, request_bytes=len(body)
+                    case=case,
+                    run=self.run,
+                    model=model,
+                    request_bytes=len(body),
+                    **(
+                        {"chat_turn": self.chat_turn, "operation": "evidence_chat"}
+                        if self.chat_turn is not None
+                        else {}
+                    ),
                 )
             try:
                 self.authorize()

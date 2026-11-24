@@ -131,7 +131,7 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
             ("image", {"image_metadata", "ocr", "plate_ocr"}),
             ("audio", {"audio_metadata", "transcription"}),
             ("document", {"native_text"}),
-            ("text-message", {"sessions", "comm_patterns", "session_summaries"}),
+            ("text-message", {"comm_patterns", "session_summaries"}),
         ):
             with self.subTest(kind=kind):
                 self.assertTrue(
@@ -225,13 +225,12 @@ class ReprocessingDomainTests(EvidenceViewTestMixin, TestCase):
         self.drain(batch)
         runs = list(batch.runs.all())
         self.assertEqual(
-            {
-                source["evidence_id"]
-                for run in runs
-                if run.operation == "sessions"
-                for source in run.inputs
-            },
-            {str(message.pk) for message in messages},
+            set(
+                batch.conversation_groupings.values_list(
+                    "sessions__members__message_id", flat=True
+                )
+            ),
+            {message.pk for message in messages},
         )
         self.assertEqual(
             {source["kind"] for run in runs for source in run.inputs},

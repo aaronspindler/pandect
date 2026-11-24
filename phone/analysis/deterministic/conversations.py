@@ -1,16 +1,23 @@
 "Reviewable conversation grouping and observed interaction measurements."
 
-import re
 import statistics
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
+from django.db.models import Exists, F, OuterRef
 from django.utils.dateparse import parse_datetime
 
 from core.analysis.sources import output
 from core.evidence.types import COMMUNICATION_KINDS
 from phone.message_csv import WHATSAPP_PARSER_VERSION
+from phone.models import CommunicationContext
+from phone.session_matching import (
+    SESSION_RULES_VERSION,
+    message_context,
+    participant_stream,
+    session_decision,
+)
 from text.analysis.shared import STOPWORDS, WORD, bounded_sources
 
 VERSION = "conversation-rules-v1"
@@ -26,28 +33,6 @@ def _number(parameters, key, default, minimum, maximum):
     ):
         raise ValidationError(f"{key} must be between {minimum} and {maximum}.")
     return float(value)
-
-
-def _context(source):
-    try:
-        return source.item.communication_context
-    except AttributeError, ObjectDoesNotExist:
-        return None
-
-
-def _participants(source):
-    context = _context(source)
-    native = getattr(context, "participants", [])
-    if native:
-        return (
-            "source-participants",
-            str(context.source_document_id),
-            *sorted(map(str, native)),
-        )
-    return (
-        "reported-pair",
-        *sorted((str(source.item.sender_id), str(source.item.recipient_id))),
-    )
 
 
 def _time(source):
@@ -75,7 +60,7 @@ def _ordered(sources, *, messages_only=False):
 
 
 def _source_row(source):
-    context = _context(source)
+    context = message_context(source.item)
     row = {
         "source_id": str(source.id),
         "channel": source.kind,
@@ -91,6 +76,56 @@ def _source_row(source):
     if getattr(context, "parser_version", "") == WHATSAPP_PARSER_VERSION:
         row["source_document_id"] = str(context.source_document_id)
     return row
+
+
+def _native_key(source, field):
+    context = message_context(source.item)
+    value = getattr(context, field, "")
+    if value.strip():
+        return (source.item.case_id, context.source_document_id, value)
+    return None
+
+
+def _selected_reply_targets(messages):
+    """Only a unique retained native ID in the reply's export can link originals."""
+    referenced = {_native_key(source, "reply_to_id") for source in messages}
+    referenced.discard(None)
+    if not referenced:
+        return {}
+    targets = {}
+    context_ids = []
+    for source in messages:
+        key = _native_key(source, "native_message_id")
+        if key not in referenced:
+            continue
+        targets[key] = None if key in targets else source
+        context = message_context(source.item)
+        if isinstance(context, CommunicationContext):
+            context_ids.append(context.pk)
+    if context_ids:
+        # A duplicate outside this analysis selection still makes the pointer ambiguous.
+        matches = CommunicationContext.objects.filter(
+            case_id=OuterRef("case_id"),
+            source_document_id=OuterRef("source_document_id"),
+            native_message_id=OuterRef("native_message_id"),
+        ).exclude(pk=OuterRef("pk"))
+        usable = (
+            CommunicationContext.objects.filter(
+                pk__in=context_ids,
+                case_id=F("message__case_id"),
+                source_document__case_id=F("case_id"),
+                source_sha256=F("source_document__sha256"),
+            )
+            .exclude(Exists(matches))
+            .values_list("message_id", flat=True)
+        )
+        usable_ids = set(usable)
+        targets = {
+            key: target
+            for key, target in targets.items()
+            if target is not None and target.item.pk in usable_ids
+        }
+    return targets
 
 
 def _session_groups(sources, parameters):
@@ -110,53 +145,47 @@ def _session_groups(sources, parameters):
         )
     groups = []
     active = {}
+    targets = _selected_reply_targets(messages)
+    membership = {}
     for source in messages:
-        key = _participants(source)
-        previous_group = active.get(key)
-        previous = previous_group["sources"][-1] if previous_group else None
-        event = _time(source)
-        reason = None
-        if previous is None:
-            reason = "First selected message for these reported/source participants"
-        elif str(source.id) in breaks:
-            reason = "Investigator-adjusted boundary"
-        elif event is None or _time(previous) is None:
-            reason = "Missing event time; grouping unresolved"
-        elif str(source.id) in joins:
-            reason = None
-        else:
-            gap = (event - _time(previous)).total_seconds() / 60
-            if gap > gap_minutes:
-                reason = (
-                    f"Observed gap exceeds selected {gap_minutes:g}-minute threshold"
-                )
-            elif (
-                parameters.get("greeting_boundaries", True)
-                and gap >= 5
-                and re.match(r"\s*(?:hi|hello|hey|good morning)\b", source.text, re.I)
-                and re.search(
-                    r"\b(?:bye|goodbye|goodnight|talk later)[.!\s]*$",
-                    previous.text,
-                    re.I,
-                )
-            ):
-                reason = (
-                    "Greeting after farewell and at least five observed "
-                    "minutes; content heuristic"
-                )
-        if reason:
-            previous_group = {
+        key = participant_stream(source.item)
+        group = active.get(key)
+        previous = group["sources"][-1] if group else None
+        parent = targets.get(_native_key(source, "reply_to_id"))
+        if parent and membership.get(parent.id) is not group:
+            parent = None
+        decision = session_decision(
+            previous.item if previous else None,
+            source.item,
+            gap_minutes=gap_minutes,
+            native_parent=parent.item if parent else None,
+            break_before=str(source.id) in breaks,
+            join_before=str(source.id) in joins,
+            greeting_boundaries=parameters.get("greeting_boundaries", True),
+        )
+        if decision.boundary:
+            group = {
                 "sources": [],
-                "reason": reason,
-                "adjusted": str(source.id) in breaks,
+                "reason": decision.boundary,
+                "adjusted": False,
+                "continuations": [],
             }
-            groups.append(previous_group)
-            active[key] = previous_group
-        previous_group["sources"].append(source)
-        if str(source.id) in joins:
-            previous_group["adjusted"] = True
-        # An unknown-time source never bridges two timed exchanges.
-        if event is None:
+            groups.append(group)
+            active[key] = group
+        if decision.continuation:
+            target = parent or previous
+            group["continuations"].append(
+                {
+                    "reason": decision.continuation,
+                    "elapsed_seconds": decision.elapsed_seconds,
+                    "source_ids": [str(target.id), str(source.id)],
+                }
+            )
+        group["sources"].append(source)
+        membership[source.id] = group
+        if str(source.id) in breaks or str(source.id) in joins:
+            group["adjusted"] = True
+        if _time(source) is None:
             active.pop(key, None)
     return messages, groups, gap_minutes
 
@@ -167,7 +196,7 @@ def conversation_sessions(sources, parameters):
     for index, group in enumerate(groups, 1):
         rows = group["sources"]
         first, last = _time(rows[0]), _time(rows[-1])
-        contexts = [_context(s) for s in rows]
+        contexts = [message_context(s.item) for s in rows]
         native_threads = sorted(
             {
                 f"{c.source_document_id}:{c.native_thread_id}"
@@ -191,9 +220,10 @@ def conversation_sessions(sources, parameters):
                     else None,
                     "native_thread_references": native_threads,
                     "investigator_adjusted": group["adjusted"],
+                    "delayed_continuations": group["continuations"],
                     "grouping": (
-                        "inferred; independent of source-native thread/reply "
-                        "relationships"
+                        "An inferred session based on reported participants, times, "
+                        "reply references and wording."
                     ),
                 },
             }
@@ -209,7 +239,7 @@ def conversation_sessions(sources, parameters):
             "sessions": len(groups),
             "missing_event_times": sum(_time(s) is None for s in messages),
             "gap_minutes": gap,
-            "method": VERSION,
+            "method": SESSION_RULES_VERSION,
         },
         warnings=[
             (
@@ -283,7 +313,11 @@ def _pattern_metrics(rows, session_groups):
 def interaction_patterns(sources, parameters):
     rows, groups, gap = _session_groups(sources, parameters)
     metrics = _pattern_metrics(rows, groups)
-    metrics |= {"method": VERSION, "gap_minutes": gap, "inferred_sessions": len(groups)}
+    metrics |= {
+        "method": SESSION_RULES_VERSION,
+        "gap_minutes": gap,
+        "inferred_sessions": len(groups),
+    }
     if not rows:
         return output(
             "No selected messages are available for interaction analysis.",
@@ -311,6 +345,7 @@ def interaction_patterns(sources, parameters):
                 "values": _pattern_metrics(selected, groups)
                 | {
                     "investigator_adjusted": group["adjusted"],
+                    "delayed_continuations": group["continuations"],
                     "source_order": [str(s.id) for s in selected],
                     "grouping": (
                         "Same inferred grouping and adjustments as the session "
@@ -393,7 +428,9 @@ def cross_channel_links(sources, parameters):
     by_pair = defaultdict(list)
     for source in rows:
         if _time(source):
-            by_pair[_participants(source)].append(source)
+            by_pair[
+                participant_stream(source.item, include_reported_pair=False)
+            ].append(source)
     items = []
     omitted_temporal = 0
     for pair in by_pair.values():

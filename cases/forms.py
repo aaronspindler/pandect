@@ -26,6 +26,7 @@ ANALYSIS_MODEL_LABELS = {
     "session_summaries": "Message-session summaries",
     "conversation_link": "Semantic conversation links",
     "question_synthesis": "Question-driven synthesis",
+    "evidence_chat": "Evidence chat",
 }
 
 

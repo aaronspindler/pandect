@@ -2,15 +2,18 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.db import connection
 from django.http import Http404
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import finding_rows, project_result
 from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
-from core.analysis.services import process_run, resolve_inputs, snapshot_sources
-from core.models import AnalysisResult, AnalysisRun
+from core.analysis.services import resolve_inputs, snapshot_sources
+from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from core.testing import EvidenceViewTestMixin
 from people.models import Person
 from phone.conversation_instances import (
@@ -18,9 +21,11 @@ from phone.conversation_instances import (
     instance_page,
     result_instance_url,
 )
+from phone.conversation_sessions import attach_session_groups
 from phone.conversations import pair_messages
 from phone.daily_chronology import attach_daily_message_previews, daily_message_rows
-from phone.models import TextMessageEvidence
+from phone.grouping_jobs import grouping_scope, start_grouping
+from phone.models import ConversationGrouping, TextMessageEvidence
 
 
 class ConversationInstanceTests(EvidenceViewTestMixin, TestCase):
@@ -126,34 +131,154 @@ class ConversationInstanceTests(EvidenceViewTestMixin, TestCase):
         self.assertFalse(AnalysisRun.objects.exists())
         payload["reviewed_scope"] = updated.context["form"]["reviewed_scope"].value()
         self.assertRedirects(self.client.post(url, payload), reader)
-        run = AnalysisRun.objects.get(operation="sessions")
-        self.assertEqual(run.parameters["gap_minutes"], 40)
-        self.assertCountEqual(
-            [source["evidence_id"] for source in run.inputs],
-            [str(first.pk), str(second.pk)],
+        revision = ConversationGrouping.objects.get()
+        self.assertEqual(revision.parameters["gap_minutes"], 40)
+        self.assertEqual(prepare_case_analysis_batch(revision.batch_id), "complete")
+        session = revision.sessions.get()
+        self.assertEqual(
+            list(
+                session.members.order_by("ordinal").values_list("message_id", flat=True)
+            ),
+            [first.pk, second.pk],
         )
-        process_run(run.pk)
         self.assertContains(self.client.get(reader), "1 saved session")
+        self.assertContains(self.client.get(reader), "Group this conversation")
 
-    def test_group_conversation_rejects_oversized_combined_text_before_queueing(self):
-        for number in range(9):
-            self.message(number, body="x" * 120_000)
+    def group_pair(self, gap=60):
+        _, digest = grouping_scope(self.case, self.person, self.other)
+        batch, _ = start_grouping(
+            self.case.owner,
+            self.case,
+            self.person,
+            self.other,
+            gap_minutes=gap,
+            reviewed_scope=digest,
+            submission_id=uuid4(),
+        )
+        for _ in range(25):
+            if prepare_case_analysis_batch(batch.pk) != "queued":
+                break
+        batch.refresh_from_db()
+        self.assertEqual(
+            batch.status, CaseAnalysisBatch.Status.COMPLETE, batch.error_code
+        )
+        return batch.conversation_groupings.get()
+
+    def test_long_exchange_pages_one_session_in_reader_and_chronology(self):
+        originals = [self.message(n, body="x" * 2000) for n in range(501)]
         self.login("editor")
         url = reverse(
             "phone:group_conversation",
             args=(self.case.pk, *sorted((self.person.pk, self.other.pk))),
         )
-        review = self.client.get(url)
-        self.assertContains(review, "grouping limit of 1,000,000 characters")
-        self.assertContains(review, "Choose messages")
-        form = review.context["form"]
-        payload = {
-            "reviewed_scope": form["reviewed_scope"].value(),
-            "submission_id": form["submission_id"].value(),
-            "gap_minutes": 60,
-        }
-        self.assertEqual(self.client.post(url, payload).status_code, 400)
-        self.assertFalse(AnalysisRun.objects.filter(operation="sessions").exists())
+        self.assertContains(self.client.get(url), "Group 501 active messages")
+        group = self.group_pair().sessions.get()
+        page = instance_page(
+            self.case, self.messages, instance_id=group.pk, message_page=11
+        )
+        self.assertEqual(page.paginator.count, 1)
+        self.assertEqual(list(page[0]["messages"]), originals[-1:])
+        self.assertNotIn("member_ids", page[0])
+        attach_session_groups(self.case, [originals[0], originals[-1]])
+        self.assertEqual(originals[0].session_marker, "Session starts")
+        self.assertEqual(originals[-1].session_marker, "Session ends")
+        start = originals[0].occurred_at
+        with CaptureQueriesContext(connection) as reads:
+            rows = list(daily_message_rows(self.case, start, start + timedelta(days=1)))
+        # Whole-session validation must not repeat for every 50 originals.
+        self.assertLessEqual(len(reads), 5)
+        self.assertEqual([r["id"] for r in rows], [group.pk])
+        self.assertIn("501 messages", rows[0]["detail"])
+        attach_daily_message_previews(self.case, rows)
+        self.assertFalse(rows[0]["overlap"])
+        self.assertContains(
+            self.client.get(page[0]["url"]), "Why this session starts here"
+        )
+
+    def test_saved_session_keeps_distinct_legacy_fragments_and_links(self):
+        originals = [self.message(i) for i in range(4)]
+        (fragment,) = self.publish_groups(originals[:2])
+        (same,) = self.publish_groups(originals)
+        self.publish_report(originals, [(1, [0, 1, 2, 3], "Whole exchange")])
+        session = self.group_pair().sessions.get()
+        page = instance_page(self.case, self.messages, instance_id=same.pk)
+        self.assertEqual({r["id"] for r in page}, {session.pk, fragment.pk})
+        full = next(r for r in page if r["id"] == session.pk)
+        self.assertEqual(full["linked_id"], same.pk)
+        self.assertEqual(list(full["messages"]), originals)
+        self.assertEqual(full["summary"]["preview"], "Whole exchange")
+        attach_session_groups(self.case, originals)
+        self.assertEqual(originals[0].session_marker, "Multiple groupings")
+        self.assertEqual(originals[-1].session_marker, "Session ends")
+        start = originals[0].occurred_at
+        rows = list(daily_message_rows(self.case, start, start + timedelta(days=1)))
+        attach_daily_message_previews(self.case, rows)
+        self.assertEqual({r["id"] for r in rows}, {session.pk, fragment.pk})
+        self.assertTrue(all(r["overlap"] for r in rows))
+        filtered = instance_page(self.case, self.messages, containing=originals[-1].pk)
+        self.assertEqual([row["id"] for row in filtered], [session.pk])
+        with self.assertRaises(Http404):
+            instance_page(self.case, self.messages, containing=uuid4())
+        TextMessageEvidence.objects.filter(pk=originals[-1].pk).update(sha256="c" * 64)
+        self.assertFalse(
+            any(
+                r.get("id") == session.pk
+                for r in instance_page(self.case, self.messages)
+            )
+        )
+
+    def test_delayed_reply_details_link_to_both_originals_and_require_the_pair(self):
+        question = self.message(0, body="Can you meet at six?")
+        answer = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.case.owner,
+            sender=self.other,
+            recipient=self.person,
+            title="Later answer",
+            body="Yes, six works.",
+            occurred_at=question.occurred_at + timedelta(minutes=121),
+        )
+        session = self.group_pair().sessions.get()
+        args = (self.case.pk, self.person.pk, self.other.pk, session.pk)
+        self.login("viewer")
+        response = self.client.get(reverse("phone:grouping_details", args=args))
+        self.assertContains(response, "121 minutes")
+        self.assertContains(response, "appears to answer")
+        for message in (question, answer):
+            self.assertContains(
+                response,
+                reverse(
+                    "core:evidence:detail",
+                    args=(self.case.pk, "text-message", message.pk),
+                ),
+            )
+        self.assertEqual(
+            self.client.get(
+                reverse(
+                    "phone:grouping_details",
+                    args=(self.case.pk, self.person.pk, self.third.pk, session.pk),
+                )
+            ).status_code,
+            404,
+        )
+
+    def test_repeat_grouping_keeps_public_session_id_and_date_navigation(self):
+        originals = [self.message(n * 65) for n in range(28)]
+        old = self.group_pair().sessions.order_by("first_at")
+        latest = self.group_pair().sessions.order_by("first_at")
+        old_last, latest_last = old.last(), latest.last()
+        page = instance_page(self.case, self.messages, instance_id=latest_last.pk)
+        self.assertEqual(page.paginator.count, 28)
+        self.assertEqual(page.number, 2)
+        self.assertEqual(page[-1]["id"], old_last.pk)
+        self.assertEqual(list(page[-1]["messages"]), originals[-1:])
+        day = originals[-1].occurred_at.date()
+        page = instance_page(self.case, self.messages, day=day)
+        dated = next(row for row in page if row.get("day_message"))
+        self.assertEqual(
+            dated["day_message"],
+            next(row.pk for row in originals if row.occurred_at.date() == day),
+        )
 
     def test_long_summary_builds_citation_links_only_when_expanded(self):
         original = self.message(1)

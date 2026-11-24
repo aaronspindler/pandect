@@ -8,6 +8,7 @@ from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, router
+from django.db.models.functions import Greatest, Least
 from django.utils import timezone
 
 from core.case_search.expressions import COMMON, search_document, word_vector
@@ -17,6 +18,18 @@ from core.storage import (
     file_integrity,
     new_file_save,
     original_upload_path,
+)
+from phone.grouping_models import (
+    ConversationGrouping as ConversationGrouping,
+)
+from phone.grouping_models import (
+    ConversationGroupingRequest as ConversationGroupingRequest,
+)
+from phone.grouping_models import (
+    ConversationSession as ConversationSession,
+)
+from phone.grouping_models import (
+    ConversationSessionMember as ConversationSessionMember,
 )
 
 
@@ -105,7 +118,18 @@ class TextMessageEvidence(CommunicationEvidence):
     immutable_fields = (*CommunicationEvidence.immutable_fields, "body")
 
     class Meta(CommunicationEvidence.Meta):
-        indexes = [GinIndex(fields=["search_words"], name="srch_text_message_words")]
+        indexes = [
+            GinIndex(fields=["search_words"], name="srch_text_message_words"),
+            models.Index(
+                "case",
+                Least("sender_id", "recipient_id"),
+                Greatest("sender_id", "recipient_id"),
+                "occurred_at",
+                "id",
+                condition=models.Q(is_archived=False),
+                name="phone_active_pair_time",
+            ),
+        ]
         constraints = [
             *CommunicationEvidence.Meta.constraints,
             models.CheckConstraint(
@@ -363,7 +387,11 @@ class CommunicationContext(models.Model):
         indexes = [
             models.Index(
                 fields=("import_run", "source_row"), name="communication_import_row"
-            )
+            ),
+            models.Index(
+                fields=("source_document", "native_message_id"),
+                name="communication_native_id",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(

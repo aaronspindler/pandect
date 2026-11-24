@@ -1,12 +1,10 @@
 """The summary-first view of saved sessions for one reported participant pair."""
 
-from hashlib import sha256
-
-from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models.functions import Length
+from django.db.models import Exists, F, OuterRef
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
@@ -15,21 +13,23 @@ from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.analysis.errors import AnalysisError, error_message
 from core.analysis.execution import selected_ai_executions
-from core.analysis.services import start_run
 from people.models import Person
 from phone.analysis_forms import ConversationGroupingForm
-from phone.conversation_instances import instance_page
+from phone.conversation_instances import instance_page, instance_url
 from phone.conversations import conversation_list_page, conversation_url, pair_messages
-from text.analysis.shared import MAX_SOURCES, MAX_TEXT_CHARS
+from phone.grouping_jobs import grouping_scope, start_grouping
+from phone.saved_sessions import valid_sessions
 
 
 def conversation_instances(request, case, first, second, day_form, day):
     list_page = conversation_list_page(request.GET.get("list_page"))
+    containing = request.GET.get("contains")
     page = instance_page(
         case,
         pair_messages(case, first, second),
         request.GET.get("page"),
         instance_id=request.GET.get("instance"),
+        containing=containing,
         message_page=request.GET.get("message_page"),
         day=day,
         full_summary_id=request.GET.get("full_summary"),
@@ -46,6 +46,8 @@ def conversation_instances(request, case, first, second, day_form, day):
     query = {"tab": "instances"}
     if list_page > 1:
         query["list_page"] = list_page
+    if containing:
+        query["contains"] = containing
     return render(
         request,
         "phone/conversation_detail.html",
@@ -80,29 +82,7 @@ def group_conversation(request, case_id, first_person_id, second_person_id):
     case = get_case(request.user, case_id, edit=True, lock=submitting)
     first = get_object_or_404(Person, case=case, pk=first_person_id)
     second = get_object_or_404(Person, case=case, pk=second_person_id)
-    pair = pair_messages(case, first, second).filter(is_archived=False)
-    max_sources = min(MAX_SOURCES, settings.PANDECT_ANALYSIS_MAX_SOURCES)
-    sources = list(
-        pair.order_by("pk").values_list("pk", "sha256", Length("body"))[
-            : max_sources + 1
-        ]
-    )
-    limit_message = ""
-    if len(sources) > max_sources:
-        limit_message = (
-            f"This conversation has more than {max_sources} active messages."
-        )
-    elif sum(length for _, _, length in sources) > MAX_TEXT_CHARS:
-        limit_message = (
-            "This conversation exceeds the grouping limit of "
-            f"{MAX_TEXT_CHARS:,} characters."
-        )
-    can_queue = bool(sources) and not limit_message
-    scope = sha256("|".join(f"{pk}:{digest}" for pk, digest, _ in sources).encode())
-    form = ConversationGroupingForm(
-        request.POST if submitting else None,
-        initial={"reviewed_scope": scope.hexdigest()},
-    )
+    form = ConversationGroupingForm(request.POST if submitting else None)
     query = {"tab": "instances"}
     list_page = conversation_list_page(request.GET.get("list_page"))
     if list_page > 1:
@@ -112,14 +92,15 @@ def group_conversation(request, case_id, first_person_id, second_person_id):
         args=(case.pk, *sorted((first.pk, second.pk))),
         query=query,
     )
-    if can_queue and submitting and form.is_valid():
+    if submitting and form.is_valid():
         try:
-            _, created = start_run(
+            _, created = start_grouping(
                 request.user,
-                case.pk,
-                "sessions",
-                [{"kind": "text-message", "id": str(pk)} for pk, _, _ in sources],
-                parameters={"gap_minutes": form.cleaned_data["gap_minutes"]},
+                case,
+                first,
+                second,
+                gap_minutes=form.cleaned_data["gap_minutes"],
+                reviewed_scope=form.cleaned_data["reviewed_scope"],
                 submission_id=form.cleaned_data["submission_id"],
             )
         except ValidationError as error:
@@ -134,6 +115,12 @@ def group_conversation(request, case_id, first_person_id, second_person_id):
                 else "This conversation grouping was already requested.",
             )
             return redirect(back)
+    count, digest = grouping_scope(case, first, second)
+    if form.is_bound:
+        form.data = form.data.copy()
+        form.data["reviewed_scope"] = digest
+    else:
+        form.initial["reviewed_scope"] = digest
     return render(
         request,
         "phone/conversation_group_review.html",
@@ -143,10 +130,47 @@ def group_conversation(request, case_id, first_person_id, second_person_id):
             "first": first,
             "second": second,
             "back_url": back,
-            "can_queue": can_queue,
-            "sources_count": len(sources),
-            "limit_message": limit_message,
+            "can_queue": count > 0,
+            "sources_count": count,
             "form": form,
         },
         status=400 if submitting else 200,
+    )
+
+
+@product_login_required
+@require_http_methods(["GET"])
+def grouping_details(request, case_id, first_person_id, second_person_id, instance_id):
+    case = get_case(request.user, case_id)
+    first = get_object_or_404(Person, case=case, pk=first_person_id)
+    second = get_object_or_404(Person, case=case, pk=second_person_id)
+    session = get_object_or_404(
+        valid_sessions(case, pair_messages(case, first, second)).select_related(
+            "grouping"
+        ),
+        pk=instance_id,
+    )
+    members = session.members
+    continuations = (
+        members.exclude(continuation_reason="")
+        .annotate(
+            parent_available=Exists(
+                members.filter(message_id=OuterRef("parent_message_id"))
+            ),
+            elapsed_minutes=F("elapsed_seconds") / 60.0,
+        )
+        .order_by("ordinal")
+    )
+    return render(
+        request,
+        "phone/grouping_details.html",
+        case_context(case, request.user)
+        | {
+            "session": session,
+            "first": first,
+            "second": second,
+            "back_url": instance_url(case, (first.pk, second.pk), session.pk),
+            "page_obj": Paginator(continuations, 25).get_page(request.GET.get("page")),
+            "nav_section": "analysis",
+        },
     )

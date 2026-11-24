@@ -8,6 +8,7 @@ from django.utils import timezone
 from core.analysis.automatic import start_added_evidence_analysis
 from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.services import process_run
+from core.analysis.tests.test_execution import LOCAL
 from core.testing import EvidenceViewTestMixin
 from geo.models import VehicleLocationEvidence
 from people.models import Person
@@ -70,13 +71,55 @@ class IngestHistoryTests(EvidenceViewTestMixin, TestCase):
             return [source["evidence_id"] for source in run.inputs]
 
         self.assertEqual(
-            ids(batch.runs.get(operation="sessions")), [str(message.pk), str(recent.pk)]
+            ids(batch.runs.get(operation="comm_patterns")),
+            [str(message.pk), str(recent.pk)],
         )
         self.assertEqual(
             ids(batch.runs.get(operation="conversation_link")),
             [str(message.pk), str(nearer.pk)],
         )
         self.assertEqual(ids(batch.runs.get(operation="entities")), [str(message.pk)])
+
+    @override_settings(PANDECT_LOCAL_AI=LOCAL)
+    def test_only_qualifying_delayed_reply_extends_automatic_session_history(self):
+        moment = timezone.now()
+        peer = Person.objects.create(case=self.case, first_name="Peer")
+        values = {
+            "case": self.case,
+            "uploaded_by": self.users["owner"],
+            "title": "Synthetic exchange",
+        }
+        question = TextMessageEvidence.objects.create(
+            **values,
+            sender=self.person,
+            recipient=peer,
+            body="Can you meet at six?",
+            occurred_at=moment,
+        )
+        answer = TextMessageEvidence.objects.create(
+            **values,
+            sender=peer,
+            recipient=self.person,
+            body="Yes, six works.",
+            occurred_at=moment + timedelta(hours=2),
+        )
+        unrelated = TextMessageEvidence.objects.create(
+            **values,
+            sender=self.person,
+            recipient=peer,
+            body="A different subject.",
+            occurred_at=moment + timedelta(hours=4),
+        )
+        batch = self.prepare("text-message", answer)
+        for op in ("comm_patterns", "session_summaries"):
+            run = batch.runs.get(operation=op)
+            ids = {source["evidence_id"] for source in run.inputs}
+            self.assertEqual(ids, {str(question.pk), str(answer.pk)})
+            self.assertNotIn(str(unrelated.pk), ids)
+        self.assertEqual(
+            batch.runs.get(operation="content_events").inputs[0]["evidence_id"],
+            str(answer.pk),
+        )
 
     def test_wording_shortlist_omits_earlier_only_pairs_from_results(self):
         def text(body, **values):

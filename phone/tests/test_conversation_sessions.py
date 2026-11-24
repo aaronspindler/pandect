@@ -64,6 +64,37 @@ class ConversationSessionTests(EvidenceViewTestMixin, TestCase):
         project_result(result)
         return result
 
+    def test_delayed_reply_checks_id_ambiguity_outside_the_selected_messages(self):
+        export = DocumentEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.case.owner,
+            title="Synthetic export",
+            file=ContentFile(b"synthetic", name="synthetic.csv"),
+        )
+        parent, reply, duplicate = [self.message(minute) for minute in (0, 121, 123)]
+
+        def context(message, row, native, pointer=""):
+            CommunicationContext.objects.create(
+                case=self.case,
+                message=message,
+                source_document=export,
+                source_sha256=export.sha256,
+                source_row=row,
+                source_start=row - 1,
+                source_end=row,
+                parser_version="synthetic",
+                timezone="UTC",
+                raw_sender="Synthetic account",
+                native_message_id=native,
+                reply_to_id=pointer,
+            )
+
+        context(parent, 1, "source-1")
+        context(reply, 2, "source-2", "source-1")
+        self.assertEqual(len(self.publish([parent, reply]).data["items"]), 1)
+        context(duplicate, 3, "source-1")
+        self.assertEqual(len(self.publish([parent, reply]).data["items"]), 2)
+
     def test_full_membership_and_real_endpoints_across_pages(self):
         messages = [self.message(i) for i in range(52)]
         first, uncited, middle, last = messages[-4:]

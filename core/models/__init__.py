@@ -9,12 +9,17 @@ from .analysis import (
     ExtractedPassage,
     GatewayRequest,
 )
+from .chat import ChatMatch, ChatSource, ChatTurn, EvidenceChat
 from .evidence import Evidence, FileEvidence
 from .important import ImportantItem, ImportantNote
 from .search import CaseSearchIndex, SearchDocument, SearchPassage
 from .selection import SavedSelection
 
 __all__ = [
+    "EvidenceChat",
+    "ChatTurn",
+    "ChatSource",
+    "ChatMatch",
     "CaseSearchIndex",
     "SearchDocument",
     "SearchPassage",

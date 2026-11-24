@@ -19,7 +19,7 @@ labelled. A **Collected** entry dates acquisition. Its original also appears und
 
 | Entry | How to read it |
 | --- | --- |
-| Conversation instance | Opens the exact saved inferred session for the reported people. The first message on the selected day determines its position. Multi-day instances distinguish the day's messages from the full session. A labelled AI summary covers the full instance. Otherwise the preview quotes the first message on that day. Distinct overlapping instances retain a **Multiple groupings** label. |
+| Conversation instance | Opens the exact saved inferred session for the reported people. The first message on the selected day determines its position. Multi-day instances distinguish the day's messages from the full session. Summary previews label full or partial coverage. Without a saved summary the preview quotes the first message on that day. Distinct overlapping instances retain a **Multiple groupings** label. |
 | Message or call | A timed message outside a valid saved instance has its own row. Phone calls and FaceTime show the reported start and a calculated end when the original supplies a duration. |
 | Possible trip | Shows the vehicle, first and last reported places and times, and the number of supporting observations. Overnight trips appear on each day they overlap. Open the trip to inspect its observations. |
 | Location observation | Shows the reported place and any person or vehicle explicitly linked to it. Individual vehicle observations remain visible when a current trip does not cover them. |

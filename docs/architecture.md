@@ -85,6 +85,11 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   The removed Selections tool has no routes or UI. Its `SavedSelection` model/table
   remain to preserve stored references and case deletion; no data migration or
   database cleanup accompanies the removal.
+  `core.evidence_chat` owns case chat retrieval, citation validation, and
+  checkpointed reviews. Additive migration `core.0017_evidence_chat` stores
+  conversations, source versions, coverage, and cited matches. Apply it before
+  starting the matching worker and web versions. Chat replies can be marked
+  Important, and external gateway usage links to the exact turn.
   Core also owns the synthetic probe, bounded `check_task_worker` diagnostic, and
   disabled global queue admin: operational task records have no case authorization.
 - `text/`, `image/`, `audio/`, and `document/` own their concrete evidence models,
@@ -92,7 +97,10 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
 - `geo/` owns location/person-location/vehicle-location evidence, points of
   interest, maps, geocoding, geographic analysis, and vehicle-location CSV imports.
 - `phone/` owns message and call evidence, retained call additions, imported
-  communication context, message imports, and conversation analysis.
+  communication context, message imports, and conversation analysis. Migration
+  `phone.0005_conversation_grouping` adds grouping revisions, sessions and
+  ordered membership rows. Apply it before serving the updated reader or worker.
+  Existing finding-backed sessions keep their source links.
 - `people/` and `vehicle/` own case-scoped person and vehicle records. These are
   investigator-maintained entities, not evidence subclasses. `socialmedia/` owns
   social accounts linked to people and [case-bound Instagram monitors](instagram-monitors.md). `video/` is a registered placeholder only.

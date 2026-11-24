@@ -33,7 +33,7 @@ original recording and its checksum.
 
 Ollama is the **Local** text backend for Qwen3.5, including `qwen3.5:9b`.
 It supplies topics, claims, claim comparisons, session summaries, semantic links
-and processing for retained question-synthesis runs. Transcription uses the
+and [Evidence chat](analysis.md#evidence-chat), alongside retained question-synthesis runs. Transcription uses the
 separate Whisper runtime,
 and printed-English OCR remains in the bounded Tesseract parser. **External AI**
 uses the [configured external provider](analysis.md#external-ai-configuration).

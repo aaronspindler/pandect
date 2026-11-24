@@ -1,0 +1,20 @@
+{% extends 'core/evidence_chat/base.html' %}
+{% block title %}{{ thread.title }} · Evidence chat · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'core:chat:list' case.pk %}">All evidence chats</a>
+<header class="page-header"><h1>Evidence chat</h1>{% include 'ui/components/live_updates.html' %}</header>
+{% partialdef live inline %}
+<section id="chat-transcript" aria-label="Conversation" data-live-region data-live-poll="{{ pending|yesno:'true,false' }}"{% if not pending %} data-live-outcome="Evidence chat updated."{% endif %}>
+  {% for row in rows %}{% include 'core/evidence_chat/turn.html' %}{% endfor %}
+  {% include 'core/important/pagination.html' with page_label='Conversation pages' %}
+</section>
+<div id="follow-up" data-live-region data-live-poll="{{ pending|yesno:'true,false' }}">
+{% if can_edit %}
+<section class="content-section" aria-labelledby="follow-up-heading">
+  <h2 id="follow-up-heading">Ask a follow-up</h2>
+  {% if pending and not form.is_bound %}<p>You can ask a follow-up when the current reply is ready.</p>{% else %}{% include 'core/evidence_chat/composer.html' %}{% endif %}
+</section>
+{% endif %}
+</div>
+{% endpartialdef %}
+{% endblock %}

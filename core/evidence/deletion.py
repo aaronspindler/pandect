@@ -10,7 +10,7 @@ from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.db.models.deletion import Collector, ProtectedError
 from django.http import StreamingHttpResponse
 
@@ -18,14 +18,27 @@ from cases.permissions import get_case
 from core.analysis.operations import OPERATIONS
 from core.evidence.queries import get_evidence, same_case_evidence
 from core.evidence.types import KIND_LABELS, KINDS
-from core.models import AnalysisRun, ImportantItem, ImportantNote, SavedSelection
+from core.models import (
+    AnalysisRun,
+    ChatMatch,
+    ChatSource,
+    ChatTurn,
+    EvidenceChat,
+    ImportantItem,
+    ImportantNote,
+    SavedSelection,
+)
 from geo.models import (
     VehicleLocationEvidence,
     VehicleLocationImport,
     VehicleLocationImportRow,
     VehicleTripGeneration,
 )
-from phone.models import CommunicationContext
+from phone.models import (
+    CommunicationContext,
+    ConversationSession,
+    ConversationSessionMember,
+)
 from socialmedia.models import InstagramCapture, InstagramComparison
 
 CASE_CONFLICT = (
@@ -49,6 +62,10 @@ INVENTORY_LABELS = {
     "instagramcomparison": "Instagram list comparison",
     "importantitem": "Important item",
     "importantnote": "Important item note",
+    "chatturn": "Evidence chat question and reply",
+    "chatsource": "Chat review source",
+    "chatmatch": "Chat match and citation",
+    "evidencechat": "Evidence chat",
 }
 
 
@@ -87,7 +104,7 @@ class DeletionPlan:
             return False
 
 
-def _analysis_runs(case_id, selections, generation_ids):
+def _analysis_runs(case_id, selections, generation_ids, session_ids):
     # Scan retained selections once rather than issue one JSON query for every
     # observation in a CSV (which can contain 100,000 rows).
     runs = AnalysisRun.objects.filter(case_id=case_id)
@@ -110,6 +127,12 @@ def _analysis_runs(case_id, selections, generation_ids):
                 and group.get("generation_id") in generation_ids
                 for group in parameters.get("groups", [])
             )
+        ):
+            ids.add(run_id)
+        summary_range = parameters.get("_saved_session_range")
+        if (
+            isinstance(summary_range, dict)
+            and summary_range.get("session") in session_ids
         ):
             ids.add(run_id)
         for source in inputs:
@@ -135,8 +158,18 @@ def _outside_case(model, objects, case_id):
     if not ids:
         return False
     scopes = {
+        ChatTurn: ("case_id", "chat__case_id"),
+        ChatSource: ("case_id", "turn__case_id", "turn__chat__case_id"),
+        ChatMatch: (
+            "case_id",
+            "turn__case_id",
+            "source__case_id",
+            "source__turn__case_id",
+        ),
         VehicleLocationImportRow: ("batch__case_id",),
         ImportantNote: ("item__case_id",),
+        ConversationSession: ("case_id", "grouping__case_id"),
+        ConversationSessionMember: ("case_id", "session__case_id", "message__case_id"),
         InstagramCapture: ("monitor_check__monitor__case_id", "evidence__case_id"),
         InstagramComparison: (
             "capture__monitor_check__monitor__case_id",
@@ -176,6 +209,7 @@ def _record_rows(model, objects):
             "evidence_id",
             "finding_result",
             "item_index",
+            "chat_turn",
             "item",
         }
     )
@@ -188,6 +222,8 @@ def _record_name(model, row):
     if model in MODEL_KINDS:
         return row["title"] + (" · Archived" if row["is_archived"] else "")
     if model is ImportantItem:
+        if row["chat_turn"]:
+            return f"Chat reply · {row['chat_turn']}"
         if row["finding_result"]:
             return f"Finding {row['item_index'] + 1} · result {row['finding_result']}"
         return f"{KIND_LABELS[row['evidence_kind']]} evidence · {row['evidence_id']}"
@@ -275,6 +311,13 @@ def plan_deletions(items, kind):
     if generations.exclude(case_id=item.case_id).exists():
         plan.blocker = CASE_CONFLICT
         return plan
+    message_ids = [source.pk for source in roots.get("text-message", [])]
+    sessions = ConversationSession.objects.filter(
+        members__message_id__in=message_ids
+    ).distinct()
+    if sessions.exclude(case_id=item.case_id).exists():
+        plan.blocker = CASE_CONFLICT
+        return plan
     runs = _analysis_runs(
         item.case_id,
         {
@@ -283,6 +326,7 @@ def plan_deletions(items, kind):
             for obj in objects
         },
         {str(pk) for pk in generations.values_list("pk", flat=True)},
+        {str(pk) for pk in sessions.values_list("pk", flat=True)},
     )
     plan.analysis_count = len(runs)
     plan.affected_vehicle_ids = set(
@@ -296,6 +340,20 @@ def plan_deletions(items, kind):
             marked_evidence |= Q(
                 evidence_kind=root_kind, evidence_id__in=[obj.pk for obj in objects]
             )
+    # Every derived surface retains its analysis result. Deleting one of its
+    # inputs also deletes that result through the dependency walk above.
+    affected_sources = ChatSource.objects.filter(
+        marked_evidence | Q(result_id__in=runs.values("result__pk"))
+    )
+    affected_turns = ChatTurn.objects.filter(pk__in=affected_sources.values("turn_id"))
+    # A follow-up may quote or paraphrase its earlier conversation.
+    downstream = ChatTurn.objects.filter(
+        Exists(
+            affected_turns.filter(
+                chat_id=OuterRef("chat_id"), ordinal__lte=OuterRef("ordinal")
+            )
+        )
+    )
     try:
         for objects in roots.values():
             if objects:
@@ -303,7 +361,22 @@ def plan_deletions(items, kind):
         if batches:
             collector.collect(batches, fail_on_restricted=False)
         collector.collect(runs, fail_on_restricted=False)
+        collector.collect(downstream, fail_on_restricted=False)
+        collector.collect(
+            EvidenceChat.objects.filter(
+                pk__in=affected_turns.filter(ordinal=1).values("chat_id")
+            ),
+            fail_on_restricted=False,
+        )
         collector.collect(generations, fail_on_restricted=False)
+        if message_ids:
+            # Include every member of each affected session in the reviewed
+            # inventory. An individual source deletion cannot shorten a session.
+            members = ConversationSessionMember.objects.filter(
+                session__in=sessions
+            ).only("pk", "case_id")
+            collector.collect(list(members), fail_on_restricted=False)
+            collector.collect(sessions, fail_on_restricted=False)
         # Evidence kinds have separate tables, so these targets use typed UUIDs.
         # Collect before the scope checks to detect inconsistent case links.
         collector.collect(

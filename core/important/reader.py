@@ -17,8 +17,12 @@ def reader_context(
     evidence_id=None,
     finding_result=None,
     item_index=None,
+    chat_turn=None,
 ):
-    if finding_result is None:
+    if chat_turn is not None:
+        target = {"chat_turn": chat_turn}
+        action_url = reverse("core:important:mark_reply", args=[case.pk, chat_turn.pk])
+    elif finding_result is None:
         target = {"evidence_kind": evidence_kind, "evidence_id": evidence_id}
         action_url = reverse(
             "core:important:mark_evidence", args=[case.pk, evidence_kind, evidence_id]

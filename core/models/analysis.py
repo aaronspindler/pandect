@@ -294,11 +294,19 @@ class GatewayRequest(models.Model):
         ANALYSIS = "analysis", "Analysis"
         SEARCH_INDEX = "search_index", "Meaning search indexing"
         SEARCH_QUERY = "search_query", "Meaning search query"
+        EVIDENCE_CHAT = "evidence_chat", "Evidence chat"
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     case = models.ForeignKey("cases.Case", on_delete=models.CASCADE)
     run = models.ForeignKey(
         AnalysisRun,
+        on_delete=models.CASCADE,
+        related_name="gateway_requests",
+        blank=True,
+        null=True,
+    )
+    chat_turn = models.ForeignKey(
+        "core.ChatTurn",
         on_delete=models.CASCADE,
         related_name="gateway_requests",
         blank=True,
@@ -319,9 +327,18 @@ class GatewayRequest(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    models.Q(operation="analysis", run__isnull=False)
+                    models.Q(
+                        operation="analysis", run__isnull=False, chat_turn__isnull=True
+                    )
                     | models.Q(
-                        operation__in=["search_index", "search_query"], run__isnull=True
+                        operation="evidence_chat",
+                        run__isnull=True,
+                        chat_turn__isnull=False,
+                    )
+                    | models.Q(
+                        operation__in=["search_index", "search_query"],
+                        run__isnull=True,
+                        chat_turn__isnull=True,
                     )
                 ),
                 name="gateway_usage_operation_run",
@@ -334,6 +351,8 @@ class GatewayRequest(models.Model):
     def save(self, *args, **kwargs):
         if self.run_id is not None and self.run.case_id != self.case_id:
             raise ValidationError("Gateway usage must belong to the run's case.")
+        if self.chat_turn_id is not None and self.chat_turn.case_id != self.case_id:
+            raise ValidationError("Gateway usage must belong to the chat's case.")
         if self._state.adding:
             kwargs["force_insert"] = True
         return super().save(*args, **kwargs)

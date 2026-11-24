@@ -24,6 +24,7 @@ The guides below describe current behavior and procedures; the
 - [Analysis, reports, and external AI configuration](analysis.md)
 - [Original image, document, and recording previews](original-previews.md)
 - [Chronology](chronology.md)
+- [Evidence chat and cited answers](analysis.md#evidence-chat)
 - [Retained question-driven synthesis results](synthesis.md)
 - [Local inference, model qualification, and private geographic services](local-analysis.md)
 - [Geographic context and retained map references](analysis-geographic-context.md)

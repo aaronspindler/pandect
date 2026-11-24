@@ -35,7 +35,7 @@ from core.case_search.approval import (
 )
 from core.case_search.indexing import prepare_case_search
 from core.evidence.types import KINDS
-from core.models import ImportantItem, ImportantNote
+from core.models import EvidenceChat, ImportantItem, ImportantNote
 from geo.models import PointOfInterest
 from socialmedia import instagram_connector, monitor_jobs
 from socialmedia.models import SocialAccount
@@ -389,6 +389,7 @@ def case_delete(request, case_id):
         "poi_count": PointOfInterest.objects.filter(person__case=case).count(),
         "active_evidence_count": sum(item["active"] for item in evidence_counts),
         "archived_evidence_count": sum(item["archived"] for item in evidence_counts),
+        "chat_count": EvidenceChat.objects.filter(case=case).count(),
         "important_item_count": ImportantItem.objects.filter(case=case).count(),
         "important_note_count": ImportantNote.objects.filter(item__case=case).count(),
     }

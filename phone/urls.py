@@ -12,6 +12,11 @@ from phone import (
 app_name = "phone"
 urlpatterns = [
     path(
+        "conversations/<uuid:first_person_id>/<uuid:second_person_id>/instances/<uuid:instance_id>/grouping/",
+        instance_views.grouping_details,
+        name="grouping_details",
+    ),
+    path(
         "conversations/", conversation_views.conversation_list, name="conversation_list"
     ),
     path(
@@ -23,6 +28,11 @@ urlpatterns = [
         "conversations/<uuid:first_person_id>/<uuid:second_person_id>/instances/group/",
         instance_views.group_conversation,
         name="group_conversation",
+    ),
+    path(
+        "conversations/<uuid:first_person_id>/<uuid:second_person_id>/instances/<uuid:instance_id>/coverage/",
+        instance_summary_views.session_summary_coverage,
+        name="session_summary_coverage",
     ),
     path(
         "conversations/<uuid:first_person_id>/<uuid:second_person_id>/instances/summaries/",

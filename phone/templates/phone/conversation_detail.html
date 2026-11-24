@@ -34,6 +34,7 @@
 {% endif %}
 <form data-workspace-form method="get" action="{{ request.path }}#conversation-day-result" class="conversation-day-form"{% if not day_message %} id="conversation-day-result" tabindex="-1"{% endif %}>
   {% if instances_tab %}<input type="hidden" name="tab" value="instances">{% endif %}
+  {% if instance_query.contains %}<input type="hidden" name="contains" value="{{ instance_query.contains }}">{% endif %}
   {% if list_page > 1 %}<input type="hidden" name="list_page" value="{{ list_page }}">{% endif %}
   {% if not instances_tab and request.GET.weak == '1' %}<input type="hidden" name="weak" value="1">{% endif %}
   {% if page_obj.number > 1 %}<input type="hidden" name="page" value="{{ page_obj.number }}">{% endif %}

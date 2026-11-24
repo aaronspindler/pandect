@@ -74,6 +74,7 @@ def start_case_analysis(actor, case_id, *, submission_id, scope=None):
         "reprocess",
         "instance_summaries",
         "failed_retries",
+        "conversation_grouping",
     }:
         from core.analysis.import_checks import imported_sources
 
@@ -244,7 +245,14 @@ def prepare_case_analysis_batch(batch_id):
             if batch.status != CaseAnalysisBatch.Status.QUEUED:
                 return batch.status
             scope_type = batch.scope.get("type")
-            if scope_type == "instance_summaries":
+            grouping_phase = scope_type == "conversation_grouping" or batch.scope.get(
+                "_cursor", {}
+            ).get("groupings")
+            if grouping_phase:
+                from phone.grouping_jobs import prepare_grouping_step
+
+                has_more = prepare_grouping_step(batch, case)
+            elif scope_type == "instance_summaries":
                 from phone.instance_summaries import prepare_instance_summaries
 
                 has_more = prepare_instance_summaries(batch, case)
@@ -266,6 +274,21 @@ def prepare_case_analysis_batch(batch_id):
                 has_more = prepare_vehicle_import(batch, case)
             else:
                 has_more = _prepare_evidence_step(batch, case)
+            if (
+                not has_more
+                and not grouping_phase
+                and scope_type in {"messages", "reprocess", "added"}
+                and batch.grouping_requests.filter(
+                    case=case,
+                    grouping__case=case,
+                    grouping__published_at__isnull=True,
+                    error_code="",
+                ).exists()
+            ):
+                from phone.grouping_jobs import prepare_grouping_step
+
+                batch.scope["_cursor"] = {"groupings": True}
+                has_more = prepare_grouping_step(batch, case)
             if has_more:
                 from core.analysis.tasks import prepare_case_analysis
 

@@ -31,6 +31,7 @@
 <dt>Archived evidence</dt>
 <dd>{{ archived_evidence_count }}</dd>
 </div>
+{% if chat_count %}<div><dt>Evidence chats with their questions and replies</dt><dd>{{ chat_count }}</dd></div>{% endif %}
 {% if important_item_count %}
 <div><dt>Important item histories</dt><dd>{{ important_item_count }}</dd></div>
 <div><dt>Important item notes</dt><dd>{{ important_note_count }}</dd></div>

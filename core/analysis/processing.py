@@ -18,7 +18,7 @@ from core.analysis.retries import failed_checks, latest_failed_retry
 from core.case_search.indexing import search_index_status
 from core.evidence.queries import scoped_evidence
 from core.evidence.types import KIND_LABELS, KINDS
-from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
+from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch, ChatTurn
 from geo.models import VehicleLocationImport, VehicleTripGeneration
 from geo.trip_processing import latest_generations
 from socialmedia.models import InstagramCheck
@@ -301,6 +301,13 @@ def index(request, case_id):
     for check in monitor_history:
         check.message = check_message(check.error) if check.error else ""
     run_counts, analysis_run_counts = _run_counts(case_runs)
+    chat_turns = (
+        ChatTurn.objects.filter(case=case, chat__case=case)
+        .order_by("-created_at")
+        .only("id", "chat_id", "question", "status", "total", "reviewed", "mode")
+    )
+    chat_counts = _status_counts(chat_turns)
+    active_chat = chat_turns.filter(status__in=ACTIVE_RUNS)
     return render_live(
         request,
         "core/analysis/processing.html",
@@ -308,7 +315,7 @@ def index(request, case_id):
         | {
             "nav_section": "processing",
             "processing_summary": _processing_summary(
-                run_counts,
+                run_counts + Counter(chat_counts),
                 all_batches,
                 imports,
                 trip_generations,
@@ -319,6 +326,9 @@ def index(request, case_id):
             "analysis_run_total": sum(row["count"] for row in analysis_run_counts),
             "page_obj": page,
             "active_runs": active_runs,
+            "active_chat": active_chat[:10],
+            "more_active_chat": sum(chat_counts.get(s, 0) for s in ACTIVE_RUNS) > 10,
+            "failed_chat": chat_turns.filter(status="failed")[:NEEDS_ATTENTION_LIMIT],
             "message_reviews": message_reviews[:5],
             "more_message_reviews": len(message_reviews) > 5,
             "showing_message_reviews": showing_message_reviews,
@@ -343,6 +353,7 @@ def index(request, case_id):
             "live_pending": bool(
                 run_counts["queued"]
                 or run_counts["running"]
+                or any(chat_counts.get(s) for s in ACTIVE_RUNS)
                 or active_batches.paginator.count
                 or active_trips.paginator.count
                 or search_pending

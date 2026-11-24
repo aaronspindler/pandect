@@ -36,9 +36,9 @@ status or model permissions. See [maps](maps.md) for Map coverage and privacy.
 ### Important items
 
 Owners and editors can choose **Mark important** in an evidence reader's
-**More** menu or on an individual finding. **Case Tools → Important** lists
+**More** menu, on an individual finding, or on a whole Evidence chat reply. **Case Tools → Important** lists
 the case's marked items, newest mark first. Open the title to revisit the exact
-record or finding. **Back to Important** returns to its list page.
+record, finding, or reply. **Back to Important** returns to its list page.
 Finding summaries keep their original labels and show the current review outcome
 for sighting proposals.
 
@@ -49,11 +49,12 @@ Evidence search, filters, and page. **Remove from Important** hides the item
 from the list. Its notes remain accessible from the source, and marking it
 again restores the list entry.
 Notes are investigator annotations. They are separate from evidence, findings,
-and review decisions.
+and review decisions. Evidence chat excludes them from retrieval and model prompts.
 
 Archiving evidence or replacing a finding in current results keeps the mark on
 the saved item. If a finding's sources become unavailable, the finding and
-its notes are withheld. Permanent evidence deletion removes affected marks and
+its notes are withheld. A reply with unavailable sources follows the same rule.
+Permanent evidence deletion removes affected marks and
 notes as part of the reviewed inventory. Deleting the case also removes its
 marks and notes.
 

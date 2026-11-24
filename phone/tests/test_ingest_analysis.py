@@ -25,7 +25,7 @@ from document.models import DocumentEvidence
 from people.models import Person
 from phone.imessage_imports import confirm_import
 from phone.models import PhoneCallEvidence, TextMessageEvidence
-from phone.tests.test_imessage_views import message_csv
+from phone.tests.test_imessage_views import message_csv, whatsapp_csv
 
 
 @override_settings(PANDECT_LOCAL_AI={})
@@ -36,7 +36,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         self.case.save(update_fields=("ai_backend",))
         return grant
 
-    def publish(self, *rows):
+    def publish(self, *rows, csv_format=message_csv):
         start = datetime(2026, 11, 1, 12, tzinfo=UTC)
         rows = rows or tuple(
             {
@@ -50,7 +50,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             case=self.case,
             uploaded_by=self.users["editor"],
             title="Synthetic message CSV",
-            file=ContentFile(message_csv(*rows), name="synthetic-messages.csv"),
+            file=ContentFile(csv_format(*rows), name="synthetic-messages.csv"),
         )
         preview, _ = start_run(
             self.users["editor"],
@@ -91,7 +91,7 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
         batch = CaseAnalysisBatch.objects.get()
         self.drain(batch)
         self.assertEqual(batch.runs.filter(operation="entities").count(), 1)
-        self.assertEqual(batch.runs.filter(operation="sessions").count(), 1)
+        self.assertEqual(batch.conversation_groupings.get().sessions.count(), 1)
         for operation in (
             "text_topics",
             "content_events",
@@ -203,7 +203,6 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             {
                 "entities",
                 "text_topics",
-                "sessions",
                 "comm_patterns",
                 "style_profiles",
                 "style_change",
@@ -275,6 +274,44 @@ class ImportedMessageAnalysisTests(EvidenceViewTestMixin, TestCase):
             self.assertIn(
                 "only its retained selection", " ".join(run.result.data["warnings"])
             )
+
+    def check_grouping_across_import_pages(self, csv_format):
+        start = datetime(2026, 11, 1, 12, tzinfo=UTC)
+        rows = []
+        for index in range(28):
+            elapsed = index + (90 if index >= 4 else 0) + (90 if index >= 25 else 0)
+            if index == 27:
+                elapsed += 250
+            rows.append(
+                {
+                    "Message ID": f"id-{index}",
+                    "Type": "Incoming" if index % 2 else "Outgoing",
+                    "Text": {3: "Can you meet at six?", 4: "Yes, six works."}.get(
+                        index, "Still organizing."
+                    ),
+                    "Replying to": "id-19" if index == 25 else "",
+                    "Message Date": (start + timedelta(minutes=elapsed)).isoformat(),
+                }
+            )
+        self.publish(*rows, csv_format=csv_format)
+        batch = CaseAnalysisBatch.objects.get()
+        # A delayed answer starts one worker page, an explicit reply another.
+        with patch("phone.grouping_jobs.PAGE_SIZE", 5):
+            self.drain(batch)
+        grouping = batch.conversation_groupings.get()
+        self.assertIsNotNone(grouping.published_at)
+        first, later = grouping.sessions.order_by("start_ordinal")
+        self.assertEqual((first.message_count, later.message_count), (27, 1))
+        members = list(first.members.order_by("ordinal"))
+        self.assertEqual(members[4].parent_message_id, members[3].message_id)
+        self.assertEqual(members[25].parent_message_id, members[19].message_id)
+        self.assertFalse(batch.runs.filter(operation="sessions").exists())
+
+    def test_imessage_import_keeps_delayed_answers_and_replies_across_pages(self):
+        self.check_grouping_across_import_pages(message_csv)
+
+    def test_whatsapp_import_keeps_delayed_answers_and_replies_across_pages(self):
+        self.check_grouping_across_import_pages(whatsapp_csv)
 
     def test_writing_comparison_keeps_tied_times_together_at_a_valid_split(self):
         self.publish(

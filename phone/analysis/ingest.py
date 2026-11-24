@@ -180,6 +180,7 @@ def prepare_import_analysis(batch, case, messages):
                     selected,
                     minutes=10 if exchange else 60,
                     include_calls=exchange,
+                    session_replies=not exchange,
                     count=20 if model else None,
                     characters=16_000 if model else 1_000_000,
                     anchor_chars=sum(len(item.body) for item in selected),
@@ -240,7 +241,12 @@ def prepare_import_analysis(batch, case, messages):
     if batch.scope.get("mode", "local") != "ai":
         queue("entities", messages)
         queue("text_topics", messages, {"include_summary": False})
-        queue("sessions", messages, {"gap_minutes": 60})
+        if versioned:
+            from phone.grouping_jobs import register_message_pairs
+
+            register_message_pairs(batch, case, messages)
+        else:
+            queue("sessions", messages, {"gap_minutes": 60})
         queue("comm_patterns", messages, {"gap_minutes": 60})
 
         calls, matching_calls = [], 0

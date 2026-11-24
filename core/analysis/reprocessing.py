@@ -371,7 +371,8 @@ def _text_checks(
                 group, parameters = _history_communication(
                     batch, choices, {"gap_minutes": 60}, history, minutes=60
                 )
-                queue("sessions", group, parameters)
+                if batch.scope.get("analysis_version") != ANALYSIS_VERSION:
+                    queue("sessions", group, parameters)
                 queue("comm_patterns", group, parameters)
     if local_checks:
         for choices in _groups(entries, count=min(50, limit), characters=100_000):
@@ -430,6 +431,7 @@ def _history_communication(
         [row for row, _ in selected],
         minutes=minutes,
         include_calls=minutes == 10,
+        session_replies=minutes == 60,
         count=20 if model else None,
         characters=16_000 if model else 1_000_000,
         anchor_chars=sum(len(body) for _, body in selected),
@@ -670,6 +672,10 @@ def _prepare_sources(batch, case, kind, additions, rows):
                 [choice],
                 parameters,
             )
+    if valid and versioned and local_checks and kind == "text-message":
+        from phone.grouping_jobs import register_message_pairs
+
+        register_message_pairs(batch, case, valid)
     if entries:
         _text_checks(
             batch,

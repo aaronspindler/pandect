@@ -20,6 +20,7 @@ OPENAI_TEXT_MODELS = {
     "session_summaries": "gpt-6.1-terra",
     "conversation_link": "gpt-6.1-terra",
     "question_synthesis": "gpt-6.2-sol",
+    "evidence_chat": "gpt-6.2-sol",
 }
 
 DIRECT_AI_ENDPOINTS = {
@@ -38,6 +39,7 @@ INFERENCE_OPERATIONS = (
     "session_summaries",
     "conversation_link",
     "question_synthesis",
+    "evidence_chat",
 )
 
 
@@ -100,7 +102,12 @@ def _default_gateway_execution(purpose, operation):
             "reasoning": {
                 "effort": "high"
                 if operation
-                in {"question_synthesis", "content_events", "conversation_link"}
+                in {
+                    "question_synthesis",
+                    "evidence_chat",
+                    "content_events",
+                    "conversation_link",
+                }
                 else "medium"
             },
             "max_output_tokens": 32768,
@@ -201,6 +208,7 @@ def requires_inference(operation, parameters):
             "content_events",
             "session_summaries",
             "question_synthesis",
+            "evidence_chat",
         }
         or (operation == "text_topics" and parameters.get("include_summary", True))
         or (

@@ -109,18 +109,8 @@ class ConversationGroupingForm(forms.Form):
         label="Minutes between groups",
         initial=60,
         help_text=(
-            "A longer gap starts a new group. "
-            "Farewells and greetings can also mark a boundary."
+            "A longer pause usually starts a new group. "
+            "Clear replies within four hours can continue it. "
+            "A farewell followed by a greeting can start a new group."
         ),
     )
-
-    def clean_reviewed_scope(self):
-        reviewed = self.cleaned_data["reviewed_scope"]
-        current = self.initial["reviewed_scope"]
-        if reviewed != current:
-            self.data = self.data.copy()
-            self.data["reviewed_scope"] = current
-            raise forms.ValidationError(
-                "The messages changed. Review the current coverage and submit again."
-            )
-        return reviewed

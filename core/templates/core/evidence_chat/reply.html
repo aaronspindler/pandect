@@ -1,0 +1,45 @@
+{% extends 'core/evidence_chat/base.html' %}
+{% block title %}Evidence chat reply · {{ thread.title }} · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'core:chat:detail' case.pk thread.pk %}">Back to conversation</a>
+<header class="page-header"><h1>Evidence chat reply</h1>{% include 'ui/components/live_updates.html' %}</header>
+{% partialdef live inline %}
+<div id="chat-reply" data-live-region data-live-poll="{{ pending|yesno:'true,false' }}"{% if not pending %} data-live-outcome="Reply updated."{% endif %}>
+  {% include 'core/evidence_chat/turn.html' with single=True %}
+  {% if matches_page %}
+  <section class="content-section" id="matches" aria-labelledby="match-heading">
+    <h2 id="match-heading">Cited matches</h2>
+    <p>{{ matches_page.paginator.count }} cited match{{ matches_page.paginator.count|pluralize:"es" }}</p>
+    <ol class="chat-references" start="{{ matches_page.start_index }}">
+    {% for item in matches_page %}<li>{% for citation in item.citations %}
+      <a href="{{ citation.url }}">{{ citation.label }}</a>
+      <blockquote>{{ citation.quote }}</blockquote>
+    {% empty %}This match is unavailable because its source could not be verified.{% endfor %}</li>{% endfor %}
+    </ol>
+    {% if matches_page.has_other_pages %}<nav aria-label="Cited matches pages" class="pagination">
+      {% if matches_page.has_previous %}<a class="button button-secondary" href="{% querystring page=matches_page.previous_page_number %}#matches">Previous</a>{% endif %}
+      <span>Page {{ matches_page.number }} of {{ matches_page.paginator.num_pages }}</span>
+      {% if matches_page.has_next %}<a class="button button-secondary" href="{% querystring page=matches_page.next_page_number %}#matches">Next</a>{% endif %}
+    </nav>{% endif %}
+  </section>
+  {% endif %}
+  {% if gaps_page %}
+  <section class="content-section" id="coverage-gaps" aria-labelledby="gaps-heading">
+    <h2 id="gaps-heading">Incomplete coverage</h2>
+    <ul class="record-list">
+      {% for gap in gaps_page %}<li class="record-row"><div>
+        {% if gap.url %}<a class="record-link" href="{{ gap.url }}">{{ gap.label }}</a>{% else %}<strong>{{ gap.label }}</strong>{% endif %}
+        <small>{{ gap.gap }}</small>
+      </div></li>{% endfor %}
+    </ul>
+    {% if gaps_page.has_other_pages %}<nav aria-label="Coverage gap pages" class="pagination">
+      {% if gaps_page.has_previous %}<a class="button button-secondary" href="{% querystring gaps_page=gaps_page.previous_page_number %}#coverage-gaps">Previous</a>{% endif %}
+      <span>Page {{ gaps_page.number }} of {{ gaps_page.paginator.num_pages }}</span>
+      {% if gaps_page.has_next %}<a class="button button-secondary" href="{% querystring gaps_page=gaps_page.next_page_number %}#coverage-gaps">Next</a>{% endif %}
+    </nav>{% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endpartialdef %}
+{% if can_edit %}<a class="button button-primary" href="{% url 'core:chat:detail' case.pk thread.pk %}#follow-up">Ask a follow-up</a>{% endif %}
+{% endblock %}

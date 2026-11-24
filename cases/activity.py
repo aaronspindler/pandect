@@ -16,7 +16,7 @@ from core.analysis.processing import (
 )
 from core.case_search.approval import search_approval_current
 from core.case_search.semantic_model import is_external, profile
-from core.models import AnalysisRun, CaseAnalysisBatch, CaseSearchIndex
+from core.models import AnalysisRun, CaseAnalysisBatch, CaseSearchIndex, ChatTurn
 from socialmedia.models import InstagramCheck
 
 
@@ -43,6 +43,11 @@ def status(request, case_id):
     if not active:
         pending = (
             Exists(CaseAnalysisBatch.objects.filter(case=case, status="queued"))
+            | Exists(
+                ChatTurn.objects.filter(
+                    case=case, chat__case=case, status__in=ACTIVE_RUNS
+                )
+            )
             | Exists(case_imports(case).filter(status__in=ACTIVE_IMPORTS))
             | Exists(case_trip_generations(case).filter(ACTIVE_TRIPS))
             | Exists(

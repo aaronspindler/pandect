@@ -175,6 +175,13 @@ def resolve_inputs(
         require_current_review=require_current_review,
         cache=cache,
     )
+    if (
+        run.operation == "session_summaries"
+        and "_saved_session_range" in run.parameters
+    ):
+        from phone.saved_summary_ranges import checked_session_range
+
+        checked_session_range(case, run, sources)
     if run.operation == "claim_comparison" and any(
         source.item.is_archived for source in sources
     ):
@@ -464,6 +471,12 @@ def _processing_inputs(run, case):
         validate_current_sighting(run, case, sources)
         return sources
     sources = resolve_inputs(run, case)
+    if (
+        run.operation == "session_summaries"
+        and "_saved_session_range" in run.parameters
+        and any(source.item.is_archived for source in sources)
+    ):
+        raise AnalysisError("source_archived")
     scope = run.batch.scope if run.batch_id else {}
     if scope.get("analysis_version"):
         comparison = run.parameters.get("_comparison")

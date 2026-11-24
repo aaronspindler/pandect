@@ -30,7 +30,7 @@
   </ul>
   {% include 'core/important/pagination.html' with page_label='Important items pages' %}
 {% elif can_edit %}
-  <p>Mark evidence or a finding important while reading it to save it here.</p>
+  <p>Mark evidence, a finding, or an Evidence chat reply important to save it here.</p>
   <div class="actions"><a class="button button-secondary" href="{% url 'core:evidence:list' case.pk %}">Browse evidence</a><a class="button button-secondary" href="{% url 'core:analysis:browse' case.pk %}">Browse findings</a></div>
 {% else %}
   <p>Items appear here when a case owner or editor marks them important.</p>

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
@@ -28,6 +29,7 @@ from phone.instance_summaries import (
     summary_limit,
     summary_originals,
 )
+from phone.saved_summary_ranges import session_reports, summary_gap, summary_members
 
 SESSIONS_PER_REVIEW = 50
 
@@ -102,9 +104,16 @@ def _active_batch_redirect(request, case, people, executions, instance_id=None):
             )
         )
     else:
-        batches = batches.filter(
-            status=CaseAnalysisBatch.Status.QUEUED,
-            scope__instances__contains=[str(instance_id)],
+        batches = batches.filter(scope__instances__contains=[str(instance_id)]).filter(
+            Q(status=CaseAnalysisBatch.Status.QUEUED)
+            | Q(
+                runs__parameters___saved_session_range__session=str(instance_id),
+                runs__parameters___execution=execution,
+                runs__status__in=(
+                    AnalysisRun.Status.QUEUED,
+                    AnalysisRun.Status.RUNNING,
+                ),
+            )
         )
     active = batches.only("case_id").first()
     if active is not None:
@@ -164,12 +173,20 @@ def _conversation_review(request, case, pair, people, context, executions):
         - pending.get(instance["id"], {}).keys()
     ]
     originals = summary_originals(
-        pair, {pk for instance in unrequested for pk in instance["member_ids"]}
+        pair,
+        {
+            pk
+            for instance in unrequested
+            if not instance.get("saved_session")
+            for pk in instance["member_ids"]
+        },
     )
     eligible = []
     oversized = 0
     for instance in unrequested:
-        if summary_limit(instance["member_ids"], originals):
+        if not instance.get("saved_session") and summary_limit(
+            instance["member_ids"], originals
+        ):
             oversized += 1
         else:
             eligible.append(instance)
@@ -284,9 +301,21 @@ def instance_summary(
             run_id=next(iter(pending.values())).pk,
         )
 
-    member_ids = instance["member_ids"]
+    if saved := instance.get("saved_session"):
+        originals_page = Paginator(
+            saved.members.filter(case=case)
+            .order_by("ordinal")
+            .values_list("message_id", flat=True),
+            50,
+        ).get_page(request.GET.get("message_page"))
+        member_ids = list(originals_page.object_list)
+        limit_message = ""
+    else:
+        originals_page = None
+        member_ids = instance["member_ids"]
     originals = summary_originals(pair, member_ids)
-    limit_message = summary_limit(member_ids, originals)
+    if not saved:
+        limit_message = summary_limit(member_ids, originals)
 
     ids = [str(instance["id"])]
     revision = _review_confirmation(case, ids, executions)
@@ -329,9 +358,88 @@ def instance_summary(
         | {
             "form": form,
             "originals": [originals[pk] for pk in member_ids],
+            "message_count": instance["count"],
+            "originals_page": originals_page,
             "limit_message": limit_message,
             "reviewed_scope": revision,
             "scope_changed": scope_changed,
         },
         status=409 if scope_changed else 400 if submitting else 200,
+    )
+
+
+@product_login_required
+@require_http_methods(["GET"])
+def session_summary_coverage(
+    request, case_id, first_person_id, second_person_id, instance_id
+):
+    from phone.conversation_instances import instance_url
+    from phone.saved_sessions import valid_sessions
+
+    case = get_case(request.user, case_id)
+    pair = pair_messages(case, first_person_id, second_person_id)
+    saved = get_object_or_404(valid_sessions(case, pair), pk=instance_id)
+    members = summary_members(saved, case)
+    page = Paginator(members, 50).get_page(request.GET.get("page"))
+    rows = {}
+    for ordinal, _, body, archived in page:
+        rows[ordinal] = (summary_gap(body, archived) or "Awaiting summary", None)
+    # Prefer confirmed coverage. Otherwise show the newest attempt for each
+    # original on this page, including failed or partially summarized ranges.
+    seen = set()
+    reports = (
+        session_reports(case, saved)
+        .filter(
+            parameters___saved_session_range__first__lte=page.end_index(),
+            parameters___saved_session_range__last__gte=page.start_index(),
+        )
+        .order_by("-created_at", "pk")
+        .values_list(
+            "pk",
+            "status",
+            "parameters___saved_session_range",
+            "result__data__metrics__range_covered",
+            "result__case_id",
+        )
+    )
+    covered = set()
+    for run_id, status, scope, complete, result_case in reports.iterator(chunk_size=50):
+        if result_case not in (None, case.pk):
+            continue
+        verified = status == "complete" and complete is True and result_case == case.pk
+        for ordinal in rows.keys() - covered:
+            if not scope["first"] <= ordinal <= scope["last"] or (
+                ordinal in seen and not verified
+            ):
+                continue
+            seen.add(ordinal)
+            if verified:
+                covered.add(ordinal)
+                label = "Covered"
+            elif status in ("complete", "partial"):
+                label = "Partial coverage"
+            else:
+                label = AnalysisRun.Status(status).label
+            rows[ordinal] = (label, run_id)
+    ranges = []
+    for ordinal, (label, run_id) in rows.items():
+        if ranges and (label, run_id) == (ranges[-1]["label"], ranges[-1]["run_id"]):
+            ranges[-1]["last"] = ordinal
+        else:
+            ranges.append(
+                {"first": ordinal, "last": ordinal, "label": label, "run_id": run_id}
+            )
+    return render(
+        request,
+        "phone/session_summary_coverage.html",
+        case_context(case, request.user)
+        | {
+            "nav_section": "analysis",
+            "session": saved,
+            "ranges": ranges,
+            "page": page,
+            "back_url": instance_url(
+                case, (first_person_id, second_person_id), instance_id
+            ),
+        },
     )

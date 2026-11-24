@@ -4,7 +4,7 @@ The Selections tool and its **Ask a question** form have been removed. Existing
 synthesis runs remain available through their result links and findings. Current
 case permissions, source validation, and explicit external approval for
 retries/reruns still apply. This guide describes the retained result format and
-processing limits; there is no form for creating a new question.
+processing limits. Ask new questions through [Evidence chat](analysis.md#evidence-chat).
 
 Inputs include captured text/messages, supplied call transcripts, exact retained
 extraction/OCR/transcription versions, and explicitly selected findings. Raw

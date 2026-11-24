@@ -19,6 +19,7 @@
   <section aria-labelledby="explore-evidence-heading">
     <h2 id="explore-evidence-heading">{% include 'ui/components/icon.html' with name='search' %}Explore evidence</h2>
     <div class="case-tools-links case-tools-explore">
+      <a data-workspace-document href="{% url 'core:chat:list' case.pk %}">Evidence chat</a>
       <a href="{% url 'core:analysis:browse' case.pk %}">Findings</a>
       <a data-workspace-link href="{% url 'phone:conversation_list' case.pk %}">Conversations</a>
       <a data-workspace-document href="{% url 'geo:case_map' case.pk %}">Trips</a>

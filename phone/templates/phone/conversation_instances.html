@@ -1,8 +1,12 @@
+{% if instance_query.contains %}<p>Sessions containing the selected message. <a class="record-link" href="{% querystring instance_query contains=None %}">Show all sessions</a></p>{% endif %}
 {% if page_obj.object_list %}
 <section aria-labelledby="instances-heading" id="instances-reader" data-conversation-scroll data-scroll-label="sessions">
   <div class="section-header conversation-section-header">
     <div><h2 id="instances-heading">Sessions &amp; summaries</h2><p class="muted">{{ page_obj.paginator.count }} saved session{{ page_obj.paginator.count|pluralize }}</p></div>
-    {% if can_edit %}<a class="button button-secondary" href="{% url 'phone:instance_summaries' case.pk first_person.pk second_person.pk %}{% querystring instance_query tab=None page=page_obj.number %}">Summarize missing sessions</a>{% endif %}
+    {% if can_edit %}<div class="actions">
+      <a class="button button-secondary" href="{% url 'phone:group_conversation' case.pk first_person.pk second_person.pk %}{% if list_page > 1 %}?list_page={{ list_page }}{% endif %}">Group this conversation</a>
+      <a class="button button-secondary" href="{% url 'phone:instance_summaries' case.pk first_person.pk second_person.pk %}{% querystring instance_query tab=None page=page_obj.number %}">Summarize missing sessions</a>
+    </div>{% endif %}
   </div>
   {% if page_obj.has_previous %}{% include 'phone/instance_paging.html' with direction='previous' page_number=page_obj.previous_page_number label='Previous sessions' %}{% endif %}
   <ol class="conversation-instances" data-conversation-items data-page="{{ page_obj.number }}">
@@ -11,9 +15,10 @@
     <li class="conversation-instance" tabindex="-1"><p class="muted">One or more sources for this session have changed or are unavailable.</p></li>
     {% else %}
     <li class="conversation-instance" id="instance-{{ instance.id }}" tabindex="-1">
-      <h3>{% if instance.first_at %}<time datetime="{{ instance.first_at|date:'c' }}">{{ instance.first_at|date:'j M Y, H:i:s T' }}</time>{% if instance.last_at and instance.last_at != instance.first_at %} – <time datetime="{{ instance.last_at|date:'c' }}">{% if instance.first_at|date:'Y-m-d' == instance.last_at|date:'Y-m-d' %}{{ instance.last_at|date:'H:i:s T' }}{% else %}{{ instance.last_at|date:'j M Y, H:i:s T' }}{% endif %}</time>{% endif %}{% else %}Time not recorded{% endif %} · {{ instance.count }} message{{ instance.count|pluralize }}</h3>
+      <h3{% if instance.linked_id %} id="instance-{{ instance.linked_id }}"{% endif %}>{% if instance.first_at %}<time datetime="{{ instance.first_at|date:'c' }}">{{ instance.first_at|date:'j M Y, H:i:s T' }}</time>{% if instance.last_at and instance.last_at != instance.first_at %} – <time datetime="{{ instance.last_at|date:'c' }}">{% if instance.first_at|date:'Y-m-d' == instance.last_at|date:'Y-m-d' %}{{ instance.last_at|date:'H:i:s T' }}{% else %}{{ instance.last_at|date:'j M Y, H:i:s T' }}{% endif %}</time>{% endif %}{% else %}Time not recorded{% endif %} · {{ instance.count }} message{{ instance.count|pluralize }}</h3>
       {% if instance.summary %}
         <span class="instance-summary-label">AI suggestion{% if instance.summary.partial %} · Partial report{% endif %}</span>
+        {% if instance.summary.coverage_label %}<p class="muted">{{ instance.summary.coverage_label }}</p>{% endif %}
         <p class="instance-summary instance-summary-preview">{{ instance.summary.preview|truncatechars:220 }}</p>
         {% if instance.summary.statements %}
         <details class="instance-summary-details"{% if instance.summary.expanded %} open{% endif %}>
@@ -25,12 +30,13 @@
             {% endfor %}
           </div>
         </details>
-        {% else %}
+        {% elif not instance.summary.coverage_label %}
           <a data-workspace-link class="record-link" href="{% querystring page=page_obj.number full_summary=instance.id %}#instance-summary-{{ instance.id }}" aria-expanded="false">Full summary</a>
         {% endif %}
       {% else %}<p class="instance-summary muted">No full summary available</p>{% endif %}
       <div class="instance-actions">
-        {% if instance.summary %}<a data-workspace-link class="record-link" href="{{ instance.summary.report_url }}">View cited report</a>{% endif %}
+        {% if instance.coverage_url and not instance.summary %}<a class="record-link" href="{{ instance.coverage_url }}">Summary coverage</a>{% endif %}
+        {% if instance.summary %}<a data-workspace-link class="record-link" href="{{ instance.summary.report_url }}">{% if instance.summary.coverage_label %}View summary coverage{% else %}View cited report{% endif %}</a>{% endif %}
         {% if instance.messages %}
           <a data-workspace-link class="record-link" href="{% querystring instance_query page=page_obj.number %}#instance-{{ instance.id }}" aria-expanded="true" aria-controls="instance-messages-{{ instance.id }}">Hide messages</a>
         {% else %}

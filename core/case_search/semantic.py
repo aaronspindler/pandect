@@ -48,6 +48,7 @@ def related_results(
     end=None,
     keyword_urls=(),
     allow_external=False,
+    include_source=False,
 ):
     parsed = meaning_query(query, record_type)
     if parsed is None:
@@ -107,6 +108,7 @@ def related_results(
             },
             keyword_urls,
             1 - HOSTED_MIN_SIMILARITY if hosted else MAX_DISTANCE,
+            include_source=include_source,
         )
         retained.close()
     try:
@@ -116,7 +118,16 @@ def related_results(
     return rows, "" if status["status"] == "ready" else status["label"]
 
 
-def _nearest(case, vector, active_profile, filters, keyword_urls, max_distance):
+def _nearest(
+    case,
+    vector,
+    active_profile,
+    filters,
+    keyword_urls,
+    max_distance,
+    *,
+    include_source=False,
+):
     eligible = Q(pk__in=[])
     for source in SOURCE_FIELDS:
         sources = source_queryset(case, source, **filters)
@@ -163,7 +174,10 @@ def _nearest(case, vector, active_profile, filters, keyword_urls, max_distance):
         excerpt = text[: passage.length]
         if hashlib.sha256(excerpt.encode()).hexdigest() != passage.digest:
             continue
-        results.setdefault((row["kind"], row["id"]), row | {"excerpt": excerpt})
+        result = row | {"excerpt": excerpt}
+        if include_source:
+            result.update(source=passage.document.source(), start=passage.start)
+        results.setdefault((row["kind"], row["id"]), result)
         if len(results) == RESULT_LIMIT:
             break
     return list(results.values())

@@ -4,12 +4,15 @@ from django.core.exceptions import ValidationError
 
 from core.analysis.sources import output
 from phone.analysis.deterministic.conversations import (
-    VERSION,
     _ordered,
     _session_groups,
     cross_channel_links,
 )
+from phone.session_matching import SESSION_RULES_VERSION
 from text.analysis.ai import cited_model_analysis
+
+SUMMARY_CHUNK_CHARACTERS = 16_000
+MAX_SUMMARY_CHUNKS = 20
 
 SEMANTIC_FINDING_KINDS = (
     "explicit_reference",
@@ -88,35 +91,48 @@ def summary_chunks(groups):
         batch = []
         size = 0
         for message, characters in group:
-            if characters > 16_000:
+            if characters > SUMMARY_CHUNK_CHARACTERS:
                 raise ValidationError(
-                    "One message exceeds the 16,000-character summary chunk limit."
+                    f"One message exceeds the {SUMMARY_CHUNK_CHARACTERS:,}-character "
+                    "summary chunk limit."
                 )
-            if batch and size + characters > 16_000:
+            if batch and size + characters > SUMMARY_CHUNK_CHARACTERS:
                 chunks.append((index, batch))
                 batch, size = [], 0
             batch.append(message)
             size += characters
         if batch:
             chunks.append((index, batch))
-    if len(chunks) > 20:
+    if len(chunks) > MAX_SUMMARY_CHUNKS:
         raise ValidationError(
-            "Select at most 20 conversation-aware summary chunks per run."
+            f"Select at most {MAX_SUMMARY_CHUNKS} conversation-aware "
+            "summary chunks per run."
         )
     return chunks
 
 
 def session_summaries(sources, parameters, *, infer=None):
     "Keep message/session boundaries intact when making bounded summary calls."
-    messages, groups, gap = _session_groups(sources, parameters)
+    saved_range = parameters.get("_saved_session_range")
+    if saved_range is None:
+        messages, groups, gap = _session_groups(sources, parameters)
+    else:
+        # The worker verifies this range against the published session before inference.
+        # Its first message can rely on a reply target held in a preceding range.
+        messages = _ordered(sources, messages_only=True)
+        groups = [{"sources": messages}]
+        gap = parameters.get("gap_minutes")
     if not messages:
         return output(
-            "No selected messages are available to summarize.", outcome="insufficient"
+            "No selected messages are available to summarize.",
+            outcome="insufficient",
+            metrics={"range_covered": False} if saved_range is not None else {},
         )
     if infer is None:
         return output(
             "Session summaries need a configured local or external AI runtime.",
             outcome="unsupported",
+            metrics={"range_covered": False} if saved_range is not None else {},
         )
     chunks = summary_chunks(
         [(source, len(source.text)) for source in group["sources"]] for group in groups
@@ -148,9 +164,10 @@ def session_summaries(sources, parameters, *, infer=None):
                 "not invent a complete-session or whole-case account."
             ),
         )
+        usable_ids = [str(source.id) for source in selected if source.text.strip()]
         for item in result["items"]:
             item["values"]["inferred_session"] = session
-            item["values"]["chunk_source_ids"] = [str(s.id) for s in selected]
+            item["values"]["chunk_source_ids"] = usable_ids
         items.extend(result["items"])
         outcomes.append(result["outcome"])
         warnings.extend(result["warnings"])
@@ -162,16 +179,28 @@ def session_summaries(sources, parameters, *, infer=None):
         outcome = outcomes[0]
     else:
         outcome = "partial"
+    metrics = {
+        "selected_messages": len(messages),
+        "inferred_sessions": len(groups),
+        "summary_chunks": len(chunks),
+        "method": SESSION_RULES_VERSION,
+    }
+    if gap is not None:
+        metrics["gap_minutes"] = gap
+    if saved_range is not None:
+        covered = {key for item in items for key in item["values"]["chunk_source_ids"]}
+        metrics["range_covered"] = outcome == "complete" and covered == {
+            str(source.id) for source in messages
+        }
+        if items and not metrics["range_covered"]:
+            outcome = "partial"
+            warnings.append(
+                "Some messages in the requested range lack summary coverage."
+            )
     return output(
         "Source-cited summaries of selected inferred sessions.",
         items=items,
-        metrics={
-            "selected_messages": len(messages),
-            "inferred_sessions": len(groups),
-            "summary_chunks": len(chunks),
-            "gap_minutes": gap,
-            "method": VERSION,
-        },
+        metrics=metrics,
         warnings=list(dict.fromkeys(warnings)),
         outcome=outcome,
     )

@@ -42,7 +42,12 @@ def case_approval_context(case, actor):
             name += f" · Key alias {execution['key_alias']}"
         if execution.get("name"):
             name = f"{execution['name']} · {name} · {execution['version']}"
-        key = TRANSFER_CONTENT[execution["purpose"]].capitalize(), name
+        material = (
+            "Chat questions, necessary follow-up context and case evidence excerpts"
+            if operation == "evidence_chat"
+            else TRANSFER_CONTENT[execution["purpose"]].capitalize()
+        )
+        key = material, name
         destinations[key] = destinations.get(key, True) and execution == approved.get(
             operation
         )

@@ -147,17 +147,22 @@ session summaries stop on any invalid citation. Cross-channel links allow up to
 [Safe worker diagnostics](background-tasks.md#failure-inspection-and-recovery)
 identify the rejected category without retaining source text or model responses.
 
-The [conversation reader](evidence.md#reading-conversations) uses retained
-session memberships and displays a saved summary when the report covers the
-entire grouping. Grouping uses active messages for the reported pair. A
-conversation over the source limit or one million characters needs a smaller
-manual selection.
+The [conversation reader](evidence.md#reading-conversations) groups active
+messages for the reported pair in a local background job. It carries the open
+session across processing pages, even for exchanges with more than 500 messages
+or one million characters. Opening the reader uses saved results. **Group this
+conversation** queues a fresh revision. Distinct earlier groupings remain
+available. An identical membership appears once.
 
-Bulk review queues one summary per eligible session on the review page, using
-the [case's selected AI backend](cases.md#ai-backend). It preserves saved
-summaries and skips pending summaries with the same messages and grouping
-settings, as well as sessions over the per-run source or chunk limit. Distinct
-overlapping groupings can each have a summary.
+A requested summary of a saved session uses its exact ordered originals. Long
+sessions receive a series of reports, each covering up to 16,000 characters
+within the configured source limit. **View summary coverage** shows
+the message numbers covered by each report and the status of other ranges.
+An archived message, a message containing only whitespace, or a single message
+over 16,000 characters leaves a gap.
+Other eligible ranges can finish. **Request summary** can fill missing ranges
+using the [case’s selected AI backend](cases.md#ai-backend). A summary of an
+earlier fragment remains attached to its original membership.
 
 **Read inferred message sessions**, **Inspect message timing** and **Summarize
 message sessions** accept Text messages, excluding calls/FaceTime/transcripts.
@@ -169,8 +174,16 @@ messages form unresolved singletons and never bridge exchanges. Source-native
 participant context stays scoped to its export; otherwise same-case reported
 pairs define streams without verifying identity. Forms default to 60-minute gaps,
 range 1–10,080; omitted/cleared `gap_minutes` uses the processor's 120 minutes.
-Greeting after farewell plus five observed minutes enables a disclosed boundary
-by default; internal `greeting_boundaries` has no form control.
+A greeting after a farewell can start a session after five observed minutes.
+When a gap would otherwise start a session, a reply can continue the open
+session for up to four hours. The export must uniquely identify an earlier
+message in the same stream and export, and the target must be within those
+four hours. Without a supplied reply reference, the other participant’s next
+message can continue a clear English question with a matching yes/no, time or
+place answer. This wording check examines complete messages up to 8,192
+characters. A supplied ambiguous or conflicting reference rules out this
+wording inference. **Grouping details** records the reason, the elapsed time,
+and the two originals. These are inferred continuations.
 
 Readers retain messages/order, boundary reasons, participant associations,
 supplied native message/thread/reply references and first/last times. Inferred
@@ -330,17 +343,18 @@ each sender's earlier/later timed samples near the middle at a distinct timestam
 never dividing ties. Fewer than two times cannot compare; adequacy guards yield
 insufficient evidence, never authorship attribution.
 
-Preparation walks reported-time order, unknowns last, in steps of 250 messages or
-the configured lower source limit, within one million characters. Repeated wording
-uses 50-message/100,000-character groups; models use 20-message/16,000-character
-groups. Oversized messages remain whole; unsupported analyses fail visibly without
-truncation. Results retain exact selections/counts against import population.
-Smaller selections disclose partial coverage; sessions, timing, writing and
-wording do not span groups or imply whole-conversation/case conclusions.
+Current import preparation visits up to 25 new messages per step, in reported-time
+order with unknowns last. Older queued imports can use steps of 250. Text and
+model checks retain their own count and character limits. Selected reports list
+the exact inputs they cover. The separate local grouping job follows the
+complete active pair across pages and saves every membership before publishing
+the revision. A processing limit cannot start an inferred session.
 
 Automatic comparisons can include active same-case material with matching
-participants or a retained native thread. Timing methods use bounded windows
-and retain exact sources. A case owner's approval also covers relevant history
+participants or a retained native thread. Session timing and summary selections
+can also include a neighbouring question or reply that qualifies for the
+four-hour continuation rule, within their existing budgets. Other text methods
+keep their own comparison windows. Each report lists its actual inputs. A case owner's approval also covers relevant history
 used by approved external methods. Results disclose the scope used.
 
 Automatic models use retained execution settings and quotation validation. Missing

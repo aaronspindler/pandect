@@ -99,12 +99,13 @@ from that summary without JavaScript.
 | All cases | Searchable owned/shared cases with roles; **Create case**. |
 | Case Tools | Case homepage with workspace and report links, latest records, and direct analysis setup for owners/editors. |
 | Evidence | Active records, search and responsive filters; **Add evidence** for owners/editors. |
+| Evidence chat | Shared questions and source-cited replies, with follow-ups, full-review progress, and links to exact sources. |
 | Processing | Pending reviews, active work, retained outcomes, and owner/editor **Reprocess evidence**. |
 | Evidence reader | Original and Findings together; downloads, Info, and authorized More actions beside the title. |
 | Conversations | Reported participant pairs, a unified message history with findings, and saved sessions with summaries and expandable originals. Empty owner/editor lists link directly to manual message entry and CSV import. |
 | Chronology | A daily timeline of conversations, calls, possible trips, sightings, and evidence collections, with links to supporting records. |
 | Findings catalogue | Searchable retained source-linked results, with filters for evidence and method. |
-| Important | Shared list of manually marked evidence and findings. Open the source or its dated notes. |
+| Important | Shared list of manually marked evidence, findings, and whole chat replies. Open the source or its dated notes. |
 | People / Vehicles | Searchable case records; owner/editor creation and editing, viewer inspection. |
 | Case settings | Owner-only name, access, and AI processing controls, with a separate delete section. |
 | Case details | Owner, timestamps, role, and saved read-only description for all case members. |
@@ -363,11 +364,24 @@ visible to case members while live scheduling awaits an authorized source.
 ## Case Tools, Processing, and additional analysis
 
 Case Tools gives owners and editors one primary **Add evidence** action.
-**Explore evidence** links to Findings, Conversations, Trips, Images,
+**Explore evidence** links to Evidence chat, Findings, Conversations, Trips, Images,
 Important, and Chronology. **Case records** links to People, Vehicles,
 Repeated identifiers, Sighting groups, and eligible Instagram monitors.
 **Reports** lists each report directly. These three groups share a row on
 wide screens and stack on narrow screens.
+
+**Evidence chat** opens the question form and saved conversations for this case.
+Owners and editors ask questions. All current case members can read shared
+replies. Each new question starts with active evidence, with an **Include
+archived evidence** option for that question. A clarification appears beside
+the question and the investigator answers it in the follow-up form. Confirmed
+source quotations and links accompany the numbered references in each answer.
+An AI suggestion and any suggested next check carry their own labels.
+
+Open a full-review reply for its paginated cited matches and coverage gaps.
+Refresh status works without JavaScript. **Mark important** saves a reference
+to the whole reply. The shared Important notes workflow is available on the
+marked reply. Chat excludes investigator notes from retrieval and AI requests.
 
 **Latest records** interleaves up to three active evidence records and three
 eligible source-linked findings, ordered by when the evidence was added or

@@ -16,7 +16,7 @@
 {% endpartialdef %}
 {% partialdef activity inline %}
 <div id="processing-activity" data-live-region data-live-poll="{{ live_pending|yesno:'true,false' }}">
-{% if message_reviews or import_reviews and not showing_import_reviews or failed_checks or failed_batches or failed_imports or failed_trips or search_needs_attention %}
+{% if message_reviews or import_reviews and not showing_import_reviews or failed_checks or failed_batches or failed_imports or failed_trips or failed_chat or search_needs_attention %}
 <section class="analysis-section" aria-labelledby="needs-attention-heading">
   <h2 id="needs-attention-heading">Needs attention</h2>
   {% if message_reviews %}<h3>Message imports ready for review</h3>
@@ -25,6 +25,10 @@
   {% if import_reviews and not showing_import_reviews %}<h3>Vehicle imports to prepare or review</h3>
   {% for item in import_reviews %}{% include 'core/analysis/processing_import.html' %}{% endfor %}
   {% if more_import_reviews %}<p><a class="record-link" href="?imports=review#import-history">All pending vehicle imports</a></p>{% endif %}{% endif %}
+  {% if failed_chat %}
+    <h3>Stopped evidence chats</h3>
+    <ul class="source-list">{% for turn in failed_chat %}<li><a href="{% url 'core:chat:reply' case.pk turn.chat_id turn.pk %}">{{ turn.question }}</a></li>{% endfor %}</ul>
+  {% endif %}
   {% if failed_checks %}
   <div class="actions">
     {% if retry_submission %}
@@ -40,7 +44,7 @@
   {% endif %}
   {% if failed_batches %}
     <h3>Stopped preparation</h3>
-    <ul class="source-list">{% for item in failed_batches %}<li><a href="?batch={{ item.pk }}#processing-history">{% if item.scope.type == 'instance_summaries' %}Review stopped session summaries{% elif item.scope.type == 'failed_retries' %}Review stopped retries{% elif item.scope.type == 'reprocess' %}Review stopped reprocessing{% elif item.scope.type == 'messages' %}Review stopped message analysis{% elif item.scope.analysis_version %}Review stopped evidence analysis{% else %}Review stopped local checks{% endif %}</a> · {{ item.created_at|date:'j M Y, H:i T' }}</li>{% endfor %}</ul>
+    <ul class="source-list">{% for item in failed_batches %}<li><a href="?batch={{ item.pk }}#processing-history">{% if item.scope.type == 'conversation_grouping' %}Review stopped conversation grouping{% elif item.scope.type == 'instance_summaries' %}Review stopped session summaries{% elif item.scope.type == 'failed_retries' %}Review stopped retries{% elif item.scope.type == 'reprocess' %}Review stopped reprocessing{% elif item.scope.type == 'messages' %}Review stopped message analysis{% elif item.scope.analysis_version %}Review stopped evidence analysis{% else %}Review stopped local checks{% endif %}</a> · {{ item.created_at|date:'j M Y, H:i T' }}</li>{% endfor %}</ul>
     {% if more_failed_batches %}<a class="record-link" href="?batches_page=1#batch-history">More in Preparation history</a>{% endif %}
   {% endif %}
   {% if failed_imports %}
@@ -58,6 +62,13 @@
 {% endif %}
 <section class="analysis-section" aria-labelledby="in-progress-heading">
   <div class="section-header"><h2 id="in-progress-heading">In progress</h2>{% if active_runs.paginator.count %}<span class="muted">{{ active_runs.paginator.count }} check{{ active_runs.paginator.count|pluralize }}</span>{% endif %}</div>
+  {% if active_chat %}
+    <h3>Evidence chat</h3>
+    {% for turn in active_chat %}
+      <a class="record-row" href="{% url 'core:chat:reply' case.pk turn.chat_id turn.pk %}"><div><strong>{{ turn.question }}</strong><p>{{ turn.get_status_display }}{% if turn.total %} · {{ turn.reviewed }} of {{ turn.total }} source records reviewed{% endif %}</p></div></a>
+    {% endfor %}
+    {% if more_active_chat %}<a class="record-link" href="{% url 'core:chat:list' case.pk %}">All evidence chats</a>{% endif %}
+  {% endif %}
   {% if active_batches.paginator.count %}
   <div id="processing-preparing" data-workspace-region>
   <h3>Preparing checks</h3>
@@ -65,7 +76,7 @@
   {% if item.scope.type == 'failed_retries' %}
   <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div><strong>Preparing failed check retries</strong><p>{{ item.processed_sources }} reviewed · {{ item.queued_runs }} queued</p></div></a>
   {% else %}
-  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'instance_summaries' %}<strong>Preparing session summaries</strong><p>{{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{% if item.scope.type == 'reprocess' %}Preparing selected checks{% elif item.scope.type == 'messages' %}Preparing message analysis{% elif item.scope.analysis_version %}Preparing evidence analysis{% else %}Preparing local checks{% endif %}</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p>{% endif %}</div></a>
+  <a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'conversation_grouping' %}<strong>Grouping conversation</strong><p>{{ item.processed_sources }} of {{ item.scope.source_count }} messages grouped</p>{% elif item.scope.type == 'instance_summaries' %}<strong>Preparing session summaries</strong><p>{{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{% if item.scope.type == 'reprocess' %}Preparing selected checks{% elif item.scope.type == 'messages' %}Preparing message analysis{% elif item.scope.analysis_version %}Preparing evidence analysis{% else %}Preparing local checks{% endif %}</strong><p>{{ item.processed_sources }} source{{ item.processed_sources|pluralize }} prepared · {{ item.queued_runs }} initial check{{ item.queued_runs|pluralize }} queued</p>{% endif %}</div></a>
   {% endif %}
   {% endfor %}
   {% if active_batches.has_other_pages %}<nav class="pagination" aria-label="Preparation in progress pages">{% if active_batches.has_previous %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.previous_page_number %}#in-progress-heading">Previous</a>{% endif %}<span>Page {{ active_batches.number }} of {{ active_batches.paginator.num_pages }}</span>{% if active_batches.has_next %}<a class="button button-secondary" href="{% querystring preparing_page=active_batches.next_page_number %}#in-progress-heading">Next</a>{% endif %}</nav>{% endif %}
@@ -91,7 +102,7 @@
   {% endif %}
   {% if running_monitors %}<p><a href="{% url 'instagram:list' case.pk %}">{{ running_monitors }} Instagram monitor check{{ running_monitors|pluralize }} running</a></p>{% endif %}
   {% if search_pending %}<p><a class="record-link" href="#case-search-index">{{ search_index.label }}</a></p>{% endif %}
-  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count and not search_pending and not running_monitors %}<p class="muted" role="status">{% if batch and batch.scope.type != 'failed_retries' %}Checks for the selected batch appear below.{% elif history_filters.status == 'queued' or history_filters.status == 'running' %}Checks matching your status filter appear below.{% else %}Nothing is being processed right now.{% endif %}</p>{% endif %}
+  {% if not active_runs.paginator.count and not active_batches.paginator.count and not active_imports.paginator.count and not active_trips.paginator.count and not search_pending and not running_monitors and not active_chat %}<p class="muted" role="status">{% if batch and batch.scope.type != 'failed_retries' %}Checks for the selected batch appear below.{% elif history_filters.status == 'queued' or history_filters.status == 'running' %}Checks matching your status filter appear below.{% else %}Nothing is being processed right now.{% endif %}</p>{% endif %}
 </section>
 <details data-workspace-region class="disclosure processing-disclosure" id="case-search-index"{% if search_pending or search_needs_attention %} open{% endif %}>
   <summary>Meaning-based search</summary>
@@ -112,11 +123,18 @@
   <div id="processing-batch-progress" data-live-region data-live-poll="{{ live_pending|yesno:'true,false' }}">
   <div class="notice">
   {% if batch_reader_url %}<a class="back-link" href="{{ batch_reader_url }}">Back to evidence</a>{% endif %}
-  {% if batch.scope.type == 'instance_summaries' %}
+  {% if batch.scope.type == 'conversation_grouping' %}
+  <p><strong>Conversation grouping</strong></p>
+  <p>{{ batch.processed_sources }} of {{ batch.scope.source_count }} messages grouped.</p>
+  {% if batch.status == 'failed' %}<p role="status">{{ batch_error_message }}</p>
+    {% if can_edit and batch.requested_by_id == request.user.pk and batch.error_code != 'access_removed' and batch.error_code != 'grouping_scope_changed' %}<form method="post" action="{% url 'core:analysis:resume_batch' case.pk batch.pk %}">{% csrf_token %}<button class="button button-secondary" type="submit">Resume grouping</button></form>{% endif %}
+  {% elif batch.status == 'complete' %}<p role="status">Sessions are ready.</p>{% endif %}
+  <a data-workspace-link class="record-link" href="{% url 'phone:conversation_detail' case.pk batch.scope.people.0 batch.scope.people.1 %}?tab=instances">Open sessions &amp; summaries</a>
+  {% elif batch.scope.type == 'instance_summaries' %}
   <p><strong>Session summaries</strong></p>
   <p>{{ batch.processed_sources }} of {{ batch.scope.instances|length }} sessions reviewed · {{ batch.queued_runs }} queued</p>
   {% if batch.status == 'queued' %}<p role="status">Summaries are being queued.</p>{% elif batch.status == 'failed' %}<p role="status">Preparation stopped. {{ batch_error_message }}</p>{% endif %}
-  {% if batch.unavailable_sources %}<p>{{ batch.unavailable_sources }} session{{ batch.unavailable_sources|pluralize }} could not be queued. Reopen the conversation to review the available sessions.</p>{% endif %}
+  {% if batch.unavailable_sources %}<p>Some requested messages or sessions could not be queued. Reopen the conversation to review summary coverage.</p>{% endif %}
   <a data-workspace-link class="record-link" href="{% url 'phone:conversation_detail' case.pk batch.scope.people.0 batch.scope.people.1 %}?tab=instances">Back to sessions &amp; summaries</a>
   {% elif batch.scope.type == 'failed_retries' %}
   <p role="status">
@@ -150,7 +168,7 @@
     {% elif not batch.scope %}<p><a class="record-link" href="?batch={{ batch.pk }}&amp;actions=1#processing-actions">Review local check actions</a></p>{% endif %}
   {% endif %}
   {% if batch.status == 'complete' and not batch.processed_sources %}<p>No active evidence was available for the selected checks.</p>{% endif %}
-  {% if batch.unavailable_sources %}<details><summary>{% if batch.scope.type == 'reprocess' %}{{ batch.unavailable_sources }} preparation failure{{ batch.unavailable_sources|pluralize }}{% else %}{{ batch.unavailable_sources }} source{{ batch.unavailable_sources|pluralize }} could not be prepared{% endif %}</summary>{% if batch.scope.type == 'reprocess' %}<p>Showing up to 100 failed preparation attempts. Other checks and earlier results are kept.</p>{% endif %}<ul>{% for failure in batch_failures %}<li><a href="{% url 'core:evidence:detail' case.pk failure.kind failure.evidence_id %}">Open {{ failure.kind }} source</a>{% if failure.operation_label %} · {{ failure.operation_label }}{% endif %} · {{ failure.message }}</li>{% endfor %}</ul></details>{% endif %}
+  {% if batch.unavailable_sources %}<details><summary>{% if batch.scope.type == 'reprocess' %}{{ batch.unavailable_sources }} preparation failure{{ batch.unavailable_sources|pluralize }}{% else %}{{ batch.unavailable_sources }} source{{ batch.unavailable_sources|pluralize }} could not be prepared{% endif %}</summary>{% if batch.scope.type == 'reprocess' %}<p>Showing up to 100 failed preparation attempts. Other checks and earlier results are kept.</p>{% endif %}<ul>{% for failure in batch_failures %}<li>{% if failure.people %}{% if can_edit %}<a href="{% url 'phone:group_conversation' case.pk failure.people.0 failure.people.1 %}">Review conversation grouping</a>{% else %}<a href="{% url 'phone:conversation_detail' case.pk failure.people.0 failure.people.1 %}?tab=instances">Open conversation</a>{% endif %}{% else %}<a href="{% url 'core:evidence:detail' case.pk failure.kind failure.evidence_id %}">Open {{ failure.kind }} source</a>{% endif %}{% if failure.operation_label %} · {{ failure.operation_label }}{% endif %} · {{ failure.message }}</li>{% endfor %}</ul></details>{% endif %}
   {% endif %}
   <a class="record-link" href="{% url 'core:analysis:processing' case.pk %}?history=1#processing-history">All processing history</a></div>
   </div>
@@ -202,7 +220,7 @@
 {% if batches.paginator.count %}
 <details data-workspace-region class="disclosure processing-disclosure" id="batch-history"{% if request.GET.batches_page %} open{% endif %}>
   <summary>Preparation history · {{ batches.paginator.count }}</summary>
-  {% for item in batches %}<a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'instance_summaries' %}<strong>Session summaries</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% elif item.scope.type == 'failed_retries' %}<strong>Failed check retries · {% if item.status == 'complete' %}Preparation finished{% else %}{{ item.get_status_display }}{% endif %}</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{{ item.get_status_display }}</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} sources · {{ item.queued_runs }} initial checks queued</p>{% endif %}</div></a>{% endfor %}
+  {% for item in batches %}<a class="record-row" href="?batch={{ item.pk }}#processing-history"><div>{% if item.scope.type == 'conversation_grouping' %}<strong>Conversation grouping</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} of {{ item.scope.source_count }} messages grouped</p>{% elif item.scope.type == 'instance_summaries' %}<strong>Session summaries</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} of {{ item.scope.instances|length }} sessions reviewed · {{ item.queued_runs }} queued</p>{% elif item.scope.type == 'failed_retries' %}<strong>Failed check retries · {% if item.status == 'complete' %}Preparation finished{% else %}{{ item.get_status_display }}{% endif %}</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} reviewed · {{ item.queued_runs }} queued</p>{% else %}<strong>{{ item.get_status_display }}</strong><p>{{ item.created_at|date:'j M Y, H:i T' }} · {{ item.processed_sources }} sources · {{ item.queued_runs }} initial checks queued</p>{% endif %}</div></a>{% endfor %}
   {% if batches.has_other_pages %}<nav class="pagination" aria-label="Batch pages">{% if batches.has_previous %}<a class="button button-secondary" href="{% querystring batches_page=batches.previous_page_number %}#batch-history">Previous</a>{% endif %}<span>Page {{ batches.number }} of {{ batches.paginator.num_pages }}</span>{% if batches.has_next %}<a class="button button-secondary" href="{% querystring batches_page=batches.next_page_number %}#batch-history">Next</a>{% endif %}</nav>{% endif %}
 </details>
 {% endif %}

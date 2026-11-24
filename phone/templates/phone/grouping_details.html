@@ -1,0 +1,32 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Grouping details · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ back_url }}">Back to conversation session</a>
+<header class="page-header">
+  <div><h1>Grouping details</h1><p>{{ first }}{% if first.pk != second.pk %} and {{ second }}{% endif %} · {{ session.message_count }} message{{ session.message_count|pluralize }}</p></div>
+</header>
+<h2>Why this session starts here</h2>
+<p>{{ session.boundary_reason }}</p>
+{% if page_obj.paginator.count %}
+<h2>Replies after a pause</h2>
+<ol start="{{ page_obj.start_index }}">
+  {% for member in page_obj %}
+  <li>
+    <p>{{ member.continuation_reason }} The reply came {{ member.elapsed_minutes|floatformat:"-1" }} minutes later.</p>
+    <div class="actions">
+    {% if member.parent_available %}<a class="record-link" href="{% url 'core:evidence:detail' case.pk 'text-message' member.parent_message_id %}?state=all">Earlier message</a>{% endif %}
+    <a class="record-link" href="{% url 'core:evidence:detail' case.pk 'text-message' member.message_id %}?state=all">Reply · message {{ member.ordinal }}</a>
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{% if page_obj.has_other_pages %}<nav aria-label="Continuation pages" class="actions">
+  {% if page_obj.has_previous %}<a class="record-link" href="{% querystring page=page_obj.previous_page_number %}">Previous replies</a>{% endif %}
+  {% if page_obj.has_next %}<a class="record-link" href="{% querystring page=page_obj.next_page_number %}">Next replies</a>{% endif %}
+</nav>{% endif %}
+{% endif %}
+<details>
+  <summary>Grouping method</summary>
+  <p>Method {{ session.grouping.method_version }} · {{ session.grouping.parameters.gap_minutes }}-minute gap · Saved {{ session.grouping.published_at|date:'j M Y, H:i:s T' }}</p>
+</details>
+{% endblock %}

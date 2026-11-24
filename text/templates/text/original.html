@@ -1,1 +1,2 @@
-<div class="original-text">{{ item.body }}</div>
+{% load search_matches %}
+<div class="original-text">{% if request.GET.passage %}{{ item.body|highlight_passage:request.GET.passage }}{% else %}{{ item.body }}{% endif %}</div>

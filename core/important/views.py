@@ -24,7 +24,9 @@ from core.analysis.important import finding_target
 from core.analysis.services import SourceResolutionCache
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.evidence.types import KIND_LABELS
+from core.evidence_chat.services import reply_available
 from core.models import AnalysisResult, ImportantItem, ImportantNote
+from core.models.chat import ChatTurn
 from phone.presentation import message_labels
 from ui.dialogs import form_saved, render_quick_form
 from ui.live import render_live
@@ -52,6 +54,8 @@ def _evidence_target(case, kind, evidence, *, title=None):
 
 
 def _read_target(case, item):
+    if item.chat_turn_id:
+        return _reply_target(case, item.chat_turn)
     if item.finding_result_id:
         return finding_target(case, item.finding_result, item.item_index)
     evidence = get_evidence(case, item.evidence_kind, item.evidence_id)
@@ -59,6 +63,20 @@ def _read_target(case, item):
     if item.evidence_kind == "text-message":
         title = message_labels(case, [evidence.pk]).get(evidence.pk)
     return _evidence_target(case, item.evidence_kind, evidence, title=title)
+
+
+def _reply_target(case, turn):
+    if (
+        turn.case_id != case.pk
+        or turn.chat.case_id != case.pk
+        or not reply_available(turn)
+    ):
+        raise Http404("Reply unavailable.")
+    return {
+        "title": turn.question,
+        "label": "Evidence chat reply",
+        "url": reverse("core:chat:reply", args=[case.pk, turn.chat_id, turn.pk]),
+    }
 
 
 def _page_rows(case, page):
@@ -84,7 +102,9 @@ def _page_rows(case, page):
     source_cache = None
     for item in page:
         try:
-            if item.finding_result_id:
+            if item.chat_turn_id:
+                target = _reply_target(case, item.chat_turn)
+            elif item.finding_result_id:
                 if item.finding_result_id != cached_result_id:
                     # Avoid keeping full source text from several results in memory.
                     cached_result_id = item.finding_result_id
@@ -132,7 +152,7 @@ def index(request, case_id):
     case = get_case(request.user, case_id)
     items = (
         ImportantItem.objects.filter(case=case, marked_at__isnull=False)
-        .select_related("marked_by", RESULT_RELATION)
+        .select_related("marked_by", "chat_turn__chat", RESULT_RELATION)
         .defer("finding_result__data", "finding_result__provenance")
         .annotate(raw_item=raw_finding_item("finding_result__data"))
         .order_by("-marked_at", "-pk")
@@ -204,13 +224,27 @@ def mark_finding(request, case_id, run_id, item_index):
 
 
 @product_login_required
+@require_POST
+@transaction.atomic
+def mark_reply(request, case_id, turn_id):
+    case = get_case(request.user, case_id, edit=True, lock=True)
+    turn = get_object_or_404(
+        ChatTurn.objects.select_related("chat"), pk=turn_id, case=case, chat__case=case
+    )
+    target = _reply_target(case, turn)
+    return _apply_mark(request, case, {"chat_turn": turn}, target["url"])
+
+
+@product_login_required
 @require_http_methods(["GET", "HEAD", "POST"])
 @transaction.atomic
 def notes(request, case_id, item_id):
     writing = request.method == "POST"
     case = get_case(request.user, case_id, edit=writing, lock=writing)
     item = get_object_or_404(
-        ImportantItem.objects.select_related(RESULT_RELATION), case=case, pk=item_id
+        ImportantItem.objects.select_related("chat_turn__chat", RESULT_RELATION),
+        case=case,
+        pk=item_id,
     )
     target = _read_target(case, item)
     important_page = page_number(request.GET.get("important_page", ""))

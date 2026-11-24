@@ -1,0 +1,14 @@
+.chat-turn {
+  max-width: 72ch;
+  padding-block: 1rem;
+  border-block-start: 1px solid var(--divider);
+  overflow-wrap: anywhere;
+}
+
+.chat-turn h2, .chat-turn h3 { margin-block: .5rem; }
+.chat-turn h2 { font-size: 1.25rem; }
+.chat-meta { color: var(--secondary); margin-block: .25rem; font-size: .875rem; }
+.chat-answer, .chat-references blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-references { max-width: 70ch; padding-inline-start: 1.5rem; }
+.chat-references li { margin-block: .75rem; }
+.chat-references blockquote { margin: .25rem 0; padding-inline-start: .75rem; border-inline-start: 2px solid var(--divider); }

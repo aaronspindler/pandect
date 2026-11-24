@@ -14,6 +14,9 @@ class ImportantItem(models.Model):
     finding_result = models.ForeignKey(
         "core.AnalysisResult", on_delete=models.CASCADE, null=True, blank=True
     )
+    chat_turn = models.OneToOneField(
+        "core.ChatTurn", on_delete=models.CASCADE, null=True, blank=True
+    )
     item_index = models.PositiveIntegerField(null=True, blank=True)
     marked_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True
@@ -29,6 +32,7 @@ class ImportantItem(models.Model):
                         evidence_id__isnull=False,
                         finding_result__isnull=True,
                         item_index__isnull=True,
+                        chat_turn__isnull=True,
                     )
                 )
                 | models.Q(
@@ -36,6 +40,14 @@ class ImportantItem(models.Model):
                     evidence_id__isnull=True,
                     finding_result__isnull=False,
                     item_index__isnull=False,
+                    chat_turn__isnull=True,
+                )
+                | models.Q(
+                    evidence_kind="",
+                    evidence_id__isnull=True,
+                    finding_result__isnull=True,
+                    item_index__isnull=True,
+                    chat_turn__isnull=False,
                 ),
                 name="important_item_one_target",
             ),

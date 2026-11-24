@@ -4,7 +4,7 @@
 <a class="back-link" href="{{ back_url }}">Back to sessions &amp; summaries</a>
 <header class="page-header">
   <div><h1>{% if bulk %}Summarize missing sessions{% else %}Request session summary{% endif %}</h1>
-    <p>{{ first }}{% if first.pk != second.pk %} and {{ second }}{% endif %}{% if not bulk %} · {{ originals|length }} retained message{{ originals|length|pluralize }}{% endif %}</p>
+    <p>{{ first }}{% if first.pk != second.pk %} and {{ second }}{% endif %}{% if not bulk %} · {{ message_count }} retained message{{ message_count|pluralize }}{% endif %}</p>
   </div>
 </header>
 <section class="analysis-section">
@@ -28,8 +28,10 @@
     {% if pending_count %}<p>{{ pending_count }} summar{{ pending_count|pluralize:'y,ies' }} already in progress. <a href="{% url 'core:analysis:processing' case.pk %}">View processing</a>.</p>{% endif %}
   {% else %}
   <details class="disclosure">
-    <summary>Messages included in this summary · {{ originals|length }}</summary>
-    <ol>{% for row in originals %}<li><a href="{% url 'core:evidence:detail' case.pk 'text-message' row.pk %}">{{ row.title }}</a></li>{% endfor %}</ol>
+    <summary>Messages included in this summary · {{ message_count }}</summary>
+    <ol{% if originals_page %} start="{{ originals_page.start_index }}"{% endif %}>{% for row in originals %}<li><a href="{% url 'core:evidence:detail' case.pk 'text-message' row.pk %}">{{ row.title }}</a></li>{% endfor %}</ol>
+    {% if originals_page.has_previous %}<a href="{% querystring message_page=originals_page.previous_page_number %}">Earlier messages</a>{% endif %}
+    {% if originals_page.has_next %}<a href="{% querystring message_page=originals_page.next_page_number %}">Later messages</a>{% endif %}
   </details>
   {% if limit_message %}<p role="status">{{ limit_message }} A summary cannot be requested for this entire session.</p>
   {% endif %}

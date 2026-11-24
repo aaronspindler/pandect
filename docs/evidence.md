@@ -262,9 +262,13 @@ complete report.
 Owners and editors can **Request summary** for a session when an eligible
 service has yet to summarize the exact grouping. **Summarize missing sessions**
 opens a review of up to 50 saved sessions per page. Submit eligible groups from
-that page and follow the batch in **Processing**. If there are no saved sessions,
-use **Group this conversation** to review the active messages for the pair. See
-[communication analysis](analysis-communications.md) for grouping and summary limits.
+that page and follow the batch in **Processing**. Owners and editors can use
+**Group this conversation** at any time to review and regroup the pair’s active
+messages. The new revision retains earlier interpretations. **Grouping details**
+links delayed replies to the earlier messages that explain their inclusion.
+Long sessions stay together across pages. **View summary coverage** shows which
+ranges have a saved report or still need a summary. See
+[communication analysis](analysis-communications.md) for the matching rules.
 
 **Findings** starts open with up to three short previews of saved findings for
 the message. Select a finding title for its full details. **More findings** opens
@@ -372,6 +376,9 @@ JSON. Signed confirmation binds user/case/target/inventory; changes require revi
 Deletion removes original/call content, every selecting run (including attachment
 sources), results, linked historical decisions, search text, files, and dependent analysis. Multi-source
 runs disappear entirely; unrelated originals, people, vehicles, and analysis remain.
+The inventory includes evidence chat turns that used a deleted source or
+derived result, later follow-ups in that conversation, match rows, and related
+Important marks and notes. Removing its first turn also removes the chat.
 Source-document deletion also removes imported observations/messages, batches,
 staged rows, and context, including archived derivatives. Retained-run references
 to removed prior runs are cleared and inventoried as updates.

@@ -4,8 +4,18 @@ from itertools import batched
 from uuid import UUID
 
 from django.contrib.postgres.expressions import ArraySubquery
+from django.contrib.postgres.fields import ArrayField
 from django.core.paginator import Paginator
-from django.db.models import Exists, F, OuterRef, Q, Subquery
+from django.db.models import (
+    CharField,
+    Exists,
+    F,
+    OuterRef,
+    Q,
+    Subquery,
+    UUIDField,
+    Value,
+)
 from django.http import Http404
 from django.urls import reverse
 
@@ -19,6 +29,14 @@ from core.evidence.source_clocks import date_only_messages
 from core.models import AnalysisFindingSource, AnalysisRun
 from phone.conversation_sessions import ordered_members, session_findings
 from phone.conversations import imported_contexts, pair_messages
+from phone.models import ConversationSessionMember
+from phone.saved_sessions import (
+    distinct_sessions,
+    equivalent_saved,
+    exclude_saved_copies,
+    saved_row,
+    valid_sessions,
+)
 
 INSTANCES_PER_PAGE = 25
 MESSAGES_PER_PAGE = 50
@@ -106,12 +124,14 @@ def _validated_instances(case, candidates):
             }
 
 
-def instances_touching_messages(case, message_ids):
+def instances_touching_messages(case, message_ids, *, exclude_saved=None):
     """Valid pair instances ordered by their first time among the given originals."""
     messages = scoped_evidence(case, "text-message").exclude(
         pk__in=date_only_messages(case)
     )
     candidates = _candidates(case, messages, touching=message_ids)
+    if exclude_saved is not None:
+        candidates = exclude_saved_copies(candidates, exclude_saved)
     instances = _validated_instances(case, candidates)
     for batch in batched(instances, INSTANCES_PER_PAGE, strict=False):
         member_ids = {pk for group in batch for pk in group["member_ids"]}
@@ -240,6 +260,20 @@ def attach_instance_summaries(
     preview_only=False,
     executions=None,
 ):
+    instances = list(instances)
+    saved = [row for row in instances if "saved_session" in row]
+    if saved:
+        from phone.instance_summaries import attach_saved_summaries
+
+        attach_saved_summaries(
+            case,
+            saved,
+            full_summary_id=full_summary_id,
+            include_statements=include_statements,
+            preview_only=preview_only,
+            executions=executions,
+        )
+        instances = [row for row in instances if "saved_session" not in row]
     missing = {frozenset(instance["member_ids"]): instance for instance in instances}
     if not missing:
         return
@@ -263,6 +297,7 @@ def attach_instance_summaries(
             result__case=case,
             status__in=SUCCESSFUL,
         )
+        .exclude(parameters__has_key="_saved_session_range")
         .filter(contains, Q(previous_run__isnull=True) | Q(previous_run__case=case))
         .order_by("equivalence_key", "-created_at", "-pk")
         .distinct("equivalence_key")
@@ -326,6 +361,13 @@ def result_instance_url(case, run, item_index, result_items, sources):
         or not 0 <= item_index < len(result_items)
     ):
         return ""
+    if (
+        run.operation == "session_summaries"
+        and "_saved_session_range" in run.parameters
+    ):
+        from phone.saved_summary_ranges import range_instance_url
+
+        return range_instance_url(case, run, sources)
     item = result_items[item_index]
     by_id = {
         str(source.id): source for source in sources if source.kind == "text-message"
@@ -352,7 +394,11 @@ def result_instance_url(case, run, item_index, result_items, sources):
     membership = sorted({source.item.pk for source in members})
     if len(membership) != len(members):
         return ""
-    candidates = _candidates(case, pair_messages(case, first, second))
+    pair = pair_messages(case, first, second)
+    saved = equivalent_saved(valid_sessions(case, pair), membership)
+    if saved:
+        return instance_url(case, (first, second), saved.pk)
+    candidates = _candidates(case, pair)
     instance = next(
         _validated_instances(case, candidates.filter(member_key=membership)), None
     )
@@ -366,6 +412,21 @@ def get_session_instance(
 ):
     """Resolve a current representative for this exact case/participant pair."""
     target = _instance_id(instance_id)
+    saved = (
+        valid_sessions(case, messages)
+        .select_related("grouping")
+        .filter(pk=target)
+        .first()
+    )
+    if saved:
+        instance = saved_row(saved)
+        attach_instance_summaries(
+            case,
+            [instance],
+            include_statements=include_statements,
+            executions=executions,
+        )
+        return instance
     candidates = _candidates(case, messages)
     membership = (
         candidates.filter(pk=target).values_list("member_key", flat=True).first()
@@ -385,31 +446,158 @@ def get_session_instance(
     raise Http404("Instance unavailable. Reopen the conversation and try again.")
 
 
-def _instance_keys(candidates):
-    return (
-        candidates.order_by(F("first_at").asc(nulls_last=True), "member_key")
-        .values("first_at", "member_key")
-        .distinct()
-    )
+class _InstanceList:
+    """SQL pagination across saved memberships and bounded legacy findings."""
 
+    def __init__(self, case, messages, containing=None):
+        self.case = case
+        self.messages = messages
+        self.saved = valid_sessions(case, messages)
+        self.legacy = _candidates(case, messages)
+        if containing is not None:
+            message_id = _instance_id(containing)
+            if not messages.filter(pk=message_id).exists():
+                raise Http404("Message unavailable in this conversation.")
+            self.saved = self.saved.filter(
+                Exists(
+                    ConversationSessionMember.objects.filter(
+                        session_id=OuterRef("pk"),
+                        message_id=message_id,
+                    )
+                )
+            )
+            self.legacy = self.legacy.filter(
+                Exists(
+                    AnalysisFindingSource.objects.filter(
+                        case=case,
+                        finding_id=OuterRef("pk"),
+                        kind="text-message",
+                        evidence_id=message_id,
+                    )
+                )
+            )
+        self.has_saved = self.saved.exists()
+        if self.has_saved:
+            self.legacy = exclude_saved_copies(self.legacy, self.saved)
+        self.saved = distinct_sessions(self.saved).select_related("grouping")
 
-def _page_instance_rows(case, candidates, keys):
-    return {
-        tuple(sorted(row["member_ids"])): row
-        for row in _validated_instances(case, candidates.filter(member_key__in=keys))
-    }
+    def keys(self, earlier=None):
+        legacy = self.legacy
+        saved = self.saved
+        if earlier:
+            start, members, digest = earlier
+            before = (
+                Q(first_at__isnull=False) if start is None else Q(first_at__lt=start)
+            )
+            legacy = legacy.filter(before | Q(first_at=start, member_key__lt=members))
+            same_time = Q(first_at=start)
+            if not members:
+                same_time &= Q(membership_digest__lt=digest)
+            saved = saved.filter(before | same_time)
+        legacy_keys = (
+            legacy.order_by()
+            .annotate(digest=Value("", output_field=CharField()))
+            .values_list("first_at", "member_key", "digest")
+            .distinct()
+        )
+        if self.has_saved:
+            saved_keys = (
+                saved.order_by()
+                .annotate(
+                    member_key=Value([], output_field=ArrayField(UUIDField())),
+                    digest=F("membership_digest"),
+                )
+                .values_list("first_at", "member_key", "digest")
+            )
+            legacy_keys = legacy_keys.union(saved_keys, all=True)
+        return legacy_keys.order_by("first_at", "member_key", "digest")
+
+    def key_for(self, target):
+        saved = valid_sessions(self.case, self.messages).filter(pk=target).first()
+        if saved:
+            return saved.first_at, [], saved.membership_digest
+        named = _candidates(self.case, self.messages).filter(pk=target)
+        key = named.values_list("first_at", "member_key").first()
+        if key:
+            start, members = key
+            if self.has_saved and (copy := equivalent_saved(self.saved, members)):
+                if next(_validated_instances(self.case, named), None) is None:
+                    raise Http404("The original grouping is unavailable.")
+                return copy.first_at, [], copy.membership_digest
+            return start, members, ""
+        raise Http404("Instance unavailable. Reopen the conversation and try again.")
+
+    def first_on_day(self, dated_messages):
+        sources = AnalysisFindingSource.objects.filter(
+            case=self.case,
+            finding_id=OuterRef("pk"),
+            kind="text-message",
+            evidence_id__in=dated_messages.values("pk"),
+        )
+        legacy = next(
+            _validated_instances(self.case, self.legacy.filter(Exists(sources))), None
+        )
+        if self.has_saved:
+            members = ConversationSessionMember.objects.filter(
+                session_id=OuterRef("pk"), message_id__in=dated_messages.values("pk")
+            )
+            saved = (
+                self.saved.filter(Exists(members))
+                .order_by("first_at", "membership_digest")
+                .first()
+            )
+            if saved and (legacy is None or saved.first_at <= legacy["first_at"]):
+                return saved.pk
+        return legacy["id"] if legacy else None
+
+    def page(self, number, size, *, target=None):
+        paginator = Paginator(self.keys(), size)
+        page = paginator.get_page(number)
+        keys = list(page.object_list)
+        key = self.key_for(target) if target else None
+        if key is not None and key not in keys:
+            page = paginator.get_page(self.keys(earlier=key).count() // size + 1)
+            keys = list(page.object_list)
+        member_keys = [ids for _, ids, _ in keys if ids]
+        rows = (
+            {
+                tuple(sorted(row["member_ids"])): row
+                for row in _validated_instances(
+                    self.case, self.legacy.filter(member_key__in=member_keys)
+                )
+            }
+            if member_keys
+            else {}
+        )
+        digests = [digest for _, _, digest in keys if digest]
+        if digests:
+            rows.update(
+                {
+                    s.membership_digest: saved_row(s)
+                    for s in self.saved.filter(membership_digest__in=digests)
+                }
+            )
+        page.object_list = [
+            rows.get(digest or tuple(ids), {"unavailable": True})
+            for _, ids, digest in keys
+        ]
+        selected = rows.get(key[2] or tuple(key[1])) if key else None
+        if key and (
+            selected is None
+            or ("saved_session" not in selected and selected["id"] != target)
+        ):
+            raise Http404(
+                "Instance unavailable. Reopen the conversation and try again."
+            )
+        return page, selected
 
 
 def review_instance_page(case, messages, number, per_page, *, executions=None):
-    """Validate only the saved membership keys in one bulk review page."""
-    candidates = _candidates(case, messages)
-    page = Paginator(_instance_keys(candidates), per_page).get_page(number)
-    keys = [tuple(row["member_key"]) for row in page.object_list]
-    rows = _page_instance_rows(case, candidates, keys)
+    page, _ = _InstanceList(case, messages).page(number, per_page)
+    page.object_list = [row for row in page if not row.get("unavailable")]
     attach_instance_summaries(
-        case, rows.values(), include_statements=False, executions=executions
+        case, page.object_list, include_statements=False, executions=executions
     )
-    page.object_list = [rows[key] for key in keys if key in rows]
     return page
 
 
@@ -436,6 +624,7 @@ def instance_page(
     page_number=None,
     *,
     instance_id=None,
+    containing=None,
     message_page=None,
     day=None,
     full_summary_id=None,
@@ -443,70 +632,46 @@ def instance_page(
 ):
     """Page in SQL, then validate only findings that can represent a visible group."""
     target = _instance_id(instance_id) if instance_id is not None else None
-    candidates = _candidates(case, messages)
-    day_instance = None
-    if day is not None and target is None:
-        dated_messages = messages.filter(occurred_at__date=day).order_by()
-        dated_sources = AnalysisFindingSource.objects.filter(
-            case=case,
-            finding_id=OuterRef("pk"),
-            kind="text-message",
-            evidence_id__in=dated_messages.values("pk"),
-        )
-        day_instance = next(
-            _validated_instances(case, candidates.filter(Exists(dated_sources))), None
-        )
-        if day_instance is not None:
-            target = day_instance["id"]
-    keys = _instance_keys(candidates)
-    paginator = Paginator(keys, INSTANCES_PER_PAGE)
-    page = paginator.get_page(page_number)
-    visible = [tuple(row["member_key"]) for row in page.object_list]
-    if target:
-        target_key = (
-            candidates.filter(pk=target).values("first_at", "member_key").first()
-        )
-        if target_key is None:
-            raise Http404(
-                "Instance unavailable. Reopen the conversation and try again."
-            )
-        if tuple(target_key["member_key"]) not in visible:
-            start = target_key["first_at"]
-            earlier = (
-                Q(first_at__isnull=False) if start is None else Q(first_at__lt=start)
-            )
-            earlier |= Q(first_at=start, member_key__lt=target_key["member_key"])
-            page = paginator.get_page(
-                keys.filter(earlier).count() // INSTANCES_PER_PAGE + 1
-            )
-            visible = [tuple(row["member_key"]) for row in page.object_list]
-
-    rows = _page_instance_rows(case, candidates, visible)
+    instances = _InstanceList(case, messages, containing=containing)
+    dated_messages = (
+        messages.filter(occurred_at__date=day).order_by()
+        if day is not None and target is None
+        else None
+    )
+    if dated_messages is not None:
+        target = instances.first_on_day(dated_messages)
+    page, selected = instances.page(page_number, INSTANCES_PER_PAGE, target=target)
     attach_instance_summaries(
         case,
-        rows.values(),
+        [row for row in page if not row.get("unavailable")],
         full_summary_id=full_summary_id,
         executions=summary_executions,
     )
-    page.object_list = [rows.get(key, {"unavailable": True}) for key in visible]
-    if target:
-        selected = next((row for row in rows.values() if row["id"] == target), None)
-        if selected is None:
-            raise Http404(
-                "Instance unavailable. Reopen the conversation and try again."
-            )
-        if day_instance is not None:
-            dated_ids = set(
-                dated_messages.filter(pk__in=selected["member_ids"]).values_list(
-                    "pk", flat=True
+    if selected:
+        if instance_id and selected["id"] != target:
+            selected["linked_id"] = target
+        if saved := selected.get("saved_session"):
+            members = saved.members.order_by("ordinal")
+            if dated_messages is not None:
+                match = (
+                    members.filter(message_id__in=dated_messages.values("pk"))
+                    .values_list("ordinal", "message_id")
+                    .first()
                 )
-            )
-            for index, member_id in enumerate(selected["member_ids"]):
-                if member_id in dated_ids:
-                    selected["day_message"] = member_id
-                    message_page = index // MESSAGES_PER_PAGE + 1
-                    break
-        selected["messages"] = _expanded_messages(
-            case, messages, selected["member_ids"], message_page
-        )
+                if match:
+                    ordinal, selected["day_message"] = match
+                    message_page = (ordinal - 1) // MESSAGES_PER_PAGE + 1
+            ids = members.values_list("message_id", flat=True)
+        else:
+            ids = selected["member_ids"]
+            if dated_messages is not None:
+                dated_ids = set(
+                    dated_messages.filter(pk__in=ids).values_list("pk", flat=True)
+                )
+                for index, member_id in enumerate(ids):
+                    if member_id in dated_ids:
+                        selected["day_message"] = member_id
+                        message_page = index // MESSAGES_PER_PAGE + 1
+                        break
+        selected["messages"] = _expanded_messages(case, messages, ids, message_page)
     return page

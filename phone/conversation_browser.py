@@ -12,6 +12,7 @@ from playwright.sync_api import expect
 
 from cases.models import Case, CaseMembership
 from config.tests.browser_base import BrowserTestCase
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.catalogue import project_result
 from core.analysis.navigation import finding_url
 from core.analysis.operations import get_operation
@@ -539,6 +540,130 @@ class ConversationBrowserTests(BrowserTestCase):
         project_result(
             AnalysisResult.objects.create(case=self.case, run=run, data=data)
         )
+
+    @override_settings(PANDECT_ANALYSIS_MAX_SOURCES=5)
+    def test_regroup_publishes_one_session_and_opens_its_delayed_reply(self):
+        self.save_sessions(self.messages[:2])
+        parent = self.messages[-1]
+        reply = TextMessageEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            sender=self.alex,
+            recipient=self.blair,
+            occurred_at=parent.occurred_at + timedelta(hours=2),
+            title="Delayed reply",
+            body="Yes, I can meet by the harbour.",
+        )
+        CommunicationContext.objects.create(
+            case=self.case,
+            message=reply,
+            source_document=self.export,
+            source_sha256=self.export.sha256,
+            source_row=55,
+            source_start=54,
+            source_end=55,
+            parser_version="synthetic-v1",
+            timezone="UTC",
+            raw_sender="Alex",
+            native_message_id="synthetic-55",
+            reply_to_id="synthetic-54",
+        )
+        reader_url = self.live_server_url + self.reader_path + "?tab=instances"
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+                patch("phone.grouping_jobs.PAGE_SIZE", 54),
+            ):
+                self.sign_in(page)
+                page.goto(reader_url)
+                old = page.locator(".conversation-instance").filter(
+                    has=page.get_by_role("heading", name=re.compile(r"· 2 messages$"))
+                )
+                expect(old).to_be_visible()
+                page.get_by_role("link", name="Group this conversation").press("Enter")
+                page.get_by_role("button", name="Group messages").press("Enter")
+                page.get_by_role("link", name="Processing", exact=True).press("Enter")
+                job = page.get_by_role(
+                    "link", name=re.compile("^Grouping conversation")
+                )
+                job.press("Enter")
+                progress = page.locator("#processing-batch-progress")
+                expect(progress).to_contain_text("0 of 56 messages grouped")
+                batch_id = parse_qs(urlsplit(page.url).query)["batch"][0]
+                self.assertEqual(
+                    self.db(prepare_case_analysis_batch, batch_id), "queued"
+                )
+                page.reload()
+                expect(progress).to_contain_text("54 of 56 messages grouped")
+                self.assertEqual(
+                    self.db(prepare_case_analysis_batch, batch_id), "complete"
+                )
+                page.reload()
+                expect(progress).to_contain_text("Sessions are ready.")
+                progress.get_by_role("link", name="Open sessions & summaries").press(
+                    "Enter"
+                )
+                expect(old).to_be_visible()
+                row = page.locator(".conversation-instance").filter(
+                    has=page.get_by_role("heading", name=re.compile(r"· 55 messages$"))
+                )
+                expect(row).to_have_count(1)
+                row.get_by_role("link", name="Grouping details").press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Replies after a pause")
+                ).to_be_visible()
+                expect(
+                    page.get_by_text("The reply came 120 minutes later.", exact=False)
+                ).to_be_visible()
+                earlier = page.get_by_role("link", name="Earlier message")
+                answer = page.get_by_role("link", name="Reply · message 55")
+                expect(earlier).to_have_attribute(
+                    "href", self.evidence_path(parent) + "?state=all"
+                )
+                expect(answer).to_have_attribute(
+                    "href", self.evidence_path(reply) + "?state=all"
+                )
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assert_reflow(page, width)
+                    if width in (1440, 390) and height in (900, 844):
+                        self.capture(page, engine, f"reply-grouping-details-{width}")
+                answer.press("Enter")
+                expect(page.locator(".original-text")).to_contain_text(reply.body)
+                page.go_back()
+                page.get_by_role("link", name="Back to conversation session").press(
+                    "Enter"
+                )
+                row.get_by_role("link", name="Later messages").press("Enter")
+                expect(row.locator(".instance-message-list li")).to_have_count(5)
+                expect(row.locator(".instance-message-list li").last).to_contain_text(
+                    reply.body
+                )
+                row.get_by_role("link", name="Summary coverage").press("Enter")
+                expect(
+                    page.get_by_role("heading", name="Session summary coverage")
+                ).to_be_visible()
+                page.get_by_role("link", name="Later messages").press("Enter")
+                expect(page.get_by_text("Messages 51–55")).to_be_visible()
+                expect(page.get_by_text("Awaiting summary")).to_be_visible()
+                self.assert_reflow(page, 320)
+                self.capture(page, engine, "reply-summary-coverage-320")
+            with self.browser_page(engine, java_script_enabled=False) as (_, viewer):
+                self.sign_in(viewer, self.viewer)
+                viewer.goto(reader_url)
+                expect(
+                    viewer.get_by_role("heading", name=re.compile(r"· 55 messages$"))
+                ).to_be_visible()
+                expect(
+                    viewer.get_by_role("link", name="Group this conversation")
+                ).to_have_count(0)
 
     def test_jump_to_date_scrolls_both_ways_in_messages_and_instances(self):
         midnight = datetime(2026, 11, 11, tzinfo=UTC)

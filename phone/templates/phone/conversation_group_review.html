@@ -21,9 +21,6 @@
     <a class="button button-secondary" href="{{ back_url }}">Cancel</a>
   </div>
 </form>
-{% elif limit_message %}
-<p>{{ limit_message }} Choose a smaller selection to group at one time.</p>
-<a class="button button-primary" href="{% url 'core:analysis:create' case.pk %}?operation=sessions">Choose messages</a>
 {% else %}
 <p>There are no active messages to group.</p>
 {% endif %}

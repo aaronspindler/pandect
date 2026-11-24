@@ -179,6 +179,40 @@ and JSON bytes, using `application/octet-stream` plus attachment disposition for
 reliable browser saves, including Linux WebKit. Image previews remain inline JPEG.
 The [roadmap](evidence-analysis-roadmap.md) separates future work from current guides.
 
+
+## Evidence chat
+
+Open **Case Tools → Evidence chat**. Owners and editors ask questions and
+follow-ups. Current case members can read saved conversations and follow the
+numbered references. Each question starts with current active evidence. Select
+**Include archived evidence** to expand that question's scope. A follow-up can
+use evidence added since the previous reply. Earlier replies retain their dates,
+sources and quotations.
+
+Ordinary questions retrieve relevant passages and recorded details using
+PostgreSQL and an available private meaning index. Answers cite quotations or
+field values from originals, supplied transcripts, saved extractions and
+source-linked findings. Source links lead to the evidence reader, message,
+attachment or retained result. Read the quotation in context to assess the AI's
+interpretation. A material ambiguity can prompt a clarifying question. Gaps and
+conflicting accounts can prompt a suggested next check. Investigator notes and
+chat replies are excluded from evidence retrieval. **Mark important** saves the
+whole reply and its references in the case's Important list.
+
+Asking for every match or a total starts a full review immediately. Processing
+and the reply show progress against a frozen set of source entries. One record
+may contribute several entries, such as a document and its OCR passages.
+Structured counts use recorded fields for supported questions. Interpretive
+reviews count distinct records with cited matches and list the matching passages
+on the reply. Check the reported gaps for missing extractions, partial analyses
+and uncertain matches. Opening chat does not start OCR or transcription.
+
+Chat uses the case's selected text AI. For external processing, the owner must
+approve the chat destination in Case Settings. Questions, relevant conversation
+context, excerpts and source references can be sent. A full review can make many
+provider requests. Hosted embedding approval is separate; chat uses private
+meaning search when available. See [worker recovery](background-tasks.md#evidence-chat-recovery).
+
 ## Reports and search
 
 Evidence search covers original Text/messages, every supplied call transcript and
@@ -206,7 +240,7 @@ addresses do not establish visits.
 
 ## Retained processing
 
-`text_topics` and `session_summaries` version 2 retain stage warnings/combined
+`text_topics` and `session_summaries` retain stage warnings/combined
 outcomes: keywords remain useful without inferred topics; missing session content
 stays insufficient/partial. Topic response/quotation validation failures and
 inference service failures retain available keyword findings as a partial result,
@@ -216,6 +250,9 @@ fail validation. See [communication analysis](analysis-communications.md) for
 the text limits and citation rules. Source/access changes and runtime/model
 identity drift still stop the run. Pending version 1 fails with
 `processing_version_unavailable`; start a new run. Earlier results are retained.
+Session and timing methods use version 2 and session summaries use version 3
+for delayed replies and exact saved-session ranges. Pending runs on previous
+method versions can be requested again in Processing.
 
 Single/bulk investigator uploads queue applicable document text extraction, image
 metadata, printed-English OCR, plate search, audio metadata, available-text
@@ -513,7 +550,7 @@ Case Settings shows the resolved model, and the run retains it.
 | Claims and commitments | `gpt-6-luna` | High |
 | Message-session summaries | `gpt-6.1-terra` | Medium |
 | Semantic conversation links | `gpt-6.1-terra` | High |
-| Question-driven synthesis | `gpt-6.2-sol` | High |
+| Evidence chat and retained question-driven synthesis | `gpt-6.2-sol` | High |
 
 An explicit model ID sets one default for all OpenAI text tasks. To use
 task-based defaults, set the value to `auto` for both web and worker.

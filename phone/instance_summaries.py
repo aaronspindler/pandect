@@ -18,6 +18,11 @@ from phone.analysis.ai import summary_chunks
 from phone.analysis.deterministic.conversations import DEFAULT_SESSION_GAP_MINUTES
 from phone.conversation_instances import get_session_instance
 from phone.conversations import pair_messages
+from phone.saved_summary_ranges import (
+    attach_range_summary,
+    coverage_url,
+    prepare_summary_range,
+)
 
 OPERATION = "session_summaries"
 INSTANCES_PER_STEP = 10
@@ -81,6 +86,7 @@ def _grouping_key(parameters):
 
 def pending_summaries(case, instances, executions):
     """Find in-flight routes with the same originals and grouping settings."""
+    instances = [row for row in instances if not row.get("saved_session")]
     if not instances or not executions:
         return {}
     memberships = {
@@ -182,6 +188,18 @@ def prepare_instance_summaries(batch, case):
             instance = get_session_instance(
                 case, pair, instance_id, include_statements=False, executions=eligible
             )
+            if instance.get("saved_session"):
+                missing = {
+                    key: value
+                    for key, value in eligible.items()
+                    if key not in instance["summary_routes"]
+                }
+                if missing and not prepare_summary_range(
+                    batch, case, instance, missing
+                ):
+                    return True
+                batch.processed_sources += 1
+                continue
             pending = pending_summaries(case, [instance], eligible).get(
                 instance["id"], {}
             )
@@ -209,3 +227,60 @@ def prepare_instance_summaries(batch, case):
             batch.unavailable_sources += 1
         batch.processed_sources += 1
     return batch.processed_sources < len(scope["instances"])
+
+
+def attach_saved_summaries(
+    case,
+    instances,
+    *,
+    full_summary_id=None,
+    include_statements=True,
+    preview_only=False,
+    executions=None,
+):
+    """Attach reports whose verified ordinal ranges cover this saved membership."""
+    from phone.conversation_instances import attach_instance_summaries
+
+    instances = list(instances)
+    if not instances:
+        return
+    executions = executions or {}
+    legacy = []
+    reports = AnalysisRun.objects.filter(
+        case=case, operation=OPERATION, result__case=case
+    )
+    has_legacy = reports.exclude(parameters__has_key="_saved_session_range").exists()
+    has_ranges = reports.filter(parameters__has_key="_saved_session_range").exists()
+    for instance in instances:
+        instance["summary"] = None
+        instance["summary_routes"] = set()
+        if has_legacy and instance["count"] <= settings.PANDECT_ANALYSIS_MAX_SOURCES:
+            ids = tuple(
+                instance["saved_session"]
+                .members.filter(case=case)
+                .order_by("ordinal")
+                .values_list("message_id", flat=True)
+            )
+            legacy.append({"id": instance["id"], "member_ids": ids, "summary": None})
+    if legacy:
+        attach_instance_summaries(
+            case,
+            legacy,
+            full_summary_id=full_summary_id,
+            include_statements=include_statements,
+            preview_only=preview_only,
+            executions=executions,
+        )
+    historical = {row["id"]: row for row in legacy}
+    for instance in instances:
+        if previous := historical.get(instance["id"]):
+            instance["summary"] = previous["summary"]
+            instance["summary_routes"].update(previous["summary_routes"])
+        session = instance["saved_session"]
+        instance["coverage_url"] = coverage_url(case, session)
+        if has_ranges:
+            attach_range_summary(case, instance, executions, include_statements)
+        instance["summary_missing"] = (
+            not instance["summary"]
+            or not instance["summary_routes"] >= executions.keys()
+        )

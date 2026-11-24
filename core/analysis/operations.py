@@ -163,17 +163,19 @@ OPERATIONS = {
         phone_ai.session_summaries,
         ("text-message",),
         additional_on_evidence=True,
-        version="2",
+        version="3",
     ),
     "sessions": Operation(
         "Read inferred message sessions",
         conversations.conversation_sessions,
         ("text-message",),
+        version="2",
     ),
     "comm_patterns": Operation(
         "Inspect message timing",
         conversations.interaction_patterns,
         ("text-message",),
+        version="2",
     ),
     "conversation_link": Operation(
         "Compare exchanges across channels",

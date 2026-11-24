@@ -23,10 +23,20 @@ results. Preparation retains up to 100 safe source/method errors.
 
 **Summarize missing instances** retains the reviewed saved group IDs and selected
 execution route in an `instance_summaries` batch. Each preparation task visits up
-to ten instances and queues one summary per eligible instance.
+to ten instances. For a long saved session, preparation records the next message
+ordinal and queues bounded ranges. Each report retains the session and exact
+ordinals that were reviewed.
 Unavailable instances are counted in Processing, where investigators can also
 follow or retry individual runs. Preparation rechecks verified edit access and
 the execution snapshot before each step.
+
+Message additions, CSV imports, and message reprocessing also group the affected
+reported pairs. **Group this conversation** requests the same local work from
+the reader. The worker saves its chronological position and membership rows
+together. A revision becomes visible once its source count and checksums match
+the reviewed scope. Automatic batches can share the work for an identical pair,
+method, and set of originals. A changed pair needs a fresh grouping. Other pairs
+in an automatic batch can finish, and earlier publications remain available.
 
 ## Investigator progress and completed imports
 
@@ -76,6 +86,22 @@ needed. Any remaining external run without a case approval stops recoverably.
 Existing results remain available and cases receive no retrospective processing.
 Before starting older workers during rollback, stop queued grant-backed external
 work or disable external services. Older workers cannot enforce case approval.
+
+## Evidence chat recovery
+
+Evidence chat uses the default queue. Each delivery rechecks the investigator's
+access and selected execution settings. A full review saves its source versions,
+window positions, matches and progress before queuing its continuation. A
+duplicate delivery cannot publish a second reply. Open the question from
+**Processing** or **Evidence chat** to inspect progress or retry a stopped turn.
+If its AI destination or grant changed, ask a new question using current settings.
+
+To inspect a suspected interruption, run
+`python manage.py recover_evidence_chat TURN_UUID` in the configured environment.
+After verifying the worker has stopped, add `--confirm-interrupted TOKEN`
+with the displayed token to resume that delivery from its last checkpoint.
+A late worker cannot publish under the replaced token. An interrupted external
+call can incur provider usage again when its unfinished checkpoint is retried.
 
 ## Meaning search indexing
 

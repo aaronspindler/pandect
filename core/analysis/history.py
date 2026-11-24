@@ -71,6 +71,7 @@ def communication_selection(
     *,
     minutes,
     include_calls=False,
+    session_replies=False,
     count=None,
     characters=1_000_000,
     anchor_chars=0,
@@ -123,6 +124,17 @@ def communication_selection(
         ):
             nearest = min(abs(moment - time) for time in moments)
             peers.append((nearest, moment, str(pk), kind, length[0] if use_text else 0))
+    if session_replies and len(peers) < peer_limit and characters > anchor_chars:
+        from phone.grouping_sources import delayed_reply_peers
+
+        existing = {pk for _, _, pk, _, _ in peers}
+        peers.extend(
+            candidate
+            for candidate in delayed_reply_peers(
+                case, batch, timed, minutes, characters - anchor_chars
+            )
+            if candidate[2] not in existing
+        )
     return _fit(
         choices,
         (({"kind": kind, "id": pk}, size) for _, _, pk, kind, size in sorted(peers)),

@@ -79,6 +79,119 @@ class ConversationAnalysisTests(SimpleTestCase):
         with self.assertRaises(ValidationError):
             conversation_sessions([a], {"break_before": ["not-selected"]})
 
+    def test_delayed_answer_at_message_five_uses_its_wording_and_reciprocal_turn(self):
+        start = [self.message("Checking details", minute) for minute in range(3)]
+        for question, answer, minutes, joined in (
+            ("Can you meet at six?", "Yes, six works.", 120, True),
+            ("When can you meet?", "At 3:30.", 240, True),
+            ("Where should we meet?", "At the north entrance.", 90, True),
+            ("Can you meet?", "Yes.", 240.01, False),
+            ("Can you meet?", "Thanks.", 90, False),
+            ("Can you meet at six?", "Where should we meet?", 90, False),
+            ("Where should we meet?", "Six works.", 90, False),
+            ("When can you meet?", "At the north entrance.", 90, False),
+            ("Can you meet?", "Yes, my car is red.", 90, False),
+        ):
+            with self.subTest(question=question, answer=answer, minutes=minutes):
+                prompt = self.message(question, 3)
+                reply = self.message(
+                    answer,
+                    3 + minutes,
+                    sender=self.person_b,
+                    recipient=self.person_a,
+                )
+                sources = [*start, prompt, reply]
+                result = conversation_sessions(sources, {"gap_minutes": 60})
+                self.assertEqual(len(result["items"]), 1 if joined else 2)
+                continuations = result["items"][0]["values"]["delayed_continuations"]
+                if joined:
+                    self.assertEqual(
+                        continuations[0]["source_ids"], [prompt.id, reply.id]
+                    )
+                    self.assertEqual(continuations[0]["elapsed_seconds"], minutes * 60)
+                else:
+                    self.assertEqual(continuations, [])
+        question = self.message("Can you meet?")
+        for reply in (
+            self.message("Yes.", 100),
+            self.message("Yes.", 100, recipient=self.person_c),
+        ):
+            self.assertEqual(
+                len(
+                    conversation_sessions([question, reply], {"gap_minutes": 60})[
+                        "items"
+                    ]
+                ),
+                2,
+            )
+
+    def test_delayed_native_reply_requires_unique_open_parent_in_its_export(self):
+        export = uuid4()
+
+        def imported(item, *, document=export, native="", reply=""):
+            item.item.communication_context = SimpleNamespace(
+                source_document_id=document,
+                native_message_id=native,
+                reply_to_id=reply,
+                native_thread_id="",
+                participants=[],
+            )
+            return item
+
+        first = imported(self.message("First", 0), native="original")
+        second = imported(self.message("Can you meet at six?", 20), native="middle")
+        reply = imported(
+            self.message(
+                "Yes, six works.", 240, sender=self.person_b, recipient=self.person_a
+            ),
+            reply="original",
+        )
+        sources = [first, second, reply]
+        parameters = {"gap_minutes": 60}
+        result = conversation_sessions(sources, parameters)
+        self.assertEqual(len(result["items"]), 1)
+        (reason,) = result["items"][0]["values"]["delayed_continuations"]
+        self.assertEqual(reason["source_ids"], [first.id, reply.id])
+        self.assertEqual(reason["elapsed_seconds"], 240 * 60)
+        timing = interaction_patterns(sources, parameters)
+        self.assertEqual(timing["metrics"]["inferred_sessions"], 1)
+        self.assertEqual(
+            next(i for i in timing["items"] if i["label"] == "Observed session 1")[
+                "values"
+            ]["delayed_continuations"],
+            [reason],
+        )
+        self.assertEqual(
+            len(
+                conversation_sessions(
+                    sources, parameters | {"break_before": [reply.id]}
+                )["items"]
+            ),
+            2,
+        )
+        self.assertEqual(
+            len(
+                conversation_sessions(
+                    sources, parameters | {"break_before": [second.id]}
+                )["items"]
+            ),
+            3,
+        )
+
+        # Ambiguous and unresolved pointers never fall back to the wording.
+        duplicate = imported(self.message("Another row", 250), native="original")
+        self.assertEqual(
+            len(conversation_sessions([*sources, duplicate], parameters)["items"]), 2
+        )
+        for pointer, document in (("original", uuid4()), ("missing", export)):
+            imported(reply, document=document, reply=pointer)
+            self.assertEqual(
+                len(conversation_sessions(sources, parameters)["items"]), 2
+            )
+        imported(reply, reply="original")
+        reply.item.occurred_at += timedelta(seconds=1)
+        self.assertEqual(len(conversation_sessions(sources, parameters)["items"]), 2)
+
     def test_native_context_preserved_without_becoming_inferred_identity(self):
         a = self.message("Group note")
         a.item.communication_context = SimpleNamespace(
@@ -354,6 +467,35 @@ class ConversationAnalysisTests(SimpleTestCase):
         infer.assert_called_once()
         complete = session_summaries([usable], {}, infer=infer)
         self.assertEqual(complete["outcome"], "empty")
+
+    def test_saved_range_keeps_its_session_and_reports_exact_chunk_coverage(self):
+        first = self.message("First. " + "a" * 9000)
+        second = self.message("Second. " + "b" * 9000, 300)
+        parameters = {
+            "_saved_session_range": {"session": str(uuid4()), "first": 10, "last": 11}
+        }
+        for second_covered in (True, False):
+            responses = []
+            for source, quote in ((first, "First."), (second, "Second.")):
+                responses.append(
+                    {
+                        "items": [
+                            {
+                                "kind": "summary",
+                                "text": quote,
+                                "citations": [{"source_id": source.id, "quote": quote}],
+                            }
+                        ]
+                        if source == first or second_covered
+                        else []
+                    }
+                )
+            result = session_summaries(
+                [first, second], parameters, infer=Mock(side_effect=responses)
+            )
+            self.assertEqual(result["metrics"]["inferred_sessions"], 1)
+            self.assertEqual(result["metrics"]["summary_chunks"], 2)
+            self.assertEqual(result["metrics"]["range_covered"], second_covered)
 
     def test_automatic_session_summary_sends_only_chunks_with_new_sources(self):
         earlier = self.message("Retained historical content.")

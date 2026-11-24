@@ -2,6 +2,7 @@
 
 from itertools import batched
 
+from django.contrib.postgres.expressions import ArraySubquery
 from django.db.models import Exists, F, Func, JSONField, OuterRef, TextField, Value
 from django.db.models.functions import Cast
 from django.urls import reverse
@@ -9,6 +10,13 @@ from django.urls import reverse
 from core.analysis.catalogue import PER_PAGE, finding_queryset, finding_rows
 from core.evidence.types import KIND_LABELS
 from core.models import AnalysisFindingSource
+from phone.models import ConversationSessionMember
+from phone.saved_sessions import (
+    distinct_sessions,
+    exclude_saved_copies,
+    saved_row,
+    valid_sessions,
+)
 
 
 def ordered_members(finding, row):
@@ -67,9 +75,89 @@ def attach_session_groups(case, messages):
         message.session_more_url = ""
 
     candidates = session_findings(case, visible)
-    # Latest first, so equivalent memberships from independent analyses share
-    # one presentation and link to the most recent source-validated finding.
     seen = {member: set() for member in visible}
+
+    def attach(member, key, group, tint, marker):
+        memberships = seen.get(member)
+        if memberships is None or key in memberships:
+            return
+        message = visible[member]
+        if len(memberships) == PER_PAGE:
+            if have_saved:
+                message.session_more_url = reverse(
+                    "phone:conversation_detail",
+                    args=(case.pk, *sorted((message.sender_id, message.recipient_id))),
+                    query={"tab": "instances", "contains": member},
+                )
+            else:
+                message.session_more_url = reverse(
+                    "core:analysis:browse",
+                    args=(case.pk,),
+                    query={
+                        "method": "sessions",
+                        "kind": "text-message",
+                        "evidence": member,
+                    },
+                )
+            del seen[member]
+            return
+        memberships.add(key)
+        message.session_groups.append(group)
+        if len(memberships) > 1:
+            message.session_tint = None
+            message.session_marker = "Multiple groupings"
+        else:
+            message.session_tint = tint
+            message.session_marker = marker
+
+    saved = valid_sessions(case).filter(
+        Exists(
+            ConversationSessionMember.objects.filter(
+                session_id=OuterRef("pk"), message_id__in=visible
+            )
+        )
+    )
+
+    have_saved = saved.exists()
+    if have_saved:
+        members = (
+            ConversationSessionMember.objects.filter(
+                session__in=distinct_sessions(saved), message_id__in=visible
+            )
+            .select_related("session__grouping")
+            .order_by("-session__grouping__published_at", "-session_id")
+        )
+        for row in members.iterator(chunk_size=50):
+            session = row.session
+            group = {
+                "label": "Inferred session",
+                "reason": row.continuation_reason or session.boundary_reason,
+                "url": saved_row(session)["url"],
+                "created_at": session.grouping.published_at,
+                "partial": False,
+                "count": session.message_count,
+            }
+            marker = _marker(
+                session.message_count,
+                row.ordinal == 1,
+                row.ordinal == session.message_count,
+            )
+            attach(
+                row.message_id,
+                session.membership_digest,
+                group,
+                1 + int(session.membership_digest[:8], 16) % 6,
+                marker,
+            )
+            if not seen:
+                return
+        refs = AnalysisFindingSource.objects.filter(
+            case=case, finding_id=OuterRef("pk"), kind="text-message"
+        ).order_by("evidence_id")
+        candidates = exclude_saved_copies(
+            candidates.alias(member_key=ArraySubquery(refs.values("evidence_id"))),
+            saved,
+        )
     for batch in batched(candidates.iterator(chunk_size=50), 50, strict=False):
         for finding, row in zip(batch, finding_rows(case, batch), strict=True):
             members = ordered_members(finding, row)
@@ -88,33 +176,18 @@ def attach_session_groups(case, messages):
             # Neighbouring sessions within one analysis cycle through the palette.
             tint = 1 + (int(finding.run_key[:8], 16) + finding.item_index) % 6
             for member in visible_members:
-                if membership in seen[member]:
-                    continue
-                message = visible[member]
-                if len(seen[member]) == PER_PAGE:
-                    message.session_more_url = reverse(
-                        "core:analysis:browse",
-                        args=(case.pk,),
-                        query={
-                            "method": "sessions",
-                            "kind": "text-message",
-                            "evidence": member,
-                        },
-                    )
-                    del seen[member]
-                    continue
-                seen[member].add(membership)
-                message.session_groups.append(group)
-                if len(message.session_groups) > 1:
-                    message.session_tint = None
-                    message.session_marker = "Multiple groupings"
-                    continue
-                message.session_tint = tint
-                if len(members) == 1:
-                    message.session_marker = "Single-message session"
-                elif member == members[0]:
-                    message.session_marker = "Session starts"
-                elif member == members[-1]:
-                    message.session_marker = "Session ends"
+                marker = _marker(
+                    len(members), member == members[0], member == members[-1]
+                )
+
+                attach(member, membership, group, tint, marker)
             if not seen:
                 return
+
+
+def _marker(count, first, last):
+    if count == 1:
+        return "Single-message session"
+    if first:
+        return "Session starts"
+    return "Session ends" if last else ""

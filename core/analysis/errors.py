@@ -44,6 +44,10 @@ ERROR_MESSAGES = {
         "131,072 characters per field. There is no message-row limit. "
         "Review the file size and individual fields before trying again."
     ),
+    "grouping_scope_changed": (
+        "The conversation changed while its sessions were being grouped. "
+        "Open the conversation and group the current messages again."
+    ),
     "imessage_source_changed": (
         "The retained CSV no longer matches the reviewed original. "
         "Retain the correct source and prepare a new review."

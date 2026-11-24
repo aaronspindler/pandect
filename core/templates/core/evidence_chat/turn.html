@@ -1,0 +1,50 @@
+<article class="chat-turn" id="turn-{{ row.turn.pk }}" aria-labelledby="question-{{ row.turn.pk }}">
+  <p class="chat-meta"><strong>{{ row.turn.asked_by.get_username }}</strong> asked · <time datetime="{{ row.turn.created_at|date:'c' }}">{{ row.turn.created_at|date:'j M Y, H:i T' }}</time></p>
+  <h2 id="question-{{ row.turn.pk }}">{{ row.turn.question }}</h2>
+  <p class="chat-meta">{% if row.turn.include_archived %}Active and archived evidence{% else %}Active evidence{% endif %}{% if row.turn.mode == 'full' %} · Full review{% endif %}</p>
+  {% if row.turn.status == 'queued' or row.turn.status == 'running' %}
+    <p><strong>{{ row.turn.get_status_display }}</strong>{% if row.turn.total %} · Reviewed {{ row.turn.reviewed }} of {{ row.turn.total }} source entries{% endif %}</p>
+  {% elif row.error %}
+    <p><strong>Needs attention</strong> · {{ row.error }}</p>
+    {% if can_edit and single %}
+      {% if route_token %}
+      <form method="post" action="{% url 'core:chat:retry' case.pk thread.pk row.turn.pk %}">
+        {% csrf_token %}<input type="hidden" name="route" value="{{ route_token }}">
+        {% include 'core/evidence_chat/transfer.html' %}
+        <button class="button button-secondary" type="submit">Retry question</button>
+      </form>
+      {% elif unavailable %}<p>{{ unavailable }}</p>{% endif %}
+    {% endif %}
+  {% elif row.withheld %}
+    <p>Reply unavailable because its sources could not be verified.</p>
+  {% else %}
+    {% if row.answer.clarification %}
+      <p><strong>Clarification requested</strong></p><p class="chat-answer">{{ row.answer.clarification }}</p>
+    {% else %}
+      {% if row.claims or row.turn.plan.review_kind == 'interpretive' %}<p class="chat-meta"><span class="badge">AI suggestion</span></p>{% endif %}
+      {% if row.answer.summary %}<p class="chat-answer">{{ row.answer.summary }}</p>{% endif %}
+      {% for claim in row.claims %}
+      <p class="chat-answer">{{ claim.text }} {% for ref in claim.references %}<a href="{{ ref.citation.url }}" aria-label="Reference {{ ref.number }}: {{ ref.citation.label }}">[{{ ref.number }}]</a>{% if not forloop.last %} {% endif %}{% endfor %}</p>
+      {% endfor %}
+      {% if row.references %}
+      <h3>References</h3>
+      <ol class="chat-references">
+      {% for reference in row.references %}<li>
+        <a href="{{ reference.url }}">{{ reference.label }}</a>
+        <blockquote>{{ reference.quote }}</blockquote>
+      </li>{% endfor %}
+      </ol>
+      {% endif %}
+      {% if row.answer.lead %}<h3>Suggested next check</h3><p class="chat-answer">{{ row.answer.lead }}</p>{% endif %}
+    {% endif %}
+    {% if row.turn.mode == 'full' %}
+    <p class="chat-meta">{% if row.turn.started_at %}Review started <time datetime="{{ row.turn.started_at|date:'c' }}">{{ row.turn.started_at|date:'j M Y, H:i T' }}</time>. {% endif %}Reviewed {{ row.turn.reviewed }} of {{ row.turn.total }} source entries.</p>
+    {% endif %}
+    {% if row.turn.gaps %}<p><a href="{{ row.url }}#coverage-gaps">{{ row.turn.gaps }} source entr{{ row.turn.gaps|pluralize:"y,ies" }} with incomplete coverage</a></p>{% endif %}
+    <div class="actions">
+      {% if row.important.important_back_url %}<a class="button button-secondary" href="{{ row.important.important_back_url }}">Back to Important</a>{% endif %}
+      {% include 'core/important/reader_actions.html' with important_action_url=row.important.important_action_url important_reader_return=row.important.important_reader_return important_marked=row.important.important_marked important_notes_url=row.important.important_notes_url %}
+    </div>
+  {% endif %}
+  {% if not single %}<p><a class="record-link" href="{{ row.url }}">{% if row.turn.mode == 'full' and row.answer %}Open reply and cited matches{% else %}Open reply{% endif %}</a></p>{% endif %}
+</article>
