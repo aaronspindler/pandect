@@ -9,7 +9,7 @@ from django.http import Http404
 from django.utils.text import Truncator
 
 from core.evidence.queries import scoped_evidence
-from core.evidence.source_clocks import date_only_messages
+from core.evidence.source_clocks import is_date_only_message
 from core.models import AnalysisFindingSource
 from phone.conversation_instances import (
     MESSAGES_PER_PAGE,
@@ -17,9 +17,9 @@ from phone.conversation_instances import (
     instance_url,
     instances_touching_messages,
 )
-from phone.conversations import conversation_url
+from phone.conversations import message_url
 from phone.models import ConversationSessionMember
-from phone.presentation import message_excerpt
+from phone.presentation import message_destination, message_excerpt
 from phone.saved_sessions import distinct_sessions, saved_row, valid_sessions
 
 
@@ -176,10 +176,8 @@ def daily_message_rows(case, start, end):
 
 
 def _active_timed_messages(case):
-    return (
-        scoped_evidence(case, "text-message")
-        .filter(is_archived=False)
-        .exclude(pk__in=date_only_messages(case))
+    return scoped_evidence(case, "text-message").filter(
+        ~is_date_only_message(case), is_archived=False
     )
 
 
@@ -193,6 +191,7 @@ def attach_daily_message_previews(case, rows):
         .filter(is_archived=False)
         .select_related("sender", "recipient")
         .only(
+            "is_archived",
             "sender__first_name",
             "sender__last_name",
             "sender__email",
@@ -215,8 +214,8 @@ def attach_daily_message_previews(case, rows):
         row["preview_label"] = str(first.sender)
         row["preview"] = message_excerpt(first.preview_body)
         if row["kind"] == "message":
-            row["title"] = f"{first.sender} to {first.recipient}"
-            row["url"] = conversation_url(case, first)
+            row["title"] = f"{first.sender} to {message_destination(first)}"
+            row["url"] = message_url(case, first)
             continue
         instance = row.pop("instance")
         row["title"] = f"{first.sender} and {first.recipient}"

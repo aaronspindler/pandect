@@ -5,6 +5,7 @@ import json
 from urllib.parse import parse_qsl, urlencode
 from uuid import uuid4
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
@@ -91,11 +92,13 @@ from core.important.reader import reader_context
 from core.models import AnalysisArtifact, AnalysisResult, AnalysisReview, AnalysisRun
 from core.storage import private_file
 from geo.analysis import presentation as geo_presentation
+from geo.map_navigation import map_query
 from image.analysis.presentation import (
     finding_images,
     previews_by_result,
     visible_structure,
 )
+from people.models import Person
 from phone.analysis import presentation as phone_presentation
 from phone.models import CommunicationContext
 from socialmedia import instagram_connector
@@ -189,7 +192,6 @@ def index(request, case_id):
             "show_instagram_monitors": instagram_connector.scheduling_available()
             or InstagramMonitor.objects.filter(case=case).exists(),
             "reports": (
-                ("vehicle-trips", "Vehicle trips"),
                 ("calls", "Call patterns"),
                 ("vehicle-coverage", "Vehicle observation coverage"),
                 ("vehicle-speed", "Vehicle speed and heading"),
@@ -234,6 +236,10 @@ def rerun_all(request, case_id):
 @require_safe
 def current_report(request, case_id, name):
     case = get_case(request.user, case_id)
+    if name == "vehicle-trips":
+        return redirect(
+            reverse("geo:case_map", args=(case.pk,), query=map_query(request.GET))
+        )
     if name not in REPORT_NAMES:
         raise Http404("Report not found.")
     form = report_form(request.GET or None, case=case, report_name=name)
@@ -256,7 +262,6 @@ def current_report(request, case_id, name):
                 case,
                 name,
                 page=request.GET.get("page", 1),
-                gap_page=request.GET.get("gap_page", 1),
                 pair_page=request.GET.get("pair_page", 1),
                 duplicate_row=request.GET.get("duplicate_row") or None,
                 **{k: v or None for k, v in values.items()},
@@ -295,7 +300,6 @@ def current_report(request, case_id, name):
                 "Reported speed median (km/h)",
                 "Reported heading counts",
             ),
-            "vehicle-trips": ("Possible trips", "Vehicles in selection"),
             "duplicates": ("Duplicate byte groups", "Occurrences in duplicate groups"),
         }
         prioritize_measurements(data, "Selected records", *summary_fields[name])
@@ -303,8 +307,6 @@ def current_report(request, case_id, name):
             item["measurements"] = formatter(item.get("values", {}))
         if name == "calls":
             tables = phone_presentation.report_table(data)
-        elif name == "vehicle-trips":
-            tables = []
         elif name in {"vehicle-coverage", "vehicle-speed"}:
             tables = geo_presentation.report_table(data, name)
         else:
@@ -324,7 +326,7 @@ def current_report(request, case_id, name):
             ]
     else:
         tables = []
-    return (render_live if name == "vehicle-trips" else render)(
+    return render(
         request,
         "core/analysis/report.html",
         _context(request, case)
@@ -412,7 +414,7 @@ def create(request, case_id, kind=None, evidence_id=None):
     if evidence_id is not None:
         item = get_evidence(case, kind, evidence_id)
         evidence = (kind, item)
-        operations = additional_operations(kind)
+        operations = additional_operations(kind, item)
     elif focused_source:
         try:
             if (
@@ -935,6 +937,16 @@ def detail(request, case_id, run_id):
         "source_review_changed": source_review_changed,
         "sources": sources,
     }
+    if run.operation in {"style_profiles", "style_change"} and (
+        scope := run.parameters.get("writing_scope")
+    ):
+        if person := Person.objects.filter(case=case, pk=scope["person_id"]).first():
+            context["writing_person"] = person
+            context["writing_url"] = reverse(
+                "people:writing_style",
+                args=[case.pk, person.pk],
+                query={"mode": "compare"} if run.operation == "style_change" else None,
+            )
     evidence_keys = {(source.kind, source.item.pk) for source in sources}
     if len(evidence_keys) == 1:
         kind, evidence_id = next(iter(evidence_keys))
@@ -1164,15 +1176,24 @@ def detail(request, case_id, run_id):
                     focused_finding_context(run.operation, items[0], result.data)
                 )
             run_query = finding_history | ({"weak": 1} if show_weak else {})
+            map_points = (
+                geo_presentation.map_points(run.operation, items)
+                if run.operation in geo_presentation.PRIMARY_FIELDS
+                else []
+            )
             context |= {
                 "result": result,
                 "result_groups": groups,
                 "result_template": template,
                 "run_query": run_query,
                 "run_suffix": analysis_query_suffix(run_query),
-                "map_points": geo_presentation.map_points(run.operation, items)
-                if run.operation in geo_presentation.PRIMARY_FIELDS
-                else [],
+                "map_points": map_points,
+                "position_plot": len(
+                    {(p["latitude"], p["longitude"]) for p in map_points}
+                )
+                > 1,
+                "position_map_available": bool(settings.PANDECT_MAP_TILE_URL)
+                and any(point["plottable"] for point in map_points),
                 "data": result.data,
                 "metrics": measurement_formatter(
                     result.data.get("metrics", {}),
@@ -1197,6 +1218,19 @@ def detail(request, case_id, run_id):
                 ),
                 "reference_snapshots": snapshots,
             }
+    if (
+        settings.PANDECT_MAP_TILE_URL
+        and not context["source_unavailable"]
+        and run.operation in geo_presentation.PRIMARY_FIELDS
+        and (
+            context.get("position_map_available") or run.status in ("queued", "running")
+        )
+    ):
+        context.update(
+            observation_tile_url=settings.PANDECT_MAP_TILE_URL,
+            observation_tile_attribution=settings.PANDECT_MAP_TILE_ATTRIBUTION,
+        )
+        request.allow_observation_map_tiles = True
     context["can_retry"] = run.operation in OPERATIONS and run.status in {
         "failed",
         "cancelled",

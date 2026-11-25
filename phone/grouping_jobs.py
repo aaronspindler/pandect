@@ -15,8 +15,8 @@ from django.utils import timezone
 from cases.permissions import get_case
 from core.analysis.errors import AnalysisError, error_message
 from people.models import Person
+from phone.conversations import pair_messages
 from phone.grouping_sources import (
-    active_pair_messages,
     checked_message,
     matching_originals,
     unique_reply_target,
@@ -41,13 +41,8 @@ PAGE_SIZE = 100
 
 
 def _originals(case, first, second):
-    first_id, second_id = sorted(
-        (getattr(first, "pk", first), getattr(second, "pk", second))
-    )
-    return (
-        active_pair_messages(case)
-        .filter(first_person=first_id, second_person=second_id)
-        .order_by(F("occurred_at").asc(nulls_last=True), "pk")
+    return pair_messages(case, first, second).order_by(
+        F("occurred_at").asc(nulls_last=True), "pk"
     )
 
 
@@ -139,7 +134,11 @@ def _register(batch, case, pair, scope, gap_minutes):
 
 def register_message_pairs(batch, case, messages):
     """A batch prepares each pair once, regardless of its number of source pages."""
-    for pair in {tuple(sorted((row.sender_id, row.recipient_id))) for row in messages}:
+    for pair in {
+        tuple(sorted((row.sender_id, row.recipient_id)))
+        for row in messages
+        if row.recipient_id is not None
+    }:
         if not batch.grouping_requests.filter(
             case=case,
             grouping__first_person_id=pair[0],

@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django import forms
 
 from core.evidence.forms import validate_file
-from document.models import DocumentEvidence
 from people.models import Person
 from phone.models import CallImportSource
 
@@ -15,15 +14,24 @@ class CallHistoryUploadForm(forms.Form):
     submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
     file = forms.FileField(
         label="Call history CSV",
-        required=False,
         widget=forms.ClearableFileInput(attrs={"accept": ".csv,text/csv"}),
     )
-    document = forms.ModelChoiceField(
-        queryset=DocumentEvidence.objects.none(),
-        required=False,
-        label="Retained CSV",
-        empty_label="Choose a retained CSV",
-    )
+
+    def __init__(self, *args, byte_limit, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.byte_limit = byte_limit
+
+    def clean_file(self):
+        file = validate_file(self.cleaned_data["file"])
+        if not 0 < file.size <= self.byte_limit:
+            raise forms.ValidationError(
+                "Choose a nonempty CSV within the displayed size limit."
+            )
+        return file
+
+
+class CallHistorySourceForm(forms.Form):
+    submission_id = forms.UUIDField(initial=uuid4, widget=forms.HiddenInput)
     source = forms.ModelChoiceField(
         queryset=CallImportSource.objects.none(),
         required=False,
@@ -38,40 +46,20 @@ class CallHistoryUploadForm(forms.Form):
         help_text="For a new line or account, enter a label such as Work phone.",
     )
     timezone = forms.CharField(
-        max_length=64,
+        max_length=100,
         label="Export timezone",
+        required=False,
         help_text=(
             "Enter the timezone used for the Date column, such as America/Toronto."
         ),
     )
-    confirm_timezone = forms.BooleanField(label="I confirm this is the export timezone")
 
-    def __init__(self, *args, case, byte_limit, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.byte_limit = byte_limit
-        self.fields["document"].queryset = DocumentEvidence.objects.filter(
-            case=case, is_archived=False, original_filename__iendswith=".csv"
-        )
+    def __init__(self, *args, case, default_timezone, **kwargs):
+        super().__init__(*args, initial={"timezone": default_timezone}, **kwargs)
         self.fields["source"].queryset = CallImportSource.objects.filter(case=case)
 
-    def clean_file(self):
-        file = validate_file(self.cleaned_data["file"])
-        if file and not 0 < file.size <= self.byte_limit:
-            raise forms.ValidationError(
-                "Choose a nonempty CSV within the displayed size limit."
-            )
-        return file
-
-    def clean_document(self):
-        document = self.cleaned_data["document"]
-        if document and document.byte_size > self.byte_limit:
-            raise forms.ValidationError(
-                "Choose a retained CSV within the displayed size limit."
-            )
-        return document
-
     def clean_timezone(self):
-        value = self.cleaned_data["timezone"]
+        value = self.cleaned_data["timezone"] or self.initial["timezone"]
         try:
             ZoneInfo(value)
         except ZoneInfoNotFoundError, ValueError:
@@ -82,9 +70,6 @@ class CallHistoryUploadForm(forms.Form):
 
     def clean(self):
         values = super().clean()
-        if "file" in values and "document" in values:
-            if bool(values["file"]) == bool(values["document"]):
-                self.add_error(None, "Upload one CSV or choose one retained CSV.")
         if "source" in values and "source_label" in values:
             if bool(values["source"]) == bool(values["source_label"]):
                 self.add_error(

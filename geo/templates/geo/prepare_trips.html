@@ -1,5 +1,5 @@
 {% if can_edit %}
-<form method="post" action="{% url 'geo:prepare_trips' case.pk %}" data-prepare-trips data-auto-prepare>
+<form method="post" action="{% url 'geo:prepare_trips' case.pk %}{% if return_query %}{% querystring return_query %}{% endif %}" data-prepare-trips data-auto-prepare>
   {% csrf_token %}
   {% if trip_report.vehicle_id %}<input type="hidden" name="vehicle_id" value="{{ trip_report.vehicle_id }}">{% endif %}
   <button class="button button-secondary" type="submit">Prepare trips</button>

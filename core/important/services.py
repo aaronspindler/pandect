@@ -46,11 +46,10 @@ def _item_target(case, item):
 
 
 def reply_target(case, turn):
-    if (
-        turn.case_id != case.pk
-        or turn.chat.case_id != case.pk
-        or not reply_available(turn)
-    ):
+    if turn.case_id != case.pk or turn.chat.case_id != case.pk:
+        raise Http404("Reply unavailable.")
+    turn.case = case
+    if not reply_available(turn):
         raise Http404("Reply unavailable.")
     return {
         "title": turn.question,

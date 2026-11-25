@@ -33,6 +33,13 @@ class CallHistoryBrowserTests(BrowserTestCase):
                 page.get_by_role(
                     "link", name="Import call history CSV", exact=True
                 ).click()
+                expect(
+                    page.locator(
+                        'form[enctype="multipart/form-data"] input:not([type="hidden"])'
+                    )
+                ).to_have_count(1)
+                page.set_viewport_size({"width": 1440, "height": 900})
+                self.capture(page, engine, "file-only-upload-1440-900")
                 page.get_by_label("Call history CSV", exact=True).set_input_files(
                     {
                         "name": "synthetic-calls.csv",
@@ -43,9 +50,19 @@ class CallHistoryBrowserTests(BrowserTestCase):
                         ),
                     }
                 )
+                page.get_by_role(
+                    "button", name="Continue to source review", exact=True
+                ).click()
+                expect(
+                    page.get_by_role("heading", name="Review call history source")
+                ).to_be_visible()
+                expect(page.get_by_text("America/Toronto", exact=True)).to_be_visible()
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 391
+                )
+                self.capture(page, engine, "source-review-390-844")
                 page.get_by_label("New source label").fill(f"Synthetic {engine} line")
-                page.get_by_label("Export timezone", exact=True).fill("America/Toronto")
-                page.get_by_label("I confirm this is the export timezone").check()
                 page.get_by_role(
                     "button", name="Prepare call history", exact=True
                 ).click()

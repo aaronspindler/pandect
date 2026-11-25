@@ -42,7 +42,7 @@
 {% if trip_report.pending or trip_report.processing_pending or trip_report.needs_prepare %}{% include 'ui/components/live_updates.html' %}{% endif %}
 {% partialdef live inline %}
 <section id="vehicle-trips" data-live-region data-live-poll="{{ trip_report.processing_pending|yesno:'true,false' }}" class="content-section" aria-labelledby="trips-heading">
-<div class="section-header"><h2 id="trips-heading">Trips</h2><a class="record-link" href="{% url 'core:analysis:report' case.pk 'vehicle-trips' %}?vehicle_id={{ vehicle.pk }}{% if not more_trips %}&amp;filters=dates#report-filters{% endif %}">{% if more_trips %}See all trips{% else %}Choose dates{% endif %}</a></div>
+<div class="section-header"><h2 id="trips-heading">Trips</h2><a class="record-link" href="{% url 'geo:case_map' case.pk %}?vehicle_id={{ vehicle.pk }}{% if not more_trips %}#id_day{% endif %}">{% if more_trips %}See all trips{% else %}Jump to date{% endif %}</a></div>
 {% if more_trips %}<p class="muted">Showing the five most recent possible trips.</p>{% endif %}
 {% include 'geo/analysis/trips.html' with hide_vehicle=True %}
 </section>

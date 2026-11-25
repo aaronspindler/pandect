@@ -15,7 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
-from core.analysis.catalogue import catalogue_page, project_result
+from core.analysis.catalogue import CatalogueForm, catalogue_page, project_result
 from core.analysis.operations import get_operation
 from core.analysis.projection import equivalence_key, identifier_key
 from core.analysis.services import process_run, snapshot_sources, start_run
@@ -81,6 +81,25 @@ class CatalogueTests(EvidenceViewTestMixin, TestCase):
 
     def page(self, **params):
         return catalogue_page(self.case, QueryDict(urlencode(params)))
+
+    def test_method_choices_include_distinct_retained_methods_from_this_case(self):
+        for case, operation in (
+            (self.case, "retired_method"),
+            (self.case, "retired_method"),
+            (self.other_case, "foreign_retired_method"),
+        ):
+            AnalysisRun.objects.create(
+                case=case,
+                requested_by=case.owner,
+                operation=operation,
+                method_version="synthetic.v1",
+            )
+        form = CatalogueForm(QueryDict("method=retired_method"), case=self.case)
+        self.assertTrue(form.is_valid(), form.errors)
+        methods = [key for key, _ in form.fields["method"].choices]
+        self.assertEqual(methods.count("retired_method"), 1)
+        self.assertNotIn("foreign_retired_method", methods)
+        self.assertIn("entities", methods)
 
     def test_findings_remain_readable_without_selection_actions(self):
         first = snapshot_sources(self.case, [{"kind": "text", "id": self.note.pk}])

@@ -444,12 +444,10 @@ class CaseFindingsTests(EvidenceViewTestMixin, TestCase):
         self.login("viewer")
         response, highlights = self.findings()
         self.assertEqual(highlights, [])
-        report_url = reverse(
-            "core:analysis:report", args=[self.case.pk, "vehicle-trips"]
-        )
-        self.assertContains(response, report_url)
-        response = self.client.get(report_url)
-        self.assertContains(response, "Vehicle trips")
+        trips_url = reverse("geo:case_map", args=[self.case.pk])
+        self.assertContains(response, trips_url)
+        response = self.client.get(trips_url)
+        self.assertContains(response, "<h1>Trips</h1>", html=True)
         self.assertContains(response, "Possible trip")
         for observation in batch.observations.all():
             self.assertContains(

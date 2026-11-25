@@ -286,7 +286,7 @@ def hydrate(case, candidates, parsed, passages, findings, *, quick=False):
             qs = qs.annotate(hit_excerpt=matched_excerpt(kind, parsed))
             fields.append("hit_excerpt")
         need_related = []
-        for obj in qs.values(*fields):
+        for obj in qs.order_by().values(*fields):
             key = obj["pk"]
             row = {
                 "id": key,
@@ -299,7 +299,7 @@ def hydrate(case, candidates, parsed, passages, findings, *, quick=False):
                 "terms": parsed.terms,
                 "excerpt": obj.get("hit_excerpt", ""),
             }
-            if kind in ("text-message", "conversation"):
+            if kind in ("text-message", "conversation") and obj["recipient_id"]:
                 first, second = sorted((obj["sender_id"], obj["recipient_id"]))
                 row["url"] = (
                     reverse("phone:conversation_detail", args=(case.pk, first, second))

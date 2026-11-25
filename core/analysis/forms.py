@@ -20,7 +20,6 @@ def report_form(*args, case, report_name, **kwargs):
         "calls": CallReportForm,
         "vehicle-coverage": VehicleReportForm,
         "vehicle-speed": VehicleReportForm,
-        "vehicle-trips": VehicleReportForm,
         "duplicates": BaseReportForm,
     }[report_name]
     return form_class(*args, case=case, **kwargs)

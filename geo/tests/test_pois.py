@@ -163,8 +163,8 @@ class PersonPointOfInterestTests(MapCaseFixtures, TestCase):
             "page": "2",
             "poi_page": "3",
             "vehicle_id": str(self.vehicle.pk),
-            "start": "2026-11-01T09:00",
-            "end": "2026-11-02T09:00",
+            "day": "2026-11-01",
+            "gap_page": "2",
         }
         map_page = self.client.get(
             self.url_for_map(),

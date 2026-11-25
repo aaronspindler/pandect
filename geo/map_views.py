@@ -1,6 +1,7 @@
 """Saved, complete vehicle trips and investigator-maintained person POIs."""
 
-from django import forms
+from urllib.parse import urlencode
+
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ValidationError
@@ -9,7 +10,7 @@ from django.db.models import Exists, F, OuterRef, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_POST, require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required, wants_json
@@ -17,24 +18,17 @@ from core.analysis.catalogue import PER_PAGE, finding_queryset, finding_rows
 from core.models import AnalysisFindingSource
 from geo.map_navigation import current_map_trip, map_query, trip_query
 from geo.models import PointOfInterest
-from geo.report_forms import VehicleReportForm
+from geo.report_forms import TripMapForm
 from geo.trip_geometry import GEOMETRY_CHUNK_SIZE, geometry_revision, source_positions
 from geo.trip_processing import (
     _source_rows,
     format_trip,
-    format_trips,
     geometry_source_page,
     prepare_case_trips,
-    saved_trips,
     trip_readiness,
 )
+from geo.trip_reports import saved_trip_report
 from ui.live import render_live
-
-
-class TripMapForm(VehicleReportForm):
-    """Filter complete saved trips rather than cutting their input observations."""
-
-    q = forms.CharField(required=False, max_length=200, label="Search POIs")
 
 
 def poi_map_data(request, case, query, return_query):
@@ -96,50 +90,64 @@ def _map_context(request, case, *, trip=None):
 
 
 @product_login_required
-@require_GET
+@require_safe
 def case_map(request, case_id):
     case = get_case(request.user, case_id)
-    form = TripMapForm(request.GET or None, case=case)
-    filters = {}
-    trips = saved_trips(case)
-    if form.is_bound:
-        if form.is_valid():
-            filters = {
-                key: value or None
-                for key, value in form.cleaned_data.items()
-                if key != "q"
-            }
-            trips = saved_trips(case, **filters)
-        else:
-            trips = trips.none()
-    page = Paginator(trips, 25).get_page(request.GET.get("page"))
-    context = _map_context(request, case) | trip_readiness(case)
-    trip_filters_applied = any(filters.values())
-    summaries = format_trips(case, page)
+    form = TripMapForm(request.GET, case=case)
+    params = map_query(request.GET)
+    trip_report = None
+    if form.is_valid():
+        trip_report = saved_trip_report(
+            case,
+            vehicle_id=form.cleaned_data["vehicle_id"] or None,
+            page=params.get("page"),
+            gap_page=params.get("gap_page"),
+            day_bounds=form.day_bounds,
+        )
+    summaries = trip_report["items"] if trip_report else []
+    suffix = "?" + urlencode(params) if params else ""
     for summary in summaries:
-        summary["detail_url"] = summary["trip_url"]
-        if request.GET:
-            summary["detail_url"] += "?" + request.GET.urlencode()
-    selected = summaries[0] if summaries else None
+        summary["detail_url"] = summary["trip_url"] + suffix
+    day_trip = next(
+        (trip for trip in summaries if trip["id"] == trip_report["day_trip_id"]),
+        None,
+    )
+    selected = day_trip or (summaries[0] if summaries else None)
+    context = _map_context(request, case)
+    if trip_report:
+        context.update(
+            pending=trip_report["processing_pending"],
+            failed=trip_report["failed"],
+            needs_prepare=trip_report["needs_prepare"],
+        )
+    else:
+        context.update(trip_readiness(case))
+    clear_keys = {"q", "poi_page"}
+    if form["day"].value() and not form["vehicle_id"].errors:
+        clear_keys.add("vehicle_id")
     context.update(
         form=form,
-        page_obj=page,
+        map_params=params,
+        clear_trip_url=reverse(
+            "geo:case_map",
+            args=(case.pk,),
+            query={key: value for key, value in params.items() if key in clear_keys},
+        ),
+        trip_report=trip_report,
+        page_obj=trip_report["page_obj"] if trip_report else None,
         trips=summaries,
+        day_trip=day_trip,
         selected_trip=selected,
         geometry_url=selected["trip_url"] if selected else "",
-        filters_applied=trip_filters_applied or bool(context["query"]),
-        trip_filters_applied=trip_filters_applied,
-        trip_filters=filters,
-        filtered_vehicle=dict(form.fields["vehicle_id"].choices).get(
-            filters.get("vehicle_id")
-        ),
     )
     if wants_json(request):
         return JsonResponse(
             {
                 "pending": context["pending"],
                 "failed": context["failed"],
-                "trip_count": page.paginator.count,
+                "trip_count": trip_report["page_obj"].paginator.count
+                if trip_report
+                else 0,
             }
         )
     return render_live(request, "geo/map.html", context)
@@ -287,4 +295,6 @@ def prepare_trips(request, case_id):
         messages.success(
             request, "Trip preparation requested. Refresh to see progress."
         )
-    return redirect("geo:case_map", case_id=case_id)
+    return redirect(
+        reverse("geo:case_map", args=(case_id,), query=map_query(request.GET))
+    )

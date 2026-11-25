@@ -10,7 +10,8 @@
   <section class="analysis-section" aria-labelledby="message-analysis-outcome">
     <h2 id="message-analysis-outcome">{% if batch.status == 'failed' %}Preparation stopped{% elif stopped_count or partial_count or insufficient_count or batch.unavailable_sources %}Analysis finished with gaps{% else %}Analysis finished{% endif %}</h2>
     <p role="status">{% if completed_count %}{{ completed_count }} check{{ completed_count|pluralize }} completed. {% endif %}{% if partial_count %}{{ partial_count }} check{{ partial_count|pluralize }} returned partial results. {% endif %}{% if insufficient_count %}{{ insufficient_count }} check{{ insufficient_count|pluralize }} had insufficient input. {% endif %}{% if stopped_count %}{{ stopped_count }} check{{ stopped_count|pluralize }} stopped.{% endif %}{% if not finished_count %}No checks ran.{% endif %}</p>
-    {% if conversation_url %}<p><a class="button button-primary" href="{{ conversation_url }}">View conversation</a></p>{% endif %}
+    {% if group_message_url %}<p><a class="button button-primary" href="{{ group_message_url }}">View retained message</a></p>
+    {% elif conversation_url %}<p><a class="button button-primary" href="{{ conversation_url }}">View conversation</a></p>{% endif %}
   </section>
   {% endif %}
   {% if batch.status == 'failed' %}<p class="notice">{{ preparation_error }} Earlier results are retained. Open the message import to request analysis again.</p>{% endif %}

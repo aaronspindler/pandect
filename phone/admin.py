@@ -6,6 +6,7 @@ from django.utils.html import format_html
 from cases.admin_access import CaseScopedReadOnlyAdmin
 from cases.permissions import accessible_cases
 from core.evidence.admin import EvidenceAdmin
+from core.evidence.queries import same_case_evidence
 from phone.conversation_instances import instance_url
 from phone.conversations import pair_messages
 from phone.forms import (
@@ -168,8 +169,7 @@ class CommunicationContextAdmin(CaseScopedReadOnlyAdmin):
             .get_queryset(request)
             .filter(
                 message__case_id=F("case_id"),
-                message__sender__case_id=F("case_id"),
-                message__recipient__case_id=F("case_id"),
+                message__in=same_case_evidence(TextMessageEvidence.objects.all()),
                 source_document__case_id=F("case_id"),
                 source_document__sha256=F("source_sha256"),
             )

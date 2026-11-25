@@ -1,0 +1,78 @@
+{% extends 'core/analysis/base.html' %}
+{% block title %}Writing style · {{ person }} · {{ case.name }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'people:detail' case.pk person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Back to person</a>
+<header class="page-header">
+  <div><h1>Writing style</h1><p>{{ person }}</p></div>
+</header>
+<p>Results describe active text messages that list this person as the sender. Message attribution is unverified.</p>
+
+{% if can_edit %}
+  {% if has_messages or form.is_bound %}
+    <nav class="actions" aria-label="Writing analysis methods">
+      <a class="nav-link" href="{{ request.path }}{% querystring mode=None writing_page=None %}"{% if not compare %} aria-current="page"{% endif %}>Describe writing style</a>
+      <a class="nav-link" href="{{ request.path }}{% querystring mode='compare' writing_page=None %}"{% if compare %} aria-current="page"{% endif %}>Compare writing over time</a>
+    </nav>
+    <form method="post" action="{{ request.path }}{% querystring %}" class="analysis-form" novalidate data-unsaved-form>
+      {% csrf_token %}{{ form.submission_id }}
+      {% include 'ui/components/form_errors.html' with error_heading='Review your selection' %}
+      <p class="help-text" id="writing-period-help">
+        Dates are inclusive in {{ display_timezone }} and use reported message times.
+        {% if compare %}Choose two separate periods. Undated messages are excluded.
+        {% else %}Leave both dates blank to include undated messages.{% endif %}
+      </p>
+      <fieldset class="form-layout analysis-task-fields" aria-describedby="writing-period-help">
+        <legend>{% if compare %}Earlier period{% else %}Message dates (optional){% endif %}</legend>
+        <div class="field-grid">
+          {% include 'ui/components/form_field.html' with field=form.first_start only %}
+          {% include 'ui/components/form_field.html' with field=form.first_end only %}
+        </div>
+      </fieldset>
+      {% if compare %}
+        <fieldset class="form-layout analysis-task-fields" aria-describedby="writing-period-help">
+          <legend>Later period</legend>
+          <div class="field-grid">
+            {% include 'ui/components/form_field.html' with field=form.second_start only %}
+            {% include 'ui/components/form_field.html' with field=form.second_end only %}
+          </div>
+        </fieldset>
+      {% endif %}
+      <div class="form-actions"><button class="button button-primary" type="submit">Start analysis</button></div>
+    </form>
+  {% else %}
+    <p class="muted">No active messages list this person as the sender.</p>
+  {% endif %}
+{% else %}
+  <p class="notice">You have viewer access and can open saved analyses.</p>
+{% endif %}
+
+<section class="analysis-section" aria-labelledby="writing-history">
+  <h2 id="writing-history">Saved analyses</h2>
+  {% if runs %}
+    <ul class="record-list">
+      {% for run in runs %}
+        {% with scope=run.parameters.writing_scope %}
+          <li class="record-row">
+            <div>
+              <a class="record-link" href="{% url 'core:analysis:detail' case.pk run.pk %}">{% if run.operation == 'style_change' %}Compare writing over time{% else %}Describe writing style{% endif %}</a>
+              <p class="muted">{% if run.operation == 'style_change' %}
+                {{ scope.first_start }} to {{ scope.first_end }} and {{ scope.second_start }} to {{ scope.second_end }} ({{ scope.timezone }})
+              {% elif scope.first_start or scope.first_end %}
+                {% if scope.first_start %}From {{ scope.first_start }}{% endif %}{% if scope.first_end %} {% if scope.first_start %}through{% else %}Through{% endif %} {{ scope.first_end }}{% endif %} ({{ scope.timezone }})
+              {% else %}All active attributed messages at the time of the run{% endif %}</p>
+            </div>
+            <span>{{ run.get_status_display }} · <time datetime="{{ run.created_at|date:'c' }}">{{ run.created_at|date:'j M Y, H:i T' }}</time></span>
+          </li>
+        {% endwith %}
+      {% endfor %}
+    </ul>
+    {% if runs.has_other_pages %}
+      <nav class="pagination" aria-label="Saved analysis pages">
+        {% if runs.has_previous %}<a class="button button-secondary" href="{% querystring writing_page=runs.previous_page_number %}#writing-history">Previous analyses</a>{% endif %}
+        <span>Page {{ runs.number }} of {{ runs.paginator.num_pages }}</span>
+        {% if runs.has_next %}<a class="button button-secondary" href="{% querystring writing_page=runs.next_page_number %}#writing-history">Next analyses</a>{% endif %}
+      </nav>
+    {% endif %}
+  {% else %}<p class="muted">No writing analyses have been saved here.</p>{% endif %}
+</section>
+{% endblock %}

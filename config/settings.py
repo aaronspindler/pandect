@@ -10,6 +10,8 @@ from uuid import UUID
 from django.core.exceptions import ImproperlyConfigured
 from django.http.request import split_domain_port
 
+from request_activity import capture_enabled
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
@@ -19,6 +21,7 @@ if not SECRET_KEY:
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 APP_VERSION = os.environ.get("APP_VERSION", "dev")
 APP_COMMIT_SHA = os.environ.get("APP_COMMIT_SHA", "unknown")
+PANDECT_REQUEST_ACTIVITY_ENABLED = capture_enabled()
 PANDECT_PUBLIC_ORIGIN = os.environ.get(
     "PANDECT_PUBLIC_ORIGIN", "http://localhost:8000"
 ).rstrip("/")
@@ -74,6 +77,7 @@ INSTALLED_APPS = [
     "socialmedia",
     "video",
     "marketing",
+    "request_activity",
     "ui",
     "allauth",
     "allauth.account",

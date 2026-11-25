@@ -51,7 +51,6 @@ class LiveFragmentTests(EvidenceViewTestMixin, TestCase):
         self.idle_trip_urls = (
             reverse("geo:case_map", args=[self.case.pk]),
             reverse("vehicle:detail", args=[self.case.pk, self.vehicle.pk]),
-            reverse("core:analysis:report", args=[self.case.pk, "vehicle-trips"]),
         )
         self.urls = (
             reverse("core:analysis:processing", args=[self.case.pk]),

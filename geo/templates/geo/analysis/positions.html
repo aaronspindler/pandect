@@ -1,21 +1,42 @@
 {% load l10n %}
-<details class="analysis-section disclosure analysis-position-map" open>
+<details class="analysis-section disclosure analysis-position-map"{% if position_map_available %} data-observation-map data-tile-url="{{ observation_tile_url }}" data-tile-attribution="{{ observation_tile_attribution }}"{% endif %} open>
   <summary>Selected observation positions</summary>
-  <p class="muted">Positions linked to findings on this page. Circles are reported positions, squares are selected address estimates, and diamonds are lookup candidates.</p>
-  <svg class="analysis-map" viewBox="0 0 600 180" role="img" aria-labelledby="coordinate-map-title">
-    <title id="coordinate-map-title">Selected positions. North is upward. The plot shows points without routes.</title>
-    <rect width="600" height="180" fill="none" stroke="currentColor"/>
+  {% if position_map_available %}
+  <div data-observation-map-info hidden>
+    <p class="help-text">The background map provider receives your IP address, site origin, and viewed map areas.</p>
+    <p class="muted">Circles are reported positions, squares are selected address estimates, and diamonds are lookup candidates.</p>
+    <p role="status" class="sr-only" data-map-status></p>
+  </div>
+  <div class="case-map observation-map" tabindex="0" role="region" aria-label="Observation map" data-observation-map-canvas hidden></div>
+  {% endif %}
+  <details class="disclosure"{% if not position_map_available %} open{% endif %}>
+    <summary>Coordinates and sources</summary>
+    <ul class="source-list">
     {% for point in map_points %}
-      <a href="{{ point.url }}" aria-label="{{ point.label }}">
-        {% if point.kind == 'reviewed' %}
-          <rect x="-5" y="-5" width="10" height="10" fill="currentColor" transform="translate({{ point.x|unlocalize }} {{ point.y|unlocalize }})"/>
-        {% elif point.kind == 'candidate' %}
-          <path d="M 0,-6 L 6,0 L 0,6 L -6,0 Z" fill="currentColor" transform="translate({{ point.x|unlocalize }} {{ point.y|unlocalize }})"/>
-        {% else %}
-          <circle cx="{{ point.x|unlocalize }}" cy="{{ point.y|unlocalize }}" r="5" fill="currentColor"/>
-        {% endif %}
-        <title>{{ point.label }}</title>
-      </a>
+      <li{% if position_map_available and point.plottable %} data-position-kind="{{ point.kind }}" data-latitude="{{ point.latitude|unlocalize }}" data-longitude="{{ point.longitude|unlocalize }}"{% endif %}>
+        <a class="record-link" href="{{ point.url }}">{{ point.label }}</a>
+        <span class="muted">· <span data-position-label>{% if point.kind == 'reviewed' %}Selected address estimate{% elif point.kind == 'candidate' %}Lookup candidate{% else %}Reported position{% endif %}</span> · {{ point.latitude|unlocalize }}, {{ point.longitude|unlocalize }}{% if not point.plottable %} · Outside map display range{% endif %}</span>
+      </li>
     {% endfor %}
-  </svg>
+    </ul>
+    {% if position_plot %}<div data-position-plot>
+    <p class="muted">Relative positions. Circles are reported positions, squares are selected address estimates, and diamonds are lookup candidates.</p>
+    <svg class="analysis-map" viewBox="0 0 600 180" role="img" aria-labelledby="coordinate-map-title">
+      <title id="coordinate-map-title">Selected positions. North is upward. The plot shows points without routes.</title>
+      <rect width="600" height="180" fill="none" stroke="currentColor"/>
+      {% for point in map_points %}
+        <a href="{{ point.url }}" aria-label="{{ point.label }}">
+          {% if point.kind == 'reviewed' %}
+            <rect x="-5" y="-5" width="10" height="10" fill="currentColor" transform="translate({{ point.x|unlocalize }} {{ point.y|unlocalize }})"/>
+          {% elif point.kind == 'candidate' %}
+            <path d="M 0,-6 L 6,0 L 0,6 L -6,0 Z" fill="currentColor" transform="translate({{ point.x|unlocalize }} {{ point.y|unlocalize }})"/>
+          {% else %}
+            <circle cx="{{ point.x|unlocalize }}" cy="{{ point.y|unlocalize }}" r="5" fill="currentColor"/>
+          {% endif %}
+          <title>{{ point.label }}</title>
+        </a>
+      {% endfor %}
+    </svg>
+    </div>{% endif %}
+  </details>
 </details>

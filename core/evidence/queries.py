@@ -1,5 +1,8 @@
 """One same-case evidence boundary for readers, search, reports and workers."""
 
+import re
+from datetime import UTC, date, datetime, time, timedelta
+
 from django.core.exceptions import ValidationError
 from django.db.models import CharField, Count, F, Q, Value
 from django.http import Http404
@@ -7,7 +10,7 @@ from django.http import Http404
 from core.evidence.types import FILE_KINDS, KINDS
 from geo.models import PersonLocationEvidence, VehicleLocationEvidence
 from people.models import Person
-from phone.models import CallEvidence, CommunicationEvidence
+from phone.models import CallEvidence, CommunicationEvidence, TextMessageEvidence
 
 
 def same_case_evidence(queryset):
@@ -34,9 +37,16 @@ def same_case_evidence(queryset):
                 & (Q(recipient__isnull=True) | Q(recipient__case_id=F("case_id")))
             )
         )
-    elif issubclass(model, CommunicationEvidence):
-        queryset = queryset.filter(
-            sender__case_id=F("case_id"), recipient__case_id=F("case_id")
+    elif issubclass(model, TextMessageEvidence):
+        queryset = queryset.filter(sender__case_id=F("case_id")).filter(
+            Q(group_source__isnull=True, recipient__case_id=F("case_id"))
+            | Q(
+                recipient__isnull=True,
+                group_source__case_id=F("case_id"),
+                communication_context__case_id=F("case_id"),
+                communication_context__source_document_id=F("group_source_id"),
+                communication_context__source_sha256=F("group_source__sha256"),
+            )
         )
     elif issubclass(model, PersonLocationEvidence):
         queryset = queryset.filter(person__case_id=F("case_id"))
@@ -59,6 +69,23 @@ def scoped_evidence(case, kind):
     return same_case_evidence(model.objects.filter(case=case))
 
 
+def local_date_range(field, *, start=None, end=None):
+    """Add indexable bounds around an exact local-calendar-date filter."""
+    bounds = {}
+    # A UTC offset is shorter than a day. Broad bounds keep the local date
+    # exact even where a timezone transition changes or repeats midnight.
+    day = timedelta(days=1)
+    if start:
+        bounds[f"{field}__date__gte"] = start
+        if start > date.min:
+            bounds[f"{field}__gte"] = datetime.combine(start - day, time.min, UTC)
+    if end:
+        bounds[f"{field}__date__lte"] = end
+        if end < date.max - day:
+            bounds[f"{field}__lt"] = datetime.combine(end + 2 * day, time.min, UTC)
+    return bounds
+
+
 def evidence_counts_by_type(case, *, archived):
     """Count visible evidence by type, including empty types, in one query."""
     queries = []
@@ -76,11 +103,19 @@ def evidence_counts_by_type(case, *, archived):
     return dict(queries[0].union(*queries[1:], all=True).order_by())
 
 
+def matching_checksum(queryset, checksum):
+    if not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        return queryset.none()
+    # The schema only permits lowercase digests. Use the existing Upper index
+    # from case search for equality against the canonical input.
+    return queryset.filter(sha256__iexact=checksum)
+
+
 def duplicate_matches(case, sha256):
     """Find exact file or captured-text matches among active originals."""
     queries = [
-        scoped_evidence(case, kind)
-        .filter(sha256=sha256, is_archived=False)
+        matching_checksum(scoped_evidence(case, kind), sha256)
+        .filter(is_archived=False)
         .order_by()
         .annotate(kind=Value(kind, output_field=CharField()))
         .values("id", "title", "kind", "is_archived", "created_at")

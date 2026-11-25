@@ -44,6 +44,14 @@ the run do not. Findings follow the full collection's latest-equivalent-run and
 review rules. Matching names/contacts, imported participant labels, source exports,
 vehicle observations, and POIs do not create evidence associations.
 
+### Writing style
+
+Open **Writing style** on a person record to read that person's saved writing
+analyses. Owners and editors can describe the writing in a sample or compare
+earlier and later samples. The workflow uses active case messages that record
+the person as the sender. See [writing samples by person](analysis-communications.md#writing-samples-by-person)
+for date selection, coverage, and interpretation.
+
 ### Social accounts
 
 Choose **Add social account** to record a named platform and reported username,

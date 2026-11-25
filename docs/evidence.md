@@ -61,9 +61,9 @@ or CSV imports. **Upload files** accepts documents, images, and audio together.
 **Add a record** offers Text, Location, Person location, Vehicle
 location, Text message, Phone call, and FaceTime. **Import records** offers vehicle
 locations, [call history CSVs](#call-history-csv-import), and message CSVs from
-iMessage and WhatsApp. Message import retains
-its CSV, prepares background review, and requires confirmed people and timezone
-before publishing valid messages.
+iMessage and WhatsApp. Message import retains its CSV, prepares a background
+review, and requires confirmed people and timezone before publishing ready
+messages from direct or group chats.
 New evidence queues built-in checks and eligible checks using the
 [case's selected AI backend](cases.md#ai-backend) after publication. Follow
 progress in **Processing**. See
@@ -210,10 +210,14 @@ evidence; whole-case deletion removes both.
 ### Call history CSV import
 
 From **Add evidence → Import records**, choose **Import call history CSV**.
-Upload a CSV or choose an active CSV Document from the case. Choose or add a
-source line or account and confirm the export timezone. The source is a case
-record that identifies which exports came from the same line or account. Linking
-it to a case person is optional.
+Choose the CSV file and continue. For a CSV already retained in the case, use
+**Import call history CSV** from its Document actions.
+
+In source review, choose or add the line or account before preparing the calls.
+Pandect defaults the export timezone to your account timezone, or
+`America/Toronto` when the account has no timezone. Use **Change export
+timezone** if the CSV uses a different zone. The source identifies which
+exports came from the same line or account. Its case person link is optional.
 
 Use a UTF-8 CSV with the fields `Call type`, `Date`, `Duration`, `Number`,
 `Contact`, `Location`, and `Service`. The supported export reports
@@ -224,8 +228,8 @@ suffixes. The import accepts up to 20,000 rows and 16 MiB, subject to the
 configured upload limit. Zero duration is retained as zero. The export supplies
 no separate call outcome, and contact labels and numbers are reported information.
 
-Background preparation retains the exact original and builds a paginated
-review. You can link case people in bulk by reported identifier or make an
+Pandect retains the exact original at upload. Background preparation builds a
+paginated review. You can link case people in bulk by reported identifier or make an
 exception for a specific row. Matching never creates a person. The review
 flags possible repeats in distinct exports from the same source. Inspect both
 sides, then keep or skip the flagged rows with individual exceptions. Both
@@ -251,6 +255,11 @@ with identical timestamps have a stable display order based on UUID. Scroll up
 when the reader opens on a later message to load earlier messages without losing
 your place. Earlier and later links work by keyboard, without JavaScript, and
 after a loading failure. Every page request checks current access.
+
+Open imported group messages from the import result or the **Evidence** list.
+Each record shows the confirmed sender and the group destination, with a link
+to the retained CSV. **Info** shows the source row and the export's sender
+details. Group messages also appear in case search and chronology.
 
 Use **Search messages** on the **Messages** tab to find a word or exact phrase
 in the active messages in the conversation. Search ignores letter

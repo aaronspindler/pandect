@@ -7,6 +7,7 @@ from django.urls import include, path
 from accounts.views import timezone_settings
 from cases.activity import stream_unavailable
 from cases.views import invitation_accept
+from request_activity.views import request_activity
 from socialmedia.monitor_views import connection_settings
 
 from .views import health
@@ -15,6 +16,7 @@ admin.site.login = secure_admin_login(admin.site.login)
 admin.site.site_header = "Pandect administration"
 admin.site.site_title = "Pandect administration"
 admin.site.index_title = "Manage this installation"
+admin.site.index_template = "request_activity/admin_index.html"
 
 urlpatterns = [
     path("events/cases/<uuid:case_id>/", stream_unavailable, name="case_events"),
@@ -32,6 +34,11 @@ urlpatterns = [
     path("cases/<uuid:case_id>/instagram/", include("socialmedia.monitor_urls")),
     path("cases/<uuid:case_id>/", include("core.urls")),
     path("invitations/<str:token>/", invitation_accept, name="invitation_accept"),
+    path(
+        "admin/request-activity/",
+        admin.site.admin_view(request_activity),
+        name="request_activity",
+    ),
     path("admin/", admin.site.urls),
 ]
 

@@ -6,7 +6,12 @@ from django.urls import reverse
 
 from core.analysis.search import derived_content_condition, derived_text_matches
 from core.evidence.navigation import collection_params
-from core.evidence.queries import person_evidence, scoped_evidence, selected_person
+from core.evidence.queries import (
+    matching_checksum,
+    person_evidence,
+    scoped_evidence,
+    selected_person,
+)
 from core.evidence.search import retained_content_condition, retained_text_matches
 from core.evidence.types import (
     COMMUNICATION_KINDS,
@@ -51,7 +56,7 @@ def collection_context(case, params, *, workspace_rows=False):
             continue
         queryset = scoped_evidence(case, kind)
         if checksum:
-            queryset = queryset.filter(sha256=checksum)
+            queryset = matching_checksum(queryset, checksum)
         if person:
             queryset = person_evidence(queryset, person)
         if state != "all":

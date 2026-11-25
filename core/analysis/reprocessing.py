@@ -358,7 +358,7 @@ def _text_checks(
     entries,
     *,
     writing=False,
-    messages=False,
+    direct_message_ids=(),
     communications=False,
     marker="",
     previous_run=None,
@@ -379,9 +379,12 @@ def _text_checks(
             )
             if writing:
                 queue("style_profiles", choices)
-            if messages:
+            direct = [
+                choice for choice in choices if choice["id"] in direct_message_ids
+            ]
+            if direct:
                 group, parameters = _history_communication(
-                    batch, choices, {"gap_minutes": 60}, history, minutes=60
+                    batch, direct, {"gap_minutes": 60}, history, minutes=60
                 )
                 if batch.scope.get("analysis_version") != ANALYSIS_VERSION:
                     queue("sessions", group, parameters)
@@ -406,9 +409,10 @@ def _text_checks(
     for choices in _groups(entries, count=min(20, limit), characters=16_000):
         models("text_topics", choices, {"include_summary": True})
         models("content_events", choices)
-        if messages and _has_model_route(batch, "session_summaries"):
+        direct = [choice for choice in choices if choice["id"] in direct_message_ids]
+        if direct and _has_model_route(batch, "session_summaries"):
             group, parameters = _history_communication(
-                batch, choices, {"gap_minutes": 60}, history, minutes=60, model=True
+                batch, direct, {"gap_minutes": 60}, history, minutes=60, model=True
             )
             models("session_summaries", group, parameters)
         if communications:
@@ -702,7 +706,11 @@ def _prepare_sources(batch, case, kind, additions, rows):
             batch,
             entries,
             writing=kind in {"text", "text-message"},
-            messages=kind == "text-message",
+            direct_message_ids=(
+                {str(row.pk) for row in valid if row.recipient_id is not None}
+                if kind == "text-message"
+                else ()
+            ),
             communications=additions,
             history=(case, text_rows) if batch.scope["type"] == "added" else None,
         )

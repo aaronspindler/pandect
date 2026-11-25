@@ -9,6 +9,9 @@ from django.utils.cache import add_never_cache_headers
 from django.utils.crypto import salted_hmac
 from gunicorn.glogging import Logger
 
+from request_activity import capture_enabled
+from request_activity.capture import RequestCapture
+
 TOKEN_PATH = re.compile(
     r"(/(?:invitations|accounts/(?:confirm-email|password/reset/key))/)[^/?\s\"'<>]+"
 )
@@ -87,7 +90,10 @@ class PrivatePageMiddleware:
         if (
             response.status_code == 200
             and match
-            and match.view_name in ("geo:case_map", "geo:trip_detail")
+            and (
+                match.view_name in ("geo:case_map", "geo:trip_detail")
+                or getattr(request, "allow_observation_map_tiles", False)
+            )
             and settings.PANDECT_MAP_TILE_ORIGIN
         ):
             tile_source = f" {settings.PANDECT_MAP_TILE_ORIGIN}"
@@ -126,6 +132,33 @@ class PrivateAccessLogger(Logger):
     def setup(self, cfg):
         super().setup(cfg)
         self.error_log.addFilter(self._redact_errors)
+        self._capture_enabled = capture_enabled()
+        self._request_capture = None
+
+    def start_request_activity(self):
+        if self._capture_enabled:
+            try:
+                capture = RequestCapture.from_environment(self)
+                capture.start()
+            except OSError, RuntimeError, ValueError:
+                self.warning(
+                    "Request activity capture could not start. Check its settings."
+                )
+            else:
+                self._request_capture = capture
+
+    def stop_request_activity(self):
+        if self._request_capture is not None:
+            self._request_capture.stop()
+
+    def access(self, resp, req, environ, request_time):
+        if self._capture_enabled:
+            # Keep private per-request fields out of stdout, and avoid waiting
+            # for a synchronous stdout handler on the ASGI worker loop.
+            if self._request_capture is not None:
+                self._request_capture.enqueue(resp, req, environ, request_time)
+            return
+        super().access(resp, req, environ, request_time)
 
     def atoms(self, resp, req, environ, request_time):
         atoms = super().atoms(resp, req, environ, request_time)

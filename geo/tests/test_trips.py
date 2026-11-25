@@ -218,7 +218,7 @@ class VehicleTripTests(EvidenceViewTestMixin, TestCase):
         self.assertIn(str(batch.pk), result["items"][0]["start"]["import_url"])
         self.assertTrue(all(item.latitude is None for item in batch.observations.all()))
 
-    def test_report_and_vehicle_pages_allow_current_case_roles_and_deny_revocation(
+    def test_trip_pages_allow_current_case_roles_and_deny_revocation(
         self,
     ):
         self.observation(0)
@@ -229,21 +229,67 @@ class VehicleTripTests(EvidenceViewTestMixin, TestCase):
                 "vehicle:detail",
                 kwargs={"case_id": self.case.pk, "vehicle_id": self.vehicle.pk},
             ),
-            reverse(
-                "core:analysis:report",
-                kwargs={"case_id": self.case.pk, "name": "vehicle-trips"},
-            ),
+            reverse("geo:case_map", args=(self.case.pk,)),
         ]
+        legacy = reverse("core:analysis:report", args=(self.case.pk, "vehicle-trips"))
+        query = {"page": "1", "vehicle_id": str(self.vehicle.pk), "gap_page": "1"}
+        canonical = reverse("geo:case_map", args=(self.case.pk,), query=query)
         for role in ("owner", "editor", "viewer"):
             self.login(role)
+            self.assertRedirects(
+                self.client.get(legacy, query | {"start": "2026-10-27T08:00"}),
+                canonical,
+            )
             for url in urls:
                 response = self.client.get(url)
                 self.assertContains(response, "Possible trip")
                 self.assertContains(response, "10 Example Street")
                 self.assertContains(response, "20 Example Street")
         self.case.memberships.filter(user=self.users["viewer"]).delete()
-        for url in urls:
+        for url in [*urls, legacy]:
             self.assertEqual(self.client.get(url).status_code, 404)
         self.login("outsider")
-        for url in urls:
+        for url in [*urls, legacy]:
             self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_day_uses_local_midnight_and_keeps_other_trips_and_gaps_available(self):
+        first = self.observation(
+            observed_at=datetime(2026, 11, 1, 3, 55, tzinfo=UTC),
+        )
+        self.observation(
+            address="20 Example Street",
+            observed_at=datetime(2026, 11, 1, 4, tzinfo=UTC),
+        )
+        self.observation(
+            address="30 Example Street",
+            observed_at=datetime(2026, 11, 2, 5, tzinfo=UTC),
+        )
+        self.observation(
+            address="40 Example Street",
+            observed_at=datetime(2026, 11, 2, 5, 5, tzinfo=UTC),
+        )
+        self.prepare()
+        self.login("viewer")
+        self.client.cookies["pandect_timezone"] = "America/Toronto"
+        url = reverse("geo:case_map", args=(self.case.pk,))
+        selection = {"day": "2026-11-01", "vehicle_id": str(self.vehicle.pk)}
+
+        jump = self.client.get(url, selection)
+        self.assertEqual(jump.context["day_trip"]["start"]["time"], first.observed_at)
+        self.assertEqual(jump.context["page_obj"].paginator.count, 2)
+        self.assertContains(jump, "Jump to date (America/Toronto)")
+        self.assertContains(jump, "1 gap in location coverage")
+        self.assertNotContains(jump, "No trips overlap this date.")
+
+        page = self.client.get(url, selection | {"page": "1"})
+        self.assertIsNone(page.context["day_trip"])
+        self.assertEqual(
+            page.context["selected_trip"]["start"]["time"],
+            datetime(2026, 11, 2, 5, tzinfo=UTC),
+        )
+        missing = self.client.get(url, selection | {"day": "2026-11-03"})
+        self.assertContains(missing, "No trips overlap this date.")
+        self.assertEqual(missing.context["page_obj"].paginator.count, 2)
+        self.assertIn(
+            f"vehicle_id={self.vehicle.pk}", missing.context["clear_trip_url"]
+        )

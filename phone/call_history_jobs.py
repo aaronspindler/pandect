@@ -103,6 +103,43 @@ def _source_document(case, document):
     return retained
 
 
+def retain_call_history_upload(actor, case_id, *, submission_id, original):
+    """Retain the CSV before the investigator picks a source for review."""
+    submission_id = _uuid(submission_id)
+    _editor(actor, case_id)
+    limit = import_file_limit()
+    with (
+        staged_file_upload(original, limit=limit) as measurement,
+        retain_uploaded_originals() as originals,
+    ):
+        case = _editor(actor, case_id, lock=True)
+        if measurement is None or not 0 < measurement[1] <= limit:
+            raise ValidationError("Choose a nonempty CSV within the import size limit.")
+        checksum, byte_size = measurement
+        previous = DocumentEvidence.objects.filter(
+            case=case, uploaded_by=actor, submission_id=submission_id
+        ).first()
+        if previous is not None:
+            if previous.sha256 != checksum or previous.byte_size != byte_size:
+                raise ValidationError(
+                    "This upload submission was already used for different material."
+                )
+            if previous.is_archived:
+                raise ValidationError(ERROR_MESSAGES["source_archived"])
+            return previous
+        document = DocumentEvidence(
+            case=case,
+            uploaded_by=actor,
+            submission_id=submission_id,
+            file=original,
+            title=f"Call history CSV · {original.name}"[:255],
+        )
+        document.full_clean()
+        document.save()
+        originals.append(document.file)
+        return document
+
+
 def _authorized_batch(batch, *, lock=False):
     case = _editor(batch.requested_by, batch.case_id, lock=lock)
     if batch.source.case_id != case.pk or batch.document.case_id != case.pk:
@@ -117,106 +154,89 @@ def _authorized_batch(batch, *, lock=False):
     return case
 
 
+@transaction.atomic
 def retain_call_history(
-    actor, case_id, *, submission_id, original, document, source, source_label, timezone
+    actor, case_id, *, submission_id, document, source, source_label, timezone
 ):
-    """Retain one original and queue a preview once per case source and checksum."""
+    """Queue preview of a retained CSV once per case source and checksum."""
     submission_id = _uuid(submission_id)
     export_zone(timezone)
     source_label = (source_label or "").strip()
-    if (original is None) == (document is None):
-        raise ValidationError("Choose one new or retained CSV.")
     if bool(source) == bool(source_label):
         raise ValidationError("Select an existing source or enter a new source label.")
     if len(source_label) > CallImportSource._meta.get_field("label").max_length:
         raise ValidationError("Enter a shorter source label.")
-    with (
-        staged_file_upload(original, limit=import_file_limit()) as measurement,
-        retain_uploaded_originals() as originals,
-    ):
-        case = _editor(actor, case_id, lock=True)
-        if original is not None and measurement is None:
-            raise ValidationError("Choose a nonempty CSV within the import size limit.")
-        retained = _source_document(case, document) if document is not None else None
-        checksum = retained.sha256 if retained else measurement[0]
-        previous = (
-            CallHistoryImport.objects.filter(
-                case=case, uploaded_by=actor, submission_id=submission_id
-            )
-            .select_related("source", "document")
-            .first()
+    case = _editor(actor, case_id, lock=True)
+    document = _source_document(case, document)
+    checksum = document.sha256
+    previous = (
+        CallHistoryImport.objects.filter(
+            case=case, uploaded_by=actor, submission_id=submission_id
         )
-        source_id = _uuid(source) if source else None
-        if previous is not None:
-            same_source = (
-                previous.source_id == source_id
-                if source_id
-                else previous.source_label == source_label
+        .select_related("source", "document")
+        .first()
+    )
+    source_id = _uuid(source) if source else None
+    if previous is not None:
+        same_source = (
+            previous.source_id == source_id
+            if source_id
+            else previous.source_label == source_label
+        )
+        if (
+            not same_source
+            or previous.source.case_id != case.pk
+            or previous.document.case_id != case.pk
+            or previous.source_sha256 != checksum
+            or previous.timezone != timezone
+        ):
+            raise ValidationError(
+                "This submission was already used for another import."
             )
-            if (
-                not same_source
-                or previous.source.case_id != case.pk
-                or previous.document.case_id != case.pk
-                or previous.source_sha256 != checksum
-                or previous.timezone != timezone
-            ):
-                raise ValidationError(
-                    "This submission was already used for another import."
-                )
-            return previous
-        if source_id:
-            selected_source = CallImportSource.objects.filter(
-                case=case, pk=source_id
-            ).first()
-            if selected_source is None:
-                raise ValidationError("Choose a source in this case.")
-        else:
-            if CallImportSource.objects.filter(
-                case=case, label__iexact=source_label
-            ).exists():
-                raise ValidationError(
-                    "Select the existing source or enter a distinct label."
-                )
-            selected_source = CallImportSource.objects.create(
-                case=case, label=source_label, created_by=actor
-            )
-        previous = CallHistoryImport.objects.filter(
-            case=case,
-            source=selected_source,
-            source_sha256=checksum,
-            document__case=case,
+        return previous
+    if source_id:
+        selected_source = CallImportSource.objects.filter(
+            case=case, pk=source_id
         ).first()
-        if previous is not None:
-            if previous.timezone != timezone:
-                raise ValidationError(
-                    "This source and CSV already have an import in another timezone."
-                )
-            return previous
-        if retained is None:
-            retained = DocumentEvidence(
-                case=case,
-                uploaded_by=actor,
-                file=original,
-                title=f"Call history CSV · {original.name}"[:255],
+        if selected_source is None:
+            raise ValidationError("Choose a source in this case.")
+    else:
+        if CallImportSource.objects.filter(
+            case=case, label__iexact=source_label
+        ).exists():
+            raise ValidationError(
+                "Select the existing source or enter a distinct label."
             )
-            retained.full_clean()
-            retained.save()
-            originals.append(retained.file)
-        batch = CallHistoryImport.objects.create(
-            case=case,
-            document=retained,
-            source=selected_source,
-            source_sha256=checksum,
-            source_label=selected_source.label,
-            uploaded_by=actor,
-            requested_by=actor,
-            submission_id=submission_id,
-            timezone=timezone,
-            parser_version=PARSER_VERSION,
-            status="preparing",
+        selected_source = CallImportSource.objects.create(
+            case=case, label=source_label, created_by=actor
         )
-        process_call_history.enqueue(str(batch.pk), str(batch.attempt_id))
-        return batch
+    previous = CallHistoryImport.objects.filter(
+        case=case,
+        source=selected_source,
+        source_sha256=checksum,
+        document__case=case,
+    ).first()
+    if previous is not None:
+        if previous.timezone != timezone:
+            raise ValidationError(
+                "This source and CSV already have an import in another timezone."
+            )
+        return previous
+    batch = CallHistoryImport.objects.create(
+        case=case,
+        document=document,
+        source=selected_source,
+        source_sha256=checksum,
+        source_label=selected_source.label,
+        uploaded_by=actor,
+        requested_by=actor,
+        submission_id=submission_id,
+        timezone=timezone,
+        parser_version=PARSER_VERSION,
+        status="preparing",
+    )
+    process_call_history.enqueue(str(batch.pk), str(batch.attempt_id))
+    return batch
 
 
 def _locked_batch(actor, case_id, batch_id):

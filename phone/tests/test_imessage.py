@@ -29,9 +29,11 @@ from people.models import Person
 from phone.analysis.deterministic.imessage import (
     HEADERS,
     MAX_FIELD_CHARS,
+    MISSING_GROUP_SENDER,
     PARSER_VERSION,
     apply_import,
     iter_import_rows,
+    message_import_roles,
     prepare_import,
     read_import_page,
     stage_import,
@@ -80,8 +82,8 @@ class IMessageImportTests(EvidenceViewTestMixin, TestCase):
         )
         return Source(str(uuid4()), "document", document)
 
-    def preview(self, source):
-        parameters = {"phase": "preview", "timezone": "America/Toronto"}
+    def preview(self, source, **date_bounds):
+        parameters = {"phase": "preview", "timezone": "America/Toronto"} | date_bounds
         data = prepare_import([source], parameters)
         run = self.import_run(source, parameters, status=data["outcome"])
         AnalysisResult.objects.create(case=self.case, run=run, data=data)
@@ -202,6 +204,199 @@ class IMessageImportTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(CommunicationContext.objects.count(), 2)
         self.assertEqual(data["metrics"]["reused_rows"], 2)
 
+    def test_group_publication_keeps_sender_mappings_and_one_source_destination(self):
+        content = csv_content(
+            {"Text": "First group sender"},
+            {
+                "Sender ID": "15555550102",
+                "Sender Name": "Another sender",
+                "Text": "Second group sender",
+            },
+            {"Type": "Outgoing", "Sender ID": "", "Text": "Account reply"},
+            {"Sender ID": "", "Text": "No sender"},
+        )
+        source = self.source(content)
+        preview = self.preview(source)
+        summary = preview.result.data["imessage"]
+        self.assertTrue(summary["is_group"])
+        first, second = summary["senders"]
+        self.assertNotEqual(first["key"], second["key"])
+        self.assertEqual(second["id"], "15555550102")
+        self.assertEqual(second["names"], ["Another sender"])
+        self.assertEqual(
+            preview.result.data["metrics"],
+            {"source_rows": 4, "ready_rows": 3, "unresolved_rows": 1},
+        )
+        people = {
+            "account": {"id": str(self.person.pk), "create": None},
+            first["key"]: {"id": str(self.correspondent.pk), "create": None},
+            second["key"]: {
+                "id": str(uuid5(preview.pk, second["key"])),
+                "create": {"first_name": "Reviewed sender"},
+            },
+        }
+        parameters = preview.parameters | {
+            "phase": "import",
+            "preview_run_id": str(preview.pk),
+            "people": people,
+        }
+        foreign = Person.objects.create(case=self.other_case, first_name="Foreign")
+        foreign_parameters = parameters | {
+            "people": people | {first["key"]: {"id": str(foreign.pk), "create": None}}
+        }
+        with self.assertRaises(AnalysisError) as raised:
+            prepare_import([source], foreign_parameters)
+        self.assertEqual(raised.exception.code, "imessage_invalid_confirmation")
+
+        run = self.import_run(source, parameters)
+        data, spool, marker = stage_import([source], parameters)
+        self.assertIsNotNone(spool)
+        with spool, transaction.atomic():
+            self.assertEqual(
+                apply_import(
+                    run, data, [source], publication=spool, source_marker=marker
+                ),
+                3,
+            )
+        contexts = list(
+            CommunicationContext.objects.select_related("message").order_by(
+                "source_row"
+            )
+        )
+        self.assertEqual([context.source_row for context in contexts], [2, 3, 4])
+        self.assertEqual(
+            [str(context.message.sender_id) for context in contexts],
+            [people[role]["id"] for role in (first["key"], second["key"], "account")],
+        )
+        for context in contexts:
+            self.assertEqual(context.source_document_id, source.item.pk)
+            self.assertEqual(context.message.group_source_id, source.item.pk)
+            self.assertIsNone(context.message.recipient_id)
+            self.assertEqual(context.import_run_id, run.pk)
+        self.assertEqual(
+            contexts[1].account_identifiers["sender_name"], "Another sender"
+        )
+        self.assertEqual(contexts[2].account_identifiers["sender_id"], "")
+        self.assertEqual(self.publish(run, data, source), 0)
+        self.assertEqual(data["metrics"]["reused_rows"], 3)
+        self.assertEqual(TextMessageEvidence.objects.count(), 3)
+
+        separate_source = self.source(content)
+        separate_preview = self.preview(separate_source)
+        separate_parameters = parameters | {
+            "preview_run_id": str(separate_preview.pk),
+            "people": {
+                role: {"id": choice["id"], "create": None}
+                for role, choice in people.items()
+            },
+        }
+        separate_run = self.import_run(separate_source, separate_parameters)
+        self.assertEqual(
+            self.publish(
+                separate_run,
+                prepare_import([separate_source], separate_parameters),
+                separate_source,
+            ),
+            3,
+        )
+        self.assertEqual(TextMessageEvidence.objects.count(), 6)
+        self.assertEqual(
+            TextMessageEvidence.objects.filter(group_source=source.item).count(), 3
+        )
+        self.assertEqual(
+            TextMessageEvidence.objects.filter(
+                group_source=separate_source.item
+            ).count(),
+            3,
+        )
+
+    def test_late_sender_classifies_group_before_date_range_and_review_paging(self):
+        import phone.analysis.deterministic.imessage as message_import
+
+        source = self.source(
+            csv_content(
+                {"Sender ID": " ", "Text": "Blank sender in range"},
+                {"Text": "Ready sender in range"},
+                {
+                    "Sender ID": "15555550102",
+                    "Message Date": "2026-07-30 21:00:00",
+                    "Text": "Second sender outside range",
+                },
+            )
+        )
+        with patch.object(message_import, "REVIEW_STEP_BYTES", 1):
+            preview = self.preview(source, end_date="2026-07-29")
+        data = preview.result.data
+        summary = data["imessage"]
+        self.assertTrue(summary["is_group"])
+        (sender,) = message_import_roles(summary)
+        self.assertEqual(
+            data["metrics"],
+            {
+                "source_rows": 3,
+                "ready_rows": 1,
+                "unresolved_rows": 1,
+                "date_excluded_rows": 1,
+            },
+        )
+        review_parameters = preview.parameters | {
+            "_imessage_text_limit_bytes": summary["text_limit_bytes"],
+            "_imessage_interpretation_sha256": summary["interpretation_sha256"],
+        }
+        for page, source_row in ((1, 2), (2, 4)):
+            options = {"page": page, "per_page": 1, "excluded_only": True}
+            checkpoint_rows = read_import_page(
+                source, review_parameters, retained=data, **options
+            )
+            self.assertEqual(
+                checkpoint_rows, read_import_page(source, review_parameters, **options)
+            )
+            rows, total, _ = checkpoint_rows
+            self.assertEqual(total, 2)
+            (row,) = rows
+            self.assertEqual(row["values"]["source_row"], source_row)
+            if page == 1:
+                self.assertEqual(
+                    row["values"]["unresolved_reason"], MISSING_GROUP_SENDER
+                )
+
+        parameters = preview.parameters | {
+            "phase": "import",
+            "preview_run_id": str(preview.pk),
+            "people": {
+                sender: {
+                    "id": str(uuid5(preview.pk, sender)),
+                    "create": {"first_name": "New sender"},
+                }
+            },
+        }
+        before = Person.objects.count()
+        forged = deepcopy(parameters)
+        forged["people"]["account"] = {
+            "id": str(uuid5(preview.pk, "account")),
+            "create": {"first_name": "Unused account"},
+        }
+        with self.assertRaises(AnalysisError) as raised:
+            prepare_import([source], forged)
+        self.assertEqual(raised.exception.code, "imessage_invalid_confirmation")
+        run = self.import_run(source, parameters)
+        self.assertEqual(
+            self.publish(run, prepare_import([source], parameters), source), 1
+        )
+        self.assertEqual(Person.objects.count(), before + 1)
+        message = TextMessageEvidence.objects.get()
+        self.assertEqual(message.group_source_id, source.item.pk)
+        self.assertEqual(message.body, "Ready sender in range")
+
+    def test_group_rejects_reviews_over_the_participant_limit(self):
+        source = self.source(csv_content({}, {"Sender ID": "15555550102"}))
+        with (
+            patch("phone.analysis.deterministic.imessage.MAX_GROUP_SENDERS", 1),
+            self.assertRaises(AnalysisError) as raised,
+        ):
+            prepare_import([source], {"phase": "preview", "timezone": "UTC"})
+        self.assertEqual(raised.exception.code, "imessage_sender_limit")
+
     def test_outgoing_only_unknown_source_labels_allow_reviewed_associations(self):
         source = self.source(
             csv_content(
@@ -271,7 +466,6 @@ class IMessageImportTests(EvidenceViewTestMixin, TestCase):
                 csv_content({}, {"Chat Session": "Another session"}),
                 "imessage_multiple_chats",
             ),
-            (csv_content({}, {"Sender ID": "15555550102"}), "imessage_multiple_chats"),
         )
         for raw, code in invalid:
             with self.subTest(code=code), self.assertRaises(AnalysisError) as raised:

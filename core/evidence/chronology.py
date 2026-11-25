@@ -11,11 +11,11 @@ from django.views.decorators.http import require_safe
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
 from core.evidence.daily_chronology import daily_chronology, timestamp_fields
-from core.evidence.queries import person_evidence, scoped_evidence
+from core.evidence.queries import local_date_range, person_evidence, scoped_evidence
 from core.evidence.source_clocks import (
     attach_clock_details,
     attach_unplaced_dates,
-    date_only_messages,
+    is_date_only_message,
 )
 from core.evidence.time_claims import time_claims_page
 from core.evidence.types import KIND_LABELS, KINDS
@@ -95,6 +95,9 @@ def _filtered_sources(case, filters):
 
 
 def chronology_records(case, filters):
+    date_range = local_date_range(
+        "event_at", start=filters.get("start"), end=filters.get("end")
+    )
     queries = []
     for kind, queryset in _filtered_sources(case, filters):
         for field, label in timestamp_fields(kind, filters["category"]):
@@ -104,16 +107,11 @@ def chronology_records(case, filters):
                 kind=Value(kind, output_field=CharField()),
             )
             if kind == "text-message" and field == "occurred_at":
-                events = events.exclude(pk__in=date_only_messages(case))
-            # Django's datetime date transform uses the active user timezone.
-            if filters.get("start"):
-                events = events.filter(event_at__date__gte=filters["start"])
-            if filters.get("end"):
-                events = events.filter(event_at__date__lte=filters["end"])
+                events = events.filter(~is_date_only_message(case))
             queries.append(
-                events.order_by().values(
-                    "id", "title", "kind", "event_at", "event_label"
-                )
+                events.filter(**date_range)
+                .order_by()
+                .values("id", "title", "kind", "event_at", "event_label")
             )
     if not queries:
         return []
@@ -130,7 +128,7 @@ def _undated_originals(case, filters):
         for field, _ in timestamp_fields(kind, "observed"):
             unplaced = Q(**{field + "__isnull": True})
             if kind == "text-message":
-                unplaced |= Q(pk__in=date_only_messages(case))
+                unplaced |= Q(is_date_only_message(case))
             queryset = queryset.filter(unplaced)
         queries.append(
             queryset.order_by().annotate(kind=Value(kind)).values("id", "title", "kind")

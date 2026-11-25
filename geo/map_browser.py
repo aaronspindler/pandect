@@ -322,6 +322,10 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     (320, 844),
                 ):
                     page.set_viewport_size({"width": width, "height": height})
+                    expect(page.get_by_label("Vehicle", exact=True)).to_be_visible()
+                    expect(
+                        page.get_by_label(re.compile(r"^Jump to date"))
+                    ).to_be_visible()
                     page.wait_for_function("""() => {
                         const map = document.querySelector("#investigation-map");
                         const drawing = map.querySelector(".trip-path-canvas");
@@ -490,7 +494,7 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     context.close()
                     browser.close()
 
-    def test_fallback_filters_tiles_and_geometry_failure(self):
+    def test_fallback_trip_tools_tiles_and_geometry_failure(self):
         with sync_playwright() as playwright:
             for engine in self.engines():
                 browser = getattr(playwright, engine).launch()
@@ -500,15 +504,22 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                 self.authenticate(context)
                 page = context.new_page()
                 page.goto(self.map_url)
-                page.locator(".map-search > summary").click()
-                page.get_by_label("Vehicle", exact=True).select_option(
-                    str(self.vehicle.pk)
+                vehicle = page.get_by_label("Vehicle", exact=True)
+                day = page.get_by_label(re.compile(r"^Jump to date"))
+                expect(vehicle).to_be_visible()
+                expect(day).to_be_visible()
+                expect(page.get_by_label("Search POIs", exact=True)).to_be_hidden()
+                vehicle.select_option(str(self.vehicle.pk))
+                day.fill("2026-11-01")
+                page.get_by_role("button", name="Go", exact=True).press("Enter")
+                expect(page).to_have_url(re.compile(r"#trip-day-result$"))
+                expect(vehicle).to_have_value(str(self.vehicle.pk))
+                expect(vehicle).to_be_visible()
+                expect(day).to_have_value("2026-11-01")
+                expect(page.locator("#trip-day-result")).to_contain_text(
+                    "Synthetic van"
                 )
-                page.get_by_role("button", name="Apply filters").click()
-                expect(page.get_by_label("Vehicle", exact=True)).to_be_hidden()
-                expect(
-                    page.get_by_text("Trips · Synthetic van", exact=True)
-                ).to_be_visible()
+                self.capture(page, engine, "trips-jump-no-js", wait_for_trip=False)
                 trips = page.get_by_role("region", name="Possible trips", exact=True)
                 self.assertTrue(
                     trips.evaluate("""element => Boolean(
@@ -525,6 +536,11 @@ class InvestigationMapBrowserTests(StaticLiveServerTestCase):
                     ).get_by_role("link", name="0 Example Street", exact=True)
                 ).to_be_visible()
                 self.capture(page, engine, "trip-no-js")
+                page.get_by_role("link", name="Back to trips", exact=True).press(
+                    "Enter"
+                )
+                expect(vehicle).to_have_value(str(self.vehicle.pk))
+                expect(day).to_have_value("2026-11-01")
                 context.close()
                 context = browser.new_context(viewport={"width": 390, "height": 844})
                 self.authenticate(context)

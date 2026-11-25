@@ -1,6 +1,7 @@
 """Shared, paginated presentation of complete processed vehicle trips."""
 
 from django.core.paginator import Paginator
+from django.db.models import Q
 
 from core.evidence.queries import scoped_evidence
 from geo.trip_processing import (
@@ -17,15 +18,34 @@ def saved_trip_report(
     vehicle_id=None,
     start=None,
     end=None,
-    page=1,
+    page=None,
     page_size=25,
     gap_page=1,
+    day_bounds=None,
 ):
     trips = saved_trips(case, vehicle_id=vehicle_id, start=start, end=end)
+    jump_requested = day_bounds is not None and not page
+    anchor = None
+    if jump_requested:
+        day_start, next_day = day_bounds
+        if day_start < next_day:
+            anchor = (
+                trips.filter(start_at__lt=next_day, end_at__gte=day_start)
+                .values("start_at", "pk")
+                .first()
+            )
+        if anchor:
+            preceding = trips.filter(
+                Q(start_at__gt=anchor["start_at"])
+                | Q(start_at=anchor["start_at"], pk__lt=anchor["pk"])
+            ).count()
+            page = preceding // page_size + 1
     page_obj = Paginator(trips, page_size).get_page(page)
     generations = current_generations(case, vehicle_id=vehicle_id)
+    vehicle_count = 0
     observations = missing_times = conflicts = incomparable = 0
     for metrics in generations.values_list("metrics", flat=True):
+        vehicle_count += 1
         counts = metrics.get("active", {})
         observations += counts.get("observations", 0)
         missing_times += counts.get("missing_times", 0)
@@ -60,22 +80,24 @@ def saved_trip_report(
         ),
         "items": format_trips(case, page_obj),
         "page_obj": page_obj,
+        "day_trip_id": str(anchor["pk"]) if anchor else "",
+        "day_not_found": jump_requested and not anchor,
         "gaps": format_trips(case, gap_page_obj),
         "gap_page_obj": gap_page_obj,
         "warnings": warnings,
         "pending": pending,
         "processing_pending": readiness["pending"],
+        "failed": readiness["failed"],
         "needs_prepare": readiness["needs_prepare"],
         "vehicle_id": vehicle_id,
         "coverage": (
             f"Processed from {observations} observations "
             "in complete vehicle histories. "
-            "Date filters select whole overlapping trips; "
-            "times reflect reported observations."
+            "Times reflect reported observations."
         ),
         "metrics": {
             "Possible trips": page_obj.paginator.count,
-            "Vehicles in selection": generations.count(),
+            "Vehicles in selection": vehicle_count,
             "Matching records": observations,
             "Selected records": observations,
             "Missing observation time": missing_times,

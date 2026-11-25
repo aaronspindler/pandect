@@ -2,8 +2,10 @@
 
 import re
 
+from django.db.models import F, Value
+
 from core.evidence.daily_chronology import timestamp_fields
-from core.evidence.source_clocks import date_only_messages
+from core.evidence.source_clocks import date_only_messages, is_date_only_message
 from core.evidence.types import KINDS
 from phone.grouping_models import ConversationSessionMember
 from phone.grouping_sources import unique_reply_target
@@ -59,24 +61,29 @@ def _replies(case, item, include_archived, through):
 
 def _closest_event(case, stamp, before, include_archived, through):
     # Each evidence table contributes at most one timestamp and source ID.
+    order = "-event_at" if before else "event_at"
+    lookup = "__lt" if before else "__gt"
     candidates = []
     for kind in KINDS:
         for field, _ in timestamp_fields(kind, "observed"):
             qs = rows(case, "original", kind, include_archived, through)
             if kind == "text-message":
-                qs = qs.exclude(pk__in=date_only_messages(case))
-            qs = qs.filter(**{field + ("__lt" if before else "__gt"): stamp})
-            found = (
-                qs.order_by(("-" if before else "") + field, "pk")
-                .values_list(field, "pk")
-                .first()
+                qs = qs.filter(~is_date_only_message(case))
+            candidates.append(
+                qs.filter(**{field + lookup: stamp})
+                .annotate(event_at=F(field), source_kind=Value(kind))
+                .values_list("event_at", "source_kind", "pk")
+                .order_by(order, "pk")[:1]
             )
-            if found:
-                at, pk = found
-                candidates.append((abs(at - stamp), kind, str(pk)))
-    if candidates:
-        _, kind, pk = min(candidates)
-        yield "original", kind, pk
+    found = (
+        candidates[0]
+        .union(*candidates[1:], all=True)
+        .order_by(order, "source_kind", "pk")
+        .first()
+    )
+    if found:
+        _, kind, pk = found
+        yield "original", kind, str(pk)
 
 
 def nearby_sources(case, question, item, loc, include_archived, through):

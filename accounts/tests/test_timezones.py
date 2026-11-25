@@ -196,10 +196,8 @@ class UserTimezoneTests(EvidenceViewTestMixin, TestCase):
             process_trips(str(generation.pk), str(generation.token))
             generation.refresh_from_db()
         self.assertEqual(generation.status, "complete", generation.error_code)
-        response = self.client.get(
-            reverse("core:analysis:report", args=(self.case.pk, "vehicle-trips"))
-        )
-        self.assertContains(response, ">30 Jun 2026</time>")
+        response = self.client.get(reverse("geo:case_map", args=(self.case.pk,)))
+        self.assertContains(response, ">30 Jun 2026, 23:55 EDT</time>")
         self.assertContains(response, ">23:55 EDT</time>")
         self.assertContains(response, ">1 Jul 2026, 00:05 EDT</time>")
 

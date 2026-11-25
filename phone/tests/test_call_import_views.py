@@ -46,15 +46,22 @@ class CallHistoryViewTests(EvidenceViewTestMixin, TestCase):
             reverse("phone:call_history_review", args=[self.case.pk, batch.pk]) + query
         )
 
-    def prepare(self, content, **choices):
+    def upload(self, content):
         data = {
             "submission_id": str(uuid4()),
             "file": SimpleUploadedFile("synthetic-calls.csv", content, "text/csv"),
-            "source_label": "Synthetic line",
-            "timezone": "America/Toronto",
-            "confirm_timezone": "on",
         }
-        response = self.client.post(self.upload_url(), data | choices)
+        response = self.client.post(self.upload_url(), data)
+        self.assertEqual(response.status_code, 302)
+        return response.url
+
+    def prepare(self, content, **choices):
+        source_url = self.upload(content)
+        data = {
+            "submission_id": str(uuid4()),
+            "source_label": "Synthetic line",
+        }
+        response = self.client.post(source_url, data | choices)
         self.assertEqual(response.status_code, 302)
         batch = CallHistoryImport.objects.latest("created_at")
         self.assertRedirects(
@@ -194,15 +201,48 @@ class CallHistoryViewTests(EvidenceViewTestMixin, TestCase):
         source = self.client.get(source_url)
         self.assertContains(source, self.review_url(batch))
         self.assertContains(source, f"{self.upload_url()}?document={batch.document_id}")
-        self.assertContains(
-            self.client.get(f"{self.upload_url()}?document={batch.document_id}"),
-            f'<option value="{batch.document_id}" selected>',
-        )
+        setup_url = f"{self.upload_url()}?document={batch.document_id}"
+        setup = self.client.get(setup_url)
+        self.assertContains(setup, "Review call history source")
+        self.assertContains(setup, batch.document.original_filename)
+        self.assertNotContains(setup, 'type="file"')
         processing = self.client.get(
             reverse("core:analysis:processing", args=[self.case.pk])
         )
         self.assertContains(processing, "Call history imports to review")
         self.assertContains(processing, self.review_url(batch))
+        self.login("outsider")
+        self.assertEqual(self.client.get(setup_url).status_code, 404)
+
+    def test_new_upload_has_only_csv_and_uses_account_timezone_by_default(self):
+        owner = self.users["owner"]
+        owner.timezone = "America/Vancouver"
+        owner.save(update_fields=("timezone",))
+        self.login("owner")
+        upload = self.client.get(self.upload_url())
+        self.assertContains(upload, 'type="file"', count=1)
+        for field in (
+            "document",
+            "timezone",
+            "confirm_timezone",
+            "source",
+            "source_label",
+        ):
+            self.assertNotContains(upload, f'name="{field}"')
+
+        source_url = self.upload(call_history_csv())
+        self.assertFalse(CallHistoryImport.objects.exists())
+        self.assertContains(self.client.get(source_url), "America/Vancouver")
+        response = self.client.post(
+            source_url, {"submission_id": str(uuid4()), "source_label": "Work phone"}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(CallHistoryImport.objects.get().timezone, "America/Vancouver")
+
+    def test_source_review_can_confirm_a_different_export_timezone(self):
+        self.login("owner")
+        batch = self.prepare(call_history_csv(), timezone="America/Halifax")
+        self.assertEqual(batch.timezone, "America/Halifax")
 
     def test_header_only_export_shows_review_without_a_publish_action(self):
         self.login("owner")

@@ -23,6 +23,7 @@ from core.analysis.history import (
     wording_selection,
 )
 from core.analysis.import_checks import imported_sources
+from core.analysis.operations import PAIR_MESSAGE_OPERATIONS
 from core.analysis.services import start_run
 from core.analysis.sources import source_id
 from core.evidence.queries import scoped_evidence
@@ -155,6 +156,8 @@ def prepare_import_analysis(batch, case, messages):
     compared = {}
 
     def queue(operation, selected, parameters=None, *, additions=(), matching_calls=0):
+        if not selected:
+            return
         parameters = parameters or {}
         choices = [{"kind": "text-message", "id": str(item.pk)} for item in selected]
         if versioned and operation == "copied_text":
@@ -165,12 +168,7 @@ def prepare_import_analysis(batch, case, messages):
             if len(peers) < 2:
                 return
             choices = peers
-        if versioned and operation in {
-            "sessions",
-            "comm_patterns",
-            "session_summaries",
-            "conversation_link",
-        }:
+        if versioned and operation in PAIR_MESSAGE_OPERATIONS:
             exchange = operation == "conversation_link"
             model = operation == "session_summaries" or parameters.get(
                 "semantic_links", False
@@ -245,18 +243,19 @@ def prepare_import_analysis(batch, case, messages):
     if batch.scope.get("mode", "local") != "ai":
         queue("entities", messages)
         queue("text_topics", messages, {"include_summary": False})
+        direct = [message for message in messages if message.recipient_id is not None]
         if versioned:
             from phone.grouping_jobs import register_message_pairs
 
-            register_message_pairs(batch, case, messages)
+            register_message_pairs(batch, case, direct)
         else:
-            queue("sessions", messages, {"gap_minutes": 60})
-        queue("comm_patterns", messages, {"gap_minutes": 60})
+            queue("sessions", direct, {"gap_minutes": 60})
+        queue("comm_patterns", direct, {"gap_minutes": 60})
 
         calls, matching_calls = [], 0
-        timed = [message for message in messages if message.occurred_at is not None]
+        timed = [message for message in direct if message.occurred_at is not None]
         if timed and not versioned:
-            first = messages[0]
+            first = direct[0]
             pair = Q(sender_id=first.sender_id, recipient_id=first.recipient_id) | Q(
                 sender_id=first.recipient_id, recipient_id=first.sender_id
             )
@@ -273,11 +272,11 @@ def prepare_import_analysis(batch, case, messages):
                     {"kind": kind, "id": str(pk)}
                     for pk in available.order_by("occurred_at", "pk").values_list(
                         "pk", flat=True
-                    )[: max(0, limit - len(messages) - len(calls))]
+                    )[: max(0, limit - len(direct) - len(calls))]
                 )
         queue(
             "conversation_link",
-            messages,
+            direct,
             {"time_window_minutes": 10},
             additions=calls,
             matching_calls=matching_calls,
@@ -317,12 +316,13 @@ def prepare_import_analysis(batch, case, messages):
             queue("copied_text", group)
     if backend or versioned:
         for group in _groups(messages, count=min(20, limit), characters=16_000):
+            direct = [message for message in group if message.recipient_id is not None]
             for operation, parameters in MODEL_PARAMETERS.items():
                 for route in ("local", "gateway") if versioned else (backend,):
                     if f"{operation}:{route}" in executions:
                         queue(
                             operation,
-                            group,
+                            direct if operation in PAIR_MESSAGE_OPERATIONS else group,
                             parameters
                             | {"backend": route}
                             | (

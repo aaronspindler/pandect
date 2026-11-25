@@ -35,6 +35,13 @@ class CaseAnalysisBatch(models.Model):
 
     class Meta:
         ordering = ["-created_at", "id"]
+        indexes = [
+            GinIndex(
+                fields=["scope"],
+                opclasses=["jsonb_path_ops"],
+                name="analysis_batch_scope_gin",
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=("case", "requested_by", "submission_id"),
@@ -100,6 +107,9 @@ class AnalysisRun(models.Model):
     class Meta:
         ordering = ["-created_at", "id"]
         indexes = [
+            models.Index(
+                fields=["case", "-created_at", "id"], name="analysis_case_history"
+            ),
             GinIndex(
                 fields=["inputs"],
                 opclasses=["jsonb_path_ops"],

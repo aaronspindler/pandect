@@ -1,6 +1,7 @@
 """Location results use the recorded positions and measurements on the page."""
 
 from core.analysis.presentation import prioritize_measurements, table_rows
+from geo.analysis.deterministic.locations import WEB_MERCATOR_MAX_LATITUDE
 
 PRIMARY_FIELDS = {
     "journey_claims": (
@@ -145,6 +146,9 @@ def map_points(operation, items):
     low_lon, high_lon = min(longitudes), max(longitudes)
     return [
         {
+            "latitude": lat,
+            "longitude": lon,
+            "plottable": abs(lat) <= WEB_MERCATOR_MAX_LATITUDE,
             "x": 30 + 540 * (lon - low_lon) / (high_lon - low_lon)
             if high_lon > low_lon
             else 300,

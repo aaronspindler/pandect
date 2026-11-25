@@ -232,6 +232,8 @@ deletion. The owner foreign key uses `PROTECT`, including admin/queryset deletio
 ## Django admin
 
 The operator console is titled **Pandect administration**.
+Hosted sites can also configure a [request activity view](request-activity.md)
+with separate permissions for site operators.
 
 Open `/admin/` → **Cases**. Scoped administration requires active staff status,
 global model permissions, and current case access. Superusers have no access

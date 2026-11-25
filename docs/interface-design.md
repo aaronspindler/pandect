@@ -492,9 +492,10 @@ sources and **Limit by date** use disclosures. Review has one **Person** chooser
 per participant, with **Create a person** and a native disclosure for new person
 details.
 
-Call history CSV setup adds a source line or account. The review shows original
-rows and any time errors, group choices for people and possible overlaps, and
-individual exceptions. Published calls link to the original CSV. Missing
+Call history CSV upload asks for the file. The next step confirms its source
+line or account and shows the default export timezone with an optional override.
+The prepared review shows original rows, time errors, bulk person and overlap
+choices, and individual exceptions. Published calls link to the original CSV. Missing
 people appear as source labels or reported identifiers, and case editors can
 link a person in the call reader.
 
@@ -575,9 +576,15 @@ calculations/selection details. Chronological/grouped sources use 25-record page
 and comparisons cover the complete filtered selection. Participant pairs paginate
 independently; thread/reply lists and vehicle observations retain complete paged
 access. Structured lists/mappings use independent 200-value pages, preserving
-filter/finding context and full downloads. Narrow rows stack with labels. Trips
-show dates, endpoints, observed duration, and disclosed observations; omit repeated
-vehicle names. Pagination does not imply exhaustive coverage or verified journeys.
+filter/finding context and full downloads. Narrow rows stack with labels.
+
+**Trips** opens the trip list, coverage gaps, and map together. **Vehicle** and
+**Jump to date** stay visible above the list and work by keyboard without
+JavaScript. The day jump uses the displayed timezone and opens the first
+overlapping trip within the full paginated history for the current vehicle
+selection. Coverage gaps and POIs paginate independently. Trip rows show
+dates, linked source endpoints, and observed duration. See
+[Trips and the investigation map](maps.md).
 
 ## Collaboration and request behavior
 

@@ -13,7 +13,11 @@ from core.evidence.queries import get_evidence
 from core.models import AnalysisRun
 from core.storage import file_integrity, retain_uploaded_originals, staged_file_upload
 from document.models import DocumentEvidence
-from phone.analysis.deterministic.imessage import DATE_BOUND_FIELDS, import_file_limit
+from phone.analysis.deterministic.imessage import (
+    DATE_BOUND_FIELDS,
+    import_file_limit,
+    message_import_roles,
+)
 
 
 def start_preview(actor, case_id, values):
@@ -118,6 +122,13 @@ def confirm_import(actor, case_id, preview_id, people):
     document = preview_source(preview, case).item
     if not preview.result.data.get("metrics", {}).get("ready_rows"):
         raise ValidationError("This review has no ready messages to import.")
+    summary = preview.result.data.get("imessage", {})
+    if not isinstance(people, dict) or set(people) != set(
+        message_import_roles(summary)
+    ):
+        raise ValidationError(
+            "Choose a person for each participant shown in the review."
+        )
     parameters = {
         "phase": "import",
         "timezone": preview.parameters["timezone"],

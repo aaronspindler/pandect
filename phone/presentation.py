@@ -34,6 +34,12 @@ def message_excerpt(body):
     return excerpt
 
 
+def message_destination(message):
+    if message.recipient_id is None:
+        return "Group chat"
+    return str(message.recipient)
+
+
 def message_evidence_label(body, sender, occurred_at):
     timestamp = (
         date_format(timezone.localtime(occurred_at), "d M Y, H:i:s T")
@@ -90,7 +96,7 @@ def reader_context(
         context["display_title"] = message_evidence_label(
             item.body, item.sender, item.occurred_at
         )
-        if not item.is_archived:
+        if item.recipient_id and not item.is_archived:
             context["conversation_url"] = conversation_url(
                 case, item, list_page=conversation_list_page
             )
@@ -103,6 +109,10 @@ def reader_context(
         )
         imported = context["communication_context"]
         if imported:
+            if item.group_source_id:
+                context["group_chat_label"] = imported.source_context.get(
+                    "raw_fields", {}
+                ).get("Chat Session")
             related = (
                 CommunicationContext.objects.filter(
                     case=case,

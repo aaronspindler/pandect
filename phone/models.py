@@ -115,24 +115,48 @@ class CommunicationEvidence(Evidence):
 
 class TextMessageEvidence(CommunicationEvidence):
     communication_kind = "text-message"
+    recipient = models.ForeignKey(
+        "people.Person",
+        on_delete=models.RESTRICT,
+        related_name="%(class)s_received",
+        null=True,
+        blank=True,
+    )
+    group_source = models.ForeignKey(
+        "document.DocumentEvidence",
+        on_delete=models.RESTRICT,
+        related_name="group_messages",
+        null=True,
+        blank=True,
+        editable=False,
+    )
     body = models.TextField()
     search_words = models.GeneratedField(
         expression=word_vector(search_document((*COMMON, "body"))),
         output_field=SearchVectorField(),
         db_persist=True,
     )
-    immutable_fields = (*CommunicationEvidence.immutable_fields, "body")
+    immutable_fields = (
+        *CommunicationEvidence.immutable_fields,
+        "group_source_id",
+        "body",
+    )
 
     class Meta(CommunicationEvidence.Meta):
         indexes = [
             GinIndex(fields=["search_words"], name="srch_text_message_words"),
+            models.Index(
+                fields=("case", "occurred_at", "id"),
+                condition=models.Q(is_archived=False, occurred_at__isnull=False),
+                name="phone_message_case_time",
+            ),
             models.Index(
                 "case",
                 Least("sender_id", "recipient_id"),
                 Greatest("sender_id", "recipient_id"),
                 "occurred_at",
                 "id",
-                condition=models.Q(is_archived=False),
+                condition=models.Q(is_archived=False, recipient__isnull=False),
                 name="phone_active_pair_time",
             ),
         ]
@@ -141,7 +165,39 @@ class TextMessageEvidence(CommunicationEvidence):
             models.CheckConstraint(
                 condition=~models.Q(body=""), name="message_body_present"
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(recipient__isnull=False, group_source__isnull=True)
+                    | models.Q(recipient__isnull=True, group_source__isnull=False)
+                ),
+                name="message_one_destination",
+            ),
         ]
+
+    def _check_original(self, using):
+        if self.group_source_id is None:
+            return super()._check_original(using)
+        from document.models import DocumentEvidence
+
+        if self.sender_id is None:
+            raise ValidationError({"sender": "Choose a person in this case."})
+        if self.recipient_id is not None:
+            raise ValidationError({"recipient": "Choose a person or a group export."})
+        super()._check_original(using, allow_unlinked=True)
+        if (
+            not DocumentEvidence.objects.using(using)
+            .filter(pk=self.group_source_id, case_id=self.case_id)
+            .exists()
+        ):
+            raise ValidationError("Choose a retained group export from this case.")
+
+    def original_data(self):
+        data = super().original_data()
+        if self.group_source_id is not None:
+            data["schema"] = "pandect.group-text-message.v1"
+            data["group_source_id"] = str(self.group_source_id)
+            del data["recipient_id"]
+        return data
 
 
 class CallImportSource(models.Model):
@@ -491,6 +547,15 @@ class CallEvidence(CommunicationEvidence):
 class PhoneCallEvidence(CallEvidence):
     communication_kind = "phone-call"
 
+    class Meta(CallEvidence.Meta):
+        indexes = [
+            models.Index(
+                fields=("case", "occurred_at", "id"),
+                condition=models.Q(is_archived=False, occurred_at__isnull=False),
+                name="phone_call_case_time",
+            ),
+        ]
+
 
 class FaceTimeEvidence(CallEvidence):
     communication_kind = "facetime"
@@ -498,6 +563,13 @@ class FaceTimeEvidence(CallEvidence):
     class Meta(CallEvidence.Meta):
         verbose_name = "FaceTime evidence"
         verbose_name_plural = "FaceTime evidence"
+        indexes = [
+            models.Index(
+                fields=("case", "occurred_at", "id"),
+                condition=models.Q(is_archived=False, occurred_at__isnull=False),
+                name="phone_facetime_case_time",
+            ),
+        ]
 
 
 @transaction.atomic
@@ -799,8 +871,18 @@ class CommunicationContext(models.Model):
 
     def clean(self):
         super().clean()
-        if self.message_id and self.message.case_id != self.case_id:
-            raise ValidationError("Message context must belong to its message's case.")
+        if self.message_id:
+            if self.message.case_id != self.case_id:
+                raise ValidationError(
+                    "Message context must belong to its message's case."
+                )
+            if (
+                self.message.group_source_id is not None
+                and self.message.group_source_id != self.source_document_id
+            ):
+                raise ValidationError(
+                    "Message context must use its retained group export."
+                )
         if self.source_document_id and (
             self.source_document.case_id != self.case_id
             or self.source_document.sha256 != self.source_sha256

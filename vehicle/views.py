@@ -65,7 +65,13 @@ def vehicle_detail(request, case_id, vehicle_id):
     context = case_context(case, request.user) | {"vehicle": vehicle}
     if wants_record(request):
         return render_record(request, "vehicle/detail.html", context)
-    trip_report = report(case, "vehicle-trips", vehicle_id=vehicle.pk, page_size=5)
+    trip_report = report(
+        case,
+        "vehicle-trips",
+        vehicle_id=vehicle.pk,
+        page_size=5,
+        gap_page=request.GET.get("gap_page", 1),
+    )
     observations = same_case_evidence(
         vehicle.location_evidence.filter(case=case, is_archived=False)
     ).order_by(F("observed_at").desc(nulls_last=True), "-created_at", "pk")

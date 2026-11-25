@@ -34,7 +34,7 @@ from core.analysis.execution import (
     validate_case_execution_grant,
     validate_execution,
 )
-from core.analysis.operations import OPERATIONS, get_operation
+from core.analysis.operations import OPERATIONS, PAIR_MESSAGE_OPERATIONS, get_operation
 from core.analysis.source_limits import check_material_size
 from core.analysis.sources import Source, source_id
 from core.analysis.transcripts import follow_up_transcription, transcript_group
@@ -200,6 +200,11 @@ def resolve_inputs(
         require_current_review=require_current_review,
         cache=cache,
     )
+    if run.operation in PAIR_MESSAGE_OPERATIONS and any(
+        source.kind == "text-message" and source.item.recipient_id is None
+        for source in sources
+    ):
+        raise AnalysisError("direct_messages_required")
     if (
         run.operation == "session_summaries"
         and "_saved_session_range" in run.parameters
@@ -521,8 +526,8 @@ def _authorize_run(run, *, lock=False):
         if actor.pk != case.owner_id:
             raise AnalysisError("access_removed")
         approved_policy(case, feature, run.parameters.get("_generation_revision"))
-    current = AnalysisRun.objects.get(pk=run.pk)
-    if current.status in FINISHED:
+    status = AnalysisRun.objects.values_list("status", flat=True).get(pk=run.pk)
+    if status in FINISHED:
         raise AnalysisError("processing_cancelled")
     return case
 
@@ -582,7 +587,9 @@ def _check_source_limits(case, operation, parameters, selections):
     )
 
 
-def _source_snapshots(case, selections, *, allowed_kinds=None, active_only=True):
+def _source_snapshots(
+    case, selections, *, allowed_kinds=None, active_only=True, direct_messages=False
+):
     """Freeze source identities without fetching retained bodies or transcripts."""
     if not 1 <= len(selections) <= settings.PANDECT_ANALYSIS_MAX_SOURCES:
         raise ValidationError("Select between 1 and 500 retained sources.")
@@ -598,11 +605,15 @@ def _source_snapshots(case, selections, *, allowed_kinds=None, active_only=True)
             fields = ("pk", "is_archived", "sha256")
             if kind in CALL_KINDS:
                 fields += ("import_row_id", "sender_id", "recipient_id")
+            if direct_messages and kind == "text-message":
+                fields += ("recipient_id",)
             item = scoped_evidence(case, kind).only(*fields).get(pk=_uuid(choice["id"]))
         except KINDS[kind].DoesNotExist:
             raise Http404("Evidence not found.") from None
         if active_only and item.is_archived:
             raise AnalysisError("source_archived")
+        if direct_messages and kind == "text-message" and item.recipient_id is None:
+            raise AnalysisError("direct_messages_required")
         attachment_id = (
             _uuid(choice["attachment_id"]) if choice.get("attachment_id") else None
         )
@@ -770,7 +781,12 @@ def start_run(
                 "Select one claim source and one to five other sources."
             )
     _check_source_limits(case, operation, parameters, selections)
-    snapshots = _source_snapshots(case, selections, allowed_kinds=specification.kinds)
+    snapshots = _source_snapshots(
+        case,
+        selections,
+        allowed_kinds=specification.kinds,
+        direct_messages=operation in PAIR_MESSAGE_OPERATIONS,
+    )
     if (
         previous_run
         and (

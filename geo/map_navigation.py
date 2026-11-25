@@ -38,10 +38,12 @@ def map_query(values):
             params["vehicle_id"] = str(UUID(vehicle_id))
         except ValueError:
             pass
-    for key in ("start", "end"):
-        value = values.get(key, "")
-        if 0 < len(value) <= 64:
-            params[key] = value
+    day = values.get("day", "")
+    if 0 < len(day) <= 10:
+        params["day"] = day
+    gap_page = values.get("gap_page", "")
+    if gap_page.isascii() and gap_page.isdecimal() and len(gap_page) <= 9:
+        params["gap_page"] = gap_page
     return params
 
 

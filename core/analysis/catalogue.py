@@ -226,7 +226,11 @@ class CatalogueForm(FindingScopeForm):
     def __init__(self, data, *, case):
         super().__init__(data, case=case)
         methods = set(
-            AnalysisRun.objects.filter(case=case).values_list("operation", flat=True)
+            AnalysisRun.objects.filter(case=case)
+            .exclude(operation__in=OPERATIONS)
+            .order_by()
+            .values_list("operation", flat=True)
+            .distinct()
         )
         methods.update(OPERATIONS)
         self.fields["method"].choices = [
@@ -254,13 +258,12 @@ def archived_finding_sources(case):
 
 
 def exclude_archived_findings(queryset, case):
-    return queryset.filter(
-        ~Exists(
-            archived_finding_sources(case).filter(
-                finding__result_id=OuterRef("result_id")
-            )
-        )
+    # The archive set is case-wide. Let PostgreSQL compute it independently of
+    # the outer findings, including when ranking nests this filter in a subquery.
+    archived_results = (
+        archived_finding_sources(case).order_by().values("finding__result_id")
     )
+    return queryset.exclude(result_id__in=archived_results)
 
 
 def finding_queryset(case, filters, *, person=None, labels=None):

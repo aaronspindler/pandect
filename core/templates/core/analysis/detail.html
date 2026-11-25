@@ -1,5 +1,9 @@
 {% extends 'core/analysis/base.html' %}
 {% block title %}{{ operation_label }} · {{ case.name }}{% endblock %}
+{% block extra_head %}
+  {{ block.super }}
+  {% if observation_tile_url %}{% include 'geo/analysis/position_map_assets.html' %}{% endif %}
+{% endblock %}
 {% block content %}
 {% if important_back_url %}<a class="back-link" href="{{ important_back_url }}">Back to Important</a>
 {% else %}<a class="back-link" href="{{ back_to_analysis }}">{{ back_label }}</a>{% endif %}
@@ -8,7 +12,7 @@
 <div id="analysis-result"{% if focused_finding %} class="analysis-focused-result"{% endif %} data-live-region data-live-poll="{% if run.status == 'queued' or run.status == 'running' %}true{% else %}false{% endif %}">
 {% if not focused_finding %}
 <header class="page-header analysis-result-header">
-  <div><h1>{{ operation_label }}</h1></div>
+  <div><h1>{{ operation_label }}</h1>{% if writing_person %}<p>Attributed sender · {{ writing_person }} · <a href="{{ writing_url }}">Writing style</a></p>{% endif %}</div>
   {% if source_unavailable %}<span class="badge" role="status">Result withheld</span>{% elif run.status != 'complete' and run.status != 'queued' and run.status != 'running' %}<span class="badge" role="status">{{ run.get_status_display }}</span>{% endif %}
 </header>
 {% endif %}

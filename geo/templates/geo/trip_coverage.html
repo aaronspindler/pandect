@@ -1,0 +1,29 @@
+{% if trip_report.gaps %}
+<details class="disclosure" id="coverage-gaps"{% if request.GET.gap_page %} open{% endif %}>
+  <summary>{{ trip_report.gap_page_obj.paginator.count }} gap{{ trip_report.gap_page_obj.paginator.count|pluralize }} in location coverage</summary>
+  <div class="disclosure-body">
+    <p>No trip is inferred across gaps longer than one hour.</p>
+    <ul class="record-list">
+      {% for gap in trip_report.gaps %}
+      <li class="record-row"><div>
+        <strong>{{ gap.vehicle }} · {{ gap.minutes|floatformat:'-1' }} min without observations</strong>
+        <p><a href="{{ gap.start.url }}">{{ gap.start.time|date:'j M Y, H:i T' }}</a> to <a href="{{ gap.end.url }}">{{ gap.end.time|date:'j M Y, H:i T' }}</a></p>
+      </div></li>
+      {% endfor %}
+    </ul>
+    {% with page=trip_report.gap_page_obj %}
+    {% if page.has_other_pages %}<nav class="pagination" aria-label="Coverage gap pages">
+      {% if page.has_previous %}<a class="button button-secondary" href="{% querystring gap_page=page.previous_page_number %}#coverage-gaps">Previous gaps</a>{% endif %}
+      <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}<a class="button button-secondary" href="{% querystring gap_page=page.next_page_number %}#coverage-gaps">Next gaps</a>{% endif %}
+    </nav>{% endif %}
+    {% endwith %}
+  </div>
+</details>
+{% endif %}
+<details class="disclosure">
+  <summary>How trips are found</summary>
+  <div class="disclosure-body">
+    <p>Trips are processed from complete retained vehicle histories. A stop requires at least five minutes of nearby coordinates (within 100 metres) or matching address wording, with no positive reported speed. Stops and gaps over one hour separate trips. Address matching is approximate and a repeated address does not prove the vehicle stopped. Conflicting positions at the same time and positions that cannot be compared also separate trips.</p>
+  </div>
+</details>

@@ -13,7 +13,7 @@ from django.views.decorators.http import require_safe
 
 from cases.permissions import case_context, get_case
 from config.access import product_login_required
-from core.evidence.queries import scoped_evidence
+from core.evidence.queries import local_date_range, scoped_evidence
 from people.models import Person
 from phone.conversation_analysis import (
     CONTEXT_PARAMETERS,
@@ -40,7 +40,7 @@ def conversation_list(request, case_id):
     case = get_case(request.user, case_id)
     pairs = (
         scoped_evidence(case, "text-message")
-        .filter(is_archived=False)
+        .filter(is_archived=False, recipient_id__isnull=False)
         .order_by()
         .annotate(
             first_id=Least("sender_id", "recipient_id"),
@@ -170,7 +170,9 @@ def conversation_detail(request, case_id, first_person_id, second_person_id):
             )
         elif day is not None:
             day_message = (
-                timeline.filter(occurred_at__date=day).only("occurred_at").first()
+                timeline.filter(**local_date_range("occurred_at", start=day, end=day))
+                .only("occurred_at")
+                .first()
             )
             anchor = day_message
         elif jump_to_match:

@@ -623,6 +623,37 @@ class ResultIntegrationTests(EvidenceViewTestMixin, TestCase):
         review = result.reviews.get()
         return location, run, result, review
 
+    @override_settings(
+        PANDECT_MAP_TILE_URL="https://tiles.example.test/{z}/{x}/{y}.png",
+        PANDECT_MAP_TILE_ORIGIN="https://tiles.example.test",
+    )
+    def test_observation_map_requires_an_accessible_location_result(self):
+        location, run, _, _ = self.geocode_fixture()
+        tile_origin = "https://tiles.example.test"
+        url = self.analysis_url("detail", run) + "?page=1&finding=1"
+        self.login("viewer")
+        response = self.client.get(url)
+        self.assertContains(response, "Selected observation positions")
+        self.assertIn(tile_origin, response["Content-Security-Policy"])
+        self.assertTrue(response.context["position_map_available"])
+        self.assertFalse(response.context["position_plot"])
+        self.assertEqual(response.context["map_points"][0]["kind"], "reviewed")
+
+        CaseMembership.objects.get(case=self.case, user=self.users["viewer"]).delete()
+        denied = self.client.get(url)
+        self.assertEqual(denied.status_code, 404)
+        self.assertNotIn(tile_origin, denied["Content-Security-Policy"])
+
+        self.login("owner")
+        LocationEvidence.objects.filter(pk=location.pk).update(
+            is_archived=True,
+            archive_changed_at=timezone.now(),
+            archive_changed_by=self.users["owner"],
+        )
+        withheld = self.client.get(url)
+        self.assertNotContains(withheld, "Selected observation positions")
+        self.assertNotIn(tile_origin, withheld["Content-Security-Policy"])
+
     def test_estimate_priority_requires_a_readable_published_use(self):
         location, _, result, _ = self.geocode_fixture()
         project_result(result)

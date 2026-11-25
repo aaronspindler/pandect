@@ -1,0 +1,10 @@
+{% extends "admin/index.html" %}
+{% load request_activity_admin %}
+
+{% block content %}
+  {% can_view_request_activity request.user as show_request_activity %}
+  {% if show_request_activity %}
+    <p><a href="{% url 'request_activity' %}">Request activity</a></p>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

@@ -130,6 +130,25 @@ features. It spans the last earlier-period message to first later-period message
 without locating an actual change, filling gaps or establishing a new writer.
 Unknown/overlapping periods produce no interval.
 
+### Writing samples by person
+
+Open **Case Tools → People**, select a person, and choose **Writing style**.
+Current case members can read saved runs and their available sources. Owners
+and editors can queue **Describe writing style** or **Compare writing over time**.
+Both methods run locally without AI credentials.
+
+The sample includes active direct and group messages from across the case with
+the selected person recorded as sender. A sender attribution can represent a
+shared account. Results describe the selected writing and cite its sources.
+They cannot verify who wrote a message.
+
+Date filters use the reported message time and include both boundary dates in
+your display timezone. A profile without date filters includes undated messages.
+Setting either boundary limits the profile to dated messages. A comparison
+requires separate earlier and later periods, each with a start and end date.
+Submitted runs retain their exact sources. If a selection exceeds the source or
+text limit, narrow the dates and submit again.
+
 ## Conversation sessions and interaction
 
 Shared cited model processing supplies the model with the same limits enforced
@@ -165,7 +184,7 @@ using the [case’s selected AI backend](cases.md#ai-backend). A summary of an
 earlier fragment remains attached to its original membership.
 
 **Read inferred message sessions**, **Inspect message timing** and **Summarize
-message sessions** accept Text messages, excluding calls/FaceTime/transcripts.
+message sessions** accept direct text messages.
 Select exact call transcripts/transcriptions under **Inspect keywords and topics**
 or **Suggest claims and commitments**; cross-channel comparison also accepts calls.
 
@@ -224,8 +243,8 @@ without two-person reduction or inference-boundary bypass.
 
 ## Message CSV imports
 
-Pandect imports direct conversations from the iMessage and WhatsApp CSV
-profiles below. Previously retained HTML source documents, messages, and
+Pandect imports direct and group conversations from the iMessage and WhatsApp
+CSV profiles below. Previously retained HTML source documents, messages, and
 imported context remain readable. Use CSV to prepare a new import.
 
 Both profiles use `imessage_import` and result key `imessage`, with parser
@@ -267,11 +286,20 @@ details. Names/numbers are unverified
 suggestions, never automatic matches or split names. New person records can use a
 name, phone number or email; selecting an existing person needs no account phone number.
 
-Confirm one direct conversation. Multiple chats/incoming sender IDs are rejected;
-group/mixed imports are unsupported. Chat labels alone identify no participants.
-Outgoing uses account→other; incoming reverses them. Changing the timezone or
-dates requires a fresh review, which can use the same retained CSV. Missing times
-stay unknown in unrestricted imports. A date-limited import excludes messages
+Confirm that the file contains one conversation. Pandect rejects files with
+multiple distinct chat labels. It detects a group when it finds at least two
+distinct, nonblank incoming Sender IDs anywhere in the file, including outside a
+selected date range. For a direct conversation, outgoing messages go from the
+account to the other person, and incoming messages reverse that direction. For a
+group, choose one case person per incoming Sender ID with ready messages and
+choose the export account if there are ready outgoing messages. Each ready group
+row records its confirmed sender and the retained CSV as its group destination.
+Review excludes incoming group rows with a blank Sender ID and shows the reason.
+If more than 100 incoming senders have ready messages, review a shorter date range.
+
+Changing the timezone or dates requires a fresh review, which can use the same
+retained CSV. Missing times stay unknown in unrestricted imports. A date-limited
+import excludes messages
 without a usable date and counts messages outside the range separately.
 Malformed, ambiguous, or nonexistent local times, attachment-only rows,
 WhatsApp system notifications, and unsupported directions are excluded.
@@ -305,12 +333,14 @@ Summary pages and progress remain available. Eligibility/time changes need
 fresh review. Result item/byte ceilings never truncate imports: messages are not
 individual result items. Bounded publication groups share one transaction and
 roll back entirely on conflict/failure. The completed import shows how many
-messages were added, reused or excluded. **View conversation** opens the message
-stream at the first newly published message in the export, or at a retained
-message from the same source and conversation when all rows were reused. The
-retained CSV, row review, and linked new messages remain available in disclosures
-with separate pagination. Messages from both services appear together when
-the investigator maps their exports to the same case-person pair.
+messages were added, reused or excluded. For direct imports, **View conversation**
+opens the message stream at the first newly published message or a matching
+retained message when all rows were reused. For group imports, **View retained
+message** opens an individual evidence record, and **Retained messages** lists
+the messages from the confirmed selection, including reused records. The
+retained CSV and row review remain available. Direct messages from both services
+can appear together when the investigator maps their exports to the same case-person
+pair.
 
 Nullable `CommunicationContext.import_run` retains publishing runs; apply its
 additive migration before updated web/workers. Existing messages/contexts stay
@@ -328,10 +358,11 @@ message time. Reactions create no messages, markers recover no history, and
 attachments are never opened or fetched.
 
 Publication atomically queues analysis only for newly created messages. Previews,
-excluded/reused rows start no batch. **Follow message analysis** shows progress,
-then check counts and **View conversation** after the work settles. If a
-date-limited import reuses every row, **View conversation** opens a retained
-message within the reviewed export-timezone range. Insufficient input has its
+excluded/reused rows start no batch. **Follow message analysis** shows progress
+and check counts. After the work settles, use **View conversation** for a direct
+import or **View retained message** for a group import. If a date-limited import
+reuses every row, its result links to a retained message within the reviewed
+export-timezone range. Insufficient input has its
 own count alongside completed checks. Incomplete coverage and stopped work
 remain visible. **Analysis details** opens preparation and checks.
 **Run import analysis again** creates a new batch under the case's current
@@ -341,6 +372,9 @@ backfill.
 The suite covers identifiers, dates, keywords, sessions, timing, reported writing
 profiles, repeated wording, and temporal exchanges. Eligible AI checks add topic
 suggestions, claims, session summaries, and semantic exchanges.
+Group messages are eligible for applicable wording and content checks. Inferred
+sessions, pair timing, session summaries, and cross-channel exchange comparisons
+require direct messages for any text-message inputs.
 Writing profiles separate reported senders. Comparisons split
 each sender's earlier/later timed samples near the middle at a distinct timestamp,
 never dividing ties. Fewer than two times cannot compare; adequacy guards yield

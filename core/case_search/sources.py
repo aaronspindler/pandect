@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from django.db.models import Case, CharField, F, Value, When
+from django.db.models import Case, CharField, F, Q, Value, When
 from django.db.models.functions import Coalesce, Concat, Greatest, Least, NullIf, Trim
 
 from core.analysis.catalogue import finding_queryset
@@ -79,7 +79,9 @@ def sources(case, kind):
         )
         return Source(qs, F("title"), dates, ids)
     if kind == "conversation":
-        qs = scoped_evidence(case, "text-message").filter(is_archived=False)
+        qs = scoped_evidence(case, "text-message").filter(
+            is_archived=False, recipient_id__isnull=False
+        )
         qs = qs.alias(
             pair_a=Least("sender_id", "recipient_id"),
             pair_b=Greatest("sender_id", "recipient_id"),
@@ -143,8 +145,23 @@ def dated(source, start, end, kind):
     qs = source.queryset.annotate(
         hit_date=date, hit_date_label=date_label, hit_title=source.title
     )
-    if start:
-        qs = qs.filter(**{"end_at__gte" if kind == "trip" else "hit_date__gte": start})
-    if end:
-        qs = qs.filter(hit_date__lt=end)
+    if kind == "trip":
+        if start:
+            qs = qs.filter(end_at__gte=start)
+        if end:
+            qs = qs.filter(hit_date__lt=end)
+    elif start or end:
+        # Compare the first available date using its own column so timestamp
+        # indexes remain usable. Later dates only apply when earlier ones lack data.
+        preferred = Q()
+        bounds = Q(pk__in=[])
+        for field, _ in dates:
+            limits = {}
+            if start:
+                limits[f"{field}__gte"] = start
+            if end:
+                limits[f"{field}__lt"] = end
+            bounds |= preferred & Q(**limits)
+            preferred &= Q(**{f"{field}__isnull": True})
+        qs = qs.filter(bounds)
     return qs

@@ -20,10 +20,16 @@ from phone.call_history_jobs import (
     confirm_call_history,
     process_call_history,
     retain_call_history,
+    retain_call_history_upload,
     retry_call_history,
     save_call_history_selection,
 )
-from phone.models import CallPersonLink, FaceTimeEvidence, PhoneCallEvidence
+from phone.models import (
+    CallHistoryImport,
+    CallPersonLink,
+    FaceTimeEvidence,
+    PhoneCallEvidence,
+)
 
 NUMBER = "+12025550100"
 BASE_ROW = {
@@ -98,14 +104,19 @@ class CallHistoryParserTests(SimpleTestCase):
 
 class CallHistoryJobTests(EvidenceViewTestMixin, TestCase):
     def upload(self, content=None, *, source=None, actor="editor"):
-        return retain_call_history(
+        document = retain_call_history_upload(
             self.users[actor],
             self.case.pk,
             submission_id=uuid4(),
             original=SimpleUploadedFile(
                 "synthetic.csv", content or csv_bytes({}), "text/csv"
             ),
-            document=None,
+        )
+        return retain_call_history(
+            self.users[actor],
+            self.case.pk,
+            submission_id=uuid4(),
+            document=document,
             source=source,
             source_label="" if source else "Synthetic line",
             timezone="America/Toronto",
@@ -136,6 +147,50 @@ class CallHistoryJobTests(EvidenceViewTestMixin, TestCase):
         )
         batch.refresh_from_db()
         return result
+
+    def test_first_step_retains_exact_upload_and_reuses_only_matching_retry(self):
+        actor = self.users["editor"]
+        submission = uuid4()
+        content = csv_bytes({})
+
+        def stage(value, *, name="history.csv"):
+            return retain_call_history_upload(
+                actor,
+                self.case.pk,
+                submission_id=submission,
+                original=SimpleUploadedFile(name, value, "text/csv"),
+            )
+
+        document = stage(content)
+        self.assertEqual(stage(content, name="retry.csv"), document)
+        with document.file.open("rb") as source:
+            self.assertEqual(source.read(), content)
+        with self.assertRaisesMessage(ValidationError, "different material"):
+            stage(csv_bytes({"Location": "Changed"}))
+        self.assertEqual(DocumentEvidence.objects.count(), 1)
+        self.assertFalse(CallHistoryImport.objects.exists())
+
+    def test_upload_identity_is_distinct_per_submission_and_case(self):
+        actor = self.users["editor"]
+        submission = uuid4()
+
+        def stage(case, identifier):
+            return retain_call_history_upload(
+                actor,
+                case.pk,
+                submission_id=identifier,
+                original=SimpleUploadedFile("history.csv", csv_bytes({}), "text/csv"),
+            )
+
+        document = stage(self.case, submission)
+        self.assertNotEqual(stage(self.case, uuid4()), document)
+        with self.assertRaises(Http404):
+            stage(self.other_case, submission)
+        CaseMembership.objects.create(case=self.other_case, user=actor, role="editor")
+        other_document = stage(self.other_case, submission)
+        self.assertNotEqual(other_document, document)
+        self.assertEqual(other_document.case, self.other_case)
+        self.assertEqual(DocumentEvidence.objects.count(), 3)
 
     def test_import_publishes_mapped_and_unmatched_rows_and_holds_time_errors(self):
         content = csv_bytes(
@@ -177,7 +232,8 @@ class CallHistoryJobTests(EvidenceViewTestMixin, TestCase):
         first = self.upload()
         again = self.upload(source=first.source)
         self.assertEqual(again.pk, first.pk)
-        self.assertEqual(DocumentEvidence.objects.count(), 1)
+        self.assertEqual(again.document_id, first.document_id)
+        self.assertEqual(DocumentEvidence.objects.count(), 2)
         self.assertEqual(self.work(first), "review")
         self.confirm(first)
         self.assertEqual(self.work(first), "completed")
@@ -185,7 +241,6 @@ class CallHistoryJobTests(EvidenceViewTestMixin, TestCase):
             self.users["editor"],
             self.case.pk,
             submission_id=uuid4(),
-            original=None,
             document=first.document,
             source=None,
             source_label="Other synthetic line",

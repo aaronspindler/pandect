@@ -11,8 +11,9 @@ recently created eligible runs with published results. It keeps the latest
 result per operation and source or attachment, and excludes archived or
 unavailable sources, weak OCR, and timing-only findings. Open
 **Findings** for the catalogue or **Processing** for full results and run history.
-Vehicle trips share saved complete histories with Map/vehicle pages, including
-existing imports after preparation.
+**Case Tools → Trips** shows saved possible trips, source observations, and
+location coverage alongside the map. Vehicle details preview the same saved
+trips. See [Trips and the investigation map](maps.md).
 
 **Browse all findings** searches retained labels, text and measurements, with 25
 findings per page and filters for method, evidence type, specific evidence, and person.
@@ -452,8 +453,11 @@ citations are retained.
   Conversations/imports retain participants, labels, times and unresolved reasons.
 - [CSV imports](analysis-communications.md#message-csv-imports) publish only after
   separate message/new-person review. Completed preview means ready to review.
-- Location schematics distinguish reported positions, selected estimates and
-  candidates; measurements/map references link to sources.
+- **Selected observation positions** links reported coordinates, selected
+  address estimates and lookup candidates to their sources. The configured
+  map background loads automatically and displays those positions as circles,
+  squares and diamonds. Coordinates and source links remain available without
+  tiles or JavaScript. See [map privacy and fallback](maps.md#observation-maps-in-findings).
 
 Runs show 50 findings per page. Derived inputs link to the extraction and original.
 Owners and editors can select or clear an address estimate from its finding. Saved

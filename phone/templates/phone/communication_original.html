@@ -3,7 +3,11 @@
   <h3 id="communication-heading">Reported communication</h3>
   <dl class="metadata-grid">
     <div><dt>Sender</dt><dd>{% if item.sender_id %}<a href="{% url 'people:detail' case_id=case.pk person_id=item.sender_id %}">{{ item.sender }}</a>{% if call_import_row %} <span class="muted">(investigator link)</span>{% endif %}{% else %}{{ reported_sender }}{% endif %}</dd></div>
+    {% if not is_call and item.group_source_id %}
+    <div><dt>Destination</dt><dd>Group chat{% if group_chat_label %} · {{ group_chat_label }}{% endif %} · <a href="{% url 'core:evidence:detail' case_id=case.pk kind='document' evidence_id=item.group_source_id %}">View retained CSV</a></dd></div>
+    {% else %}
     <div><dt>Recipient</dt><dd>{% if item.recipient_id %}<a href="{% url 'people:detail' case_id=case.pk person_id=item.recipient_id %}">{{ item.recipient }}</a>{% if call_import_row %} <span class="muted">(investigator link)</span>{% endif %}{% else %}{{ reported_recipient }}{% endif %}</dd></div>
+    {% endif %}
     <div><dt>{% if is_call %}Call started at{% else %}Sent at{% endif %}</dt><dd>{% if item.occurred_at %}{{ item.occurred_at|date:"d M Y, H:i:s T" }}{% else %}Not recorded{% endif %}</dd></div>
     {% if is_call %}<div><dt>Reported duration</dt><dd>{{ item.duration|default_if_none:"Not recorded" }}</dd></div>{% endif %}
   </dl>

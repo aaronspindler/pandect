@@ -2,9 +2,21 @@
 
 from urllib.parse import urlencode
 
-from django.db.models import CharField, Count, F, Min, Q, UUIDField, Value
+from django.db.models import (
+    BooleanField,
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    Min,
+    Q,
+    UUIDField,
+    Value,
+    When,
+)
 from django.db.models.fields.json import KT
-from django.db.models.functions import Cast, Collate, NullIf, Trim
+from django.db.models.functions import Cast, Collate, Greatest, Least, NullIf, Trim
 from django.urls import reverse
 
 from core.evidence.queries import scoped_evidence
@@ -12,11 +24,27 @@ from phone.message_csv import WHATSAPP_PARSER_VERSION
 from phone.models import CommunicationContext
 
 
+def active_pair_messages(case):
+    """Use the ordered participant expressions from the active pair index."""
+    return (
+        scoped_evidence(case, "text-message")
+        .filter(is_archived=False, recipient_id__isnull=False)
+        .alias(
+            first_person=Least("sender_id", "recipient_id"),
+            second_person=Greatest("sender_id", "recipient_id"),
+        )
+    )
+
+
 def pair_messages(case, first_person, second_person):
-    return scoped_evidence(case, "text-message").filter(
-        Q(sender=first_person, recipient=second_person)
-        | Q(sender=second_person, recipient=first_person),
-        is_archived=False,
+    first_id, second_id = sorted(
+        (
+            getattr(first_person, "pk", first_person),
+            getattr(second_person, "pk", second_person),
+        )
+    )
+    return active_pair_messages(case).filter(
+        first_person=first_id, second_person=second_id
     )
 
 
@@ -67,9 +95,15 @@ def timeline_messages(messages, contexts, groups):
     copies = contexts.filter(
         native_message_id__in=groups.values("native_message_id")
     ).values("message_id")
-    return messages.filter(
-        ~Q(pk__in=copies) | Q(pk__in=groups.values("representative"))
-    ).order_by(F("occurred_at").asc(nulls_last=True), "pk")
+    visible = ~Q(pk__in=copies) | Q(pk__in=groups.values("representative"))
+    # Keep this check in the same SQL snapshot as the timeline. With no copy
+    # groups, PostgreSQL can skip both membership subqueries entirely.
+    include = Case(
+        When(Exists(groups), then=visible), default=True, output_field=BooleanField()
+    )
+    return messages.filter(include).order_by(
+        F("occurred_at").asc(nulls_last=True), "pk"
+    )
 
 
 def conversation_list_page(value):
@@ -93,6 +127,14 @@ def conversation_url(case, message, *, list_page=1, open_details=True):
     if list_page > 1:
         params["list_page"] = list_page
     return f"{url}?{urlencode(params)}#message-{message.pk}"
+
+
+def message_url(case, message):
+    if message.recipient_id is None or message.is_archived:
+        return reverse(
+            "core:evidence:detail", args=(case.pk, "text-message", message.pk)
+        )
+    return conversation_url(case, message)
 
 
 def preceding_messages(messages, selected, *, row_id):

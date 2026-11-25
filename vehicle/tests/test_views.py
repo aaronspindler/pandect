@@ -384,7 +384,7 @@ class VehicleInterfaceTests(TestCase):
         self.assertContains(response, self.vehicle.license_plate)
         self.assertContains(response, "Uncertain source")
 
-    def test_detail_leads_with_latest_dated_observation_and_direct_trip_dates(self):
+    def test_detail_leads_with_latest_dated_observation_and_links_to_trips(self):
         self.client.force_login(self.viewer)
         detail_url = self.url("detail", self.vehicle)
         observation = {
@@ -425,16 +425,10 @@ class VehicleInterfaceTests(TestCase):
             response.content.index(b'id="locations-heading"'),
             response.content.index(b'id="trips-heading"'),
         )
-        report_url = reverse(
-            "core:analysis:report", args=[self.case.pk, "vehicle-trips"]
-        )
-        query = {"vehicle_id": str(self.vehicle.pk), "filters": "dates"}
-        self.assertContains(response, f"{report_url}?vehicle_id={self.vehicle.pk}")
-        report = self.client.get(report_url, query)
-        self.assertContains(report, '<details class="disclosure report-filters" open>')
-        self.assertContains(report, 'id="report-filters"')
-        self.assertEqual(
-            report.context["form"].cleaned_data["vehicle_id"], str(self.vehicle.pk)
+        trips_url = reverse("geo:case_map", args=[self.case.pk])
+        self.assertContains(
+            response,
+            f'href="{trips_url}?vehicle_id={self.vehicle.pk}#id_day">Jump to date</a>',
         )
 
     def test_search_includes_vehicle_details_and_bounds_numeric_queries(self):

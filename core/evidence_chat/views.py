@@ -3,7 +3,7 @@
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Max
+from django.db.models import OuterRef, Subquery
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import (
@@ -138,16 +138,23 @@ def chat(request, case_id, chat_id=None):
             form.data = form.data.copy()
             form.data["route"] = context["route_token"]
         context["form"] = form
+    latest_turn = ChatTurn.objects.filter(case=case, chat_id=OuterRef("pk"))
     chats = (
         EvidenceChat.objects.filter(case=case)
-        .annotate(last_asked_at=Max("turns__created_at"))
+        .annotate(
+            last_asked_at=Subquery(
+                latest_turn.order_by("-created_at").values("created_at")[:1]
+            )
+        )
         .order_by("-last_asked_at", "-pk")
     )
     if thread is None:
         context["page_obj"] = Paginator(chats, 25).get_page(request.GET.get("page"))
         return render(request, "core/evidence_chat/index.html", context)
     turns = (
-        thread.turns.filter(case=case).select_related("asked_by").order_by("ordinal")
+        thread.turns.filter(case=case)
+        .select_related("asked_by", "case")
+        .order_by("ordinal")
     )
     paginator = Paginator(turns, 10)
     page = paginator.get_page(request.GET.get("page") or paginator.num_pages)

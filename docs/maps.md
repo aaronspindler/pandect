@@ -1,9 +1,10 @@
-# Investigation map
+# Trips and the investigation map
 
-**Case Tools → Trips** lets all case roles inspect processed vehicle trips and
-follow retained evidence. Owners/editors also **Add POI**. `geo` owns views,
-lookup coordination, POIs, templates, assets, and tests; `geo.map_views` serves
-`geo:case_map`, `geo:prepare_trips`, and `geo:trip_detail` at their case-scoped URLs.
+**Case Tools → Trips** brings saved possible trips, location coverage gaps, and
+the map together for all case roles. Owners and editors can also **Add POI**.
+Existing Vehicle trips report links redirect to Trips and carry supported vehicle
+and page selections. The case-scoped routes are `geo:case_map`,
+`geo:prepare_trips`, and `geo:trip_detail`.
 
 ## Person points of interest
 
@@ -23,15 +24,15 @@ label/person and link to details; identical positions share a marker listing all
 POIs. **Show on map** offers keyboard selection. Polar positions beyond display
 limits remain in the list without coordinate changes.
 
-Search covers labels, types, addresses, citations, and person names/contacts.
-The vehicle and date filters affect trips only. Independent URL-backed
-`poi_page` lists at most 100 POIs per page; only that page is plotted alongside
+Expand **Search POIs** to search labels, types, addresses, citations, and person
+names or contact information. POI search and pagination keep the trip selection.
+URL-backed `poi_page` lists at most 100 POIs per page; only that page is plotted alongside
 the selected complete trip. Person details list 25 POIs per page and preselect
 the person when adding.
 POI details opened from a map marker or list return to the same map search and
-pages. **Back to trip** reopens the selected trip with its map filters, source
+pages. **Back to trip** reopens the selected trip with its vehicle, day, source
 page, and findings page. If that trip becomes unavailable, the link returns to
-the filtered case map. From a Person record, **Back to person** returns to that
+Trips with the same selection. From a Person record, **Back to person** returns to that
 person's Points of interest section with its page and People list filters.
 These origins carry through add, edit, and delete, including **Add POI here**
 on the map. Cancelling or saving an edit returns to the point. Deleting a
@@ -51,27 +52,30 @@ with a new database/queue; no old-table conversion is retained.
 
 ## Processed vehicle trips
 
-Trips opens with the list of saved possible trips. Open one to inspect its
-first and last observations, elapsed time, map, and chronological sources.
+Trips opens with saved possible trips and source links for their first and last
+observations. Open a trip to see its map and chronological sources.
 Trip findings cite one or more observations in the selected trip. The findings
 cover the full trip, even when its observation list spans multiple pages.
 Raw Location, Person location, and Vehicle
 location observations remain in Evidence rather than the map's main display.
 Editors can open vehicle CSV intake or add a vehicle observation from an empty map.
 
-Expand **Search and filters** to filter active trips by vehicle and dates in
-the displayed account/device timezone or to search POIs. Applied filters appear
-as a short summary. The form opens automatically when a filter needs correction.
-Dates select whole overlapping trips, never trim observations
-before segmentation. Trip lists paginate at 25; details show 50 observations per
-page with evidence/CSV-row links. Pagination never limits processing history.
-See [trip rules](analysis-locations.md#automatic-vehicle-trips).
+The **Vehicle** and **Jump to date** controls stay visible above the trip list.
+Select a vehicle and use **Go** to see its history. Choose a date in the displayed
+timezone and use **Go** to jump to the first whole trip that overlaps that day.
+The map previews that trip, and the full history for the selected vehicle or all
+vehicles stays available in reverse chronological order. **Clear date** keeps
+the vehicle selection.
+
+Trip lists and coverage gaps paginate independently at 25 per page. Trip details
+show 50 observations per page with evidence and CSV-row links. Processing uses
+complete vehicle histories. See [trip rules](analysis-locations.md#automatic-vehicle-trips).
 
 New manual observations, completed imports, archive/restore, and confirmed source
 deletion invalidate affected vehicles' trips. A verified owner or editor's write
 queues rebuilding. If a superuser with viewer-only case access deletes a source,
 an owner or editor must [prepare replacement trips](background-tasks.md#saved-vehicle-trips).
-Map, report, and vehicle details share the current completed generation.
+Trips and vehicle details share the current completed generation.
 Cases lacking trips offer **Prepare trips** to owners and editors. JavaScript
 submits this idempotent POST automatically for eligible users. GET never
 enqueues work. Processing shows progress and recovery.
@@ -124,19 +128,35 @@ together, then follow **Open address lookup** for an observation. Open a candida
 matching local lookup. Reported coordinates take precedence. Selecting or clearing
 an estimate refreshes geometry and preserves original observations and segmentation. There is no global address cache.
 
+## Observation maps in findings
+
+**Selected observation positions** loads the configured background map with
+the displayed finding or page of results. Circles show reported positions,
+squares show selected address estimates, and diamonds show lookup candidates.
+Markers link to the source observation or retained estimate. The background
+shows geographic context for orientation. Candidate status and retained
+coordinates still govern interpretation.
+
+**Coordinates and sources** works without JavaScript or tiles and includes
+positions outside Web Mercator's latitude range. If the interactive map cannot
+start, distinct coordinates also appear in a relative position plot.
+
 ## External tiles and privacy
 
-Vendored Leaflet 1.9.4 lives in `geo/static/geo/vendor/leaflet/` with its BSD license;
-templates live in `geo/templates/geo/`. Map/trip detail owns one map instance.
-POIs use escaped `json_script`; trip positions use authorized JSON. Titles render
-as DOM text, never popup HTML. Complete lists work without JavaScript, tiles, or Leaflet.
+Vendored Leaflet 1.9.4 lives in `geo/static/geo/vendor/leaflet/` with its BSD license.
+Templates live in `geo/templates/geo/`. POIs use escaped `json_script`.
+Trip positions use authorized JSON. Finding positions come from the
+server-rendered coordinates and sources list. Popups render titles as DOM text.
+Complete lists work without JavaScript, tiles, or Leaflet.
 
-No basemap is configured by default. Configured tiles load on opening, without
-consent, including external providers. Providers receive browser IP, site origin,
-and viewed tile areas; files, titles, notes, addresses, case IDs, and observation
-times are not sent. Marker details render locally; address lookup remains local.
+No basemap is configured by default. Trips and observation maps in findings load
+configured tiles on opening.
+Providers receive browser IP, site origin and viewed tile areas. Files, titles,
+notes, addresses, case IDs and observation times stay in Pandect. Marker details
+render locally, and address lookup remains local.
 Tile images use `referrerPolicy: origin`; other private pages keep same-origin
-policy. Only successful map/trip pages permit the tile origin in image CSP.
+policy. Successful Trips and eligible analysis result pages permit the tile origin
+in image CSP.
 Private HTML is uncached; tiles follow their server's cache headers.
 
 The OSM background is orientation context, not retained evidence/history.

@@ -75,11 +75,11 @@ Person/vehicle relationships, external lookups, and public APIs remain planned.
 
 Details show the latest dated active location, its time, and a link to the
 evidence. **Show observations** lists active reported locations,
-including undated records. Below the locations, up to five recent possible trips
-use the same complete processed histories as Map and Vehicle trips.
-**See all trips** opens the paginated report, and **Choose dates** opens the report
-with its filters visible. Dates select whole overlapping trips. Each trip links
-to its paginated source observations.
+including undated records. Below the locations, the vehicle shows up to five
+recent possible trips. **See all trips** opens Trips when the vehicle has more
+than five. **Jump to date** opens the date control. Both links preselect the
+vehicle. Each trip links to its paginated source observations. See
+[Trips and the investigation map](maps.md).
 
 New evidence, completed imports, and archive/restore changes queue rebuilding.
 Pending/failed generations are not current; Processing provides progress/recovery.

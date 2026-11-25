@@ -99,6 +99,21 @@ class ChronologyTests(EvidenceViewTestMixin, TestCase):
         self.assertContains(response, "10 Nov 2026 06:00:00 UTC")
         self.assertNotContains(response, "10 Nov 2026 01:00:00 EST")
 
+    def test_date_range_keeps_local_date_after_a_midnight_offset_change(self):
+        owner = self.users["owner"]
+        owner.timezone = "America/Goose_Bay"
+        owner.save(update_fields=["timezone"])
+        early = self.message(occurred_at=datetime(1988, 10, 30, 2, tzinfo=UTC))
+        self.message(occurred_at=datetime(1988, 10, 30, 2, 1, tzinfo=UTC))
+        late = self.message(occurred_at=datetime(1988, 10, 30, 4, tzinfo=UTC))
+        self.login("owner")
+        response = self.client.get(
+            self.chronology_url(), {"start": "1988-10-30", "end": "1988-10-30"}
+        )
+        self.assertEqual(
+            [row["id"] for row in response.context["rows"]], [early.pk, late.pk]
+        )
+
     def test_person_vehicle_and_source_filters_are_case_scoped(self):
         instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
         message = self.message(occurred_at=instant)

@@ -4,7 +4,9 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.files.base import ContentFile
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -226,6 +228,28 @@ class WorkflowProcessingTests(EvidenceViewTestMixin, TestCase):
         CaseMembership.objects.get(case=self.case, user=self.users["editor"]).delete()
         self.assertEqual(self.client.post(url, submission).status_code, 404)
         self.assertFalse(CaseAnalysisBatch.objects.filter(case=self.case).exists())
+
+    def test_processing_reads_failed_check_status_once_when_retry_is_available(self):
+        self.login("owner")
+        with CaptureQueriesContext(connection) as idle_queries:
+            response = self.client.get(self.processing_url())
+        self.assertNotContains(response, "Review failed checks")
+
+        self.retained_run(self.document(), status="failed")
+        with CaptureQueriesContext(connection) as failed_queries:
+            response = self.client.get(self.processing_url())
+        self.assertContains(response, "Review failed checks")
+        self.assertContains(response, "Retry all failed checks")
+
+        def failed_check_lookups(queries):
+            return sum(
+                query["sql"].startswith('SELECT 1 AS "a" FROM "core_analysisrun"')
+                and '"core_analysisrun"."status" = \'failed\'' in query["sql"]
+                for query in queries
+            )
+
+        self.assertEqual(failed_check_lookups(idle_queries), 0)
+        self.assertEqual(failed_check_lookups(failed_queries), 1)
 
     def retained_run(self, source, *, kind="document", **overrides):
         values = {

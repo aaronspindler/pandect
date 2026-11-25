@@ -1,0 +1,29 @@
+{% extends "ui/base.html" %}
+{% block title %}Review call history source · {{ case.name }}{% endblock %}
+{% block content %}
+<div class="page-content">
+  {% url 'core:evidence:detail' case.pk 'document' source_document.pk as back_url %}
+  <a class="back-link" href="{{ back_url }}">Back to source CSV</a>
+  <header class="page-header"><div>
+    <h1>Review call history source</h1>
+    <p>{{ source_document.original_filename }}</p>
+  </div></header>
+  <form method="post" class="form-layout" data-unsaved-form>
+    {% csrf_token %}{{ form.submission_id }}
+    {% include 'ui/components/form_errors.html' with form=form %}
+    {% include 'ui/components/form_field.html' with field=form.source only %}
+    {% include 'ui/components/form_field.html' with field=form.source_label only %}
+    <p>Default export timezone <strong>{{ default_timezone }}</strong></p>
+    <details class="disclosure"{% if form.timezone.errors or form.timezone.value and form.timezone.value != default_timezone %} open{% endif %}>
+      <summary>Change export timezone</summary>
+      <div class="disclosure-body">
+        {% include 'ui/components/form_field.html' with field=form.timezone only %}
+      </div>
+    </details>
+    <div class="actions">
+      <button class="button button-primary" type="submit">Prepare call history</button>
+      <a class="button button-secondary" href="{{ back_url }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -9,6 +9,7 @@
   <div>{% partialdef heading inline %}<h1 id="record-title" data-record-part>{{ person }}</h1>{% endpartialdef %}<p class="help-text">Identity unverified</p></div>
   <div class="actions">
     {% if related_findings.page_obj.paginator.count %}<a class="record-link" href="#related-findings">Findings · {{ related_findings.page_obj.paginator.count }}</a>{% endif %}
+    <a class="button button-secondary" href="{% url 'people:writing_style' case.pk person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Writing style</a>
     {% if can_edit %}<a data-quick-form class="button button-primary" href="{% url 'people:edit' case_id=case.pk person_id=person.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Edit person</a>{% endif %}
   </div>
 </div>

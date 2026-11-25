@@ -1,0 +1,16 @@
+{% load tz %}
+{% with start=trip.start.time|localtime end=trip.end.time|localtime %}
+<div class="trip-route">
+  <div>
+    <span class="muted">First observation</span>
+    <a class="record-link" href="{{ trip.start.url }}">{{ trip.start.place }}</a>
+    <time datetime="{{ start|date:'c' }}">{{ start|date:'H:i T' }}</time>
+  </div>
+  <span class="trip-arrow" aria-hidden="true">→</span>
+  <div>
+    <span class="muted">Last observation</span>
+    <a class="record-link" href="{{ trip.end.url }}">{{ trip.end.place }}</a>
+    <time datetime="{{ end|date:'c' }}">{% if start.date != end.date %}{{ end|date:'j M Y' }}, {% endif %}{{ end|date:'H:i T' }}</time>
+  </div>
+</div>
+{% endwith %}

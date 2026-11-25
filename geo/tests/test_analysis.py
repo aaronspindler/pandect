@@ -88,7 +88,7 @@ class LocationOperationTests(SimpleTestCase):
         source = {
             "id": "observation",
             "label": "Retained observation",
-            "coordinates": (0, 0),
+            "coordinates": (90, 0),
             "coordinate_label": "Reported coordinates",
             "reviewed_coordinates": (0, 1),
             "url": "/analysis/lookup/?finding=3#finding-3",
@@ -96,10 +96,18 @@ class LocationOperationTests(SimpleTestCase):
         }
         points = map_points("location_quality", [{"sources": [source]}])
         self.assertEqual(
-            {point["kind"]: point["url"] for point in points},
             {
-                "reported": "/evidence/observation/",
-                "reviewed": "/analysis/lookup/?finding=3#finding-3",
+                point["kind"]: (
+                    point["latitude"],
+                    point["longitude"],
+                    point["plottable"],
+                    point["url"],
+                )
+                for point in points
+            },
+            {
+                "reported": (90, 0, False, "/evidence/observation/"),
+                "reviewed": (0, 1, True, "/analysis/lookup/?finding=3#finding-3"),
             },
         )
 

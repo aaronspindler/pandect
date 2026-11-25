@@ -1,8 +1,8 @@
 .map-filters { display:flex; flex-wrap:wrap; align-items:end; gap:.75rem; margin-bottom:1.5rem; }
-.map-filters > div { flex:1 1 12rem; min-width:0; }
+.map-filters .field { flex:1 1 12rem; min-width:0; max-width:19rem; margin:0; }
 .map-filters label { display:block; margin-bottom:.25rem; font-weight:600; }
 .map-filters input, .map-filters select { width:100%; }
-.map-scope { overflow-wrap:anywhere; }
+.map-search summary { overflow-wrap:anywhere; }
 .case-map-section {
   min-width:0;
   --trip-speed-slow:#12645e;
@@ -40,7 +40,7 @@
 .map-location-list > li { padding:.75rem 0; border-bottom:1px solid var(--divider); overflow-wrap:anywhere; }
 .map-location-list p { margin-bottom:.25rem; }
 @media (max-width:47.99rem) {
-  .map-filters > div { flex-basis:100%; }
+  .map-filters .field { flex-basis:100%; max-width:none; }
   .case-map { height:24rem; }
 }
 @media (forced-colors:active) {
@@ -53,3 +53,8 @@
 @media (forced-colors:active) {
   .case-map-endpoint span { background:Highlight; color:HighlightText; }
 }
+.observation-map { height:clamp(18rem, 45vh, 28rem); max-width:38rem; margin-top:1rem; }
+.observation-map .observation-marker-reviewed span { border-radius:var(--radius); }
+.observation-map .observation-marker-candidate span { border-radius:0; rotate:45deg; }
+.observation-map .observation-marker-candidate b { rotate:-45deg; }
+.observation-map .observation-marker-group span { border-style:double; border-width:4px; }

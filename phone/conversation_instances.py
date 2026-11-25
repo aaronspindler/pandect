@@ -24,8 +24,8 @@ from core.analysis.errors import AnalysisError
 from core.analysis.navigation import finding_url
 from core.analysis.presentation import participant_names, participant_text
 from core.analysis.services import SourceResolutionCache, resolve_inputs
-from core.evidence.queries import scoped_evidence
-from core.evidence.source_clocks import date_only_messages
+from core.evidence.queries import local_date_range, scoped_evidence
+from core.evidence.source_clocks import is_date_only_message
 from core.models import AnalysisFindingSource, AnalysisRun
 from phone.conversation_sessions import ordered_members, session_findings
 from phone.conversations import imported_contexts, pair_messages
@@ -126,10 +126,8 @@ def _validated_instances(case, candidates):
 
 def instances_touching_messages(case, message_ids, *, exclude_saved=None):
     """Valid pair instances ordered by their first time among the given originals."""
-    messages = (
-        scoped_evidence(case, "text-message")
-        .filter(is_archived=False)
-        .exclude(pk__in=date_only_messages(case))
+    messages = scoped_evidence(case, "text-message").filter(
+        ~is_date_only_message(case), is_archived=False
     )
     candidates = _candidates(case, messages, touching=message_ids)
     if exclude_saved is not None:
@@ -636,7 +634,9 @@ def instance_page(
     target = _instance_id(instance_id) if instance_id is not None else None
     instances = _InstanceList(case, messages, containing=containing)
     dated_messages = (
-        messages.filter(occurred_at__date=day).order_by()
+        messages.filter(
+            **local_date_range("occurred_at", start=day, end=day)
+        ).order_by()
         if day is not None and target is None
         else None
     )

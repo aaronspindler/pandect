@@ -114,7 +114,14 @@ class LocationContent(Evidence):
 
 
 class LocationEvidence(LocationContent):
-    pass
+    class Meta(LocationContent.Meta):
+        indexes = [
+            models.Index(
+                fields=("case", "observed_at", "id"),
+                condition=models.Q(is_archived=False, observed_at__isnull=False),
+                name="geo_location_case_time",
+            ),
+        ]
 
 
 class PersonLocationEvidence(LocationContent):
@@ -125,6 +132,15 @@ class PersonLocationEvidence(LocationContent):
     )
 
     immutable_fields = (*LocationContent.immutable_fields, "person_id")
+
+    class Meta(LocationContent.Meta):
+        indexes = [
+            models.Index(
+                fields=("case", "observed_at", "id"),
+                condition=models.Q(is_archived=False, observed_at__isnull=False),
+                name="geo_person_loc_case_time",
+            ),
+        ]
 
     def _check_original(self, using):
         super()._check_original(using)
@@ -353,6 +369,11 @@ class VehicleLocationEvidence(LocationContent):
         indexes = [
             models.Index(fields=("case", "raw_fingerprint")),
             models.Index(fields=("case", "vehicle", "observed_at", "id")),
+            models.Index(
+                fields=("case", "observed_at", "id"),
+                condition=models.Q(is_archived=False, observed_at__isnull=False),
+                name="geo_vehicle_loc_case_time",
+            ),
         ]
         constraints = [
             *LocationContent.Meta.constraints,

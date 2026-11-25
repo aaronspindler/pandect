@@ -73,6 +73,19 @@ class DuplicateUploadTests(EvidenceViewTestMixin, TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertNotIn(str(private.pk), response.content.decode())
 
+    def test_evidence_checksum_filter_preserves_exact_case_scoped_matches(self):
+        earlier = self.document()
+        self.document(case=self.other_case)
+        self.login("viewer")
+        for checksum, ids in (
+            (earlier.sha256, [earlier.pk]),
+            (earlier.sha256.upper(), []),
+            (earlier.sha256[:-1], []),
+        ):
+            with self.subTest(checksum=checksum):
+                response = self.client.get(self.url("list"), {"checksum": checksum})
+                self.assertEqual([row["id"] for row in response.context["rows"]], ids)
+
     def test_file_and_captured_utf8_text_match_without_text_normalization(self):
         self.login("owner")
         original = self.text()

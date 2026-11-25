@@ -83,6 +83,9 @@ class ChatTurn(models.Model):
         ]
         indexes = [
             models.Index(fields=("case", "status", "-created_at")),
+            models.Index(
+                fields=("chat", "case", "-created_at"), name="chat_turn_latest_created"
+            ),
             GinIndex(
                 chat_topic_vector(),
                 condition=models.Q(status="complete"),

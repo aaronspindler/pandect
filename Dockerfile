@@ -34,6 +34,7 @@ COPY phone/ phone/
 COPY socialmedia/ socialmedia/
 COPY video/ video/
 COPY marketing/ marketing/
+COPY request_activity/ request_activity/
 COPY ui/ ui/
 COPY scripts/docker-entrypoint-worker.sh scripts/docker-entrypoint-worker.sh
 # Normalize copied source permissions before running the image as pandect.

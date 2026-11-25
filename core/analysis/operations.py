@@ -47,6 +47,9 @@ class Operation:
 
 
 TEXT = ("text", "text-message", "document", "image", "audio", "phone-call", "facetime")
+PAIR_MESSAGE_OPERATIONS = frozenset(
+    {"sessions", "comm_patterns", "session_summaries", "conversation_link"}
+)
 INPUT_GUIDANCE = {
     "plate_ocr": (
         "One retained JPEG or PNG image. Local geometric detection searches for "

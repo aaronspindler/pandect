@@ -17,7 +17,7 @@ from cases.permissions import case_context
 from core.evidence.queries import scoped_evidence
 from core.evidence.source_clocks import (
     attach_daily_message_clocks,
-    date_only_messages,
+    is_date_only_message,
     set_call_interval,
 )
 from core.evidence.types import (
@@ -102,7 +102,7 @@ def _nearest_recorded_day(case, *, boundary=None, forward=False):
                 is_archived=False, **{field + "__isnull": False}
             )
             if field == "occurred_at" and kind == "text-message":
-                query = query.exclude(pk__in=date_only_messages(case))
+                query = query.filter(~is_date_only_message(case))
             if boundary is not None:
                 query = query.filter(**{field + lookup: boundary})
             branches.append(

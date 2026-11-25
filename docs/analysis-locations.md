@@ -211,11 +211,11 @@ Originals stay unchanged. The map never invokes external geocoding.
 
 ## Automatic vehicle trips
 
-Map, Vehicle trips and vehicle pages share saved possible trips. New observations,
+Trips and vehicle details share saved possible trips. New observations,
 completed CSV imports and archive/restore queue vehicle rebuilding. Existing cases
-use idempotent **Prepare trips** POSTs, automatically started by owners/editors
-opening the JavaScript map or through the normal form. Viewers inspect results;
-Processing shows progress, generations, safe failures and recovery.
+use idempotent **Prepare trips** POSTs. Owners and editors can trigger preparation
+by opening Trips with JavaScript enabled or by submitting the form. Viewers can
+inspect results. Processing shows progress, generations, failures, and recovery.
 
 Background chunks read up to 500 active observations from chronological histories
 without a total-source cutoff. Queued rebuilds can absorb newer source changes
@@ -228,9 +228,10 @@ matching work publishes. Source changes supersede work; retries/duplicate delive
 cannot publish partial trips. Confirm stopped workers before recovery, with at
 most three attempts per recovery phase. Startup/migrations never process evidence.
 
-Vehicle pages show five recent trips; map/report pages show 25. Date filters retain
-complete overlapping trips, without shortening input sequences. Times use account/
-device timezone, falling back to UTC. Trips use active observations.
+Vehicle pages show up to five recent trips. Trips shows 25 trips per page and
+jumps to the first whole trip overlapping a selected day. Times use the account
+or device timezone, falling back to UTC. Trip processing uses active observations
+across the complete vehicle history. See [Trips and the investigation map](maps.md).
 Trip detail leads with the first and last recorded observations and the elapsed
 span. The source list exposes every observation and imported row provenance.
 An evidence reader links back when its exact active observation belongs to one

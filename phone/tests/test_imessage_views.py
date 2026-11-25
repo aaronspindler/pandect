@@ -12,6 +12,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from cases.models import CaseMembership
+from core.analysis.bulk import prepare_case_analysis_batch
 from core.analysis.errors import AnalysisError
 from core.analysis.import_checks import imported_sources
 from core.analysis.services import process_run, resolve_inputs
@@ -488,11 +489,237 @@ class IMessageImportViewTests(EvidenceViewTestMixin, TestCase):
         self.login("outsider")
         self.assertEqual(self.client.get(conversation_url).status_code, 404)
 
-    def test_whatsapp_rejects_multiple_incoming_identifiers(self):
-        preview = self.prepare(whatsapp_csv({}, {"Sender ID": "17055550101"}))
-        self.assertEqual(preview.status, "failed")
-        self.assertEqual(preview.error_code, "imessage_multiple_chats")
+    def test_whatsapp_group_review_requires_each_sender_and_publishes_evidence(self):
+        preview = self.prepare(
+            whatsapp_csv(
+                {"Sender Name": "First contact", "Text": "First group message"},
+                {
+                    "Sender ID": "17055550101",
+                    "Sender Name": "Second contact",
+                    "Text": "Second group message",
+                },
+                {"Type": "Outgoing", "Sender ID": "", "Text": "Group reply"},
+                {"Sender ID": "", "Sender Name": "Unknown", "Text": "Unattributed"},
+            )
+        )
+        self.assertEqual(preview.status, "partial", preview.error_code)
+        review_url = self.review_url(preview)
+        review = self.client.get(review_url)
+        self.assertContains(review, "Group chat")
+        self.assertContains(review, "WhatsApp CSV")
+        self.assertContains(review, "First contact")
+        self.assertContains(review, "Second contact")
+        self.assertContains(review, 'name="group_chat"')
+        self.assertNotContains(review, 'name="direct_chat"')
+        self.assertContains(
+            self.client.get(review_url, {"rows": "excluded"}),
+            "Incoming group message has no Sender ID.",
+        )
         self.assertFalse(TextMessageEvidence.objects.exists())
+        first_key, second_key = [
+            sender["key"] for sender in preview.result.data["imessage"]["senders"]
+        ]
+        foreign = Person.objects.create(case=self.other_case, first_name="Foreign")
+        confirmed_people = {
+            "group_chat": "on",
+            "confirm": "on",
+            "account-person": str(self.person.pk),
+            f"{first_key}-person": "create",
+            f"{first_key}-first_name": "First sender",
+            f"{second_key}-person": "create",
+            f"{second_key}-first_name": "Second sender",
+        }
+        invalid = self.client.post(
+            review_url, confirmed_people | {f"{second_key}-person": str(foreign.pk)}
+        )
+        self.assertEqual(invalid.status_code, 400)
+        self.assertFalse(
+            AnalysisRun.objects.filter(parameters__phase="import").exists()
+        )
+        before = Person.objects.count()
+        confirmation = self.client.post(review_url, confirmed_people)
+        self.assertEqual(confirmation.status_code, 302)
+        self.assertEqual(Person.objects.count(), before)
+        final = AnalysisRun.objects.get(parameters__phase="import")
+        self.assertNotEqual(
+            final.parameters["people"][first_key]["id"],
+            final.parameters["people"][second_key]["id"],
+        )
+        process_run(final.pk)
+        final.refresh_from_db()
+        self.assertEqual(final.status, "partial", final.error_code)
+        document = DocumentEvidence.objects.get()
+        messages = self.client.get(confirmation.url)
+        self.assertContains(messages, "Retained messages · 3")
+        self.assertContains(messages, "View retained message")
+        self.assertNotContains(messages, "View conversation")
+        self.assertContains(messages, self.url("detail", document, kind="document"))
+        self.assertEqual(
+            list(
+                TextMessageEvidence.objects.order_by(
+                    "communication_context__source_row"
+                ).values_list("sender__first_name", "recipient_id", "group_source_id")
+            ),
+            [
+                ("First sender", None, document.pk),
+                ("Second sender", None, document.pk),
+                (self.person.first_name, None, document.pk),
+            ],
+        )
+        batch = CaseAnalysisBatch.objects.get(
+            scope__type="messages", scope__id=str(final.pk)
+        )
+        prepare_case_analysis_batch(batch.pk)
+        operations = set(
+            AnalysisRun.objects.filter(batch=batch).values_list("operation", flat=True)
+        )
+        self.assertIn("entities", operations)
+        self.assertFalse(
+            operations
+            & {"sessions", "session_summaries", "comm_patterns", "conversation_link"}
+        )
+        self.assertFalse(batch.grouping_requests.exists())
+        message_url = messages.context["group_message_url"]
+        self.login("viewer")
+        self.assertContains(self.client.get(confirmation.url), "View retained message")
+        self.assertContains(self.client.get(message_url), "First group message")
+        self.login("outsider")
+        self.assertEqual(self.client.get(confirmation.url).status_code, 404)
+        self.assertEqual(self.client.get(message_url).status_code, 404)
+
+    def test_group_result_includes_reused_rows_only_from_the_confirmed_range(self):
+        preview = self.prepare(
+            message_csv(
+                {"Chat Session": "Synthetic group", "Text": "Earlier"},
+                {
+                    "Chat Session": "Synthetic group",
+                    "Message Date": "2026-07-31 03:30:00+00:00",
+                    "Text": "Reused nearby",
+                },
+                {
+                    "Chat Session": "Synthetic group",
+                    "Message Date": "2026-07-31 03:40:00+00:00",
+                    "Text": "é" * 20,
+                },
+                {
+                    "Chat Session": "Synthetic group",
+                    "Message Date": "2026-07-31 04:00:00+00:00",
+                    "Sender ID": "17055550101",
+                    "Text": "New nearby",
+                },
+            ),
+            end_date="2026-07-30",
+        )
+        sender_key = preview.result.data["imessage"]["senders"][0]["key"]
+        self.assertContains(self.client.get(self.review_url(preview)), "Group chat")
+        initial_confirmation = {
+            "group_chat": "on",
+            "confirm": "on",
+            f"{sender_key}-person": str(self.person.pk),
+            "account-person": "create",
+            "account-first_name": "Unused account",
+        }
+        response = self.client.post(self.review_url(preview), initial_confirmation)
+        self.assertEqual(response.status_code, 302)
+        initial_run = AnalysisRun.objects.get(parameters__phase="import")
+        self.assertNotIn("account", initial_run.parameters["people"])
+        process_run(initial_run.pk)
+        initial_run.refresh_from_db()
+        self.assertIn(
+            initial_run.status, ("complete", "partial"), initial_run.error_code
+        )
+        self.assertFalse(Person.objects.filter(first_name="Unused account").exists())
+        document = DocumentEvidence.objects.get()
+        other = Person.objects.create(case=self.case, first_name="Second sender")
+        owner = self.users["owner"]
+        selections = {"17055550100": self.person, "17055550101": other}
+        # A July 31 UTC timestamp belongs to July 30 in the export timezone.
+        # The narrower review also excludes a row under its lower byte limit.
+        for end, byte_limit, expected, created, reused in (
+            (
+                date(2026, 7, 31),
+                6000,
+                ["Reused nearby", "é" * 20, "New nearby"],
+                1,
+                2,
+            ),
+            (date(2026, 7, 30), 20, ["Reused nearby"], 0, 1),
+        ):
+            with (
+                self.subTest(end=end),
+                self.settings(PANDECT_MAX_TEXT_BYTES=byte_limit),
+            ):
+                selected, _ = start_preview(
+                    owner,
+                    self.case.pk,
+                    {
+                        "submission_id": uuid4(),
+                        "document": document,
+                        "timezone": "America/Toronto",
+                        "start_date": date(2026, 7, 30),
+                        "end_date": end,
+                    },
+                )
+                process_run(selected.pk)
+                selected.refresh_from_db()
+                post = {"group_chat": "on", "confirm": "on"} | {
+                    f"{sender['key']}-person": str(selections[sender["id"]].pk)
+                    for sender in selected.result.data["imessage"]["senders"]
+                }
+                confirmed = self.client.post(self.review_url(selected), post)
+                self.assertEqual(confirmed.status_code, 302)
+                final = AnalysisRun.objects.get(previous_run=selected)
+                process_run(final.pk)
+                final.refresh_from_db()
+                self.assertIn(final.status, ("complete", "partial"), final.error_code)
+                receipt = self.client.get(confirmed.url)
+                self.assertContains(
+                    receipt,
+                    f"{created} new message{'s' if created != 1 else ''} added"
+                    f" · {reused} already retained",
+                )
+                self.assertEqual(
+                    [message.body for message in receipt.context["imported"]], expected
+                )
+                first = TextMessageEvidence.objects.get(body=expected[0])
+                self.assertEqual(
+                    receipt.context["group_message_url"],
+                    self.url("detail", first, kind="text-message"),
+                )
+                self.assertEqual(first.communication_context.import_run, initial_run)
+
+        # A later publication of a removed row must not change an older receipt.
+        old_url = self.review_url(final)
+        original_id = first.pk
+        first.delete()
+        with self.settings(PANDECT_MAX_TEXT_BYTES=20):
+            replacement_preview, _ = start_preview(
+                owner,
+                self.case.pk,
+                {
+                    "submission_id": uuid4(),
+                    "document": document,
+                    "timezone": "America/Toronto",
+                    "start_date": date(2026, 7, 30),
+                    "end_date": date(2026, 7, 30),
+                },
+            )
+            process_run(replacement_preview.pk)
+            replacement_run, _ = confirm_import(
+                owner,
+                self.case.pk,
+                replacement_preview.pk,
+                {sender_key: {"id": str(other.pk), "create": None}},
+            )
+            process_run(replacement_run.pk)
+        replacement = TextMessageEvidence.objects.get(body="Reused nearby")
+        self.assertNotEqual(replacement.pk, original_id)
+        self.assertEqual(replacement.sender, other)
+        old_receipt = self.client.get(old_url)
+        self.assertEqual(list(old_receipt.context["imported"]), [])
+        self.assertNotContains(old_receipt, "View retained message")
+        new_receipt = self.client.get(self.review_url(replacement_run))
+        self.assertEqual(list(new_receipt.context["imported"]), [replacement])
 
     def test_whatsapp_rejects_duplicate_headers(self):
         raw = whatsapp_csv().replace(

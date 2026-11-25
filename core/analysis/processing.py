@@ -78,7 +78,7 @@ def _run_counts(case_runs):
     counts = (
         case_runs.values_list("operation", "status")
         .annotate(count=Count("*"))
-        .order_by("operation")
+        .order_by()
     )
     statuses = Counter()
     saved = Counter()
@@ -187,7 +187,7 @@ def index(request, case_id):
         all_runs.filter(
             operation="imessage_import",
             method_version=OPERATIONS["imessage_import"].version,
-            parameters__phase="preview",
+            parameters__contains={"phase": "preview"},
             status__in=("complete", "partial"),
             result__case=case,
             result__data__metrics__ready_rows__gt=0,
@@ -305,7 +305,18 @@ def index(request, case_id):
         else imports.exclude(Q(status__in=ACTIVE_IMPORTS) | actionable_import),
         25,
     ).get_page(request.GET.get("imports_page"))
-    call_imports = case_call_imports(case).select_related("document").defer("selection")
+    call_imports = (
+        case_call_imports(case)
+        .select_related("document")
+        .only(
+            "document__title",
+            "document__is_archived",
+            "source_label",
+            "created_at",
+            "status",
+            "is_running",
+        )
+    )
     active_call_imports = call_imports.filter(status__in=ACTIVE_CALL_IMPORTS)
     call_imports_to_review = call_imports.filter(
         status__in=(CallHistoryImport.Status.REVIEW, *FAILED_CALL_IMPORTS),
@@ -340,8 +351,17 @@ def index(request, case_id):
     search_index = search_index_status(case)
     search_pending = search_index["status"] in ("queued", "running")
     context = case_context(case, request.user)
+    run_counts, analysis_run_counts = _run_counts(case_runs)
+    has_failed_runs = run_counts[AnalysisRun.Status.FAILED] > 0
+    can_retry_failed = (
+        has_failed_runs and context["can_edit"] and failed_checks(case).exists()
+    )
+    has_failed_checks = can_retry_failed or (
+        has_failed_runs
+        and case_runs.filter(status="failed").filter(~Exists(followups)).exists()
+    )
     retry_submission = retry_after = None
-    if context["can_edit"] and failed_checks(case).exists():
+    if can_retry_failed:
         latest_retry = latest_failed_retry(case)
         if (
             latest_retry is None
@@ -361,7 +381,6 @@ def index(request, case_id):
     ).get_page(request.GET.get("instagram_page"))
     for check in monitor_history:
         check.message = check_message(check.error) if check.error else ""
-    run_counts, analysis_run_counts = _run_counts(case_runs)
     chat_turns = (
         ChatTurn.objects.filter(case=case, chat__case=case)
         .order_by("-created_at")
@@ -397,9 +416,7 @@ def index(request, case_id):
             "import_reviews": import_reviews[:5],
             "more_import_reviews": len(import_reviews) > 5,
             "showing_import_reviews": showing_import_reviews,
-            "failed_checks": case_runs.filter(status="failed")
-            .filter(~Exists(followups))
-            .exists(),
+            "failed_checks": has_failed_checks,
             "retry_submission": retry_submission,
             "retry_after": retry_after,
             "failed_batches": failed_batches[:NEEDS_ATTENTION_LIMIT],

@@ -33,7 +33,7 @@ test:
 	$(RUN) python manage.py test --settings=$(TEST_SETTINGS)
 
 browser-check:
-	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser core.analysis.workflow_browser core.analysis.sighting_browser core.analysis.reprocessing_browser core.case_search.browser core.evidence_chat.browser core.evidence.bulk_admin_browser core.evidence.packet_browser core.important_browser image.browser document.browser audio.browser phone.imessage_browser phone.call_history_browser phone.conversation_browser text.claim_comparison_browser geo.map_browser geo.journey_claim_browser socialmedia.monitor_browser $(INSTAGRAM_COLLECTOR_TESTS) ui.live_browser ui.workspace_browser ui.dialog_browser --noinput --settings=$(TEST_SETTINGS)
+	$(RUN) python manage.py test config.tests.browser marketing.browser core.analysis.browser core.analysis.context_browser core.analysis.workflow_browser core.analysis.sighting_browser core.analysis.reprocessing_browser core.case_search.browser core.evidence_chat.browser core.evidence.bulk_admin_browser core.evidence.packet_browser core.important_browser image.browser document.browser audio.browser phone.imessage_browser phone.call_history_browser phone.conversation_browser text.claim_comparison_browser text.writing_browser geo.map_browser geo.journey_claim_browser socialmedia.monitor_browser $(INSTAGRAM_COLLECTOR_TESTS) ui.live_browser ui.workspace_browser ui.dialog_browser --noinput --settings=$(TEST_SETTINGS)
 
 configuration-check:
 	$(UV) lock --check

@@ -87,20 +87,8 @@ window.addEventListener("load", () => {
   fitButton.hidden = false;
   fitButton.addEventListener("click", fit);
   if (section.dataset.tileUrl) {
-    let failed = false;
-    const tiles = L.tileLayer(section.dataset.tileUrl, {
-      maxZoom: 19, referrerPolicy: "origin", updateWhenIdle: true, keepBuffer: 0,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" rel="noreferrer">OpenStreetMap contributors</a>',
-    });
-    if (section.dataset.tileAttribution) {
-      const label = document.createElement("span");
-      label.textContent = section.dataset.tileAttribution;
-      map.attributionControl.addAttribution(label.outerHTML);
-    }
-    tiles.on("loading", () => { failed = false; status.textContent = "Loading map tiles…"; status.classList.remove("sr-only"); });
-    tiles.on("tileerror", () => { failed = true; status.textContent = "Some map tiles could not load. The trip path, POIs, and sources remain available. Pan or zoom to retry."; status.classList.remove("sr-only"); });
-    tiles.on("load", () => { if (!failed) { status.textContent = "Map loaded."; status.classList.add("sr-only"); } });
-    tiles.addTo(map);
+    window.PandectMapTiles(map, section.dataset, status,
+      "Some map tiles could not load. The trip path, POIs, and sources remain available. Pan or zoom to retry.");
   } else {
     status.textContent = "No background map configured. Trip paths and POIs remain available.";
   }

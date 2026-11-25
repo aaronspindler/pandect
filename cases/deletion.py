@@ -92,7 +92,14 @@ def outside_case(rows, case_id):
     paths = _case_paths(rows.model)
     if not paths:
         return rows.exists()
-    return rows.exclude(**dict.fromkeys(paths, case_id)).exists()
+    if rows.exclude(**dict.fromkeys(paths, case_id)).exists():
+        return True
+    if rows.model._meta.label_lower == "phone.textmessageevidence":
+        from core.evidence.queries import same_case_evidence
+
+        groups = rows.filter(group_source__isnull=False)
+        return groups.exclude(pk__in=same_case_evidence(groups).values("pk")).exists()
+    return False
 
 
 def inaccessible_case_records(objects, cases, using):

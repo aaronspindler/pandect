@@ -11,7 +11,7 @@ from core.analysis.catalogue import finding_rows
 from core.analysis.navigation import finding_url
 from core.analysis.services import SourceResolutionCache
 from core.evidence.types import KIND_LABELS
-from phone.conversations import conversation_url
+from phone.conversations import message_url
 from phone.models import CallEvidenceAttachment
 
 from .documents import FIELDS, searchable, term_condition
@@ -93,7 +93,7 @@ def _evidence_row(case, kind, item):
         date, date_label = observed, "Observed"
     url = reverse("core:evidence:detail", args=(case.pk, kind, item.pk))
     if kind == "text-message":
-        url = conversation_url(case, item)
+        url = message_url(case, item)
     return {
         "id": item.pk,
         "kind": kind,

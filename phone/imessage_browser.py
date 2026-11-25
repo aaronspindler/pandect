@@ -33,6 +33,138 @@ class IMessageImportBrowserTests(BrowserTestCase):
         self.owner = self.make_user("imessage-browser-owner")
         self.case = Case.objects.create(owner=self.owner, name="Synthetic direct chat")
 
+    def test_no_javascript_group_mapping_and_retained_message(self):
+        long_identifier = "x" * 255
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine, java_script_enabled=False) as (_, page),
+            ):
+                self.sign_in(page)
+                page.goto(self.url("phone:imessage_upload", case_id=self.case.pk))
+                page.get_by_label("Message CSV", exact=True).set_input_files(
+                    {
+                        "name": "synthetic-group.csv",
+                        "mimeType": "text/csv",
+                        "buffer": message_csv(
+                            {
+                                "Chat Session": "Synthetic group",
+                                "Text": "First group body",
+                            },
+                            {
+                                "Chat Session": "Synthetic group",
+                                "Sender ID": long_identifier,
+                                "Text": "Second group body",
+                            },
+                            {
+                                "Chat Session": "Synthetic group",
+                                "Type": "Outgoing",
+                                "Sender ID": "",
+                                "Sender Name": "",
+                                "Text": "Group reply",
+                            },
+                            {
+                                "Chat Session": "Synthetic group",
+                                "Sender ID": "",
+                                "Sender Name": "",
+                                "Text": "Unattributed incoming message",
+                            },
+                        ),
+                    }
+                )
+                page.get_by_label("Export timezone", exact=True).fill("UTC")
+                page.get_by_label(
+                    "I confirm this is the export's timezone", exact=True
+                ).check()
+                page.get_by_role(
+                    "button", name="Prepare message review", exact=True
+                ).click()
+                page.wait_for_url(re.compile(r"/imessage/[0-9a-f-]+/$"))
+                preview_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
+                self.db(process_run, preview_id)
+                page.reload()
+                expect(page.get_by_text("Group chat", exact=True)).to_be_visible()
+                page.get_by_role("link", name="Review excluded rows").press("Enter")
+                expect(
+                    page.get_by_text("Incoming group message has no Sender ID.")
+                ).to_be_visible()
+                for group_name, name in (
+                    ("Export account — outgoing sender", "Group account"),
+                    ("Incoming sender 17055550100", "First group sender"),
+                    (f"Incoming sender {long_identifier}", "Second group sender"),
+                ):
+                    sender = page.get_by_role("group", name=group_name, exact=True)
+                    sender.get_by_label("Person", exact=True).select_option("create")
+                    first_name = sender.get_by_label("First name", exact=True)
+                    if not first_name.is_visible():
+                        sender.get_by_text("New person details", exact=True).press(
+                            "Enter"
+                        )
+                    first_name.fill(name)
+                confirm = page.get_by_label(
+                    "I confirm this export contains one group conversation", exact=True
+                )
+                confirm.focus()
+                expect(confirm).to_be_focused()
+                page.keyboard.press("Space")
+                page.get_by_label(
+                    "Import the ready messages with these people "
+                    "and the confirmed timezone",
+                    exact=True,
+                ).check()
+                for width, height in (
+                    (1440, 900),
+                    (1440, 1024),
+                    (768, 1024),
+                    (390, 844),
+                    (320, 844),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self.assertLessEqual(
+                        page.evaluate("document.documentElement.scrollWidth"), width + 1
+                    )
+                    self.capture(page, engine, f"group-review-{width}-{height}")
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.evaluate("document.documentElement.style.fontSize = '200%'")
+                self.assertLessEqual(
+                    page.evaluate("document.documentElement.scrollWidth"), 391
+                )
+                self.capture(page, engine, "group-review-enlarged-text")
+                page.evaluate("document.documentElement.style.fontSize = ''")
+                page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+                self.capture(page, engine, "group-review-dark-reduced-motion")
+                page.emulate_media(forced_colors="active")
+                confirm.focus()
+                expect(confirm).to_be_focused()
+                self.capture(page, engine, "group-review-forced-colors")
+                page.emulate_media(color_scheme="light", forced_colors="none")
+                page.get_by_role("button", name="Import messages", exact=True).press(
+                    "Enter"
+                )
+                expect(
+                    page.get_by_role("heading", name="Review message CSV", exact=True)
+                ).to_be_visible()
+                final_id = UUID(urlsplit(page.url).path.rstrip("/").split("/")[-1])
+                self.assertNotEqual(preview_id, final_id)
+                self.db(process_run, final_id)
+                page.reload()
+                expect(
+                    page.get_by_role("heading", name="Messages imported", exact=True)
+                ).to_be_visible()
+                expect(page.get_by_text("Retained messages · 3")).to_be_visible()
+                expect(
+                    page.get_by_role("link", name="View conversation", exact=True)
+                ).to_have_count(0)
+                self.capture(page, engine, "group-imported-mobile")
+                page.get_by_role("link", name="View retained message").press("Enter")
+                reader = page.get_by_role("region", name="Selected evidence")
+                expect(
+                    reader.get_by_text("First group body", exact=True)
+                ).to_be_visible()
+                expect(
+                    reader.get_by_role("link", name="View retained CSV")
+                ).to_be_visible()
+
     @override_settings(
         PANDECT_AI_GATEWAY=SYNTHETIC_MESSAGE_GATEWAY,
         PANDECT_LOCAL_AI=SYNTHETIC_MESSAGE_LOCAL,

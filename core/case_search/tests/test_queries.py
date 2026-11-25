@@ -70,6 +70,25 @@ class SearchTests(EvidenceTestMixin, TestCase):
         page = search(self.case, query="extended OR cancelled")
         self.assertEqual(page.paginator.count, 2)
 
+    def test_date_filter_uses_the_first_available_timestamp(self):
+        now = timezone.now()
+        old = now - timedelta(days=10)
+        in_range = {"start": now - timedelta(days=1), "end": now + timedelta(days=1)}
+        dates = (
+            ({"occurred_at": now, "collected_at": old}, "Occurred"),
+            ({"occurred_at": old, "collected_at": now}, None),
+            ({"collected_at": now}, "Collected"),
+            ({"collected_at": old}, None),
+            ({}, "Added"),
+        )
+        expected = {}
+        for fields, label in dates:
+            message = self.create_evidence(TextMessageEvidence, body="Zephyr", **fields)
+            if label:
+                expected[message.pk] = label
+        page = search(self.case, query="zephyr", record_type="text-message", **in_range)
+        self.assertEqual({row["id"]: row["date_label"] for row in page}, expected)
+
     def test_participants_entities_accounts_and_call_anchors(self):
         viewer = Person.objects.create(
             case=self.case, first_name="Eloise", last_name="Cartwright"

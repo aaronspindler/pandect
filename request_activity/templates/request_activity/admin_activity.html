@@ -1,0 +1,157 @@
+{% extends "admin/base_site.html" %}
+{% load static tz %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" {% csp_nonce_attr %}>
+  <link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" {% csp_nonce_attr %}>
+{% endblock %}
+
+{% block content %}
+{% timezone "UTC" %}
+<div id="content-main">
+  <section class="module" aria-labelledby="request-search-heading">
+    <h2 id="request-search-heading">Search requests</h2>
+    <form action="{% url 'request_activity' %}" method="post">
+      {% csrf_token %}
+      {% if search_form.errors %}
+        <p class="errornote" role="alert" tabindex="-1" autofocus>Check the search fields below.</p>
+      {% endif %}
+      {{ search_form.cursor.errors }}
+      <div class="aligned">
+        {% for field in search_form.visible_fields %}
+          <div class="form-row">{{ field.as_field_group }}</div>
+        {% endfor %}
+      </div>
+      <div class="submit-row">
+        <input type="submit" value="Search">
+        <a href="{% url 'request_activity' %}">Clear filters</a>
+      </div>
+    </form>
+  </section>
+
+  {% if store_unavailable %}
+    <p class="errornote" role="alert">Request history is temporarily unavailable. Try again later.</p>
+  {% elif page %}
+    <section class="module" aria-labelledby="request-results-heading">
+      <h2 id="request-results-heading">Request history</h2>
+      {% if page.rows %}
+        {% if page.first_seen and page.last_seen %}
+          <p>
+            First seen <time datetime="{{ page.first_seen|date:'c' }}">{{ page.first_seen|date:"Y-m-d H:i:s" }}</time> UTC.
+            Last seen <time datetime="{{ page.last_seen|date:'c' }}">{{ page.last_seen|date:"Y-m-d H:i:s" }}</time> UTC.
+          </p>
+        {% endif %}
+        <div id="changelist-form">
+          <div class="results" role="region" aria-labelledby="request-results-heading" tabindex="0">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Request time (UTC)</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Route</th>
+                  <th scope="col">Server-reported status</th>
+                  <th scope="col">Client IP</th>
+                  <th scope="col">Fingerprint</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in page.rows %}
+                  <tr>
+                    <td><time datetime="{{ row.occurred_at|date:'c' }}">{{ row.occurred_at|date:"Y-m-d H:i:s" }}</time></td>
+                    <td>{{ row.method }}</td>
+                    <td>{{ row.route }}</td>
+                    <td>{{ row.status|default_if_none:"Unknown" }}</td>
+                    <td>{{ row.ip|default_if_none:"Unknown" }}</td>
+                    <td><code>{{ row.fingerprint|default_if_none:"Unknown" }}</code></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% if next_cursor %}
+          <form action="{% url 'request_activity' %}" method="post" class="paginator">
+            {% csrf_token %}
+            {% for key, value in filters.items %}
+              <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endfor %}
+            <input type="hidden" name="cursor" value="{{ next_cursor }}">
+            <input type="submit" value="Show older requests">
+          </form>
+        {% endif %}
+      {% elif search_form.is_bound %}
+        <p>No requests match this search.</p>
+      {% else %}
+        <p>No request records are available yet.</p>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if summary or summary_unavailable %}
+    <section class="module" aria-labelledby="repeat-fingerprints-heading">
+      <h2 id="repeat-fingerprints-heading">Repeat fingerprints</h2>
+      {% if summary_unavailable %}
+        <p class="errornote" role="alert">Repeat fingerprint counts are temporarily unavailable.</p>
+      {% else %}
+        <p>{{ summary.start_date|date:"Y-m-d" }} through {{ summary.end_date|date:"Y-m-d" }} UTC.</p>
+        <p>Counts fingerprints seen on public page visits on at least two different UTC dates. Browsers can share a fingerprint.</p>
+        <p>
+          <strong>{{ summary.eligible_requests }}</strong> eligible page request{{ summary.eligible_requests|pluralize }}.
+          <strong>{{ summary.unknown_fingerprints }}</strong> without a usable fingerprint.
+        </p>
+        {% if summary.versions %}
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Version</th>
+                <th scope="col">Distinct fingerprints</th>
+                <th scope="col">Seen on multiple dates</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in summary.versions %}
+                <tr>
+                  <th scope="row">{{ row.version }}</th>
+                  <td>{{ row.distinct_fingerprints }}</td>
+                  <td>{{ row.repeat_fingerprints }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if page or store_unavailable %}
+    <section class="module" aria-labelledby="capture-heading">
+      <h2 id="capture-heading">Capture status</h2>
+      {% if summary.latest_record_at %}
+        <p>Latest retained request <time datetime="{{ summary.latest_record_at|date:'c' }}">{{ summary.latest_record_at|date:"Y-m-d H:i:s" }}</time> UTC.</p>
+      {% endif %}
+      {% if capture %}
+        {% if capture.stale %}
+          <p>Capture status is stale. Recent records may be missing.</p>
+        {% endif %}
+        {% if capture.last_gap_at %}
+          <p>Latest known capture gap <time datetime="{{ capture.last_gap_at|date:'c' }}">{{ capture.last_gap_at|date:"Y-m-d H:i:s" }}</time> UTC.</p>
+        {% endif %}
+        {% if capture.queued_count %}
+          <p>
+            {{ capture.queued_count }} buffered record{{ capture.queued_count|pluralize }} awaiting ingestion.
+            {% if capture.queued_oldest_at %}
+              Oldest buffered request <time datetime="{{ capture.queued_oldest_at|date:'c' }}">{{ capture.queued_oldest_at|date:"Y-m-d H:i:s" }}</time> UTC.
+            {% endif %}
+          </p>
+        {% elif not capture.stale %}
+          <p>No buffered records are awaiting ingestion.</p>
+        {% endif %}
+      {% else %}
+        <p>Capture status is unavailable.</p>
+      {% endif %}
+    </section>
+  {% endif %}
+</div>
+{% endtimezone %}
+{% endblock %}

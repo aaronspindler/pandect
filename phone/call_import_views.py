@@ -1,10 +1,12 @@
 """Prepare, review, and publish call history from a retained case CSV."""
 
 from urllib.parse import urlencode
+from uuid import UUID
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db import DatabaseError
 from django.db.models import Count, F, Min, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,11 +25,13 @@ from phone.call_history_jobs import (
     MAX_ATTEMPTS,
     confirm_call_history,
     retain_call_history,
+    retain_call_history_upload,
     retry_call_history,
     save_call_history_selection,
 )
 from phone.call_import_forms import (
     CallHistorySelectionForm,
+    CallHistorySourceForm,
     CallHistoryUploadForm,
     LinkCallPersonForm,
 )
@@ -50,21 +54,22 @@ REVIEW_TABS = {
 @require_http_methods(["GET", "POST"])
 def call_history_upload(request, case_id):
     case = get_case(request.user, case_id, edit=True)
+    if value := request.GET.get("document"):
+        try:
+            document_id = UUID(value)
+        except ValueError:
+            raise Http404("Document not found.") from None
+        document = get_evidence(case, "document", document_id)
+        if document.is_archived:
+            raise Http404("Restore this CSV before importing calls.")
+        return _review_source(request, case, document)
+
     is_post = request.method == "POST"
     form = CallHistoryUploadForm(
         request.POST if is_post else None,
         request.FILES if is_post else None,
-        case=case,
         byte_limit=import_file_limit(),
     )
-    source_document = None
-    if value := request.GET.get("document"):
-        try:
-            source_document = form.fields["document"].queryset.filter(pk=value).first()
-        except ValidationError:
-            pass
-        if source_document:
-            form.initial["document"] = source_document.pk
     status = 200
     if is_post:
         status = 400
@@ -76,35 +81,83 @@ def call_history_upload(request, case_id):
         elif form.is_valid():
             data = form.cleaned_data
             try:
-                batch = retain_call_history(
+                document = retain_call_history_upload(
                     request.user,
                     case.pk,
                     submission_id=data["submission_id"],
                     original=data["file"],
-                    document=data["document"],
-                    source=data["source"],
-                    source_label=data["source_label"],
-                    timezone=data["timezone"],
                 )
             except ValidationError as error:
                 form.add_error(None, error)
-            except OSError:
+            except OSError, DatabaseError:
                 form.add_error(
                     None,
                     "The CSV could not be retained. Keep your file and try again.",
                 )
                 status = 503
             else:
-                return redirect(CALL_HISTORY_REVIEW, case.pk, batch.pk)
+                return redirect(
+                    reverse(
+                        "phone:call_history_upload",
+                        args=[case.pk],
+                        query={"document": document.pk},
+                    )
+                )
     return render(
         request,
         "phone/call_history_upload.html",
         {
             **case_context(case, request.user),
             "form": form,
-            "source_document": source_document,
             "max_csv_bytes": import_file_limit(),
             "max_csv_rows": f"{MAX_ROWS:,}",
+            "nav_section": "evidence",
+        },
+        status=status,
+    )
+
+
+def _review_source(request, case, document):
+    default_timezone = request.user.timezone or "America/Toronto"
+    is_post = request.method == "POST"
+    form = CallHistorySourceForm(
+        request.POST if is_post else None, case=case, default_timezone=default_timezone
+    )
+    status = 200
+    if is_post:
+        status = 400
+        if getattr(request, "evidence_upload_too_large", False):
+            form.add_error(None, "Choose a source for the retained CSV.")
+            status = 413
+        elif request.FILES:
+            form.add_error(None, "Choose a source for the retained CSV.")
+        elif form.is_valid():
+            data = form.cleaned_data
+            try:
+                batch = retain_call_history(
+                    request.user,
+                    case.pk,
+                    submission_id=data["submission_id"],
+                    document=document,
+                    source=data["source"],
+                    source_label=data["source_label"],
+                    timezone=data["timezone"],
+                )
+            except ValidationError as error:
+                form.add_error(None, error)
+            except OSError, DatabaseError:
+                form.add_error(None, "The CSV review could not be prepared. Try again.")
+                status = 503
+            else:
+                return redirect(CALL_HISTORY_REVIEW, case.pk, batch.pk)
+    return render(
+        request,
+        "phone/call_history_source.html",
+        {
+            **case_context(case, request.user),
+            "form": form,
+            "source_document": document,
+            "default_timezone": default_timezone,
             "nav_section": "evidence",
         },
         status=status,

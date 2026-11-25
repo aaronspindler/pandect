@@ -37,7 +37,9 @@ from core.analysis.tests.test_openai_gateway import AUTO_OPENAI, OPENAI
 from core.analysis.tests.test_topic_recovery import LOCAL
 from core.models import AnalysisResult, AnalysisRun, CaseAnalysisBatch
 from document.models import DocumentEvidence
-from geo.models import PersonLocationEvidence, VehicleLocationEvidence
+from geo.analysis.external.geocoding import Geocoder
+from geo.models import LocationEvidence, PersonLocationEvidence, VehicleLocationEvidence
+from geo.testing import LOCAL_GEOCODER
 from image.models import ImageEvidence
 from people.models import Person
 from phone.analysis.ingest import describe_import_selection
@@ -845,7 +847,7 @@ class AnalysisBrowserTests(BrowserTestCase):
                 ).to_have_count(0)
                 directory = page.get_by_role("navigation", name="Explore case")
                 reports = directory.get_by_role("region", name="Reports")
-                expect(reports.get_by_role("link")).to_have_count(5)
+                expect(reports.get_by_role("link")).to_have_count(4)
                 for label in (
                     "Findings",
                     "Conversations",
@@ -928,12 +930,13 @@ class AnalysisBrowserTests(BrowserTestCase):
                 page.get_by_role("link", name="Jump to analysis methods").press("Enter")
                 expect(methods).to_be_in_viewport()
                 self.capture(page, engine, "case-tools-methods-reflow")
-                pattern = page.get_by_role("link", name="Vehicle trips", exact=True)
-                pattern.focus()
-                expect(pattern).to_be_focused()
-                pattern.press("Enter")
+                trips = directory.get_by_role("link", name="Trips", exact=True)
+                trips.focus()
+                expect(trips).to_be_focused()
+                trips.press("Enter")
+                expect(page).to_have_url(self.url("geo:case_map", case_id=self.case.pk))
                 expect(
-                    page.get_by_role("heading", name="Vehicle trips", exact=True)
+                    page.get_by_role("heading", name="Trips", exact=True)
                 ).to_be_visible()
                 page.go_back()
                 expect(reports).to_be_visible()
@@ -2212,6 +2215,150 @@ class AnalysisBrowserTests(BrowserTestCase):
             )
         page.set_viewport_size({"width": 1440, "height": 900})
 
+    @override_settings(
+        **LOCAL_GEOCODER,
+        PANDECT_MAP_TILE_URL="https://tiles.example.test/{z}/{x}/{y}.png",
+        PANDECT_MAP_TILE_ORIGIN="https://tiles.example.test",
+        PANDECT_MAP_TILE_ATTRIBUTION="Synthetic map attribution",
+    )
+    def test_observation_basemaps_load_automatically_and_keep_coordinates(self):
+        observation = LocationEvidence.objects.create(
+            case=self.case,
+            uploaded_by=self.owner,
+            title="Synthetic address observation",
+            address="10 Example Street",
+        )
+        candidate = {
+            "latitude": 43.65,
+            "longitude": -79.39,
+            "address": "Synthetic north candidate",
+            "granularity": "street",
+            "reference_id": "way:1",
+            "licence": "Synthetic licence",
+        }
+        candidates = [
+            candidate,
+            candidate
+            | {
+                "latitude": 43.64,
+                "address": "Synthetic south candidate",
+                "reference_id": "way:2",
+            },
+        ]
+        tile_url = "https://tiles.example.test/**"
+        tile = BytesIO()
+        Image.new("RGB", (256, 256), "#d9e5d7").save(tile, format="PNG")
+        tile_bytes = tile.getvalue()
+        tile_requests = []
+
+        def serve_tile(route):
+            tile_requests.append(route.request.url)
+            route.fulfill(status=200, content_type="image/png", body=tile_bytes)
+
+        for engine in self.engines:
+            with (
+                self.subTest(engine=engine),
+                self.browser_page(engine) as (context, page),
+            ):
+                run, _ = self.db(
+                    start_run,
+                    self.owner,
+                    self.case.pk,
+                    "geocode_locations",
+                    [{"kind": "location", "id": str(observation.pk)}],
+                )
+                run_url = self.url(
+                    "core:analysis:detail", case_id=self.case.pk, run_id=run.pk
+                )
+                finding_path = finding_url(self.case.pk, run.pk, 0)
+                tile_requests.clear()
+                context.route(tile_url, serve_tile)
+                self.sign_in(page, self.viewer)
+                page.goto(run_url)
+                positions = page.locator("details.analysis-position-map")
+                map_region = positions.get_by_role("region", name="Observation map")
+                status = positions.get_by_role("status")
+                expect(map_region).to_have_count(0)
+                self.assertEqual(tile_requests, [])
+                page.evaluate("window.liveSentinel = 42")
+                with patch.object(Geocoder, "lookup", return_value=candidates):
+                    self.db(self._complete, run.pk)
+                expect(page.locator("#analysis-result")).to_have_attribute(
+                    "data-live-poll", "false", timeout=15000
+                )
+                expect(map_region).to_be_visible()
+                expect(status).to_have_text("Map loaded.")
+                self.assertEqual(page.evaluate("window.liveSentinel"), 42)
+                overview_tiles = len(tile_requests)
+                self.assertGreater(overview_tiles, 0)
+
+                coordinates = positions.locator("details").filter(
+                    has=page.get_by_text("Coordinates and sources", exact=True)
+                )
+                coordinate_summary = coordinates.locator("summary")
+                coordinate_summary.press("Enter")
+                source = coordinates.get_by_role(
+                    "link", name=candidate["address"], exact=True
+                )
+                expect(coordinates.locator("svg")).to_be_hidden()
+                expect(source).to_have_attribute("href", finding_path)
+
+                source.press("Enter")
+                expect(page).to_have_url(self.live_server_url + finding_path)
+                expect(coordinates.locator("svg")).to_have_count(0)
+                coordinate_summary.press("Enter")
+                expect(source).to_be_visible()
+                expect(coordinates).to_contain_text(re.compile(r"43\.65.*-79\.39"))
+                expect(
+                    positions.get_by_role("button", name="Show background map")
+                ).to_have_count(0)
+                expect(map_region).to_be_visible()
+                expect(status).to_have_text("Map loaded.")
+                self.assertGreater(len(tile_requests), overview_tiles)
+                marker = map_region.get_by_role(
+                    "button", name=re.compile(r"^Lookup candidate")
+                )
+                expect(marker).to_have_class(
+                    re.compile(r"\bobservation-marker-candidate\b")
+                )
+                for width, height, label in (
+                    (1440, 900, "desktop"),
+                    (1440, 1024, "tall-desktop"),
+                    (768, 1024, "tablet"),
+                    (390, 844, "mobile"),
+                    (320, 844, "reflow"),
+                ):
+                    page.set_viewport_size({"width": width, "height": height})
+                    self._assert_reflow(page)
+                    if label in {"desktop", "mobile"}:
+                        page.emulate_media(
+                            color_scheme="dark" if label == "mobile" else "light",
+                            reduced_motion="reduce",
+                        )
+                        map_region.scroll_into_view_if_needed()
+                        expect(marker).to_be_in_viewport()
+                        expect(status).to_have_text("Map loaded.")
+                        self.capture(page, engine, f"observation-map-{label}")
+                position_summary = positions.locator(":scope > summary")
+                position_summary.press("Enter")
+                expect(map_region).to_be_hidden()
+                position_summary.press("Enter")
+                map_region.scroll_into_view_if_needed()
+                expect(marker).to_be_in_viewport()
+                marker.press("Enter")
+                expect(
+                    map_region.get_by_role(
+                        "link", name=candidate["address"], exact=True
+                    )
+                ).to_have_attribute("href", finding_path)
+
+                context.unroute(tile_url, serve_tile)
+                context.route(tile_url, lambda route: route.abort())
+                page.reload()
+                expect(status).to_contain_text("map tiles are unavailable")
+                coordinate_summary.press("Enter")
+                expect(source).to_be_visible()
+
     def test_phase3_visits_style_and_adjusted_communication_forms(self):
         locations, writing, exchanges, excluded, originals = self._phase3_sources()
         for engine in self.engines:
@@ -2236,13 +2383,22 @@ class AnalysisBrowserTests(BrowserTestCase):
                 )
                 visits = self._queue_and_finish(page, "candidate_visits")
                 self.db(self._assert_phase3_run, visits, "candidate_visits", locations)
-                positions = page.locator("summary").filter(
-                    has_text=re.compile(r"^Selected observation positions$")
+                positions = page.locator("details.analysis-position-map")
+                coordinates = positions.locator("details").filter(
+                    has=page.get_by_text("Coordinates and sources", exact=True)
                 )
+                expect(coordinates).to_be_visible()
                 expect(
-                    page.get_by_role("img", name=re.compile(r"^Selected positions"))
+                    coordinates.get_by_text("Reported position").first
                 ).to_be_visible()
-                positions.press("Enter")
+                expect(
+                    coordinates.get_by_role("link", name=locations[0].title, exact=True)
+                ).to_be_visible()
+                expect(positions.locator("svg.analysis-map")).to_have_count(0)
+                expect(
+                    positions.get_by_role("region", name="Observation map")
+                ).to_be_hidden()
+                positions.locator(":scope > summary").press("Enter")
                 first = page.locator("#finding-1")
                 expect(
                     first.get_by_role(

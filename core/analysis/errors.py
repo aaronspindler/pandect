@@ -36,8 +36,12 @@ ERROR_MESSAGES = {
         "Use an 18-column iMessage or 15-column WhatsApp UTF-8 CSV."
     ),
     "imessage_multiple_chats": (
-        "This export contains multiple conversations or incoming sender identifiers. "
-        "Export one direct conversation and prepare a new review."
+        "This export contains more than one chat label. "
+        "Export one conversation and prepare a new review."
+    ),
+    "imessage_sender_limit": (
+        "This group has more than 100 incoming senders in the selected dates. "
+        "Review a shorter date range."
     ),
     "imessage_import_limit": (
         "This CSV exceeds the CSV import size limit or the limit of "
@@ -47,6 +51,10 @@ ERROR_MESSAGES = {
     "grouping_scope_changed": (
         "The conversation changed while its sessions were being grouped. "
         "Open the conversation and group the current messages again."
+    ),
+    "direct_messages_required": (
+        "This analysis uses person-to-person messages. "
+        "Choose a direct message or select a text analysis for group messages."
     ),
     "imessage_source_changed": (
         "The retained CSV no longer matches the reviewed original. "

@@ -7,8 +7,6 @@ from django.db import models
 from django.db.models import F, OuterRef, Q, Subquery, Value
 from django.db.models.functions import (
     Concat,
-    Greatest,
-    Least,
     Left,
     Length,
     Right,
@@ -16,8 +14,8 @@ from django.db.models.functions import (
 )
 
 from core.analysis.errors import AnalysisError
-from core.evidence.queries import scoped_evidence
 from core.storage import canonical_bytes
+from phone.conversations import active_pair_messages
 from phone.models import CommunicationContext
 from phone.session_matching import (
     REPLY_WINDOW,
@@ -25,18 +23,6 @@ from phone.session_matching import (
     message_context,
     session_decision,
 )
-
-
-def active_pair_messages(case):
-    """Use the ordered pair/recorded-time index in grouping and neighbour searches."""
-    return (
-        scoped_evidence(case, "text-message")
-        .filter(is_archived=False)
-        .alias(
-            first_person=Least("sender_id", "recipient_id"),
-            second_person=Greatest("sender_id", "recipient_id"),
-        )
-    )
 
 
 def matching_originals(originals):
@@ -49,6 +35,7 @@ def matching_originals(originals):
             "case_id",
             "sender_id",
             "recipient_id",
+            "group_source_id",
             "occurred_at",
             "sha256",
             "communication_context__case_id",

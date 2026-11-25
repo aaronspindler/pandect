@@ -179,6 +179,7 @@ output; keep fixtures synthetic.
 | `core.analysis.reprocessing_browser` | `data/validation/reprocessing-browser` |
 | `core.case_search.browser` | `data/validation/case-search` |
 | `core.evidence_chat.browser` | `data/validation/evidence-chat` |
+| `text.writing_browser` | `data/validation/writing-style-browser` |
 | `document.browser` | `data/validation/original-preview-browser` |
 | `audio.browser` | `data/validation/m4a-recording-browser` |
 | `phone.conversation_browser` | `data/validation/conversations-browser` |

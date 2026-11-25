@@ -34,9 +34,7 @@ def import_checks(context, import_type, import_id):
         return {}
     except Http404, ValidationError:
         return {}
-    batch = CaseAnalysisBatch.objects.filter(
-        case=case, scope__type=import_type, scope__id=str(import_id)
-    ).first()
+    batch = CaseAnalysisBatch.objects.filter(case=case, scope__contains=scope).first()
     return {
         "case": case,
         "can_edit": context.get("can_edit"),

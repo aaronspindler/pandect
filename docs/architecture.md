@@ -73,6 +73,9 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
 - Django admin uses the same allauth sign-in flow and requires staff permissions.
   Authentication rate limits share Django's PostgreSQL cache. An accounts
   migration creates the upstream cache schema; it is not a Pandect domain model.
+- `request_activity/` owns optional [origin request telemetry](request-activity.md),
+  including a private delivery buffer, a separate PostgreSQL database, and a
+  read-only view for authorized site operators.
 - `cases/` owns the investigation boundary (`Case`), viewer/editor collaboration
   (`CaseMembership`), and UUID-keyed `CaseInvitation`. Ownership is separate from
   membership. `cases.permissions` supplies current case authorization to product
@@ -91,9 +94,13 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   starting the matching worker and web versions. Chat replies can be marked
   Important, and external gateway usage links to the exact turn.
   Migrations `core.0018` through `core.0022` add durable file cleanup, short-lived
-  deletion reviews, and concurrent dependency indexes. If an index build is
-  interrupted, inspect its named index for invalid state before retrying the
-  migration. The indexes build in separate migrations.
+  deletion reviews, and concurrent dependency indexes. Migrations `core.0028`
+  through `core.0030` index saved chat activity, ordered processing history,
+  and exact analysis-batch scope lookups. The `phone` and `geo` chronology
+  migrations add partial indexes for active communications and location evidence
+  by case and event time. Each new index builds concurrently in a separate
+  migration. If a build is interrupted, check the named index for invalid state
+  before retrying the migration.
   Core also owns the synthetic probe, bounded `check_task_worker` diagnostic, and
   disabled global queue admin: operational task records have no case authorization.
 - `text/`, `image/`, `audio/`, and `document/` own their concrete evidence models,
@@ -110,6 +117,10 @@ recovery. See [background tasks](background-tasks.md) for diagnostics.
   Migration `phone.0008_call_history_import` adds case source lines, retained
   import rows, and attributed call-person links. Apply it before starting the
   call import web and worker paths. Existing call original bytes are preserved.
+  Migration `phone.0012_group_message_destination` adds the group CSV destination
+  and limits pair revision triggers and the pair index to direct messages.
+  It rebuilds the pair index in the migration transaction, which holds a table
+  lock. Existing direct message original bytes are preserved.
 - `people/` and `vehicle/` own case-scoped person and vehicle records. These are
   investigator-maintained entities, not evidence subclasses. `socialmedia/` owns
   social accounts linked to people and [case-bound Instagram monitors](instagram-monitors.md). `video/` is a registered placeholder only.

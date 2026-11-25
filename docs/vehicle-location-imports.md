@@ -149,8 +149,7 @@ reset runtime data automatically.
 
 Publication queues saved trips and applicable analysis for newly added
 observations. Bounded background lookups use the configured private or
-case-approved external geographic service. Observations feed [Map](maps.md)
-and [trip reports](analysis-locations.md#automatic-vehicle-trips).
+case-approved external geographic service. Observations feed [Trips](maps.md).
 CSV format alone establishes no vendor timestamp, event, duration, or identifier
 semantics; the investigator's explicit interpretation is retained.
 

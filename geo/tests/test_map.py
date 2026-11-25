@@ -122,6 +122,9 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
             "q": "Synthetic",
             "page": "2",
             "poi_page": "1",
+            "vehicle_id": str(self.vehicle.pk),
+            "day": "2026-11-01",
+            "gap_page": "2",
             "sources_page": "2",
             "findings_page": "3",
             "view": "estimates",
@@ -486,33 +489,30 @@ class InvestigationMapTests(SavedTripFixtures, TestCase):
             )
             self.assertContains(detail, f'href="{source_url}"')
 
-    def test_summary_pagination_filters_whole_overlapping_trips(self):
+    def test_day_jump_opens_the_target_page_and_keeps_whole_trips(self):
         for index in range(26):
-            self.add_trip(minute=(index + 1) * 120)
+            self.add_trip(minute=1440 + index * 120)
         self.client.force_login(self.viewer)
-        response = self.client.get(self.url, {"page": 2})
+        self.client.cookies["pandect_timezone"] = "UTC"
+        response = self.client.get(
+            self.url, {"vehicle_id": self.vehicle.pk, "day": "2026-11-01"}
+        )
+        self.assertEqual(response.context["page_obj"].number, 2)
         self.assertEqual(response.context["page_obj"].paginator.count, 27)
         self.assertEqual(len(response.context["trips"]), 2)
-        self.assertContains(response, '<details class="map-search">')
-        self.assertNotContains(response, 'class="muted map-scope"')
-        with override_settings(TIME_ZONE="UTC"):
-            response = self.client.get(
-                self.url,
-                {
-                    "vehicle_id": self.vehicle.pk,
-                    "start": "2026-11-01T12:00:01",
-                    "end": "2026-11-01T12:00:01",
-                },
-            )
-        self.assertEqual(response.context["page_obj"].paginator.count, 1)
+        self.assertEqual(response.context["selected_trip"]["id"], str(self.trip.pk))
         self.assertEqual(response.context["selected_trip"]["source_count"], 3)
-        self.assertContains(response, '<details class="map-search">')
-        self.assertContains(response, f"Trips · {self.vehicle} · From")
+        self.assertEqual(response.context["geometry_url"], self.detail_url)
+        self.assertContains(response, 'id="trip-day-result"')
+        self.assertNotContains(response, 'name="start"')
+        self.assertNotContains(response, 'name="end"')
+
+    def test_case_map_rejects_foreign_vehicle_filter(self):
+        self.client.force_login(self.viewer)
         other_vehicle = Vehicle.objects.create(case=self.other, make="Secret")
         response = self.client.get(self.url, {"vehicle_id": other_vehicle.pk})
-        self.assertEqual(response.context["page_obj"].paginator.count, 0)
-        self.assertTrue(response.context["form"].errors)
-        self.assertContains(response, '<details class="map-search" open>')
+        self.assertEqual(response.context["trips"], [])
+        self.assertIn("vehicle_id", response.context["form"].errors)
         self.assertNotContains(response, "Secret")
 
     def test_stale_cross_case_checksum_and_archive_changes_withhold_trip(self):

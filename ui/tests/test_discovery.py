@@ -55,6 +55,8 @@ class AppResourceDiscoveryTests(SimpleTestCase):
             "marketing/marketing.css",
             "geo/map.css",
             "geo/map.js",
+            "geo/map-tiles.js",
+            "geo/observation-map.js",
             "geo/vendor/leaflet/leaflet.css",
             "geo/vendor/leaflet/leaflet.js",
             "geo/vendor/leaflet/images/marker-icon.png",

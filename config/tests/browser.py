@@ -1675,11 +1675,25 @@ class CoreInterfaceBrowserTests(BrowserTestCase):
                     license_plate=f"SYN-{engine}",
                 )
                 detail_url = page.url
-                page.get_by_role("link", name="Choose dates", exact=True).press("Enter")
-                expect(page.locator(".report-filters")).to_have_attribute("open", "")
-                expect(page.get_by_label("Vehicle", exact=True)).to_have_value(
-                    str(vehicle.pk)
+                page.get_by_role("link", name="Jump to date", exact=True).press("Enter")
+                expect(page).to_have_url(
+                    self.live_server_url
+                    + reverse(
+                        "geo:case_map",
+                        args=(self.case.pk,),
+                        query={"vehicle_id": vehicle.pk},
+                        fragment="id_day",
+                    )
                 )
+                expect(
+                    page.get_by_role("heading", name="Trips", exact=True)
+                ).to_be_visible()
+                vehicle_filter = page.get_by_label("Vehicle", exact=True)
+                expect(vehicle_filter).to_be_visible()
+                expect(vehicle_filter).to_have_value(str(vehicle.pk))
+                expect(
+                    page.get_by_label(re.compile(r"^Jump to date \("))
+                ).to_be_visible()
                 page.goto(detail_url)
                 page.get_by_role(
                     "link", name="Import vehicle locations", exact=True

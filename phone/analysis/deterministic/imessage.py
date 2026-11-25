@@ -32,12 +32,14 @@ PARSER_VERSION = IMESSAGE_PARSER_VERSION
 DATE_BOUND_FIELDS = ("start_date", "end_date")
 OUTSIDE_DATE_RANGE = "Message Date falls outside the selected date range."
 SYSTEM_NOTIFICATION = "System notification with no participant attribution."
+MISSING_GROUP_SENDER = "Incoming group message has no Sender ID."
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FIELD_CHARS = 131072
 REVIEW_STEP_BYTES = 1024 * 1024
 BATCH_SIZE = 500
 BATCH_CHARS = 2 * 1024 * 1024
 MAX_SENDER_NAMES = 5
+MAX_GROUP_SENDERS = 100
 HEADERS = (
     "Chat Session",
     "Message ID",
@@ -106,6 +108,7 @@ CONTEXT_FIELDS = (
 # Only authored review reasons may enter retained results or downloads.
 ROW_REVIEW_REASONS = {
     SYSTEM_NOTIFICATION,
+    MISSING_GROUP_SENDER,
     "Unsupported message Type; choose Incoming or Outgoing.",
     "No message text; attachment references remain in the export.",
     "Message text exceeds the supported byte limit.",
@@ -166,14 +169,30 @@ def _timestamp(raw, zone):
     return candidates.pop()
 
 
-def _people(parameters, case):
+def _sender_key(identifier):
+    return "sender_" + hashlib.sha256(identifier.encode("utf-8")).hexdigest()
+
+
+def message_import_roles(summary):
+    """Return the exact person choices required by a prepared review."""
+    if not summary.get("is_group"):
+        return ROLES
+    senders = tuple(sender["key"] for sender in summary["senders"])
+    return ("account", *senders) if summary["requires_account"] else senders
+
+
+def _people(parameters, case, *, roles=None):
     preview_id = _identifier(parameters.get("preview_run_id"))
     selections = parameters.get("people")
-    if not isinstance(selections, dict) or set(selections) != set(ROLES):
+    if (
+        not isinstance(selections, dict)
+        or len(selections) > MAX_GROUP_SENDERS + 1
+        or any(not isinstance(role, str) for role in selections)
+        or (roles is not None and set(selections) != set(roles))
+    ):
         raise AnalysisError("imessage_invalid_confirmation")
     people = {}
-    for role in ROLES:
-        selected = selections[role]
+    for role, selected in selections.items():
         if not isinstance(selected, dict) or set(selected) != {"id", "create"}:
             raise AnalysisError("imessage_invalid_confirmation")
         identifier = _identifier(selected["id"])
@@ -342,10 +361,17 @@ def _row(
     text_limit,
     people,
     date_bounds,
+    *,
+    is_group=False,
 ):
     direction = raw["Type"]
     sender_role = "account" if direction == "Outgoing" else "correspondent"
     recipient_role = "correspondent" if direction == "Outgoing" else "account"
+    if is_group:
+        recipient_role = ""
+        if direction == "Incoming":
+            identifier = raw["Sender ID"]
+            sender_role = _sender_key(identifier) if identifier.strip() else ""
     system_notification = (
         parser_version == WHATSAPP_PARSER_VERSION and direction == "Notification"
     )
@@ -431,10 +457,14 @@ def _row(
                 end_date and export_date > end_date
             ):
                 raise ValueError(OUTSIDE_DATE_RANGE)
+        if is_group and direction == "Incoming" and not sender_role:
+            raise ValueError(MISSING_GROUP_SENDER)
         if people is not None:
+            if sender_role not in people:
+                raise AnalysisError("imessage_invalid_confirmation")
             values["import_message"] = {
                 "sender_id": people[sender_role]["id"],
-                "recipient_id": people[recipient_role]["id"],
+                "recipient_id": None if is_group else people[recipient_role]["id"],
                 "occurred_at": occurred_at,
             }
     except (ValueError, TypeError, OverflowError) as error:
@@ -494,13 +524,27 @@ def _date_scope(parameters):
     return date_parameters, date_bounds
 
 
+def _is_group(source):
+    """Classify verified source bytes before applying any row or date filters."""
+    first_identifier = ""
+    is_group = False
+    for _, _, _, raw, _ in _raw_rows(source):
+        if not is_group and raw["Type"] == "Incoming":
+            identifier = raw["Sender ID"]
+            if identifier.strip():
+                if first_identifier and first_identifier != identifier:
+                    is_group = True
+                else:
+                    first_identifier = identifier
+    return is_group
+
+
 def _stream_rows(source, parameters, state):
     zone = _zone(parameters)
     date_parameters, date_bounds = _date_scope(parameters)
     phase = parameters.get("phase", "preview")
     if phase not in ("preview", "import"):
         raise AnalysisError("imessage_invalid_confirmation")
-    people = _people(parameters, source.item.case) if phase == "import" else None
     limit = (
         parameters.get("_imessage_text_limit_bytes", _text_limit())
         if phase == "preview"
@@ -508,6 +552,12 @@ def _stream_rows(source, parameters, state):
     )
     if type(limit) is not int or not 0 < limit <= 1024 * 1024:
         raise AnalysisError("imessage_invalid_confirmation")
+    is_group = _is_group(source)
+    people = (
+        _people(parameters, source.item.case, roles=None if is_group else ROLES)
+        if phase == "import"
+        else None
+    )
     summary = {
         "chat_session": "",
         "sender_id": "",
@@ -528,8 +578,10 @@ def _stream_rows(source, parameters, state):
     if date_parameters:
         metrics["date_excluded_rows"] = 0
     digest = hashlib.sha256()
-    session_label = sender_identifier = ""
+    session_label = ""
     sender_name_digests = []
+    group_senders = {}
+    requires_account = False
     review = state.get("review")
     checkpoints = []
     for number, start, end, raw, parser_version in _raw_rows(source, review=review):
@@ -558,6 +610,7 @@ def _stream_rows(source, parameters, state):
                         "timezone": zone.key,
                         "text_limit_bytes": limit,
                         **date_parameters,
+                        **({"is_group": True} if is_group else {}),
                     }
                 )
             )
@@ -570,22 +623,8 @@ def _stream_rows(source, parameters, state):
             summary["chat_session_truncated"] = len(session) > 255
         if raw["Type"] == "Incoming":
             summary["incoming_rows"] += 1
-            identifier = raw["Sender ID"]
-            if identifier:
-                if sender_identifier and sender_identifier != identifier:
-                    raise AnalysisError("imessage_multiple_chats")
-                sender_identifier = identifier
-                summary["sender_id"] = identifier[:255]
-                summary["sender_id_truncated"] = len(identifier) > 255
-            name = raw["Sender Name"]
-            name_digest = hashlib.sha256(name.encode("utf-8")).digest()
-            if name and name_digest not in sender_name_digests:
-                if len(summary["sender_names"]) < MAX_SENDER_NAMES:
-                    summary["sender_names"].append(name[:255])
-                    sender_name_digests.append(name_digest)
-                    summary["sender_names_truncated"] |= len(name) > 255
-                else:
-                    summary["sender_names_omitted"] = True
+            if not is_group:
+                _add_direct_sender(summary, sender_name_digests, raw)
         elif raw["Type"] == "Outgoing":
             summary["outgoing_rows"] += 1
         item = _row(
@@ -599,6 +638,7 @@ def _stream_rows(source, parameters, state):
             limit,
             people,
             date_bounds,
+            is_group=is_group,
         )
         metrics["source_rows"] += 1
         reason = item["values"].get("unresolved_reason")
@@ -608,8 +648,22 @@ def _stream_rows(source, parameters, state):
             metrics["unresolved_rows"] += 1
         else:
             metrics["ready_rows"] += 1
+            if is_group:
+                role = item["values"]["sender_role"]
+                if role == "account":
+                    requires_account = True
+                else:
+                    _add_group_sender(group_senders, role, raw)
         _update_digest(digest, item)
         yield item
+    if is_group:
+        summary.update(
+            is_group=True,
+            senders=list(group_senders.values()),
+            requires_account=requires_account,
+        )
+        if people is not None and set(people) != set(message_import_roles(summary)):
+            raise AnalysisError("imessage_invalid_confirmation")
     summary["interpretation_sha256"] = digest.hexdigest()
     expected = parameters.get("_imessage_interpretation_sha256")
     if expected is not None and expected != summary["interpretation_sha256"]:
@@ -619,6 +673,33 @@ def _stream_rows(source, parameters, state):
             key: review[key] for key in ("source_marker", "headers")
         } | {"checkpoints": checkpoints, "dates": date_parameters}
     state.update(imessage=summary, metrics=metrics)
+
+
+def _add_direct_sender(summary, name_digests, raw):
+    identifier = raw["Sender ID"]
+    if identifier and (identifier.strip() or not summary["sender_id"]):
+        summary["sender_id"] = identifier[:255]
+        summary["sender_id_truncated"] = len(identifier) > 255
+    name = raw["Sender Name"]
+    name_digest = hashlib.sha256(name.encode("utf-8")).digest()
+    if name and name_digest not in name_digests:
+        if len(summary["sender_names"]) < MAX_SENDER_NAMES:
+            summary["sender_names"].append(name[:255])
+            name_digests.append(name_digest)
+            summary["sender_names_truncated"] |= len(name) > 255
+        else:
+            summary["sender_names_omitted"] = True
+
+
+def _add_group_sender(senders, role, raw):
+    if role not in senders:
+        if len(senders) >= MAX_GROUP_SENDERS:
+            raise AnalysisError("imessage_sender_limit")
+        senders[role] = {"key": role, "id": raw["Sender ID"], "names": []}
+    names = senders[role]["names"]
+    name = raw["Sender Name"][:255]
+    if name and len(names) < MAX_SENDER_NAMES and name not in names:
+        names.append(name)
 
 
 def iter_import_rows(source, parameters):
@@ -677,6 +758,7 @@ def read_import_page(
                         summary["text_limit_bytes"],
                         None,
                         date_bounds,
+                        is_group=summary.get("is_group", False),
                     )
                     if excluded_only and not item["values"].get("unresolved_reason"):
                         continue
@@ -744,6 +826,7 @@ def prepare_import(sources, parameters, *, publication=None):
             row = {"text": item["text"], "values": item["values"]}
             publication.write(canonical_bytes(row) + b"\n")
     unresolved = state["metrics"]["unresolved_rows"]
+    chat_type = "group chat" if state["imessage"].get("is_group") else "direct chat"
     data = output(
         "Prepared message CSV rows for participant and timezone review."
         if parameters.get("phase", "preview") == "preview"
@@ -753,7 +836,7 @@ def prepare_import(sources, parameters, *, publication=None):
             "The original CSV remains the retained source. Text preserves the "
             "decoded CSV Text field; attachments are references and are never "
             "opened or fetched.",
-            "Confirm that this is one direct chat. Source labels do not verify "
+            f"Confirm that this is one {chat_type}. Source labels do not verify "
             "identity or establish group membership. Edited/deleted markers do "
             "not recover earlier content.",
         ],
@@ -941,11 +1024,16 @@ def apply_import(run, data, sources, *, publication=None, source_marker=None):
                 ]
             },
         )
-    if expected["imessage"]["interpretation_sha256"] != preview.result.data.get(
-        "imessage", {}
-    ).get("interpretation_sha256"):
+    summary = expected["imessage"]
+    preview_summary = preview.result.data.get("imessage", {})
+    roles = message_import_roles(summary)
+    if (
+        summary["interpretation_sha256"] != preview_summary.get("interpretation_sha256")
+        or summary.get("is_group") != preview_summary.get("is_group")
+        or roles != message_import_roles(preview_summary)
+    ):
         raise AnalysisError("imessage_invalid_confirmation")
-    people = _people(run.parameters, case)
+    people = _people(run.parameters, case, roles=roles)
     contexts = CommunicationContext.objects.filter(source_document=source.item)
     scope = Q(case=case, message__in=scoped_evidence(case, "text-message"))
     if contexts.exclude(scope).exists():
@@ -953,7 +1041,8 @@ def apply_import(run, data, sources, *, publication=None, source_marker=None):
     contexts = contexts.filter(scope)
     if expected["metrics"]["ready_rows"]:
         _create_people(case, people, contexts)
-    parser_version = expected["imessage"]["parser_version"]
+    group_source_id = source.item.pk if summary.get("is_group") else None
+    parser_version = summary["parser_version"]
     submission_prefix = (
         "whatsapp" if parser_version == WHATSAPP_PARSER_VERSION else "imessage"
     )
@@ -978,7 +1067,9 @@ def apply_import(run, data, sources, *, publication=None, source_marker=None):
                 if (
                     message.body != item["text"]
                     or str(message.sender_id) != prepared["sender_id"]
-                    or str(message.recipient_id) != prepared["recipient_id"]
+                    or (str(message.recipient_id) if message.recipient_id else None)
+                    != prepared["recipient_id"]
+                    or message.group_source_id != group_source_id
                     or (
                         message.occurred_at.isoformat() if message.occurred_at else None
                     )
@@ -998,6 +1089,7 @@ def apply_import(run, data, sources, *, publication=None, source_marker=None):
                 body=item["text"],
                 sender_id=prepared["sender_id"],
                 recipient_id=prepared["recipient_id"],
+                group_source_id=group_source_id,
                 occurred_at=parse_datetime(prepared["occurred_at"])
                 if prepared["occurred_at"] is not None
                 else None,

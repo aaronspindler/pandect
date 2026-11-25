@@ -6,7 +6,9 @@ from allauth.account.models import EmailAddress
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, connection, transaction
+from django.http import Http404
 from django.test import Client, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -15,6 +17,7 @@ from django.utils import timezone
 from cases.admin import CaseAdmin
 from cases.invitations import InvitationUnavailable, resolve_invitation
 from cases.models import Case, CaseInvitation, CaseMembership
+from cases.permissions import get_case_with_role
 from core.analysis.errors import AnalysisError
 from core.analysis.execution import (
     available_executions,
@@ -107,6 +110,21 @@ class CaseInterfaceTests(TestCase):
             for case in response.context["page_obj"]:
                 self.assertEqual(case.current_role, expected.pop(case.pk))
         self.assertFalse(expected)
+
+    def test_case_lookup_reads_current_member_role_in_one_query(self):
+        with self.assertNumQueries(1):
+            case, role = get_case_with_role(self.editor, self.case.pk, edit=True)
+            self.assertEqual((case, role), (self.case, "editor"))
+            self.assertEqual(case.owner, self.owner)
+            self.assertEqual(case.activity.case_id, case.pk)
+        CaseMembership.objects.filter(pk=self.editor_membership.pk).update(
+            role="viewer"
+        )
+        with self.assertNumQueries(1), self.assertRaises(PermissionDenied):
+            get_case_with_role(self.editor, self.case.pk, edit=True)
+        self.editor_membership.delete()
+        with self.assertNumQueries(1), self.assertRaises(Http404):
+            get_case_with_role(self.editor, self.case.pk)
 
     def test_case_links_and_legacy_case_url_open_case_tools(self):
         home_url = reverse("core:analysis:index", args=(self.case.pk,))

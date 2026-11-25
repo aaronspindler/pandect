@@ -17,6 +17,7 @@ from core.evidence.types import LOCATION_KINDS
 VERSION = "location-observations.v2"
 MAX_SOURCES = 500
 EARTH_RADIUS_M = 6_371_008.8
+WEB_MERCATOR_MAX_LATITUDE = 85.05112878
 LIMITS = {
     "distance_m": (100, 1, 100_000),
     "gap_minutes": (60, 1, 10_080),

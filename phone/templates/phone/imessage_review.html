@@ -15,7 +15,8 @@
         {% if publication_version == 2 %}<p role="status">{{ publication_metrics.created_rows }} new message{{ publication_metrics.created_rows|pluralize }} added{% if publication_metrics.reused_rows %} · {{ publication_metrics.reused_rows }} already retained{% endif %}{% if publication_metrics.unresolved_rows %} · {{ publication_metrics.unresolved_rows }} excluded{% if publication_metrics.date_excluded_rows %} for other reasons{% endif %}{% endif %}{% if publication_metrics.date_excluded_rows %} · {{ publication_metrics.date_excluded_rows }} outside date range{% endif %}</p>{% else %}<p role="status">{{ imported.paginator.count }} message{{ imported.paginator.count|pluralize }} retained for this import.</p>{% endif %}
       {% elif not final %}<p>Review the source and match its participants.</p>{% endif %}
     </div>
-    {% if published and conversation_url %}<a class="button button-primary" href="{{ conversation_url }}">View conversation</a>{% endif %}
+    {% if published and group_message_url %}<a class="button button-primary" href="{{ group_message_url }}">View retained message</a>
+    {% elif published and conversation_url %}<a class="button button-primary" href="{{ conversation_url }}">View conversation</a>{% endif %}
   </header>
   {% if source_error %}<p class="notice" role="alert">{{ source_error }}</p>{% endif %}
   {% if final and form.errors %}{% include 'ui/components/form_errors.html' with form=form %}{% endif %}
@@ -35,6 +36,7 @@
     <dl class="metadata-grid">
       <div><dt>Retained CSV</dt><dd><a href="{% url 'core:evidence:detail' case.pk 'document' document.pk %}">{{ document.title }}</a></dd></div>
       {% if format_label %}<div><dt>Detected format</dt><dd>{{ format_label }} CSV</dd></div>{% endif %}
+      {% if summary.is_group %}<div><dt>Conversation type</dt><dd>Group chat</dd></div>{% endif %}
       <div><dt>Confirmed export timezone</dt><dd>{{ preview.parameters.timezone }}</dd></div>
       {% if preview.parameters.start_date or preview.parameters.end_date %}
         <div><dt>Message date range</dt><dd>{% if preview.parameters.start_date and preview.parameters.end_date %}{{ preview.parameters.start_date }} to {{ preview.parameters.end_date }}{% elif preview.parameters.start_date %}From {{ preview.parameters.start_date }}{% else %}Through {{ preview.parameters.end_date }}{% endif %}</dd></div>
@@ -43,7 +45,7 @@
   {% endif %}
   {% if metrics.source_rows %}
     <p>{{ metrics.source_rows }} source row{{ metrics.source_rows|pluralize }} · {{ metrics.ready_rows }} ready · {{ metrics.unresolved_rows }} excluded{% if preview.parameters.start_date or preview.parameters.end_date %} for other reasons · {{ metrics.date_excluded_rows }} outside date range{% endif %}</p>
-    <details class="disclosure"><summary>Source conversation details</summary><dl class="metadata-grid"><div><dt>Chat Session</dt><dd>{{ summary.chat_session|default:'Not supplied' }}</dd></div><div><dt>Incoming Sender ID</dt><dd>{{ summary.sender_id|default:'Not supplied' }}</dd></div><div><dt>Incoming Sender Name</dt><dd>{% for name in summary.sender_names %}{{ name }}{% if not forloop.last %}, {% endif %}{% empty %}Not supplied{% endfor %}{% if summary.sender_names_omitted %} · Additional source names are available in the message rows.{% endif %}</dd></div></dl>{% if summary.chat_session_truncated or summary.sender_id_truncated or summary.sender_names_truncated %}<p class="help-text">Long conversation labels, identifiers, or names are shown as excerpts. Complete source values remain in the message rows.</p>{% endif %}<p>Names and identifiers are source claims. Match them to people deliberately; a matching contact does not verify identity.</p></details>
+    <details class="disclosure"><summary>Source conversation details</summary><dl class="metadata-grid"><div><dt>Chat Session</dt><dd>{{ summary.chat_session|default:'Not supplied' }}</dd></div>{% if not summary.is_group %}<div><dt>Incoming Sender ID</dt><dd>{{ summary.sender_id|default:'Not supplied' }}</dd></div><div><dt>Incoming Sender Name</dt><dd>{% for name in summary.sender_names %}{{ name }}{% if not forloop.last %}, {% endif %}{% empty %}Not supplied{% endfor %}{% if summary.sender_names_omitted %} · Additional source names are available in the message rows.{% endif %}</dd></div>{% endif %}</dl>{% if summary.chat_session_truncated or summary.sender_id_truncated or summary.sender_names_truncated %}<p class="help-text">Long conversation labels, identifiers, or names are shown as excerpts. Complete source values remain in the message rows.</p>{% endif %}<p>Names and identifiers are source claims. Match them to people deliberately; a matching contact does not verify identity.</p></details>
   {% endif %}
   {% if metrics.source_rows and not legacy_preview %}
     <div class="actions">
@@ -58,25 +60,44 @@
   {% if samples and not final and not show_rows %}<section aria-labelledby="imessage-preview-heading"><h2 id="imessage-preview-heading">Message preview</h2><p>Retained excerpts from the first {{ samples|length }} source row{{ samples|length|pluralize }}.</p><ol class="analysis-message-rows">{% for row in samples %}<li><p class="muted">Row {{ row.values.source_row }} · {{ row.values.direction }} · {% if row.values.unresolved_reason %}Excluded{% else %}Ready{% endif %} · {{ row.values.raw_timestamp|default:'Time not supplied' }} · {{ preview.parameters.timezone }}</p><div class="original-text analysis-finding-text">{{ row.text|truncatechars:240 }}</div>{% if row.values.unresolved_reason %}<p class="help-text">{{ row.values.unresolved_reason }}</p>{% endif %}</li>{% endfor %}</ol></section>{% endif %}
   {% if published %}
     {% if imported %}
-    <details class="disclosure" id="imported-messages"{% if request.GET.messages_page %} open{% endif %}>
-      <summary>{% if publication_version == 2 %}New messages{% else %}Retained messages{% endif %} · {{ imported.paginator.count }}</summary>
+    <details class="disclosure" id="imported-messages"{% if request.GET.messages_page or summary.is_group %} open{% endif %}>
+      <summary>{% if publication_version == 2 and not summary.is_group %}New messages{% else %}Retained messages{% endif %} · {{ imported.paginator.count }}</summary>
       <ul class="import-results">{% for item in imported %}<li><a href="{% url 'core:evidence:detail' case.pk 'text-message' item.pk %}">{{ item.title }}</a>{% if item.is_archived %} · Archived{% endif %}</li>{% endfor %}</ul>
       {% if imported.has_other_pages %}<nav class="pagination" aria-label="Imported message pages">{% if imported.has_previous %}<a class="button button-secondary" href="{% querystring messages_page=imported.previous_page_number %}#imported-messages">Previous messages</a>{% endif %}<span>Messages page {{ imported.number }} of {{ imported.paginator.num_pages }}</span>{% if imported.has_next %}<a class="button button-secondary" href="{% querystring messages_page=imported.next_page_number %}#imported-messages">Next messages</a>{% endif %}</nav>{% endif %}
     </details>
     {% endif %}
-    {% if publication_metrics.reused_rows %}<p>Previously retained messages remain in <a href="{% url 'core:evidence:list' case.pk %}?type=text-message">case evidence</a>.</p>{% endif %}
+    {% if publication_metrics.reused_rows and not summary.is_group %}<p>Previously retained messages remain in <a href="{% url 'core:evidence:list' case.pk %}?type=text-message">case evidence</a>.</p>{% endif %}
     {% import_checks 'messages' run.pk %}
   {% elif can_confirm and can_edit %}
     <form method="post" class="form-layout" data-unsaved-form>
       {% csrf_token %}
       {% include 'ui/components/form_errors.html' with form=form %}
-      {% include 'ui/components/form_errors.html' with form=account_form %}
-      {% include 'ui/components/form_errors.html' with form=correspondent_form %}
-      <p>Source labels and contact matches do not verify identity. Review both people before importing.</p>
-      <fieldset class="form-layout"><legend>Export account — outgoing sender</legend><p>Sent Outgoing messages; received Incoming messages.</p>{% include 'phone/imessage_person_fields.html' with person_form=account_form only %}</fieldset>
-      <fieldset class="form-layout"><legend>Correspondent — incoming sender</legend><p>Sent Incoming messages; received Outgoing messages.</p>{% if summary.sender_id %}<p>Source Sender ID: <strong>{{ summary.sender_id }}</strong>{% if summary.sender_names %} · {% for name in summary.sender_names %}{{ name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</p><p class="help-text">This identifier may prefill a new person's phone number. Review it before importing.</p>{% endif %}{% include 'phone/imessage_person_fields.html' with person_form=correspondent_form only %}</fieldset>
+      {% if summary.is_group %}
+        <p>Match each sender to a case person. Source names and identifiers are claims from the export.</p>
+        {% if account_form %}
+          {% include 'ui/components/form_errors.html' with form=account_form %}
+          <fieldset class="form-layout"><legend>Export account — outgoing sender</legend>{% include 'phone/imessage_person_fields.html' with person_form=account_form only %}</fieldset>
+        {% endif %}
+        {% for sender, person_form in sender_forms %}
+          {% include 'ui/components/form_errors.html' with form=person_form %}
+          <fieldset class="form-layout" aria-label="Incoming sender {{ sender.id }}">
+            <legend>Incoming sender</legend>
+            <dl class="metadata-grid">
+              <div><dt>Source Sender ID</dt><dd>{{ sender.id }}</dd></div>
+              {% if sender.names %}<div><dt>Source name</dt><dd>{{ sender.names|join:", " }}</dd></div>{% endif %}
+            </dl>
+            {% include 'phone/imessage_person_fields.html' with person_form=person_form only %}
+          </fieldset>
+        {% endfor %}
+      {% else %}
+        {% include 'ui/components/form_errors.html' with form=account_form %}
+        {% include 'ui/components/form_errors.html' with form=correspondent_form %}
+        <p>Source labels and contact matches do not verify identity. Review both people before importing.</p>
+        <fieldset class="form-layout"><legend>Export account — outgoing sender</legend><p>Sent Outgoing messages; received Incoming messages.</p>{% include 'phone/imessage_person_fields.html' with person_form=account_form only %}</fieldset>
+        <fieldset class="form-layout"><legend>Correspondent — incoming sender</legend><p>Sent Incoming messages; received Outgoing messages.</p>{% if summary.sender_id %}<p>Source Sender ID: <strong>{{ summary.sender_id }}</strong>{% if summary.sender_names %} · {% for name in summary.sender_names %}{{ name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</p><p class="help-text">This identifier may prefill a new person's phone number. Review it before importing.</p>{% endif %}{% include 'phone/imessage_person_fields.html' with person_form=correspondent_form only %}</fieldset>
+      {% endif %}
       <p>Analysis starts automatically for newly imported messages.</p>
-      {% include 'ui/components/form_field.html' with field=form.direct_chat only %}
+      {% if summary.is_group %}{% include 'ui/components/form_field.html' with field=form.group_chat only %}{% else %}{% include 'ui/components/form_field.html' with field=form.direct_chat only %}{% endif %}
       {% include 'ui/components/form_field.html' with field=form.confirm only %}
       <div class="actions"><button class="button button-primary" type="submit">Import messages</button><a class="button button-secondary" href="{% if processing_back_url %}{{ processing_back_url }}{% else %}{% url 'core:evidence:list' case.pk %}{% endif %}">Cancel</a></div>
     </form>

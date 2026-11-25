@@ -15,6 +15,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from cases.models import CaseMembership
+from core.analysis.errors import AnalysisError
+from core.analysis.services import start_run
+from core.case_search.queries import search
 from core.testing import EvidenceViewTestMixin
 from document.models import DocumentEvidence
 from people.models import Person
@@ -98,6 +101,41 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
     def list_url(self):
         return reverse("phone:conversation_list", kwargs={"case_id": self.case.pk})
 
+    def test_group_messages_open_as_evidence_and_stay_out_of_pair_tools(self):
+        export = self.document()
+        message = self.message(
+            recipient=None, group_source=export, body="Geocaching expedition"
+        )
+        self.context(
+            message,
+            export,
+            source_context={"raw_fields": {"Chat Session": "Weekend group"}},
+        )
+        url = reverse(
+            "core:evidence:detail", args=(self.case.pk, "text-message", message.pk)
+        )
+        self.client.force_login(self.users["owner"])
+        detail = self.client.get(url)
+        self.assertContains(detail, "Group chat")
+        self.assertContains(detail, "Weekend group")
+        self.assertContains(detail, "View retained CSV")
+        self.assertNotContains(detail, "View in conversation")
+        self.assertEqual(
+            self.client.get(self.list_url()).context["page_obj"].object_list, []
+        )
+        hits = search(self.case, query="geocaching", record_type="text-message")
+        self.assertEqual([(row["id"], row["url"]) for row in hits], [(message.pk, url)])
+        self.assertFalse(
+            search(self.case, query="geocaching", record_type="conversation")
+        )
+        with self.assertRaisesMessage(AnalysisError, "direct_messages_required"):
+            start_run(
+                self.users["owner"],
+                self.case.pk,
+                "sessions",
+                [{"kind": "text-message", "id": str(message.pk)}],
+            )
+
     def test_current_members_can_read_and_revocation_and_superuser_do_not_bypass(self):
         message = self.message()
         for role in ("owner", "editor", "viewer"):
@@ -120,6 +158,11 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
     def test_unordered_pairs_and_self_messages_exclude_archives(self):
         instant = datetime(2026, 11, 10, 12, tzinfo=UTC)
         first = self.message(occurred_at=instant)
+        reverse_direction = self.message(
+            sender=self.correspondent,
+            recipient=self.person,
+            occurred_at=instant + timedelta(seconds=30),
+        )
         second = self.message(
             sender=self.correspondent,
             recipient=self.person,
@@ -134,9 +177,12 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         self.login("viewer")
         response = self.client.get(self.list_url())
         pairs = list(response.context["page_obj"])
-        self.assertEqual(sorted(row["message_count"] for row in pairs), [1, 1])
+        self.assertEqual(sorted(row["message_count"] for row in pairs), [1, 2])
         response = self.client.get(self.reader_url())
-        self.assertEqual([row.pk for row in response.context["page_obj"]], [first.pk])
+        self.assertEqual(
+            [row.pk for row in response.context["page_obj"]],
+            [first.pk, reverse_direction.pk],
+        )
         self.assertContains(response, "First export")
         self.assertNotContains(response, "Overlapping export")
         self.assertNotContains(response, own.title)
@@ -147,6 +193,8 @@ class ConversationViewTests(EvidenceViewTestMixin, TestCase):
         )
         archived_url = self.url("detail", second, kind="text-message")
         self.assertNotContains(self.client.get(archived_url), "View in conversation")
+        self_pair = self.client.get(self.reader_url(self.person, self.person))
+        self.assertEqual([row.pk for row in self_pair.context["page_obj"]], [own.pk])
 
     def test_message_inspector_preloads_details_and_deep_links_to_one_message(self):
         export = self.document()

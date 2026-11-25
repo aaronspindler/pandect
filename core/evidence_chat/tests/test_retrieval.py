@@ -11,6 +11,7 @@ from django.utils import timezone
 from core.analysis.catalogue import project_result
 from core.analysis.services import snapshot_sources
 from core.evidence_chat.corpus import original_keys, rank, read_window
+from core.evidence_chat.corpus_navigation import _closest_event
 from core.models import AnalysisResult, AnalysisRun
 from core.testing import EvidenceTestMixin
 from document.models import DocumentEvidence
@@ -209,6 +210,21 @@ class RetrievalTests(EvidenceTestMixin, TestCase):
         self.assertEqual(
             [loc["pk"] for loc, _ in ranked], [str(anchor.pk), str(after.pk)]
         )
+
+    def test_closest_event_preserves_tie_order_with_one_database_query(self):
+        stamp = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        nearest = stamp - timedelta(seconds=1)
+        self.create_evidence(PhoneCallEvidence, occurred_at=nearest, id=UUID(int=1))
+        self.create_evidence(LocationEvidence, observed_at=nearest, id=UUID(int=3))
+        expected = self.create_evidence(
+            LocationEvidence, observed_at=nearest, id=UUID(int=2)
+        )
+        self.create_evidence(LocationEvidence, observed_at=stamp, id=UUID(int=4))
+        with self.assertNumQueries(1):
+            self.assertEqual(
+                list(_closest_event(self.case, stamp, True, False, None)),
+                [("original", "location", str(expected.pk))],
+            )
 
     def test_independent_report_precedes_derived_copies_and_summary_links_to_primary(
         self,

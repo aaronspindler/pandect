@@ -33,6 +33,8 @@
 !video/**
 !marketing/
 !marketing/**
+!request_activity/
+!request_activity/**
 !ui/
 !ui/**
 !scripts/

@@ -594,4 +594,8 @@ Keep evidence bodies, passwords, cookies, and bearer tokens out of telemetry.
 Review access and retention for logs produced before equivalent redaction was in
 place.
 
+The optional [request activity log](request-activity.md) has its own private
+spool, database, and operator permissions. Follow its setup and recovery guide
+when enabling it on a hosted web service.
+
 Reference: [Django deployment checklist](https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/).

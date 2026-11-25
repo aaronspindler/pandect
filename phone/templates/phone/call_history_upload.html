@@ -2,15 +2,10 @@
 {% block title %}Import call history CSV · {{ case.name }}{% endblock %}
 {% block content %}
 <div class="page-content">
-  {% if source_document %}
-    {% url 'core:evidence:detail' case.pk 'document' source_document.pk as back_url %}
-  {% else %}
-    {% url 'core:evidence:create' case_id=case.pk as back_url %}
-  {% endif %}
-  <a class="back-link" href="{{ back_url }}">{% if source_document %}Back to source CSV{% else %}Back to Add evidence{% endif %}</a>
+  {% url 'core:evidence:create' case_id=case.pk as back_url %}
+  <a class="back-link" href="{{ back_url }}">Back to Add evidence</a>
   <header class="page-header"><div>
     <h1>Import call history CSV</h1>
-    <p>Bring Phone and FaceTime calls into Evidence and Chronology.</p>
   </div></header>
   <details class="disclosure">
     <summary>Supported CSV format</summary>
@@ -22,9 +17,9 @@
   <form method="post" enctype="multipart/form-data" class="form-layout" data-unsaved-form>
     {% csrf_token %}
     {% include 'ui/components/form_fields.html' with form=form %}
-    <p class="muted">Pandect keeps the original CSV and prepares it for review before publishing calls.</p>
+    <p class="muted">Continuing saves the original CSV to this case.</p>
     <div class="actions">
-      <button class="button button-primary" type="submit">Prepare call history</button>
+      <button class="button button-primary" type="submit">Continue to source review</button>
       <a class="button button-secondary" href="{{ back_url }}">Cancel</a>
     </div>
   </form>

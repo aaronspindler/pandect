@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import DatabaseError
-from django.db.models import Count, F, Q
+from django.db.models import Count, F, Func, IntegerField, Q
 from django.db.models.functions import TruncDate
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,7 +23,11 @@ from core.analysis.navigation import history_query, processing_back_query, query
 from core.analysis.operations import OPERATIONS
 from core.evidence.queries import get_evidence, scoped_evidence
 from core.models import AnalysisRun, CaseAnalysisBatch
-from phone.analysis.deterministic.imessage import import_file_limit, read_import_page
+from phone.analysis.deterministic.imessage import (
+    import_file_limit,
+    message_import_roles,
+    read_import_page,
+)
 from phone.conversations import conversation_url
 from phone.imessage_forms import (
     IMessageConfirmForm,
@@ -39,6 +43,18 @@ EARLIER_ANALYSIS_MODES = {
     "ai": "AI only",
     "both": "Local checks and AI",
 }
+
+
+def _message_links(case, message):
+    if message is None:
+        return {}
+    if message.group_source_id:
+        return {
+            "group_message_url": reverse(
+                "core:evidence:detail", args=(case.pk, "text-message", message.pk)
+            )
+        }
+    return {"conversation_url": conversation_url(case, message, open_details=False)}
 
 
 @product_login_required
@@ -97,6 +113,7 @@ def imessage_analysis_status(request, case_id, batch_id):
         request,
         "phone/imessage_analysis_status.html",
         case_context(case, request.user)
+        | _message_links(case, first_message)
         | {
             "nav_section": "processing",
             "batch": batch,
@@ -109,11 +126,6 @@ def imessage_analysis_status(request, case_id, batch_id):
             "insufficient_count": counts["insufficient"],
             "stopped_count": counts["stopped"],
             "live_pending": live_pending,
-            "conversation_url": conversation_url(
-                case, first_message, open_details=False
-            )
-            if first_message
-            else "",
             "preparation_error": error_message(batch.error_code)
             if batch.error_code
             else "",
@@ -185,17 +197,9 @@ def imessage_upload(request, case_id):
     )
 
 
-def _first_reused_message(messages, case, document, run):
-    people = run.parameters.get("people", {})
-    account_id = people.get("account", {}).get("id")
-    correspondent_id = people.get("correspondent", {}).get("id")
-    if not account_id or not correspondent_id:
-        return None
+def _reviewed_source_messages(messages, case, document, run):
     zone = run.parameters["timezone"]
     messages = messages.filter(
-        Q(sender_id=account_id, recipient_id=correspondent_id)
-        | Q(sender_id=correspondent_id, recipient_id=account_id),
-        is_archived=False,
         communication_context__case=case,
         communication_context__source_document=document,
         communication_context__source_sha256=document.sha256,
@@ -210,7 +214,45 @@ def _first_reused_message(messages, case, document, run):
         messages = messages.alias(
             export_date=TruncDate("occurred_at", tzinfo=ZoneInfo(zone))
         ).filter(**date_filters)
-    return messages.order_by("communication_context__source_row").first()
+    return messages.order_by("communication_context__source_row")
+
+
+def _first_reused_message(messages, case, document, run):
+    people = run.parameters.get("people", {})
+    account_id = people.get("account", {}).get("id")
+    correspondent_id = people.get("correspondent", {}).get("id")
+    if not account_id or not correspondent_id:
+        return None
+    return (
+        _reviewed_source_messages(messages, case, document, run)
+        .filter(
+            Q(sender_id=account_id, recipient_id=correspondent_id)
+            | Q(sender_id=correspondent_id, recipient_id=account_id),
+            is_archived=False,
+        )
+        .first()
+    )
+
+
+def _group_imported_messages(messages, case, document, run, summary):
+    # A source row retains the run that created it. Reconstruct the published
+    # group selection from the verified CSV and its original review bounds.
+    if run.finished_at is None:
+        return messages.none()
+    return (
+        _reviewed_source_messages(messages, case, document, run)
+        .alias(
+            body_bytes=Func(
+                "body", function="OCTET_LENGTH", output_field=IntegerField()
+            )
+        )
+        .filter(
+            created_at__lte=run.finished_at,
+            group_source_id=document.pk,
+            communication_context__parser_version=summary["parser_version"],
+            body_bytes__lte=summary["text_limit_bytes"],
+        )
+    )
 
 
 @product_login_required
@@ -333,6 +375,8 @@ def imessage_review(request, case_id, run_id):
             data, samples = {}, []
             rows = Paginator([], 25).get_page(1)
     metrics = data.get("metrics", {})
+    summary = data.get("imessage", {})
+    is_group = bool(summary.get("is_group"))
     ready = bool(
         not source_error
         and not legacy_preview
@@ -341,23 +385,32 @@ def imessage_review(request, case_id, run_id):
         and preview.status in ("complete", "partial")
         and metrics.get("ready_rows", 0) > 0
     )
-    form = account = correspondent = None
+    form = None
+    person_forms = {}
     status = 200
-    if ready:
+    if ready and (request.method == "POST" or final is None):
         posted = request.POST if request.method == "POST" else None
-        form = IMessageConfirmForm(posted)
-        account = IMessagePersonForm(
-            posted, case=case, preview=preview, role="account", prefix="account"
-        )
-        correspondent = IMessagePersonForm(
-            posted,
-            case=case,
-            preview=preview,
-            role="correspondent",
-            prefix="correspondent",
-        )
+        form = IMessageConfirmForm(posted, is_group=is_group)
+        sender_identifiers = {
+            sender["key"]: sender["id"] for sender in summary.get("senders", ())
+        }
+        if not is_group:
+            sender_identifiers["correspondent"] = summary.get("sender_id", "")
+        person_forms = {
+            role: IMessagePersonForm(
+                posted,
+                case=case,
+                preview=preview,
+                role=role,
+                prefix=role,
+                sender_identifier=sender_identifiers.get(role, ""),
+            )
+            for role in message_import_roles(summary)
+        }
         if request.method == "POST":
-            valid = all([form.is_valid(), account.is_valid(), correspondent.is_valid()])
+            valid = all(
+                [candidate.is_valid() for candidate in (form, *person_forms.values())]
+            )
             if valid:
                 try:
                     final, created = confirm_import(
@@ -365,8 +418,8 @@ def imessage_review(request, case_id, run_id):
                         case.pk,
                         preview.pk,
                         {
-                            "account": account.specification(),
-                            "correspondent": correspondent.specification(),
+                            role: person.specification()
+                            for role, person in person_forms.items()
                         },
                     )
                 except ValidationError as error:
@@ -422,15 +475,24 @@ def imessage_review(request, case_id, run_id):
     retained_messages = scoped_evidence(case, "text-message")
     imported = retained_messages.none()
     first_message = None
-    if result_data.get("import_publication_version") == 2:
-        imported = retained_messages.filter(
-            communication_context__case=case,
-            communication_context__source_document=document,
-            communication_context__source_sha256=document.sha256,
-            communication_context__import_run=current,
-        ).order_by("communication_context__source_row")
+    if result_data.get("import_publication_version") == 2 and document:
+        if is_group:
+            imported = _group_imported_messages(
+                retained_messages, case, document, current, summary
+            )
+        else:
+            imported = retained_messages.filter(
+                communication_context__case=case,
+                communication_context__source_document=document,
+                communication_context__source_sha256=document.sha256,
+                communication_context__import_run=current,
+            ).order_by("communication_context__source_row")
         first_message = imported.filter(is_archived=False).first()
-        if first_message is None and result_data.get("metrics", {}).get("reused_rows"):
+        if (
+            first_message is None
+            and not is_group
+            and result_data.get("metrics", {}).get("reused_rows")
+        ):
             first_message = _first_reused_message(
                 retained_messages, case, document, current
             )
@@ -443,12 +505,12 @@ def imessage_review(request, case_id, run_id):
         imported = retained_messages.filter(pk__in=message_ids)
         first_message = imported.filter(is_archived=False).first()
     imported = Paginator(imported, 25).get_page(request.GET.get("messages_page"))
-    summary = data.get("imessage", {})
     return render_live(
         request,
         "phone/imessage_review.html",
         case_context(case, request.user)
         | review_navigation
+        | _message_links(case, first_message)
         | {
             "nav_section": "evidence",
             "preview": preview,
@@ -469,19 +531,19 @@ def imessage_review(request, case_id, run_id):
                 query=review_query | {"processing": "1"},
             ),
             "form": form,
-            "account_form": account,
-            "correspondent_form": correspondent,
+            "account_form": person_forms.get("account"),
+            "correspondent_form": person_forms.get("correspondent"),
+            "sender_forms": [
+                (sender, person_forms[sender["key"]])
+                for sender in summary.get("senders", ())
+                if sender["key"] in person_forms
+            ],
             "can_confirm": ready and final is None,
             "final": final,
             "published": final is not None
             and current.status in ("complete", "partial"),
             "legacy_preview": legacy_preview,
             "imported": imported,
-            "conversation_url": conversation_url(
-                case, first_message, open_details=False
-            )
-            if first_message
-            else "",
             "publication_metrics": result_data.get("metrics", {}),
             "publication_version": result_data.get("import_publication_version"),
             "processing_error": error_message(current.error_code)

@@ -284,7 +284,10 @@ def plan_deletions(items, kind):
         )
         roots["text-message"] = list(
             KINDS["text-message"]
-            .objects.filter(communication_context__source_document__in=items)
+            .objects.filter(
+                Q(communication_context__source_document__in=items)
+                | Q(group_source__in=items)
+            )
             .only("id", "case_id")
         )
         call_batches = list(

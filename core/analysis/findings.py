@@ -22,7 +22,7 @@ from core.analysis.catalogue import (
 from core.analysis.errors import AnalysisError
 from core.analysis.forms import EvidenceAnalysisForm
 from core.analysis.navigation import finding_url
-from core.analysis.operations import OPERATIONS
+from core.analysis.operations import OPERATIONS, PAIR_MESSAGE_OPERATIONS
 from core.analysis.presentation import (
     measurement_formatter,
     participant_names,
@@ -42,11 +42,17 @@ from image.analysis import MIN_OCR_WORD_SCORE
 from phone.analysis import presentation as phone_presentation
 
 
-def additional_operations(kind):
+def additional_operations(kind, item):
     return {
         key: spec
         for key, spec in OPERATIONS.items()
-        if kind in spec.kinds and spec.additional_on_evidence
+        if kind in spec.kinds
+        and spec.additional_on_evidence
+        and not (
+            kind == "text-message"
+            and item.recipient_id is None
+            and key in PAIR_MESSAGE_OPERATIONS
+        )
     }
 
 
@@ -99,7 +105,7 @@ def evidence_findings_context(case, kind, item, params, *, form=None):
         "analysis_activity": activity,
         "analysis_pending": pending,
         "has_evidence_analysis": latest_batch is not None or bool(page.paginator.count),
-        "additional_operations": additional_operations(kind).items(),
+        "additional_operations": additional_operations(kind, item).items(),
     }
 
 

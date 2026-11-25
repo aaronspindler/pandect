@@ -12,6 +12,7 @@ The guides below describe current behavior and procedures; the
 - [Background workers, diagnostics, and recovery](background-tasks.md)
 - [Operations, storage, backup, and recovery](operations.md)
 - [Dokploy deployment](operations.md#first-dokploy-deployment)
+- [Hosted request activity and operator searches](request-activity.md)
 - [Validation, browser checks, CI, and Dependabot](validation.md)
 
 ## Investigation workflows

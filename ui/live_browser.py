@@ -221,7 +221,7 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
             self.fail("Synthetic trip generation did not finish")
 
         for engine in self.engines:
-            for screen in ("map", "vehicle", "report"):
+            for screen in ("map", "vehicle"):
                 vehicle, generation = prepare()
                 with (
                     self.subTest(engine=engine, screen=screen),
@@ -229,25 +229,18 @@ class LiveUpdatesBrowserTests(BrowserTestCase):
                 ):
                     self.sign_in(page)
                     if screen == "map":
-                        url = self.url("geo:case_map", case_id=self.case.pk)
+                        url = (
+                            self.url("geo:case_map", case_id=self.case.pk)
+                            + f"?vehicle_id={vehicle.pk}"
+                        )
                         region_id = "map-progress"
-                    elif screen == "vehicle":
+                    else:
                         url = self.url(
                             "vehicle:detail",
                             case_id=self.case.pk,
                             vehicle_id=vehicle.pk,
                         )
                         region_id = "vehicle-trips"
-                    else:
-                        url = (
-                            self.live_server_url
-                            + reverse(
-                                "core:analysis:report",
-                                args=[self.case.pk, "vehicle-trips"],
-                            )
-                            + f"?vehicle_id={vehicle.pk}"
-                        )
-                        region_id = "report-results"
                     page.goto(url)
                     page.evaluate(
                         "window.liveSentinel = 42; "

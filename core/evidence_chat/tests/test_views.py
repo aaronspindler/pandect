@@ -117,8 +117,40 @@ class ChatViewTests(EvidenceViewTestMixin, TestCase):
         for i, turn in enumerate(turns):
             turn.created_at = now + timedelta(minutes=i)
         ChatTurn.objects.bulk_update(turns, ["created_at"])
+        older_turn = ChatTurn.objects.create(
+            case=self.case,
+            chat=in_case[-1],
+            asked_by=self.users["owner"],
+            ordinal=2,
+            question="A turn with an older creation timestamp",
+            submission_id=uuid4(),
+            status="complete",
+        )
+        foreign_turn = ChatTurn.objects.create(
+            case=self.other_case,
+            chat=in_case[0],
+            asked_by=self.users["outsider"],
+            ordinal=2,
+            question="Do not account for a cross-case turn",
+            submission_id=uuid4(),
+            status="complete",
+        )
+        ChatTurn.objects.filter(pk=older_turn.pk).update(created_at=now)
+        ChatTurn.objects.filter(pk=foreign_turn.pk).update(
+            created_at=now + timedelta(hours=1)
+        )
 
         self.login("viewer")
+        with CaptureQueriesContext(connection) as queries:
+            index = self.client.get(self.index)
+        self.assertEqual(list(index.context["page_obj"]), list(reversed(in_case)))
+        count_queries = [
+            query["sql"]
+            for query in queries
+            if "COUNT(*)" in query["sql"] and "core_evidencechat" in query["sql"]
+        ]
+        self.assertEqual(len(count_queries), 1)
+        self.assertNotIn("core_chatturn", count_queries[0])
         url = reverse("core:chat:detail", args=[self.case.pk, in_case[-1].pk])
         full = self.client.get(url)
         self.assertEqual(

@@ -152,7 +152,7 @@ class IMessagePersonForm(forms.Form):
         widget=forms.TextInput(attrs={"inputmode": "email"}),
     )
 
-    def __init__(self, *args, case, preview, role, **kwargs):
+    def __init__(self, *args, case, preview, role, sender_identifier="", **kwargs):
         self.preview = preview
         self.role = role
         super().__init__(*args, **kwargs)
@@ -163,10 +163,10 @@ class IMessagePersonForm(forms.Form):
                 self.data.pop(self.add_prefix(name), None)
         if not self.is_bound and not self.fields["person"].queryset.exists():
             self.fields["person"].initial = CREATE_PERSON
-        if role == "correspondent":
-            identifier = preview.result.data.get("imessage", {}).get("sender_id", "")
-            if len(identifier) <= 64 and re.fullmatch(r"[+\d(). -]+", identifier):
-                self.fields["phone_number"].initial = identifier
+        if len(sender_identifier) <= 64 and re.fullmatch(
+            r"[+\d(). -]+", sender_identifier
+        ):
+            self.fields["phone_number"].initial = sender_identifier
 
     def clean(self):
         data = super().clean()
@@ -196,6 +196,9 @@ class IMessageConfirmForm(forms.Form):
     direct_chat = forms.BooleanField(
         label="I confirm this export is a direct conversation between these two people"
     )
+    group_chat = forms.BooleanField(
+        label="I confirm this export contains one group conversation"
+    )
     confirm = forms.BooleanField(
         label="Import the ready messages with these people and the confirmed timezone",
         help_text=(
@@ -203,3 +206,7 @@ class IMessageConfirmForm(forms.Form):
             "Excluded rows stay in the retained CSV and review."
         ),
     )
+
+    def __init__(self, *args, is_group=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        del self.fields["direct_chat" if is_group else "group_chat"]

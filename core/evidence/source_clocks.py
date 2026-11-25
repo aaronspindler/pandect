@@ -5,7 +5,7 @@ from datetime import date
 from hashlib import sha256
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 
@@ -52,6 +52,10 @@ def _date_only_contexts(case):
 
 def date_only_messages(case):
     return _date_only_contexts(case).order_by().values("message_id")
+
+
+def is_date_only_message(case):
+    return Exists(_date_only_contexts(case).filter(message_id=OuterRef("pk")))
 
 
 def date_only_message_dates(case, message_ids):

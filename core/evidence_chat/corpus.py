@@ -27,9 +27,9 @@ from core.evidence.types import (
     KINDS,
 )
 from core.storage import private_file
-from phone.conversations import conversation_url
+from phone.conversations import message_url
 from phone.models import CallEvidenceAttachment
-from phone.presentation import call_party_labels
+from phone.presentation import call_party_labels, message_destination
 from text.analysis.synthesis import finding_text
 
 MAX_WINDOW = 8192
@@ -194,12 +194,17 @@ def original_metadata(item, kind, *, value_ranges=None):
         sender, recipient = (
             call_party_labels(item, reported_only=True)
             if kind in CALL_KINDS
-            else (str(item.sender), str(item.recipient))
+            else (str(item.sender), message_destination(item))
         )
         fields.extend(
             (
                 ("Reported sender", sender),
-                ("Reported recipient", recipient),
+                (
+                    "Destination"
+                    if kind == "text-message" and item.recipient_id is None
+                    else "Reported recipient",
+                    recipient,
+                ),
                 ("Occurred", item.occurred_at),
             )
         )
@@ -413,8 +418,8 @@ def _original_material(
     url = reverse("core:evidence:detail", args=(case.pk, kind, original.pk))
     if surface == "attachment":
         url += f"#attachment-{item.pk}"
-    elif kind == "text-message" and not original.is_archived:
-        url = conversation_url(case, original)
+    elif kind == "text-message":
+        url = message_url(case, original)
     elif kind.endswith("location"):
         url += "#location-heading"
     elif kind in CALL_KINDS:

@@ -139,7 +139,12 @@ def index(request, case_id):
             )
         )
         .select_related("marked_by", "chat_turn__chat", RESULT_RELATION)
-        .defer("finding_result__data", "finding_result__provenance")
+        .defer(
+            "finding_result__data",
+            "finding_result__provenance",
+            "finding_result__run__previous_run__inputs",
+            "finding_result__run__previous_run__parameters",
+        )
         .annotate(raw_item=raw_finding_item("finding_result__data"))
         .order_by("-marked_at", "-pk")
     )
